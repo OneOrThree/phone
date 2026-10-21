@@ -518,23 +518,6 @@ export const trackNames: Record<string, string> = {
 };
 export const products: Product[] = [
   {
-    id: 'scarf',
-    title: '바다 스카프',
-    kind: 'clothes',
-    price: 100,
-    currency: 'fish',
-    description: '고양이의 목에 두르는 가벼운 스카프',
-  },
-  // v2 시안 상점(내 꾸미기)의 두 번째 장신구. 가격은 스카프와 같은 5배 환산(시안 15마리)
-  {
-    id: 'straw-hat',
-    title: '밀짚모자',
-    kind: 'clothes',
-    price: 75,
-    currency: 'fish',
-    description: '햇볕을 가려 주는 챙 넓은 밀짚모자',
-  },
-  {
     id: 'soda-theme',
     title: '소다 섬 테마',
     kind: 'island',

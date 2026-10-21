@@ -378,17 +378,17 @@ test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 �
   assert.equal(currentIsland(next).track, null);
   assert.equal(currentIsland(next).playing, false);
 });
-test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
+test('상품은 섬 잔액으로 구매하고 중복 결제·미보유 착용을 막는다', () => {
   let s = initialState(true);
   s = act(s, 'EQUIP', { key: 'clothes', value: 'scarf' });
   assert.equal(s.equipped.clothes, 'default');
-  s = act(s, 'BUY', { id: 'scarf' });
-  assert.equal(balance(currentIsland(s)), 1100);
-  assert.ok(s.owned.includes('scarf'));
-  assert.deepEqual(act(s, 'BUY', { id: 'scarf' }), s);
+  assert.ok(products.every((p) => p.kind !== 'clothes'));
+  s = act(s, 'BUY', { id: 'soda-theme' });
+  assert.equal(balance(currentIsland(s)), 200);
+  assert.ok(currentIsland(s).sharedOwned.includes('soda-theme'));
+  assert.deepEqual(act(s, 'BUY', { id: 'soda-theme' }), s);
   currentIsland(s).members = [];
   s = act(s, 'LEAVE');
-  assert.ok(s.owned.includes('scarf'));
   // 방장 혼자인 섬을 떠나면 섬을 삭제하므로 공동 잔액도 지운다 (정책-결정-2026-09-14, GROMO-1843)
   assert.equal(s.islands[0].fish, 0);
   assert.deepEqual(act(s, 'BUY', { id: 'sailboat' }), s);
@@ -1652,7 +1652,7 @@ test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 �
     ['START', { subject: '집중' }],
     ['COMMENT', { id: 'welcome', text: '댓글' }],
     ['MESSAGE', { text: '메시지' }],
-    ['BUY', { id: 'scarf' }],
+    ['BUY', { id: 'soda-theme' }],
   ] as const)
     assert.deepEqual(act(s, type, data), s);
 });

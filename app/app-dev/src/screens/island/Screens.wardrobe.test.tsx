@@ -85,11 +85,11 @@ test('머리·목·신발 항목을 탭하면 해당 슬롯으로 equip 한다',
 test('「기본」은 그 슬롯만 null 로 해제한다(머리·decor 포함)', async () => {
   mockShopApi = api({ head: ['cap'], decor: ['flag'] });
   const screen = await render(<Harness equipped={{ head: 'cap', decor: 'flag' }} />);
-  // 섹션 순서: 옷, 장식, 머리
+  // 섹션 순서: 장식, 머리
   const defaults = screen.getAllByText('기본');
-  await fireEvent.press(defaults[1]);
+  await fireEvent.press(defaults[0]);
   expect(mockShopApi.equip).toHaveBeenLastCalledWith({ decor: null });
-  await fireEvent.press(defaults[2]);
+  await fireEvent.press(defaults[1]);
   expect(mockShopApi.equip).toHaveBeenLastCalledWith({ head: null });
   expect(screen.getByLabelText('머리 기본')).toBeTruthy(); // 슬롯별 접근성 라벨
 });
@@ -109,7 +109,7 @@ test('옛 서버 인벤토리(head/neck/shoes 키 없음)면 새 슬롯 섹션�
   expect(screen.queryByText('머리')).toBeNull();
   expect(screen.queryByText('목')).toBeNull();
   expect(screen.queryByText('신발')).toBeNull();
-  expect(screen.getByText('옷')).toBeTruthy();
+  expect(screen.queryByText('옷')).toBeNull();
 });
 
 test('결과창에서 처음 받은 꾸미기는 옷장 칸에 NEW! — 한 번 누르면 사라지고 기존 보유품엔 없다 (GROMO-2382)', async () => {

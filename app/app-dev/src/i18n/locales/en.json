@@ -507,7 +507,6 @@
     "default": "Default",
     "defaultFor": "{{slot}}: default",
     "section": {
-      "clothes": "Clothes",
       "decor": "Decor",
       "head": "Head",
       "neck": "Neck",

@@ -1210,15 +1210,6 @@ export function IslandThumb({ warm = false }: { warm?: boolean }) {
   );
 }
 
-// 밀짚모자 그림(.hatart). 시안도 그림 파일 없이 CSS 도형(타원 챙 + 둥근 모자 + 분홍 띠)으로 그린다.
-// w = 줄어든 상자 폭(꾸미기 썸네일은 칸이 좁아 72로 줄어든 뒤 scale 0.7), 높이는 56 고정
-export function HatArt({ scale = 1, w = 88 }: { scale?: number; w?: number }) {
-  return (
-    <Svg width={w * scale} height={56 * scale} viewBox={`0 0 ${w} 56`}>
-      <HatShapes w={w} />
-    </Svg>
-  );
-}
 function HatShapes({ w }: { w: number }) {
   // CSS처럼 모서리 반지름(위 22 · 아래 6)이 몸통 폭을 넘으면 같은 비율로 줄인다
   const f = Math.min(1, (w - 46) / 44);

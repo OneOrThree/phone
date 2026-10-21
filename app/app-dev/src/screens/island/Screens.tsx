@@ -147,7 +147,6 @@ import {
   Avatar,
   Preview,
   IslandThumb,
-  HatArt,
   HatOn,
   RaftCatArt,
   Cta,
@@ -5209,9 +5208,7 @@ export function RedesignScreens({ e }: any) {
             overflow: 'hidden',
           }}
         >
-          {p.id === 'straw-hat' ? (
-            <HatArt />
-          ) : p.kind === 'island' ? (
+          {p.kind === 'island' ? (
             <Pic id="island/whole" w="100%" h="100%" cover />
           ) : (
             <Pic
@@ -5927,7 +5924,7 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'wardrobe') {
     // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
-    type WardrobeSlot = 'clothes' | 'decor' | 'head' | 'neck' | 'shoes';
+    type WardrobeSlot = 'decor' | 'head' | 'neck' | 'shoes';
     const slotWorn = (slot: WardrobeSlot): string | null => {
       const v = state.equipped[slot];
       return v == null || v === 'default' || v === 'none' ? null : v;
@@ -6000,20 +5997,13 @@ export function RedesignScreens({ e }: any) {
       );
     };
     const slotIds = (slot: WardrobeSlot): string[] =>
-      server
-        ? ((shopApi.my?.[slot] as string[] | undefined) ?? [])
-        : slot === 'clothes'
-          ? products
-              .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-              .map((p) => p.id)
-          : [];
+      server ? ((shopApi.my?.[slot] as string[] | undefined) ?? []) : [];
 
     const picture = (slot: WardrobeSlot, id: string) => {
       const entry = catalog[id];
       // 집중 보상 목은 원본 전체가 아니라 앞 장식만 잘라 보인다(GROMO-2382)
       if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
-      if (slot === 'clothes' && id === 'straw-hat') return <HatArt w={72} scale={0.7} />;
-      return slot === 'clothes' || slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
+      return slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
     };
     return (
       <IslandSheet
@@ -6026,11 +6016,11 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        {(['clothes', 'decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
+        {(['decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
           const worn = slotWorn(slot);
           // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
           const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
-          if (slot !== 'clothes' && ids.length === 0 && !worn) return null;
+          if (ids.length === 0 && !worn) return null;
           return (
             <View key={slot} style={{ gap: 10 }}>
               <Txt kind="section" style={st.sec}>
@@ -6041,7 +6031,7 @@ export function RedesignScreens({ e }: any) {
                   slot,
                   null,
                   t('wardrobe.default'),
-                  slot === 'clothes' ? <Pic id={'cat/' + state.color} w={60.5} /> : null,
+                  null,
                   // 슬롯마다 같은 「기본」이 다섯 번 읽히지 않게 슬롯 이름을 붙인다
                   t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
                 )}
