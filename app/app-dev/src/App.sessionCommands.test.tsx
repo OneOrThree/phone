@@ -2174,6 +2174,39 @@ test('소속 섬이 없는 계정이 바다에서 연 친구·설정·꾸미기�
   await app.unmount();
 });
 
+test('소속 섬이 있어도 바다에서 연 설정의 닫기는 바다로, 홈에서 연 설정의 닫기는 홈으로 간다(GROMO-2404)', async () => {
+  const tick = () => new Promise((done) => setTimeout(done, 50));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    captured.reset('sea');
+  });
+  await act(async () => {
+    captured.go('settings');
+    await tick();
+  });
+  expect(captured.route).toBe('settings');
+  await act(async () => {
+    captured.home();
+    await tick();
+  });
+  expect(captured.route).toBe('sea');
+  // go 는 렌더 시점의 route 를 기록에 남기므로 reset 과 다른 act 에서 부른다
+  await act(async () => captured.reset('home'));
+  await act(async () => {
+    captured.go('settings');
+    await tick();
+  });
+  await act(async () => {
+    captured.home();
+    await tick();
+  });
+  expect(captured.route).toBe('home');
+  await app.unmount();
+});
+
 const kickedApp = async (userId: string) => {
   // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있어 multiRemove 로 지운다
   await AsyncStorage.multiRemove([`kickNoticeSeen:${userId}`]);

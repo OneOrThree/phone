@@ -658,9 +658,11 @@ function Gromo() {
     const finish = () => {
       setWalkRequest(null);
       setHistory([]);
-      // 바다 표류에서 연 친구·설정·꾸미기의 닫기(GROMO-2404)는 홈을 거치지 않고 바다로. 화면 조건을 같이 보는 이유:
-      // 가입 dispatch 직후 같은 핸들러에서 home() 을 부르면 state.onboarded 가 아직 옛 값이라, 섬 화면에서는 늘 홈이다.
-      transitionRoute(!state.onboarded && SEA_HUD_ROUTES.includes(route) ? 'sea' : 'home');
+      // 바다 표류에서 연 친구·설정·꾸미기의 닫기(GROMO-2404)는 홈이 아니라 연 곳인 바다로 — 소속 섬이 있어도 같다.
+      // 「어디서 열었나」는 기록의 바닥(첫 항목)으로 본다. 기록이 없으면(부팅 복구 등) 섬이 없을 때만 바다다.
+      // state.onboarded 만 보지 않는 이유: 가입 dispatch 직후 같은 핸들러의 home() 은 옛 값을 읽는다.
+      const fromSea = history.length ? seaRouteHeld(history[0].route) : !state.onboarded;
+      transitionRoute(fromSea && SEA_HUD_ROUTES.includes(route) ? 'sea' : 'home');
     };
     const target = BUILDING_TRANSITION_RETURN_TARGET[route];
     if (target) returnToIsland(target, finish);
