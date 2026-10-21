@@ -335,6 +335,8 @@
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",
     "storageCheck": "Please check your device storage.",
+    "kickedFrom": "You can no longer stay on \"{{island}}\".",
+    "kicked": "You can no longer stay on that island.",
     "build": {
       "confirmTitle": "Build {{building}}",
       "confirmBody": {
@@ -745,6 +747,8 @@
     "loadFailed": "Couldn't load the islands.",
     "islandHint": "Opens the island's details",
     "joinedIslandA11y": "{{name}}, your island",
+    "islandLabel": "{{name}} · {{time}}",
+    "islandTimeA11y": "{{label}}, sailing {{time}}",
     "residents": "Residents {{count}}/{{max}}",
     "averageFocus": "Average {{time}}",
     "averageUnknown": "Not tallied yet",
@@ -891,7 +895,8 @@
       "noCells": "No promotions in this issue",
       "endTitle": "Want to feature your island?",
       "endBody": "Write it at the town hall. Apply between 7 AM and midnight to be in the next morning's issue",
-      "zoomClose": "Close large view"
+      "zoomClose": "Close large view",
+      "scopeEvicted": "{{name}} is leaving your telescope"
     },
     "rack": {
       "open": "Magazine rack",
@@ -1068,7 +1073,12 @@
     "nextTier": "{{minutes}} min until the next tier",
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
-    "welcomeBody": "You arrived at \"{{island}}\" as a new resident."
+    "welcomeBody": "You arrived at \"{{island}}\" as a new resident.",
+    "focusTime": "Focus time",
+    "requestFriend": "Add friend",
+    "friendRequested": "Request sent",
+    "friendExists": "You are already friends or have a pending request.",
+    "friendUnavailable": "You cannot send a friend request to this user."
   },
   "safety": {
     "blockTitle": "Block user",

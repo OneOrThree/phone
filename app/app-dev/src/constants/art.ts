@@ -19,7 +19,6 @@ export const art: Record<string, ImageSourcePropType> = {
   'sea/group': require('@/assets/redesign/sea-group.jpg'),
   gram: require('@/assets/redesign/gram.png'),
   'emote/hello': require('@/assets/redesign/emote-hello.png'),
-  'sea/mine': require('@/assets/redesign/sea-mine.jpg'),
   'emote/cheer': require('@/assets/redesign/emote-cheer.png'),
   'emote/sleepy': require('@/assets/redesign/emote-sleepy.png'),
   'emote/laugh': require('@/assets/redesign/emote-laugh.png'),

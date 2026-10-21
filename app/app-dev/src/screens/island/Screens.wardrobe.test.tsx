@@ -155,6 +155,49 @@ test('검정 뗏목 미리보기의 꾸미기 상자는 실제 그림 상자에 
   expect(StyleSheet.flatten(screen.getByTestId('raft-cat-art').props.style)).toEqual(at430);
 });
 
+test('결과창에서 처음 받은 꾸미기는 옷장 칸에 NEW! — 한 번 누르면 사라지고 기존 보유품엔 없다 (GROMO-2382)', async () => {
+  resetUnseenOutfitsForTest();
+  await AsyncStorage.setItem(
+    'gromo.unseenOutfits.u1',
+    JSON.stringify({ ids: ['cap'], records: ['r1'] }),
+  );
+  mockShopApi = api({ head: ['cap'], neck: ['bow'] });
+  const screen = await render(<Harness />);
+  await act(async () => {});
+  expect(screen.getAllByText('NEW!')).toHaveLength(1);
+  expect(screen.getByLabelText('cap-제목 NEW!')).toBeTruthy();
+  expect(screen.getByLabelText('bow-제목')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('cap-제목 NEW!'));
+  await act(async () => {});
+  expect(mockShopApi.equip).toHaveBeenLastCalledWith({ head: 'cap' });
+  expect(screen.queryByText('NEW!')).toBeNull();
+  expect(JSON.parse((await AsyncStorage.getItem('gromo.unseenOutfits.u1'))!)).toEqual({
+    ids: [],
+    records: ['r1'],
+  });
+});
+
+test('검정 뗏목 미리보기의 꾸미기 상자는 실제 그림 상자에 맞춘다 — 393·430pt 폭 (GROMO-2382)', async () => {
+  // 미리보기 안쪽 = 화면 폭 - 시트 좌우 여백 40 - 테두리 4, 높이 260 - 4
+  const at393 = raftArtSize(393 - 44, 256);
+  const at430 = raftArtSize(430 - 44, 256);
+  // 두 폭 모두 높이(86%)가 먼저 차 그림 폭이 92% 보다 좁다 — 430pt 에서는 92% 의 86% 뿐이다
+  expect(at393.height).toBeCloseTo(256 * 0.86, 6);
+  expect(at393.width).toBeCloseTo((256 * 0.86 * 440) / 317, 6);
+  expect(at430).toEqual(at393);
+  expect(at393.width / ((393 - 44) * 0.92)).toBeCloseTo(0.952, 3);
+  expect(at430.width / ((430 - 44) * 0.92)).toBeCloseTo(0.86, 2);
+  // 좁은 상자는 폭(92%)이 먼저 찬다
+  expect(raftArtSize(300, 256)).toEqual({ width: 276, height: (276 * 317) / 440 });
+  // 화면은 미리보기 안쪽을 재서 그림·꾸미기를 그 상자 하나에 겹친다
+  mockShopApi = api({ head: ['cap'] });
+  const screen = await render(<Harness color="black" />);
+  await fireEvent(screen.getByTestId('raft-cat-frame'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 430 - 44, height: 256 } },
+  });
+  expect(StyleSheet.flatten(screen.getByTestId('raft-cat-art').props.style)).toEqual(at430);
+});
+
 // Screens.test.tsx 의 Harness 를 이 파일 전용으로 축약했다 — 'product'/'shop' 경로만 다룬다.
 function Harness({
   equipped = {},

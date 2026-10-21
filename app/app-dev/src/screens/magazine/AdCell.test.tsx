@@ -129,11 +129,11 @@ describe('AdCell', () => {
     expect(screen.getByRole('button').props.accessibilityActions).toBeUndefined();
   });
 
-  it('섬 프로필은 건물 수에 맞는 섬 그림 단계(5~6 → s5)', async () => {
+  it('섬 프로필은 건물 수에 맞는 섬 그림(5 이상 → 집 5채)', async () => {
     const screen = await render(
       <AdCell testID="c" width={300} cell={cell({ buildingCount: 6 })} />,
     );
-    expect(screen.getByTestId('c-island').props.source).toBe(ISLAND_STAGE_ART.s5);
+    expect(screen.getByTestId('c-island').props.source).toBe(ISLAND_STAGE_ART.houses5);
   });
 });
 

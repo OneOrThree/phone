@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,6 +75,14 @@ class CustomizationCatalogIntegrationTest {
                 .noneMatch(i -> i.productId().startsWith("cust.shoes.") || i.productId().startsWith("cust.decor."));
         assertThat(all.indexOf(item(all, "cust.t.duck"))).as("정적 오버레이가 먼저").isLessThan(all.indexOf(rewards.get(0)));
         assertThat(rewards).extracting(CustomizationCatalogItem::sortOrder).isSorted();
+        // 보상 행은 kind(catalog_assets)를 slot 으로 쓰고 쿼리는 category(보상 목록)로 거른다 — 둘이 같아야 한다
+        Map<String, String> categories = jdbc
+                .queryForList("SELECT DISTINCT product_id, category FROM customization_reward_items").stream()
+                .collect(Collectors.toMap(r -> (String) r.get("product_id"), r -> (String) r.get("category")));
+        assertThat(rewards).allSatisfy(r -> {
+            assertThat(r.kind()).as(r.productId()).isEqualTo(categories.get(r.productId()));
+            assertThat(r.slot()).as(r.productId()).isEqualTo(r.kind());
+        });
 
         CustomizationCatalogItem mandarin = item(all, "cust.head.mandarin");
         assertThat(mandarin.title()).isEqualTo("귤 한 알");

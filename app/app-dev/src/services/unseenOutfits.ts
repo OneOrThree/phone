@@ -23,11 +23,21 @@ let current: Box | null = null;
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((fn) => fn());
 
-/** 저장본을 메모리에 합친다. */
+/** 저장본 문자열 → 객체. 손상(JSON 아님·객체 아님)이면 빈 것 — 읽기는 됐으니 다음 쓰기가 덮어써 복구한다. */
+function parse(raw: string | null): { ids?: unknown; records?: unknown } {
+  try {
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+/** 저장본을 메모리에 합친다. 읽기 자체가 실패하면 loaded 는 그대로 false 다. */
 const read = (box: Box) =>
   AsyncStorage.getItem(keyOf(box.userId))
     .then((raw) => {
-      const saved: { ids?: unknown; records?: unknown } = raw ? JSON.parse(raw) : {};
+      const saved = parse(raw);
       if (Array.isArray(saved.ids))
         saved.ids.forEach((id) => typeof id === 'string' && box.ids.add(id));
       if (Array.isArray(saved.records))

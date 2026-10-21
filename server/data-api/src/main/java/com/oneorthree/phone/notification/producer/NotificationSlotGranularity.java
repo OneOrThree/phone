@@ -44,7 +44,14 @@ public enum NotificationSlotGranularity {
     DAY,
 
     /** KST 주(월요일 시작) — 주 1회 리그 결과처럼 주간 회차가 곧 사건인 것들. */
-    WEEK;
+    WEEK,
+
+    /**
+     * 사건 시각 그대로(밀리초) — 같은 사건의 재처리만 접고, 같은 대상의 다른 사건은 아무리 가까워도 따로다(GROMO-2315 강퇴).
+     * 사건이 도메인 트랜잭션 안에서 한 번만 적혀(BEFORE_COMMIT) 재감지가 없는 kind 에만 쓴다 — 다시 감지해 적는 경로가
+     * 있으면 감지 시각이 달라져 같은 사건이 두 키가 된다.
+     */
+    INSTANT;
 
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final Duration QUARTER = Duration.ofMinutes(15);
@@ -76,6 +83,7 @@ public enum NotificationSlotGranularity {
             case DAY -> at.atZone(KST).toLocalDate().format(DAY_FORMAT);
             case WEEK -> at.atZone(KST).toLocalDate()
                     .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).format(DAY_FORMAT);
+            case INSTANT -> String.valueOf(at.toEpochMilli());
             default -> "none";
         };
     }
