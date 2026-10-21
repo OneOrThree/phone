@@ -2,6 +2,8 @@
 // 가입자는 2.0에서 새 계정이 된다 — 1.x 미이관 정책과 같은 방향으로 수용한 결정이다.
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
+// iOS 스토어 버전(1.0.2)은 아래 version(2.0.0, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
+const { withIosStoreVersion } = require('./iosStoreVersionConfig');
 // GROMO-2215 — 2.0 전용 프로젝트(263851348176). src/services/socialLogin.ts 와 같은 값이어야 한다.
 const googleIosClientId =
   '263851348176-8ochua7scca7h6ldmdk7v3iqc9uoit50.apps.googleusercontent.com';
@@ -79,6 +81,7 @@ module.exports = {
         },
       ],
       withLegacyAndroidKakao,
+      withIosStoreVersion,
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
       // GROMO-2380 고운돋움을 앱에 넣어 첫 화면부터 글꼴을 기다리지 않는다(웹만 useFonts 로 불러온다).
