@@ -1718,6 +1718,31 @@ function FinalIslandScene({
     onRemotePosition: (userId, p, durationMs) =>
       remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving, durationMs),
   };
+  const applyAppearance = useCallback((body: unknown, islandId: string) => {
+    const changed = parseAppearanceEvent(body, islandId);
+    if (!changed) return;
+    setLooks((prev) => {
+      const next = newerLook(prev[changed.userId], changed.look)!;
+      return next === prev[changed.userId] ? prev : { ...prev, [changed.userId]: next };
+    });
+  }, []);
+  // 이동 동기화가 꺼진 빌드(기본·웹)도 주민 외양은 실시간으로 받는다 — 그 섬 events 토픽만 여는 가벼운 채널.
+  // 이동 채널이 열리는 조건(아래 effect)과 겹치지 않아 한 섬에 events 구독은 하나뿐이다.
+  const eventsOnlyIslandId =
+    !(syncIslandId && me) && facts && showActions && appActive ? facts.islandId : null;
+  useEffect(() => {
+    if (!eventsOnlyIslandId) return;
+    const channel = stompIslandChannel({
+      islandId: eventsOnlyIslandId,
+      presence: false,
+      emote: false,
+      events: true,
+      onEvent: (body) => applyAppearance(body, eventsOnlyIslandId),
+      onOpen: () => {},
+      onError: () => {},
+    });
+    return () => channel.close();
+  }, [eventsOnlyIslandId, applyAppearance]);
   useEffect(() => {
     if (!syncIslandId || !me) return;
     let channel: IslandChannel | null = null;
@@ -1747,14 +1772,8 @@ function FinalIslandScene({
         if (type === 'island.member.arrived') {
           const arrived = arrivals(body);
           if (arrived) notifyRef.current?.(memberArrivedText(arrived));
-        } else if (type === 'member.appearance.updated') {
-          const changed = parseAppearanceEvent(body, syncIslandId);
-          if (changed)
-            setLooks((prev) => {
-              const next = newerLook(prev[changed.userId], changed.look)!;
-              return next === prev[changed.userId] ? prev : { ...prev, [changed.userId]: next };
-            });
-        } else controller.onMessage(body);
+        } else if (type === 'member.appearance.updated') applyAppearance(body, syncIslandId);
+        else controller.onMessage(body);
       },
       onOpen: () => {},
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로

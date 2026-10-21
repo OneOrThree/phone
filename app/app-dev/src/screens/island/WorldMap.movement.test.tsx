@@ -1158,19 +1158,37 @@ describe('플래그 off·서버 홈 아님', () => {
   };
   afterAll(() => jest.dontMock('react'));
 
-  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 서버 홈이어도 채널을 열지 않고 Wanderer·로컬 걷기 그대로다', async () => {
+  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 이동 채널 없이 Wanderer·로컬 걷기 그대로이고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390)', async () => {
     jest.useFakeTimers();
     const opened = mockChannels.length;
+    const island = nextIsland();
+    const state = serverState(island);
+    (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
     const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
-    const screen = await render(
-      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
-    );
+    const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
     await tapGround(screen, { x: 42.5, y: 45.5 });
-    expect(mockChannels.length).toBe(opened);
+    // 이동 채널은 없고 events 토픽만 여는 채널 하나
+    expect(mockChannels.length).toBe(opened + 1);
+    expect(channel().opts).toMatchObject({ islandId: island, events: true, presence: false });
+    expect(channel().opts.movement).toBeFalsy();
     expect(myMotion(screen)).toBe('walking');
     expect(residents(screen)).toEqual([]);
     expect(otherCats(screen)).toBe(2);
+    const headOf = (color: string) =>
+      screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+        .testPropOutfit?.head;
+    expect(headOf('ginger')).toBe('hat-old');
+    await emit({
+      eventId: 'e4',
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId: island,
+      aggregateVersion: 4,
+      payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
+    });
+    expect(headOf('ginger')).toBe('hat-new');
     await screen.unmount();
+    expect(mockChannels[mockChannels.length - 1].close).toHaveBeenCalled();
   });
 
   it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
