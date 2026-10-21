@@ -74,6 +74,22 @@ export function seaMemberFromWire(raw: unknown, receivedAt: number): SeaLiveMemb
   };
 }
 
+/**
+ * 외양은 version 이 더 큰 쪽만 — 순서가 뒤바뀐 갱신·스냅숏이 새 옷을 되돌리지 않는다.
+ * appearance 가 없는 갱신(옛 서버·다른 사유)은 갖고 있던 외양을 지우지 않는다. 다른 필드는 건드리지 않는다.
+ */
+function keepNewerOutfit(member: SeaLiveMember, prev: SeaLiveMember | undefined) {
+  if (!prev) return;
+  const stale =
+    prev.outfitVersion !== undefined &&
+    member.outfitVersion !== undefined &&
+    member.outfitVersion <= prev.outfitVersion;
+  if (stale || (member.outfit === undefined && prev.outfit)) {
+    member.outfit = prev.outfit;
+    if (prev.outfitVersion !== undefined) member.outfitVersion = prev.outfitVersion;
+  }
+}
+
 /** 지금 시각의 참가자 목록 — 집중 중이면 받은 뒤 흐른 초를 더한다(표류 중이면 서버가 멈춘 값 그대로). */
 export function seaParticipantsAt(members: readonly SeaLiveMember[], now: number) {
   return members.map(
@@ -169,21 +185,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     if (ev.type === 'sea.member.joined' || ev.type === 'sea.member.updated') {
       const member = seaMemberFromWire(p.member, now());
       if (!member) return;
-      // 외양은 version 이 더 큰 쪽만 — 순서가 뒤바뀐 갱신이 새 옷을 되돌리지 않는다
-      const prev = members.get(member.userId);
-      // appearance 가 없는 갱신(옛 서버·다른 사유)은 갖고 있던 외양을 지우지 않는다
-      if (member.outfit === undefined && prev?.outfit) {
-        member.outfit = prev.outfit;
-        if (prev.outfitVersion !== undefined) member.outfitVersion = prev.outfitVersion;
-      }
-      if (
-        prev?.outfitVersion !== undefined &&
-        member.outfitVersion !== undefined &&
-        member.outfitVersion <= prev.outfitVersion
-      ) {
-        member.outfit = prev.outfit;
-        member.outfitVersion = prev.outfitVersion;
-      }
+      keepNewerOutfit(member, members.get(member.userId));
       members.set(member.userId, member);
       emit();
     } else if (ev.type === 'sea.member.left') {
@@ -214,10 +216,14 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     } else if (ev.type === 'sea.room.snapshot') {
       if (str(p.roomId) !== roomId || !Array.isArray(p.members)) return;
       const at = now();
+      const before = members;
       members = new Map();
       for (const raw of p.members) {
         const member = seaMemberFromWire(raw, at);
-        if (member) members.set(member.userId, member);
+        if (!member) continue;
+        // 스냅숏이 정본이지만 외양은 먼저 온 더 새 갱신(version)을 되돌리지 않는다
+        keepNewerOutfit(member, before.get(member.userId));
+        members.set(member.userId, member);
       }
       stompErrors = 0;
       backoffStep = 0;

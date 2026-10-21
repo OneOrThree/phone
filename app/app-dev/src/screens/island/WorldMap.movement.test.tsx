@@ -627,6 +627,44 @@ it('다른 주민은 응답 appearance 로 머리·목을 입고, member.appeara
   await screen.unmount();
 });
 
+it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 외양은 유지한다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  const listeners: ((state: string) => void)[] = [];
+  const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+  Object.defineProperty(AppState, 'addEventListener', {
+    configurable: true,
+    value: ((_type: string, listener: (state: string) => void) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener,
+  });
+  try {
+    const island = nextIsland();
+    const state = serverState(island);
+    (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
+    const screen = await renderHome(island, { state });
+    const headOf = (color: string) =>
+      screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+        .testPropOutfit?.head;
+    await emit({
+      eventId: 'e4',
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId: island,
+      aggregateVersion: 4,
+      payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
+    });
+    expect(headOf('ginger')).toBe('hat-new');
+    await act(async () => listeners.forEach((listener) => listener('background')));
+    await act(async () => listeners.forEach((listener) => listener('active')));
+    expect(headOf('ginger')).toBe('hat-new');
+    await screen.unmount();
+  } finally {
+    if (originalAddEventListener)
+      Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+  }
+});
+
 it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());

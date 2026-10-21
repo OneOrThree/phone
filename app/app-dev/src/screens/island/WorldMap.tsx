@@ -1563,6 +1563,8 @@ function FinalIslandScene({
   const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
   // 실시간으로 받은 다른 주민의 외양(GROMO-2390) — 홈 응답의 appearance 와 version 으로 합쳐 그린다
   const [looks, setLooks] = useState<Record<string, MemberLook>>({});
+  // 같은 섬의 일시 해제(백그라운드)에는 유지하고, 섬이 바뀔 때만 비운다 — 복귀 때 홈 스냅숏은 다시 읽지 않아 옛 외양으로 되돌아간다
+  useEffect(() => () => setLooks({}), [facts?.islandId]);
   const remoteListeners = useRef(new Map<string, RemoteListener>()).current;
   const subscribeRemote = useCallback(
     (userId: string, listener: RemoteListener) => {
@@ -1774,7 +1776,6 @@ function FinalIslandScene({
       movement.current = null;
       channel?.close();
       setRemoteActors(null);
-      setLooks({});
     };
   }, [syncIslandId, me]);
   // 이동 보기 오버레이(GROMO-2249) — 서버 확정 경로·스냅샷·예측 오차. navDebug 가 꺼져 있으면 아무것도 계산·구독하지 않는다(비용 0).

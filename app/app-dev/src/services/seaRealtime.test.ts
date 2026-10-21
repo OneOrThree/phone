@@ -159,6 +159,20 @@ test('남의 뗏목 외양 — appearance 를 outfit 으로 싣고 version 이 �
   ).not.toHaveProperty('outfitVersion');
 });
 
+test('먼저 온 더 새 외양 갱신을 늦게 온 옛 스냅숏이 되돌리지 않는다 — 다른 필드는 스냅숏이 정본 (GROMO-2390)', () => {
+  const { spy } = open();
+  const look = (head: string, version: number) => ({ appearance: { head, neck: null, version } });
+  joinRoom([member('me'), member('a', look('hat-5', 5))]);
+  roomEvent('sea.member.updated', { member: member('a', look('hat-6', 6)) });
+  personal('sea.room.snapshot', {
+    roomId: 'room-1',
+    members: [member('me'), member('a', { ...look('hat-5', 5), remark: '새 한마디' })],
+  });
+  const a = spy.members.find((m) => m.userId === 'a');
+  expect(a.outfit.head).toBe('hat-6');
+  expect(a.message).toBe('새 한마디');
+});
+
 test('45초마다 sync 를 보내고, 오류 큐 NOT_IN_SEA_ROOM 이면 다시 enter 한다', () => {
   open();
   joinRoom();
