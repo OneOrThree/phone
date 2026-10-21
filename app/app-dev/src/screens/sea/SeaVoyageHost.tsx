@@ -461,6 +461,19 @@ export function SeaVoyageHost({ e }: { e: any }) {
             }
           : null
       }
+      // 표류 중 위쪽 HUD(GROMO-2404) — 친구 요청 수는 홈(WorldMap)과 같은 출처: 서버면 친구 화면 상태, 목업이면 로컬 친구
+      hud={
+        drifting
+          ? {
+              requests: e.islands
+                ? e.friendsScreen?.status === 'ready'
+                  ? (e.friendsScreen.data?.friendRequests.length ?? 0)
+                  : 0
+                : (s.friends ?? []).filter((f) => f.status === 'received').length,
+              go: e.go,
+            }
+          : null
+      }
       onFriendRequest={
         e.focus
           ? async (userId) => {

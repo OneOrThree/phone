@@ -348,3 +348,38 @@ test('sound route — category=sound 목록과 공동 인벤토리를 읽는다'
   assert.equal(result.current.items[0].id, 'rain');
   assert.equal(result.current.shared?.audio[0], 'waves');
 });
+
+test('wardrobe route — 소속 섬이 없어도 개인 인벤토리를 읽고 외양을 바꾼다(GROMO-2404)', async () => {
+  (patchMyAppearance as jest.Mock).mockResolvedValue({
+    clothes: 'jacket',
+    decor: null,
+    hull: 'raft',
+    position: 'front',
+    version: 3,
+  });
+  const dispatch = jest.fn();
+  const { result } = await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params({ route: 'wardrobe', islandId: null, dispatch }),
+  });
+  await waitFor(() => assert.equal((getMyInventory as jest.Mock).mock.calls.length, 1));
+  const mine = dispatch.mock.calls
+    .map((c) => c[0])
+    .find((a) => a.type === 'SHOP_SYNC' && a.myInventory);
+  assert.equal(mine.islandId, null);
+  assert.equal(mine.myInventory.equipped.clothes, 'scarf');
+  // 섬이 없으면 상점 상세(제목)는 부르지 않는다 — 옷장 제목은 꾸미기 카탈로그가 준다
+  assert.equal((getShopProduct as jest.Mock).mock.calls.length, 0);
+
+  await act(async () => {
+    await result.current.equip({ clothes: 'jacket' });
+  });
+  assert.deepEqual((patchMyAppearance as jest.Mock).mock.calls[0][0], { clothes: 'jacket' });
+});
+
+test('shop route — 소속 섬이 없으면 상점 API 를 부르지 않는다', async () => {
+  await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params({ route: 'shop', islandId: null }),
+  });
+  assert.equal((getShopScreen as jest.Mock).mock.calls.length, 0);
+  assert.equal((getMyInventory as jest.Mock).mock.calls.length, 0);
+});

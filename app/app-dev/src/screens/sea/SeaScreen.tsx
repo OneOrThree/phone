@@ -16,6 +16,8 @@ import { SeaArrivalResult } from './SeaArrivalResult';
 import { SeaMagazineDelivery } from './SeaMagazineDelivery';
 import { SeaRewardArt } from './seaRewardCatalog';
 import { art } from '@/constants/art';
+import { HudActions, HudAvatarButton } from '@/screens/island/HomeNavigationHud';
+import type { Route } from '@/services/model';
 
 export type SeaScreenProps = {
   self: SeaParticipant;
@@ -47,6 +49,11 @@ export type SeaScreenProps = {
     onOpen: () => void;
     onLater: () => void;
   } | null;
+  /**
+   * 표류 중 위쪽 HUD(GROMO-2404) — 홈과 같은 왼쪽 위 내 고양이(꾸미기)와 오른쪽 위 친구(받은 요청 수)·설정.
+   * 항해 집중 중에는 과목·시간 HUD 만 남기고 그리지 않는다. 결과창·출항 연출에서는 호스트가 null 을 준다.
+   */
+  hud?: { requests: number; go: (route: Route) => void } | null;
 } & (
   | { guest?: false; onSignIn?: () => void }
   // 게스트 여부가 동적이면 로그인 진입 경로도 반드시 함께 제공한다.
@@ -273,6 +280,23 @@ export function SeaScreen(props: SeaScreenProps) {
             }
           </SeaScene>
         </ScrollView>
+        {!voyage && props.hud && (
+          <View
+            testID="sea-hud"
+            pointerEvents="box-none"
+            style={[
+              styles.topHud,
+              {
+                top: insets.top + p.space[2],
+                left: insets.left + p.space[5],
+                right: insets.right + p.space[5],
+              },
+            ]}
+          >
+            <HudAvatarButton color={self.color} outfit={self.outfit} go={props.hud.go} />
+            <HudActions requests={props.hud.requests} go={props.hud.go} />
+          </View>
+        )}
         <View
           testID="sea-footer"
           onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
@@ -496,6 +520,12 @@ const styles = StyleSheet.create({
   },
   subject: { fontSize: s.typography.body, textAlign: 'center' },
   timer: { fontSize: 40, lineHeight: 60, fontVariant: ['tabular-nums'] },
+  topHud: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   compactHud: {
     height: 52,
     flexDirection: 'row',

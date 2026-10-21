@@ -43,6 +43,14 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 - 펼치기는 라우트 `seaMagazine`(`seaRouteHeld` 에 포함 — 소속 섬 가드를 타지 않는다) → `MagazineReader place="SEA"`. 망원경 동그라미는 `pinToTelescope(id, 'magazine', promotionId)` 뒤 `e.replace('telescope')` 라 망원경 뒤로가기가 바다로 간다. 요청 중 잡지를 닫으면 이동하지 않고, 빠진 섬 토스트만 알린다.
 - 알려진 한계(범위 밖): 소속 섬이 없는 표류 유저가 망원경(바다 [망원경] · 잡지 동그라미 모두)으로 가면 App 의 소속 가드가 `telescope` 를 지키지 않아 섬 선택으로 보낸다. 기존 바다 [망원경] 버튼과 같은 동작이다.
 
+## 표류 중 위쪽 HUD (2404)
+
+- `SeaVoyageHost` 는 표류(`drifting`) 중에만 `SeaScreen.hud` 를 준다 — 친구 요청 수는 홈(`WorldMap`)과 같은 출처(서버면 `e.friendsScreen`, 목업이면 `state.friends`)이고 `go` 는 App 의 라우트 이동이다. 항해 집중·결과창·출항 연출에서는 null 이라 그리지 않는다.
+- `SeaScreen` 은 `voyage` 가 없고 `hud` 가 있을 때만 `sea-hud`(안전 영역 안 위쪽, `box-none`)를 그린다: 왼쪽 `HudAvatarButton`(내 털색·장착 → `wardrobe`), 오른쪽 `HudActions`(`friends` 배지 · `settings`). 모양·접근성 라벨은 홈과 같다.
+- App 의 `SEA_HUD_ROUTES`(`friends`·`friendSearch`·`blockedUsers`·`settings`·`mainIsland`·`profile`·`language`·`permission`·`screenTimeApps`·`wardrobe`)는 계정 단위 화면이라 소속 가드가 섬 없이도 허용한다(`NO_ISLAND_ROUTES` — 망원경과 같은 목록). 섬을 잃는 순간(서버 동기화든 목업 강퇴 복구 신호든) 이 화면에 있었다면 바다로 보내지 않고 그 자리에 둔다 — 강퇴 안내만 뜨고, 닫기(`home()`)·뒤로가기 때 바다로 간다. 강퇴된 섬을 보는 방문·항해 화면은 종전대로 옮긴다. 닫기 목적지는 소속 여부가 아니라 연 곳(App 기록의 바닥이 바다 라우트인지)으로 정한다 — 소속 섬이 있어도 바다에서 열었으면 바다로, 홈에서 열었으면 홈으로.
+- 옷장(`useShop`)은 소속 섬이 없어도 개인 인벤토리(`GET /me/inventory`)와 외양 변경(`PATCH /me/appearance`)을 한다 — `scope` 가 섬 id 대신 `personal` 이 되고, 상점 상세(제목)는 부르지 않으며 칸 제목은 꾸미기 카탈로그가 준다. 상점·주문·축음기는 종전대로 섬이 있어야 한다.
+- `CurrentScreens` 의 친구 freshness 경계(`friendsSafetyRouteActive`)에 `sea` 를 넣어 홈과 같은 주기로 요청 배지를 다시 검증한다.
+
 ## 서비스 연결 지점과 남은 작업
 
 2026-10-17 기준 main `725504d3c`에는 PR #1129·#1149가 통합돼 있다.

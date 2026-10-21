@@ -6209,10 +6209,10 @@ export function RedesignScreens({ e }: any) {
         snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
         t('account.boat.myIslandFallback'))
       : (mainIsland(state)?.name ?? island.name);
-    const canChangeMainIsland =
-      (server
-        ? (snap?.memberships.length ?? 0)
-        : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length) > 1;
+    const islandCount = server
+      ? (snap?.memberships.length ?? 0)
+      : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length;
+    const canChangeMainIsland = islandCount > 1;
     const toggle = (label: string, key: string, sub?: string) => (
       <SheetRow
         title={label}
@@ -6251,12 +6251,17 @@ export function RedesignScreens({ e }: any) {
             chevron
             onPress={() => go('profile')}
           />
-          <SheetRow
-            title={t(canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain')}
-            sub={primaryIslandName}
-            chevron={canChangeMainIsland}
-            onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
-          />
+          {/* 소속 섬이 없으면(바다 표류에서 연 설정, GROMO-2404) 메인 섬 줄을 두지 않는다 */}
+          {islandCount > 0 && (
+            <SheetRow
+              title={t(
+                canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain',
+              )}
+              sub={primaryIslandName}
+              chevron={canChangeMainIsland}
+              onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
+            />
+          )}
         </SheetGroup>
         {sec(t('settings.generalSection'))}
         <SheetGroup flat>
