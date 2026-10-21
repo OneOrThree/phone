@@ -574,7 +574,22 @@ class InboundEventServiceTest {
         http(sessionRevoked(UUID.randomUUID(), sid.toString(), Instant.now().plusSeconds(2).toString()));
 
         Long ttl = redis.getExpire(RedisKeys.revokedSession(sid), java.util.concurrent.TimeUnit.MILLISECONDS);
-        assertThat(ttl).isBetween(60_000L, 62_000L);
+        // 하한은 set 시점이 payload 의 now 보다 늦는 CI 지연을 넉넉히 둔다(30일 폴백과는 세 자릿수 차이)
+        assertThat(ttl).isBetween(50_000L, 62_000L);
+    }
+
+    @Test
+    @DisplayName("revoked 계수 3종(fence·close·fanout)은 기동 때 0 으로 선등록돼 increase() 알림이 첫 장애를 본다 (GROMO-2386)")
+    void revokedMetersAreRegisteredAtStartup() {
+        for (String op : java.util.List.of("read", "write")) {
+            assertThat(meterRegistry.find("realtime.session.revoked.fence").tag("op", op).tag("result", "failed")
+                    .counter()).as("fence op=%s", op).isNotNull();
+        }
+        for (String result : java.util.List.of("closed", "already_gone", "failed")) {
+            assertThat(meterRegistry.find("realtime.session.revoked.close").tag("result", result).counter())
+                    .as("close result=%s", result).isNotNull();
+        }
+        assertThat(meterRegistry.find("realtime.session.revoked.fanout").tag("result", "failed").counter()).isNotNull();
     }
 
     @Test

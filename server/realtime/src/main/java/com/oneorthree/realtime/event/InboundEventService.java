@@ -372,16 +372,17 @@ public class InboundEventService {
     /** {@code params.accessTokenExpiresAt}(ISO-8601) + {@link #FENCE_GRACE}. 없거나 읽을 수 없으면 now + 30일. */
     private Instant fenceUntil(String eventId, JsonNode params) {
         JsonNode exp = params.get("accessTokenExpiresAt");
+        if (exp == null || !exp.isTextual()) {
+            log.debug("accessTokenExpiresAt 가 {} — 30일 폴백. eventId={}", exp == null ? "없다(옛 Data)" : "문자열이 아니다",
+                    eventId);
+            return clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME);
+        }
         try {
-            if (exp != null && exp.isTextual()) {
-                return Instant.parse(exp.asText()).plus(FENCE_GRACE);
-            }
+            return Instant.parse(exp.asText()).plus(FENCE_GRACE);
         } catch (java.time.format.DateTimeParseException e) {
             log.debug("accessTokenExpiresAt 를 읽을 수 없다 — 30일 폴백. eventId={}", eventId);
             return clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME);
         }
-        log.debug("accessTokenExpiresAt 가 없다(옛 Data) — 30일 폴백. eventId={}", eventId);
-        return clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME);
     }
 
     /**
