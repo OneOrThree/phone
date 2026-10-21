@@ -25,7 +25,7 @@ import {
 } from './session';
 
 export const DEV_API_URL = 'https://oneorthree.dev.mooo.com';
-export const PRODUCTION_API_URL = 'https://api.oneorthree.world';
+export const PRODUCTION_API_URL = 'https://catus-api.oneorthree.world';
 export const LOCAL_WEB_API_URL = 'http://localhost:8080';
 
 export function isProductionApiUrl(value: string | undefined): boolean {

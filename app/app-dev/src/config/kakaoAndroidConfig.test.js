@@ -75,13 +75,13 @@ test('Android/iOS release require real terms and the production API URL', () => 
   );
   expect(gradle).toMatch(/termsVersion\s*==\s*null\s*\|\|\s*termsVersion\.trim\(\)\.isEmpty\(\)/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*\(termsVersion/);
-  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/api\.oneorthree\.world"/);
+  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/catus-api\.oneorthree\.world"/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*!devAudience\s*&&\s*apiUrl\s*!=/);
   expect(xcode).toContain('${EXPO_PUBLIC_API_URL:-}');
-  expect(xcode).toContain('https://api.oneorthree.world');
-  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"');
+  expect(xcode).toContain('https://catus-api.oneorthree.world');
+  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://catus-api.oneorthree.world"');
   expect(testflight).toContain('EXPO_PUBLIC_API_URL:-}');
-  expect(testflight).toContain('https://api.oneorthree.world');
+  expect(testflight).toContain('https://catus-api.oneorthree.world');
 });
 
 test('iOS dev TestFlight lane pins the team dev server and keeps the production gate', () => {
@@ -218,7 +218,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
     fs.readFileSync(path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'), 'utf8'),
     'Check iOS release Apple audience readiness',
   );
-  const prodUrl = 'https://api.oneorthree.world';
+  const prodUrl = 'https://catus-api.oneorthree.world';
   const devUrl = 'https://oneorthree.dev.mooo.com';
   const run = (audience, apiUrl) =>
     spawnSync('/bin/sh', ['-c', script], {
