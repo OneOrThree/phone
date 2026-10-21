@@ -27,7 +27,7 @@ import Svg, {
   Polygon,
   Image as SvgImage,
 } from 'react-native-svg';
-import { useFonts } from 'expo-font';
+import { useGowun } from './sceneKit';
 import { C, art, k, Txt, Pic, Btn, Gear } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
@@ -592,11 +592,8 @@ export function WoodBoard({
 }) {
   const L = useAppLayout();
   // 사용자가 직접 쓴 퀘스트·공지 제목이 올라가므로 서브셋이 아닌 전체 고운돋움을 쓴다.
-  // 항해·휴식 화면과 같은 파일이라 같은 글꼴 이름으로 한 번만 등록한다
-  const [loaded] = useFonts({
-    GromoSailing: require('@/assets/fonts/gowun-dodum.ttf'),
-  });
-  const font = loaded ? 'GromoSailing' : undefined;
+  // 다른 장면 화면과 같은 글꼴 이름(sceneKit 의 GOWUN) 하나로 쓴다
+  const font = useGowun();
   const make = tab === 'quest' ? '＋ 만들기' : '＋ 작성';
 
   // 가로 폰: 세로형 보드가 안 들어가므로 오른쪽 사이드 패널 안에 같은 포스트잇·종이를 흐름 배치

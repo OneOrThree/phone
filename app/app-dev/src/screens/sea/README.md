@@ -79,7 +79,7 @@ GROMO-2310(2026-10-18)이 1·2·3·6을 `SeaVoyageHost`(라우트 `sea`·`seaArr
 6색 모두 독서 정지 PNG(512×512), 독서 atlas(3072×512), loaf PNG(512×512)의
 총 18개 파일이 실제 존재하는지 확인했다. 새 고양이 포즈는 제작하지 않았다.
 
-- `sea/far-sea.png`: Figma S1 배경 원본, imageHash `0b86e35e7765c15c59e8ee641e0fe7a654319252`.
+- `sea/far-sea.jpg`: Figma S1 배경(imageHash `0b86e35e7765c15c59e8ee641e0fe7a654319252`) PNG 원본을 투명 픽셀이 없어 JPG(품질 85)로 바꿨다(GROMO-2379).
 - `sea/seagulls.png`: S1 `1216:1300`.
 - `sea/destination-island.png`: V2 `1216:1620`의 원본. 기존 목적지 미리보기 원본을 보관하며, 현재 항해 중·도착 후 화면에는 표시하지 않는다.
 - `customization/head/duck.png`: `.docs/customization-assets-2026-10-16/assets-v3/head/duck.png` 원본.

@@ -123,20 +123,21 @@ export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpri
           },
         ]}
       />
-      <Image
-        testID={`construction-effect-${building}-${phase}`}
-        source={constructionEffectsAtlas}
-        resizeMode="stretch"
-        style={[
-          styles.effectsAtlas,
-          // 밤·reduce motion 으로 바뀐 첫 렌더에서도 이전 burst 상태를 그리지 않는다.
-          burstActive && !still ? styles.effectVisible : styles.effectHidden,
-          {
-            left: `${(still ? 0 : effectFrame) * -100}%`,
-            top: `${effectRow * -100}%`,
-          },
-        ]}
-      />
+      {/* 효과 아틀라스(1448×1086, 디코드 6MB)는 burst 동안만 마운트한다(GROMO-2378). 휴지기가 burst 보다
+          몇 배 길고 밤·reduce motion 에서는 아예 안 보인다. 다시 마운트할 때 안드로이드 기본 페이드가
+          끼지 않게 fadeDuration 0. 밤·reduce motion 으로 바뀐 첫 렌더에서도 이전 burst 상태를 그리지 않는다. */}
+      {burstActive && !still && (
+        <Image
+          testID={`construction-effect-${building}-${phase}`}
+          source={constructionEffectsAtlas}
+          resizeMode="stretch"
+          fadeDuration={0}
+          style={[
+            styles.effectsAtlas,
+            { left: `${effectFrame * -100}%`, top: `${effectRow * -100}%` },
+          ]}
+        />
+      )}
     </View>
   );
 });
@@ -145,6 +146,4 @@ const styles = StyleSheet.create({
   viewport: { width: '100%', height: '100%', overflow: 'hidden' },
   atlas: { position: 'absolute', width: '400%' },
   effectsAtlas: { position: 'absolute', width: '400%', height: '300%' },
-  effectVisible: { opacity: 1 },
-  effectHidden: { opacity: 0 },
 });

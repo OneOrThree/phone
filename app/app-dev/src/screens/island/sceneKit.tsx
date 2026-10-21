@@ -7,11 +7,23 @@ import { hoursMinutes } from '@/services/model';
 // 도서관·마을회관 v2 장면이 같이 쓰는 글자·스타일 도구
 export const INK = '#493B39';
 export const BROWN = '#8B6956';
+// 고운돋움 글꼴 이름은 여기 하나다. 네이티브는 app.config.js 의 expo-font 플러그인으로 앱에 넣어 두어
+// 불러오기를 기다리지 않는다 — iOS는 글꼴 파일 속 가족 이름, 안드로이드는 플러그인이 등록한 이름으로 찾는다
+export const GOWUN = Platform.OS === 'ios' ? 'Gowun Dodum' : 'Gowun';
+// 웹만 같은 'Gowun' 이름으로 불러온다. 네이티브는 빈 목록이라 첫 렌더부터 [true, null]이다.
+// Platform.select 라야 운영 네이티브 번들에서 이 require 가 빠져 7MB 글꼴이 두 번 들어가지 않는다
+export const useGowunFont = () =>
+  useFonts(
+    Platform.select<Record<string, number>>({
+      web: { Gowun: require('@/assets/fonts/gowun-dodum.ttf') },
+      default: {},
+    }),
+  );
 // 웹은 Gowun에 없는 기호가 시안과 같은 대체 글꼴로 그려지게 글꼴 스택째 넘긴다
 const GOWUN_WEB = 'Gowun, "Apple SD Gothic Neo", sans-serif';
 export function useGowun() {
-  const [loaded] = useFonts({ Gowun: require('@/assets/fonts/gowun-dodum.ttf') });
-  return Platform.OS === 'web' ? GOWUN_WEB : loaded ? 'Gowun' : undefined;
+  useGowunFont();
+  return Platform.OS === 'web' ? GOWUN_WEB : GOWUN;
 }
 // 그림자 필터·CSS 그라데이션·줄바꿈 규칙은 웹에서만 시안대로 그린다
 export const web = (style: object) => (Platform.OS === 'web' ? (style as any) : null);

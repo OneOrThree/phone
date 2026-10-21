@@ -13,7 +13,7 @@ import {
   type AppStateStatus,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { useFonts } from 'expo-font';
+import { useGowun } from '@/screens/island/sceneKit';
 import { State, currentIsland } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { componentTokens } from '@/design-system/tokens';
@@ -219,9 +219,7 @@ export function Sailing({
   from?: string;
 }) {
   const layout = useAppLayout();
-  const [fontsLoaded] = useFonts({
-    GromoSailing: require('@/assets/fonts/gowun-dodum.ttf'),
-  });
+  const font = useGowun();
   const snap = useRef({
     color: state.color,
     hull: 'raft',
@@ -280,7 +278,6 @@ export function Sailing({
       raft: { seat: [470, 672], lantern: [755, 565, 100, 130] },
     } as Record<string, { seat: number[]; lantern: number[] }>
   )[snap.hull];
-  const font = fontsLoaded ? 'GromoSailing' : undefined;
   const Drift = reduced ? FrozenDrift : SeaDrift,
     stillLand = reduced && land;
   // LAB 뗏목 600px 은 원본 928px(48~976) — LAB 1px = 928/600 원본 px

@@ -54,6 +54,7 @@
 		A56FBC8C42C4606163A12EBE /* cat-white-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 286FF41589D833FDC4D83EA9 /* cat-white-focus.png */; };
 		21915A7E3DCD38AC8B9DAC86 /* cat-calico-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */; };
 		142C5F836FFCBA47F473452F /* ShieldPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */; };
+		8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -183,6 +184,7 @@
 		286FF41589D833FDC4D83EA9 /* cat-white-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-white-focus.png"; sourceTree = SOURCE_ROOT; };
 		D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-calico-focus.png"; sourceTree = SOURCE_ROOT; };
 		D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldPalette.swift; sourceTree = "<group>"; };
+		1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = file; name = "gowun-dodum.ttf"; path = "../src/assets/fonts/gowun-dodum.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -329,6 +331,7 @@
 				8FC73E13F7E9D0F235BEBFF6 /* Pods */,
 				074669341FFEBF850D25630F /* ExpoModulesProviders */,
 				5947CA12FF8B42FDC5A9310F /* screentimereport */,
+				15CF9E5DA6AC41789D40D714 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -422,6 +425,14 @@
 			);
 			name = Supporting;
 			path = GROMO/Supporting;
+			sourceTree = "<group>";
+		};
+		15CF9E5DA6AC41789D40D714 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */,
+			);
+			name = Resources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -605,6 +616,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */,
+				8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
