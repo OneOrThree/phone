@@ -23,15 +23,15 @@ on:
   pull_request:
     branches: [main]
     paths: &android_release_paths
-      - 'app/app-dev/**'
-      - '!app/app-dev/**/*.md'
-      - '!app/app-dev/ios/**'
+      - "app/app-dev/**"
+      - "!app/app-dev/**/*.md"
+      - "!app/app-dev/ios/**"
       # iOS 폴더 제외. 단 약관 버전·Datadog 공개 설정 정본은 여기 → 다시 포함
-      - 'app/app-dev/ios/release-config.sh'
-      - '.github/workflows/app-android-ci.yml'
-      - '.github/workflows/app-android-cd.yml'
+      - "app/app-dev/ios/release-config.sh"
+      - ".github/workflows/app-android-ci.yml"
+      - ".github/workflows/app-android-cd.yml"
       # Android CI 전용 스크립트. .github/scripts/ 에 두면 satellite-ci 까지 돎
-      - '.github/ci/**'
+      - ".github/ci/**"
   push:
     branches: [main]
     paths: *android_release_paths
@@ -158,14 +158,14 @@ jobs:
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: app/app-dev/package-lock.json
 
       - name: npm ci
@@ -193,6 +193,10 @@ jobs:
           GROMO_VERSION_CODE: ${{ needs.version.outputs.code || '1' }}
           # JS 번들 production. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package) 빼서 깨짐
           NODE_ENV: production
+          # PR/다른 브랜치에는 업로드 키를 주지 않는다. main 빌드만 심볼을 올린다.
+          POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}
+          POSTHOG_CLI_PROJECT_ID: "669473"
+          POSTHOG_CLI_HOST: https://us.posthog.com
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
       - name: AAB 확인 (일회용 서명)
