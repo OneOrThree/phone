@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
 import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.common.port.FocusPresenceState;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
@@ -35,6 +36,7 @@ import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.focus.service.FocusPresenceProjection;
+import com.oneorthree.phone.focus.service.SeaSessionEvents;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -112,6 +114,8 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private FocusSettlementRepository focusSettlementRepository;
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
     @Mock private FocusRewardAccrualService rewardAccruals;
+    @Mock private SeaFocusRewardService seaFocusRewards;
+    @Mock private com.oneorthree.phone.ranking.service.IslandWeeklyFocusService weeklyFocus;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -125,8 +129,12 @@ class FocusSessionLifecycleGuardsTest {
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
+                new SeaSessionPredicate(), seaFocusRewards,
+                null, new SeaSessionEvents(outboxCommandPort,
+                new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
-                Clock.fixed(wallClock, ZoneOffset.UTC));
+                Clock.fixed(wallClock, ZoneOffset.UTC), null, weeklyFocus);
     }
 
     // ── 1. 시작 게이트 ────────────────────────────────────────────────────────
@@ -204,6 +212,33 @@ class FocusSessionLifecycleGuardsTest {
         order.verify(userIslandContextLockService).lock(caller);
         order.verify(membershipLocks).lockGroup(ISLAND);
         order.verify(groupMemberRepository).findActiveByUserIdAndGroupIdForShare(USER, ISLAND);
+    }
+
+    @Test
+    @DisplayName("방문자(현재 섬이 자기 섬)가 방문 중인 섬에서 start 하면 403 ISLAND_NOT_CURRENT 다 (GROMO-2258)")
+    void visitorCannotStartOnTheVisitedIsland() {
+        when(userQueryService.getCallerForUpdate(USER)).thenReturn(caller);
+        when(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(caller))
+                .thenReturn(Optional.empty());
+        when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(USER), any()))
+                .thenReturn(Optional.empty());
+        // 방문은 현재 섬을 옮기지 않는다 — 방문자의 현재 섬은 자기 섬 그대로다.
+        UserIslandContext context = UserIslandContext.newFor(USER);
+        context.moveTo(UUID.fromString("eeeeeeee-0000-0000-0000-000000000001"));
+        when(userIslandContextLockService.lock(caller)).thenReturn(context);
+        when(publicCommands.run(any(), any(), any(), any())).thenAnswer(invocation -> {
+            PublicCommandRequest request = invocation.getArgument(0);
+            Supplier<PublicCommandResult> command = invocation.getArgument(3);
+            return new IdempotentOutcome<>(PublicCommandReceipt.completed(request, command.get()), false);
+        });
+
+        assertThatThrownBy(() -> service(NOW, true).start(USER,
+                new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 25), KEY))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.ISLAND_NOT_CURRENT);
+        assertThat(FocusErrorCode.ISLAND_NOT_CURRENT.getStatus().value()).isEqualTo(403);
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
     }
 
     // ── 2. 구간 전환 순서(flush) ──────────────────────────────────────────────

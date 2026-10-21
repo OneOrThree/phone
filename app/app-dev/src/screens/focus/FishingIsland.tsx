@@ -1,7 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { FocusEmoteBubble } from './FocusEmoteBubble';
+import * as Haptics from 'expo-haptics';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { IslandOcean } from '@/screens/island/IslandOcean';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
+  AccessibilityInfo,
+  Easing,
   AppState,
   Image,
   PanResponder,
@@ -12,17 +18,24 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, Ellipse, Image as SvgImage, Path, Pattern, Rect } from 'react-native-svg';
+import Svg, { Ellipse, Path } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
 import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
-import { C } from '@/design-system/primitives';
+import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
+import {
+  FishingCatchMotion,
+  FishingFloatMotion,
+  FishingSceneActive,
+  LAB_CAT_PX,
+  useFishingPose,
+} from '@/screens/focus/FishingSceneMotion';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
@@ -80,6 +93,8 @@ const raftBounds = {
 };
 // fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
 const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
+// 움직임 검토실 line(): 줄 처짐 52 × (1 - tension .24) LAB px 를 고양이(지도 폭 7.7%) 비율로 옮긴 지도 세로 % 값.
+const LINE_SAG = ((52 * (1 - 0.24)) / LAB_CAT_PX) * 7.7 * FISHING_MAP_ASPECT;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
@@ -457,6 +472,7 @@ export function FishingIsland({
   inert = false,
   children,
   overlay,
+  overlayBlocksMap = true,
   goldenFish = false,
 }: {
   focus: Point;
@@ -474,16 +490,19 @@ export function FishingIsland({
   seated?: boolean;
   children: (size: number, sizeY: number, zoom: number) => React.ReactNode;
   overlay?: (toScreen: (p: Point) => Point, size: number) => React.ReactNode;
+  /** 단순 안내 오버레이는 지도 이동과 접근성을 막지 않는다. */
+  overlayBlocksMap?: boolean;
   /** 황금 물고기 컷신 재생이 끝난 뒤 섬에 남는 에셋. */
   goldenFish?: boolean;
 }) {
   const L = useAppLayout();
+  const reduceMotion = useContext(MotionContext);
   const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y });
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
   const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
-  const live = useRef({ cam, L, ratio, focus, seated, overlay });
-  live.current = { cam, L, ratio, focus, seated, overlay };
+  const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
+  live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
   // 끌기 기준점. 손가락 수가 바뀌면(핀치 → 한 손가락) 지금 위치에서 다시 잡아 지도가 튀지 않게 한다
   const start = useRef({ zoom: 1, x: 0, y: 0, dist: 0, n: 0, dx: 0, dy: 0 }),
     dragged = useRef(false),
@@ -500,7 +519,7 @@ export function FishingIsland({
       onStartShouldSetPanResponder: () => false,
       // 집중 준비 카드가 떠 있으면 지도를 끌지 않는다
       onMoveShouldSetPanResponder: (e, g) =>
-        !live.current.overlay &&
+        !(live.current.overlay && live.current.overlayBlocksMap) &&
         ((e.nativeEvent.touches?.length ?? 0) > 1 || Math.abs(g.dx) + Math.abs(g.dy) > 6),
       onPanResponderGrant: () => {
         start.current.n = 0;
@@ -553,7 +572,6 @@ export function FishingIsland({
     return () => el?.removeEventListener?.('wheel', wheel);
   }, []);
   const { size, sizeY, left, top } = view,
-    tile = (L.width >= 600 ? L.width * 0.319 : 204) * cam.zoom,
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
     raftK = raftW / raftBox.w;
@@ -564,30 +582,10 @@ export function FishingIsland({
       {...pan.panHandlers}
       style={{ flex: 1, backgroundColor: '#74B9B9', overflow: clip }}
     >
-      {/* 지도 밖은 섬 그림 귀퉁이 바다를 뒤집어 이은 무늬 */}
-      <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-        <Defs>
-          <Pattern
-            id="fishing-sea"
-            x={-view.sx}
-            y={-view.sy}
-            width={tile}
-            height={tile}
-            patternUnits="userSpaceOnUse"
-          >
-            <SvgImage
-              href={require('@/assets/backgrounds/fishing-island/sea-tile.jpg')}
-              width={tile}
-              height={tile}
-              preserveAspectRatio="none"
-            />
-          </Pattern>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#fishing-sea)" />
-      </Svg>
+      <IslandOcean left={left} top={top} scale={size / 1536} />
       <View
         style={{ position: 'absolute', left, top, width: size, height: sizeY }}
-        {...a11yHidden(inert || !!overlay)}
+        {...a11yHidden(inert || (!!overlay && overlayBlocksMap))}
       >
         <Pressable
           // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
@@ -611,7 +609,7 @@ export function FishingIsland({
           }}
         >
           <Image
-            source={require('@/assets/backgrounds/fishing-island/day.jpg')}
+            source={require('@/assets/backgrounds/island/ocean/focus-day.png')}
             style={{ width: '100%', height: '100%' }}
             resizeMode="stretch"
           />
@@ -631,7 +629,9 @@ export function FishingIsland({
               return (
                 <React.Fragment key={n}>
                   <Path
-                    d={`M ${start.x} ${start.y} L ${s.bx} ${s.by}`}
+                    d={`M ${start.x} ${start.y} Q ${(start.x + s.bx!) / 2} ${
+                      (start.y + s.by!) / 2 + LINE_SAG
+                    } ${s.bx} ${s.by}`}
                     fill="none"
                     stroke="#fff5db"
                     strokeWidth={0.14}
@@ -649,6 +649,18 @@ export function FishingIsland({
               );
             })}
         </Svg>
+        <FishingFloatMotion
+          active={!inert && !reduceMotion}
+          spots={spots
+            .filter((s) => s.bx != null)
+            .map((s, n) => ({
+              key: String(n),
+              x: (size * s.bx!) / 100,
+              y: (sizeY * s.by!) / 100,
+              face: s.face < 0 ? -1 : 1,
+              k: (size * 0.077) / LAB_CAT_PX,
+            }))}
+        />
         {goldenFish && (
           <Image
             source={art['fish/gold']}
@@ -725,7 +737,9 @@ export function FishingIsland({
             />
           </Pressable>
         )}
-        {children(size, sizeY, cam.zoom)}
+        <FishingSceneActive.Provider value={!inert}>
+          {children(size, sizeY, cam.zoom)}
+        </FishingSceneActive.Provider>
       </View>
       {overlay?.((p) => ({ x: left + (size * p.x) / 100, y: top + (sizeY * p.y) / 100 }), size)}
     </View>
@@ -814,7 +828,11 @@ export function FishingActor({
   catchAvoidSpots?: Spot[];
 }) {
   const [reeling, setReeling] = useState(false),
-    [goldenReeling, setGoldenReeling] = useState(false);
+    [goldenReeling, setGoldenReeling] = useState(false),
+    // 한 마리 잡을 때마다 올린다. 2초 창 안에서 또 잡아도 키 포즈·몸 변환·물보라를 처음부터 다시 튼다.
+    [reelNonce, setReelNonce] = useState(0),
+    // 연출 도중 덮이거나(inert) 백그라운드로 끊긴 사건. 돌아와도 그 사건의 연출은 다시 틀지 않는다.
+    [interruptedNonce, setInterruptedNonce] = useState<number | null>(null);
   const count = caughtFish ?? Math.floor(seconds / SECONDS_PER_FISH) + (tutorialFish ? 1 : 0),
     last = useRef(count),
     // 이미 표시된 더미를 가진 채 재마운트되면 기존 사건을 새 당첨으로 재생하지 않는다.
@@ -832,6 +850,7 @@ export function FishingActor({
       return;
     }
     setReeling(true);
+    setReelNonce((n) => n + 1);
     return afterForegroundMs(() => setReeling(false), 2000);
   }, [count, reduce]);
   // 컷신이 닫힌 뒤 참여자만 기존 낚아올리기 스프라이트로 한 번 알린다.
@@ -850,9 +869,40 @@ export function FishingActor({
     setGoldenReeling(true);
     return afterForegroundMs(() => setGoldenReeling(false), 2000);
   }, [goldenFishCount, goldenCatchToken, reduce]);
+  const sceneActive = useContext(FishingSceneActive),
+    [appState, setAppState] = useState(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription?.remove();
+  }, []);
+  // 황금 물고기 reel 은 기존 100ms 반복 그대로 두고, 일반 낚시 연출(키 포즈·몸 변환·물보라)은 끈다.
+  const isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
+    reelEvent = isFishing && !goldenReeling && (motion === 'reel' || (motion == null && reeling)),
+    // 덮인 채/백그라운드로 시작한 사건은 effect 를 기다리지 않고 첫 렌더부터 끊긴 것으로 본다.
+    running = isFishing && !goldenReeling && !reduce && sceneActive && appState === 'active',
+    interrupted = reelEvent && (interruptedNonce === reelNonce || (!reduce && !running)),
+    // 끊긴 사건은 남은 창 동안 기존 기본 reel(100ms 반복)로 두고, 끝나면 focus 키 포즈로 돌아간다.
+    keyed = isFishing && !goldenReeling && !interrupted,
+    catching = reelEvent && !interrupted;
+  const pose = useFishingPose({
+    active: isFishing && !goldenReeling && !reduce && sceneActive,
+    catching,
+    nonce: reelNonce,
+  });
+  // 일반 사건 창은 황금 reel 이 끼어드는 동안에도 흐른다(황금 여부와 무관하게 센다).
+  const eventWindow = isFishing && (motion === 'reel' || (motion == null && reeling));
+  useEffect(() => {
+    // 황금 reel 이 일반 사건 창을 덮으면 그 사건은 끊긴 것으로 기록한다(황금 뒤 창이 남아도 처음부터 다시 틀지 않는다).
+    if (goldenReeling) {
+      if (eventWindow) setInterruptedNonce(reelNonce);
+      return;
+    }
+    // 황금 구간엔 기록을 보존한다. 황금이 아닌데 사건이 없으면 비운다(부모가 motion='reel' 을 줄 땐 nonce 가 안 올라 같은 nonce 가 재사용된다).
+    if (!reelEvent) setInterruptedNonce(null);
+    else if (!reduce && !running) setInterruptedNonce(reelNonce);
+  }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
-    isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
     direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
@@ -909,6 +959,9 @@ export function FishingActor({
         anchored={false}
         onFinish={onMotionFinish}
         generation={generation}
+        keyPoses={keyed}
+        replayKey={keyed ? reelNonce : undefined}
+        poseTransform={keyed ? pose.body : undefined}
         testID="fishing-actor-cat"
       />
       {isFishing && (
@@ -930,25 +983,34 @@ export function FishingActor({
           }}
         />
       )}
+      {/* DESIGN.md §8.3: 다른 주민의 물고기 획득은 공개하지 않는다 — 물보라·물고기는 내 고양이만. */}
+      {me && catching && !reduce && sceneActive && spot.bx != null && spot.by != null && (
+        <FishingCatchMotion
+          key={reelNonce}
+          reel={pose.reel}
+          k={a / LAB_CAT_PX}
+          face={face < 0 ? -1 : 1}
+          bob={{
+            x: (size * (spot.bx - spot.x)) / 100 + a / 2,
+            y: (sizeY * (spot.by - spot.y)) / 100 + a * 0.90625,
+          }}
+          home={
+            showsCatch && catchPlacement
+              ? {
+                  x: (catchPlacement.left + fishingCatchFrame.width / 2) * a,
+                  y: (catchPlacement.top + fishingCatchFrame.height / 2) * a,
+                }
+              : null
+          }
+        />
+      )}
       <View
         style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
         pointerEvents="none"
       >
         {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
         {emote ? (
-          <View
-            style={{
-              alignSelf: 'center',
-              backgroundColor: '#FFFDFA',
-              borderWidth: 2,
-              borderColor: OUTLINE,
-              borderRadius: 15,
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-            }}
-          >
-            <Image source={art[`emote/${emote}`]} style={{ width: 30, height: 30 }} />
-          </View>
+          <FocusEmoteBubble emote={emote} />
         ) : (
           subject != null && (
             <View
@@ -1273,6 +1335,9 @@ export function FiButton({
   left = false,
   bg,
   style,
+  holdToConfirm = false,
+  haptics = true,
+  multiline = false,
 }: {
   title: string;
   onPress: () => void;
@@ -1282,13 +1347,124 @@ export function FiButton({
   left?: boolean;
   bg?: string;
   style?: any;
+  holdToConfirm?: boolean;
+  haptics?: boolean;
+  multiline?: boolean;
 }) {
+  const holdProgress = useRef(new Animated.Value(0)).current;
+  const holding = useRef(false);
+  const holdSource = useRef<'touch' | 'accessibility' | null>(null);
+  const [accessibleHolding, setAccessibleHolding] = useState(false);
+  const finishAction = useRef(onPress);
+  finishAction.current = onPress;
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopHold = useCallback(() => {
+    holding.current = false;
+    holdSource.current = null;
+    setAccessibleHolding(false);
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    if (pulseTimer.current) clearInterval(pulseTimer.current);
+    pulseTimer.current = null;
+    holdProgress.stopAnimation();
+    holdProgress.setValue(0);
+  }, [holdProgress]);
+  useEffect(() => {
+    if (!holdToConfirm) return;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') stopHold();
+    });
+    return () => {
+      listener.remove();
+      stopHold();
+    };
+  }, [holdToConfirm, stopHold]);
+  const completeHold = () => {
+    if (!holding.current) return;
+    stopHold();
+    holdProgress.setValue(1);
+    finishAction.current();
+  };
+  const startHold = (source: 'touch' | 'accessibility') => {
+    stopHold();
+    holding.current = true;
+    holdSource.current = source;
+    setAccessibleHolding(source === 'accessibility');
+    // RN longPress는 버튼 안에서 손가락이 조금 움직여도 취소된다. 누름이 유지되는 시간을 직접 잰다.
+    holdTimer.current = setTimeout(completeHold, componentTokens.focusEndHold.durationMs);
+    Animated.timing(holdProgress, {
+      toValue: 1,
+      duration: componentTokens.focusEndHold.durationMs,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+    if (haptics && Platform.OS !== 'web') {
+      const pulse = () =>
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      pulse();
+      pulseTimer.current = setInterval(pulse, componentTokens.focusEndHold.hapticIntervalMs);
+    }
+  };
+  const activateAccessibleHold = () => {
+    if (holdSource.current === 'accessibility') {
+      stopHold();
+      return;
+    }
+    startHold('accessibility');
+    AccessibilityInfo.announceForAccessibility(t('focusFlow.common.holdEndStarted'));
+  };
   return (
     <Pressable
       testID={id}
       accessibilityRole="button"
-      accessibilityLabel={title}
-      onPress={onPress}
+      accessibilityLabel={accessibleHolding ? t('focusFlow.common.holdEndCancel') : title}
+      accessibilityHint={
+        holdToConfirm
+          ? t(
+              accessibleHolding
+                ? 'focusFlow.common.holdEndCancelHint'
+                : 'focusFlow.common.holdEndA11yHint',
+            )
+          : undefined
+      }
+      accessibilityActions={
+        holdToConfirm
+          ? [
+              {
+                name: 'activate',
+                label: t(
+                  accessibleHolding
+                    ? 'focusFlow.common.holdEndCancel'
+                    : 'focusFlow.common.holdEndStart',
+                ),
+              },
+            ]
+          : undefined
+      }
+      onAccessibilityTap={holdToConfirm ? activateAccessibleHold : undefined}
+      onAccessibilityAction={
+        holdToConfirm
+          ? ({ nativeEvent }) => {
+              if (nativeEvent.actionName === 'activate') activateAccessibleHold();
+            }
+          : undefined
+      }
+      onPress={holdToConfirm ? undefined : onPress}
+      onPressIn={
+        holdToConfirm
+          ? () => {
+              if (holdSource.current !== 'accessibility') startHold('touch');
+            }
+          : undefined
+      }
+      onPressOut={
+        holdToConfirm
+          ? () => {
+              if (holdSource.current === 'touch') stopHold();
+            }
+          : undefined
+      }
       style={({ pressed }) => [
         {
           minHeight: 44,
@@ -1297,7 +1473,8 @@ export function FiButton({
           borderRadius: 999,
           borderWidth: 2,
           borderColor: OUTLINE,
-          backgroundColor: bg ?? (primary ? C.pink : C.cream),
+          backgroundColor: holdToConfirm ? C.cream : (bg ?? (primary ? C.pink : C.cream)),
+          overflow: holdToConfirm ? 'hidden' : undefined,
           boxShadow: `0px ${pressed ? 1 : 4}px 0px ${OUTLINE}`,
           transform: [{ translateY: pressed ? 3 : 0 }],
           justifyContent: 'center',
@@ -1305,8 +1482,24 @@ export function FiButton({
         style,
       ]}
     >
+      {holdToConfirm && (
+        <Animated.View
+          testID={id ? `${id}-progress` : undefined}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            right: 0,
+            transform: [{ scaleX: holdProgress }],
+            transformOrigin: 'left center',
+            backgroundColor: componentTokens.focusEndHold.fill,
+          }}
+        />
+      )}
       <Text
-        numberOfLines={1}
+        numberOfLines={multiline ? undefined : 1}
         style={{
           fontSize: small ? 11 : 14,
           lineHeight: small ? 14.3 : 18.2,
@@ -1315,16 +1508,25 @@ export function FiButton({
           textAlign: left ? 'left' : 'center',
         }}
       >
-        {title}
+        {holdToConfirm ? t('focusFlow.common.holdEndFocus') : title}
       </Text>
     </Pressable>
   );
 }
 // 낚시섬 모달(fi-modal): 반투명 막 위 가운데 카드. 가로(폭 600 이상)는 오른쪽 330px.
 // hidden: 위에 다른 모달(보상)이 떠 있을 때 — Android TalkBack은 형제 뷰를 자동으로 숨기지 않으므로 직접 숨긴다
-export function FiModal({ children, hidden }: { children: React.ReactNode; hidden?: boolean }) {
+export function FiModal({
+  children,
+  hidden,
+  footer,
+}: {
+  children: React.ReactNode;
+  hidden?: boolean;
+  footer?: React.ReactNode;
+}) {
   const wide = useAppLayout().width >= 600,
     safe = useSafeAreaInsets();
+  const contentPadding = wide ? semanticTokens.spacing.page : semanticTokens.spacing.section;
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
@@ -1348,11 +1550,21 @@ export function FiModal({ children, hidden }: { children: React.ReactNode; hidde
       >
         <ScrollView
           style={{ flexGrow: 0, flexShrink: 1 }}
-          contentContainerStyle={{ padding: wide ? 20 : 24 }}
+          contentContainerStyle={{ padding: contentPadding }}
           bounces={false}
         >
           {children}
         </ScrollView>
+        {footer && (
+          <View
+            style={{
+              paddingHorizontal: contentPadding,
+              paddingBottom: contentPadding,
+            }}
+          >
+            {footer}
+          </View>
+        )}
       </View>
     </View>
   );

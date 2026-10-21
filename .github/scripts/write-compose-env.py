@@ -42,6 +42,12 @@ LEGACY_OPTIONAL_KEYS = (
     # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상·자격과 차단 필터 스위치.
     "SVC_TOKEN_REALTIME_TO_DATA", "REALTIME_AUTHORIZATION_DATA_URL", "REALTIME_BLOCKS_FILTER_ENABLED",
     "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
+    # GROMO-2342 채팅 이력 인가 예산 — ON 모드 대기·허용 캐시 TTL, OFF 모드 GroupClient 동시 상한(전부 기본값 있음).
+    "REALTIME_AUTHORIZATION_WAIT_TIMEOUT", "REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS", "CHAT_DATA_API_MAX_CONCURRENCY",
+    # GROMO-2341 STOMP heartbeat(서버 송신·클라이언트 기대 주기 ms). 기본 10000 — 앱 10s/10s 와 같아야 한다.
+    "CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS", "CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS",
+    # GROMO-2339 섬 이동 다중 인스턴스 스위치 — 기본 ON(단일 인스턴스에서도 Redis 리스·채널을 탄다). 끄려면 false.
+    "REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED",
 )
 
 # legacy(dev 전용) 에서 «비면 배포 차단» 으로 올린 값. GROMO-2224.
@@ -97,18 +103,28 @@ SERVICE_OPTIONAL_KEYS = {
         "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64",
         "BATCH_ADMIN_KEY", "LINK_IP_SALT", "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
         "FOCUS_REWARD_ACCRUAL_ENABLED", "ISLAND_BOARD_WRITES_ENABLED",
+        # GROMO-2289 잡지 신청·고치기·발행 스위치 — 지정한 환경만 켜고 없으면 기본 OFF 를 유지한다.
+        "MAGAZINE_ENABLED",
         "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
         "REDIS_HOST", "REDIS_PORT",
         "NOTIFICATION_BASE_URL", "LINK_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
         "INTERNAL_API_ENABLED", "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
         "OUTBOX_RELAY_LEASE_DURATION", "OUTBOX_RELAY_POLL_INTERVAL", "OUTBOX_RELAY_INITIAL_BACKOFF",
         "OUTBOX_RELAY_MAX_BACKOFF", "OUTBOX_RELAY_WARNING_ATTEMPTS", "NOTIFICATION_DISPATCH_MODE",
+        # GROMO-2338 relay 처리량 손잡이 — yml 기본값(10 · 4 · PT5S)이 있어 비워도 된다.
+        "OUTBOX_RELAY_RUN_LENGTH", "OUTBOX_RELAY_WORKER_THREADS", "OUTBOX_RELAY_TICK_BUDGET",
         # GROMO-1954 REALTIME 전달(HTTP 기본 · Kafka 선택). relay 를 켜면 필수다 — 비면 OutboxRelayProperties 가
         # 기동을 거부한다. relay 가 꺼진 지금 필수로 올리면 비밀을 넣기 전 배포가 막혀 선택으로 둔다.
         "REALTIME_BASE_URL", "SVC_TOKEN_DATA_TO_REALTIME", "OUTBOX_RELAY_REALTIME_KAFKA_ENABLED",
         # GROMO-2182 realtime caller 자격(realtime-authorization 프로필이 읽는다)과 차단 사건 생산 스위치.
         # 프로필을 켜지 않은 배포에서는 쓰이지 않으므로 선택으로 둔다.
         "SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
+        # GROMO-2299 바다 방 사건(sea.member.updated) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "FOCUS_SEA_REALTIME_EVENTS_ENABLED",
+        # GROMO-2350 세션 폐기 사건(auth.session.revoked)의 realtime 전달 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED",
+        # GROMO-2302 주민 첫 도착 사건(island.member.arrived) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
@@ -118,6 +134,8 @@ SERVICE_OPTIONAL_KEYS = {
         "GOOGLE_DRIVE_API_KEY",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
+        # GROMO-2331 카탈로그 이미지 절대 URL 의 앞부분 — 비우면 상대 경로(/static/…)를 그대로 내린다.
+        "STATIC_ASSETS_BASE_URL",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",

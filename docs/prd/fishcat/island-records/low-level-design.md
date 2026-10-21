@@ -125,12 +125,14 @@ scope는 필수 me|island, 다른 값은422 OUT_OF_RANGE(field=scope). islandId�
 
 | scope | 필드 | 의미 |
 | --- | --- | --- |
-| me | scope,totalSeconds,series[{date,seconds}],records[{id,subject,activeSeconds,completedAt}],nextCursor,**asOf** | 본인 전체 요청 기간 합과 완료 세션 상세 페이지 |
+| me | scope,totalSeconds,earnedFish,series[{date,seconds}],records[{id,subject,activeSeconds,completedAt}],nextCursor,**asOf** | 본인 전체 요청 기간 합과 완료 세션 상세 페이지 |
 | island | scope,members[{userId,name,catColor,totalSeconds,series[{date,seconds}]}],nextCursor,**asOf** | 공개 주민 기간 집계 페이지. 개인 records/subject 없음 |
 
 asOf는 이번 승인된 UTC instant 확장이다. 원본 JSON은 그대로 유지하고 실제 data에 `"asOf":"2026-09-11T09:10:00Z"`를 추가한다. timestamp만으로 snapshot을 재현하지 않으며 실제 immutable snapshotId는 cursor에 결합한다. scope별 조회 대상의 의미는 RC-D01 승인 정책을 사용한다. scope=island의 nextCursor는 members 페이징에 사용하고 scope=me의 nextCursor는 records 페이징이다. 어떤 목록을 넘기는지 cursor scope에 고정한다.
 
 totalSeconds와 series는 페이지와 무관한 전체 기간 합이다. records는 **완료 세션**당1행이며 activeSeconds는 조회 날짜 범위에 배분된 그 세션의 몫이다. completedAt은 원 세션의 실제 종료 UTC 시각이므로 범위 밖에 있어도 날짜 기여가 있으면 포함한다. 같은 세션의 ACTIVE 구간마다 records를 복제하지 않는다. 진행 세션 기여는 승인된 개인/섬 범위에서 total/series에 더하지만 completedAt이 없는 가짜 완료 record는 만들지 않는다. 따라서 records 페이지 합이 total과 같아야 한다는 가정을 하지 않는다. 전체 세션 시간을 보려면 기존 세션 상세 계약을 사용한다.
+
+2026-10-19 확장: `scope=me.earnedFish`는 요청한 시간대의 `[from 00:00, to+1 00:00)` 창에서 실제 적립된 개인 전체 물고기 합이다. 앱은 `timezone=Asia/Seoul`을 보내 KST 날짜로 표시한다. 일반 보상은 `island_wallet_transactions`의 실제 지급 건만 읽고, 분 단위 `focus:<sessionId>:<number>`는 세션에 고정된 `secondsPerFish`와 ACTIVE 구간으로 적립 시각을 복원한다. 상한에 막힌 분은 지급 건이 없으므로 포함하지 않는다. 예전 일괄 정산 키는 원장 적립 시각을 사용한다. 분 단위 지급도 ACTIVE 구간 이력이 불완전해 시각을 복원할 수 없으면 원장 적립 시각으로 집계해 실제 지급분을 누락하지 않는다. 황금 물고기는 지급과 같은 트랜잭션에 보존된 불변 `focus.golden` 사건의 `drawnAt`, 확정 `members`, `sharePerMember`를 읽는다(전송 상태와 무관). 이 사건은 현재 일별 통계의 원장이므로 삭제·만료 전에 확정 지급 시각·참여자·자기 몫을 별도 지급 원장으로 이관해야 한다. 최초 체험은 계정별 영수증 `claimedAt`으로 1마리를 더한다. 진행 중·강퇴·포기 세션도 이미 적립된 몫은 남는다. UTC 날짜별 상한 원장을 KST 날짜로 단순 치환하지 않으며, 획득량도 시간/기록과 같은 스냅샷에 고정한다. 다른 주민의 일별 획득량은 공개하지 않는다. DB 변경은 없다.
 
 series는 원본처럼 오름차순의 희소 날짜 배열이다. 집중 데이터가 완전히 알려진 범위에서 누락 날짜는0초이며 빈 결과는 totalSeconds=0,series=[],records 또는 members=[]다. 귀속을 모르는 legacy 자료를 '알려진0'으로 바꾸지 않는다. 해당 정책/백필이 해결되지 않은 범위는 RC-D05 gate다. 날짜 몫이0초인 완료 기록을 표시할지는 기록 DTO 검증에서 일관되게 처리하며 이 설계는 양의 기간 기여가 있는 세션만 목록에 싣는 기술 선택을 채택한다.
 
@@ -158,6 +160,13 @@ PR743의 단일 계산식을 사용한다. ACTIVE 구간은 `[start,end)`, 진�
 | ACTIVE 23:59:59.800~00:00:00.800 | 총1초, 정본 누적 규칙으로 전일1·당일0 |
 
 완료 날짜 기여·진행 상태·구간은 lifecycle 공유 잠금 획득 후 READ COMMITTED TX의 단일 SELECT statement snapshot에서 함께 읽는다. 완료 projection 캐시와 현재 Redis live 값을 별도 조회해 더하지 않는다. finish와 경쟁해도 동일 세션이 완료+진행 양쪽에 잡히지 않아야 한다. read projection의 순수 합산은 보상/종료 명령을 호출하지 않는다.
+
+**조회 범위와 트랜잭션(GROMO-2344).** 상세에는 구간 시각이 없어 겹침 판정이 주민의 «전생애» 세션마다 구간을
+탐침했다. 끝난 세션의 `last_transition_at` 은 종결 시각이고 그 세션 어떤 구간의 `ended_at` 보다도 작지 않으므로
+`(진행 중) OR last_transition_at > from` 을 바깥 조건으로 더하고 V130 `(user_id, island_id, last_transition_at)`
+인덱스로 범위를 자른다(정확한 겹침은 여전히 EXISTS). 구간은 **매칭된 세션의 전체**를 그대로 읽는다 — 날짜 배분이
+세션 전체의 누적 μs 에 기대므로 창 밖 구간을 빼면 경계 날짜가 최대 1초 달라진다. 조회는 REPEATABLE READ
+**읽기 전용** 트랜잭션이고, scope=me 기록이 한 페이지를 넘을 때의 스냅샷 저장만 조회가 끝난 뒤 별 쓰기 트랜잭션에서 한다.
 
 scope=me records 정렬은 completedAt DESC, UUID DESC, scope=island members는 UUID ASC다. 페이지 기본30/상한100은 A0를 따르고 선택 limit 확장은 기술 query다. limit/filter/scope를 바꾸면 첫 조회다. immutable snapshot에 total/series/records 또는 members의 정렬 결과와 asOf·정책 revision을 고정한다. Data READ COMMITTED 쓰기 TX의 단일 SELECT로 일관된 projection을 만들고 결과·역색인을 함께 저장한다. 같은 TX에서 첫 응답 내용을 확정하고 commit 후 전달하며 HTTP 사이 장시간 DB TX를 유지하지 않는다.
 

@@ -10,7 +10,10 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
-/** 수신 서비스가 반환할 때 DB 커밋이 끝난다. 예외/DLT 발행 실패를 성공으로 삼키지 않는다. */
+/**
+ * 수신 서비스가 반환할 때 DB 커밋이 끝난다. 예외/DLT 발행 실패를 성공으로 삼키지 않는다.
+ * 커밋 시점·리밸런싱·소비 그룹·파티션 상한의 근거는 {@code docs/architecture/kafka-consumption.md}.
+ */
 @Configuration
 @ConditionalOnProperty(name = "notification.kafka-enabled", havingValue = "true")
 class KafkaInbound {

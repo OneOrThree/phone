@@ -1,6 +1,8 @@
 package com.oneorthree.realtime.membership;
 
+import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.common.redis.Sourced;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -87,7 +90,7 @@ public class MembershipService {
         if (cached != null) {
             return parse(cached);
         }
-        return fetchAndStore(key, bearerToken);
+        return fetchAndStore(key, bearerToken).groupIds();
     }
 
     /**
@@ -97,13 +100,26 @@ public class MembershipService {
      * <p>재검사가 캐시를 읽으면, 사건의 캐시 삭제({@link #evict})가 실패했을 때 남은 옛 답(「멤버」)이 강퇴된 사람을
      * 그대로 통과시킨다. 정본에 바로 물으면 그 실패가 판정에 끼어들 자리가 없다.
      *
-     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않을 때
+     * <p>방문자 응원(GROMO-2258)도 같은 이유로 이걸 쓴다 — 가입 직후 남은 «비주민» 캐시를 믿으면 세션 없는 주민이
+     * 방문자로 위장해 {@code NOT_FOCUSING} 을 비켜 간다.
+     *
+     * <p><b>«비주민»은 성공한 조회로만 확정한다</b>(GROMO-2258). 상류가 403 으로 거절했거나 형식이 깨진(본문 없음·
+     * groupId 없는 항목) 빈 답({@code rejected})은 이 사람의 소속에 대한 사실이 아니라 판정 불가다 — {@code false} 로
+     * 접으면 조회가 거절된 주민이 방문자로 승인된다. 그래서 fail-closed 로 올린다(401 은 이미
+     * {@code UpstreamRejectedCredentialException} 으로 올라온다).
+     *
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않거나, 403 으로
+     *         거절했거나, 형식이 깨진 성공 응답을 줬을 때
      */
     public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
-        return fetchAndStore(RedisKeys.memberCache(userId), bearerToken).contains(groupId);
+        GroupClient.Membership fresh = fetchAndStore(RedisKeys.memberCache(userId), bearerToken);
+        if (!fresh.cacheable()) {
+            throw new UpstreamUnavailableException();
+        }
+        return fresh.groupIds().contains(groupId);
     }
 
-    private Set<UUID> fetchAndStore(String key, String bearerToken) {
+    private GroupClient.Membership fetchAndStore(String key, String bearerToken) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
         // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에
@@ -111,7 +127,7 @@ public class MembershipService {
         if (fresh.cacheable()) {
             store(key, fresh.groupIds());
         }
-        return fresh.groupIds();
+        return fresh;
     }
 
     /**
@@ -147,6 +163,19 @@ public class MembershipService {
             log.warn("멤버십 캐시 무효화 실패 — userId={}", userId, e);
             return false;
         }
+    }
+
+    /**
+     * 캐시된 소속과 <b>그 값의</b> 만료를 한 원자 단위로 읽는다 — 상류는 부르지 않는다(GROMO-2340). 전달 직전 인가 캐시가
+     * 「이 판정을 언제까지 믿어도 되는가」를 이 값에서 얻는다. 캐시가 없으면 값이 {@code null}, 만료는
+     * {@link Sourced#EXPIRED} 다.
+     *
+     * @throws RuntimeException Redis 실패 — 부르는 쪽은 담지 않는다
+     */
+    public Sourced<Set<UUID>> cachedGroupIdsSourced(UUID userId) {
+        Sourced<List<String>> read = Sourced.read(redis, RedisKeys.memberCache(userId));
+        return read.expiresAtNanos() == Sourced.EXPIRED ? new Sourced<>(null, Sourced.EXPIRED)
+                : new Sourced<>(parse(read.value().get(0)), read.expiresAtNanos());
     }
 
     /** 파싱 안 되는 조각은 조용히 버린다 — 이물질 하나가 판정 전체를 예외로 만들지 않게. */

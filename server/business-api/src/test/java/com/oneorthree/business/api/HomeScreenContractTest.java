@@ -41,7 +41,8 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
-            + "\"role\":\"host\",\"version\":3}";
+            + "\"role\":\"host\",\"version\":3,"
+            + "\"greeting\":\"모래섬에 온 걸 환영해요! 같이 집중해요 🐟\",\"greetingIsDefault\":true}";
     private static final String SUMMARY = "{\"date\":\"2026-09-17\",\"completedSeconds\":60,"
             + "\"currentSessionSecondsToday\":30,\"totalSeconds\":90,\"serverNow\":\"2026-09-17T00:00:00Z\"}";
     private static final String REST = "{\"items\":[{\"userId\":\"" + USER + "\",\"name\":\"수아\","
@@ -92,6 +93,8 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
                 .andExpect(jsonPath("$.data.island.role").value("host"))
                 .andExpect(jsonPath("$.data.island.version").value(3))
+                .andExpect(jsonPath("$.data.island.greeting").value("모래섬에 온 걸 환영해요! 같이 집중해요 🐟"))
+                .andExpect(jsonPath("$.data.island.greetingIsDefault").value(true))
                 .andExpect(jsonPath("$.data.focusSummary.totalSeconds").value(90))
                 .andExpect(jsonPath("$.data.focusSummary.serverNow").value("2026-09-17T00:00:00Z"))
                 .andExpect(jsonPath("$.data.restMembers.items[0].restSeat").value(1))

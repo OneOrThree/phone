@@ -27,8 +27,9 @@ import java.util.UUID;
  * 여기에 {@code clientMessageId} 가 없는 이유는 응원이 멱등 대상이 아니기 때문이다 — 같은 SEND 를
  * 두 번 보내면 <b>별도의 응원 두 건</b>이다(LLD §2 「자동 재전송하지 않는다」).
  *
- * <p>거절 사유는 {@code ChatErrorCode} 세 가지로 갈린다 — {@code INVALID_EMOTE_TYPE}(422 의미),
- * {@code NOT_FOCUSING}(409 의미), {@code EMOTE_TOO_FREQUENT}(429 의미). LLD §2 가 요구한 구분이고,
+ * <p>거절 사유는 {@code ChatErrorCode} 로 갈린다 — {@code INVALID_EMOTE_TYPE}(422 의미),
+ * {@code NOT_FOCUSING}(409 의미), {@code EMOTE_TOO_FREQUENT}(429 의미), 방문자 응원의
+ * {@code NO_ONE_FOCUSING}(409 의미, GROMO-2258). LLD §2 가 요구한 구분이고,
  * HTTP 응답이 아니라 <b>봉투의 code</b> 로 전달된다.
  */
 @Slf4j
@@ -47,7 +48,7 @@ public class FocusEmoteStompController {
     public SendFailureResponse emote(@DestinationVariable UUID islandId,
             @Payload @Valid FocusEmoteRequest request, ChatPrincipal principal) {
         try {
-            focusEmoteService.publish(islandId, principal.userId(), request);
+            focusEmoteService.publish(islandId, principal.userId(), principal.bearer(), request);
             return null;
         } catch (DomainException e) {
             log.debug("응원 거절 — code={}", e.getErrorCode().name());

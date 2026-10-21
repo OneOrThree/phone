@@ -1,0 +1,30 @@
+{
+  "endpoint": "Group Bet Query_getGroupChallengeHistory",
+  "method": "GET",
+  "path": "/api/v1/groups/{groupId}/challenge-history",
+  "tag": "Group Bet Query",
+  "summary": "그룹 챌린지 내역 (그룹 단위 회차 이력)",
+  "userPool": "zipf",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [
+    {
+      "name": "size",
+      "gen": "const",
+      "value": 20
+    }
+  ],
+  "body": null,
+  "paginate": {
+    "cursorField": "nextCursor",
+    "pages": 2
+  },
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

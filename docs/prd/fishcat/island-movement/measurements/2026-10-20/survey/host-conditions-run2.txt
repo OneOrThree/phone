@@ -1,0 +1,7 @@
+host loadavg at start: { 45.37 17.16 13.86 }; gradle procs: 1 ; Xcode 빌드 없음(멈춘 플래닝 프로세스 정리 뒤) — run2
+gromo-loadtest-survey-business-api-1 cpu=0.97% mem=282.3MiB / 1GiB
+gromo-loadtest-survey-realtime-1 cpu=4.76% mem=603.6MiB / 1GiB
+gromo-loadtest-survey-realtime-2-1 cpu=6.71% mem=403MiB / 1GiB
+gromo-loadtest-survey-data-api-1 cpu=1.81% mem=522.6MiB / 1GiB
+gromo-loadtest-survey-business-redis-1 cpu=0.38% mem=2.004MiB / 192MiB
+gromo-loadtest-survey-business-redis-exporter-1 cpu=0.90% mem=15.25MiB / 7.653GiB

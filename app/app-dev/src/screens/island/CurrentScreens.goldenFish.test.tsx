@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React, { useReducer, useState } from 'react';
 import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render, userEvent } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { applyLocalePref } from '@/i18n';
 import { initialState, reducer, type State } from '@/services/model';
@@ -11,6 +11,11 @@ import type { GoldenFishEvent } from '@/services/islandRealtime';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
 let presenceActive: boolean | undefined;
+let mockResultBoard: { loading: boolean; error: unknown; quests: any[] } = {
+  loading: false,
+  error: null,
+  quests: [],
+};
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
   catColor: (color: string) => color,
@@ -61,8 +66,8 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   const { View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ goldenFish, children, overlay, onRaft }: any) => (
-      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft}>
+    FishingIsland: ({ goldenFish, children, overlay, onRaft, onTap }: any) => (
+      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft} onTap={onTap}>
         {children(640, 640 / 1.5, 1)}
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
@@ -95,6 +100,15 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   };
 });
 
+jest.mock('@/screens/world/WorldViews', () => {
+  const actual = jest.requireActual('@/screens/world/WorldViews');
+  const { Pressable } = require('react-native');
+  return {
+    ...actual,
+    Sailing: ({ onArrive }: any) => <Pressable testID="focus-sailing" onPress={onArrive} />,
+  };
+});
+
 jest.mock('@/screens/focus/GoldenFishCutscene', () => ({
   GoldenFishCutscene: ({ onFinish, muted, volume }: any) => {
     const { Pressable } = require('react-native');
@@ -109,7 +123,7 @@ jest.mock('@/screens/island/useBoardHomeIndicator', () => ({
   useBoardHomeIndicator: () => ({ hasNew: false }),
 }));
 jest.mock('@/screens/interiors/useBoardNotices', () => ({
-  useBoardNotices: () => ({ loading: false, error: null, quests: [] }),
+  useBoardNotices: () => mockResultBoard,
 }));
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -269,7 +283,9 @@ const mount = (state = focusedState(), backOverride?: { current: (() => boolean)
   render(screenElement(state, 'focus', backOverride));
 
 beforeEach(async () => {
+  jest.useFakeTimers();
   jest.clearAllMocks();
+  mockResultBoard = { loading: false, error: null, quests: [] };
   onGoldenFish = undefined;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
@@ -316,7 +332,6 @@ test('튜토리얼 종료 실패는 재시도 가능하며 성공 후에만 결�
   const screen = await render(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, props),
   );
-  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
   await screen.rerender(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, {
       ...props,
@@ -324,10 +339,12 @@ test('튜토리얼 종료 실패는 재시도 가능하며 성공 후에만 결�
     }),
   );
   setGuideStep.mockClear();
-  await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
+  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(setGuideStep).not.toHaveBeenCalled();
   expect(reset).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
+  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(setGuideStep).toHaveBeenCalledWith(19, { step: 18, revision: 0 });
   expect(reset).toHaveBeenCalledWith('focusResult');
   await screen.unmount();
@@ -346,6 +363,66 @@ test('첫 물고기와 사용처는 한 대사이며 한 번 넘기면 휴식 �
   ).toBeTruthy();
   await fireEvent.press(screen.getByText('다음'));
   expect(setGuideStep).toHaveBeenCalledWith(14);
+  await screen.unmount();
+});
+
+test('집중섬 도착 즉시 자리 안내와 귀환 버튼을 표시하고 중복 귀환을 막는다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const go = jest.fn(),
+    dispatch = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch),
+  );
+  expect(screen.getByText('집중할 자리를 골라주세요!')).toBeTruthy();
+  const back = screen.getByRole('button', { name: '← 메인 섬으로' });
+  await fireEvent.press(back);
+  await fireEvent.press(back);
+  expect(go).toHaveBeenCalledTimes(1);
+  expect(go).toHaveBeenCalledWith('returnTravel');
+  expect(dispatch).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test.each(['button', 'hardware'] as const)(
+  '자리로 걷는 중 %s 뒤로가기는 착석을 취소하고 귀환한다',
+  async (method) => {
+    jest.useFakeTimers();
+    const state = focusedState();
+    state.session = null;
+    state.settings.reduceMotion = false;
+    const go = jest.fn(),
+      dispatch = jest.fn();
+    const backOverride: { current: (() => boolean) | null } = { current: null };
+    const screen = await render(
+      screenElement(state, 'fishingArrival', backOverride, go, undefined, dispatch),
+    );
+    await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    expect(go).not.toHaveBeenCalled();
+    if (method === 'button') await fireEvent.press(screen.getByTestId('leave-fishing-arrival'));
+    else
+      await act(async () => {
+        expect(backOverride.current?.()).toBe(true);
+      });
+    // 귀환 도중 땅을 다시 눌러도 이전 자리 선택으로 돌아가지 않는다.
+    await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    await act(async () => jest.advanceTimersByTime(20000));
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(go).toHaveBeenCalledWith('returnTravel');
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+    await screen.unmount();
+  },
+);
+
+test('착석하면 자리 안내를 숨기고 다시 자리 고르기로 돌아오면 표시한다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const screen = await render(screenElement(state, 'fishingArrival'));
+  await screen.rerender(screenElement(state, 'focusSetup'));
+  expect(screen.queryByText('집중할 자리를 골라주세요!')).toBeNull();
+  expect(screen.queryByTestId('leave-fishing-arrival')).toBeNull();
+  await screen.rerender(screenElement(state, 'fishingArrival'));
+  expect(screen.getByText('집중할 자리를 골라주세요!')).toBeTruthy();
   await screen.unmount();
 });
 
@@ -412,31 +489,40 @@ test('첫 물고기를 기다리는 11단계에는 휴식과 종료 전환을 �
     }),
   );
   await fireEvent.press(screen.getByTestId('pause-focus', { includeHiddenElements: true }));
-  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
+  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(pause).not.toHaveBeenCalled();
   expect(screen.queryByTestId('confirm-finish', { includeHiddenElements: true })).toBeNull();
   await screen.unmount();
 });
 
-test('종료 확인 취소는 17단계로 돌아가며 다시 종료할 수 있다', async () => {
+test('집중 종료 버튼은 확인창 없이 3초 누른 뒤 바로 결과로 진행한다', async () => {
+  jest.useFakeTimers();
   const state = focusedState();
-  const setGuideStep = jest.fn();
-  const props = { guideStep: 17, setGuideStep };
-  const element = (guideStep: number) =>
+  state.session!.version = 1;
+  const finish = jest.fn().mockResolvedValue({});
+  const setGuideStep = jest.fn(),
+    reset = jest.fn();
+  const screen = await render(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, {
-      ...props,
-      guideStep,
-    });
-  const screen = await render(element(17));
-  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
-  expect(setGuideStep).toHaveBeenLastCalledWith(18);
-  await screen.rerender(element(18));
-  await fireEvent.press(screen.getByText('계속하기'));
-  expect(setGuideStep).toHaveBeenLastCalledWith(17);
+      guideStep: 17,
+      setGuideStep,
+      reset,
+      focus: { finish },
+    }),
+  );
+  const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+  const button = screen.getByTestId('end-focus', { includeHiddenElements: true });
+  await user.press(button);
+  await user.longPress(button, { duration: 2999 });
+  expect(finish).not.toHaveBeenCalled();
+  expect(setGuideStep).not.toHaveBeenCalled();
   expect(screen.queryByTestId('confirm-finish', { includeHiddenElements: true })).toBeNull();
-  await screen.rerender(element(17));
-  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
-  expect(setGuideStep).toHaveBeenLastCalledWith(18);
+  await user.longPress(button, { duration: 3000 });
+  expect(finish).toHaveBeenCalledTimes(1);
+  expect(setGuideStep).toHaveBeenCalledWith(19, { step: 17, revision: 0 });
+  expect(reset).toHaveBeenCalledWith('focusResult');
+  await screen.unmount();
 });
 
 test('자리 선택 중에는 뗏목 귀환을 막지만 일반 자리 선택의 귀환은 유지한다', async () => {
@@ -459,7 +545,7 @@ test('자리 선택 중에는 뗏목 귀환을 막지만 일반 자리 선택의
 test.each([
   ['pause', 14, 'focus', 'pause-focus'],
   ['resume', 15, 'rest', 'resume-focus'],
-  ['finish', 17, 'focus', 'confirm-finish'],
+  ['finish', 17, 'focus', 'end-focus'],
 ] as const)(
   '%s 요청 중 건너뛰기는 늦은 성공 뒤에도 99단계로 유지된다',
   async (command, step, route, button) => {
@@ -485,9 +571,10 @@ test.each([
       });
     }
     const screen = await render(<Flow />);
-    if (command === 'finish')
-      await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
-    await fireEvent.press(screen.getByTestId(button, { includeHiddenElements: true }));
+    if (button === 'end-focus') {
+      await fireEvent(screen.getByTestId(button, { includeHiddenElements: true }), 'pressIn');
+      await act(() => jest.advanceTimersByTime(3000));
+    } else await fireEvent.press(screen.getByTestId(button, { includeHiddenElements: true }));
     expect(request).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByText('안내 그만 보기'));
     expect(current.tutorial?.step).toBe(99);
@@ -586,7 +673,7 @@ test('구버전 완료 결과의 실제 물고기와 acknowledge 명령을 보�
     }),
   );
   expect(screen.getByText('기존 집중 결과', { includeHiddenElements: true })).toBeTruthy();
-  expect(screen.getByText('+2마리', { includeHiddenElements: true })).toBeTruthy();
+  expect(screen.getByText('+2', { includeHiddenElements: true })).toBeTruthy();
   await fireEvent.press(screen.getByTestId('result-done', { includeHiddenElements: true }));
   expect(acknowledge).toHaveBeenCalledWith('legacy-result');
   await screen.unmount();
@@ -621,8 +708,8 @@ test('체험 종료 버튼은 서버 finish 없이 결과를 표시하고 실제
     });
   }
   const screen = await render(<Flow />);
-  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
-  await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
+  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(finish).not.toHaveBeenCalled();
   expect(current.tutorial?.step).toBe(19);
   expect(current.tutorialExperience?.result?.fish).toBe(1);
@@ -770,6 +857,20 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 2);
   await screen.unmount();
   jest.useRealTimers();
+});
+
+test('집중 화면이 사라질 때 자기가 건 뒤로 가기 처리만 걷고 다른 화면이 건 것은 건드리지 않는다', async () => {
+  const backOverride: { current: (() => boolean) | null } = { current: null };
+  const mine = await mount(focusedState(), backOverride);
+  expect(typeof backOverride.current).toBe('function');
+  await mine.unmount();
+  expect(backOverride.current).toBeNull();
+
+  const other = jest.fn(() => true);
+  const screen = await mount(focusedState(), backOverride);
+  backOverride.current = other; // 다른 화면이 자기 처리를 걸었다
+  await screen.unmount();
+  expect(backOverride.current).toBe(other);
 });
 
 test('동작 줄이기에서는 컷신 대신 음성 안내하고 황금 물고기 더미를 반영한다', async () => {
@@ -921,7 +1022,8 @@ test('reel 재생 중 휴식과 종료 명령을 reel 종료까지 미룬다', a
   await act(async () => jest.advanceTimersByTime(1999));
   assert.equal(finishDispatch.mock.calls.length, 0);
   await act(async () => jest.advanceTimersByTime(1));
-  await fireEvent.press(finishScreen.getByTestId('confirm-finish'));
+  await fireEvent(finishScreen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   assert.equal(finishDispatch.mock.calls[0][0].type, 'FINISH');
   await finishScreen.unmount();
   jest.useRealTimers();
@@ -1220,7 +1322,7 @@ describe('en', () => {
       screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, props),
     );
     expect(
-      screen.getByPlaceholderText('e.g. Memorize English words', { includeHiddenElements: true }),
+      screen.getByPlaceholderText('What will you do? (optional)', { includeHiddenElements: true }),
     ).toBeTruthy();
     await screen.rerender(
       screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
@@ -1258,4 +1360,160 @@ describe('en', () => {
     expect(alert).not.toHaveTextContent('회원 전환 토큰 오류');
     await screen.unmount();
   });
+});
+
+test.each(['', '   '])('할 일이 %j이면 기본 주제로 집중을 시작한다', async (text) => {
+  const state = focusedState();
+  state.session = null;
+  const start = jest.fn().mockResolvedValue({});
+  const go = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, go, undefined, undefined, {
+      text,
+      focus: { start },
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('start-focus'));
+  expect(start).toHaveBeenCalledWith({ subject: '집중' });
+  expect(go).toHaveBeenCalledWith('focus');
+  await screen.unmount();
+});
+
+test('준비 창 X는 집중 시작 없이 자리 선택으로 돌아간다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const start = jest.fn(),
+    replace = jest.fn(),
+    setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+      guideStep: 7,
+      focus: { start },
+      replace,
+      setGuideStep,
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('close-focus-setup', { includeHiddenElements: true }));
+  expect(start).not.toHaveBeenCalled();
+  expect(replace).toHaveBeenCalledWith('fishingArrival');
+  expect(setGuideStep).toHaveBeenCalledWith(5);
+  await screen.unmount();
+});
+
+test('첫 집중 체험도 할 일을 쓰지 않고 건너뛸 수 있다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const start = jest.fn(),
+    setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+      guideStep: 7,
+      focus: { start },
+      setGuideStep,
+    }),
+  );
+  await fireEvent.press(screen.getByText('건너뛰기'));
+  expect(setGuideStep).toHaveBeenCalledWith(8);
+  expect(start).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test('도착하면 바다 쪽 안내와 선택 가능한 빈자리 원이 나타난다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const go = jest.fn(),
+    dispatch = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch),
+  );
+  expect(screen.getByTestId('focus-arrival-hint')).toHaveTextContent('집중할 자리를 골라주세요!');
+  const markers = screen.getAllByLabelText('집중할 빈자리');
+  expect(markers.length).toBeGreaterThan(0);
+  expect(markers.length).toBeLessThanOrEqual(8);
+  await fireEvent.press(markers[0]);
+  await act(() => jest.advanceTimersByTime(10000));
+  expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+  expect(go).toHaveBeenCalledWith('focusSetup');
+  await screen.unmount();
+});
+
+test('휴식 중에는 집중 이어가기만 있고 한 번 누르면 종료 없이 집중섬으로 돌아온다', async () => {
+  const state = focusedState();
+  state.session!.status = 'paused';
+  state.session!.version = 1;
+  const resume = jest.fn().mockResolvedValue({}),
+    finish = jest.fn();
+  const go = jest.fn(),
+    home = jest.fn();
+  const screen = await render(
+    screenElement(state, 'rest', undefined, go, home, undefined, {
+      focus: { resume, finish },
+    }),
+  );
+  expect(screen.queryByTestId('end-rest')).toBeNull();
+  expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
+  await fireEvent.press(screen.getByTestId('resume-focus'));
+  expect(resume).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('focus-sailing'));
+  expect(go).toHaveBeenCalledWith('focus');
+  expect(home).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test.each([
+  { loading: false, error: null, quests: [] },
+  { loading: true, error: null, quests: [] },
+  { loading: false, error: new Error('network'), quests: [] },
+  {
+    loading: false,
+    error: null,
+    quests: [{ title: '아직 진행 중', claimable: false, claimed: false, myRate: 20 }],
+  },
+])('결과창에 표시할 달성 퀘스트가 없으면 영역과 빈 안내를 숨긴다: %j', async (board) => {
+  mockResultBoard = board;
+  const state = focusedState();
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  state.session = null;
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '독서',
+    seconds: 1500,
+    fish: 3,
+    at: Date.now(),
+    contributed: true,
+  };
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      islands: {},
+    }),
+  );
+  expect(screen.queryByTestId('focus-result-quests')).toBeNull();
+  expect(screen.queryByText('달성한 일일 퀘스트')).toBeNull();
+  expect(screen.queryByText(/아직 없어요/)).toBeNull();
+  expect(screen.getByTestId('focus-result-duration')).toHaveTextContent('00:25:00');
+  expect(screen.getByText('+3')).toBeTruthy();
+  expect(screen.getByTestId('result-done')).toBeTruthy();
+  await screen.unmount();
+});
+
+test('결과창은 서버에서 달성 또는 수령한 퀘스트만 보여준다', async () => {
+  mockResultBoard.quests = [
+    { title: '집중 25분', claimable: true, claimed: false },
+    { title: '아침 집중', claimable: false, claimed: true },
+    { title: '미달성 퀘스트', claimable: false, claimed: false },
+  ];
+  const state = focusedState();
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  state.session = null;
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      islands: {},
+    }),
+  );
+  expect(screen.getByTestId('focus-result-quests')).toContainElement(screen.getByText('집중 25분'));
+  expect(screen.getByTestId('focus-result-quests')).toContainElement(screen.getByText('아침 집중'));
+  expect(screen.queryByText('미달성 퀘스트')).toBeNull();
+  await screen.unmount();
 });

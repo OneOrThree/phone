@@ -1,5 +1,6 @@
 package com.oneorthree.phone.appearance.service;
 
+import com.oneorthree.phone.appearance.support.DefaultAudioTracks;
 import static com.oneorthree.phone.appearance.service.AppearanceService.decode;
 import static com.oneorthree.phone.appearance.service.AppearanceService.receiptEvents;
 import static com.oneorthree.phone.appearance.service.AppearanceService.requireCarrier;
@@ -227,7 +228,8 @@ public class IslandPlaybackService {
                 .orElseThrow(() -> new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE));
         AudioTrack track = audioTracks.findById(asset.getProductId())
                 .orElseThrow(() -> new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE));
-        if (ownedProducts.findIslandProductForShare(islandId, trackId).isEmpty()) {
+        if (!DefaultAudioTracks.contains(trackId)
+                && ownedProducts.findIslandProductForShare(islandId, trackId).isEmpty()) {
             throw new AppearanceException(AppearanceErrorCode.FORBIDDEN);
         }
         return track;

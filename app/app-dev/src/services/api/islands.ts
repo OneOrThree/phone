@@ -10,12 +10,16 @@
  *  - `GET    /islands?q&cursor&limit`           이름 검색 — 전망대 완공이 필요한 소속 후 기능.
  *                                               첫 소속 전 대체 경로로 쓰지 않는다.
  *  - `GET    /screens/visit/{islandId}`         방문 화면(공개 요약 + 주민 + 내 신청 상태).
- *  - `POST   /islands/{islandId}/memberships`   가입·가입 신청. `Idempotency-Key` 필수.
+ *  - `POST   /islands/{islandId}/memberships`   가입·가입 신청. `Idempotency-Key` 필수. 본문 `origin` 은 선택 —
+ *                                               `telescope` 면 즉시 가입이어도 현재 섬을 옮기지 않는다(GROMO-2266).
  *  - `GET    /me/join-requests`                 내 pending 신청 목록(재실행 복구용).
  *  - `GET    /me/join-requests/{requestId}`     신청 상태(종결된 것도 조회된다).
  *  - `DELETE /me/join-requests/{requestId}`     신청 취소. `Idempotency-Key` 필수.
  *  - `POST   /invitations/resolve`              초대 코드 해석. 조회 성격이라 멱등 키 없음.
  *  - `GET    /me/islands`                       내 섬 재조회 — 생성·가입·승인·재실행의 정본.
+ *  - `GET    /islands/{islandId}/guestbook?cursor` 방명록 목록(30개씩, 최신순) — 방문자·주민·게스트 읽기.
+ *  - `POST   /islands/{islandId}/guestbook`     한 줄 남기기(≤20 코드포인트, 하루 1개). 멱등 키 없음.
+ *  - `DELETE /islands/{islandId}/guestbook/{entryId}`  섬장만 지우기.
  *
  * 쓰기 의도마다 `Idempotency-Key` 를 한 번 만든다 — 응답 유실·retryable 재시도는 **같은 키와
  * 같은 body** 로 보낸다. 키는 호출부가 의도당 한 번 만들어 넘긴다. 어댑터가 기본값을 만들면
@@ -36,6 +40,14 @@ export type IslandSummary = {
   joinRequestId: string | null;
   growthStage: string | null;
   themeId: string | null;
+  /** 도착한 적 있는 섬인지(GROMO-2260). 구서버는 필드가 없으니 undefined 는 true 로 본다. */
+  arrivedBefore?: boolean;
+  /**
+   * 섬장 인사말(GROMO-2262). 섬장이 안 썼으면 서버가 합성한 기본 문구가 온다(`greetingIsDefault`).
+   * 구서버는 두 필드가 없다 — 없으면 말풍선·입력 초기값을 만들지 않는다.
+   */
+  greeting?: string;
+  greetingIsDefault?: boolean;
 };
 
 export type IslandDetail = Omit<IslandSummary, 'joinRequestId'> & {
@@ -103,6 +115,8 @@ export type VisitScreen = {
   };
   joinRequestAvailability: 'available' | 'none';
   joinRequest: JoinRequestStatus | null;
+  /** 오늘(KST) 이 섬의 집중 분(GROMO-2259). 구서버는 필드가 없다. */
+  focusToday?: { minutes: number };
 };
 
 export type CreateIslandInput = {
@@ -174,18 +188,30 @@ export async function visitIsland(islandId: string): Promise<VisitScreen> {
   return screen;
 }
 
+/** 가입 경로(GROMO-2266). 생략하면 서버 기본 `visit`(가입하면 그 섬이 현재 섬이 된다). */
+export type JoinOrigin = 'visit' | 'telescope';
+
 /**
  * 가입 또는 가입 신청. `invitationToken` 은 초대 resolve 응답을 변형·저장 없이 그대로 넘긴다.
  * `active` 면 `/me/islands` 재조회 뒤 도착으로, `pending` 이면 current 를 바꾸지 않는다.
+ * `origin: 'telescope'` 는 즉시 가입이어도 current 를 옮기지 않고 도착도 기록하지 않는다(처음 한 번은 항해해야 한다).
+ * 둘 다 생략하면 본문이 이전과 같은 `{}` 다 — 서버 멱등 지문이 그대로라 배포 전 요청의 재시도가 충돌하지 않는다.
  */
 export function joinIsland(
   islandId: string,
-  { idempotencyKey, invitationToken }: { idempotencyKey: string; invitationToken?: string },
+  {
+    idempotencyKey,
+    invitationToken,
+    origin,
+  }: { idempotencyKey: string; invitationToken?: string; origin?: JoinOrigin },
 ): Promise<JoinIslandResult> {
   return request<JoinIslandResult>(`/islands/${encodeURIComponent(islandId)}/memberships`, {
     method: 'POST',
     idempotencyKey,
-    body: invitationToken === undefined ? {} : { invitationToken },
+    body: {
+      ...(invitationToken !== undefined && { invitationToken }),
+      ...(origin !== undefined && { origin }),
+    },
   });
 }
 
@@ -225,6 +251,67 @@ export function resolveInvitation(
 /** 내 섬 정본 — `currentIslandId` 가 null 이면 소속이 없을 수 있다. */
 export function myIslands(): Promise<MyIslands> {
   return request<MyIslands>('/me/islands');
+}
+
+/** 방명록 한 줄 최대 길이(코드포인트, 🐟 = 1) — 서버 계약(GROMO-2262)과 같다. */
+export const GUESTBOOK_CONTENT_MAX = 20;
+
+export type GuestbookEntry = {
+  id: string;
+  authorId: string;
+  /** 닉네임이 아직 없는 계정은 null — 키는 항상 온다. */
+  authorName: string | null;
+  content: string;
+  createdAt: string;
+  /** 내가 쓴 글인지. */
+  mine: boolean;
+};
+
+/** `boardBuilt=false` 는 게시판이 없는 섬이다 — items 는 비어 있고 앱은 방명록을 숨긴다. */
+export type GuestbookPage = {
+  boardBuilt: boolean;
+  items: GuestbookEntry[];
+  nextCursor: string | null;
+};
+
+/** 방명록 목록(최신순). 방문자·주민·게스트 모두 읽는다. */
+export async function getGuestbook(islandId: string, cursor?: string): Promise<GuestbookPage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const page = await request<GuestbookPage>(
+    `/islands/${encodeURIComponent(islandId)}/guestbook${query}`,
+  );
+  if (
+    !page ||
+    typeof page.boardBuilt !== 'boolean' ||
+    !Array.isArray(page.items) ||
+    (page.nextCursor != null && typeof page.nextCursor !== 'string')
+  ) {
+    throw new ApiError(CLIENT_CONTRACT_ERROR, '계약과 다른 방명록 응답이에요.', 0);
+  }
+  // 커서가 없는 구서버는 한 페이지로 끝난다.
+  return { ...page, nextCursor: page.nextCursor ?? null };
+}
+
+/**
+ * 한 줄 남기기 — 같은 KST 날 1개(지운 뒤라도)라 `Idempotency-Key` 를 보내지 않는다. 만든 항목을 돌려준다.
+ * 거절: 403 `FACILITY_LOCKED`(게시판 없음)·`SOCIAL_LOGIN_REQUIRED`(게스트) · 409 `GUESTBOOK_ALREADY_WRITTEN_TODAY`.
+ */
+export function writeGuestbook(islandId: string, content: string): Promise<GuestbookEntry> {
+  return request<GuestbookEntry>(`/islands/${encodeURIComponent(islandId)}/guestbook`, {
+    method: 'POST',
+    body: { content },
+  });
+}
+
+/** 섬장만 지운다(아니면 403 `FORBIDDEN`). 없거나 이미 지운 항목은 404 `NOT_FOUND`. */
+export function deleteGuestbookEntry(
+  islandId: string,
+  entryId: string,
+): Promise<{ deleted: true }> {
+  return request(
+    `/islands/${encodeURIComponent(islandId)}/guestbook/${encodeURIComponent(entryId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 /**

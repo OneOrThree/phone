@@ -47,7 +47,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":true,\"memberCount\":3,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
-            + "\"growthStage\":null,\"themeId\":null}";
+            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":false,"
+            + "\"greeting\":\"모래섬에 온 걸 환영해요! 같이 집중해요 🐟\",\"greetingIsDefault\":true}";
     private static final String JOINED = "{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
             + ISLAND + "\",\"currentIslandId\":\"" + ISLAND + "\",\"version\":3}";
     private static final String PENDING = "{\"status\":\"pending\",\"requestId\":\"" + REQUEST
@@ -56,7 +57,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
             + "\",\"status\":\"pending\",\"version\":0}";
     private static final String CANCELLED = "{\"id\":\"" + REQUEST + "\",\"status\":\"cancelled\"}";
     private static final String RESOLVED = "{\"island\":" + SUMMARY
-            + ",\"invitationToken\":\"opaque-token\"}";
+            + ",\"invitationToken\":\"opaque-token\",\"arrival\":{\"islandId\":\"" + ISLAND
+            + "\",\"arrived\":true,\"membershipStatus\":\"none\",\"reason\":\"ISLAND_LIMIT\"}}";
     private static final String ISSUED = "{\"code\":\"abcd2345\",\"url\":\"https://example.test/i/abcd2345\","
             + "\"expiresAt\":null}";
 
@@ -95,6 +97,68 @@ class IslandJoinContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_JOIN).get(0).body())
                 .isEqualTo("{\"invitationToken\":null}");
+    }
+
+    @Test
+    @DisplayName("망원경 가입은 origin 을 그대로 전달하고, 옮기지 않은 active 의 current 가 null 이어도 정상이다")
+    void telescopeJoinForwardsOriginAndAllowsNoCurrent() throws Exception {
+        DATA.on(DATA_JOIN, request -> ok("{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
+                + ISLAND + "\",\"currentIslandId\":null,\"version\":3}"));
+
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"telescope\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("active"));
+        assertThat(DATA.receivedFor(DATA_JOIN).get(0).body())
+                .isEqualTo("{\"invitationToken\":null,\"origin\":\"telescope\"}");
+
+        DATA.reset();
+        DATA.on(DATA_JOIN, request -> ok("{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
+                + ISLAND + "\",\"currentIslandId\":null,\"version\":3}"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"visit\"}"))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
+    @DisplayName("origin 은 visit·telescope 둘뿐이고 다른 값은 네트워크 전에 400 이다")
+    void unknownOriginIsRejectedBeforeTheNetwork() throws Exception {
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"boat\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("origin"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"visit\",\"x\":1}"))
+                .andExpect(status().isBadRequest());
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("도착은 앱의 명령 키와 서명 주체를 상류에 전달하고 결과를 그대로 돌려준다")
+    void arrivalForwardsTheSignedSubject() throws Exception {
+        String dataArrive = "POST " + INTERNAL + "/islands/" + ISLAND + "/arrivals";
+        DATA.on(dataArrive, request -> ok("{\"islandId\":\"" + ISLAND
+                + "\",\"arrivedBefore\":true,\"membershipStatus\":\"none\",\"currentIslandId\":null}"));
+
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")).header("X-User-Id", OTHER)
+                        .header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.arrivedBefore").value(true))
+                .andExpect(jsonPath("$.data.membershipStatus").value("none"))
+                .andExpect(jsonPath("$.data.currentIslandId").value(nullValue()));
+        assertThat(DATA.receivedFor(dataArrive).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(DATA.receivedFor(dataArrive).get(0).header("Idempotency-Key")).isEqualTo(KEY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "not-a-uuid"})
+    @DisplayName("도착은 현재 섬을 옮기는 명령이라 UUID 명령 키가 없으면 상류에 닿지 않는다")
+    void arrivalRequiresAUuidKey(String key) throws Exception {
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")).header("Idempotency-Key", key))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"))
+                .andExpect(jsonPath("$.error.field").value("Idempotency-Key"));
+        assertThat(DATA.received()).isEmpty();
     }
 
     @Test
@@ -154,6 +218,62 @@ class IslandJoinContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_RESOLVE).get(0).header("Idempotency-Key")).isNull();
         assertThat(DATA.receivedFor(DATA_RESOLVE).get(0).body()).isEqualTo("{\"code\":\"abcd2345\"}");
+    }
+
+    @Test
+    @DisplayName("arrive 는 true 일 때만 상류에 싣는다 — 기본·false 는 종전 미리보기 바이트이고 arrival 은 null 이다")
+    void resolveForwardsArriveOnlyWhenRequested() throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String preview = "{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\"}";
+        DATA.on(DATA_RESOLVE, request -> ok(preview));
+        for (String body : new String[] {"{\"code\":\"abcd2345\"}", "{\"code\":\"abcd2345\",\"arrive\":false}"}) {
+            mockMvc.perform(auth(post("/invitations/resolve"))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                    .andExpect(jsonPath("$.data.arrival").value(nullValue()));
+        }
+        assertThat(DATA.receivedFor(DATA_RESOLVE)).extracting(MockUpstream.RecordedRequest::body)
+                .containsExactly("{\"code\":\"abcd2345\"}", "{\"code\":\"abcd2345\"}");
+
+        // 도착 요청 — 상류의 도착 결과를 싣고, 사유가 없으면 reason 키가 없다.
+        DATA.reset();
+        DATA.on(DATA_RESOLVE, request -> ok("{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\","
+                + "\"arrival\":{\"islandId\":\"" + ISLAND + "\",\"arrived\":true,\"membershipStatus\":\"none\","
+                + "\"reason\":null}}"));
+        var result = mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\",\"arrive\":true}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data").path("arrival"))
+                .isEqualTo(json.readTree("{\"islandId\":\"" + ISLAND
+                        + "\",\"arrived\":true,\"membershipStatus\":\"none\"}"));
+        assertThat(json.readTree(DATA.receivedFor(DATA_RESOLVE).get(0).body()))
+                .isEqualTo(json.readTree("{\"code\":\"abcd2345\",\"arrive\":true}"));
+
+        // 구 Data 서버 — arrive 를 모르는 필드로 무시하고 미리보기로 답한다. 실패가 아니라 arrival=null 이다.
+        DATA.reset();
+        DATA.on(DATA_RESOLVE, request -> ok(preview));
+        mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\",\"arrive\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.arrival").value(nullValue()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"code\":\"abcd2345\",\"arrive\":\"true\"}", "{\"code\":\"abcd2345\",\"arrive\":1}",
+            "{\"code\":\"abcd2345\",\"arrive\":null}"})
+    @DisplayName("arrive 가 boolean 이 아니면(명시된 null 포함) 네트워크 전에 400 field=arrive 다")
+    void nonBooleanArriveIsRejectedBeforeTheNetwork(String body) throws Exception {
+        DATA.on(DATA_RESOLVE, request -> ok(RESOLVED));
+
+        mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.field").value("arrive"));
+        assertThat(DATA.received()).isEmpty();
     }
 
     // ---------------------------------------------------------------- 상태·취소·발급
@@ -404,8 +524,9 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "/islands/{islandId}/memberships|post|200||status requestId islandId currentIslandId version|status requestId islandId currentIslandId version",
             "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
             "/me/join-requests/{requestId}|delete|200||id status|id status",
-            "/invitations/resolve|post|200||island invitationToken|island invitationToken",
-            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/invitations/resolve|post|200||island invitationToken arrival|island invitationToken",
+            "/invitations/resolve|post|200|arrival|islandId arrived membershipStatus reason|islandId arrived membershipStatus",
+            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {

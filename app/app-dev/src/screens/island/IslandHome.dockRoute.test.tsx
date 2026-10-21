@@ -68,6 +68,42 @@ describe('고양이가 부두에 있을 때 부두 경유 화면 진입', () => 
     await screen.unmount();
   });
 
+  it('바다 항해 중 「집중 이어가기」는 항해 화면(sea)을 연다(GROMO-2310)', async () => {
+    const go = jest.fn();
+    const state = {
+      ...initialState(true),
+      session: {
+        id: 's',
+        islandId: 'x',
+        subject: '',
+        startedAt: 0,
+        seconds: 0,
+        status: 'active',
+        kind: 'sea',
+      },
+    } as any;
+    islandPositions[currentIsland(state).id] = { ...nodes.dock };
+    const screen = await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, left: 0, right: 0, bottom: 0 },
+        }}
+      >
+        <IslandHome state={state} go={go} build={jest.fn()} />
+      </SafeAreaProvider>,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('집중 이어가기'));
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(go).toHaveBeenCalledWith('sea');
+    expect(go).not.toHaveBeenCalledWith('focus');
+    await screen.unmount();
+  });
+
   it('경로가 끊겨 목적지 곁이 아니면(닿을 수 없으면) 화면을 열지 않는다', async () => {
     const go = jest.fn();
     const screen = await renderHome(go, null, nodes.mail);

@@ -43,3 +43,33 @@ test('서버 세션이 있으면 온보딩 여부는 서버가 정본이다', ()
     'home',
   );
 });
+
+// GROMO-2310 — 진행 세션 → 라우트는 sessionRoute 하나로 정한다
+test('restoredRoute — 바다 세션은 항해 화면(sea), 소속이 없어도 그렇다', () => {
+  const account = { onboardingComplete: true };
+  assert.equal(
+    restoredRoute(
+      { loggedIn: true, onboarded: true, session: { status: 'active', kind: 'sea' } },
+      account,
+    ),
+    'sea',
+  );
+  assert.equal(
+    restoredRoute(
+      { loggedIn: true, onboarded: false, session: { status: 'active', kind: 'sea' } },
+      account,
+    ),
+    'sea',
+  );
+  assert.equal(
+    restoredRoute({ loggedIn: true, onboarded: true, session: { status: 'paused' } }, account),
+    'rest',
+  );
+  assert.equal(
+    restoredRoute(
+      { loggedIn: true, onboarded: true, session: { status: 'active', kind: 'island' } },
+      account,
+    ),
+    'focus',
+  );
+});

@@ -1,6 +1,5 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -11,6 +10,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.internal.dto.IslandRankingViews.IslandRanking;
 import com.oneorthree.phone.internal.dto.IslandRankingViews.IslandRankingPage;
+import com.oneorthree.phone.ranking.repository.IslandWeeklyFocusRepository;
 import com.oneorthree.phone.ranking.repository.IslandWeeklyMemberCountRepository;
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
@@ -75,7 +75,7 @@ public class IslandRankingsService {
     private final GroupMemberRepository members;
     private final UserIslandContextRepository contexts;
     private final IslandMovementGuards guards;
-    private final FocusSessionDetailRepository details;
+    private final IslandWeeklyFocusRepository weeklyFocus;
     private final IslandWeeklyMemberCountRepository denominators;
     private final Clock clock;
 
@@ -103,9 +103,7 @@ public class IslandRankingsService {
         // 참가 모집단 = 그 주에 «이 섬에 귀속된 완료 집중»이 있었던 섬. 집중이 0인 섬을 0점으로 줄 세우지 않는다
         // (RK-D06 「분모가 0이면 숫자 0을 임의 순위 점수로 만들지 않는다」와 같은 결). 모수가 이 집계 결과라
         // 이어지는 분모·이름 조회도 자연히 유한하다.
-        Map<UUID, Long> focus = new HashMap<>();
-        details.sumIslandActiveSeconds(RankingWeek.startInstant(week), RankingWeek.endInstant(week))
-                .forEach(row -> focus.put(row.getIslandId(), row.getSeconds()));
+        Map<UUID, Long> focus = focusSeconds(week);
 
         List<IslandRanking> ranked = rank(focus, denominators(week, currentWeek, focus.keySet()),
                 names(focus.keySet()));
@@ -113,6 +111,35 @@ public class IslandRankingsService {
                 .map(IslandRanking::rank).findFirst().orElse(null);
         int size = limit == null ? DEFAULT_LIMIT : Math.min(Math.max(limit, 1), MAX_LIMIT);
         return new IslandRankingPage(week.toString(), ranked.subList(0, Math.min(size, ranked.size())), myRank, asOf);
+    }
+
+    /**
+     * 고양이 잡지 편집부 칸의 주간 랭킹 (GROMO-2289, MAG-04) — 발행 순간 전망대가 보여 주는 주(계획 P16)의 상위
+     * {@code n} 곳이다. 부르는 사람이 없는 배치라 전망대 게이트가 없다. 10/16: 비공개 섬도 순위에 들어간다
+     * (GROMO-2305). 점수·분모·동점 규칙은 {@link #islands} 와 같다.
+     *
+     * <p>트랜잭션은 호출자(발행 배치)의 것을 쓴다 — 두 집계를 한 스냅샷으로 읽게 하려면 호출자가 경계를 연다.
+     */
+    public List<IslandRanking> top(Instant asOf, int n) {
+        LocalDate week = RankingWeek.weekStart(asOf);
+        Map<UUID, Long> focus = focusSeconds(week);
+        Map<UUID, String> names = new HashMap<>();
+        islands.findAllById(focus.keySet()).stream()
+                .filter(IslandMovementGuards::isAlive)
+                .forEach(island -> names.put(island.getId(), island.getName()));
+        List<IslandRanking> ranked = rank(focus, denominators(week, week, names.keySet()), names);
+        return ranked.subList(0, Math.min(n, ranked.size()));
+    }
+
+    /**
+     * 그 주의 분자 — 섬마다 «그 섬에 귀속된 끝난 집중»의 ACTIVE 초. read model({@code island_weekly_focus},
+     * V130)에서 읽는다(GROMO-2343). 완료 전이가 같은 트랜잭션에서 가산하므로 지연이 없고, 값은 정본 집계
+     * ({@code FocusSessionDetailRepository.sumIslandActiveSeconds})와 같다 — 1초 미만 섬이 빠지는 것까지.
+     */
+    private Map<UUID, Long> focusSeconds(LocalDate week) {
+        Map<UUID, Long> focus = new HashMap<>();
+        weeklyFocus.findSeconds(week).forEach(row -> focus.put(row.getIslandId(), row.getSeconds()));
+        return focus;
     }
 
     /**

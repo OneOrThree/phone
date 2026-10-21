@@ -225,7 +225,83 @@ class RealtimeMembershipAuthorizationClientTest {
 
     @Test
     void bulkheadRejectsSecondCallWithoutSendingAnotherRequest() throws Exception {
-        client = createClient(Duration.ofSeconds(3), 1);
+        var properties = settings(Duration.ofSeconds(3), 1);
+        properties.setWaitTimeout(Duration.ZERO); // 즉시 거절 경로
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        client = new RealtimeMembershipAuthorizationClient(properties, registry);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        responder.set(exchange -> {
+            entered.countDown();
+            await(release);
+            send(exchange, 200, "{\"allowed\":true}");
+        });
+        var caller = Executors.newSingleThreadExecutor();
+        try {
+            var first = caller.submit(() -> client.isAllowed(identity, island));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.get("realtime.authorization.inflight").gauge().value()).isEqualTo(1);
+            assertThat(registry.get("realtime.authorization.limit").gauge().value()).isEqualTo(1);
+            assertThatThrownBy(() -> client.isAllowed(identity, island))
+                    .isInstanceOf(UpstreamUnavailableException.class);
+            assertThat(calls.get()).isEqualTo(1);
+            release.countDown();
+            assertThat(first.get(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.get("realtime.authorization.inflight").gauge().value()).isZero();
+            assertThat(registry.get("realtime.authorization.capacity.rejected").functionCounter().count()).isEqualTo(1);
+        } finally {
+            release.countDown();
+            caller.shutdownNow();
+            assertThat(caller.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void fullCapacityWaitsOnlyUpToWaitTimeoutThenRejectsAndCountsMetrics() throws Exception {
+        var properties = settings(Duration.ofSeconds(3), 1);
+        properties.setWaitTimeout(Duration.ofMillis(150));
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        client = new RealtimeMembershipAuthorizationClient(properties, registry);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        responder.set(exchange -> {
+            entered.countDown();
+            await(release);
+            send(exchange, 200, "{\"allowed\":true}");
+        });
+        var caller = Executors.newSingleThreadExecutor();
+        try {
+            var first = caller.submit(() -> client.isAllowed(identity, island));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.get("realtime.authorization.inflight").gauge().value()).isEqualTo(1.0);
+            long started = System.nanoTime();
+            assertThatThrownBy(() -> client.isAllowed(identity, island))
+                    .isInstanceOf(UpstreamUnavailableException.class);
+            long waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            assertThat(waitedMs).isBetween(100L, 1500L);
+            assertThat(calls.get()).isEqualTo(1);
+            assertThat(registry.get("realtime.authorization.rejected").tag("reason", "timeout").counter().count())
+                    .isEqualTo(1.0);
+            assertThat(registry.get("realtime.authorization.capacity.rejected").functionCounter().count())
+                    .isEqualTo(1.0);
+            release.countDown();
+            assertThat(first.get(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.get("realtime.authorization.inflight").gauge().value()).isZero();
+            assertThat(registry.get("realtime.authorization.duration").tag("outcome", "allowed").timer().count())
+                    .isEqualTo(1L);
+        } finally {
+            release.countDown();
+            caller.shutdownNow();
+            assertThat(caller.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void zeroWaitTimeoutKeepsFailFastCapacityRejection() throws Exception {
+        var properties = settings(Duration.ofSeconds(3), 1);
+        properties.setWaitTimeout(Duration.ZERO);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        client = new RealtimeMembershipAuthorizationClient(properties, registry);
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         responder.set(exchange -> {
@@ -239,7 +315,10 @@ class RealtimeMembershipAuthorizationClientTest {
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(() -> client.isAllowed(identity, island))
                     .isInstanceOf(UpstreamUnavailableException.class);
-            assertThat(calls.get()).isEqualTo(1);
+            assertThat(registry.get("realtime.authorization.capacity.rejected").functionCounter().count())
+                    .isEqualTo(1.0);
+            assertThat(registry.find("realtime.authorization.rejected").tag("reason", "timeout").counter()
+                    .count()).isZero();
             release.countDown();
             assertThat(first.get(2, TimeUnit.SECONDS)).isTrue();
         } finally {

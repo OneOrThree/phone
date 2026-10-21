@@ -13,7 +13,8 @@ import {
 import { me as apiMe } from '@/services/api/auth';
 import { updateProfile as apiUpdateProfile } from '@/services/api/account';
 import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
-import { sessionGeneration } from '@/services/api/session';
+import { readAccountGuides } from '@/services/accountGuides';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   cancelJoinRequest as apiCancelJoinRequest,
   createIsland as apiCreateIsland,
@@ -21,6 +22,7 @@ import {
   discoverIslands as apiDiscoverIslands,
   explore as apiExplore,
   joinIsland as apiJoinIsland,
+  type JoinOrigin,
   joinRequest as apiJoinRequest,
   myIslands as apiMyIslands,
   myJoinRequests as apiMyJoinRequests,
@@ -84,10 +86,20 @@ const contractError = () =>
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
+// 안내 이력의 조회·오류 복구는 useAccountGuides가 맡는다. 로컬 오류로 서버 정본·명령 성공을 버리지 않는다.
+const guidesForSync = async (ownerId: string | undefined) => {
+  if (!ownerId) return null;
+  try {
+    return await readAccountGuides(ownerId);
+  } catch {
+    return null;
+  }
+};
+
 // 결과 불명 — 쓰기가 서버에 닿았는지·커밋됐는지 알 수 없다. SERVICE_UNAVAILABLE은 서킷 오픈(미발송)뿐
 // 아니라 Data 응답 수신 중 연결이 끊긴 경우에도 나온다. 둘 다 공개 응답에선 HTTP 400으로 접히므로
-// (티켓 2088) 상태가 아니라 code로 가른다.
-const unknownOutcome = (e: unknown) =>
+// (티켓 2088) 상태가 아니라 code로 가른다. 망원경의 도착 기록(Telescope)도 같은 분류를 쓴다.
+export const unknownOutcome = (e: unknown) =>
   e instanceof ApiError &&
   ['UPSTREAM_TIMEOUT', 'SERVICE_UNAVAILABLE', CLIENT_TIMEOUT, CLIENT_NETWORK_ERROR].includes(
     e.code,
@@ -156,10 +168,12 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   const syncIslandSnapshot = async () => {
     const g = generation();
     const revision = ++syncRevision;
-    const [my, requests, account] = await Promise.all([
+    const ownerId = getSession()?.userId;
+    const [my, requests, account, guides] = await Promise.all([
       api.myIslands(),
       allJoinRequests(g),
       api.me(),
+      guidesForSync(ownerId),
     ]);
     alive(g);
     if (revision !== syncRevision) throw staleError();
@@ -167,6 +181,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     deps.dispatch({
       type: 'ISLAND_SYNC',
       memberships: my,
+      focusGuideDone: guides?.focusDone,
       requests,
       mainIslandId: account.mainIslandId,
     });
@@ -289,11 +304,20 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       call(async () => {
         const g = generation();
         const revision = ++syncRevision;
-        const [screen, requests] = await Promise.all([api.explore(), allJoinRequests(g)]);
+        const ownerId = getSession()?.userId;
+        const [screen, requests, guides] = await Promise.all([
+          api.explore(),
+          allJoinRequests(g),
+          guidesForSync(ownerId),
+        ]);
         alive(g);
         if (revision !== syncRevision) throw staleError();
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
-        deps.dispatch({ type: 'ISLAND_SYNC', memberships: screen.memberships });
+        deps.dispatch({
+          type: 'ISLAND_SYNC',
+          memberships: screen.memberships,
+          focusGuideDone: guides?.focusDone,
+        });
         deps.dispatch({
           type: 'ISLAND_CANDIDATES',
           items: screen.islands.items,
@@ -338,12 +362,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     // 가입·가입 신청. pending이면 requestId를 스냅샷에 남기고 승인 화면으로,
     // active면 /me/islands 재조회로 current를 확정한다(arrival/home은 CurrentScreens 차단이
     // 풀리기 전까지 열지 않는다). 응답이 확정되면 의도 키를 해제한다 — 취소·거절 뒤 같은 섬
-    // 재신청은 새 키를 쓴다.
-    join: (islandId: string, { showApproval = true }: { showApproval?: boolean } = {}) =>
+    // 재신청은 새 키를 쓴다. origin 은 선택(GROMO-2266 망원경) — 생략하면 본문·키가 이전과 같다.
+    join: (
+      islandId: string,
+      { showApproval = true, origin }: { showApproval?: boolean; origin?: JoinOrigin } = {},
+    ) =>
       call(async () => {
         const g = generation(),
           token = scoped().tokens[islandId],
-          body = token ?? '';
+          // 의도 키는 «본문이 같은 재시도»에만 같다 — origin 이 다르면 서버 지문이 달라 같은 키를 쓰면 충돌한다.
+          body = (token ?? '') + (origin ? `|origin:${origin}` : '');
         // 복구된 활성 소속에는 쓰기 응답의 version이 없으므로 임의로 만들지 않는다.
         let result: Omit<Awaited<ReturnType<IslandApi['join']>>, 'version'> & {
           version?: number;
@@ -352,6 +380,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           result = await api.join(islandId, {
             idempotencyKey: scoped().keys.key(`join:${islandId}`, body),
             invitationToken: token,
+            ...(origin && { origin }),
           });
           alive(g);
           if (result.status === 'active') await syncIslands();

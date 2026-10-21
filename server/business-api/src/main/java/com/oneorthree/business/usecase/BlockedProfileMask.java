@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.http.UpstreamRequestContext;
 import com.oneorthree.business.upstream.data.DataFriendClient;
 import com.oneorthree.business.upstream.data.dto.BlockedUserRef;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +56,7 @@ public class BlockedProfileMask {
         if (others.isEmpty()) {
             return Set.of();
         }
-        List<BlockedUserRef> blocks = friends.fetchBlockedUserRefs(viewerId, deadline);
+        List<BlockedUserRef> blocks = fetchBlocks(viewerId, deadline);
         if (blocks == null) {
             throw new UpstreamContractMismatchException("차단 목록 응답이 없습니다");
         }
@@ -69,6 +70,15 @@ public class BlockedProfileMask {
             }
         }
         return blocked;
+    }
+
+    /** 화면 조합 안에서는 요청당 한 번만 읽는다(GROMO-2345) — 주민 목록·집중 주민·건설 옵션 조각이 같은 목록을 쓴다. */
+    private List<BlockedUserRef> fetchBlocks(UUID viewerId, Deadline deadline) {
+        UpstreamRequestContext context = UpstreamRequestContext.current();
+        if (context == null) {
+            return friends.fetchBlockedUserRefs(viewerId, deadline);
+        }
+        return context.memo("blocks:" + viewerId, () -> friends.fetchBlockedUserRefs(viewerId, deadline));
     }
 
     /**

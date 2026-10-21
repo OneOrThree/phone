@@ -24,6 +24,8 @@ import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.letter.exception.LetterException;
+import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
+import com.oneorthree.phone.magazine.exception.MagazineException;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.quest.exception.QuestErrorCode;
@@ -97,6 +99,7 @@ class ErrorContractTest {
             Map.entry(GroupErrorCode.class, c -> new GroupException((GroupErrorCode) c)),
             Map.entry(InviteLinkErrorCode.class, c -> new InviteLinkException((InviteLinkErrorCode) c)),
             Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
+            Map.entry(MagazineErrorCode.class, c -> new MagazineException((MagazineErrorCode) c)),
             Map.entry(OutboxErrorCode.class, c -> new OutboxException((OutboxErrorCode) c)),
             Map.entry(QuestErrorCode.class, c -> new QuestException((QuestErrorCode) c)),
             Map.entry(ShopErrorCode.class, c -> new ShopException((ShopErrorCode) c)),
@@ -136,12 +139,12 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 17개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)이 늘었다")
-                .hasSize(18);
+        assertThat(found).as("실측 기준 도메인 enum 18개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)·magazine(GROMO-2289)이 늘었다")
+                .hasSize(19);
     }
 
     @TestFactory
-    @DisplayName("상수 226개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 239개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -239,9 +242,23 @@ class ErrorContractTest {
         // GROMO-2137 이 게시판 댓글 삭제 전용 코드 1개(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN, 403)를 더했다 —
         // 작성자 본인도 방장도 아닌 삭제 시도(2026-09-25 결정 GROMO-2136). NOTICE_FORBIDDEN 과 메시지가
         // 가리키는 대상이 달라 코드를 나눈다(NOTICE_BODY_TOO_LONG/NOTICE_COMMENT_TOO_LONG 과 같은 결).
-        // Live Activity 등록 정보 검증 코드 INVALID_LIVE_ACTIVITY 1개를 더했다.
-        assertThat(tests).as("실측 기준 도메인 상수 208개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류 포함")
-                .hasSize(226);
+        // GROMO-2242 가 Live Activity 등록 정보 검증 코드 1개(INVALID_LIVE_ACTIVITY)를 더했다.
+        // GROMO-2260 이 섬 도착 코드 1개(GroupErrorCode.ISLAND_NOT_ARRIVED, 403)를 더했다 — 망원경에서 가입만 하고
+        // 아직 항해하지 않은 소속 섬으로의 즉시 이동이다. 일반 MEMBER_ONLY 와 앱 안내(망원경 항해)가 달라 코드를 가른다.
+        // GROMO-2262 가 방명록 코드 1개(GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY, 409)를 더했다 — 같은 KST 날의
+        // 두 번째 쓰기다. 앱이 이 코드로 «오늘은 이미 남겼어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+        // GROMO-2267 이 잡지 홍보 코드 1개(GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY, 409)를 더했다 — 같은 KST 날의
+        // 두 번째 신청이다. 앱이 이 코드로 «오늘은 이미 신청했어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+        // GROMO-2299 가 바다 항해 코드 3개(FocusErrorCode.SEA_DESTINATION_UNAVAILABLE·SEA_SESSION_NO_REST·SEA_REMARK_LOCKED,
+        // 모두 409)를 더했다 — 앱이 각각 다른 안내를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다. 공개 표에도 같은 이름·상태로
+        // 등록했다.
+        // 잔액 부족은 새 코드가 아니라 건설·상점이 이미 쓰는 INSUFFICIENT_FUNDS(409)를 그대로 쓴다.
+        // GROMO-2289 가 잡지 코드 8개(MagazineErrorCode — 신청 창 밖·비공개 섬·글 60자 초과(422)·배치 위반·안 가진 재료·
+        // 마감 뒤 고치기·없는 홍보·기능 스위치 꺼짐(503))를 더했고, 발행 묶음이 없는 호(MAGAZINE_ISSUE_NOT_FOUND, 404)를 더했다.
+        // 앱이 각 코드로 안내를 가르므로 STATE_CONFLICT 로 접지 않는다. 지금 주민인 섬의 칸 신고(PROMOTION_REPORT_OWN_ISLAND,
+        // 403)를 더했다 — 공개 응답은 Business 가 FORBIDDEN 으로 옮긴다.
+        assertThat(tests).as("실측 기준 도메인 상수 224개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·Live Activity 등록 검증·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회·잡지 10종·바다 항해 3종 포함")
+                .hasSize(242);
         return tests;
     }
 

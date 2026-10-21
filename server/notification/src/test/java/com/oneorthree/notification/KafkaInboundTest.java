@@ -119,6 +119,22 @@ class KafkaInboundTest {
         }
     }
 
+    /** kafka-consumption.md §2·§4 — application.yml 의 할당 전략·concurrency 가 실제 그룹에 반영됐는지 브로커에 묻는다. */
+    @Test
+    void consumerGroupUsesCooperativeAssignorWithOneMemberOwningAllPartitions() throws Exception {
+        try (AdminClient admin = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
+            // 기동 직후엔 코디네이터가 아직 없어 describe 가 예외를 던질 수 있다 — 단언 실패와 같이 재시도한다.
+            await().ignoreExceptions().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+                var group = admin.describeConsumerGroups(List.of("notification-v1")).all()
+                        .get(5, TimeUnit.SECONDS).get("notification-v1");
+                assertThat(group.partitionAssignor()).isEqualTo("cooperative-sticky");
+                assertThat(group.members()).hasSize(1);
+                assertThat(group.members().iterator().next().assignment().topicPartitions())
+                        .filteredOn(tp -> tp.topic().equals("notification-events")).hasSize(3);
+            });
+        }
+    }
+
     private KafkaConsumer<String, String> consumer() {
         return new KafkaConsumer<>(Map.of(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
                 ConsumerConfig.GROUP_ID_CONFIG, "dlt-test-" + UUID.randomUUID(),

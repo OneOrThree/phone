@@ -8,8 +8,19 @@ import { initialState, pendingVisitRequest, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { Account } from '@/services/api/auth';
 import type { IslandSummary, MyIslands, MyJoinRequest } from '@/services/api/islands';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { saveAccountGuides } from '@/services/accountGuides';
 
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0 }));
+let mockGuideOwner: string | null = null;
+jest.mock('@/services/api/session', () => ({
+  sessionGeneration: () => 0,
+  getSession: () => (mockGuideOwner ? { userId: mockGuideOwner } : null),
+}));
+jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
+afterEach(() => {
+  mockGuideOwner = null;
+  jest.restoreAllMocks();
+});
 
 const island = (over: Partial<IslandSummary> = {}): IslandSummary => ({
   id: 'i1',
@@ -275,6 +286,53 @@ test('세대 전환은 멱등 키·초대 token을 버린다', async () => {
   await h.cmds.commands.join('i9');
   assert.equal(joins[1].invitationToken, undefined);
   assert.notEqual(joins[1].idempotencyKey, joins[0].idempotencyKey);
+});
+
+test('join origin — 망원경 가입은 origin 을 API 로 넘기고, 생략한 호출은 origin 키를 싣지 않는다', async () => {
+  const opts: object[] = [];
+  const h = harness({
+    join: jest.fn(async (_id: string, o: object) => {
+      opts.push(o);
+      return {
+        status: 'pending' as const,
+        requestId: 'r1',
+        islandId: 'i1',
+        currentIslandId: null,
+        version: 1,
+      };
+    }),
+  });
+  await h.cmds.commands.join('i1', { showApproval: false, origin: 'telescope' });
+  await h.cmds.commands.join('i1', { showApproval: false });
+  assert.equal((opts[0] as { origin?: string }).origin, 'telescope');
+  assert.equal('origin' in opts[1], false); // 생략하면 요청 본문이 이전과 같아야 서버 멱등 지문이 호환된다
+});
+
+test('join origin — 의도 키는 origin 별로 따로 둔다(유실 재시도는 같은 키, 다른 origin 의 같은 섬 가입은 다른 키)', async () => {
+  const keys: string[] = [];
+  let calls = 0;
+  const join = jest.fn(async (_id: string, o: { idempotencyKey: string }) => {
+    keys.push(o.idempotencyKey);
+    // 서버 지문(origin 포함)이 다른 두 요청이 한 키를 쓰면 IDEMPOTENCY_KEY_CONFLICT 라 키가 갈려야 한다
+    if (++calls <= 2) throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
+    return {
+      status: 'pending' as const,
+      requestId: 'r1',
+      islandId: 'i1',
+      currentIslandId: null,
+      version: 1,
+    };
+  });
+  const h = harness({
+    join,
+    myIslands: async () => myIslands(),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await assert.rejects(h.cmds.commands.join('i1', { origin: 'telescope', showApproval: false }));
+  await assert.rejects(h.cmds.commands.join('i1', { showApproval: false }));
+  await h.cmds.commands.join('i1', { origin: 'telescope', showApproval: false });
+  assert.notEqual(keys[0], keys[1]);
+  assert.equal(keys[2], keys[0]); // 같은 origin 의 재시도는 처음 키 그대로
 });
 
 test('call 오류 경로 — 세대 전환 뒤 도착한 409는 재조회·rethrow 없이 CLIENT_STALE_SESSION으로 버린다', async () => {
@@ -1140,3 +1198,75 @@ test.each(['CLIENT_NETWORK_ERROR', 'UPSTREAM_CONTRACT_ERROR'])(
     assert.equal(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
   },
 );
+
+test.each(['sync', 'explore'])(
+  '손상된 안내 이력은 %s의 서버 정본 동기화를 실패시키지 않는다',
+  async (command) => {
+    mockGuideOwner = 'u1';
+    await AsyncStorage.clear();
+    await AsyncStorage.setItem('gromo:account-guides:v1:u1', '{broken');
+    const memberships = myIslands({ items: [island()], currentIslandId: 'i1' });
+    const h = harness({
+      myIslands: async () => memberships,
+      myJoinRequests: async () => ({ items: [], nextCursor: null }),
+      explore: async () => ({ memberships, islands: { items: [], nextCursor: null } }),
+    });
+    if (command === 'sync') await h.cmds.commands.sync();
+    else await h.cmds.commands.explore();
+    assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+    assert.equal(h.state().onboarded, true);
+    assert.equal(h.dispatched.find((a) => a.type === 'ISLAND_SYNC')?.focusGuideDone, undefined);
+    assert.notEqual(h.state().focusGuideDone, true);
+    assert.equal(await AsyncStorage.getItem('gromo:account-guides:v1:u1'), '{broken');
+  },
+);
+
+test('손상된 안내 이력 때문에 서버에서 성공한 섬 생성을 실패로 반환하지 않는다', async () => {
+  mockGuideOwner = 'u1';
+  await AsyncStorage.clear();
+  await AsyncStorage.setItem('gromo:account-guides:v1:u1', '{broken');
+  const create = jest.fn().mockResolvedValue({ islandId: 'i1' });
+  const h = harness({
+    createIsland: create,
+    myIslands: async () => myIslands({ items: [island()], currentIslandId: 'i1' }),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.create(createInput);
+  assert.equal(create.mock.calls.length, 1);
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+});
+
+test('안내 저장소의 일시적 읽기 실패는 이미 복구한 체험 완료 이력과 새 섬 정본을 보존한다', async () => {
+  mockGuideOwner = 'u1';
+  await AsyncStorage.clear();
+  await saveAccountGuides('u1', { focusDone: true });
+  const h = harness({
+    myIslands: jest
+      .fn()
+      .mockResolvedValueOnce(myIslands({ items: [island()], currentIslandId: 'i1' }))
+      .mockResolvedValue(myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' })),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.sync();
+  assert.equal(h.state().focusGuideDone, true);
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('storage unavailable'));
+  await h.cmds.commands.sync();
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+  assert.equal(h.state().focusGuideDone, true);
+  assert.equal(h.dispatched.at(-1)?.focusGuideDone, undefined);
+});
+
+test('안내 이력 오류와 별개로 서버 정본 조회 실패는 그대로 거절한다', async () => {
+  mockGuideOwner = 'u1';
+  await AsyncStorage.clear();
+  await AsyncStorage.setItem('gromo:account-guides:v1:u1', '{broken');
+  const error = new ApiError('CLIENT_NETWORK_ERROR', 'network', 0);
+  const h = harness({
+    myIslands: async () => {
+      throw error;
+    },
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await assert.rejects(h.cmds.syncIslands(), (e: unknown) => e === error);
+  assert.equal(h.dispatched.length, 0);
+});

@@ -56,7 +56,7 @@ MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
 
 > 시스템 구조·배선·용어(i18n/l10n)는 [`docs/prd/fishcat/l10n/high-level-design.md`](../../docs/prd/fishcat/l10n/high-level-design.md)에 있습니다. 이 절은 추가 규칙만 다룹니다.
 
-화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`onboarding`·`app`·`building`·`color`·`track`·`focus`·`focusFlow`·`home`·`settings`·`errors`·`time`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
+화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`onboarding`·`app`·`building`·`color`·`track`·`focus`·`focusFlow`·`home`·`settings`·`errors`·`time`·`magazine`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
 
 - 치환은 `{{var}}`. 복수는 `{ one, other }` 객체 + `vars.count`(숫자)로 고릅니다(Hermes 엔 `Intl.PluralRules` 가 없어 자체 분기). ko 는 단일 문자열로 두는 것이 관례입니다(`t()` 자체는 ko 의 복수 객체도 처리합니다).
 - 없는 키는 `t()` 가 **키 문자열을 그대로** 돌려줍니다 — 화면에 `home.foo.bar` 가 보이면 키 누락입니다. 값을 조립하는 동적 키(`login.continue.<provider>`)는 ko/en 동치 테스트가 못 잡으니, 제공자 등을 추가할 때 두 JSON 에 모두 넣습니다.
@@ -95,7 +95,7 @@ npx expo export --platform all
 
 ## PostHog 제품 분석
 
-릴리스 빌드는 수빈 계정의 PostHog `Catus / Catus`(US, 프로젝트 `669473`)로 이벤트를 보냅니다. 팀원 접근을 분리하기 위해 Catus 전용 조직을 사용하며, 팀원은 이 조직에만 초대합니다. 조직 이동 후에도 프로젝트 ID와 수집 토큰은 동일합니다. [이벤트 목록](https://us.posthog.com/project/669473/activity/events)에서 수신을 확인합니다. 이전 `CatUs / Default project`의 토큰은 기본 설정에서 제거했고, 로컬 이벤트 큐와 식별자도 프로젝트 토큰별로 분리합니다. 기존 배포 앱은 업데이트 전까지 이전 설정을 사용합니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.
+릴리스 빌드는 PostHog `Catus / Catus`(US, 프로젝트 `669473`)로 이벤트를 보냅니다. [이벤트 목록](https://us.posthog.com/project/669473/activity/events)에서 수신을 확인합니다. 로컬 이벤트 큐와 식별자는 프로젝트 토큰별로 분리합니다. 기존 배포 앱은 업데이트 전까지 이전 설정을 사용합니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.
 
 | 이벤트                              | 발생 시점                                           |
 | ----------------------------------- | --------------------------------------------------- |
@@ -144,6 +144,10 @@ python3 -m http.server 18762 --bind 127.0.0.1 --directory dist-all
 npm run review:v2
 npm run review:v2-journeys
 ```
+
+`GROMO_REVIEW_URL`로 다른 로컬 검수 주소를 지정할 수 있습니다. `review:v2`는 화면·이미지·팻말 영역을, `review:v2-journeys`는 이동·구매·건설 등의 상태 변경을 확인합니다. 버튼 단위 검수는 `REVIEW_ROUTES=hall,construction,board,mail,shop,sound npm run review:buttons`처럼 경로를 제한할 수 있습니다. 버튼 클릭 성공만으로 저장·구매 완료를 판정하지는 않습니다. 실패나 실행 오류가 있으면 종료 코드 1을 반환하며 상세 결과는 `.docs/`에 저장합니다.
+
+`?review`에서는 주입한 튜토리얼 진행도와 미완공·공사 상태를 보존합니다. 건물 내부 검수용 상태에는 `tutorial: { step: 99 }`를 지정하고, 튜토리얼 자체를 확인할 때만 `guideStep`을 명시합니다.
 
 ## 현재 연결 범위
 

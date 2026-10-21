@@ -18,6 +18,7 @@ import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandManageView;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
+import com.oneorthree.phone.internal.service.IslandGuestbookService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
@@ -49,12 +50,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 금칙어 차단 (GROMO-1986) — 사용자 입력 <b>6종</b>이 실제 Flyway PostgreSQL 위에서 400
+ * 금칙어 차단 (GROMO-1986) — 사용자 입력 <b>8종</b>이 실제 Flyway PostgreSQL 위에서 400
  * {@code BANNED_WORD} 로 거절되고 <b>행을 남기지 않는지</b> 본다.
  *
- * <p>6종은 ① 공지 본문 ② 댓글 ③ 편지 ④ 닉네임 ⑤ 섬 이름 ⑥ 섬 소개다. 한 클래스에 모은 이유는
- * 이 티켓이 검증해야 하는 것이 「각 서비스가 저마다 막는가」가 아니라 <b>「여섯 입구가 같은 목록·같은
- * 코드로 막히는가」</b> 이기 때문이다 — 하나라도 다른 코드로 새면 앱이 안내를 갈라 써야 한다.
+ * <p>8종은 ① 공지 본문 ② 댓글 ③ 편지 ④ 닉네임 ⑤ 섬 이름 ⑥ 섬 소개 ⑦ 섬 인사말 ⑧ 방명록(⑦⑧ 은 GROMO-2262)이다.
+ * 한 클래스에 모은 이유는 이 티켓이 검증해야 하는 것이 「각 서비스가 저마다 막는가」가 아니라
+ * <b>「모든 입구가 같은 목록·같은 코드로 막히는가」</b> 이기 때문이다 — 하나라도 다른 코드로 새면 앱이 안내를
+ * 갈라 써야 한다.
  *
  * <p>마지막 테스트가 이 티켓의 핵심 회귀다: 레거시 {@code /api/v1} 경로({@code GroupService} ·
  * {@code GroupAnnouncementService})는 2.0 섬 서비스와 <b>다른 클래스</b>인데 <b>같은
@@ -95,6 +97,8 @@ class BannedWordsIntegrationTest {
     IslandMembershipService islands;
     @Autowired
     IslandManagementService management;
+    @Autowired
+    IslandGuestbookService guestbook;
     @Autowired
     GroupService legacyGroups;
     @Autowired
@@ -244,6 +248,39 @@ class BannedWordsIntegrationTest {
     }
 
     @Test
+    @DisplayName("⑦ 섬 인사말 — 수정 입구에서 거절되고 값이 남지 않는다. 멀쩡한 문구와 빈 값(기본 복귀)은 통과한다")
+    void greetingRejectsBannedWords() {
+        UUID host = newUser();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("고요한섬", "같이 집중해요", false, null), key()).id();
+
+        assertBanned(() -> management.manage(host, islandId, greeting("우리 섬 " + DIRTY + " 하자"), key()));
+        assertBanned(() -> management.manage(host, islandId, greeting(DIRTY_SPACED), key()));
+        assertThat(storedGreeting(islandId)).as("거절된 수정은 인사말을 만들지 않는다").isNull();
+
+        management.manage(host, islandId, greeting("같이 집중해요"), key());
+        assertBanned(() -> management.manage(host, islandId, greeting(DIRTY_EN), key()));
+        assertThat(storedGreeting(islandId)).as("거절된 수정은 이전 인사말을 바꾸지 않는다").isEqualTo("같이 집중해요");
+
+        management.manage(host, islandId, greeting("  "), key());
+        assertThat(storedGreeting(islandId)).as("빈 값은 판정 대상이 아니라 기본 문구로 되돌린다").isNull();
+    }
+
+    @Test
+    @DisplayName("⑧ 방명록 — 쓰기 입구에서 거절되고 행이 남지 않으며, 거절은 «오늘 썼다» 로 치지 않는다")
+    void guestbookRejectsBannedWords() {
+        Island is = island();
+        UUID visitor = newUser();
+
+        assertBanned(() -> guestbook.write(is.id(), visitor, "너 " + DIRTY));
+        assertBanned(() -> guestbook.write(is.id(), visitor, DIRTY_EN));
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=?", is.id()))
+                .as("거절된 쓰기는 행을 남기지 않는다").isZero();
+
+        guestbook.write(is.id(), visitor, "같이 집중해요");
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=?", is.id())).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("금칙어 판정은 멱등 판정 «뒤» 다 — 성공한 키의 재생은 목록이 늘어도 원 결과고, 키 재사용은 409 다")
     void bannedWordCheckSitsBehindTheReceiptSoReplayKeepsItsResult() {
         UUID host = newUser();
@@ -329,6 +366,14 @@ class BannedWordsIntegrationTest {
         UUID id = newUser();
         jdbc.update("update users set is_guest = false where id = ?", id);
         return id;
+    }
+
+    private static IslandManageCommandRequest greeting(String value) {
+        return new IslandManageCommandRequest(null, null, null, null, value);
+    }
+
+    private String storedGreeting(UUID islandId) {
+        return jdbc.queryForObject("select greeting from groups where id=?", String.class, islandId);
     }
 
     private static UserProfileUpdateRequest nickname(String value) {

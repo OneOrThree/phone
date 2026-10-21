@@ -1,0 +1,21 @@
+{
+  "endpoint": "Group Challenge_getGroupChallenges",
+  "method": "GET",
+  "path": "/api/v1/groups/{groupId}/challenges",
+  "tag": "Group Challenge",
+  "summary": "그룹 챌린지 목록 조회",
+  "userPool": "zipf",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

@@ -1,4 +1,9 @@
-import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import * as Application from 'expo-application';
+import appManifest from '../../../package.json';
+import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
+import { GuideBox } from '@/screens/island/NpcGuide';
+import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
+import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
@@ -32,10 +37,9 @@ import {
 import Svg, { Path, Line } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  islandFocusRecord,
   State,
   Friend,
-  shouldShowMailboxGuide,
-  shouldShowShopGuide,
   Building,
   Color,
   displayIsland as currentIsland,
@@ -89,8 +93,14 @@ import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
-import { BUNDLED_AUDIO_TRACK_IDS, hasBundledAudio } from '@/constants/audio';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
+import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
@@ -138,6 +148,8 @@ import {
   SearchField,
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
+import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
+import { useTelescopePin } from '@/screens/island/useTelescopePin';
 import { useShop } from '@/screens/island/useShop';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import {
@@ -148,6 +160,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
+import { openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -183,6 +196,8 @@ const buildingArt: Record<string, string> = {
   mail: 'mailbox',
   shop: 'shop',
 };
+// 전망대 순위 행의 «소속됨» 배지 — Badge 는 기본이 왼쪽 위 정렬(DESIGN §7.5)이라 행 안 세로 가운데에 둔다
+const rankJoinedBadge = { alignSelf: 'center' } as const;
 const pad = (n: number) => String(n).padStart(2, '0');
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
@@ -231,6 +246,12 @@ function MainIslandRadio({ selected }: { selected: boolean }) {
     </View>
   );
 }
+/** 상태에 실린 머리·목·신발 — 키 없음(옛 서버·미장착)과 null(해제)은 모두 «미장착» 이다. */
+const outfitOf = (state: State): Outfit => ({
+  head: state.equipped.head ?? null,
+  neck: state.equipped.neck ?? null,
+  shoes: state.equipped.shoes ?? null,
+});
 function Boat({ state, h = 260, scarf }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
@@ -240,6 +261,19 @@ function Boat({ state, h = 260, scarf }: any) {
         w={h * 0.42}
         style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
       />
+      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림과 같은 상자 */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: h * 0.36,
+          top: h * 0.12,
+          width: h * 0.42,
+          height: h * 0.42,
+        }}
+      >
+        <CatOutfitLayers outfit={outfitOf(state)} />
+      </View>
       {scarf && (
         <View
           style={{
@@ -924,6 +958,8 @@ export function RedesignScreens({ e }: any) {
   const snap = state.serverIslands;
   // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
   const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
+  // 전망대에서 섬을 망원경에 넣는 확인창·요청(GROMO-2269) — 랭킹 행이 쓴다. 섬 이름 검색(explore)은 자기 인스턴스를 쓴다.
+  const telescopePin = useTelescopePin(e);
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
@@ -940,6 +976,7 @@ export function RedesignScreens({ e }: any) {
     server && p.owned !== undefined
       ? !!p.owned
       : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
+  const catalog = useCustomizationCatalog();
   const productTitle = (id: string) =>
     server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
@@ -2608,48 +2645,45 @@ export function RedesignScreens({ e }: any) {
     );
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const guideUserId = getSession()?.userId ?? 'local';
-    const mailboxGuide = shouldShowMailboxGuide(state, guideUserId);
-    const hallGuide = !mailboxGuide && hallGuideOpen && !island.buildings.includes('hall'),
+    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        {mailboxGuide ? (
-          backgroundHome
-        ) : (
-          <IslandHome
-            state={state}
-            go={go}
-            build={build}
-            request={e.walkRequest}
-            notify={notify}
-            dispatch={dispatch}
-            focusTutorial={
-              guideStep === 4
-                ? {
-                    text: t('home.tutorial.focusStart'),
-                    onPress: () =>
-                      setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
-                    onSkip: () => setGuideStep(99),
-                  }
-                : undefined
-            }
-            boardStatus={e.boardStatus}
-            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
-            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
-            onServerBuilt={e.islands ? e.retryHome : undefined}
-          />
-        )}
-        {mailboxGuide && (
-          <MailboxGuide
-            blocked={e.routeTransitionShielded}
-            key={`${guideUserId}:${island.id}`}
-            onDone={(openMailbox) => {
-              dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
-              if (openMailbox) go('mail');
-            }}
-          />
-        )}
+        <IslandHome
+          state={state}
+          go={go}
+          build={build}
+          request={e.walkRequest}
+          notify={notify}
+          dispatch={dispatch}
+          focusTutorial={
+            guideStep === 4
+              ? {
+                  text: t('home.tutorial.focusStart'),
+                  onPress: () =>
+                    setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
+                  onSkip: () => setGuideStep(99),
+                }
+              : undefined
+          }
+          boardStatus={e.boardStatus}
+          libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+          showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+          showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
+          onServerBuilt={e.islands ? e.retryHome : undefined}
+        />
+        <MagazineHomeLayer
+          today={e.magazineToday ?? null}
+          hasMailbox={island.buildings.includes('mail')}
+          blocked={
+            hallGuide ||
+            guideStep === 4 ||
+            !!state.session ||
+            !!state.visitingIslandId ||
+            !!e.routeTransitionShielded
+          }
+          go={go}
+        />
         {hallGuide && (
           <GuideBox
             text={t('home.tutorial.hallGuide', { count: costs.hall })}
@@ -2877,10 +2911,6 @@ export function RedesignScreens({ e }: any) {
           go('focus');
         }}
         home={home}
-        endRest={() => {
-          act('FINISH');
-          reset('focusResult');
-        }}
       />
     );
   if (route === 'sound') {
@@ -2991,7 +3021,13 @@ export function RedesignScreens({ e }: any) {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={scene ? '집중으로 돌아가기' : '섬으로 돌아가기'}
+            accessibilityLabel={
+              state.session?.status === 'paused'
+                ? '휴식으로 돌아가기'
+                : scene
+                  ? '집중으로 돌아가기'
+                  : '섬으로 돌아가기'
+            }
             onPress={back}
             style={{
               position: 'absolute',
@@ -3198,7 +3234,9 @@ export function RedesignScreens({ e }: any) {
                         (!localAudioIds.has(id) ||
                           (server && (product?.available === false || product?.price == null)));
                       const status = owned
-                        ? '보유'
+                        ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                          ? '무료'
+                          : '보유'
                         : !localAudioIds.has(id)
                           ? '앱 업데이트가 필요해요'
                           : unavailable
@@ -3210,7 +3248,7 @@ export function RedesignScreens({ e }: any) {
                           accessibilityRole="button"
                           accessibilityLabel={
                             owned
-                              ? `${trackLabel(id)}, 보유`
+                              ? `${trackLabel(id)}, ${status}`
                               : unavailable
                                 ? `${trackLabel(id)}, ${status}`
                                 : `${trackLabel(id)}, ${product?.price}마리로 구매`
@@ -3454,7 +3492,8 @@ export function RedesignScreens({ e }: any) {
   if (['hall', 'stats', 'ledger'].includes(route)) {
     const records = state.records.filter(
         (r) =>
-          r.islandId === island.id && r.at > Date.now() - (period === '주' ? 7 : 30) * 86400000,
+          islandFocusRecord(r, island.id) &&
+          r.at > Date.now() - (period === '주' ? 7 : 30) * 86400000,
       ),
       total = records.reduce((s, r) => s + r.seconds, 0),
       days = Array.from({ length: 7 }, (_, i) =>
@@ -4664,7 +4703,11 @@ export function RedesignScreens({ e }: any) {
       // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)·myRank(전체 모집단 기준)는
       // 서버 값 그대로고, 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
       const rk = islandRankings,
-        myIslandId = snap?.currentIslandId;
+        myIslandId = snap?.currentIslandId,
+        // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
+        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
+        // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
+        largeText = (layout.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
       return (
         <IslandSheet
           bg="tower"
@@ -4703,33 +4746,52 @@ export function RedesignScreens({ e }: any) {
           {rk.status === 'ready' && rk.data && rk.data.items.length > 0 && (
             <>
               <SheetGroup>
-                {rk.data.items.map((item) => (
-                  <SheetRow
-                    key={item.islandId}
-                    title={item.name}
-                    sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
-                    label={`${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`}
-                    tone={item.islandId === myIslandId ? 'butter' : undefined}
-                    lead={
-                      <Txt
-                        style={{
-                          width: 26,
-                          fontSize: 18,
-                          lineHeight: 26.1,
-                          fontWeight: '800',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {item.rank}
-                      </Txt>
-                    }
-                    tail={<IslandThumb />}
-                    chevron={item.islandId !== myIslandId}
-                    onPress={
-                      item.islandId === myIslandId ? undefined : () => go('visit', item.islandId)
-                    }
-                  />
-                ))}
+                {rk.data.items.map((item) => {
+                  const joined = joinedIds.has(item.islandId);
+                  const label = `${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`;
+                  const joinedBadge = joined && (
+                    <Badge soft style={largeText ? undefined : rankJoinedBadge}>
+                      {t('observatory.joined')}
+                    </Badge>
+                  );
+                  return (
+                    <SheetRow
+                      key={item.islandId}
+                      title={item.name}
+                      sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                      label={joined ? `${label}, ${t('observatory.joined')}` : label}
+                      tone={item.islandId === myIslandId ? 'butter' : undefined}
+                      lead={
+                        <Txt
+                          style={{
+                            width: 26,
+                            fontSize: 18,
+                            lineHeight: 26.1,
+                            fontWeight: '800',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {item.rank}
+                        </Txt>
+                      }
+                      below={largeText ? joinedBadge : undefined}
+                      tail={
+                        <>
+                          {!largeText && joinedBadge}
+                          <IslandThumb />
+                        </>
+                      }
+                      chevron={!joined}
+                      disabled={telescopePin.busy}
+                      // 소속이 아닌 섬은 확인창 → 망원경에 넣기(방문 화면으로 보내지 않는다)
+                      onPress={
+                        joined
+                          ? undefined
+                          : () => telescopePin.ask({ id: item.islandId, name: item.name })
+                      }
+                    />
+                  );
+                })}
               </SheetGroup>
               {rk.data.myRank !== null && (
                 <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingTop: 10 }]}>
@@ -4808,6 +4870,8 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'explore') {
+    // 서버 모드는 섬 이름을 서버에서 검색하고 고른 섬을 망원경에 넣는다(GROMO-2269) — 아래 로컬 필터는 서버 없는 모드의 목업이다
+    if (server) return <ObservatorySearch e={e} />;
     const query = search.trim();
     const codeTarget = findIslandByInviteCode(state.islands, query)?.id;
     // 이름 검색 결과에서 정원이 찬 섬(내가 가입하지 않은)은 뺀다. 초대 코드로 찾은 섬은 보여 주고 가입할 때 막는다
@@ -5020,6 +5084,23 @@ export function RedesignScreens({ e }: any) {
       <Preview h={h}>
         <Pic id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'} w="92%" h="86%" />
         {hat && <HatOn image="raft" style={{ width: '92%', height: '86%' }} />}
+        {/* 합성 그림(440×317) 안 고양이 상자 ≈ 왼쪽 16.6%·위 2.8%·폭 55.7% — 밀짚모자 좌표에서 역산한 값, 실기기 확인 필요 */}
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', width: '92%', aspectRatio: 440 / 317 }}
+        >
+          <View
+            style={{
+              position: 'absolute',
+              left: '16.6%',
+              top: '2.8%',
+              width: '55.7%',
+              aspectRatio: 1,
+            }}
+          >
+            <CatOutfitLayers outfit={outfitOf(state)} />
+          </View>
+        </View>
       </Preview>
     ) : (
       <View>
@@ -5134,8 +5215,6 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const guideUserId = getSession()?.userId ?? 'local';
-    const shopGuide = shouldShowShopGuide(state, guideUserId);
     return (
       <>
         <IslandSheet
@@ -5195,13 +5274,6 @@ export function RedesignScreens({ e }: any) {
             ))}
           </View>
         </IslandSheet>
-        {shopGuide && (
-          <ShopGuide
-            blocked={e.routeTransitionShielded}
-            onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
-            onCancel={home}
-          />
-        )}
       </>
     );
   }
@@ -5817,31 +5889,36 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'wardrobe') {
-    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용)
-    const thumb = (value: string, label: string, picture: React.ReactNode) => {
-      const on = worn === value || (value === 'default' && ['default', 'none'].includes(worn));
+    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
+    type WardrobeSlot = 'clothes' | 'decor' | 'head' | 'neck' | 'shoes';
+    const slotWorn = (slot: WardrobeSlot): string | null => {
+      const v = state.equipped[slot];
+      return v == null || v === 'default' || v === 'none' ? null : v;
+    };
+    const thumb = (
+      slot: WardrobeSlot,
+      value: string | null,
+      label: string,
+      picture: React.ReactNode,
+      a11yLabel: string = label,
+    ) => {
+      const on = slotWorn(slot) === value;
       return (
         <Pressable
-          key={value}
+          key={`${slot}:${value}`}
           accessibilityRole="button"
-          accessibilityLabel={label}
+          accessibilityLabel={a11yLabel}
           accessibilityState={{ selected: on }}
           onPress={() => {
-            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다.
+            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다. null 은 해제.
             if (server) {
-              const patch =
-                value === 'default'
-                  ? { clothes: null }
-                  : shopApi.kinds[value] === 'decor'
-                    ? { decor: value }
-                    : { clothes: value };
-              shopApi.equip(patch).catch((thrown) => {
+              shopApi.equip({ [slot]: value }).catch((thrown) => {
                 const m = serverErrorText(thrown);
                 if (m) notify(m);
               });
               return;
             }
-            act('EQUIP', { key: 'clothes', value });
+            act('EQUIP', { key: 'clothes', value: value ?? 'default' });
           }}
           style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
@@ -5878,6 +5955,30 @@ export function RedesignScreens({ e }: any) {
         </Pressable>
       );
     };
+    const slotIds = (slot: WardrobeSlot): string[] =>
+      server
+        ? ((shopApi.my?.[slot] as string[] | undefined) ?? [])
+        : slot === 'clothes'
+          ? products
+              .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
+              .map((p) => p.id)
+          : [];
+
+    const picture = (slot: WardrobeSlot, id: string) => {
+      const entry = catalog[id];
+      if (entry)
+        return (
+          <Image
+            accessible={false}
+            testID={`wardrobe-art-${id}`}
+            source={{ uri: entry.imageUrl }}
+            style={{ width: 60, height: 60 }}
+            resizeMode="contain"
+          />
+        );
+      if (slot === 'clothes' && id === 'straw-hat') return <HatArt w={72} scale={0.7} />;
+      return slot === 'clothes' || slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
+    };
     return (
       <IslandSheet
         bg="dock"
@@ -5889,24 +5990,39 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        <Txt kind="section" style={st.sec}>
-          옷·장신구
-        </Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {thumb('default', '기본', <Pic id={'cat/' + state.color} w={60.5} />)}
-          {(server
-            ? [...(shopApi.my?.clothes ?? []), ...(shopApi.my?.decor ?? [])]
-            : products
-                .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-                .map((p) => p.id)
-          ).map((id) =>
-            thumb(
-              id,
-              server ? productTitle(id) : products.find((p) => p.id === id)?.title || id,
-              id === 'straw-hat' ? <HatArt w={72} scale={0.7} /> : <Pic id="scarf-cat" w={60.5} />,
-            ),
-          )}
-        </View>
+        {(['clothes', 'decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
+          const worn = slotWorn(slot);
+          // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
+          const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
+          if (slot !== 'clothes' && ids.length === 0 && !worn) return null;
+          return (
+            <View key={slot} style={{ gap: 10 }}>
+              <Txt kind="section" style={st.sec}>
+                {t(`wardrobe.section.${slot}`)}
+              </Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {thumb(
+                  slot,
+                  null,
+                  t('wardrobe.default'),
+                  slot === 'clothes' ? <Pic id={'cat/' + state.color} w={60.5} /> : null,
+                  // 슬롯마다 같은 「기본」이 다섯 번 읽히지 않게 슬롯 이름을 붙인다
+                  t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
+                )}
+                {ids.map((id) =>
+                  thumb(
+                    slot,
+                    id,
+                    server
+                      ? (catalog[id]?.title ?? productTitle(id))
+                      : products.find((p) => p.id === id)?.title || id,
+                    picture(slot, id),
+                  ),
+                )}
+              </View>
+            </View>
+          );
+        })}
       </IslandSheet>
     );
   }
@@ -6188,7 +6304,16 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <IslandSheet
+          bg="dock"
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          onBack={back}
+          onClose={home}
+          action={serverMode ? t('account.blocked.title') : undefined}
+          actionPress={serverMode ? () => go('blockedUsers') : undefined}
+        >
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -6231,8 +6356,6 @@ export function RedesignScreens({ e }: any) {
             visible
             targetUserId={safetyTarget.id}
             targetName={safetyTarget.name}
-            reportTargetType="USER"
-            reportTargetId={safetyTarget.id}
             onClose={() => setSafetyTarget(null)}
             onChanged={friendsScreen?.refresh ?? (() => {})}
             onMessage={notify}
@@ -6443,70 +6566,44 @@ export function RedesignScreens({ e }: any) {
         onBack={back}
         onClose={home}
       >
-        {sec(t('settings.notificationsSoundSection'))}
+        {sec(t('settings.generalSection'))}
         <SheetGroup flat>
           {toggle(t('settings.notifications'), 'notifications')}
           {toggle(t('settings.sound'), 'sound')}
           {toggle(t('settings.haptics'), 'haptics')}
-        </SheetGroup>
-        {sec(t('settings.screenSection'))}
-        <SheetGroup flat>
-          {toggle(t('settings.reduceMotion'), 'reduceMotion', t('settings.reduceMotionSub'))}
-        </SheetGroup>
-        {sec(t('settings.language.title'))}
-        <SheetGroup flat>
+          {toggle(t('settings.reduceMotion'), 'reduceMotion')}
           <SheetRow
             title={t('settings.language.title')}
             sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
             chevron
             onPress={() => go('language', 'settings')}
           />
-        </SheetGroup>
-        {sec(t('settings.permissionSection'))}
-        <SheetGroup flat>
           <SheetRow
             title={t('settings.permissionManage')}
-            sub={t('settings.permissionManageSub')}
             chevron
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
-        {server ? (
-          <>
-            {sec(t('settings.safetySection'))}
-            <SheetGroup flat>
-              <SheetRow
-                title={t('account.blocked.title')}
-                sub={t('settings.blockedUsersSub')}
-                chevron
-                onPress={() => go('blockedUsers')}
-              />
-            </SheetGroup>
-          </>
-        ) : null}
-        {sec(t('settings.helpSection'))}
+        {sec(t('settings.safetySection'))}
         <SheetGroup flat>
           <SheetRow
-            title={t('settings.replayTutorial')}
-            sub={t('settings.replayTutorialSub')}
+            title={t('settings.report.title')}
+            sub={t('settings.report.sub')}
             chevron
             onPress={() => {
-              setGuideStep(0);
-              go('guide');
+              openReportCenter().catch(() =>
+                confirm(
+                  t('settings.report.title'),
+                  t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
+              );
             }}
           />
         </SheetGroup>
-        {sec(t('settings.appInfoSection'))}
+        {sec(t('settings.privacySection'))}
         <SheetGroup flat>
-          <SheetRow title={t('settings.version')} sub="R61 · v2" />
-          <SheetRow
-            title={t('settings.privacyNotice')}
-            sub={t('settings.privacyNoticeSub')}
-            chevron
-            onPress={() =>
-              confirm(t('settings.privacyNotice'), t('settings.privacyNoticeBody'), () => {})
-            }
-          />
+          <ScreenTimeSharingSettings e={e} />
           <SheetRow
             title={t('login.policy.terms')}
             chevron
@@ -6520,6 +6617,9 @@ export function RedesignScreens({ e }: any) {
             onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
+        <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
+          catus {Application.nativeApplicationVersion ?? appManifest.version}
+        </Txt>
       </IslandSheet>
     );
   }

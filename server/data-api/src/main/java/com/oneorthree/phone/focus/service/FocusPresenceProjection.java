@@ -122,6 +122,20 @@ public class FocusPresenceProjection {
         focusPresencePort.focusEnded(userId, presenceOrder);
     }
 
+    /**
+     * 바다 세션이 열렸다 (GROMO-2299) — 섬 사건(목적지 섬 주민에게 항해자가 보이면 안 된다)은 내지 않고, 사용자 단위
+     * 채팅 게이트 리스만 적는다. 바다 집중도 집중이라 게이트는 섬 세션과 같게 든다(N37).
+     */
+    public void seaStarted(UUID userId, Long presenceOrder, long controlVersion, Instant startedAt) {
+        focusPresencePort.focusStateChanged(userId, presenceOrder, controlVersion, FocusPresenceState.ACTIVE,
+                startedAt);
+    }
+
+    /** 바다 세션이 끝났다(정산·포기 공용) — 리스만 지운다. 리스를 안 지우면 복원 스케줄러가 13시간 되살린다. */
+    public void seaEnded(UUID userId, Long presenceOrder) {
+        focusPresencePort.focusEnded(userId, presenceOrder);
+    }
+
     /** 탈퇴 — 리스·종료 표식을 지우고 tombstone 을 남긴다(GROMO-1943). 섬 투영은 강퇴 경로가 이미 적었다. */
     public void userWithdrawn(UUID userId) {
         focusPresencePort.userWithdrawn(userId);

@@ -24,6 +24,15 @@ import java.util.UUID;
  */
 public interface FocusSessionDetailRepository extends JpaRepository<FocusSessionDetail, UUID> {
 
+    /**
+     * {@link #findOverlapping} 의 바깥 시간 경계 — 진행 중이거나, 창 시작 뒤에 끝났다. 별칭 {@code d}·파라미터
+     * {@code :from} 을 쓴다.
+     */
+    String OPEN_OR_ENDED_AFTER_FROM = "AND (d.lifecycle IN ("
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.ACTIVE, "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED) "
+            + "OR d.lastTransitionAt > :from) ";
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT d FROM FocusSessionDetail d WHERE d.sessionId = :sessionId")
     Optional<FocusSessionDetail> findBySessionIdForUpdate(@Param("sessionId") UUID sessionId);
@@ -34,7 +43,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @param sessionId 전이 대상 세션
      * @return 주인·섬. 세션이 없으면 빈 값
      */
-    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionOwnership(d.userId, d.islandId) "
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionOwnership(d.userId, d.islandId, d.kind) "
             + "FROM FocusSessionDetail d WHERE d.sessionId = :sessionId")
     Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
 
@@ -73,7 +82,9 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT d FROM FocusSessionDetail d WHERE d.userId = :userId AND d.islandId = :islandId "
-            + "AND d.lifecycle IN :lifecycles")
+            + "AND d.lifecycle IN :lifecycles "
+            // 바다 세션의 island_id 는 «목적지» 라 소속과 무관하다(GROMO-2299) — 목적지 섬에서 강퇴돼도 항해는 계속된다.
+            + "AND d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
     Optional<FocusSessionDetail> findProgressingByUserIdAndIslandIdForUpdate(
             @Param("userId") UUID userId, @Param("islandId") UUID islandId,
             @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles);
@@ -83,8 +94,12 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      *
      * @return 있으면 true
      */
-    boolean existsByUserIdAndIslandIdAndLifecycleIn(
-            UUID userId, UUID islandId, Collection<FocusSessionLifecycle> lifecycles);
+    @Query("SELECT COUNT(d) > 0 FROM FocusSessionDetail d WHERE d.userId = :userId AND d.islandId = :islandId "
+            + "AND d.lifecycle IN :lifecycles AND d.kind = "
+            // 바다 세션의 island_id 는 «목적지» 라 소속 탈퇴를 막을 이유가 아니다(강퇴 경로와 같은 기준, GROMO-2299).
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
+    boolean existsByUserIdAndIslandIdAndLifecycleIn(@Param("userId") UUID userId, @Param("islandId") UUID islandId,
+                                                    @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles);
 
     /**
      * 섬 주민 스냅샷용(GROMO-1765) — 그 섬에 귀속된 진행 세션 중 지정한 사용자들의 것.
@@ -94,8 +109,13 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @param userIds    현재 활성 주민 — 섬을 떠난 사용자의 진행 세션은 여기서 걸러진다
      * @return 해당 상세(사용자당 최대 1건 — V58 부분 UNIQUE)
      */
+    @Query("SELECT d FROM FocusSessionDetail d WHERE d.islandId = :islandId AND d.lifecycle IN :lifecycles "
+            + "AND d.userId IN :userIds "
+            // 목적지가 이 섬인 바다 세션은 섬 주민에게 보이면 안 된다(10/16 관전자 규칙, GROMO-2299).
+            + "AND d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
     List<FocusSessionDetail> findByIslandIdAndLifecycleInAndUserIdIn(
-            UUID islandId, Collection<FocusSessionLifecycle> lifecycles, Collection<UUID> userIds);
+            @Param("islandId") UUID islandId, @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles,
+            @Param("userIds") Collection<UUID> userIds);
 
     /**
      * 보상 적립 틱용(GROMO-1990) — 지금 그 lifecycle 인 세션 id 목록. 엔티티를 올리지 않는다: 틱은
@@ -138,7 +158,8 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @return 섬 id(순서 무관)
      */
     @Query("SELECT d.islandId FROM FocusSessionDetail d WHERE d.lifecycle = :lifecycle "
-            + "AND d.islandId IS NOT NULL AND d.userId IS NOT NULL "
+            + "AND d.islandId IS NOT NULL AND d.userId IS NOT NULL AND d.kind = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND "
             + "GROUP BY d.islandId HAVING COUNT(d) >= :minimum")
     List<UUID> findIslandIdsWithAtLeast(@Param("lifecycle") FocusSessionLifecycle lifecycle,
                                         @Param("minimum") long minimum);
@@ -152,7 +173,8 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @return 세션 id(순서 무관 — 호출측이 잠금 순서를 정한다)
      */
     @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.islandId = :islandId "
-            + "AND d.lifecycle = :lifecycle AND d.userId IS NOT NULL")
+            + "AND d.lifecycle = :lifecycle AND d.userId IS NOT NULL AND d.kind = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
     List<UUID> findSessionIdsByIslandIdAndLifecycle(@Param("islandId") UUID islandId,
                                                     @Param("lifecycle") FocusSessionLifecycle lifecycle);
 
@@ -165,7 +187,8 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @return 사용 중인 자리 번호(중복 없음이 자연히 보장 — UNIQUE 인덱스)
      */
     @Query("SELECT d.restSeat FROM FocusSessionDetail d WHERE d.islandId = :islandId AND d.lifecycle = "
-            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED")
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED AND d.kind = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
     List<Integer> findUsedRestSeatsByIslandId(@Param("islandId") UUID islandId);
 
     /**
@@ -208,9 +231,17 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * 회관 기록 scope=me (GROMO-1769, LLD §3) — 이 사용자들의 세션 중 ACTIVE 구간이 {@code [from, to)} 와 겹치는 것.
      * 섬을 가리지 않는다(개인 전체 — 2026-09-19 결정 RC-D01).
      *
+     * <p><b>시간 경계가 바깥 스캔을 자른다</b>(GROMO-2344) — 상세에는 구간 시각이 없어, 종전에는 주민의 «전생애»
+     * 세션마다 구간을 탐침했다. 진행 중이 아닌 세션의 {@code lastTransitionAt} 은 종결 시각이고 그 세션의 어떤 구간
+     * {@code endedAt} 보다도 작지 않다(완료가 같은 anchor 로 열린 구간을 닫고, anchor 는 직전 전이보다 앞서지 않는다). 그래서 «구간이 창과
+     * 겹친다»면 «{@code lastTransitionAt > from}» 이고, 이 술어가 V130 {@code (user_id, island_id, last_transition_at)} 인덱스로
+     * 범위를 좁힌다. 진행 중 세션(사용자당 1건)은 마지막 전이가 창보다 오래됐어도 열린 구간이 겹칠 수 있어 따로 둔다.
+     * 정확한 겹침 판정은 여전히 {@code EXISTS} 다.
+     *
      * @param lifecycles 집계에 넣는 lifecycle(ACTIVE·PAUSED·COMPLETED). 정산 없이 끝난 세션은 빠진다
      */
     @Query("SELECT d FROM FocusSessionDetail d WHERE d.userId IN :userIds AND d.lifecycle IN :lifecycles "
+            + OPEN_OR_ENDED_AFTER_FROM
             + "AND EXISTS (SELECT 1 FROM FocusSessionInterval i WHERE i.sessionId = d.sessionId "
             + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
             + "AND i.startedAt < :to AND (i.endedAt IS NULL OR i.endedAt > :from))")
@@ -220,10 +251,12 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
 
     /**
      * 회관 기록 scope=island — {@link #findOverlapping} 에 시작 때 고정한 섬({@code islandId}) 조건을 더한다.
-     * 다른 섬에서 한 집중은 이 섬 기여가 아니다(2026-09-19 결정 RC-D01).
+     * 다른 섬에서 한 집중은 이 섬 기여가 아니다(2026-09-19 결정 RC-D01). 시간 경계도 같다.
      */
     @Query("SELECT d FROM FocusSessionDetail d WHERE d.islandId = :islandId AND d.userId IN :userIds "
-            + "AND d.lifecycle IN :lifecycles "
+            + "AND d.lifecycle IN :lifecycles AND d.kind = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND "
+            + OPEN_OR_ENDED_AFTER_FROM
             + "AND EXISTS (SELECT 1 FROM FocusSessionInterval i WHERE i.sessionId = d.sessionId "
             + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
             + "AND i.startedAt < :to AND (i.endedAt IS NULL OR i.endedAt > :from))")
@@ -264,7 +297,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             + "LEAST(i.ended_at, CAST(:windowEnd AS timestamptz)) "
             + "- GREATEST(i.started_at, CAST(:windowStart AS timestamptz)))))) AS bigint) AS \"seconds\" "
             + "FROM focus_session_details d JOIN focus_session_intervals i ON i.session_id = d.session_id "
-            + "WHERE d.lifecycle = 'COMPLETED' AND i.kind = 'ACTIVE' AND i.ended_at IS NOT NULL "
+            + "WHERE d.lifecycle = 'COMPLETED' AND d.kind = 'ISLAND' AND i.kind = 'ACTIVE' AND i.ended_at IS NOT NULL "
             + "AND i.started_at < CAST(:windowEnd AS timestamptz) "
             + "AND i.ended_at > CAST(:windowStart AS timestamptz) "
             + "GROUP BY d.island_id "

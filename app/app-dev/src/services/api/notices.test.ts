@@ -5,6 +5,7 @@ import {
   createNotice,
   createNoticeComment,
   deleteNotice,
+  deleteNoticeComment,
   getBoard,
   getNotice,
   listNotices,
@@ -194,4 +195,13 @@ test('오류를 빈 목록·가짜 성공으로 바꾸지 않는다 — 403/409 
   const expired = await failed(listNotices(ISLAND, 'old-cursor'));
   assert.equal(expired.code, 'CURSOR_EXPIRED');
   assert.equal(expired.field, 'cursor');
+});
+
+test('댓글 DELETE — 경로와 멱등 키를 보내고 본문은 보내지 않는다', async () => {
+  stub(200, { data: { deleted: true } });
+  assert.deepEqual(await deleteNoticeComment(ISLAND, NOTICE, 'comment/1', KEY), { deleted: true });
+  assert.equal(calls[0].url, `${API_URL}/islands/${ISLAND}/notices/${NOTICE}/comments/comment%2F1`);
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(headers()['Idempotency-Key'], KEY);
+  assert.equal(calls[0].init.body, undefined);
 });

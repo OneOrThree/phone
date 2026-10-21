@@ -80,6 +80,7 @@ services:
     volumes:
       - ./nginx-dev-2.0-routes.conf.example:/etc/nginx/gromo/routes.conf.example:ro
       - ./nginx-local-routes.sh:/docker-entrypoint.d/40-gromo-local-routes.sh:ro
+      - ../static:/usr/share/nginx/html/static:ro  # 카탈로그 이미지(GROMO-2331) — server/static/ 이 /static/ 으로 나간다
     restart: unless-stopped
     healthcheck:
       # 정본의 `location /` 가 404 를 돌려주는 것 자체가 「라우팅이 올라왔다」는 신호다. upstream 생사와는 무관.

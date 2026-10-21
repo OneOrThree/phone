@@ -28,6 +28,7 @@
  * 목록 항목도 함께 지운다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
@@ -66,6 +67,7 @@ export type MailboxState = {
   loadingMoreLetters: boolean;
   loadingMoreMessages: boolean;
   error: ApiError | null;
+  messagesRefreshError: ApiError | null;
   detail: LetterView | null;
   detailLoading: boolean;
   detailError: ApiError | null;
@@ -89,6 +91,7 @@ const EMPTY: MailboxState = {
   loadingMoreLetters: false,
   loadingMoreMessages: false,
   error: null,
+  messagesRefreshError: null,
   detail: null,
   detailLoading: false,
   detailError: null,
@@ -103,7 +106,15 @@ const authLost = (error: unknown) =>
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
-export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
+export function useMailbox({
+  active,
+  scopeKey,
+  chatActive = false,
+}: {
+  active: boolean;
+  scopeKey: string;
+  chatActive?: boolean;
+}) {
   // 우체통은 낙서·편지 원문을 그리므로 TTL cache만 믿지 않고 진입마다 재검증한다.
   const blockedUsers = useBlockedUsers(active, active);
   const blockedIds = blockedUsers.ids;
@@ -124,6 +135,9 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
 
   const mounted = useRef(false);
   const epoch = useRef(0);
+  // 발송 응답이 아니라 마지막 이력 조회의 끝이다. 내 새 글을 기준으로 잡으면
+  // 그 사이 도착한 상대 글을 페이지 경계에서 놓칠 수 있다.
+  const latestReadMessageId = useRef<string | null>(null);
   // 상세 경합 fence — 마지막으로 연 편지만 detail 로 적용된다.
   const openSeq = useRef(0);
   const requestedDetailId = useRef<string | null>(null);
@@ -153,6 +167,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       const screen = await getMailboxScreen();
       if (!alive(e, generation)) return;
       proven.current = { epoch: e, generation };
+      latestReadMessageId.current = screen.messages.items.at(-1)?.id ?? null;
       set({
         islandId: screen.island.id,
         islandName: screen.island.name,
@@ -458,6 +473,113 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey·generation 은 재시작 신호다.
   }, [active, scopeKey, generation, load]);
+
+  // 채팅방을 보는 동안만 최신 이력을 읽는다. 입력창·편지·이전 이력은 건드리지 않는다.
+  useEffect(() => {
+    if (
+      !active ||
+      !chatActive ||
+      !state.islandId ||
+      state.loading ||
+      !cached() ||
+      blockedUsers.status !== 'ready'
+    )
+      return;
+    const islandId = state.islandId;
+    const e = epoch.current;
+    const requestGeneration = sessionGeneration();
+    let disposed = false;
+    let foreground = AppState.currentState == null || AppState.currentState === 'active';
+    let visibilityEpoch = 0;
+    let inFlight = false;
+    let denied = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const current = (visibility: number) =>
+      !disposed && foreground && visibility === visibilityEpoch && alive(e, requestGeneration);
+    const schedule = () => {
+      if (!disposed && foreground && !denied)
+        timer = setTimeout(() => {
+          void refresh();
+        }, 10_000);
+    };
+    const refresh = async () => {
+      if (disposed || !foreground || inFlight || denied) return;
+      inFlight = true;
+      const visibility = visibilityEpoch;
+      const anchor = latestReadMessageId.current;
+      try {
+        let page = await listIslandMessages(islandId);
+        if (!current(visibility)) return;
+        const first = page;
+        const incoming = [...page.items];
+        const cursors = new Set<string>();
+        // 최신 한 페이지를 넘는 새 글도 마지막 조회 지점까지 읽어 빠짐없이 이어 붙인다.
+        while (
+          anchor &&
+          !page.items.some((message) => message.id === anchor) &&
+          page.nextCursor !== null
+        ) {
+          const cursor = page.nextCursor;
+          if (cursors.has(cursor))
+            throw new ApiError('INVALID_CURSOR', '새 글을 이어서 불러오지 못했어요.', 0);
+          cursors.add(cursor);
+          page = await listIslandMessages(islandId, cursor);
+          if (!current(visibility)) return;
+          incoming.push(...page.items);
+        }
+        const merged = new Map(stateRef.current.messages.map((message) => [message.id, message]));
+        for (const message of incoming) merged.set(message.id, message);
+        latestReadMessageId.current = first.items.at(-1)?.id ?? anchor;
+        set({
+          messages: [...merged.values()].sort(
+            (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+          ),
+          // 기존 과거 페이지 커서는 그대로 둔다. 빈 이력에서 처음 읽은 경우만 초기화한다.
+          ...(anchor === null ? { messagesCursor: first.nextCursor } : {}),
+          messagesRefreshError: null,
+        });
+      } catch (error) {
+        if (!current(visibility)) return;
+        denied = authLost(error);
+        set({
+          ...(denied ? { messages: [], messagesCursor: null } : {}),
+          messagesRefreshError: error as ApiError,
+        });
+      } finally {
+        inFlight = false;
+        if (!disposed && foreground && !denied) {
+          // 백그라운드에서 시작한 응답은 버리고 복귀 직후 새 요청으로 대체한다.
+          if (visibility !== visibilityEpoch) void refresh();
+          else schedule();
+        }
+      }
+    };
+    const subscription = AppState.addEventListener('change', (next) => {
+      const nextForeground = next === 'active';
+      if (nextForeground === foreground) return;
+      foreground = nextForeground;
+      visibilityEpoch += 1;
+      clearTimeout(timer);
+      if (foreground) void refresh();
+    });
+    void refresh();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, [
+    active,
+    chatActive,
+    scopeKey,
+    generation,
+    state.islandId,
+    state.loading,
+    blockedUsers.status,
+    alive,
+    cached,
+    set,
+  ]);
 
   const visibleState = useMemo(() => {
     const counterpart = (detail: LetterView) =>

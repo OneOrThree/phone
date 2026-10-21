@@ -1,20 +1,28 @@
 import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { IslandSheet } from '@/screens/island/IslandSheet';
+import { Guestbook, type GuestbookEnv } from '@/screens/interiors/Guestbook';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
 import { getNotice, listNotices, type NoticeDetail, type NoticePage } from '@/services/api/notices';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { isNearScrollEnd } from '@/utils/scrollEnd';
 
-/** 방문자·가입 대기자는 공지와 댓글만 읽는다. 주민 전용 /screens/board와 쓰기 API는 호출하지 않는다. */
+/**
+ * 방문자·가입 대기자는 공지와 댓글만 읽는다. 주민 전용 /screens/board와 쓰기 API는 호출하지 않는다.
+ * 방명록(GROMO-2263)만 방문자도 쓴다 — 공지 목록 아래에 두고, 게시판이 없는 섬이면 스스로 숨는다.
+ */
 export function VisitorBoard({
   islandId,
   onClose,
   backOverride,
+  e,
 }: {
   islandId: string;
   onClose: () => void;
   backOverride?: React.RefObject<(() => boolean) | null>;
+  /** 앱 셸 문맥 — 방명록의 알림·회원 전환에 쓴다. */
+  e?: GuestbookEnv;
 }) {
   const [page, setPage] = useState<NoticePage>({ items: [], nextCursor: null });
   const [detail, setDetail] = useState<NoticeDetail | null>(null);
@@ -23,6 +31,7 @@ export function VisitorBoard({
   const [reload, setReload] = useState(0);
   const [failedRead, setFailedRead] = useState<{ id?: string; cursor?: string } | null>(null);
   const epoch = useRef(0);
+  const guestbookMore = useRef<(() => void) | null>(null);
   const pending = useRef<object | null>(null);
   const back = () => {
     if (!detail) return onClose();
@@ -35,12 +44,14 @@ export function VisitorBoard({
   };
   useEffect(() => {
     if (!backOverride) return;
-    backOverride.current = () => {
+    const own = () => {
       back();
       return true;
     };
+    backOverride.current = own;
     return () => {
-      backOverride.current = null;
+      // 이미 다른 화면이 자기 처리를 걸었으면 건드리지 않는다
+      if (backOverride.current === own) backOverride.current = null;
     };
   });
   useEffect(() => {
@@ -123,6 +134,9 @@ export function VisitorBoard({
       tall
       onBack={back}
       onClose={onClose}
+      onScroll={(event) => {
+        if (!detail && isNearScrollEnd(event)) guestbookMore.current?.();
+      }}
     >
       <Txt kind="meta">{t('visitorBoard.readOnly')}</Txt>
       {detail ? (
@@ -188,6 +202,16 @@ export function VisitorBoard({
             }}
           />
         </>
+      )}
+      {!detail && (
+        <Guestbook
+          islandId={islandId}
+          host={false}
+          e={e}
+          onLoadMoreReady={(load) => {
+            guestbookMore.current = load;
+          }}
+        />
       )}
     </IslandSheet>
   );

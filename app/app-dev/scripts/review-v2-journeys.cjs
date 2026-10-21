@@ -2,23 +2,29 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?review=1';
 const outputDir = path.resolve('.docs/v2-review');
 fs.mkdirSync(outputDir, { recursive: true });
+let activeBrowser, activePage;
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  activeBrowser = browser;
   const report = [];
   for (const [orientation, width, height] of [
     ['portrait', 402, 874],
     ['landscape', 874, 402],
   ]) {
     const p = await browser.newPage({ viewport: { width, height } });
+    activePage = p;
+    console.log(`검수 시작: ${orientation}`);
     const errors = [];
     p.on('pageerror', (e) => errors.push(e.message));
     p.on('response', (r) => {
       if (r.status() >= 400 && !r.url().endsWith('/favicon.ico'))
         errors.push(r.url() + ': ' + r.status());
     });
-    await p.goto('http://127.0.0.1:18762/?review=1');
+    p.setDefaultTimeout(7000);
+    await p.goto(reviewUrl);
     await p.waitForFunction(() => window.__gromoReview);
     const open = async (route, opts = {}) => {
       await p.evaluate(({ route, opts }) => window.__gromoReview.open(route, opts), {
@@ -27,7 +33,20 @@ fs.mkdirSync(outputDir, { recursive: true });
       });
       await p.waitForTimeout(200);
     };
-    const fixture = await p.evaluate(() => window.__gromoReview.fixture(true));
+    const fixture = await p.evaluate(() => {
+      const state = window.__gromoReview.fixture(true);
+      state.tutorial = { step: 99 };
+      state.focusGuideDone = true;
+      return state;
+    });
+    await open('home', { state: fixture });
+    assert.equal(await p.evaluate(() => window.__gromoReview.route), 'home');
+    assert.equal(await p.evaluate(() => window.__gromoReview.state.tutorial.step), 99);
+    await open('guide', {
+      state: { ...fixture, focusGuideDone: false, tutorial: { step: 2 } },
+      guideStep: 0,
+    });
+    assert.equal(await p.evaluate(() => window.__gromoReview.state.tutorial.step), 0);
     const state = () => p.evaluate(() => window.__gromoReview.state);
     const route = () => p.evaluate(() => window.__gromoReview.route);
     await open('visit', { state: fixture, detail: 'cloud' });
@@ -60,6 +79,15 @@ fs.mkdirSync(outputDir, { recursive: true });
       pass: true,
     });
     await open('home', { state: fixture });
+    // 가로 화면에서는 하단 집중 버튼 뒤에 있는 낚시섬 문을 지도 이동으로 꺼낸다.
+    if (orientation === 'landscape') {
+      await p.waitForTimeout(1000);
+      await p.mouse.move(500, 250);
+      await p.mouse.down();
+      await p.mouse.move(200, 30, { steps: 20 });
+      await p.mouse.up();
+      await p.waitForTimeout(300);
+    }
     await p.getByRole('button', { name: '낚시섬 구경하기', exact: true }).click();
     await p.waitForFunction(() => window.__gromoReview.route === 'focusVisit');
     assert.equal((await state()).session, null);
@@ -71,7 +99,7 @@ fs.mkdirSync(outputDir, { recursive: true });
     await p.getByRole('button', { name: '닫기', exact: true }).click();
     assert.equal(await route(), 'home');
     assert.equal((await state()).session, null);
-    const emptyFocus = structuredClone(fixture);
+    const emptyFocus = JSON.parse(JSON.stringify(fixture));
     emptyFocus.islands
       .find((island) => island.id === emptyFocus.islandId)
       .members.forEach((member) => {
@@ -79,15 +107,20 @@ fs.mkdirSync(outputDir, { recursive: true });
       });
     await open('focusVisit', { state: emptyFocus });
     await p.getByText('지금 낚시 중인 주민이 없어요', { exact: true }).waitFor();
-    await p.getByRole('button', { name: '뗏목 · 우리 섬으로 돌아가기', exact: true }).click();
+    await p
+      .getByRole('button', {
+        name: orientation === 'landscape' ? '닫기' : '뗏목 · 우리 섬으로 돌아가기',
+        exact: true,
+      })
+      .click();
     assert.equal(await route(), 'home');
     assert.equal((await state()).session, null);
     report.push({
       orientation,
-      flow: 'home fishing island → watch focused members → empty state → home',
+      flow: `home fishing island → watch focused members → empty state → home (${orientation === 'landscape' ? 'close' : 'raft'})`,
       pass: true,
     });
-    const unavailableFocus = structuredClone(fixture);
+    const unavailableFocus = JSON.parse(JSON.stringify(fixture));
     unavailableFocus.islands.find((island) => island.id === 'cloud').members = [];
     await open('visitIslandFocus', { state: unavailableFocus, detail: 'cloud' });
     await p.getByText('지금 낚시 중인 주민이 없어요', { exact: true }).waitFor();
@@ -98,15 +131,16 @@ fs.mkdirSync(outputDir, { recursive: true });
       pass: true,
     });
     await open('home', { state: fixture });
-    await p.getByRole('button', { name: '집중하기', exact: true }).click();
+    await p.getByRole('button', { name: '집중 시작', exact: true }).click();
     await p.waitForFunction(() => window.__gromoReview.route === 'focusTravel');
     assert.equal((await state()).session, null);
     await p.waitForFunction(() => window.__gromoReview.route === 'fishingArrival');
     assert.equal((await state()).session, null);
-    let img = await p.locator('img[src*="fishing-island"]').first().boundingBox();
+    await p.waitForTimeout(500);
+    let img = await p.locator('img[src*="/island/ocean/focus-day"]').first().boundingBox();
     assert.ok(img);
-    // 낚시섬 지도 좌표는 가로·세로 % (시안 예시 내 자리 34.1, 55.9)
-    await p.mouse.click(img.x + 0.341 * img.width, img.y + 0.559 * img.height);
+    // 두 화면 방향에서 보이는 연못 아래쪽의 빈 땅을 선택한다.
+    await p.mouse.click(img.x + 0.28 * img.width, img.y + 0.62 * img.height);
     await p.waitForFunction(() => window.__gromoReview.route === 'focusSetup');
     assert.equal((await state()).session, null);
     await p.getByPlaceholder('예: 영어 단어 외우기').fill('영어 단어 외우기');
@@ -143,8 +177,8 @@ fs.mkdirSync(outputDir, { recursive: true });
     await p.getByRole('button', { name: '수락', exact: true }).click();
     assert.equal((await state()).friends.find((f) => f.id === 'haneul').status, 'friend');
     await open('friendMail', { detail: 'haneul' });
-    await p.getByPlaceholder('편지 보내기').fill('구름 섬에서도 같이 힘내!');
-    await p.getByRole('button', { name: '보내기', exact: true }).click();
+    await p.getByPlaceholder('친구에게 남길 편지를 써 주세요').fill('구름 섬에서도 같이 힘내!');
+    await p.getByRole('button', { name: '접어서 편지 보내기', exact: true }).click();
     let s = await state();
     assert.equal(
       s.friends.find((f) => f.id === 'haneul').messages.at(-1).text,
@@ -156,30 +190,36 @@ fs.mkdirSync(outputDir, { recursive: true });
       flow: 'accept friend → cross-island private letter',
       pass: true,
     });
-    const building = structuredClone(fixture);
+    const building = JSON.parse(JSON.stringify(fixture));
     building.islands[0].buildings = ['hall', 'board', 'gram'];
     const libraryCost = 2720;
     const rainPrice = 30;
     building.islands[0].fish = libraryCost + 20;
+    await open('construction', { state: fixture });
+    await p.getByRole('button', { name: '도서관 완공', exact: true }).click();
+    await p.getByRole('button', { name: '도서관으로 가기', exact: true }).waitFor();
     await open('construction', { state: building });
-    await p.getByRole('button', { name: '도서관', exact: true }).click();
+    assert.deepEqual((await state()).islands[0].buildings, building.islands[0].buildings);
+    await p.getByRole('button', { name: /^도서관(?:,|$)/ }).click();
     await p.getByRole('button', { name: '이 건물을 목표로 정하기', exact: true }).click();
     s = await state();
     assert.equal(s.islands[0].fish, libraryCost + 20);
     assert.equal(s.islands[0].buildingQuest.targets.length, 4);
-    const ready = structuredClone(s);
+    const ready = JSON.parse(JSON.stringify(s));
     const island = ready.islands[0];
     const share = Math.ceil(libraryCost / island.buildingQuest.targets.length);
     for (const id of island.buildingQuest.targets)
       island.earned[id] = (island.buildingQuest.base[id] ?? 0) + share;
     await open('quest', { state: ready, detail: 'building' });
     assert.ok(await p.getByRole('button', { name: '건설하기', exact: true }).isEnabled());
-    await open('product', { detail: 'rain' });
-    await p.getByRole('button', { name: `섬 물고기 ${rainPrice}마리로 구매`, exact: true }).click();
-    await p.getByRole('button', { name: '구매', exact: true }).click();
+    await open('sound');
+    await p
+      .getByRole('button', { name: `빗방울 소리, ${rainPrice}마리로 구매`, exact: true })
+      .click();
+    await p.getByRole('button', { name: `${rainPrice}마리로 구매`, exact: true }).click();
     assert.equal((await state()).islands[0].fish, libraryCost + 20 - rainPrice);
     await open('quest', { detail: 'building' });
-    assert.ok(await p.getByRole('button', { name: '건설하기', exact: true }).isDisabled());
+    assert.equal(await p.getByRole('button', { name: '건설하기', exact: true }).count(), 0);
     await p.evaluate(
       (fish) => window.__gromoReview.dispatch({ type: 'DEMO_CREDIT', fish }),
       rainPrice - 20,
@@ -203,9 +243,9 @@ fs.mkdirSync(outputDir, { recursive: true });
     });
     await open('library', { state: fixture });
     await p.getByRole('button', { name: '내 일기장', exact: true }).click();
-    await p.getByRole('button', { name: '월 단위', exact: true }).click();
-    await p.getByRole('button', { name: '다음 장', exact: true }).click();
-    assert.ok(await p.getByText('스크린타임', { exact: false }).count());
+    await p.getByRole('button', { name: '월', exact: true }).click();
+    await p.getByRole('button', { name: '이전 기간', exact: true }).first().click();
+    assert.ok(await p.getByText('폰 사용', { exact: true }).count());
     await p.screenshot({
       path: path.join(outputDir, `${orientation}-diary-screen-interaction.png`),
     });
@@ -235,13 +275,13 @@ fs.mkdirSync(outputDir, { recursive: true });
         focusSpot: { x: 350, y: 830 },
       },
     });
-    const before = await p.locator('img[src*="fishing-island"]').first().boundingBox();
+    const before = await p.locator('img[src*="/island/ocean/focus-day"]').first().boundingBox();
     await p.mouse.move(width / 2, height / 2);
     await p.keyboard.down('Control');
     await p.mouse.wheel(0, -100);
     await p.keyboard.up('Control');
     await p.waitForTimeout(150);
-    const after = await p.locator('img[src*="fishing-island"]').first().boundingBox();
+    const after = await p.locator('img[src*="/island/ocean/focus-day"]').first().boundingBox();
     assert.ok(after.width > before.width);
     report.push({ orientation, flow: 'ctrl + wheel zoom', pass: true });
     assert.deepEqual(errors, []);
@@ -250,7 +290,12 @@ fs.mkdirSync(outputDir, { recursive: true });
   await browser.close();
   fs.writeFileSync(path.join(outputDir, 'journeys.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
-})().catch((e) => {
+})().catch(async (e) => {
   console.error(e);
-  process.exit(1);
+  if (activePage && !activePage.isClosed()) {
+    console.error(await activePage.locator('body').innerText());
+    await activePage.screenshot({ path: path.join(outputDir, 'journey-failure.png') });
+  }
+  await activeBrowser?.close();
+  process.exitCode = 1;
 });

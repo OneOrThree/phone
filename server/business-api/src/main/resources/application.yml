@@ -26,6 +26,8 @@ server:
   # ⚠️ 8082 로 두지 않는다 — 위성 배포에서 그 포트는 알림 서버 몫이다.
   port: ${SERVER_PORT:8080}
   tomcat:
+    mbeanregistry:
+      enabled: true
     # cgroup pids_limit 128에는 JVM 스레드·PDF 자식 프로세스도 포함된다.
     # 서비스/관리 worker 합계32 + 상류/조합16 + preview/DNS8 외에 JVM·Redis·PDF 여유를 남긴다.
     threads:
@@ -39,6 +41,12 @@ server:
 
 # 관리 포트는 호스트에 publish 하지 않는다 — 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
   server:
     port: 9091
   endpoints:
@@ -137,6 +145,10 @@ auth:
   #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
   login-attempt:
     digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
+
+# 카탈로그 이미지 절대 URL 의 앞부분(GROMO-2331) — 비우면 imagePath 를 상대 경로 그대로 내린다.
+app:
+  static-base-url: ${STATIC_ASSETS_BASE_URL:}
 
 logging:
   level:

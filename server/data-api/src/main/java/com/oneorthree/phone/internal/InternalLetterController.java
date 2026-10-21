@@ -59,13 +59,17 @@ public class InternalLetterController {
         return internalLetterService.send(userId, body);
     }
 
-    /** 편지함 목록 (LLD §1.13·§1.15). 세 파라미터 모두 선택 — 화면 조각이 파라미터 없이 부른다. */
+    /**
+     * 편지함 목록 (LLD §1.13·§1.15). 네 파라미터 모두 선택 — 화면 조각이 파라미터 없이 부른다.
+     * {@code kind=system} 만 시스템 편지함(GROMO-2260)이고, 생략하면 친구 편지함 그대로다.
+     */
     @GetMapping("/letters")
     public LetterSliceView mailbox(@PathVariable UUID userId,
                                    @RequestParam(required = false) String type,
+                                   @RequestParam(required = false) String kind,
                                    @RequestParam(required = false) UUID cursor,
                                    @RequestParam(required = false) Integer size) {
-        return internalLetterService.list(userId, type, cursor, size);
+        return internalLetterService.list(userId, type, kind, cursor, size);
     }
 
     /** 편지 상세 (LLD §1.14). 수신자의 첫 조회면 읽음 시각이 박히지만 행은 남는다 — 지우는 것은 닫기다. */

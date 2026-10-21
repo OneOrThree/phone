@@ -13,6 +13,9 @@ import java.util.UUID;
  * {@code constructionTarget}·{@code buildingThemes})는 <b>아직 없다</b> — 그 정본을 소유하는 도메인이
  * data-api 에 구현돼 있지 않다. LLD §2 가 "건설·테마 재료 계약 확정 전 해당 신규 상세 응답은 완성된
  * 것으로 계산하지 않는다"고 한 자리이며, 빈 배열을 지어내 «구현된 것처럼» 보이게 하지 않는다.
+ *
+ * <p>{@code greeting}·{@code greetingIsDefault} 는 섬장 인사말이다 (GROMO-2262). 구 Data 서버는 내려보내지 않으므로
+ * 필수로 걸지 않는다 — {@link IslandSummary} 와 같은 이유다.
  */
 public record IslandDetail(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -26,5 +29,7 @@ public record IslandDetail(
         String growthStage,
         String themeId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String role,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version) {
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version,
+        String greeting,
+        Boolean greetingIsDefault) {
 }

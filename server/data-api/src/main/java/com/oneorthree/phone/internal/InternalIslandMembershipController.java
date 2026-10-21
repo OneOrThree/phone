@@ -2,15 +2,24 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.CurrentIslandView;
+import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandCreatedView;
 import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
+import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.dto.IslandSearchPageView;
 import com.oneorthree.phone.internal.dto.MyIslandsView;
 import com.oneorthree.phone.internal.dto.SwitchCurrentIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.TelescopePinCommandRequest;
+import com.oneorthree.phone.internal.dto.TelescopePinView;
+import com.oneorthree.phone.internal.dto.TelescopeView;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.service.TelescopePinService;
+import com.oneorthree.phone.internal.service.TelescopeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,7 +36,8 @@ import java.util.UUID;
 /**
  * 섬 소속·탐색의 <b>사용자 축</b> 내부 표면 (GROMO-1759) — 공개 {@code POST /islands}·
  * {@code GET /islands}·{@code GET /islands/discover}·{@code GET /me/islands}·
- * {@code PUT /me/current-island} 의 상류다.
+ * {@code PUT /me/current-island}·{@code GET /me/telescope}(GROMO-2265)·{@code POST /me/telescope/pins}·
+ * {@code DELETE /me/telescope/pins/{islandId}}(GROMO-2268) 의 상류다.
  *
  * <p>경로 규칙은 GROMO-1764 가 세운 「사용자 축 공개 경로는 {@code /internal/users/{userId}/…}」다 —
  * {@code InternalAuthFilter} 가 그 접두어를 읽어 경로의 userId 와 {@code X-User-Id} 헤더의 일치를
@@ -47,6 +57,8 @@ import java.util.UUID;
 public class InternalIslandMembershipController {
 
     private final IslandMembershipService islandMembershipService;
+    private final TelescopeService telescopeService;
+    private final TelescopePinService telescopePinService;
 
     /** 섬 생성 (LLD §3.1). */
     @PostMapping("/islands")
@@ -90,6 +102,44 @@ public class InternalIslandMembershipController {
                                            @RequestParam(required = false) String afterHandle,
                                            @RequestParam int limit) {
         return islandMembershipService.discover(userId, seed, afterHandle, limit);
+    }
+
+    /**
+     * 망원경 목록 (GROMO-2265, 섬 외부 계약 §5) — 1시간 버킷마다 사람별로 고정되는 섬 목록이다. 전망대 게이트가
+     * 없고(망원경은 바다용) 게스트도 읽는다.
+     */
+    @GetMapping("/telescope")
+    public TelescopeView telescope(@PathVariable UUID userId) {
+        return telescopeService.list(userId);
+    }
+
+    /**
+     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6) — 새 핀이면 201, 이미 있는 핀이면 200 으로 같은 항목을 돌려준다.
+     * 게스트도 된다(개인 목록이라 소셜 로그인을 요구하지 않는다). 명령 키는 받지 않는다 — 같은 핀을 다시 넣으면 아무것도
+     * 바뀌지 않아 재시도가 안전하다.
+     */
+    @PostMapping("/telescope/pins")
+    public ResponseEntity<TelescopePinView> pinToTelescope(@PathVariable UUID userId,
+                                                           @Valid @RequestBody TelescopePinCommandRequest body) {
+        TelescopePinView pinned = telescopePinService.pin(userId, body.islandId(), body.source(), body.promotionId());
+        return ResponseEntity.status(pinned.created() ? HttpStatus.CREATED : HttpStatus.OK).body(pinned);
+    }
+
+    /** 망원경에서 섬 빼기 (GROMO-2268) — 핀이 없어도 200 {@code {deleted:true}} 다. */
+    @DeleteMapping("/telescope/pins/{islandId}")
+    public IslandNoticeViews.Deleted unpinFromTelescope(@PathVariable UUID userId, @PathVariable UUID islandId) {
+        return telescopePinService.unpin(userId, islandId);
+    }
+
+    /**
+     * 섬 도착 (GROMO-2260, 섬 외부 계약 §1) — 항해·방문이 끝난 자리에서 부른다. 현재 섬을 옮기는 명령이라
+     * 즉시 이동처럼 {@code Idempotency-Key} 가 필수다 — 같은 키의 재시도는 처음 결과를 재생할 뿐 다시 옮기지
+     * 않는다.
+     */
+    @PostMapping("/islands/{islandId}/arrivals")
+    public IslandArrivalView arrive(@PathVariable UUID userId, @PathVariable UUID islandId,
+                                    @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        return islandMembershipService.arrive(userId, islandId, idempotencyKey);
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

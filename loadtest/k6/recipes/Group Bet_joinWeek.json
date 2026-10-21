@@ -1,0 +1,29 @@
+{
+  "endpoint": "Group Bet_joinWeek",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}/join-week",
+  "tag": "Group Bet",
+  "summary": "주간 부분 예약 (신 경로, GROMO-1408·N39)",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [
+    "path.challengeId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

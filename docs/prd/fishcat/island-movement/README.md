@@ -58,6 +58,6 @@ Plannotator의 Java·Kafka·Realtime 질문과 추천 근거는 [아키텍처 §
 | 표시 위치 | 예측·보간·보정을 거쳐 화면에 그리는 위치 |
 | 목적지 / 도착 지점 | 사용자가 탭한 점 / 서버가 통행 가능성까지 검사해 정한 점 |
 | `roomEpoch` | 방 소유권 세대. 장애 이전 패킷을 구분하는 fencing token |
-| `actorId` | 방 세대 안에서 유일한 이동 객체 식별자. 계정 ID를 직접 노출하지 않음 — **1단계는 userId 를 그대로 쓴다**(정책 MV-D11, 2026-10-12 확정). 별칭 id 는 2단계 계약 때 |
+| `actorId` | 방 세대 안에서 유일한 이동 객체 식별자. 계정 ID를 직접 노출하지 않음 — **1단계는 userId 를 그대로 쓴다**(정책 MV-D11, 2026-10-12 확정). 별칭 id 는 2단계 계약 때(아키텍처 §7 축소안 ⓑ 를 고르면 2단계 1차로 당겨진다) |
 
 관련 정본: [제품 결정 로그](../decision-log.md), [기존 아키텍처](../../../architecture/README.md), [섬 소속](../island-membership/prd.md), [기존 실시간 이벤트](../realtime-events/high-level-design.md).

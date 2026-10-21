@@ -98,6 +98,8 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
   await waitFor(() => assert.ok(screen.getByText('+9,999')));
   assert.ok(screen.getByText('−150'));
   assert.ok(screen.getByText(/1,240마리/));
+  expect(screen.queryByText(/ISLAND LEDGER/)).toBeNull();
+  expect(screen.queryByText('우리 섬 물고기')).toBeNull();
   // 41 은 개인 fish 다 — 공동 잔액 자리에 개인 지갑이 새어 나오면 안 된다
   assert.equal(screen.queryByText(/41마리/), null);
   assert.equal(townHallMock.mock.calls.length, 1);
@@ -119,6 +121,13 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
           reason: 'shop_purchase',
           amount: 80,
           createdAt: '2026-09-14T03:00:00Z',
+        }),
+        // 잡지 홍보비(GROMO-2289) — 「기타」가 아니라 「잡지 홍보」
+        entry('s3', {
+          direction: 'spend',
+          reason: 'promotion_fee',
+          amount: 60,
+          createdAt: '2026-09-15T03:00:00Z',
         }),
       ],
     }),
@@ -143,6 +152,7 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
   await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
   await waitFor(() => assert.ok(screen.getByText('건설 사용')));
   assert.ok(screen.getByText('공동 구매'));
+  assert.ok(screen.getByText('잡지 홍보'));
   assert.ok(screen.getByText('−100'));
   assert.ok(screen.getByText('−80'));
   // 거래 주체는 계약에 없다 — 주민 이름을 줄에 합성하지 않는다

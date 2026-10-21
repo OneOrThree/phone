@@ -1,8 +1,11 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.appearance.service.AppearanceEvents;
+import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
 import com.oneorthree.phone.focus.service.FocusMemberEvents;
+import com.oneorthree.phone.focus.service.SeaSessionEvents;
+import com.oneorthree.phone.group.service.IslandArrivalEvents;
 import com.oneorthree.phone.group.service.IslandJoinRequestEvents;
 import com.oneorthree.phone.group.service.IslandMembershipEvents;
 import com.oneorthree.phone.group.service.IslandNoticeEvents;
@@ -48,7 +51,10 @@ class RealtimeOutboxEndpointsTest {
             AppearanceEvents.EVENT_PLAYBACK,
             AppearanceEvents.EVENT_INVENTORY,
             GoldenFishService.EVENT_TYPE,
-            UserBlockEvents.EVENT_TYPE);
+            UserBlockEvents.EVENT_TYPE,
+            SeaSessionEvents.EVENT_TYPE,
+            IslandArrivalEvents.EVENT_TYPE,
+            AuthSessionService.EVENT_SESSION_REVOKED);
 
     @Test
     @DisplayName("REALTIME 사건 type 전부가 realtime POST /internal/events 로 Data 전용 토큰과 함께 등록돼 있다")
@@ -68,5 +74,16 @@ class RealtimeOutboxEndpointsTest {
         assertThat(yml.getProperty("outbox.relay.realtime-kafka-enabled"))
                 .as("Kafka 는 선택이다 — 기본은 HTTP")
                 .hasToString("${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}");
+    }
+
+    @Test
+    @DisplayName("주민 첫 도착 사건 생산 스위치는 기본 OFF 다 — realtime 이 먼저 배포되기 전에 켜지면 ISLAND_ARRIVAL 축이 막힌다")
+    void islandArrivalSwitchDefaultsToOff() throws IOException {
+        PropertySource<?> yml = new YamlPropertySourceLoader()
+                .load("satellites", new ClassPathResource("application-satellites.yml")).get(0);
+
+        // 코드 쪽 기본값(@Value 의 :false)은 IslandArrivalEvents 생성자가 같은 값을 쓴다 — 둘 다 OFF 여야 한다.
+        assertThat(yml.getProperty("island.arrival.realtime-events-enabled"))
+                .hasToString("${ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED:false}");
     }
 }

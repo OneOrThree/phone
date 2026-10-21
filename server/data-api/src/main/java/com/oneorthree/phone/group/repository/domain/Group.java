@@ -43,8 +43,8 @@ public class Group {
      * {@code UpdateGroupRequest} 의 {@code @Max} 가 컴파일 상수를 요구하기 때문이다. 값을 세 군데에
      * 흩어 놓으면 한 곳만 고쳐져 「검증은 통과하는데 저장은 거절」이 된다.
      *
-     * <p><b>계정당 소속 섬 상한(10)과는 다른 축이다</b> — 그쪽은
-     * {@code IslandMovementGuards.MAX_JOINED_ISLANDS} 이고 이 값과 함께 움직이지 않는다.
+     * <p><b>계정당 소속 섬 상한(3, GROMO-2260)과는 다른 축이다</b> — 그쪽은
+     * {@code GroupService.MAX_JOINED_GROUPS}(정본 — {@code IslandMovementGuards} 가 참조)이고 이 값과 함께 움직이지 않는다.
      */
     public static final int MAX_MEMBERS_CEILING = 15;
 
@@ -67,6 +67,10 @@ public class Group {
 
     @Column(length = 200)
     private String description;
+
+    /** 섬장 환영 인사말(GROMO-2262, V113) — null 이면 기본 문구를 읽을 때 합성한다. */
+    @Column(length = 160)
+    private String greeting;
 
     @Column(nullable = false)
     private int maxMembers;
@@ -178,6 +182,11 @@ public class Group {
      */
     public void updateDescription(String description) {
         this.description = description;
+    }
+
+    /** 인사말 교체 — null 이면 기본 문구로 되돌린다(GROMO-2262). */
+    public void updateGreeting(String greeting) {
+        this.greeting = greeting;
     }
 
     /**

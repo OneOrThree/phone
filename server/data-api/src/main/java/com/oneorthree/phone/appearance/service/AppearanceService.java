@@ -1,5 +1,6 @@
 package com.oneorthree.phone.appearance.service;
 
+import com.oneorthree.phone.appearance.support.DefaultAudioTracks;
 import static com.oneorthree.phone.appearance.service.AppearanceEvents.AGGREGATE_ISLAND_INVENTORY;
 import static com.oneorthree.phone.appearance.service.AppearanceEvents.AGGREGATE_USER_INVENTORY;
 
@@ -80,7 +81,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AppearanceService implements IslandAppearancePort {
 
     /** 개인 PATCH 에 허용되는 필드 집합 — 미제출 필드는 현재 값을 유지한다. */
-    private static final Set<String> PERSONAL_FIELDS = Set.of("clothes", "decor", "hull", "position");
+    private static final Set<String> PERSONAL_FIELDS =
+            Set.of("clothes", "decor", "head", "neck", "shoes", "hull", "position");
     /** 공동 PATCH 에 허용되는 필드 집합 — expectedVersion 은 캐리어 밖 별도 계약이다. */
     private static final Set<String> ISLAND_FIELDS = Set.of("islandThemeId", "buildingThemes");
 
@@ -110,6 +112,9 @@ public class AppearanceService implements IslandAppearancePort {
         Map<String, CatalogAsset> assets = assetsOf(owned);
         List<String> clothes = new ArrayList<>();
         List<String> decor = new ArrayList<>();
+        List<String> head = new ArrayList<>();
+        List<String> neck = new ArrayList<>();
+        List<String> shoes = new ArrayList<>();
         for (OwnedProduct p : owned) {
             CatalogAsset asset = assets.get(p.getProductId());
             if (asset == null) {
@@ -118,10 +123,13 @@ public class AppearanceService implements IslandAppearancePort {
             switch (asset.getKind()) {
                 case CatalogAsset.KIND_CLOTHES -> clothes.add(p.getProductId());
                 case CatalogAsset.KIND_DECOR -> decor.add(p.getProductId());
+                case CatalogAsset.KIND_HEAD -> head.add(p.getProductId());
+                case CatalogAsset.KIND_NECK -> neck.add(p.getProductId());
+                case CatalogAsset.KIND_SHOES -> shoes.add(p.getProductId());
                 default -> { }   // 개인 슬롯이 아닌 종류는 개인 인벤토리에 노출하지 않는다
             }
         }
-        return new PersonalInventoryView(clothes, decor, List.of(PersonalAppearance.HULL_RAFT),
+        return new PersonalInventoryView(clothes, decor, head, neck, shoes, List.of(PersonalAppearance.HULL_RAFT),
                 inventoryVersion(AGGREGATE_USER_INVENTORY, userId),
                 personalView(personalAppearances.findById(userId).orElse(null)));
     }
@@ -173,7 +181,7 @@ public class AppearanceService implements IslandAppearancePort {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
         List<OwnedProduct> owned = ownedProducts.findByIslandId(islandId);
         Map<String, CatalogAsset> assets = assetsOf(owned);
-        List<String> audio = new ArrayList<>();
+        List<String> audio = new ArrayList<>(DefaultAudioTracks.IDS);
         List<String> islandThemes = new ArrayList<>();
         List<SharedInventoryView.BuildingThemeItem> buildingThemes = new ArrayList<>();
         for (OwnedProduct p : owned) {
@@ -182,7 +190,11 @@ public class AppearanceService implements IslandAppearancePort {
                 continue;
             }
             switch (asset.getKind()) {
-                case CatalogAsset.KIND_AUDIO -> audio.add(p.getProductId());
+                case CatalogAsset.KIND_AUDIO -> {
+                    if (!audio.contains(p.getProductId())) {
+                        audio.add(p.getProductId());
+                    }
+                }
                 case CatalogAsset.KIND_ISLAND_THEME -> islandThemes.add(p.getProductId());
                 case CatalogAsset.KIND_BUILDING_THEME -> buildingThemes.add(
                         new SharedInventoryView.BuildingThemeItem(
@@ -267,36 +279,40 @@ public class AppearanceService implements IslandAppearancePort {
     private PublicCommandResult applyPersonal(UUID userId, Map<String, Object> values) {
         userQueryService.getCallerForUpdate(userId);
 
-        boolean hasClothes = values.containsKey("clothes");
-        boolean hasDecor = values.containsKey("decor");
-        String clothesIn = hasClothes ? nullableSlot(values.get("clothes")) : null;
-        String decorIn = hasDecor ? nullableSlot(values.get("decor")) : null;
+        String[] kinds = {CatalogAsset.KIND_CLOTHES, CatalogAsset.KIND_DECOR, CatalogAsset.KIND_HEAD,
+                CatalogAsset.KIND_NECK, CatalogAsset.KIND_SHOES};
         String hullIn = values.containsKey("hull") ? hullValue(values.get("hull")) : null;
         String positionIn = values.containsKey("position") ? positionValue(values.get("position")) : null;
 
-        if (hasClothes) {
-            requirePersonalProduct(userId, clothesIn, CatalogAsset.KIND_CLOTHES, true);
-        }
-        if (hasDecor) {
-            requirePersonalProduct(userId, decorIn, CatalogAsset.KIND_DECOR, true);
+        // 슬롯 5개(슬롯 이름 = 상품 종류) — 제출된 슬롯은 잠금 읽기로, 미제출 슬롯은 잠금 뒤 기존 값으로 검증한다.
+        String[] in = new String[kinds.length];
+        for (int i = 0; i < kinds.length; i++) {
+            if (values.containsKey(kinds[i])) {
+                in[i] = nullableSlot(values.get(kinds[i]));
+                requirePersonalProduct(userId, in[i], kinds[i], true);
+            }
         }
 
         personalAppearances.insertIfAbsent(userId);
         PersonalAppearance appearance = personalAppearances.findByIdForUpdate(userId)
                 .orElseThrow(() -> new IllegalStateException("개인 외양을 만들 직후에 찾지 못했습니다."));
 
-        String clothes = hasClothes ? clothesIn : appearance.getClothes();
-        String decor = hasDecor ? decorIn : appearance.getDecor();
+        String[] current = {appearance.getClothes(), appearance.getDecor(), appearance.getHead(),
+                appearance.getNeck(), appearance.getShoes()};
+        String[] merged = new String[kinds.length];
+        for (int i = 0; i < kinds.length; i++) {
+            if (values.containsKey(kinds[i])) {
+                merged[i] = in[i];
+            } else {
+                merged[i] = current[i];
+                requirePersonalProduct(userId, merged[i], kinds[i], false);
+            }
+        }
         String hull = hullIn != null ? hullIn : appearance.getHull();
         String position = positionIn != null ? positionIn : appearance.getPosition();
-        if (!hasClothes) {
-            requirePersonalProduct(userId, clothes, CatalogAsset.KIND_CLOTHES, false);
-        }
-        if (!hasDecor) {
-            requirePersonalProduct(userId, decor, CatalogAsset.KIND_DECOR, false);
-        }
 
-        boolean changed = appearance.apply(clothes, decor, hull, position, clock.instant());
+        boolean changed = appearance.apply(merged[0], merged[1], merged[2], merged[3], merged[4],
+                hull, position, clock.instant());
         List<EventEnvelope> envelopes = changed
                 ? events.memberChanged(userId, displayIslands(userId), appearance)
                 : List.of();
@@ -386,7 +402,7 @@ public class AppearanceService implements IslandAppearancePort {
         }
     }
 
-    /** null 허용 슬롯(clothes·decor) — null 은 해제, 문자열은 상품 ID, 그 외 타입은 400. */
+    /** null 허용 슬롯(clothes·decor·head·neck·shoes) — null 은 해제, 문자열은 상품 ID, 그 외 타입은 400. */
     private static String nullableSlot(Object value) {
         return value == null ? null : textual(value);
     }
@@ -579,10 +595,11 @@ public class AppearanceService implements IslandAppearancePort {
 
     private static PersonalAppearanceView personalView(PersonalAppearance a) {
         if (a == null) {
-            return new PersonalAppearanceView(null, null, PersonalAppearance.HULL_RAFT,
+            return new PersonalAppearanceView(null, null, null, null, null, PersonalAppearance.HULL_RAFT,
                     PersonalAppearance.POSITION_FRONT, 0);
         }
-        return new PersonalAppearanceView(a.getClothes(), a.getDecor(), a.getHull(),
+        return new PersonalAppearanceView(a.getClothes(), a.getDecor(), a.getHead(), a.getNeck(), a.getShoes(),
+                a.getHull(),
                 a.getPosition(), a.getVersion());
     }
 

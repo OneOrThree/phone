@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -23,11 +24,13 @@ import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
 import com.oneorthree.phone.internal.dto.JoinRequestCancelView;
 import com.oneorthree.phone.internal.dto.JoinRequestStatusView;
 import com.oneorthree.phone.internal.dto.MyJoinRequestsPageView;
+import com.oneorthree.phone.internal.support.SailingTimes;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.support.SlugGenerator;
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
@@ -45,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -91,6 +95,8 @@ public class IslandJoinService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
+    private final IslandArrivalRepository arrivals;
+    private final InternalLetterService letters;
     /**
      * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
      * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
@@ -107,9 +113,14 @@ public class IslandJoinService {
      * 섬에 가입하거나 가입을 요청한다 (LLD §3.7).
      *
      * <p>{@code approvalRequired=false} 이면 즉시 가입 — switch 와 같은 이동 가드를 거치고 현재 섬을
-     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 소속 상한·집중 세션·전망대는
-     * <b>검사하지 않는다</b>: pending 은 자리 예약이 아니라 신청이고, 그 조건은 승인 시점의 값으로
-     * 다시 판정해야 한다(IM-D05 — 예약 없음).
+     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 집중 세션·전망대는 <b>검사하지 않는다</b>:
+     * pending 은 자리 예약이 아니라 신청이고, 그 조건은 승인 시점의 값으로 다시 판정해야 한다(IM-D05 —
+     * 예약 없음). <b>소속 상한(3)은 신청에도 건다</b>(GROMO-2260) — 가득 찬 사람의 신청은 승인될 수 없으니
+     * 방장에게 보내지 않는다. 승인 시점에도 다시 본다.
+     *
+     * <p>{@code origin=telescope}(GROMO-2260)이면 즉시 가입이어도 현재 섬을 옮기지도 도착을 기록하지도
+     * 않는다 — 처음 한 번은 항해해서 가야 한다. 옮기지 않으므로 이동 가드(집중 세션·출발 섬 전망대)도 걸지 않는다. {@code visit}(기본)이면 그 섬에 서 있으므로 옮기고
+     * 도착을 기록한다.
      *
      * <p><b>정원만은 신청에도 건다</b>(GROMO-1993) — 정책 「승인 필요 섬이 가득 차면 새 가입 신청을
      * 막는다」. 예약이 생기는 것은 아니다: 이미 열린 신청은 가득 차도 유지되고 승인 시점에 다시
@@ -120,6 +131,12 @@ public class IslandJoinService {
                                      UUID idempotencyKey) {
         Map<String, Object> fingerprint = new HashMap<>();
         fingerprint.put("invitationToken", normalizeToken(body == null ? null : body.invitationToken()));
+        boolean telescope = body != null && body.fromTelescope();
+        if (telescope) {
+            // 망원경 가입만 지문에 남긴다(GROMO-2260) — 생략·visit 은 종전 지문 그대로라, 배포 전에 성공한
+            // 요청을 같은 키로 재시도해도 키 충돌이 아니라 원래 결과의 재생이다.
+            fingerprint.put("origin", JoinIslandCommandRequest.ORIGIN_TELESCOPE);
+        }
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/memberships:" + userId,
                 idempotencyKey, InternalJson.tree(fingerprint));
@@ -168,6 +185,7 @@ public class IslandJoinService {
                         // 정책(GROMO-1993): 「승인 필요 섬이 가득 차면 «새» 가입 신청을 막는다.」
                         // 이미 열린 pending 은 위에서 그대로 돌려줬으므로 여기 오지 않는다 —
                         // 「승인 대기 중에 가득 차면 신청은 유지하고 승인만 막는다」가 그 둘의 차이다.
+                        movementGuards.requireJoinedIslandLimit(user);
                         requireCapacity(island);
                         IslandJoinRequest request = joinRequestRepository.save(IslandJoinRequest.pending(
                                 island, user, invitation == null ? null : invitation.getId()));
@@ -179,20 +197,27 @@ public class IslandJoinService {
                                 InternalJson.tree(events));
                     }
 
-                    movementGuards.requireNoLiveFocusSession(user);
-                    movementGuards.requireDepartureUnlocked(context);
+                    if (!telescope) {
+                        // 이동 가드는 실제로 옮길 때만 건다(GROMO-2260) — 망원경 가입은 현재 섬을 바꾸지 않으므로
+                        // 집중 중이어도, 출발 섬 전망대가 잠겨 있어도 막을 이유가 없다. 상한·정원은 그대로 본다.
+                        movementGuards.requireNoLiveFocusSession(user);
+                        movementGuards.requireDepartureUnlocked(context);
+                    }
                     movementGuards.requireJoinedIslandLimit(user);
                     requireCapacity(island);
 
                     GroupMember membership = admit(user, island, prior);
-                    context.moveTo(islandId);
+                    if (!telescope) {
+                        context.moveTo(islandId);
+                        arrivals.recordArrival(userId, islandId, clock.instant(), true);
+                    }
                     EventEnvelope members = membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId);
                     if (invitation != null) {
                         linkMembershipEventService.recordJoinAttribution(islandId, userId,
                                 invitation.getSlug(), "invite", membership.getMembershipEpoch());
                     }
                     return new PublicCommandResult(200, InternalJson.tree(
-                            JoinIslandResultView.active(islandId, members.version())),
+                            JoinIslandResultView.active(islandId, context.getCurrentIslandId(), members.version())),
                             InternalJson.tree(List.of(members)));
                 }).value().data();
         return InternalJson.decode(data, JoinIslandResultView.class);
@@ -363,6 +388,15 @@ public class IslandJoinService {
                         requireCapacity(island);
                         GroupMember membership = admit(applicant, island, prior);
                         request.approve();
+                        // 승인 안내 편지(GROMO-2260) — 승인은 현재 섬을 옮기지 않으니 항해 시간을 함께 알린다. 이미 도착한
+                        // 섬(초대 도착 등, GROMO-2264)은 즉시 이동 대상이라 항해 대신 바로 갈 수 있다고 알린다.
+                        int minutes = SailingTimes.minutes(applicant.getId(), islandId,
+                                clock.instant().truncatedTo(ChronoUnit.HOURS));
+                        letters.sendSystem(applicant, LetterKind.JOIN_APPROVED, islandId,
+                                arrivals.existsByUserIdAndIslandId(applicant.getId(), islandId)
+                                        ? island.getName() + "섬 가입이 승인됐어요. 이미 도착한 섬이라 뗏목에서 바로 갈 수 있어요"
+                                        : island.getName() + "섬 가입이 승인됐어요. 망원경에서 출발해 보세요 — 지금 출발하면 "
+                                                + minutes + "분 뒤 도착해요");
                         // memberUserId 는 신청자(applicant)다 — actorId(userId) 는 승인한 방장이라, 방장 id 를
                         // 주면 Realtime 이 엉뚱한 사람의 캐시를 지운다(GROMO-2140).
                         events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", applicant.getId()));

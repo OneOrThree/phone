@@ -12,6 +12,7 @@ import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.usecase.FocusSessionUseCase.SummaryView;
 import com.oneorthree.business.usecase.FocusSessionUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -43,6 +44,9 @@ import java.util.UUID;
 @RestController
 @RequiredArgsConstructor
 public class FocusSessionController {
+
+    /** 바다 한마디 최대 길이(코드포인트) — Data 의 {@code SeaRemarkRequest.REMARK_MAX} 와 같다. */
+    private static final int SEA_REMARK_MAX = 20;
 
     private final FocusSessionUseCase focusSessions;
     private final SettingsSessionGuard sessions;
@@ -113,6 +117,52 @@ public class FocusSessionController {
         StateView started = focusSessions.start(claims, PublicIds.uuid(islandId.stringValue(), "islandId"),
                 subject.stringValue(), absent ? null : targetMinutes.intValue(), key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(started);
+    }
+
+    /**
+     * 바다 집중 시작 (GROMO-2299). 본문은 {@code destinationIslandId} <b>하나</b>다 — 항해 분은 서버가 망원경 목록에서
+     * 읽어 고정하므로 앱이 보내지 않는다. 필드 수를 정확히 맞춰 알 수 없는 필드가 조용히 통과하지 못하게 한다.
+     */
+    @Operation(summary = "바다 집중 시작",
+            description = "목적지는 지금 망원경 목록에 있는 섬이어야 한다. 망원경 목록은 정시마다 다시 계산되므로 앱이 본 목록과 "
+                    + "어긋날 수 있다 — 409 SEA_DESTINATION_UNAVAILABLE 이면 GET /me/telescope 를 다시 불러 같은 섬이 있으면 "
+                    + "재시도하고, 없으면 선택 화면으로 돌아간다. 항해 분은 서버가 그 항목 값으로 고정한다.")
+    @PostMapping(value = "/focus-sessions/sea", consumes = "application/json")
+    public ResponseEntity<StateView> startSea(@RequestBody JsonNode body, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        if (body == null || !body.isObject() || body.size() != 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        JsonNode destination = body.get("destinationIslandId");
+        if (destination == null || !destination.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "destinationIslandId");
+        }
+        StateView started = focusSessions.startSea(claims,
+                PublicIds.uuid(destination.stringValue(), "destinationIslandId"), key, properties.deadline());
+        return ResponseEntity.status(HttpStatus.CREATED).body(started);
+    }
+
+    /**
+     * 바다 한마디 변경 (GROMO-2299). 빈 문자열은 지움이다. 길이·모양은 Data 도 판정하지만(게스트 403·5분 잠금과 같은 곳)
+     * 여기서 «형식» 을 먼저 걸러 400 이 502 로 접히지 않게 한다. 5분 잠금 때문에 {@code Idempotency-Key} 재생이 아니라
+     * 재시도 없는 단발 호출이다.
+     */
+    @PutMapping(value = "/me/sea-remark", consumes = "application/json")
+    public FocusSessionUseCase.SeaRemarkView updateSeaRemark(@RequestBody JsonNode body, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (body == null || !body.isObject() || body.size() != 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        JsonNode remark = body.get("remark");
+        if (remark == null || !remark.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "remark");
+        }
+        String value = remark.stringValue().strip();
+        if (value.codePointCount(0, value.length()) > SEA_REMARK_MAX) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "remark");
+        }
+        return focusSessions.updateSeaRemark(claims, value, properties.deadline());
     }
 
     /** 진행 세션이 없으면 {@code {"data": null}} 이다 — 정상값이고 404 가 아니다(LLD §2 session). */
