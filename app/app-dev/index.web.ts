@@ -1,5 +1,6 @@
 import { registerRootComponent } from 'expo';
 import App from './src/App';
+import { OnboardingPreview } from '@/screens/onboarding/OnboardingPreview';
 import { InteriorsReview } from '@/screens/interiors/BuildingInteriors';
 import { InteriorsGalleryReview } from '@/screens/interiors/InteriorsGallery';
 import { initPostHog } from './src/services/posthog';
@@ -16,21 +17,24 @@ if (
   !query.has('motion') &&
   !query.has('construction-motion') &&
   !query.has('sea') &&
-  !query.has('magazine')
+  !query.has('magazine') &&
+  !query.has('onboarding')
 )
   initPostHog();
 registerRootComponent(
-  query.has('sea')
-    ? SeaPreview
-    : query.has('construction-motion')
-      ? ConstructionMotionPreview
-      : query.has('motion')
-        ? CatMotionPreview
-        : query.has('gallery')
-          ? InteriorsGalleryReview
-          : query.has('interiors')
-            ? InteriorsReview
-            : query.has('magazine')
-              ? MagazinePreview
-              : App,
+  query.has('onboarding')
+    ? OnboardingPreview
+    : query.has('sea')
+      ? SeaPreview
+      : query.has('construction-motion')
+        ? ConstructionMotionPreview
+        : query.has('motion')
+          ? CatMotionPreview
+          : query.has('gallery')
+            ? InteriorsGalleryReview
+            : query.has('interiors')
+              ? InteriorsReview
+              : query.has('magazine')
+                ? MagazinePreview
+                : App,
 );

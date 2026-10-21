@@ -82,7 +82,7 @@ test('시간만 도달하면 자동 종료하거나 하선 버튼으로 바꾸�
   const p = props();
   const screen = await render(<SeaScreen {...p} voyage={{ ...voyage, canDisembark: false }} />);
   expect(screen.getByText('도착 확인 중…')).toBeTruthy();
-  expect(screen.getByLabelText('항해 그만두기')).toBeTruthy();
+  expect(screen.getByLabelText('집중 마치기')).toBeTruthy();
   expect(p.onFinish).not.toHaveBeenCalled();
 });
 
@@ -173,12 +173,12 @@ test('도착 전 종료는 확인 후 실행하고 취소하면 집중을 유지
   const screen = await render(
     <SeaScreen {...p} voyage={{ ...voyage, activeSeconds: 60, canDisembark: false }} />,
   );
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   expect(p.onFinish).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByLabelText('계속 집중하기'));
   expect(p.onFinish).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   expect(p.onFinish).toHaveBeenCalledWith('session-1', 'stop');
 });
 
@@ -409,4 +409,14 @@ test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 �
   await screen.rerender(<SeaScreen {...p} messageCooldownSeconds={299} />);
   expect(screen.getByText('5분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
   expect(p.onMessage).not.toHaveBeenCalled();
+});
+
+test('집중 중 내 말풍선에서도 한마디 입력을 열고 저장하며 종료는 호출하지 않는다', async () => {
+  const p = props();
+  const screen = await render(<SeaScreen {...p} voyage={voyage} />);
+  await fireEvent.press(screen.getByTestId('sea-focus-message'));
+  await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '함께 집중해요');
+  await fireEvent.press(screen.getByRole('button', { name: '한마디 띄우기' }));
+  expect(p.onMessage).toHaveBeenCalledWith('함께 집중해요');
+  expect(p.onFinish).not.toHaveBeenCalled();
 });

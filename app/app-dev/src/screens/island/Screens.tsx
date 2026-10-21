@@ -7,6 +7,7 @@ import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
@@ -1551,6 +1552,8 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
+  if (route === 'character' && !state.onboarded)
+    return <OnboardingFlow key={getSession()?.userId ?? 'preview'} e={e} />;
   if (route === 'character')
     return (
       <Onboard

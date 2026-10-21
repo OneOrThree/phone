@@ -266,6 +266,8 @@ export type Product = {
   building?: Building;
 };
 export type State = {
+  /** 계정 귀속 로컬 연출 체크포인트. 서버 프로필 완료·섬 소속과는 독립이다. */
+  onboardingStory?: 'intro' | 'scope' | 'done';
   // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
   tutorial?: { step: number; sessionId?: string };
   tutorialRevision?: number;
@@ -1753,6 +1755,9 @@ export function reducer(state: State, a: Action): State {
       s.loggedIn = true;
       if (Array.isArray(a.linkedProviders)) s.linkedProviders = [...a.linkedProviders];
       break;
+    case 'ONBOARDING_STORY':
+      if (['intro', 'scope', 'done'].includes(a.checkpoint)) s.onboardingStory = a.checkpoint;
+      break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)
         s.profileNames = [
@@ -2286,6 +2291,12 @@ export function reducer(state: State, a: Action): State {
         if (next && next.id === s.session?.id && s.session.tutorialFish)
           next = { ...next, tutorialFish: true };
         s.session = next;
+        // 응답 직후 종료돼도 서버의 실제 항해를 복구하면 온보딩을 다시 시작하지 않는다.
+        if (
+          next?.kind === 'sea' &&
+          (s.onboardingStory === 'intro' || s.onboardingStory === 'scope')
+        )
+          s.onboardingStory = 'done';
         if (next) delete s.tutorialExperience;
       }
       break;
