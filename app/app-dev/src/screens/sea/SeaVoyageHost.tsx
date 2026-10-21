@@ -1,15 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { t } from '@/i18n';
+import { errorTextOr, t } from '@/i18n';
 import { Sailing } from '@/screens/world/WorldViews';
 import type { FocusFinishView } from '@/services/api/focusSessions';
 import { ApiError, uuid } from '@/services/api/client';
 import { getMyInventory } from '@/services/api/shop';
+import { friendErrorKind, sendFriendRequest } from '@/services/api/friends';
 import { arriveWithOutcome } from '@/screens/island/Telescope';
 import { intentKeyPool } from '@/services/model';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { unknownOutcome } from '@/services/islandCommands';
 import { getTelescope } from '@/services/api/telescope';
+import type { MagazineToday } from '@/services/api/magazine';
+import {
+  magazineUnread,
+  markDelivered,
+  sendReceipt,
+  wasDelivered,
+} from '@/screens/magazine/useMagazineToday';
 import type { State } from '@/services/model';
 import {
   openSeaRoom,
@@ -61,6 +69,8 @@ const arrivalFrom = (detail: unknown): SeaArrival | null => {
  * - 그만두기와 내리기는 같은 `finish` 다. 서버가 `arrived=true` 면(오래된 화면에서 그만두기를 눌렀어도) 결과창으로, 아니면
  *   멀어지는 연출 뒤 같은 화면의 표류 상태(`voyage=null`)로 남는다.
  * - 라우트 인자(`e.detail`)는 `sea` 에서는 망원경이 넘긴 목적지 이름, `seaArrival` 에서는 `SeaArrivalParam` JSON 이다.
+ * - 오늘 고양이 잡지(GROMO-2314, `e.magazineToday`): 표류 중 아직 받지 않은 오늘 호면 펠리컨이 한 번 알리고(띄우는 순간 받음 SEA),
+ *   받은 호(바다·섬 어디서든)는 내 뗏목 옆 물건으로 둔다. 둘 다 `seaMagazine`(인자 = 호 id)으로 펼친다. 꽂이는 바다에 없다.
  */
 export function SeaVoyageHost({ e }: { e: any }) {
   const s: State = e.state;
@@ -259,6 +269,33 @@ export function SeaVoyageHost({ e }: { e: any }) {
     [e.route, e.detail],
   );
 
+  // 펠리컨은 섬 홈(MagazineHomeLayer)과 같은 규칙 — 실제로 뜬 순간(SeaScreen 의 onShown) 받음(SEA)을 적고, 한 번 알린 호는
+  // 받음 기록이 실패해도 이번 실행 동안 다시 띄우지 않는다. 다른 창 때문에 미뤄진 동안은 적지 않고, 그 사이 항해가 시작되거나
+  // 다른 곳에서 받았으면 띄울 차례를 거둔다
+  const today: MagazineToday | null = e.magazineToday ?? null;
+  const issue = today?.issue?.current ? today.issue : null;
+  const drifting = e.route === 'sea' && !session && !departFrom;
+  const [delivering, setDelivering] = useState<string | null>(null);
+  useEffect(() => {
+    // 표류가 끝나면(다른 기기의 출항 포함) 이미 뜬 배달도 거둔다 — 다시 표류해도 같은 호는 다시 띄우지 않는다
+    if (!drifting || !issue) {
+      setDelivering(null);
+      return;
+    }
+    if (wasDelivered(issue.issueId)) return;
+    setDelivering(today?.receipt ? null : issue.issueId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drifting, issue?.issueId, today?.receipt]);
+  const deliveryShown = () => {
+    if (!delivering || wasDelivered(delivering)) return;
+    markDelivered(delivering);
+    sendReceipt(delivering, { place: 'SEA' }).catch(() => {});
+  };
+  const readLater = () => {
+    setDelivering(null);
+    if (delivering) sendReceipt(delivering, { place: 'SEA', deferred: true }).catch(() => {});
+  };
+
   // App 공용 뒤로가기(backOverride) — 라우트 수명 내내 건다. App 의 BackHandler 가 SeaScreen 의 것보다 늦게 등록돼
   // 먼저 불리는 창에서도 항해 중 back() 이 홈으로 가 세션을 남기지 않게 한다. 둘 중 먼저 불린 쪽이 true 를 돌려주면
   // 나머지는 불리지 않아 이중 처리가 없다. 항해 확인 패널은 2303 공개 props 로 열 수 없어 안내만 하고 삼킨다.
@@ -267,6 +304,11 @@ export function SeaVoyageHost({ e }: { e: any }) {
     if (departFrom) return true; // 멀어지는 연출 중
     if (session && !arrival) {
       e.notify(t('openSea.backBlocked'));
+      return true;
+    }
+    // 떠 있는 펠리컨 배달 — SeaScreen 보다 App 의 뒤로가기가 먼저 불려도 「나중에 읽기」와 같게
+    if (drifting && delivering && wasDelivered(delivering)) {
+      readLater();
       return true;
     }
     return false; // 표류·결과창 — App 기본 뒤로가기
@@ -398,6 +440,49 @@ export function SeaVoyageHost({ e }: { e: any }) {
         }
       }}
       onTelescope={() => e.go('telescope')}
+      magazine={
+        drifting && issue
+          ? {
+              issueNo: issue.issueNo,
+              delivery: delivering === issue.issueId,
+              received: !!today?.receipt,
+              unread: magazineUnread(today),
+              onShown: deliveryShown,
+              onOpen: () => {
+                setDelivering(null);
+                e.go('seaMagazine', issue.issueId);
+              },
+              onLater: readLater,
+            }
+          : null
+      }
+      onFriendRequest={
+        e.focus
+          ? async (userId) => {
+              const generation = sessionGeneration();
+              const stale = () => !mounted.current || sessionGeneration() !== generation;
+              try {
+                await sendFriendRequest(userId);
+                if (stale()) return false;
+                eRef.current.friendsScreen?.refresh();
+                return true;
+              } catch (thrown) {
+                if (stale()) return false;
+                if (eRef.current.conversion?.offer(thrown)) return false;
+                const kind = friendErrorKind(thrown);
+                if (kind === 'duplicate') eRef.current.friendsScreen?.refresh();
+                eRef.current.notify(
+                  kind === 'duplicate'
+                    ? t('openSea.friendExists')
+                    : kind === 'privacy'
+                      ? t('openSea.friendUnavailable')
+                      : errorTextOr(thrown, 'openSea.retry'),
+                );
+                return false;
+              }
+            }
+          : undefined
+      }
       onMessage={async (text) => {
         const before = members.find((m) => m.userId === selfId)?.message;
         if (await saveSeaRemark(e, text)) setRemark({ text, before });

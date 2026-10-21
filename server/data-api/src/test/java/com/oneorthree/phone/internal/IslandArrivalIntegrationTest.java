@@ -454,8 +454,9 @@ class IslandArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("강퇴 — 응답은 {removed:true} 뿐(방장에게 대상의 위치를 주지 않는다), 강퇴 편지 1건, 같은 섬 재가입은 403")
-    void kickSendsALetterAndBlocksRejoin() throws Exception {
+    @DisplayName("강퇴 — 응답은 {removed:true} 뿐(방장에게 대상의 위치를 주지 않는다), 강퇴 편지 1건, 남은 섬이 있어도 먼바다, "
+            + "같은 섬 재가입은 승인 대기")
+    void kickSendsALetterAndRejoinGoesPending() throws Exception {
         UUID host = newUser();
         UUID islandId = island("강퇴섬", false, false);
         joinAs(host, islandId, GroupMemberRole.OWNER);
@@ -475,7 +476,10 @@ class IslandArrivalIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(content().string("{\"removed\":true}"));
         }
-        assertThat(currentIsland(target)).as("대상의 현재 섬은 서버가 복구한다").isEqualTo(home);
+        // 남은 소속(대상집)이 있어도 강퇴는 먼바다다(GROMO-2315) — 자진 이탈이었으면 대상집으로 옮겨졌다.
+        assertThat(currentIsland(target)).as("강퇴는 남은 섬으로 옮기지 않는다").isNull();
+        assertThat(islands.myIslands(target).lossReason()).isEqualTo(GroupLeaveReason.KICKED);
+        assertThat(islands.myIslands(target).items()).extracting(IslandSummaryView::id).containsExactly(home);
 
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select sender_id, kind, island_id, content from letters where receiver_id=?", target);
@@ -509,11 +513,15 @@ class IslandArrivalIntegrationTest {
         assertThat(read.isRead()).isTrue();
         assertThat(read.readAt()).isEqualTo(detail.readAt());
 
+        // 누구나 가입 섬이어도 강퇴자는 승인 대기다(GROMO-2315) — 종전 403 KICKED_CANNOT_REJOIN.
         mvc.perform(post("/internal/users/" + target + "/islands/" + islandId + "/memberships")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", target)
                         .header("Idempotency-Key", UUID.randomUUID()))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("KICKED_CANNOT_REJOIN"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+        assertThat(count("select count(*) from group_members where group_id=? and user_id=? and is_left=true"
+                + " and left_reason='KICKED'", islandId, target)).as("승인 전에는 강퇴 행 그대로").isEqualTo(1);
     }
 
     @Test

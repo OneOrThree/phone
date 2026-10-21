@@ -113,7 +113,7 @@ public class IslandJoinService {
      * 섬에 가입하거나 가입을 요청한다 (LLD §3.7).
      *
      * <p>{@code approvalRequired=false} 이면 즉시 가입 — switch 와 같은 이동 가드를 거치고 현재 섬을
-     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 집중 세션·전망대는 <b>검사하지 않는다</b>:
+     * 옮긴다. {@code true} 이거나 <b>그 섬에서 강퇴돼 나가 있는 사람</b>이면(GROMO-2315) 승인 대기 요청만 만든다 — 집중 세션·전망대는 <b>검사하지 않는다</b>:
      * pending 은 자리 예약이 아니라 신청이고, 그 조건은 승인 시점의 값으로 다시 판정해야 한다(IM-D05 —
      * 예약 없음). <b>소속 상한(3)은 신청에도 건다</b>(GROMO-2260) — 가득 찬 사람의 신청은 승인될 수 없으니
      * 방장에게 보내지 않는다. 승인 시점에도 다시 본다.
@@ -155,9 +155,6 @@ public class IslandJoinService {
                     if (prior.isPresent() && !prior.get().isLeft()) {
                         throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
                     }
-                    if (prior.isPresent() && prior.get().isKicked()) {
-                        throw new GroupException(GroupErrorCode.KICKED_CANNOT_REJOIN);
-                    }
 
                     Optional<IslandJoinRequest> pending = joinRequestRepository
                             .findByIslandIdAndApplicantIdAndStatus(
@@ -181,7 +178,8 @@ public class IslandJoinService {
                         throw new GroupException(GroupErrorCode.INVITATION_REQUIRED);
                     }
 
-                    if (island.isApprovalRequired()) {
+                    // 강퇴된 사람은 누구나 가입 섬이어도 신청이다(GROMO-2315) — 다시 들일지는 섬장이 정한다.
+                    if (island.isApprovalRequired() || prior.map(GroupMember::isKicked).orElse(false)) {
                         // 정책(GROMO-1993): 「승인 필요 섬이 가득 차면 «새» 가입 신청을 막는다.」
                         // 이미 열린 pending 은 위에서 그대로 돌려줬으므로 여기 오지 않는다 —
                         // 「승인 대기 중에 가득 차면 신청은 유지하고 승인만 막는다」가 그 둘의 차이다.
@@ -327,7 +325,8 @@ public class IslandJoinService {
      * 그 경로들이 전부 신청자 행을 배타로 잡기 때문이다(처리자 방장만 잠그면 동시 다른 섬 가입을 못 막는다,
      * LLD §4). 두 users 행은 UUID 순서로 잡아 서로 다른 섬의 방장이 서로를 승인하는 교차에서 교착하지 않는다.
      *
-     * <p>승인만 가입 자격(과거 강퇴·기존 멤버십·소속 상한·정원·초대 근거)을 본다. 거절은 자격·자리와
+     * <p>승인만 가입 자격(기존 멤버십·소속 상한·정원·초대 근거)을 본다. 강퇴 이력은 막지 않는다 — 승인이 곧 섬장의
+     * 재가입 허락이고, 강퇴 행은 {@code admit} 이 되살린다(GROMO-2315). 거절은 자격·자리와
      * 무관하게 pending 을 닫을 수 있다. 승인은 현재 섬을 바꾸지 않는다 — 이동은 별도 switch 가드를 탄다.
      * 이미 닫힌 요청은 다른 키면 409 이고, 같은 키는 receipt 가 원 결과를 재생한다.
      */
@@ -376,9 +375,6 @@ public class IslandJoinService {
                         Optional<GroupMember> prior = groupMemberRepository.findAnyByUserAndGroup(applicant, island);
                         if (prior.isPresent() && !prior.get().isLeft()) {
                             throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
-                        }
-                        if (prior.isPresent() && prior.get().isKicked()) {
-                            throw new GroupException(GroupErrorCode.KICKED_CANNOT_REJOIN);
                         }
                         GroupInviteLink invitation = request.getInviteLinkId() == null ? null
                                 : requireIssuerCurrent(island, inviteLinkRepository.findById(request.getInviteLinkId())
@@ -434,7 +430,7 @@ public class IslandJoinService {
         return caller;
     }
 
-    /** 새 멤버십을 만들거나 자진 탈퇴 행을 되살린다 — 즉시 가입과 승인이 같은 전이를 쓴다. */
+    /** 새 멤버십을 만들거나 이탈(자진·강퇴) 행을 되살린다 — 즉시 가입과 승인이 같은 전이를 쓴다. */
     private GroupMember admit(User user, Group island, Optional<GroupMember> prior) {
         if (prior.isPresent()) {
             GroupMember membership = prior.get();

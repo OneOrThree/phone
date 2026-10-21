@@ -295,7 +295,7 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 신규 로그인1757 게스트 승격의 SOCIAL_ACCOUNT_ALREADY_LINKED/GUEST_ALREADY_PROMOTED 실제 HTTP409 | 기존 계정 충돌을 미등록502로 오인하거나 유령 계정 생성 |
 | 지갑 불변 중 상품 가격/통화/ownerType 개정·expectedProductVersion 충돌 | 사용자 동의 없는 조건으로 차감 |
 | 섬 version 불변 중 건설 비용 publication 교체·expectedCostPolicyVersion 충돌/같은 키 확정 재생·목표 PUT 무차감 | 건설 가격 동의 우회, 성공 재생409 오인, 무료 목표에 비용 버전 강제 |
-| 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 및 KICKED_CANNOT_REJOIN403 | 세409는 같은 코드/상태 공개등록, 강퇴 재가입403은 신규 FORBIDDEN·legacy 원코드 유지. 실제HTTP회귀 전 활성화 금지, 정상 거절의502변환 금지 |
+| 섬 가입1760 기존 ALREADY_MEMBER/GROUP_LIMIT_EXCEEDED/ROOM_FULL409 및 KICKED_CANNOT_REJOIN403 | 세409는 같은 코드/상태 공개등록, 강퇴 재가입403은 신규 FORBIDDEN·legacy 원코드 유지. 실제HTTP회귀 전 활성화 금지, 정상 거절의502변환 금지. 2026-10-16(GROMO-2315)부터 Data 는 KICKED_CANNOT_REJOIN 을 내지 않는다(강퇴자 가입=pending) — 공개 매핑은 혼합 배포용으로 유지 |
 | 섬1759·집중1764 신규 경로의 기존 GROUP_NOT_FOUND/SESSION_NOT_FOUND | 활성화 전404 코드 보존/명시 매핑과 실제 route 회귀 필수, 정상 부재의 미등록502 금지 |
 | 섬1759/1762·공지1771의 기존 MEMBER_ONLY/NOT_OWNER/NOTICE_FORBIDDEN | 해당 신규 route의 실제403을 FORBIDDEN403으로 명시 매핑·HTTP 회귀. legacy/compat 원코드 보존, 미등록502로 출시 금지 |
 | 위임/강퇴 대상 사용자 삭제·멤버 이탈·요청자 본인 부재 | TARGET_USER_NOT_FOUND/대상 NOT_FOUND는 공개 NOT_FOUND404와 해당 대상 필드, 요청자 USER_NOT_FOUND404는 별도 유지. HTTP 회귀 전 활성화 금지 |

@@ -97,7 +97,10 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) Note note) {
     }
 
-    /** 랭킹 한 줄 — {@code relation} 은 나와 그 섬의 관계({@code NONE}·{@code MEMBER}·{@code KICKED}). */
+    /**
+     * 랭킹 한 줄 — {@code relation} 은 나와 그 섬의 관계({@code NONE}·{@code MEMBER}). 강퇴된 섬도 {@code NONE} 이다
+     * (GROMO-2315 — 구 Data 는 {@code KICKED} 를 보낼 수 있어 문자열 그대로 전달한다).
+     */
     @Schema(name = "MagazineRankedIsland")
     public record RankedIsland(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int rank,

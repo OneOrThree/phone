@@ -15,7 +15,7 @@ export type SeaParticipant = {
   subject?: string;
   message?: string;
   emote?: SeaEmote;
-  /** 장착한 머리·목·신발(카탈로그 id) — 내 뗏목에만 채운다. */
+  /** 장착한 머리·목·신발(카탈로그 id). undefined·null은 미장착이다. 바다 서버는 현재 내 장착 정보만 별도로 알 수 있다. */
   outfit?: Outfit;
 };
 

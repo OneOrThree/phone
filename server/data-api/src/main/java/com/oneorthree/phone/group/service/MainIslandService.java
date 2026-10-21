@@ -158,7 +158,10 @@ public class MainIslandService implements MainIslandNamePort {
         chosen.ifPresentOrElse(
                 row -> row.moveTo(island),
                 () -> mainIslands.save(new UserMainIsland(userId, island)));
-        events.publishEvent(new MainIslandTransferredEvent(userId, moved.islandId(), moved.name(), Instant.now()));
+        // 강퇴는 이전 알림을 내지 않는다(GROMO-2315, 10/20 결정) — 강퇴 알림 1건만 간다(IslandKickedEvent).
+        if (!member.isKicked()) {
+            events.publishEvent(new MainIslandTransferredEvent(userId, moved.islandId(), moved.name(), Instant.now()));
+        }
     }
 
     private Optional<UserIslandNameProjection> effective(UUID userId) {
