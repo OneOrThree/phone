@@ -2520,8 +2520,7 @@ export function reducer(state: State, a: Action): State {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
       i.fish = balance(i) - p.price;
-      if (p.kind === 'clothes') s.owned.push(p.id);
-      else i.sharedOwned.push(p.id);
+      i.sharedOwned.push(p.id);
       log(`${p.title} 구매 −${p.price}마리`);
       s.orders.unshift({
         id: uuid(),
@@ -2532,13 +2531,6 @@ export function reducer(state: State, a: Action): State {
         at: now,
         buyer: s.name,
       });
-      break;
-    }
-    case 'EQUIP': {
-      if (a.key !== 'clothes') return state;
-      const value = a.value;
-      if (!['default', 'none', 'raft'].includes(value) && !s.owned.includes(value)) return state;
-      s.equipped[a.key as keyof State['equipped']] = value;
       break;
     }
     case 'DECOR_POSITION':

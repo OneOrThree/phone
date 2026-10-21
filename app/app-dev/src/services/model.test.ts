@@ -378,17 +378,17 @@ test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 �
   assert.equal(currentIsland(next).track, null);
   assert.equal(currentIsland(next).playing, false);
 });
-test('상품은 섬 잔액으로 구매하고 중복 결제·미보유 착용을 막는다', () => {
+test('상품은 섬 잔액으로 구매하고 중복 결제를 막으며, 탈퇴해도 개인 보유품은 남긴다', () => {
   let s = initialState(true);
-  s = act(s, 'EQUIP', { key: 'clothes', value: 'scarf' });
-  assert.equal(s.equipped.clothes, 'default');
   assert.ok(products.every((p) => p.kind !== 'clothes'));
   s = act(s, 'BUY', { id: 'soda-theme' });
   assert.equal(balance(currentIsland(s)), 200);
   assert.ok(currentIsland(s).sharedOwned.includes('soda-theme'));
   assert.deepEqual(act(s, 'BUY', { id: 'soda-theme' }), s);
+  s.owned = ['flag'];
   currentIsland(s).members = [];
   s = act(s, 'LEAVE');
+  assert.ok(s.owned.includes('flag'));
   // 방장 혼자인 섬을 떠나면 섬을 삭제하므로 공동 잔액도 지운다 (정책-결정-2026-09-14, GROMO-1843)
   assert.equal(s.islands[0].fish, 0);
   assert.deepEqual(act(s, 'BUY', { id: 'sailboat' }), s);

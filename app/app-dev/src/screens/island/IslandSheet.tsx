@@ -1303,22 +1303,6 @@ export function RaftCatArt({
   );
 }
 
-// 고양이 그림 위에 겹쳐 쓰는 밀짚모자. 그림과 같은 상자·같은 비율(viewBox, contain)로 겹치고
-// 모자 위치(x, y, 폭)는 그 그림의 원본 픽셀 좌표로 준다
-export function HatOn({ image, style }: { image: 'raft' | 'cat'; style: StyleProp<ViewStyle> }) {
-  // 뗏목 합성 그림 440×317의 머리 · 고양이 idle 512×512의 머리
-  const [vw, vh, x, y, w] = image === 'raft' ? [440, 317, 157, 20, 110] : [512, 512, 175, 23, 230];
-  return (
-    <View pointerEvents="none" style={[{ position: 'absolute' }, style]}>
-      <Svg width="100%" height="100%" viewBox={`0 0 ${vw} ${vh}`}>
-        <G transform={`translate(${x} ${y}) scale(${w / 88})`}>
-          <HatShapes w={88} />
-        </G>
-      </Svg>
-    </View>
-  );
-}
-
 // 시트 아래 고정 버튼 줄(.ctabar): 보조 문구 · 주 버튼 · (고스트 버튼). 시트 위라 고스트는 반투명 흰 바탕(.imm .btn.ghost)
 export function Cta({
   note,
