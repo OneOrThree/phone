@@ -6201,7 +6201,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               color={friend.catColor ?? 'white'}
-              outfit={appearanceOutfit(friend.appearance)}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
           tail={requestActions(
@@ -6218,7 +6218,10 @@ export function RedesignScreens({ e }: any) {
         title={friend.nickname ?? '탈퇴한 사용자'}
         sub="수락 기다리는 중"
         lead={
-          <Avatar color={friend.catColor ?? 'white'} outfit={appearanceOutfit(friend.appearance)} />
+          <Avatar
+            color={friend.catColor ?? 'white'}
+            outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+          />
         }
         tail={
           <Btn

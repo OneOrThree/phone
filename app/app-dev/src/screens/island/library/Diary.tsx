@@ -100,7 +100,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           id: m.userId,
           name: m.name ?? '주민',
           color: m.catColor ?? 'black',
-          outfit: appearanceOutfit(m.appearance),
+          outfit: m.catColor ? appearanceOutfit(m.appearance) : undefined,
         }))
     : island.members;
   const resident = memberRows.find((m) => m.id === memberId);

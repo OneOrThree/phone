@@ -5505,7 +5505,11 @@ export function Board({
                       }}
                     >
                       <View accessible accessibilityLabel={`${name} 고양이 프로필`}>
-                        <CatAvatar color={color ?? 'gray'} outfit={outfit} size={42} />
+                        <CatAvatar
+                          color={color ?? 'gray'}
+                          outfit={color ? outfit : undefined}
+                          size={42}
+                        />
                       </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={boardFont(14, 1.6, '700')}>
@@ -7893,7 +7897,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         boxShadow: '0 2px 0 #b58f6b',
       }}
     >
-      <CatAvatar color={color ?? 'gray'} outfit={outfit} size={size} />
+      <CatAvatar color={color ?? 'gray'} outfit={color ? outfit : undefined} size={size} />
     </View>
   );
 

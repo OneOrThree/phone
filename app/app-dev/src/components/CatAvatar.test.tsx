@@ -69,4 +69,6 @@ test('appearanceOutfit — 머리·목 문자열만 꺼내고 이상한 값은 �
   expect(appearanceOutfit({ head: 'a', neck: 'b', shoes: 'c' })).toEqual({ head: 'a', neck: 'b' });
   expect(appearanceOutfit(null)).toEqual({ head: null, neck: null });
   expect(appearanceOutfit({ head: 3 })).toEqual({ head: null, neck: null });
+  expect(appearanceOutfit({})).toEqual({ head: null, neck: null });
+  expect(appearanceOutfit(undefined)).toEqual({ head: null, neck: null });
 });
