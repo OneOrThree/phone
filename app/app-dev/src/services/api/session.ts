@@ -538,8 +538,9 @@ async function commit(session: Session): Promise<void> {
     writeItem(`${prefix}.refreshToken`, `${bundleId}.${session.refreshToken}`),
     writeItem(`${prefix}.userId`, `${bundleId}.${session.userId}`),
     // 제공자 없는 세션(게스트)은 쓰지 않는다 — 비활성 슬롯의 옛 값은 bundleId 태그가 달라 읽히지 않는다.
+    // 보조 정보라 쓰기 실패는 삼킨다 — 실패해도 «알 수 없음»으로 읽힐 뿐 로그인을 실패시키지 않는다.
     ...(session.provider
-      ? [writeItem(`${prefix}.provider`, `${bundleId}.${session.provider}`)]
+      ? [writeItem(`${prefix}.provider`, `${bundleId}.${session.provider}`).catch(() => undefined)]
       : []),
   ]);
   const failure = writes.find((w): w is PromiseRejectedResult => w.status === 'rejected');
