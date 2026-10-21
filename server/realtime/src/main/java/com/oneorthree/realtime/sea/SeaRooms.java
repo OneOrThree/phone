@@ -324,7 +324,7 @@ public class SeaRooms {
                 try {
                     blocked = blockedUsers.blockedByUnfiltered(viewerId);
                 } catch (RuntimeException e) {
-                    log.debug("바다 스냅샷 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
+                    log.warn("바다 스냅샷 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
                     unknown = true;
                 }
             }

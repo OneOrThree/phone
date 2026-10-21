@@ -317,7 +317,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         try {
             hide = blockedUsers.hasBlockedUnfiltered(viewerId, other);
         } catch (RuntimeException e) {
-            log.debug("바다 프레임 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
+            log.warn("바다 프레임 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
             hide = true;
         }
         if (!hide) {
