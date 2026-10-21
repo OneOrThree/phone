@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class IslandQuestGateTest {
 
     private final IslandQuestService closed = new IslandQuestService(null, null, null, null, null, null, null,
-            null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null);
 
     @Test
     @DisplayName("스위치가 꺼져 있으면 생성은 503 QUEST_CREATION_UNAVAILABLE 이다")

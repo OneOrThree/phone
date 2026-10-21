@@ -19,9 +19,11 @@ import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -283,7 +285,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         try {
             if (seaRooms.isMember(principal.userId(), roomId)) {
-                return message;
+                return maskSeaLook(message, principal.userId());
             }
             seaDroppedNotMember.increment();
             return null;
@@ -292,6 +294,38 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             log.debug("바다 방 전달 차단 — 소속 판정 불가. reason={}", e.getClass().getSimpleName());
             return null;
         }
+    }
+
+    /**
+     * 받는 사람별 외양 가리기(GROMO-2389) — {@code sea.member.joined}·{@code sea.member.updated} 의 {@code member} 가
+     * 받는 사람이 차단한 사람이면 {@code appearance.head·neck} 을 null 로 바꿔 보낸다. 방 토픽 프레임은 모든 구독자에게
+     * 같은 본문이라 발행 쪽에서 가릴 수 없다. 판정 불가면 가린다(fail-closed). 본인·다른 type 은 그대로 둔다.
+     */
+    private Message<?> maskSeaLook(Message<?> message, UUID viewerId) {
+        JsonNode root = readPayload(message);
+        if (root == null || !(root.get("type") != null && root.get("type").isString()
+                && (SeaRooms.MEMBER_JOINED.equals(root.get("type").stringValue())
+                || SeaRooms.MEMBER_UPDATED.equals(root.get("type").stringValue())))) {
+            return message;
+        }
+        JsonNode member = root.path("payload").path("member");
+        UUID other = uuidAt(member.get("userId"));
+        if (!(member instanceof ObjectNode row) || other == null || other.equals(viewerId)) {
+            return message;
+        }
+        boolean hide;
+        try {
+            hide = blockedUsers.hasBlockedUnfiltered(viewerId, other);
+        } catch (RuntimeException e) {
+            log.debug("바다 프레임 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
+            hide = true;
+        }
+        if (!hide) {
+            return message;
+        }
+        row.putObject("appearance").putNull("head").putNull("neck");
+        byte[] bytes = objectMapper.writeValueAsBytes(root);
+        return MessageBuilder.createMessage(bytes, message.getHeaders());
     }
 
     /**

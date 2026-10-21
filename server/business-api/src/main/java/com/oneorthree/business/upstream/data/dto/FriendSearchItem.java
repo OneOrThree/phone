@@ -26,11 +26,15 @@ import java.util.UUID;
  * @param occupation 준비 시험 코드. 비친구이거나 미설정이면 null
  * @param relation   나와의 관계 — {@code NONE}·{@code PENDING}·{@code FRIEND}. 앱이 요청 버튼과 배지를
  *                   갈라 그리는 축이라 <b>필수</b>다. 값 해석은 앱 몫이라 문자열로 받는다
+ * @param catColor   고양이 색(GROMO-2389). 미선택이면 null — 필수가 아니다(옛 Data 응답 호환)
+ * @param appearance 착용 외양(GROMO-2389) — 필수가 아니다
  */
 public record FriendSearchItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID userId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String nickname,
         Integer tierLevel,
         String occupation,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+        String catColor,
+        PersonalAppearanceState appearance) {
 }

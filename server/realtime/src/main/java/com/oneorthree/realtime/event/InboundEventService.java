@@ -170,6 +170,10 @@ public class InboundEventService {
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
             seaRooms.applyMemberUpdated(envelope);
         } else {
+            if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)) {
+                // 바다 방에 있는 사용자의 머리·목 표시를 고친다(GROMO-2389) — 앱 전달과는 별개의 부수 효과다.
+                seaRooms.applyAppearanceUpdated(envelope);
+            }
             evictMembershipCacheIfNeeded(type, envelope);
             deliver(eventId, type, envelope);
         }

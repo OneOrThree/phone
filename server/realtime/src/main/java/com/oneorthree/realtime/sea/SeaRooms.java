@@ -96,12 +96,16 @@ public class SeaRooms {
     private static final String REMARK = "remark";
     private static final String NAME = "name";
     private static final String CAT_COLOR = "catColor";
+    private static final String HEAD = "head";
+    private static final String NECK = "neck";
+    private static final String APPEARANCE_VERSION = "appearanceVersion";
     private static final String SESSION_ID = "sessionId";
     private static final String DESTINATION = "destinationIslandId";
     private static final String SAILING_MINUTES = "sailingMinutes";
     private static final String STARTED_AT = "startedAt";
     private static final String ADRIFT_SINCE = "adriftSince";
     private static final String REV = "rev";
+    private static final int APPEARANCE_CAS_RETRIES = 3;
 
     /**
      * 입장. 1 = 들어갔다(또는 이미 그 방), 0 = 꽉 찼다(그 방을 open 에서 뺀다), -1 = 이미 다른 방에 있다(두 기기 경합),
@@ -279,7 +283,7 @@ public class SeaRooms {
         if (roomId == null) {
             throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
         }
-        return snapshotOf(roomId);
+        return snapshotOf(userId, roomId);
     }
 
     /**
@@ -293,14 +297,42 @@ public class SeaRooms {
         if (roomId == null || sessions.subscriptionIdOf(sessionId, StompTopics.seaRoomTopic(roomId)) == null) {
             throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
         }
-        return snapshotOf(roomId);
+        return snapshotOf(userId, roomId);
     }
 
-    private SeaRoomEvent snapshotOf(UUID roomId) {
+    private SeaRoomEvent snapshotOf(UUID viewerId, UUID roomId) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("roomId", roomId.toString());
-        payload.set("members", membersOf(roomId));
+        payload.set("members", maskBlockedLooks(viewerId, membersOf(roomId)));
         return SeaRoomEvent.of(SNAPSHOT, roomId, clock.instant(), payload);
+    }
+
+    /**
+     * 요청자가 차단한 구성원의 착용 외양(head·neck)을 비운다(GROMO-2389, character-report policy RP-차단). 방 배정은
+     * 차단 쌍을 갈라 놓지만, 입장 뒤에 한 차단이나 필터 스위치가 꺼진 배포에서는 같은 방에 남을 수 있다 — 그 구성원의
+     * 행·userId 는 그대로 두고 외양만 가린다. 판정 불가면 가리는 쪽으로 접는다(fail-closed, {@link BlockedUsers} 와 같다).
+     */
+    private ArrayNode maskBlockedLooks(UUID viewerId, ArrayNode members) {
+        Set<UUID> blocked = null;
+        boolean unknown = false;
+        for (JsonNode member : members) {
+            UUID other = uuidOrNull(member.get("userId"));
+            if (!(member instanceof ObjectNode row) || other == null || other.equals(viewerId)) {
+                continue;
+            }
+            if (blocked == null && !unknown) { // 차단 집합은 한 번만 읽는다
+                try {
+                    blocked = blockedUsers.blockedByUnfiltered(viewerId);
+                } catch (RuntimeException e) {
+                    log.debug("바다 스냅샷 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
+                    unknown = true;
+                }
+            }
+            if (unknown || blocked.contains(other)) {
+                row.putObject("appearance").putNull(HEAD).putNull(NECK);
+            }
+        }
+        return members;
     }
 
     /** 지금 들어 있는 방에서 나간다. 방이 없으면 아무 일도 없다. */
@@ -441,6 +473,59 @@ public class SeaRooms {
     }
 
     /**
+     * Data 사건 {@code member.appearance.updated} 중계(GROMO-2389) — 바다 방에 있는 사용자가 옷을 갈아입으면 방 안
+     * 구성원 표시의 head·neck 을 고친다. 이 사건은 외양이 보이는 섬마다 한 건씩 오므로(같은 스냅샷) 값이 그대로면
+     * 아무것도 하지 않는다 — 구성원 갱신이 섬 수만큼 중복 발행되지 않게 한다.
+     *
+     * <p>params 는 관대하게 읽는다(형식 불량은 경고 없이 끝낸다 — 앱 전달 경로는 이 사건을 어차피 기록만 한다).
+     * 바다 방에 없는 사용자면 아무것도 하지 않는다. Redis 쓰기 실패만 던진다(수신 기록 롤백 → relay 재전달).
+     * 방 사건 발행 실패는 삼킨다.
+     */
+    public void applyAppearanceUpdated(JsonNode envelope) {
+        JsonNode params = envelope.get("params");
+        UUID userId = params == null || !params.isObject() ? null : uuidOrNull(params.get("userId"));
+        JsonNode appearance = params == null ? null : params.get("appearance");
+        if (userId == null || appearance == null || !appearance.isObject()) {
+            return;
+        }
+        UUID roomId = currentRoom(userId);
+        if (roomId == null) {
+            return; // 바다 방에 없다 — no-op
+        }
+        JsonNode versionNode = params.get("version");
+        if (versionNode == null || !versionNode.isIntegralNumber() || !versionNode.canConvertToLong()) {
+            return; // 순서를 못 가리는 사건은 적용하지 않는다
+        }
+        long version = versionNode.longValue();
+        String head = text(appearance, HEAD);
+        String neck = text(appearance, NECK);
+        boolean applied = false;
+        // 섬마다 한 건씩 오고 순서가 뒤바뀔 수 있다 — version 이 저장값보다 클 때만, 읽은 rev 로 CAS 해 적용한다(경쟁이면 다시 읽는다).
+        for (int attempt = 0; attempt < APPEARANCE_CAS_RETRIES && !applied; attempt++) {
+            Map<String, String> current = stringMap(redis.opsForHash().entries(RedisKeys.seaUser(userId)));
+            long stored = longOrZero(current.get(APPEARANCE_VERSION));
+            if (version <= stored || current.get(REV) == null) {
+                return; // 이미 같거나 더 새 값이 적용됐다 / 그사이 나갔다
+            }
+            Transition transition = new Transition(new HashMap<>(), new ArrayList<>(), "", "0");
+            putOrDelete(transition.set(), transition.delete(), HEAD, head);
+            putOrDelete(transition.set(), transition.delete(), NECK, neck);
+            transition.set().put(APPEARANCE_VERSION, Long.toString(version));
+            applied = runUpdate(userId, roomId.toString(), transition, current.get(REV)) == 1;
+        }
+        if (!applied) {
+            return;
+        }
+        try {
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.set("member", memberOf(userId));
+            publisher.publish(roomId, MEMBER_UPDATED, payload);
+        } catch (RuntimeException e) {
+            log.warn("바다 구성원 외양 갱신 발행 실패 — reason={}", e.getClass().getSimpleName());
+        }
+    }
+
+    /**
      * 소켓 종료 — 이 JVM 에 같은 사용자의 다른 세션이 없을 때만 퇴장이다(N24).
      *
      * <p><b>자기 세션을 레지스트리에서 먼저 뺀 뒤</b> 다른 세션을 센다. 레지스트리의 같은 이벤트 리스너와 순서가 정해져
@@ -561,7 +646,9 @@ public class SeaRooms {
         boolean remarkChanged = !Objects.equals(first.remark(), second.remark())
                 || !Objects.equals(first.remarkChangedAt(), second.remarkChangedAt());
         boolean profileChanged = !Objects.equals(first.name(), second.name())
-                || !Objects.equals(first.catColor(), second.catColor());
+                || !Objects.equals(first.catColor(), second.catColor())
+                || !Objects.equals(first.head(), second.head()) || !Objects.equals(first.neck(), second.neck())
+                || first.appearanceVersion() != second.appearanceVersion();
         if (!sessionChanged && !remarkChanged && !profileChanged) {
             return;
         }
@@ -580,6 +667,9 @@ public class SeaRooms {
         if (profileChanged) {
             putOrDelete(transition.set(), transition.delete(), NAME, second.name());
             putOrDelete(transition.set(), transition.delete(), CAT_COLOR, second.catColor());
+            putOrDelete(transition.set(), transition.delete(), HEAD, second.head());
+            putOrDelete(transition.set(), transition.delete(), NECK, second.neck());
+            transition.set().put(APPEARANCE_VERSION, Long.toString(second.appearanceVersion()));
         }
         if (runUpdate(userId, roomId.toString(), transition, rev) != 1) {
             log.debug("입장 보정 건너뜀 — 그사이 Data 사건이 먼저 적용됐거나 나갔다");
@@ -724,6 +814,18 @@ public class SeaRooms {
             fields.add(CAT_COLOR);
             fields.add(state.catColor());
         }
+        if (state.head() != null) {
+            fields.add(HEAD);
+            fields.add(state.head());
+        }
+        if (state.neck() != null) {
+            fields.add(NECK);
+            fields.add(state.neck());
+        }
+        if (state.appearanceVersion() > 0) {
+            fields.add(APPEARANCE_VERSION);
+            fields.add(Long.toString(state.appearanceVersion()));
+        }
         if (session == null) {
             fields.add(ADRIFT_SINCE);
             fields.add(adriftSince);
@@ -862,7 +964,7 @@ public class SeaRooms {
     }
 
     /**
-     * {@code member = {userId, state, remark, name, catColor, session | null}}.
+     * {@code member = {userId, state, remark, name, catColor, appearance{head, neck}, session | null}}.
      * {@code activeSeconds} 는 저장값이 아니라 지금 계산한다 —
      * 바다 세션은 일시정지가 없어 경과가 곧 벽시계 차다. 떠 있으면 떠오른 시각에서 멈춘다.
      */
@@ -874,6 +976,9 @@ public class SeaRooms {
         member.put("remark", hash.get(REMARK));
         member.put("name", hash.get(NAME)); // 옛 해시(배포 전 입장)는 null
         member.put("catColor", hash.get(CAT_COLOR));
+        ObjectNode look = member.putObject("appearance"); // 옛 해시(배포 전 입장)는 head·neck 이 null
+        look.put(HEAD, hash.get(HEAD));
+        look.put(NECK, hash.get(NECK));
         Instant startedAt = instantOrNull(hash.get(STARTED_AT));
         if (hash.get(SESSION_ID) == null || startedAt == null) {
             member.putNull("session");
@@ -927,6 +1032,14 @@ public class SeaRooms {
     private static String text(JsonNode node, String field) {
         JsonNode value = node.get(field);
         return value != null && value.isString() ? value.stringValue() : null;
+    }
+
+    private static long longOrZero(String value) {
+        try {
+            return value == null ? 0L : Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
     }
 
     private static Instant instantOrNull(String value) {

@@ -1,6 +1,7 @@
 package com.oneorthree.business.usecase;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.oneorthree.business.api.dto.MemberAppearanceView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -141,11 +142,14 @@ public class FriendUseCase {
             @JsonProperty(required = true) int focusTimeMinutes,
             String focusStartedAt,
             String focusTagName,
-            String mainIslandName) {
+            String mainIslandName,
+            String catColor,
+            MemberAppearanceView appearance) {
         private static FriendView from(FriendItem source) {
             return source == null ? null : new FriendView(source.userId(), source.nickname(), source.tierLevel(),
                     source.occupation(), source.isPinned(), source.isFocusing(), source.focusTimeMinutes(),
-                    source.focusStartedAt(), source.focusTagName(), source.mainIslandName());
+                    source.focusStartedAt(), source.focusTagName(), source.mainIslandName(), source.catColor(),
+                    MemberAppearanceView.from(source.appearance()));
         }
     }
 
@@ -166,10 +170,13 @@ public class FriendUseCase {
             @JsonProperty(required = true) String nickname,
             Integer tierLevel,
             String occupation,
-            @JsonProperty(required = true) String relation) {
+            @JsonProperty(required = true) String relation,
+            String catColor,
+            MemberAppearanceView appearance) {
         private static SearchView from(FriendSearchItem source) {
             return source == null ? null : new SearchView(source.userId(), source.nickname(), source.tierLevel(),
-                    source.occupation(), source.relation());
+                    source.occupation(), source.relation(), source.catColor(),
+                    MemberAppearanceView.from(source.appearance()));
         }
     }
 

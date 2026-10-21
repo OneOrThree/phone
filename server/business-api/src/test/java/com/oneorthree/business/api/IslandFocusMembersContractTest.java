@@ -37,13 +37,19 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
     private static final String DATA_FOCUS = "GET " + INTERNAL + "/focus-members";
     private static final String DATA_REST = "GET " + INTERNAL + "/rest-members";
 
+    /** 착용 외양(GROMO-2389) — 주민 목록과 같은 모양이다. shoes 는 미착용이라 키가 없다. */
+    private static final String APPEARANCE = "{\"clothes\":null,\"decor\":null,\"head\":\"head-ribbon\","
+            + "\"neck\":\"neck-bell\",\"hull\":\"raft\",\"position\":\"back\",\"version\":2}";
+
     private static final String FOCUS_BODY = "{\"items\":[{\"userId\":\"" + OTHER + "\",\"name\":null,"
             + "\"sessionId\":\"" + SESSION + "\",\"subject\":\"영어 단어\",\"activeSeconds\":1320,"
-            + "\"status\":\"active\"}],\"serverNow\":\"2026-09-11T09:10:00Z\","
+            + "\"status\":\"active\",\"catColor\":\"ginger\",\"appearance\":" + APPEARANCE + "}],"
+            + "\"serverNow\":\"2026-09-11T09:10:00Z\","
             + "\"watermarks\":[{\"projection\":\"focus.member\",\"islandId\":\"" + ISLAND + "\","
             + "\"aggregateId\":\"" + OTHER + "\",\"version\":5}]}";
     private static final String REST_BODY = "{\"items\":[{\"userId\":\"" + OTHER + "\",\"name\":\"수아\","
-            + "\"restSeat\":1,\"restStartedAt\":\"2026-09-11T09:07:00Z\"}],"
+            + "\"restSeat\":1,\"restStartedAt\":\"2026-09-11T09:07:00Z\",\"catColor\":\"ginger\","
+            + "\"appearance\":" + APPEARANCE + "}],"
             + "\"serverNow\":\"2026-09-11T09:10:00Z\","
             + "\"watermarks\":[{\"projection\":\"rest.member\",\"islandId\":\"" + ISLAND + "\","
             + "\"aggregateId\":\"" + OTHER + "\",\"version\":2}]}";
@@ -67,6 +73,10 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].sessionId").value(SESSION.toString()))
                 .andExpect(jsonPath("$.data.items[0].activeSeconds").value(1320))
                 .andExpect(jsonPath("$.data.items[0].status").value("active"))
+                .andExpect(jsonPath("$.data.items[0].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.items[0].appearance.head").value("head-ribbon"))
+                .andExpect(jsonPath("$.data.items[0].appearance.neck").value("neck-bell"))
+                .andExpect(jsonPath("$.data.items[0].appearance.position").value("back"))
                 .andExpect(jsonPath("$.data.serverNow").value("2026-09-11T09:10:00Z"))
                 .andExpect(jsonPath("$.data.watermarks[0].projection").value("focus.member"))
                 .andExpect(jsonPath("$.data.watermarks[0].aggregateId").value(OTHER.toString()))
@@ -88,6 +98,8 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].restSeat").value(1))
                 .andExpect(jsonPath("$.data.items[0].restStartedAt").value("2026-09-11T09:07:00Z"))
                 .andExpect(jsonPath("$.data.items[0].sessionId").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.items[0].appearance.head").value("head-ribbon"))
                 .andExpect(jsonPath("$.data.watermarks[0].projection").value("rest.member"))
                 .andExpect(jsonPath("$.data.watermarks[0].version").value(2));
     }
@@ -178,8 +190,8 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
     @CsvSource(delimiter = '|', value = {
             "/islands/{islandId}/focus-members|get||items serverNow watermarks|items serverNow watermarks",
             "/islands/{islandId}/rest-members|get||items serverNow watermarks|items serverNow watermarks",
-            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status|userId name sessionId subject activeSeconds status",
-            "/islands/{islandId}/rest-members|get|items|userId name restSeat restStartedAt|userId name restSeat restStartedAt",
+            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status catColor appearance|userId name sessionId subject activeSeconds status",
+            "/islands/{islandId}/rest-members|get|items|userId name restSeat restStartedAt catColor appearance|userId name restSeat restStartedAt",
             "/islands/{islandId}/focus-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version",
             "/islands/{islandId}/rest-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version"})
     void publicDocumentationKeepsDistinctMemberFields(String path, String method, String nested,

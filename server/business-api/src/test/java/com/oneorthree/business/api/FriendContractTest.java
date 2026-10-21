@@ -37,13 +37,17 @@ class FriendContractTest extends UpstreamTestBase {
     private static final String DATA_REQUESTS = "GET " + INTERNAL + "/friend-requests";
     private static final String DATA_DELETE = "DELETE " + INTERNAL + "/friends/" + TARGET;
     private static final String DATA_SEARCH = "GET " + INTERNAL + "/friend-search";
+    /** 털색과 착용 외양(GROMO-2389) — head·neck·shoes 는 미착용이면 키가 없고 clothes·decor 는 명시 null 이다. */
+    private static final String LOOK = "\"catColor\":\"ginger\",\"appearance\":{\"clothes\":null,"
+            + "\"decor\":null,\"head\":\"head-ribbon\",\"neck\":\"neck-bell\",\"hull\":\"raft\","
+            + "\"position\":\"front\",\"version\":2}";
     private static final String SEARCH_HIT = "[{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\","
-            + "\"tierLevel\":null,\"occupation\":null,\"relation\":\"NONE\"}]";
+            + "\"tierLevel\":null,\"occupation\":null,\"relation\":\"NONE\"," + LOOK + "}]";
     private static final String CREATE_BODY = "{\"targetUserId\":\"" + TARGET + "\"}";
     private static final String FRIEND = "{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
             + "\"occupation\":\"CODING\",\"isPinned\":true,\"isFocusing\":true,\"focusTimeMinutes\":42,"
             + "\"focusStartedAt\":\"2026-09-18T01:00:00Z\",\"focusTagName\":\"전공\","
-            + "\"mainIslandName\":\"모래섬\"}";
+            + "\"mainIslandName\":\"모래섬\"," + LOOK + "}";
 
     @Test
     void createForwardsSignedActorWithoutCommandKeyAndReturnsCreatedEnvelope() throws Exception {
@@ -145,12 +149,29 @@ class FriendContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data[0].focusTimeMinutes").value(42))
                 .andExpect(jsonPath("$.data[0].focusStartedAt").value("2026-09-18T01:00:00Z"))
                 // 메인 섬 이름은 Data 가 준 값을 그대로 내보낸다(GROMO-1971) — 친구 목록에만 실린다.
-                .andExpect(jsonPath("$.data[0].mainIslandName").value("모래섬"));
+                .andExpect(jsonPath("$.data[0].mainIslandName").value("모래섬"))
+                // 털색·착용 외양(GROMO-2389) — Data 가 준 값을 주민 목록과 같은 모양으로 내보낸다.
+                .andExpect(jsonPath("$.data[0].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data[0].appearance.head").value("head-ribbon"))
+                .andExpect(jsonPath("$.data[0].appearance.neck").value("neck-bell"))
+                .andExpect(jsonPath("$.data[0].appearance.shoes").doesNotExist())
+                .andExpect(jsonPath("$.data[0].appearance.version").value(2));
         assertThat(DATA.received().get(0).query()).contains("date=2026-09-18");
         DATA.on(DATA_FRIENDS, request -> ok("[]"));
         mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /** 이 필드를 싣기 전의 Data 응답도 받는다 — 털색·외양은 null 로 내보낸다(롤링 배포 호환, GROMO-2389). */
+    @Test
+    void friendsAcceptsLegacyUpstreamWithoutLook() throws Exception {
+        String legacy = FRIEND.replace("," + LOOK, "");
+        DATA.on(DATA_FRIENDS, request -> ok("[" + legacy + "]"));
+        mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].catColor").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].appearance").value(org.hamcrest.Matchers.nullValue()));
     }
 
     /** 항목에 필수 키가 빠지면 계약 불일치다 — 이름이 바뀐 배포를 조용히 통과시키지 않는다. */

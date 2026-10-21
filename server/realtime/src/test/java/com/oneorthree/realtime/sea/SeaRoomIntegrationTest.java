@@ -85,6 +85,9 @@ class SeaRoomIntegrationTest {
     private StringRedisTemplate redis;
 
     @Autowired
+    private com.oneorthree.realtime.block.BlockedUsers blockedUsers;
+
+    @Autowired
     private MockMvc mockMvc;
 
     @MockitoBean
@@ -274,6 +277,38 @@ class SeaRoomIntegrationTest {
         assertThat(memberOf(updated).get("userId")).isEqualTo(alice.toString());
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "adriftSince")).isNotNull();
         assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, alice.toString())).isNotNull();
+    }
+
+    @Test
+    @DisplayName("[2389] 방 안 외양 사건 — 섬 없는 사용자 축 사건도 반영되고, 차단한 구성원에게만 head·neck 이 null 로 간다, 옛 version 은 무시")
+    void appearanceEventIsMaskedPerViewerAndOrdered() throws Exception {
+        UUID alice = sailor();
+        UUID bob = sailor();
+        UUID carol = sailor();
+        Client a = connect(alice);
+        Client b = connect(bob);
+        Client c = connect(carol);
+        UUID room = roomOf(a.enter());
+        assertThat(roomOf(b.enter())).isEqualTo(room);
+        assertThat(roomOf(c.enter())).isEqualTo(room);
+        BlockingQueue<Map<String, Object>> heardByAlice = a.watch(room, alice);
+        BlockingQueue<Map<String, Object>> heardByCarol = c.watch(room, carol);
+        // 입장 뒤에 alice 가 bob 을 차단했다 — 세대를 올려 캐시된 빈 집합을 버린다.
+        given(blockClient.fetchBlockedIds(alice)).willReturn(Set.of(bob));
+        blockedUsers.advanceGeneration(alice);
+
+        postEvent(appearanceEvent(bob, null, 2, "head-new"));
+
+        Map<String, Object> forAlice = await(heardByAlice, frame -> "sea.member.updated".equals(frame.get("type"))
+                && bob.toString().equals(memberOf(frame).get("userId")));
+        Map<String, Object> forCarol = await(heardByCarol, frame -> "sea.member.updated".equals(frame.get("type"))
+                && bob.toString().equals(memberOf(frame).get("userId")));
+        assertThat(lookOf(forAlice)).containsEntry("head", null).containsEntry("neck", null);
+        assertThat(lookOf(forCarol)).containsEntry("head", "head-new");
+        // 옛 version(1) 이 뒤늦게 와도 덮지 않는다
+        postEvent(appearanceEvent(bob, UUID.randomUUID(), 1, "head-old"));
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(bob), "head")).isEqualTo("head-new");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(bob), "appearanceVersion")).isEqualTo("2");
     }
 
     @Test
@@ -856,6 +891,21 @@ class SeaRoomIntegrationTest {
         return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"sea.member.updated\","
                 + "\"occurredAt\":\"2026-10-17T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
                 + "\"locale\":null,\"subjectId\":\"" + user + "\",\"version\":1,\"params\":{" + params + "}}";
+    }
+
+    /** member.appearance.updated — subjectId 가 null 이면 섬이 없는 사용자 축 사건이다(GROMO-2389). */
+    private static String appearanceEvent(UUID user, UUID island, long version, String head) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"member.appearance.updated\","
+                + "\"occurredAt\":\"2026-10-17T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                + "\"locale\":null,\"subjectId\":" + (island == null ? "null" : "\"" + island + "\"")
+                + ",\"version\":" + version + ",\"params\":{\"userId\":\"" + user + "\",\"appearance\":{"
+                + "\"clothes\":null,\"decor\":null,\"head\":\"" + head + "\",\"neck\":null,\"shoes\":null,"
+                + "\"hull\":\"raft\",\"position\":\"front\"},\"version\":" + version + "}}";
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> lookOf(Map<String, Object> frame) {
+        return (Map<String, Object>) memberOf(frame).get("appearance");
     }
 
     private void postEvent(String body) throws Exception {

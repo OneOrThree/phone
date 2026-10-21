@@ -114,8 +114,13 @@ class AppearanceServiceIntegrationTest {
         assertThat(applied.data().clothes()).isEqualTo("scarf");
         assertThat(applied.data().version()).isEqualTo(1);
         // 변경이 있었으므로 member.appearance.updated 가 표시 대상 섬 수만큼 적혔다.
-        // 이 유저는 섬이 없으므로 events 는 비어 있다 — 팬아웃은 별도 테스트가 잠근다.
-        assertThat(applied.events()).isEmpty();
+        // 이 유저는 섬이 없으므로 섬 범위 없는(subjectId=null) 사용자 축 한 건이다 — 바다 방 갱신용(GROMO-2389).
+        // 섬별 팬아웃은 별도 테스트가 잠근다.
+        assertThat(applied.events()).singleElement().satisfies(event -> {
+            assertThat(event.get("type")).isEqualTo("member.appearance.updated");
+            assertThat(event.get("subjectId")).isNull();
+            assertThat(event.get("version")).isEqualTo(1);
+        });
 
         // 미제출 필드 유지 + 명시 null 해제 — decor 는 적은 적이 없어 no-op 아닌 유지다.
         AppearanceCommandView<PersonalAppearanceView> kept = service.patchMine(userId,
@@ -383,8 +388,8 @@ class AppearanceServiceIntegrationTest {
         }
         // outbox·delivery 행이 실제로 적혔는지도 확인한다 — 응답 조립과 저장은 같은 TX 다.
         Long rows = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM event_outbox WHERE type = 'member.appearance.updated'",
-                Long.class);
+                "SELECT COUNT(*) FROM event_outbox WHERE type = 'member.appearance.updated' AND user_id = ?",
+                Long.class, memberId);
         assertThat(rows).isEqualTo(2);
     }
 

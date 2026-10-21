@@ -318,6 +318,8 @@ class IslandManagementIntegrationTest {
         assertThat(page.items()).extracting(IslandJoinRequestsPageView.Item::id).containsExactly(second);
         assertThat(page.items().get(0).applicantId()).isEqualTo(applicant);
         assertThat(page.items().get(0).catColor()).isEqualTo("white");
+        assertThat(page.items().get(0).appearance())
+                .isEqualTo(new PersonalAppearanceView(null, null, null, null, null, "raft", "front", 0));
         assertThat(page.items().get(0).status()).isEqualTo("pending");
 
         UUID otherHost = newUser();

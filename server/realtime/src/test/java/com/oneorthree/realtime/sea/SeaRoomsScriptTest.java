@@ -327,6 +327,77 @@ class SeaRoomsScriptTest {
         assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(busy), user.toString())).isFalse();
     }
 
+    @Test
+    @DisplayName("[GROMO-2389] 입장 때 head·neck 이 해시에 실려 snapshot 의 appearance 로 나가고, 요청자가 차단한 구성원만 null 이다")
+    void snapshotCarriesAppearanceAndMasksBlockedMembers() {
+        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+        Fixture f = new Fixture();
+        UUID alice = UUID.randomUUID();
+        UUID bob = UUID.randomUUID();
+        for (UUID user : List.of(alice, bob)) {
+            org.mockito.BDDMockito.given(f.seaState.fetch(user)).willReturn(
+                    new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null, "이름", "ginger",
+                            new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("head-" + user, null)));
+            org.mockito.BDDMockito.given(f.friends.fetchFriendIds(user)).willReturn(java.util.Set.of());
+        }
+        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
+        UUID room = f.seaRooms.enter(alice, "s").roomId();
+        assertThat(f.seaRooms.enter(bob, "s").roomId()).isEqualTo(room);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(bob), "head")).isEqualTo("head-" + bob);
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(bob), "neck")).isFalse();
+
+        // 입장 뒤에 alice 가 bob 을 차단했다 — bob 의 외양만 가려지고 행·이름은 그대로다.
+        org.mockito.BDDMockito.given(f.blockedUsers.blockedByUnfiltered(alice)).willReturn(java.util.Set.of(bob));
+        List<tools.jackson.databind.JsonNode> forAlice = new ArrayList<>();
+        f.seaRooms.snapshot(alice).payload().get("members").forEach(forAlice::add);
+
+        assertThat(forAlice).hasSize(2);
+        for (tools.jackson.databind.JsonNode member : forAlice) {
+            boolean mine = member.get("userId").asString().equals(alice.toString());
+            assertThat(member.get("appearance").get("head").isNull()).isEqualTo(!mine);
+            assertThat(member.get("appearance").get("neck").isNull()).isTrue();
+            assertThat(member.get("name").asString()).isEqualTo("이름");
+        }
+        // bob 은 alice 를 차단하지 않았으니 alice 의 외양이 그대로 보인다(한 방향).
+        List<tools.jackson.databind.JsonNode> forBob = new ArrayList<>();
+        f.seaRooms.snapshot(bob).payload().get("members").forEach(forBob::add);
+        assertThat(forBob).allSatisfy(member ->
+                assertThat(member.get("appearance").get("head").asString()).startsWith("head-"));
+    }
+
+    @Test
+    @DisplayName("[GROMO-2389] 방 안에서 member.appearance.updated 가 오면 해시를 고쳐 sea.member.updated 를 한 번 낸다 — 같은 값 재수신은 무시")
+    void appearanceEventUpdatesTheRoomMemberOnce() throws Exception {
+        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+        Fixture f = new Fixture();
+        UUID alice = UUID.randomUUID();
+        org.mockito.BDDMockito.given(f.seaState.fetch(alice)).willReturn(
+                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null, "이름", null,
+                        new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("old-head", "old-neck")));
+        org.mockito.BDDMockito.given(f.friends.fetchFriendIds(alice)).willReturn(java.util.Set.of());
+        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
+        UUID room = f.seaRooms.enter(alice, "s").roomId();
+        tools.jackson.databind.JsonNode event = new tools.jackson.databind.ObjectMapper().readTree(
+                "{\"params\":{\"userId\":\"" + alice + "\",\"appearance\":{\"head\":\"new-head\",\"neck\":null},\"version\":2}}");
+        tools.jackson.databind.JsonNode stale = new tools.jackson.databind.ObjectMapper().readTree(
+                "{\"params\":{\"userId\":\"" + alice + "\",\"appearance\":{\"head\":\"stale\",\"neck\":null},\"version\":1}}");
+
+        f.seaRooms.applyAppearanceUpdated(event);
+        f.seaRooms.applyAppearanceUpdated(event);
+        f.seaRooms.applyAppearanceUpdated(stale); // 순서가 뒤바뀐 옛 version 은 무시
+
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("new-head");
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "neck")).isFalse();
+        org.mockito.Mockito.verify(f.publisher, org.mockito.Mockito.times(1)).publish(
+                org.mockito.ArgumentMatchers.eq(room), org.mockito.ArgumentMatchers.eq(SeaRooms.MEMBER_UPDATED),
+                org.mockito.ArgumentMatchers.any());
+        // 방에 없는 사용자의 사건은 해시를 만들지 않는다
+        UUID stranger = UUID.randomUUID();
+        f.seaRooms.applyAppearanceUpdated(new tools.jackson.databind.ObjectMapper().readTree(
+                "{\"params\":{\"userId\":\"" + stranger + "\",\"appearance\":{\"head\":\"x\"},\"version\":5}}"));
+        assertThat(redis.hasKey(RedisKeys.seaUser(stranger))).isFalse();
+    }
+
     private static org.springframework.web.socket.messaging.SessionDisconnectEvent disconnect(String sessionId,
             java.security.Principal user) {
         return new org.springframework.web.socket.messaging.SessionDisconnectEvent(new Object(),
