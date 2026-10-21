@@ -66,6 +66,15 @@ class CustomizationCatalogContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("renderData 없는 정적 행에 크기·앵커가 비면 상류 계약 위반으로 거부한다 (GROMO-2382)")
+    void staticRowWithoutSizeIsContractMismatch() throws Exception {
+        DATA.on(DATA_CATALOG, request -> ok(BODY.replace("\"width\":1254", "\"width\":null")));
+
+        mockMvc.perform(auth(get("/customization/catalog")))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
     @DisplayName("무인증 요청은 401 이고 상류를 부르지 않는다")
     void requiresSession() throws Exception {
         mockMvc.perform(get("/customization/catalog")).andExpect(status().isUnauthorized());

@@ -329,6 +329,8 @@
     "memberConverted": "회원으로 전환했어요.",
     "restoreFailed": "저장된 상태를 불러오지 못했어요.",
     "storageCheck": "기기 저장 공간을 확인해 주세요.",
+    "kickedFrom": "「{{island}}」에서 더 이상 함께할 수 없게 되었어요.",
+    "kicked": "섬에서 더 이상 함께할 수 없게 되었어요.",
     "build": {
       "confirmTitle": "{{building}} 짓기",
       "confirmBody": "섬 물고기 {{cost}}마리를 차감하고 {{minutes}}분 동안 공사해요.",
@@ -716,6 +718,8 @@
     "loadFailed": "섬을 불러오지 못했어요.",
     "islandHint": "누르면 섬 정보를 볼 수 있어요",
     "joinedIslandA11y": "{{name}}, 내가 사는 섬",
+    "islandLabel": "{{name}} · {{time}}",
+    "islandTimeA11y": "{{label}}, 항해 {{time}}",
     "residents": "주민 {{count}}/{{max}}",
     "averageFocus": "평균 {{time}}",
     "averageUnknown": "아직 집계 전",
@@ -862,7 +866,8 @@
       "noCells": "오늘은 실린 홍보가 없어요",
       "endTitle": "우리 섬도 실어 볼까요?",
       "endBody": "홍보는 마을회관에서 쓸 수 있어요. 아침 7시부터 자정까지 신청하면 다음 날 아침 호에 실려요",
-      "zoomClose": "크게 보기 닫기"
+      "zoomClose": "크게 보기 닫기",
+      "scopeEvicted": "{{name}}이 망원경에서 빠져요"
     },
     "rack": {
       "open": "잡지 꽂이",
@@ -1039,7 +1044,12 @@
     "nextTier": "다음 단계까지 {{minutes}}분",
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
-    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
+    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요.",
+    "focusTime": "집중 시간",
+    "requestFriend": "친구 요청",
+    "friendRequested": "친구 요청 보냄",
+    "friendExists": "이미 친구이거나 보낸 요청이 있어요.",
+    "friendUnavailable": "친구 요청을 보낼 수 없는 상대예요."
   },
   "safety": {
     "blockTitle": "차단하기",

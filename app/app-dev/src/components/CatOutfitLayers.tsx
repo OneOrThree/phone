@@ -253,7 +253,9 @@ export function recordFit(
     }
   }
   const picture = recorder.finishRecordingAsPicture();
-  return drawn ? picture : null;
+  if (drawn) return picture;
+  picture.dispose();
+  return null;
 }
 
 /**
@@ -262,10 +264,15 @@ export function recordFit(
  */
 function rasterFit(picture: SkPicture): SkImage | null {
   const surface = Skia.Surface.Make(512, 512);
-  if (!surface) return null;
-  surface.getCanvas().drawPicture(picture);
-  surface.flush();
-  return surface.makeImageSnapshot();
+  if (surface) {
+    surface.getCanvas().drawPicture(picture);
+    surface.flush();
+  }
+  const image = surface?.makeImageSnapshot() ?? null;
+  // 스냅샷은 표면과 별개 이미지라 기록·표면은 바로 놓는다
+  picture.dispose();
+  surface?.dispose();
+  return image;
 }
 
 /**
@@ -281,6 +288,7 @@ export function cachedFrame(key: string, fit: CatFit, make: () => SkImage | null
   frames.delete(key);
   const entry = hit && hit.fit === fit ? hit : { fit, image: make() };
   frames.set(key, entry);
+  // 빠진 이미지는 아직 화면에 그려지는 중일 수 있어 dispose 하지 않는다(가비지 수집에 맡긴다)
   if (frames.size > FRAME_CACHE) frames.delete(frames.keys().next().value!);
   return entry.image;
 }

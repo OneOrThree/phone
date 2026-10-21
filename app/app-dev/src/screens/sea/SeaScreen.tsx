@@ -11,7 +11,9 @@ import {
 import { t } from '@/i18n';
 import { SeaArrival, SeaParticipant, SeaVoyage, SeaEmote, seaEmotes, seaClock } from './seaModel';
 import { SeaScene } from './SeaScene';
+import { SeaRaft } from './SeaRaft';
 import { SeaArrivalResult } from './SeaArrivalResult';
+import { SeaMagazineDelivery } from './SeaMagazineDelivery';
 import { SeaRewardArt } from './seaRewardCatalog';
 import { art } from '@/constants/art';
 
@@ -29,7 +31,22 @@ export type SeaScreenProps = {
   onTelescope: () => void;
   onMessage: (message: string) => Promise<void>;
   onEmote: (emote: SeaEmote) => Promise<void>;
+  /** 서버가 요청 생성을 확인하면 true. 로그인 안내·실패 처리는 호스트가 맡는다. */
+  onFriendRequest?: (userId: string) => Promise<boolean>;
   rewardCatalog?: Readonly<Record<string, SeaRewardArt>>;
+  /**
+   * 오늘 고양이 잡지(GROMO-2314) — 표류 중에만 그린다. `delivery` 면 펠리컨 배달(B1)을 다른 창이 없을 때 화면 전체로 띄우고
+   * (실제로 뜬 순간 `onShown`), `received` 면 내 뗏목 옆에 잡지 물건(B3, 안 읽었으면 빨간 점)을 둔다. 바다에는 길게 누르기(꽂이)가 없다.
+   */
+  magazine?: {
+    issueNo: number;
+    delivery: boolean;
+    received: boolean;
+    unread: boolean;
+    onShown: () => void;
+    onOpen: () => void;
+    onLater: () => void;
+  } | null;
 } & (
   | { guest?: false; onSignIn?: () => void }
   // 게스트 여부가 동적이면 로그인 진입 경로도 반드시 함께 제공한다.
@@ -50,6 +67,7 @@ export function SeaScreen(props: SeaScreenProps) {
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [requested, setRequested] = useState<ReadonlySet<string>>(new Set());
   const busy = useRef(false);
   const requestVersion = useRef(0);
   const mounted = useRef(true);
@@ -69,9 +87,10 @@ export function SeaScreen(props: SeaScreenProps) {
     setPanel(null);
     setError('');
   }, [scope]);
+  useEffect(() => setRequested(new Set()), [self.userId]);
 
   const run = async (action: () => Promise<void>, close = false) => {
-    if (busy.current) return;
+    if (busy.current) return false;
     busy.current = true;
     const requestScope = scopeRef.current;
     const version = requestVersion.current;
@@ -82,10 +101,11 @@ export function SeaScreen(props: SeaScreenProps) {
       if (
         mounted.current &&
         scopeRef.current === requestScope &&
-        requestVersion.current === version &&
-        close
-      )
-        setPanel(null);
+        requestVersion.current === version
+      ) {
+        if (close) setPanel(null);
+        return true;
+      }
     } catch {
       if (
         mounted.current &&
@@ -99,6 +119,7 @@ export function SeaScreen(props: SeaScreenProps) {
         if (mounted.current) setPending(false);
       }
     }
+    return false;
   };
   const open = (next: Panel) => {
     if (!busy.current) {
@@ -109,6 +130,10 @@ export function SeaScreen(props: SeaScreenProps) {
   const close = () => open(null);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (delivery) {
+        magazine!.onLater();
+        return true;
+      }
       if (pending || result) return true;
       if (panel) {
         close();
@@ -134,7 +159,9 @@ export function SeaScreen(props: SeaScreenProps) {
         ? currentSelf
         : participants.find((person) => person.userId === panel.userId)
       : undefined;
-  const modal = !!result || !!panel;
+  const magazine = voyage ? null : props.magazine;
+  const delivery = !!magazine?.delivery && !result && !panel;
+  const modal = !!result || !!panel || delivery;
   const finish = (intent: 'disembark' | 'stop') => {
     if (voyage) run(() => props.onFinish(voyage.sessionId, intent), true);
   };
@@ -171,6 +198,11 @@ export function SeaScreen(props: SeaScreenProps) {
               setMessage(self.message || '');
               open('message');
             }}
+            magazine={
+              magazine?.received
+                ? { issueNo: magazine.issueNo, unread: magazine.unread, onOpen: magazine.onOpen }
+                : null
+            }
           >
             {(sceneHeight) =>
               voyage && (
@@ -285,6 +317,13 @@ export function SeaScreen(props: SeaScreenProps) {
           </View>
         </View>
       </View>
+      {delivery && (
+        <SeaMagazineDelivery
+          onShown={magazine!.onShown}
+          onOpen={magazine!.onOpen}
+          onLater={magazine!.onLater}
+        />
+      )}
       {!!result && (
         <SeaArrivalResult
           result={result}
@@ -295,7 +334,7 @@ export function SeaScreen(props: SeaScreenProps) {
         />
       )}
       {!result && !!panel && (
-        <Overlay close={pending ? undefined : close} maxWidth={354}>
+        <Overlay close={pending ? undefined : close} maxWidth={c.seaParticipant.cardMaxWidth}>
           <View accessibilityViewIsModal style={styles.panel}>
             {panel === 'stop' && (
               <>
@@ -324,13 +363,49 @@ export function SeaScreen(props: SeaScreenProps) {
                 </Txt>
                 {selected && (
                   <>
+                    <View testID="sea-participant-avatar" style={styles.avatar} accessible={false}>
+                      <SeaRaft
+                        color={selected.color}
+                        focusing={selected.focusing}
+                        outfit={selected.outfit}
+                        size={c.seaParticipant.cardRaftSize}
+                        reduceMotion={reduceMotion}
+                      />
+                    </View>
                     <Txt>
                       {selected.focusing
                         ? selected.subject || t('openSea.focusing')
                         : t('openSea.floating')}
                     </Txt>
-                    {selected.focusing && <Txt kind="h">{seaClock(selected.activeSeconds)}</Txt>}
+                    <Txt kind="meta">{t('openSea.focusTime')}</Txt>
+                    <Txt kind="h" style={selected.focusing ? styles.focusClock : undefined}>
+                      {seaClock(selected.activeSeconds)}
+                    </Txt>
                     {!!selected.message && <Txt>{selected.message}</Txt>}
+                    {selected.userId !== self.userId && props.onFriendRequest && (
+                      <Btn
+                        dynamicHeight
+                        title={t(
+                          pending
+                            ? 'openSea.processing'
+                            : requested.has(selected.userId)
+                              ? 'openSea.friendRequested'
+                              : 'openSea.requestFriend',
+                        )}
+                        disabled={pending || requested.has(selected.userId)}
+                        onPress={() => {
+                          if (props.guest) return props.onSignIn();
+                          const target = selected.userId;
+                          let sent = false;
+                          run(async () => {
+                            sent = await props.onFriendRequest!(target);
+                          }).then((current) => {
+                            if (current && sent)
+                              setRequested((previous) => new Set([...previous, target]));
+                          });
+                        }}
+                      />
+                    )}
                   </>
                 )}
               </>
@@ -463,6 +538,8 @@ const styles = StyleSheet.create({
   primary: { flex: 1 },
   emoteButton: { maxWidth: 100 },
   panel: { gap: p.space[4] },
+  avatar: { alignItems: 'center' },
+  focusClock: { color: c.seaParticipant.focusInk },
   emotes: { flexDirection: 'row', flexWrap: 'wrap', gap: p.space[3] },
   error: { color: s.color.danger, textAlign: 'center' },
 });

@@ -54,6 +54,8 @@ export type Route =
   // 바다 항해 집중(GROMO-2310) — 항해·정박·표류. seaArrival 은 섬에 내린 뒤 결과창(내용은 GROMO-2311)
   | 'sea'
   | 'seaArrival'
+  // 바다에서 펼친 오늘 호(GROMO-2314) — 인자 = 호 id. 소속 섬이 없어도 머무른다(seaRouteHeld)
+  | 'seaMagazine'
   | 'promotionEditor'
   | 'magazine'
   | 'mainIsland'
@@ -348,6 +350,8 @@ export type State = {
     memberships: IslandSummary[];
     currentIslandId: string | null;
     lossReason: 'LEFT' | 'KICKED' | null;
+    // 강퇴로 잃은 섬(GROMO-2366) — /me/islands 에는 잃은 섬이 없어 강퇴 안내의 문구·「봤음」 표시가 쓴다
+    kickedIsland?: { id: string; name: string | null } | null;
     candidates: IslandSummary[];
     nextCursor: string | null;
     visit: VisitScreen | null;
@@ -1089,7 +1093,7 @@ export const myIslandsConsistent = (my: MyIslands) =>
 // 그대로 담는다. 없는 version은 합성하지 않는다.
 export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?: number };
 /**
- * 소속 섬이 없어도 머무를 수 있는 바다 라우트인가(GROMO-2310). 항해·표류·결과창 모두 — 표류(세션 없음)도 정상 상태라
+ * 소속 섬이 없어도 머무를 수 있는 바다 라우트인가(GROMO-2310). 항해·표류·결과창·바다 잡지(GROMO-2314) 모두 — 표류(세션 없음)도 정상 상태라
  * 강퇴된 뒤 그만둬도 멀어지는 연출·표류 화면이 끊기지 않는다. 바다 라우트를 떠나는 순간 App 의 소속 가드가 섬 선택으로 보낸다.
  */
 /**
@@ -1097,7 +1101,12 @@ export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?
  */
 export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
-export const seaRouteHeld = (route: Route) => route === 'sea' || route === 'seaArrival';
+export const seaRouteHeld = (route: Route) =>
+  route === 'sea' || route === 'seaArrival' || route === 'seaMagazine';
+/** 현재 섬이 없을 때 갈 화면(GROMO-2366) — 섬을 잃은 사람(나가기·강퇴)은 먼바다, 처음 온 사람은 섬 선택. */
+export const noIslandRoute = (s: {
+  serverIslands?: { lossReason: string | null } | null;
+}): Route => (s.serverIslands?.lossReason ? 'sea' : 'chooseIsland');
 /** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
 export const SERVER_VISIT_ROUTES: readonly Route[] = [
   'visitIsland',
@@ -1857,6 +1866,22 @@ export function reducer(state: State, a: Action): State {
           s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
         }
         s.tutorialEnrollment = 'existing';
+      }
+      // 강퇴로 잃은 섬을 남긴다 — 이번에 사라진 소속(직전 current 가 그 안에 있으면 그것), 사라진 게 없으면
+      // 직전 current. 다른 기기에서 current 가 바뀌었어도 실제로 빠진 섬을 고른다. 덮어쓰기 전 소속 목록에만 있다.
+      // 둘 다 없으면(새로 잃은 섬이 없다) 그대로 둔다
+      if (my.lossReason !== 'KICKED' || my.currentIslandId != null) snap.kickedIsland = null;
+      else {
+        const kept = new Set(my.items.map((item) => item.id)),
+          gone = snap.memberships.filter((item) => !kept.has(item.id)),
+          lostId =
+            (gone.find((item) => item.id === snap.currentIslandId) ?? gone[0])?.id ??
+            snap.currentIslandId;
+        if (lostId)
+          snap.kickedIsland = {
+            id: lostId,
+            name: snap.memberships.find((item) => item.id === lostId)?.name ?? null,
+          };
       }
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아

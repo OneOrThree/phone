@@ -43,7 +43,8 @@ import java.util.function.Supplier;
  * {@code MAX_MEMBERS_TOO_SMALL})은 공개 계약에서 409 다(LLD §3.1·§3.6·§3.7) — 요청 모양이 아니라 현재
  * 상태가 거절 이유이기 때문이다. 상류 상태를 바꾸면 legacy 앱 분기가 깨지므로 여기서 옮긴다. 강퇴 이력이
  * 있는 신청자의 승인 거절({@code KICKED_CANNOT_REJOIN} 403)도 방장에게는 권한 문제가 아니라 상태
- * 충돌이라 409 로 옮긴다.
+ * 충돌이라 409 로 옮긴다 — GROMO-2315 부터 Data 는 이 코드를 내지 않지만, 서비스가 따로 배포되는 동안 구 Data 의
+ * 응답이 502 가 되지 않게 등록을 남긴다.
  */
 @Service
 @RequiredArgsConstructor

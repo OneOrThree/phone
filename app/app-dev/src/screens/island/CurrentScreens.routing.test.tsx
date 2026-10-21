@@ -10,6 +10,7 @@ import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import { getTelescope } from '@/services/api/telescope';
+import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
 
 jest.mock('@/screens/world/DepartureStory', () => ({
   DepartureStory: ({ destination, onComplete }: any) => {
@@ -108,6 +109,11 @@ jest.mock('@/utils/layout', () => ({
 }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+jest.mock('@/services/api/magazine', () => ({
+  ...jest.requireActual('@/services/api/magazine'),
+  getMagazineIssue: jest.fn(),
+  putMagazineReceipt: jest.fn(),
 }));
 jest.mock('@/services/api/telescope', () => ({
   ...jest.requireActual('@/services/api/telescope'),
@@ -283,5 +289,40 @@ test('집중섬 출발도 공통 세 컷을 마친 뒤 기존 자리 선택 흐�
   await fireEvent.press(screen.getByTestId('departure-story'));
   expect(replace).toHaveBeenCalledTimes(1);
   expect(replace).toHaveBeenCalledWith('fishingArrival');
+  await screen.unmount();
+});
+
+test('바다 잡지(seaMagazine) 라우트는 소속 섬이 없어도 섬 가드 없이 먼바다 배경의 잡지를 연다(GROMO-2314)', async () => {
+  (getMagazineIssue as jest.Mock).mockResolvedValue({
+    issue: {
+      issueId: 'iss-20',
+      issueNo: 20,
+      issueDate: '2026-10-20',
+      publishedAt: '2026-10-19T22:00:00Z',
+      current: true,
+    },
+    editorial: null,
+    cells: [],
+    nextCursor: null,
+  });
+  (putMagazineReceipt as jest.Mock).mockResolvedValue({
+    place: 'SEA',
+    receivedAt: 'a',
+    deferredAt: null,
+    openedAt: 'b',
+  });
+  const state = serverFocusState();
+  state.session = null;
+  state.serverIslands = { ...state.serverIslands!, currentIslandId: null };
+  const screen = await mount('seaMagazine', state, { detail: 'iss-20' });
+  await screen.findByTestId('magazine-empty');
+  expect(screen.getByTestId('magazine-reader')).toBeTruthy();
+  expect(
+    screen.getByTestId('sea-magazine-background', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(screen.queryByText('가입한 섬이 없어요')).toBeNull();
+  expect(redesignScreensMock).not.toHaveBeenCalled();
+  expect(getMagazineIssue).toHaveBeenCalledWith('iss-20');
+  expect(putMagazineReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA', opened: true });
   await screen.unmount();
 });

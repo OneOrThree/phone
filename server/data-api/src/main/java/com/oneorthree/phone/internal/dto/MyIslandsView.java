@@ -16,9 +16,10 @@ import java.util.UUID;
  * 현재 섬으로 표시하지 않기 위해서다.
  *
  * <p>{@code lossReason} 은 «왜 현재 섬이 없는지» 다 (GROMO-2038). null 인 {@code currentIslandId} 를
- * 두 상태로 가른다 — 사유가 없으면 «한 번도 소속된 적 없음»(온보딩 첫 진입), {@code LEFT}·{@code KICKED}
- * 면 마지막 섬을 잃은 것이다. 정책상 강퇴와 자진 이탈의 <b>처리</b>는 같다(둘 다 온보딩 `04` 화면,
- * 벌칙 없음) — 갈리는 것은 앱이 보여 줄 <b>안내 문구</b>뿐이라 서버는 사유만 싣는다.
+ * 두 상태로 가른다 — 사유가 없으면 «한 번도 소속된 적 없음»(온보딩 첫 진입), 있으면 현재 섬을 잃은 것이다.
+ * {@code LEFT} 는 마지막 섬에서 자진 이탈했다(남은 섬이 있으면 그리로 옮겨져 사유가 없다). {@code KICKED} 는
+ * 현재 섬에서 강퇴됐다 — <b>다른 소속이 남아 있어도</b> 먼바다로 보내므로(GROMO-2315) {@code items} 가 비어 있지
+ * 않을 수 있다. 앱은 이 값으로 강퇴 안내를 한 번 띄우고 먼바다로 간다.
  *
  * <p><b>불변</b>: {@code currentIslandId} 가 null 이 아니면 {@code lossReason} 은 항상 null 이다 —
  * {@code user_island_contexts_loss_reason_exclusive}(V84) 가 저장 계층에서 같은 것을 강제하고,

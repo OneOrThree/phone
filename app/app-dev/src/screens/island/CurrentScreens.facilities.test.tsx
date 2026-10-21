@@ -150,6 +150,23 @@ test('방문 지도에서 귀환하면 방문만 종료하고 원래 서버 섬�
   expect(s.serverIslands!.currentIslandId).toBe('server');
 });
 
+test.each([
+  ['LEFT', 'sea'],
+  [null, 'chooseIsland'],
+] as const)(
+  '현재 섬 없이 방문 지도에서 귀환하면 상실 사유 %s 는 %s 로 간다(GROMO-2366)',
+  async (lossReason, to) => {
+    const s = visiting();
+    s.serverIslands!.currentIslandId = null;
+    s.serverIslands!.lossReason = lossReason;
+    const e = env(s, 'visitIsland');
+    const screen = await render(<CurrentScreens e={e} />);
+    await fireEvent.press(screen.getByTestId('visit-map'));
+    expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+    expect(e.reset).toHaveBeenCalledWith(to);
+  },
+);
+
 test('방문 시설이 미완공이면 내 섬의 완공 여부와 무관하게 열리지 않는다', async () => {
   const s = visiting();
   s.serverIslands!.visit!.buildings = ['hall'];

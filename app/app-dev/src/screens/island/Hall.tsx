@@ -2069,8 +2069,10 @@ export function Hall({ e }: any) {
         onOk: () =>
           void runManagement(async () => {
             const my = await e.islands.leave(liveIslandId);
-            // current 가 비면 App 이 섬 선택 화면으로 보낸다. 다른 섬이 current 면 홈으로.
+            // 재조회한 current 가 응답보다 최신이라 먼저 본다 — 다른 섬이 current 면 홈. current 가 비고 서버가
+            // 먼바다라고 했으면 바다로(GROMO-2366), 다음 위치를 모르면(구 응답) App 이 보낸다.
             if (my.currentIslandId) e.home();
+            else if (my.nextLocation?.islandId === null) e.reset('sea');
           }, '섬을 떠났어요.'),
       });
       return;

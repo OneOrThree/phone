@@ -114,25 +114,23 @@ export const MAGAZINE_STICKERS: Record<string, MagazineSticker> = Object.fromEnt
 export const DEFAULT_FRAME_ID = 'mag.frame-scallop';
 
 /**
- * 섬 그림 7단계(P8, 10/14 확정) — 주민 0명(무인도) = s0 · 완공 건물 0~1 = s1 · 2 = s2 · 3 = s3 · 4 = s4 · 5~6 = s5 · 7 이상 = s7.
- * 「s6」 그림은 없다(5·6 이 같은 그림).
+ * 섬 그림 4장(GROMO-2317 승인 시안 v5 — 같은 땅에 집만 0·1·3·5채) — 망원경 파노라마와 잡지 칸 섬 프로필이 같이 쓴다.
+ * 주민 0명(무인도) = houses0 · 완공 건물 0~2 = houses1 · 3~4 = houses3 · 5 이상 = houses5.
  */
 export const ISLAND_STAGE_ART = {
-  s0: require('@/assets/ota/magazine/island/island-s0.png'),
-  s1: require('@/assets/ota/magazine/island/island-s1.png'),
-  s2: require('@/assets/ota/magazine/island/island-s2.png'),
-  s3: require('@/assets/ota/magazine/island/island-s3.png'),
-  s4: require('@/assets/ota/magazine/island/island-s4.png'),
-  s5: require('@/assets/ota/magazine/island/island-s5.png'),
-  s7: require('@/assets/ota/magazine/island/island-s7.png'),
+  houses0: require('@/assets/ota/magazine/island/island-houses-0.png'),
+  houses1: require('@/assets/ota/magazine/island/island-houses-1.png'),
+  houses3: require('@/assets/ota/magazine/island/island-houses-3.png'),
+  houses5: require('@/assets/ota/magazine/island/island-houses-5.png'),
 } as const satisfies Record<string, ImageSourcePropType>;
+/** 섬 그림 너비 ÷ 높이(네 장 모두 섬만 잘라 둔 480×266). */
+export const ISLAND_ART_ASPECT = 480 / 266;
 export type IslandStage = keyof typeof ISLAND_STAGE_ART;
 export function islandStage(memberCount: number, buildingCount: number): IslandStage {
-  if (memberCount <= 0) return 's0';
-  if (buildingCount >= 7) return 's7';
-  if (buildingCount >= 5) return 's5';
-  if (buildingCount >= 2) return `s${buildingCount}` as IslandStage;
-  return 's1';
+  if (memberCount <= 0) return 'houses0';
+  if (buildingCount >= 5) return 'houses5';
+  if (buildingCount >= 3) return 'houses3';
+  return 'houses1';
 }
 
 /** 바다판 칸 오른쪽 아래 망원경 동그라미 안 그림(A5). */

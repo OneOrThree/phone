@@ -183,8 +183,15 @@ export function kickIslandMember(
   });
 }
 
-/** 나가기 — 본문 없이 멱등 키만. 성공 뒤 호출부는 `/me/islands` 재조회로 소속 해제를 확정한다. */
-export function leaveIsland(islandId: string, idempotencyKey: string): Promise<{ left: true }> {
+/**
+ * 나가기 — 본문 없이 멱등 키만. 성공 뒤 호출부는 `/me/islands` 재조회로 소속 해제를 확정한다.
+ * `nextLocation`(GROMO-2260)은 나간 뒤 위치다 — `islandId` null 이면 먼바다. 키가 없거나 null 이면 「모름」
+ * (배포 전 receipt 재생)이라 먼바다로 읽지 않는다.
+ */
+export function leaveIsland(
+  islandId: string,
+  idempotencyKey: string,
+): Promise<{ left: true; nextLocation?: { islandId: string | null } | null }> {
   return request(`/islands/${encodeURIComponent(islandId)}/memberships/me`, {
     method: 'DELETE',
     idempotencyKey,

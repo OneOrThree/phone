@@ -58,6 +58,7 @@ import {
   hoursMinutes,
   trackNames,
   SERVER_VISIT_ROUTES,
+  noIslandRoute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
@@ -140,6 +141,7 @@ import {
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { SeaVoyageHost } from '@/screens/sea/SeaVoyageHost';
+import { seaAssets } from '@/screens/sea/seaAssets';
 import { Telescope } from '@/screens/island/Telescope';
 import { MagazineReader } from '@/screens/magazine/MagazineReader';
 import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
@@ -548,18 +550,39 @@ function CurrentScreensContent({ e }: any) {
     islandId: e.islands ? (state.serverIslands?.currentIslandId ?? null) : i.id,
     notify: e.notify,
   });
-  // 오늘 고양이 잡지(GROMO-2289) — 섬 홈(펠리컨 배달·우체통 빨간 점)과 우체통(잡지 보기 버튼)이 같이 본다. 구경 중에는 읽지 않는다
-  const magazine = useMagazineToday(['home', 'mail'].includes(r) && !state.visitingIslandId);
+  // 오늘 고양이 잡지(GROMO-2289) — 섬 홈(펠리컨 배달·우체통 빨간 점)과 우체통(잡지 보기 버튼)이 같이 본다. 구경 중에는 읽지 않는다.
+  // 먼바다(GROMO-2314)도 표류 중 펠리컨·뗏목 옆 잡지 물건에 쓴다
+  const magazine = useMagazineToday(
+    (['home', 'mail'].includes(r) && !state.visitingIslandId) || r === 'sea',
+  );
   const endServerVisit = () => {
     e.dispatch({ type: 'END_VISIT' });
-    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : noIslandRoute(state));
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
   // 바다 항해 집중(GROMO-2310) — 섬 소속·구경 여부와 무관한 바다 화면이라 아래 섬 관문보다 먼저 연다.
   // 계정이 바뀌면 사용자 ID 를 key 로 화면(바다 방 연결 포함)을 새로 만든다.
   if (r === 'sea' || r === 'seaArrival')
-    return <SeaVoyageHost key={getSession()?.userId ?? ''} e={e} />;
+    return (
+      <SeaVoyageHost key={getSession()?.userId ?? ''} e={{ ...e, magazineToday: magazine.today }} />
+    );
+  // 바다에서 펼친 오늘 호(GROMO-2314) — 배경은 먼바다, 칸에 망원경 동그라미. 소속 섬이 없어도 열린다
+  if (r === 'seaMagazine')
+    return (
+      <MagazineReader
+        e={e}
+        place="SEA"
+        background={
+          <Image
+            testID="sea-magazine-background"
+            source={seaAssets.background}
+            resizeMode="cover"
+            style={StyleSheet.absoluteFill}
+          />
+        }
+      />
+    );
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>

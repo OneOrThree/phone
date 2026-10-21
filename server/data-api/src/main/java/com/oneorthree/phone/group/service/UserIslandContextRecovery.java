@@ -28,10 +28,12 @@ import java.util.UUID;
  * <h2>두 갈래</h2>
  * <ul>
  *   <li>남은 소속 중 <b>가 본 섬</b>이 있으면 그중 <b>최근 머문 섬</b>({@code island_arrivals.last_arrived_at}
- *       최신)으로 옮긴다 — 섬 외부 계약 §1 (GROMO-2260). 종전의 «메인 섬» 규칙을 대체했다: 나가기·강퇴
+ *       최신)으로 옮긴다 — 섬 외부 계약 §1 (GROMO-2260). 종전의 «메인 섬» 규칙을 대체했다: 나가기
  *       응답의 {@code nextLocation} 이 이 결과를 그대로 읽으므로 둘이 같은 규칙이어야 한다.</li>
  *   <li>그런 섬이 없으면(소속이 없거나, 망원경으로 가입만 하고 아직 안 가 본 섬뿐) 사유와 함께 비운다 —
  *       먼바다다. 사유를 함께 적지 않으면 «한 번도 없음»과 구별이 사라진다.</li>
+ *   <li><b>강퇴는 남은 소속이 있어도 비운다</b>(GROMO-2315, 10/16 결정) — 강퇴된 사람은 먼바다로 가고
+ *       {@code lossReason=KICKED} 로 앱이 강퇴 안내를 띄운다. 자진 이탈만 남은 섬으로 옮긴다.</li>
  * </ul>
  *
  * <h2>호출 지점은 하나다</h2>
@@ -78,7 +80,8 @@ public class UserIslandContextRecovery {
             return;
         }
         // 이탈 마킹이 끝난 행이라 남은 활성 소속에 잃은 섬은 없다(조회 전 자동 flush).
-        List<UUID> remaining = groupMembers.findActiveGroupIdsByUserId(userId);
+        // 강퇴는 남은 섬이 있어도 먼바다다(GROMO-2315) — 옮길 후보를 보지 않는다.
+        List<UUID> remaining = member.isKicked() ? List.of() : groupMembers.findActiveGroupIdsByUserId(userId);
         UUID next = remaining.isEmpty() ? null
                 : arrivals.findLatestArrivedIslandIdAmong(userId, remaining).orElse(null);
         if (next == null) {

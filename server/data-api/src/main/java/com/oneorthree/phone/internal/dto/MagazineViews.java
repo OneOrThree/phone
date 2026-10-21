@@ -16,12 +16,13 @@ public final class MagazineViews {
     private MagazineViews() {
     }
 
-    /** 섬에서 바라본 칸의 섬 — 읽는 순간 계산한다. */
+    /**
+     * 섬에서 바라본 칸의 섬 — 읽는 순간 계산한다. 강퇴된 섬도 {@code NONE} 이다(GROMO-2315 — 종전 {@code KICKED} 는
+     * 동그라미를 숨겼지만, 이제 다시 가입 신청할 수 있는 섬이라 남의 섬과 같다).
+     */
     public enum Relation {
         /** 지금 내 소속 섬 — 앱은 동그라미 대신 「우리 섬이에요」. */
         MEMBER,
-        /** 내가 강퇴된 섬 — 동그라미 없음. */
-        KICKED,
         NONE
     }
 
