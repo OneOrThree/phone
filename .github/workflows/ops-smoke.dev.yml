@@ -53,7 +53,7 @@ jobs:
     needs: [wait-deploy, guest-budget]
     if: always() && needs.guest-budget.result == 'success' && (needs.wait-deploy.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, dev]
-    timeout-minutes: 10
+    timeout-minutes: 20
     # 같은 잠금으로 보호된 dev CD가 끝난 뒤 전체 15개를 한 러너에서 검사한다.
     concurrency:
       group: dev-vm-deploy
@@ -66,7 +66,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: dev 스모크 전 오래된 미사용 이미지 정리
+        # 정리 오류는 경고로 남기고 실제 서비스 상태는 스모크로 검증한다.
+        continue-on-error: true
+        env:
+          DEPLOY_ENV: dev
+          DEV_IMAGE_HISTORY: ${{ runner.tool_cache }}/phone-dev-images/successful-images.json
+        run: python3 .github/scripts/dev-image-retention.py --apply
+      - name: dev 서비스 준비 확인 후 5분 안정화 대기
+        run: |
+          set -euo pipefail
+          for container in phone-data-api phone-business-api-1 phone-realtime phone-notification-1; do
+            state=$(docker inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container")
+            if [ "$state" != 'true healthy' ]; then
+              echo "::error::$container 준비 안 됨 ($state)"
+              exit 1
+            fi
+          done
+          echo 'dev 서비스 healthy 확인 — 스모크 전 300초 대기'
+          sleep 300
       - name: 공개 API·실시간·핵심 게스트 흐름·인프라 15개 검사
+        id: smoke
         env:
           SMOKE_CORE_ENABLED: '1'
           SMOKE_BASIC_ONLY: '0'
@@ -86,6 +106,14 @@ jobs:
           RESULTS_FILE="$RUNNER_TEMP/smoke-results/api/results.tsv" smoke/server/run.sh
           api_rc=$?
           exit $((internal_rc || api_rc))
+      - name: dev 스모크 성공 이미지 이력 갱신
+        if: success() && steps.smoke.outcome == 'success'
+        # 이력 갱신 실패로 이미 통과한 스모크 결과를 실패로 바꾸지 않는다.
+        continue-on-error: true
+        env:
+          DEPLOY_ENV: dev
+          DEV_IMAGE_HISTORY: ${{ runner.tool_cache }}/phone-dev-images/successful-images.json
+        run: python3 .github/scripts/dev-image-retention.py --record-success
       - uses: actions/upload-artifact@v4
         if: always()
         with:
