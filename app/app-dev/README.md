@@ -178,7 +178,7 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 ## TestFlight
 
-Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
+Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM·홈 섬 기능 스위치 `EXPO_PUBLIC_TILE_ISLAND`·`EXPO_PUBLIC_MOVEMENT_SYNC`)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
 
 서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
 

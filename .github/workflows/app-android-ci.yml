@@ -127,12 +127,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: 공개 릴리스 설정 읽기
-        # 약관 버전·Datadog 공개 설정 정본은 iOS 와 같은 파일. 두 벌 두면 갈라짐.
+        # 약관 버전·Datadog·홈 섬 기능 스위치 공개 설정 정본은 iOS 와 같은 파일. 두 벌 두면 갈라짐.
         run: |
           set -euo pipefail
           # shellcheck disable=SC1091
           source app/app-dev/ios/release-config.sh
-          for v in EXPO_PUBLIC_TERMS_VERSION EXPO_PUBLIC_DATADOG_APPLICATION_ID EXPO_PUBLIC_DATADOG_CLIENT_TOKEN; do
+          for v in EXPO_PUBLIC_TERMS_VERSION EXPO_PUBLIC_DATADOG_APPLICATION_ID EXPO_PUBLIC_DATADOG_CLIENT_TOKEN EXPO_PUBLIC_TILE_ISLAND EXPO_PUBLIC_MOVEMENT_SYNC; do
             [ -n "${!v:-}" ] || { echo "::error::release-config.sh 에 $v 가 없다"; exit 1; }
             echo "$v=${!v}" >> "$GITHUB_ENV"
           done
