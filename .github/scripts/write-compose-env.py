@@ -136,6 +136,8 @@ SERVICE_OPTIONAL_KEYS = {
         "BUSINESS_CURSOR_ACTIVE_KEY",
         # GROMO-2331 카탈로그 이미지 절대 URL 의 앞부분 — 비우면 상대 경로(/static/…)를 그대로 내린다.
         "STATIC_ASSETS_BASE_URL",
+        # GROMO-2401 탈퇴 시 Apple 토큰 폐기(Sign in with Apple .p8 키) — 비우면 폐기를 건너뛰고 WARN.
+        "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",
