@@ -702,15 +702,21 @@ function Gromo() {
     () => ({
       ...islandCommands,
       sync: async () => {
+        const generation = sessionGeneration();
         const my = await islandCommands.sync();
+        if (sessionGeneration() !== generation) return my;
         const transfer = pendingBootOwnerTransfer.current;
         if (transfer) {
           pendingBootOwnerTransfer.current = null;
           try {
             await transfer();
+            if (sessionGeneration() === generation) setIslandBootError(false);
           } catch (error) {
             // 재시도가 다시 실패하면 다음 재시도에서 전환을 이어서 시도한다.
-            pendingBootOwnerTransfer.current ??= transfer;
+            if (sessionGeneration() === generation) {
+              pendingBootOwnerTransfer.current ??= transfer;
+              setIslandBootError(true);
+            }
             throw error;
           }
         }
@@ -1544,7 +1550,10 @@ function Gromo() {
           // 부팅 중 owner 기록이 거절돼도 같은 재시도 경로로 넘긴다.
           if (bootSyncSucceeded && bootRoute)
             await transferOwner().catch(() => {
-              pendingBootOwnerTransfer.current = transferOwner;
+              if (bootSessionIsCurrent()) {
+                pendingBootOwnerTransfer.current = transferOwner;
+                setIslandBootError(true);
+              }
             });
           else pendingBootOwnerTransfer.current = transferOwner;
         }

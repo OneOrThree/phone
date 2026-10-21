@@ -402,11 +402,13 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
     await assert.rejects(captured.islands.sync(), /소유자를 기록하지 못했어요/);
   });
   assert.equal(getLastSessionUserId(), 'user-a');
+  assert.equal(captured.islandBootError, true);
 
   await act(async () => {
     await captured.islands.sync();
   });
   await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b'));
+  assert.equal(captured.islandBootError, false);
   await waitFor(() => assert.equal(captured.route, 'home'));
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);

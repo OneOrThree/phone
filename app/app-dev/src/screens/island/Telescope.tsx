@@ -58,6 +58,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.secondary },
   topBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: space[2],
@@ -456,12 +457,21 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
   const L = useAppLayout();
   // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
   const largeText = (L.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
-  const liveList = useTelescope({ active: !previewItems && (!!e.islands || isTelescopeMock()) });
+  const liveList = useTelescope({
+    active: !previewItems && (!!e.islands || isTelescopeMock()),
+    beforeLoad: e.islandBootError ? e.islands?.sync : undefined,
+  });
   const list = previewItems
     ? { ...liveList, status: 'ready' as const, items: previewItems }
     : liveList;
   const items = visibleTelescopeItems(list.items);
   const uninhabitedOnly = items.length === 1 && items[0].memberCount === 0;
+  const requests = new Map(
+    [...(s.serverIslands?.joinRequests ?? []), ...(s.serverIslands?.requestStatus ?? [])].map(
+      (request) => [request.id, request],
+    ),
+  );
+  const hasPendingRequest = [...requests.values()].some((request) => request.status === 'pending');
   // 읽기가 실패해 오류 안내로 바뀌면 한 번 알린다 — 안드로이드는 아래 오류 문구의 live region 이, iOS 는 여기서 직접(IslandSheet.SheetToast 와 같은 방식)
   const errorText =
     list.status === 'error' ? errorTextOr(list.error, 'telescope.loadFailed') : null;
@@ -736,6 +746,16 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
               title={t('telescope.back')}
               onPress={e.back}
             />
+            {hasPendingRequest && (
+              <Btn
+                small
+                kind="glass"
+                dynamicHeight={largeText}
+                title={t('telescope.pendingRequests')}
+                disabled={list.status !== 'ready'}
+                onPress={() => e.go('approval')}
+              />
+            )}
             {list.minutes !== null && (
               <View style={styles.chip}>
                 <Badge>{t('telescope.nextIslands', { minutes: list.minutes })}</Badge>

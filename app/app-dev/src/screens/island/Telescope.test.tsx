@@ -191,6 +191,40 @@ const press = async (screen: any, id: string) =>
 const disabled = (screen: any, label: string) =>
   screen.getByLabelText(label).props.accessibilityState.disabled;
 
+test('목록에서 빠진 섬의 승인 대기 신청도 망원경에서 확인·취소 화면으로 돌아갈 수 있다', async () => {
+  const e = env();
+  e.state = reducer(initialState(), {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'request-1', islandId: 'not-in-bucket', status: 'pending', version: 1 },
+  });
+  const { screen } = await open([item('other-island')], e);
+  expect(screen.queryByTestId('telescope-island-not-in-bucket')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('가입 신청 확인'));
+  expect(e.go).toHaveBeenCalledWith('approval');
+
+  e.state = reducer(e.state, {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'request-1', islandId: 'not-in-bucket', status: 'cancelled', version: 2 },
+  });
+  await screen.rerender(<Telescope e={e} />);
+  expect(screen.queryByLabelText('가입 신청 확인')).toBeNull();
+});
+
+test('잡지 등에서 직접 망원경에 들어와도 부팅 동기화 성공 전에는 목적지를 열지 않고 실패를 재시도한다', async () => {
+  const e = { ...env(), islandBootError: true };
+  e.islands!.sync.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  mockGet.mockResolvedValue(wire([item('synced-island')]));
+  const screen = await render(<Telescope e={e} />);
+  await screen.findByLabelText('다시 시도');
+  expect(screen.getByText('섬을 불러오지 못했어요.')).toBeTruthy();
+  expect(mockGet).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('telescope-island-synced-island')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('다시 시도'));
+  await screen.findByTestId('telescope-island-synced-island');
+  expect(e.islands!.sync).toHaveBeenCalledTimes(2);
+  expect(mockGet).toHaveBeenCalledTimes(1);
+});
+
 test.each([
   ['기존 섬 목록이 비었으면', []],
   ['기존 섬이 모두 정원이 찼으면', [item('full', { full: true })]],

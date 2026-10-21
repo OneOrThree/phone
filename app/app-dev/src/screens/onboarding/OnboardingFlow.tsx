@@ -60,7 +60,10 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const mounted = useRef(true);
   const latest = useRef(e);
   latest.current = e;
-  const list = useTelescope({ active: !!e.islands && ['scope', 'ready'].includes(step) });
+  const list = useTelescope({
+    active: !previewItems && !!e.islands && ['scope', 'ready'].includes(step),
+    beforeLoad: e.islandBootError ? e.islands?.sync : undefined,
+  });
   const items = visibleTelescopeItems(previewItems ?? list.items);
   const selected =
     step === 'depart' ? departing : items.find((item) => item.islandId === selectedId);
