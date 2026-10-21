@@ -41,7 +41,8 @@ public class RealtimeEventFanoutSubscriber implements MessageListener {
             if (event.revokedSessionId() != null && event.revokedUserId() != null) {
                 // 세션 폐기 제어 사건 — 이 replica 의 펜스·캐시·세션만 정리한다. 멱등이고(펜스 merge, 세션이 없으면 no-op),
                 // inbound_events 중복 차단은 HTTP/Kafka 입구(InboundEventService#accept)에만 있어 여기엔 걸리지 않는다.
-                inboundEventService.applySessionRevocation(event.revokedUserId(), event.revokedSessionId());
+                inboundEventService.applySessionRevocation(
+                        event.revokedUserId(), event.revokedSessionId(), event.revokedUntil());
                 return;
             }
             if (event.destination() == null || event.event() == null) {

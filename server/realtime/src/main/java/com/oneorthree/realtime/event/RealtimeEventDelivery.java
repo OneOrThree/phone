@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -53,6 +54,7 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final MeterRegistry meterRegistry;
 
     /**
      * 수신 집합을 들고 있는 시간.
@@ -92,11 +94,12 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
     private final Queue<Expiry> expiries = new ConcurrentLinkedQueue<>();
 
     public RealtimeEventDelivery(SimpMessagingTemplate messagingTemplate, StringRedisTemplate redis,
-            ObjectMapper objectMapper, Clock clock) {
+            ObjectMapper objectMapper, Clock clock, MeterRegistry meterRegistry) {
         this.messagingTemplate = messagingTemplate;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.meterRegistry = meterRegistry;
     }
 
     /** 다른 인스턴스가 보낸 것인지 판정하기 위해 구독자가 읽는다. */
@@ -132,11 +135,12 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
      * 세션 폐기 제어 사건(GROMO-2350)을 다른 replica 에 퍼뜨린다 — 같은 채널에 얹은 제어 봉투다. 실패는 삼킨다: 수신 인스턴스는 이미
      * Redis 내구 펜스를 올렸고(CONNECT·REST 를 막는다), 여기서 던지면 수신 기록이 롤백돼 relay 가 같은 사건을 반복한다.
      */
-    public void publishSessionRevoked(UUID userId, UUID sessionId) {
+    public void publishSessionRevoked(UUID userId, UUID sessionId, Instant until) {
         try {
             redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, objectMapper.writeValueAsString(
-                    RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId)));
+                    RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId, until)));
         } catch (RuntimeException e) {
+            meterRegistry.counter("realtime.session.revoked.fanout", "result", "failed").increment();
             log.error("세션 폐기 팬아웃 발행 실패 — 다른 replica 의 기존 연결은 AT 만료까지 살 수 있다. reason={}",
                     e.getClass().getName());
         }

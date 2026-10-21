@@ -97,8 +97,8 @@ public class ChatUserFence {
 
     /**
      * Redis 내구 펜스 실패 계수 — {@code realtime.session.revoked.fence{op=read|write,result=failed}}.
-     * 읽기 실패는 fail-open(CONNECT·REST
-     * 펜스가 꺼진 상태), 쓰기 실패는 내구 펜스가 안 선 상태라 둘 다 0 보다 크면 알린다. 처음 실패할 때 계열이 생긴다.
+     * 읽기 실패는 fail-open(CONNECT·REST 펜스가 꺼진 상태), 쓰기 실패는 내구 펜스가 안 선 상태다.
+     * 둘 다 5분 증가분이 0 보다 크면 알린다. 처음 실패할 때 계열이 생긴다.
      */
     private void fenceFailed(String op) {
         meterRegistry.counter("realtime.session.revoked.fence", "op", op, "result", "failed").increment();
