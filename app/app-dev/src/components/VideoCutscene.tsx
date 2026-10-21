@@ -1,5 +1,12 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  AppState,
+  Platform,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { useEventListener } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { MotionContext } from '@/design-system/primitives';
@@ -76,6 +83,13 @@ function Playing({
   // 상자는 overlay 의 실측 크기로 잡는다 — 안드로이드 비 edge-to-edge·웹 폰 프레임에서는 창 크기와 다르다. 첫 그림은 창 크기.
   const [frame, setFrame] = useState({ width: windowWidth, height: windowHeight });
   const box = cutsceneVideoBox(frame.width, frame.height);
+  const onLayout = ({ nativeEvent: { layout } }: LayoutChangeEvent) =>
+    // 0×0(마운트 직후 일부 환경)은 무시하고, 같은 값이면 다시 그리지 않는다.
+    setFrame((f) =>
+      layout.height <= 0 || (f.width === layout.width && f.height === layout.height)
+        ? f
+        : { width: layout.width, height: layout.height },
+    );
   const player = useVideoPlayer(source, (video) => {
     video.loop = false;
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.
@@ -183,9 +197,7 @@ function Playing({
       accessibilityViewIsModal
       testID={testID}
       style={styles.overlay}
-      onLayout={({ nativeEvent: { layout } }) =>
-        setFrame({ width: layout.width, height: layout.height })
-      }
+      onLayout={onLayout}
     >
       <VideoView
         player={player}

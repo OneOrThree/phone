@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { StyleSheet } from 'react-native';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { cutsceneVideoBox, VideoCutscene } from '@/components/VideoCutscene';
 
 test('영상 상자는 화면 높이에 맞춘 9:16 — 세로 폰은 좌우가 밖으로, 납작한 화면은 좌우 여백', () => {
@@ -23,12 +23,19 @@ test('첫 그림은 창 크기, 그 뒤에는 overlay 실측 크기로 상자를
   const video = () => StyleSheet.flatten(screen.getByTestId('video-cutscene-video').props.style);
   // jest 기본 창 750×1334
   assert.equal(video().width, cutsceneVideoBox(750, 1334).width);
-
-  await act(async () =>
-    fireEvent(screen.getByTestId('video-cutscene'), 'layout', {
-      nativeEvent: { layout: { x: 0, y: 0, width: 874, height: 402 } },
-    }),
+  // 세로 폰에서 화면 밖으로 나간 좌우를 자르는 유일한 방어선(웹 가로 스크롤 방지)
+  assert.equal(
+    StyleSheet.flatten(screen.getByTestId('video-cutscene').props.style).overflow,
+    'hidden',
   );
+
+  const layout = (width: number, height: number) =>
+    fireEvent(screen.getByTestId('video-cutscene'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width, height } },
+    });
+  await layout(0, 0); // 마운트 직후 0×0 은 무시
+  assert.equal(video().width, cutsceneVideoBox(750, 1334).width);
+  await layout(874, 402);
   assert.equal(video().width, cutsceneVideoBox(874, 402).width);
   assert.ok(video().left > 0, '가로 화면은 좌우 여백');
 });
