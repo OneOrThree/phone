@@ -322,6 +322,8 @@ class TwoInstanceMovementTest {
 
         assertThat(actorIds(awaitFullState(a1Moves, 2))).as("복구 뒤 PING 대조 → EVICTED → a1 재입장")
                 .containsExactlyInAnyOrder(a1.toString(), b1.toString());
+        assertThat(instanceB.getBean(MeterRegistry.class)
+                .counter("movement.cluster.evict", "reason", "dead_instance").count()).isGreaterThanOrEqualTo(1);
         drainUntilQuiet(a1Moves);
         sa1.send(intentDestination(), intent(1, NEAR_X, NEAR_Y));
         Map<String, Object> accepted = awaitType(a1Moves, "PathAccepted", TIMEOUT_MS);
