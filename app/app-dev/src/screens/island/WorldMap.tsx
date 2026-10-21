@@ -2659,12 +2659,13 @@ function FinalIslandScene({
           >
             {visiting && visitJoin ? (
               // 두 버튼이 가용 폭을 나눠 쓰고(flex) 글자에 맞춰 높이가 늘며, 큰 글자(1.3배 이상)에서는 세로로 쌓아
-              // 320pt 폭·영문에서도 화면 밖으로 밀리지 않는다
+              // 320pt 폭·영문에서도 화면 밖으로 밀리지 않는다. 좌우 여백은 안전 영역(가로 노치)을 더한다
               <View
                 testID="visit-actions"
                 style={{
                   alignSelf: 'stretch',
-                  paddingHorizontal: primitiveTokens.space[5],
+                  paddingLeft: L.insets.left + primitiveTokens.space[5],
+                  paddingRight: L.insets.right + primitiveTokens.space[5],
                   flexDirection: (L.fontScale ?? 1) >= 1.3 ? 'column' : 'row',
                   gap: primitiveTokens.space[3],
                 }}
