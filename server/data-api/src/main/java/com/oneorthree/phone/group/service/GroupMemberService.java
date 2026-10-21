@@ -4,6 +4,7 @@ import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.IslandPurgePort;
 import com.oneorthree.phone.focus.service.FocusMembershipLossService;
+import com.oneorthree.phone.group.event.IslandKickedEvent;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
@@ -27,6 +28,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -94,6 +96,8 @@ public class GroupMemberService {
      * 지울 대상이 construction·appearance·quest·shop 소유라 호출을 포트로 뒤집는다 — 구현은 L10 이다.
      */
     private final IslandPurgePort islandPurge;
+    /** 강퇴 알림 사건(GROMO-2315) — 알림 리스너가 같은 트랜잭션(신 경로)·커밋 뒤(구 경로)에 받는다. */
+    private final ApplicationEventPublisher events;
     /**
      * 이탈 시각을 찍는 시계 (GROMO-2050) — Hibernate 의 {@code @UpdateTimestamp} 를 쓰지 않는 이유는
      * {@code GroupMember.leftAt} Javadoc 에 있다(애너테이션은 주입 {@link Clock} 을 타지 않는다).
@@ -139,7 +143,8 @@ public class GroupMemberService {
     }
 
     /**
-     * 멤버 강퇴 (A-3) — OWNER 전용. 소프트삭제 + KICKED 마커로 재참여를 막는다. 본인은 강퇴 불가.
+     * 멤버 강퇴 (A-3) — OWNER 전용. 소프트삭제 + KICKED 마커. 본인은 강퇴 불가. 다시 들어오려면 섬장 승인을 거친다
+     * (GROMO-2315 — 가입 신청이 pending 이 된다).
      *
      * <p>대상이 이 섬에서 집중·휴식 중이면 <b>같은 트랜잭션·같은 잠금 아래</b> 그 세션을 서버 시각으로
      * 종결한다 — 2026-09-18 결정 FR-D03(B1 「강제 종료, 미정산」, GROMO-1924). 섬 강퇴 표면이 늘어나도
@@ -200,6 +205,8 @@ public class GroupMemberService {
         // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
         // outbox 를 적고 relay 가 재전달한다.
         linkMembershipEventService.recordMembershipRevoked(target);
+        // 강퇴된 본인에게 앱 알림 1건(GROMO-2315) — 메인 섬이 옮겨졌어도 이전 알림은 MainIslandService 가 내지 않는다.
+        events.publishEvent(new IslandKickedEvent(targetUser.getId(), groupId, group.getName(), target.getLeftAt()));
         // memberUserId 는 강퇴 «대상»이다 — 요청자(userId, 방장)가 아니라 targetUserId 를 줘야 Realtime 이
         // 강퇴당한 그 유저의 멤버십 캐시를 지운다(GROMO-2140). actorId 자리(userId)는 그대로 방장이다.
         EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED", targetUserId);

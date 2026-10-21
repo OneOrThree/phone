@@ -716,6 +716,7 @@ test('ISLAND_SYNC — 가입하지 않은 섬을 목적지로 한 바다 세션�
 test('seaRouteHeld — 소속 0 이어도 항해·표류(세션 없음)·결과창은 지키고 바다 밖 라우트는 지키지 않는다', () => {
   assert.equal(seaRouteHeld('sea'), true); // 세션이 끝난 표류도 정상 상태
   assert.equal(seaRouteHeld('seaArrival'), true);
+  assert.equal(seaRouteHeld('seaMagazine'), true); // 바다에서 펼친 잡지(GROMO-2314)
   assert.equal(seaRouteHeld('home'), false);
   assert.equal(seaRouteHeld('focus'), false);
 });

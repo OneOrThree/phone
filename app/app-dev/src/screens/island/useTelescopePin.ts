@@ -25,8 +25,9 @@ export interface TelescopePin {
 /**
  * 실패 문구. 강퇴 섬의 403 은 일반 권한 오류와 코드로 구분되지 않아(`FORBIDDEN`) 일반 문구로 말한다.
  * 내 소속 섬의 409(`STATE_CONFLICT`)는 "다시 시도" 안내가 틀려서 따로 말한다. 나머지는 기존 섬 오류 문구다.
+ * 바다 잡지의 망원경 동그라미(GROMO-2314)도 같은 문구를 쓴다.
  */
-function pinErrorText(thrown: unknown): string {
+export function pinErrorText(thrown: unknown): string {
   if (thrown instanceof ApiError) {
     if (thrown.code === 'FORBIDDEN') return t('observatory.pinForbidden');
     if (thrown.code === 'STATE_CONFLICT') return t('observatory.pinAlreadyMember');

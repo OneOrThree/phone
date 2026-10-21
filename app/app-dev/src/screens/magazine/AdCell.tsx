@@ -25,7 +25,10 @@ import {
 import { CELL_ASPECT, PromotionLayout, cellTextFit, stickerRect } from './layout';
 import { islandTitle } from './islandTitle';
 
-/** 섬 프로필 원 지름 대비 섬 그림 상자 크기. 가로로 긴 그림(비율 ~1.9)이 원을 거의 채운다. */
+/**
+ * 섬 프로필 원 지름 대비 섬 그림 상자 크기. 섬만 잘라 둔 그림(1.8:1)을 원 폭의 1.3배로 그려 양옆 물가가 조금 잘리고,
+ * 그림 높이는 원의 약 0.72라 위아래로 하늘(Sky 원 바탕)이 보인다.
+ */
 const ISLAND_ZOOM = 1.3;
 
 /** 칸 하나에 그리는 값 — 서버 홍보 칸(snapshot + body + layout)과 같은 모양. */
@@ -167,7 +170,7 @@ export function AdCell({
                   overflow: 'hidden',
                 }}
               >
-                {/* 섬 그림이 가로로 길어 원 안에 그대로 넣으면 위아래가 빈다 — 원보다 크게 그려 가운데를 채운다(양옆 물은 잘림) */}
+                {/* 섬 그림이 가로로 길어 원 안에 그대로 넣으면 작아 보인다 — 원보다 크게 그려 섬을 키운다(양옆 물가는 조금 잘리고 위아래는 하늘) */}
                 <Image
                   testID={testID && `${testID}-island`}
                   source={ISLAND_STAGE_ART[islandStage(cell.memberCount, cell.buildingCount)]}

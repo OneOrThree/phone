@@ -513,14 +513,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         scoped().keys.release(`cancel:${requestId}`, '');
       }),
     // 섬 탈퇴(4-06) — 응답만으로 로컬 소속을 지우지 않고 /me/islands 재조회로 확정한다.
-    // 마지막 섬이었으면 current 가 비어 onboarded=false 가 되고 App 이 섬 선택 화면으로 보낸다.
-    // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다.
+    // 갈 섬이 없으면 current 가 비어 onboarded=false 가 되고 App 이 바다로 보낸다(GROMO-2366).
+    // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다 — 이때 다음 위치는 모른다.
     leave: (islandId: string) =>
       call(async () => {
         const g = generation();
-        let my;
+        let my, nextLocation;
         try {
-          await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          const res = await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          // 빈 본문(payload null)이어도 나가기는 성공이다 — 다음 위치만 «모름»으로 둔다
+          nextLocation = res?.nextLocation;
           alive(g);
           my = await syncIslands();
         } catch (error) {
@@ -534,7 +536,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         alive(g);
         if (my.items.some((item) => item.id === islandId)) throw contractError();
         scoped().keys.release(`leave:${islandId}`, '');
-        return my;
+        return { ...my, nextLocation };
       }),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가
     // 죽었으면 플래그도 건드리지 않는다.

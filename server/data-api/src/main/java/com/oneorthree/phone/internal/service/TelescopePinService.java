@@ -44,7 +44,7 @@ import java.util.UUID;
  * 통과하지 않고 탈퇴 뒤에 핀이 새로 남지 않는다. <b>빼기가 줄을 서야</b> 하는 이유는 «이미 있는 핀 다시 넣기» 다 — 그 넣기는
  * INSERT(0행)를 한 뒤 목록을 다시 읽어 항목을 만드는데, 그 사이에 빼기가 커밋되면 멀쩡한 공개 섬에 404 가 나간다. 같은
  * 잠금 뒤에 서면 넣기는 자기 핀을 보거나(빼기가 뒤), 빼기가 먼저였다면 핀을 다시 넣는다. 섬 행은 잠그지 않는다 —
- * 비공개·종료·강퇴는 읽을 때 목록에서 빠지므로 그 사이에 낀 변경은 «보이지 않는 핀» 하나로 끝난다.
+ * 비공개·종료·내 소속은 읽을 때 목록에서 빠지므로 그 사이에 낀 변경은 «보이지 않는 핀» 하나로 끝난다.
  */
 @Service
 @RequiredArgsConstructor
@@ -64,8 +64,9 @@ public class TelescopePinService {
     /**
      * 섬을 망원경에 넣는다.
      *
-     * <p>판정 순서는 섬 생존 → 내 소속(409) → 강퇴 이력(403) → 비공개(404) 다. 내 소속·강퇴 이력은 본인이 아는 사실이라
-     * 비공개 섬에서도 숨기지 않고(가입 경로와 같은 순서), 그 밖의 비공개·종료·삭제·없는 섬은 존재를 숨겨 같은 404 다.
+     * <p>판정 순서는 섬 생존 → 내 소속(409) → 비공개(404) 다. 내 소속은 본인이 아는 사실이라 비공개 섬에서도 숨기지 않고
+     * (가입 경로와 같은 순서), 그 밖의 비공개·종료·삭제·없는 섬은 존재를 숨겨 같은 404 다. 강퇴된 섬도 넣을 수 있다
+     * (GROMO-2315, 10/20 결정 — 다시 가입 신청할 수 있는 섬이다).
      * 이미 만료 안 된 핀이 있으면 그 핀(출처·넣은 시각)은 바꾸지 않고 그 항목을 돌려준다(멱등, {@code created=false}).
      * 만료된 핀이 있으면 지우고 새로 넣는다. 넘친 핀 밀어내기는 새 핀이든 이미 있던 핀이든 돈다 — 지금 넣는 섬은 빼고라서,
      * 목록에서 «잘려» 있던 핀을 다시 넣어도 그 섬이 남아 목록에 나온다. 같은 다시 넣기를 두 번 보내면 첫 번째가 넘침을
@@ -77,8 +78,7 @@ public class TelescopePinService {
      * @param promotionId 잡지 칸에서 넣었으면 그 홍보(없으면 null) — 핀의 말풍선 미리보기에만 쓰고,
      *                    핀을 넣을지 말지에는 영향이 없다
      * @return 목록에서 보이는 그대로의 항목과 밀려난 핀(없으면 null)
-     * @throws GroupException 없는·종료·비공개 섬 {@code GROUP_NOT_FOUND}(404) · 강퇴된 섬 {@code KICKED_CANNOT_REJOIN}(403) ·
-     *                        이미 내 소속인 섬 {@code ALREADY_MEMBER}(409)
+     * @throws GroupException 없는·종료·비공개 섬 {@code GROUP_NOT_FOUND}(404) · 이미 내 소속인 섬 {@code ALREADY_MEMBER}(409)
      */
     @Transactional
     public TelescopePinView pin(UUID userId, UUID islandId, String source, UUID promotionId) {
@@ -89,9 +89,6 @@ public class TelescopePinService {
         Optional<GroupMember> prior = groupMemberRepository.findAnyByUserAndGroup(caller, island);
         if (prior.isPresent() && !prior.get().isLeft()) {
             throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
-        }
-        if (prior.isPresent() && prior.get().isKicked()) {
-            throw new GroupException(GroupErrorCode.KICKED_CANNOT_REJOIN);
         }
         if (island.isPrivate()) {
             throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
@@ -108,7 +105,7 @@ public class TelescopePinService {
         TelescopeItemView item = telescope.list(userId, now).items().stream()
                 .filter(view -> islandId.equals(view.islandId()) && TelescopeService.SLOT_PINNED.equals(view.slot()))
                 .findFirst()
-                // 방금 보여 줄 수 있다고 확인한 섬이 목록에 없다 — 그 사이 비공개·종료·강퇴가 끼어든 경우뿐이다(넣는 섬은
+                // 방금 보여 줄 수 있다고 확인한 섬이 목록에 없다 — 그 사이 비공개·종료가 끼어든 경우뿐이다(넣는 섬은
                 // 밀어내지 않아 보이는 핀이 넘쳐도 «잘려서» 빠지지 않는다). 롤백하고 404 로 끝낸다.
                 .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
         return new TelescopePinView(item, evicted, created);
