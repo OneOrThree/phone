@@ -2,6 +2,7 @@ package com.oneorthree.gromo
 
 import android.app.Application
 import android.content.res.Configuration
+import android.util.Log
 
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -37,9 +38,11 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-    // Airbridge 는 React Native 가 뜨기 전에 초기화해야 JS 측 모듈이 바로 쓸 수 있다.
+    // Airbridge 는 앱 시작 시점의 설치·세션 이벤트를 잡아야 하므로 React Native 가 뜨기 전에 초기화한다.
     if (AIRBRIDGE_APP_NAME.isNotEmpty() && AIRBRIDGE_APP_TOKEN.isNotEmpty()) {
       AirbridgeReactNative.initializeSDK(this, AIRBRIDGE_APP_NAME, AIRBRIDGE_APP_TOKEN)
+    } else {
+      Log.w("Airbridge", "앱 이름·SDK 토큰이 비어 있어 초기화를 건너뜁니다 — MainApplication.kt 의 상수를 채우세요")
     }
     // @generated begin xml-fonts-init - expo prebuild (DO NOT MODIFY) sync-14f92f61d59a404e7ce81cc3ce1e93bc28a1a6a6
     ReactFontManager.getInstance().addCustomFont(this, "Gowun", R.font.xml_gowun)
