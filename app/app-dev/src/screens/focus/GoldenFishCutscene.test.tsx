@@ -65,9 +65,10 @@ test('서버 신호로 마운트되면 1회 재생하고 종료 콜백을 한 �
   assert.equal(mockPlayer.timeUpdateEventInterval, 0.5);
   assert.equal(mockPlay.mock.calls.length, 1);
   const videoStyle = StyleSheet.flatten(screen.getByTestId('golden-fish-video').props.style);
-  assert.equal(videoStyle.width, '100%');
-  assert.equal(videoStyle.height, '100%');
-  assert.equal(screen.getByTestId('golden-fish-video').props.contentFit, 'contain');
+  // 영상 상자는 화면 높이(jest 기본 창 1334)에 맞춘 9:16 — 위아래는 overlay 에 붙고 폭·왼쪽은 상자가 준다
+  assert.equal(Math.round(videoStyle.width), 750);
+  assert.equal(videoStyle.top, 0);
+  assert.equal(videoStyle.bottom, 0);
   const overlayStyle = StyleSheet.flatten(screen.getByTestId('golden-fish-cutscene').props.style);
   assert.equal(overlayStyle.backgroundColor, componentTokens.overlay.cinematicBackground);
   await act(async () => {

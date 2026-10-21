@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, StyleSheet, View } from 'react-native';
+import { AppState, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useEventListener } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { MotionContext } from '@/design-system/primitives';
@@ -18,6 +18,20 @@ type Props = {
   volume?: number;
   testID?: string;
   videoTestID?: string;
+};
+
+/** 컷신 영상 다섯 편은 모두 1080×1920 세로다. */
+const VIDEO_ASPECT = 9 / 16;
+
+/**
+ * 영상 상자 — 화면 높이에 맞춘 9:16 을 가운데 둔다. 세로 폰(화면이 9:16 보다 길쭉)에서는 위아래를 꽉 채우고 좌우가
+ * 한쪽에 최대 10%쯤 화면 밖으로 나가며(overlay 가 자른다), 태블릿·가로·웹 창처럼 납작한 화면에서는 좌우에 여백을 두고
+ * 전체를 보인다. 위아래 띠를 두면 영상 가장자리에 걸친 섬·부두가 잘린 것처럼 보여서다. 상자가 이미 영상 비율이라
+ * 네이티브 contentFit 에 기대지 않는다 — iOS 26 시뮬레이터에서 `contentFit="cover"` 가 무시되는 것을 실측했다.
+ */
+export const cutsceneVideoBox = (windowWidth: number, windowHeight: number) => {
+  const width = windowHeight * VIDEO_ASPECT;
+  return { width, left: (windowWidth - width) / 2 };
 };
 
 /** 동작 줄이기에서는 영상을 건너뛰고 바로 끝낸다. */
@@ -58,6 +72,8 @@ function Playing({
   const lastProgress = useRef({ at: Date.now(), time: 0 });
   const stallRetries = useRef(0);
   const [started, setStarted] = useState(false);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const box = cutsceneVideoBox(windowWidth, windowHeight);
   const player = useVideoPlayer(source, (video) => {
     video.loop = false;
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.
@@ -169,11 +185,10 @@ function Playing({
       <VideoView
         player={player}
         nativeControls={false}
-        contentFit="contain"
         playsInline
         surfaceType="textureView"
         testID={videoTestID}
-        style={styles.video}
+        style={[styles.video, box]}
       />
     </View>
   );
@@ -187,17 +202,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     zIndex: 100,
-    // contain 여백의 섬은 맥락만 남기고 뒤 UI는 눌러 영상 경계가 자연스럽게 이어지게 한다.
+    // 세로 폰에서 화면 밖으로 나가는 영상 좌우를 자른다(웹에서 가로 스크롤이 생기지 않게).
+    overflow: 'hidden',
+    // 좌우 여백이 남는 납작한 화면(태블릿·가로)에서 뒤 UI 를 눌러 영상 경계가 자연스럽게 이어지게 한다.
     backgroundColor: componentTokens.overlay.cinematicBackground,
   },
-  // 웹의 replaced <video>는 left/right만으로 intrinsic 720px 폭이 늘어나지 않아 크기를 명시한다.
+  // 폭·왼쪽은 `cutsceneVideoBox` 가 준다(웹의 replaced <video>는 크기를 명시해야 늘어난다).
   video: {
     position: 'absolute',
     top: 0,
-    right: 0,
     bottom: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
   },
 });
