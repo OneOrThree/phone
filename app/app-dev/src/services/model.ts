@@ -1557,7 +1557,7 @@ export function reducer(state: State, a: Action): State {
     delete loaded.visitingIslandId;
     delete loaded.visitLeaveAsked;
     delete loaded.visitGreeted;
-    const retired = ['flag', 'sailboat', 'cabinboat'];
+    const retired = ['flag', 'sailboat', 'cabinboat', 'scarf', 'straw-hat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
@@ -1625,6 +1625,7 @@ export function reducer(state: State, a: Action): State {
       },
       equipped: {
         ...loaded.equipped,
+        clothes: 'default',
         hull: 'raft',
         decor: 'none',
         position: 'front',

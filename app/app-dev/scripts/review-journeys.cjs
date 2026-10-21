@@ -26,18 +26,10 @@ async function setup(p, route, opts = {}) {
         },
       ];
       s.lastResult = s.records[0];
-      s.owned = opts.owned ? ['scarf', 'flag', 'sailboat', 'cabinboat'] : [];
+      s.owned = opts.owned ? ['flag', 'sailboat', 'cabinboat'] : [];
       if (opts.owned) {
         i.sharedOwned.push('soda-theme', 'strawberry-roof', 'rain');
         s.orders = [
-          {
-            id: 'o1',
-            product: 'scarf',
-            islandId: s.islandId,
-            price: 20,
-            currency: 'fish',
-            at: Date.now(),
-          },
           {
             id: 'o2',
             product: 'soda-theme',
@@ -234,21 +226,9 @@ async function check(name, fn) {
     assert.equal((await state(p)).state.islands[0].messages.at(-1).text, '오늘도 고생했어');
     assert.ok(!(await p.locator('body').innerText()).includes('읽음'));
   });
-  await check('상품 구매 → 내 배까지 이동 → 착용 → 해제', async () => {
-    await setup(p, 'product', { detail: 'scarf' });
-    await click('20 물고기로 구매');
-    await click('구매');
-    assert.equal((await state(p)).state.fish, 480);
-    await click('내 뗏목에서 갈아입기');
-    await p.waitForFunction(() => window.__gromoReview.route === 'wardrobe');
-    await click('바다 스카프');
-    assert.equal((await state(p)).state.equipped.clothes, 'scarf');
-    await click('기본');
-    assert.notEqual((await state(p)).state.equipped.clothes, 'scarf');
-  });
   await check('은퇴한 선체·깃발은 상점·꾸미기에 없음(기본 뗏목 고정)', async () => {
     await setup(p, 'product', { detail: 'cabinboat' });
-    assert.ok((await p.locator('body').innerText()).includes('바다 스카프'));
+    assert.ok((await p.locator('body').innerText()).includes('소다 섬 테마'));
     await setup(p, 'wardrobe', { owned: true });
     for (const name of ['뗏목', '돛단배', '선실 있는 배', '딸기 깃발'])
       assert.equal(await p.getByRole('button', { name, exact: true }).count(), 0);
@@ -264,11 +244,6 @@ async function check(name, fn) {
     assert.equal((await state(p)).state.islands[0].theme, 'default');
   });
   await check('잔액 부족·방송기 미건설 음원 구매 제한', async () => {
-    await setup(p, 'product', { detail: 'scarf', fish: 0 });
-    await click('20 물고기로 구매');
-    await p.waitForTimeout(150);
-    assert.ok((await p.locator('body').innerText()).includes('재화가 부족해요'));
-    assert.equal((await state(p)).state.fish, 0);
     await setup(p, 'product', {
       detail: 'rain',
       stage: ['hall', 'board', 'tower', 'mail', 'shop'],

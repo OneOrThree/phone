@@ -47,7 +47,6 @@ const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?revie
       ['visitIsland', 'cloud'],
       ['visitIslandFocus', 'cloud'],
       ['shop'],
-      ['product', 'scarf'],
       ['product', 'rain'],
       ['orders'],
       ['wardrobe'],

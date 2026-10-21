@@ -1122,12 +1122,17 @@ test('건물 외양은 구매한 시설별로 독립 적용', () => {
 
 test('이전 목업의 선체·장식을 복원해도 기본 뗏목만 유지', () => {
   const legacy = initialState(true);
-  legacy.equipped = { ...legacy.equipped, hull: 'cabinboat', decor: 'flag' };
-  legacy.owned = ['scarf', 'flag', 'sailboat', 'cabinboat'];
+  legacy.equipped = { ...legacy.equipped, clothes: 'straw-hat', hull: 'cabinboat', decor: 'flag' };
+  legacy.owned = ['scarf', 'straw-hat', 'flag', 'sailboat', 'cabinboat'];
+  legacy.orders = [
+    { id: 'o1', product: 'scarf', islandId: legacy.islandId, currency: 'fish', price: 100, at: 1 },
+  ];
   const restored = reducer(initialState(), { type: 'LOAD', state: legacy });
   assert.equal(restored.equipped.hull, 'raft');
   assert.equal(restored.equipped.decor, 'none');
-  assert.deepEqual(restored.owned, ['scarf']);
+  assert.equal(restored.equipped.clothes, 'default');
+  assert.deepEqual(restored.owned, []);
+  assert.deepEqual(restored.orders, []);
   assert.equal(restored.fish, legacy.fish);
   assert.ok(products.every((p) => !['flag', 'sailboat', 'cabinboat'].includes(p.id)));
 });
@@ -2070,7 +2075,6 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
   old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
   saved.orders = [
-    { id: 'mine', product: 'scarf', islandId: old.id, currency: 'fish', price: 100, at: 1 },
     { id: 'theme', product: 'soda-theme', islandId: old.id, currency: 'fish', price: 1000, at: 1 },
     { id: 'open', product: 'rain', islandId: 'soda', currency: 'fish', price: 150, at: 1 },
   ];
@@ -2096,7 +2100,7 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   assert.equal(once.rewards?.length, 0);
   assert.deepEqual(
     once.orders.map((o) => o.id),
-    ['mine', 'open'],
+    ['open'],
   );
   // 열린 섬은 그대로
   assert.equal(balance(currentIsland(once)), balance(currentIsland(saved)));
