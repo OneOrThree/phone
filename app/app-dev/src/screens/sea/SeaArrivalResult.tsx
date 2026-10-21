@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
-import { Btn, Overlay, Txt } from '@/design-system/patterns';
+import { OutfitItemArt } from '@/components/CatOutfitLayers';
+import { Badge, Btn, Overlay, Txt } from '@/design-system/patterns';
 import {
   componentTokens as c,
   primitiveTokens as p,
@@ -8,6 +9,7 @@ import {
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
+import { addUnseenOutfits } from '@/services/unseenOutfits';
 import { SeaArrival, seaDuration } from './seaModel';
 import { SeaRewardArt, seaRewardCatalog } from './seaRewardCatalog';
 
@@ -26,8 +28,16 @@ export function SeaArrivalResult({
 }) {
   const table = useCustomizationCatalog();
   // 서버 grantedProductIds 순서를 보존한다. 첫 아이템은 대표 그림·이름, 나머지는 이름 목록으로 표시한다.
-  const name = (id: string) => catalog[id]?.title ?? table[id]?.title ?? id;
-  const [primary, ...rest] = result.rewards;
+  // 이름을 모르는 id(카탈로그 미로드·실패)는 상품 id 를 그대로 보이지 않게 거른다 — 전부 모르면 보상 칸을 숨긴다.
+  const name = (id: string) => catalog[id]?.title ?? table[id]?.title;
+  const [primary, ...rest] = result.rewards.filter((id) => name(id));
+  const showItem = !!primary || result.rewards.length === 0;
+  // 처음 받은 것은 NEW! — 옷장의 안 본 새 꾸미기에도 넣는다(받은 목록에 있는 것만)
+  const fresh = (result.newRewards ?? []).filter((id) => result.rewards.includes(id));
+  const freshKey = fresh.join(',');
+  useEffect(() => {
+    if (freshKey) addUnseenOutfits(result.recordId, freshKey.split(','));
+  }, [result.recordId, freshKey]);
   const art = primary ? catalog[primary] : undefined;
   const entry = primary ? table[primary] : undefined;
   return (
@@ -44,7 +54,12 @@ export function SeaArrivalResult({
           <Txt style={styles.value}>{seaDuration(result.activeSeconds)}</Txt>
         </View>
         <View style={styles.reward}>
-          <Txt style={styles.label}>{t('openSea.rewardTitle')}</Txt>
+          {showItem && <Txt style={styles.label}>{t('common.caughtItem')}</Txt>}
+          {!!primary && fresh.includes(primary) && (
+            <Badge small style={styles.newBadge}>
+              {t('common.newBadge')}
+            </Badge>
+          )}
           {art ? (
             <View
               accessible={false}
@@ -68,20 +83,16 @@ export function SeaArrivalResult({
             </View>
           ) : (
             entry && (
-              <Image
-                accessible={false}
-                testID={`sea-reward-${primary}`}
-                source={{ uri: entry.imageUrl }}
-                style={styles.rewardPicture}
-                resizeMode="contain"
-              />
+              <OutfitItemArt entry={entry} size={REWARD_PICTURE} testID={`sea-reward-${primary}`} />
             )
           )}
-          <Txt style={styles.value}>
-            {primary
-              ? name(primary)
-              : t(result.rewardsUnknown ? 'openSea.rewardsUnknown' : 'openSea.noReward')}
-          </Txt>
+          {showItem && (
+            <Txt style={styles.value}>
+              {primary
+                ? name(primary)
+                : t(result.rewardsUnknown ? 'openSea.rewardsUnknown' : 'openSea.noReward')}
+            </Txt>
+          )}
           {rest.length > 0 && (
             <Txt style={styles.label}>
               {t('openSea.additionalRewards', { names: rest.map(name).join(', ') })}
@@ -109,10 +120,11 @@ export function SeaArrivalResult({
   );
 }
 
+const REWARD_PICTURE = 120;
 const styles = StyleSheet.create({
   rewardWindow: { overflow: 'hidden' },
+  newBadge: { alignSelf: 'center' },
   rewardImage: { position: 'absolute' },
-  rewardPicture: { width: 120, height: 120 },
   frame: { borderRadius: s.radius.modal, boxShadow: c.modal.shadow },
   content: { padding: p.space[6], paddingBottom: p.space[6] },
   contentInner: { gap: p.space[5] },

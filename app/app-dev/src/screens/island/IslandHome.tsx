@@ -37,6 +37,7 @@ import {
   CatMotionInput,
   interactiveMotionDurationMs,
 } from '@/components/CatSprite';
+import { outfitOf } from '@/components/CatOutfitLayers';
 import {
   Point,
   nodes,
@@ -612,6 +613,7 @@ export function IslandHome({
                   reduce={state.settings.reduceMotion}
                   onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
                   generation={motionGen}
+                  outfit={outfitOf(state)}
                 />
               </View>
             </Pressable>

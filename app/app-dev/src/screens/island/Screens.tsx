@@ -99,8 +99,14 @@ import {
   hasBundledAudio,
 } from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
-import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
+import {
+  CatOutfitLayers,
+  OutfitItemArt,
+  outfitOf,
+  type Outfit,
+} from '@/components/CatOutfitLayers';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
+import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
@@ -246,12 +252,6 @@ function MainIslandRadio({ selected }: { selected: boolean }) {
     </View>
   );
 }
-/** 상태에 실린 머리·목·신발 — 키 없음(옛 서버·미장착)과 null(해제)은 모두 «미장착» 이다. */
-const outfitOf = (state: State): Outfit => ({
-  head: state.equipped.head ?? null,
-  neck: state.equipped.neck ?? null,
-  shoes: state.equipped.shoes ?? null,
-});
 function Boat({ state, h = 260, scarf }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
@@ -261,7 +261,7 @@ function Boat({ state, h = 260, scarf }: any) {
         w={h * 0.42}
         style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
       />
-      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림과 같은 상자 */}
+      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림(idle.png)과 같은 상자 */}
       <View
         pointerEvents="none"
         style={{
@@ -272,7 +272,10 @@ function Boat({ state, h = 260, scarf }: any) {
           height: h * 0.42,
         }}
       >
-        <CatOutfitLayers outfit={outfitOf(state)} />
+        <CatOutfitLayers
+          outfit={outfitOf(state)}
+          pose={{ color: state.color, still: 'idle', size: h * 0.42 }}
+        />
       </View>
       {scarf && (
         <View
@@ -289,6 +292,45 @@ function Boat({ state, h = 260, scarf }: any) {
             transform: [{ rotate: '-8deg' }],
           }}
         />
+      )}
+    </View>
+  );
+}
+/**
+ * 뗏목 합성 그림(440×317)을 미리보기 안쪽 상자(폭·높이)의 92%×86% 에 contain 으로 넣었을 때의 실제 그림 크기 — 넓은 폰에서는
+ * 높이가 먼저 차서 그림 폭이 92% 보다 좁다. 꾸미기 오버레이도 이 상자에 맞춘다(GROMO-2382).
+ */
+export const raftArtSize = (width: number, height: number) => {
+  const w = Math.min(width * 0.92, (height * 0.86 * 440) / 317);
+  return { width: w, height: (w * 317) / 440 };
+};
+/** 검정 고양이 뗏목 합성 그림과 그 위 꾸미기를 실제 그림 상자 하나에 겹친다 — 부모(Preview) 안쪽을 재서 맞춘다. */
+function BlackRaftCat({ id, hat, outfit }: { id: string; hat: boolean; outfit: Outfit }) {
+  const [art, setArt] = useState<{ width: number; height: number } | null>(null);
+  return (
+    <View
+      testID="raft-cat-frame"
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
+      onLayout={(e) => setArt(raftArtSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height))}
+    >
+      {art && (
+        <View testID="raft-cat-art" style={art}>
+          <Pic id={id} w="100%" h="100%" />
+          {hat && <HatOn image="raft" style={StyleSheet.absoluteFill} />}
+          {/* 합성 그림 안 고양이(idle) 상자 = 왼쪽 25.0%·위 9.1%·폭 43.0% — 그림 실측(GROMO-2382) */}
+          <View
+            style={{
+              position: 'absolute',
+              left: '25.0%',
+              top: '9.1%',
+              width: '43.0%',
+              aspectRatio: 1,
+            }}
+          >
+            <CatOutfitLayers outfit={outfit} pose={{ color: 'black', still: 'idle' }} />
+          </View>
+        </View>
       )}
     </View>
   );
@@ -977,6 +1019,8 @@ export function RedesignScreens({ e }: any) {
       ? !!p.owned
       : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
   const catalog = useCustomizationCatalog();
+  // 결과창에서 처음 받은 꾸미기 — 옷장 칸에 NEW!, 한 번 누르면 사라진다(GROMO-2382)
+  const unseenOutfits = useUnseenOutfits();
   const productTitle = (id: string) =>
     server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
@@ -5089,25 +5133,11 @@ export function RedesignScreens({ e }: any) {
   const raftCat = (h: number, scarf = worn === 'scarf', hat = worn === 'straw-hat') =>
     state.color === 'black' ? (
       <Preview h={h}>
-        <Pic id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'} w="92%" h="86%" />
-        {hat && <HatOn image="raft" style={{ width: '92%', height: '86%' }} />}
-        {/* 합성 그림(440×317) 안 고양이 상자 ≈ 왼쪽 16.6%·위 2.8%·폭 55.7% — 밀짚모자 좌표에서 역산한 값, 실기기 확인 필요 */}
-        <View
-          pointerEvents="none"
-          style={{ position: 'absolute', width: '92%', aspectRatio: 440 / 317 }}
-        >
-          <View
-            style={{
-              position: 'absolute',
-              left: '16.6%',
-              top: '2.8%',
-              width: '55.7%',
-              aspectRatio: 1,
-            }}
-          >
-            <CatOutfitLayers outfit={outfitOf(state)} />
-          </View>
-        </View>
+        <BlackRaftCat
+          id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'}
+          hat={hat}
+          outfit={outfitOf(state)}
+        />
       </Preview>
     ) : (
       <View>
@@ -5910,13 +5940,15 @@ export function RedesignScreens({ e }: any) {
       a11yLabel: string = label,
     ) => {
       const on = slotWorn(slot) === value;
+      const fresh = value != null && unseenOutfits.has(value);
       return (
         <Pressable
           key={`${slot}:${value}`}
           accessibilityRole="button"
-          accessibilityLabel={a11yLabel}
+          accessibilityLabel={fresh ? `${a11yLabel} ${t('common.newBadge')}` : a11yLabel}
           accessibilityState={{ selected: on }}
           onPress={() => {
+            if (fresh) markOutfitSeen(value);
             // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다. null 은 해제.
             if (server) {
               shopApi.equip({ [slot]: value }).catch((thrown) => {
@@ -5948,6 +5980,11 @@ export function RedesignScreens({ e }: any) {
                 <CheckDot />
               </View>
             )}
+            {fresh && (
+              <Badge small style={{ position: 'absolute', top: -8, left: -6 }}>
+                {t('common.newBadge')}
+              </Badge>
+            )}
           </View>
           <Txt
             style={{
@@ -5973,16 +6010,8 @@ export function RedesignScreens({ e }: any) {
 
     const picture = (slot: WardrobeSlot, id: string) => {
       const entry = catalog[id];
-      if (entry)
-        return (
-          <Image
-            accessible={false}
-            testID={`wardrobe-art-${id}`}
-            source={{ uri: entry.imageUrl }}
-            style={{ width: 60, height: 60 }}
-            resizeMode="contain"
-          />
-        );
+      // 집중 보상 목은 원본 전체가 아니라 앞 장식만 잘라 보인다(GROMO-2382)
+      if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
       if (slot === 'clothes' && id === 'straw-hat') return <HatArt w={72} scale={0.7} />;
       return slot === 'clothes' || slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
     };

@@ -252,6 +252,10 @@ export type RecordItem = {
   ackId?: string;
   // 바다 항해 기록(GROMO-2310)은 'sea' — 섬 집중 집계에서 뺀다. 없으면 섬 집중(옛 기록 호환)
   kind?: 'island' | 'sea';
+  // 이 세션에 받은 꾸미기 상품 id(finish 의 seaReward.grantedProductIds, GROMO-2382) — 없으면 키째 없다
+  rewards?: string[];
+  // 그중 처음 받은 것(seaReward.newProductIds) — NEW! 배지. 없으면 키째 없다
+  newRewards?: string[];
 };
 // 그 섬의 집중 기록인가 — 서버 섬 집계(findActiveSpansOnIsland)처럼 목적지가 그 섬인 바다 항해는 섬 집중이 아니다
 export const islandFocusRecord = (r: RecordItem, islandId: string) =>

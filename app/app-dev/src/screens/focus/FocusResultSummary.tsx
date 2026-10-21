@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { OutfitItemArt } from '@/components/CatOutfitLayers';
 import { art } from '@/constants/art';
+import { Badge } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
+import { addUnseenOutfits } from '@/services/unseenOutfits';
 import { hms } from './FishingIsland';
 
 export function FocusResultSummary({
@@ -12,13 +16,27 @@ export function FocusResultSummary({
   seconds,
   fish,
   questTitles,
+  recordId,
+  rewardId,
+  rewardNew = false,
 }: {
   subject: string;
   seconds: number;
   fish: number;
   questTitles: string[];
+  /** 이 결과의 기록 id — 같은 결과창을 다시 보여도 옷장 NEW 를 되살리지 않게 한 번만 넣는다. */
+  recordId?: string;
+  /** 이번 집중에 받은 꾸미기 상품(seaReward.grantedProductIds 첫 아이템, GROMO-2382). 없으면 칸이 없다. */
+  rewardId?: string;
+  /** 처음 받은 상품이면 NEW! — 옷장의 안 본 새 꾸미기에도 넣는다. */
+  rewardNew?: boolean;
 }) {
   const largeText = useWindowDimensions().fontScale > 1.3;
+  const catalog = useCustomizationCatalog();
+  const item = rewardId ? catalog[rewardId] : undefined;
+  useEffect(() => {
+    if (recordId && rewardId && rewardNew) addUnseenOutfits(recordId, [rewardId]);
+  }, [recordId, rewardId, rewardNew]);
   return (
     <View testID="focus-result-summary">
       <View style={styles.header}>
@@ -47,6 +65,31 @@ export function FocusResultSummary({
           <Text style={styles.fishCount}>{t('focusFlow.result.fishCount', { count: fish })}</Text>
         </View>
       </View>
+      {item && (
+        <View
+          testID="focus-result-item"
+          accessible
+          accessibilityLabel={[
+            t('common.caughtItem'),
+            item.title,
+            rewardNew && t('common.newBadge'),
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={styles.item}
+        >
+          <Text style={styles.label}>{t('common.caughtItem')}</Text>
+          <View style={styles.itemRow}>
+            <OutfitItemArt entry={item} size={token.itemSize} />
+            <Text style={styles.itemTitle}>{item.title}</Text>
+            {rewardNew && (
+              <Badge small style={styles.newBadge}>
+                {t('common.newBadge')}
+              </Badge>
+            )}
+          </View>
+        </View>
+      )}
       {questTitles.length > 0 && (
         <View testID="focus-result-quests" style={styles.quests}>
           <Text style={styles.questHeading}>{t('focusFlow.result.questsAchievedTitle')}</Text>
@@ -127,6 +170,27 @@ const styles = StyleSheet.create({
     color: semanticTokens.color.text,
     fontSize: semanticTokens.typography.title,
     fontWeight: semanticTokens.typography.extraBold,
+  },
+  item: {
+    alignItems: 'center',
+    gap: token.timeGap,
+    marginTop: semanticTokens.spacing.section,
+    paddingTop: semanticTokens.spacing.component,
+    borderTopWidth: semanticTokens.stroke.subtle,
+    borderTopColor: semanticTokens.color.divider,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: semanticTokens.spacing.control,
+  },
+  newBadge: { alignSelf: 'center' },
+  itemTitle: {
+    flexShrink: 1,
+    color: semanticTokens.color.text,
+    fontSize: semanticTokens.typography.body,
+    fontWeight: semanticTokens.typography.bold,
   },
   quests: {
     marginTop: semanticTokens.spacing.section,

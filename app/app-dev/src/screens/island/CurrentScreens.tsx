@@ -109,6 +109,7 @@ import {
 import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
+import { outfitOf } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import {
   GuideBox,
@@ -1734,6 +1735,8 @@ function FocusFlow({ e: environment }: any) {
     wide = L.width >= 600,
     reduce = s.settings.reduceMotion,
     tutorialStep: number = e.guideStep;
+  // 낚시섬의 내 고양이에 입힐 장착 그림(GROMO-2382)
+  const myOutfit = outfitOf(s);
   const screenReader = useScreenReaderEnabled();
   const advanceTutorial = (from: number, to: number) => {
     if (tutorialStep === from)
@@ -2707,6 +2710,10 @@ function FocusFlow({ e: environment }: any) {
         seconds={result?.seconds ?? 0}
         fish={result?.fish ?? 0}
         questTitles={achievedQuestTitles}
+        recordId={result?.id}
+        // 집중 보상은 세션당 최대 1개다(2301 정산) — 첫 아이템만 보인다
+        rewardId={result?.rewards?.[0]}
+        rewardNew={!!result?.rewards && !!result.newRewards?.includes(result.rewards[0])}
       />
     </FiModal>
   );
@@ -3205,6 +3212,7 @@ function FocusFlow({ e: environment }: any) {
                     catchVisibleSpots={peerCatchSpots}
                     catchGramVisible={i.buildings.includes('gram')}
                     catchFuturePeerSpots={PEER_SPOTS}
+                    outfit={myOutfit}
                   />
                 ) : (
                   <FishingWalker
@@ -3215,6 +3223,7 @@ function FocusFlow({ e: environment }: any) {
                     walking={walker.walking}
                     left={walker.left}
                     reduce={reduce}
+                    outfit={myOutfit}
                   />
                 )}
               </>

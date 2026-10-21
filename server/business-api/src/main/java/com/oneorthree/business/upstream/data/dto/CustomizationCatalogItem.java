@@ -6,18 +6,24 @@ import com.fasterxml.jackson.annotation.Nulls;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Map;
 
-/** 꾸미기 카탈로그 한 행 (GROMO-2331) — imagePath 는 상대 경로다. retiredAt 은 퇴역하지 않았으면 null. */
+/**
+ * 꾸미기 카탈로그 한 행 (GROMO-2331) — imagePath 는 상대 경로다. retiredAt 은 퇴역하지 않았으면 null.
+ * 집중 보상 머리·목(GROMO-2382)은 width·height·anchorX·anchorY 가 null 이고 renderData 로 그린다.
+ * 정적 오버레이 행은 renderData 키가 없다.
+ */
 public record CustomizationCatalogItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String productId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String kind,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String slot,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String title,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String imagePath,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int width,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int height,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) BigDecimal anchorX,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) BigDecimal anchorY,
+        @JsonProperty(required = true) Integer width,
+        @JsonProperty(required = true) Integer height,
+        @JsonProperty(required = true) BigDecimal anchorX,
+        @JsonProperty(required = true) BigDecimal anchorY,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int sortOrder,
-        @JsonProperty(required = true) Instant retiredAt) {
+        @JsonProperty(required = true) Instant retiredAt,
+        Map<String, Object> renderData) {
 }

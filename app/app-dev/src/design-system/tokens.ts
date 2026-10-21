@@ -263,6 +263,7 @@ export const componentTokens = {
     timeGap: space[1],
     rewardWidth: space[16],
     fishSize: space[8],
+    itemSize: space[12],
     checkSize: space[5],
     questGap: space[2],
     questLineHeight: space[6],

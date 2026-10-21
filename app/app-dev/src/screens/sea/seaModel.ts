@@ -37,6 +37,8 @@ export type SeaArrival = {
   activeSeconds: number;
   /** 이번에 받은 꾸미기 productId 목록 — 이름·그림은 카탈로그로 푼다. */
   rewards: string[];
+  /** 그중 처음 받은 것 — NEW! 배지(GROMO-2382). 구버전 서버면 없다. */
+  newRewards?: string[];
   /** 다음 단계까지 남은 분 — 모르면 null. */
   minutesToNextTier: number | null;
   /**
