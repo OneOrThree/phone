@@ -604,6 +604,17 @@ class InboundEventServiceTest {
     }
 
     @Test
+    @DisplayName("auth.session.revoked — 읽을 수 없는 accessTokenExpiresAt 도 30일 폴백이다 (GROMO-2386)")
+    void sessionRevokedWithGarbageExpiryFallsBackToThirtyDays() throws Exception {
+        UUID sid = UUID.randomUUID();
+
+        http(sessionRevoked(UUID.randomUUID(), sid.toString(), "garbage"));
+
+        Long ttl = redis.getExpire(RedisKeys.revokedSession(sid), java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertThat(ttl).isGreaterThan(java.time.Duration.ofDays(29).toMillis());
+    }
+
+    @Test
     @DisplayName("auth.session.revoked — 팬아웃 발행이 실패하면 realtime.session.revoked.fanout{failed} 를 세고 던지지 않는다 (GROMO-2386)")
     void sessionRevokedFanoutFailureIsCounted() throws Exception {
         JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
@@ -682,10 +693,10 @@ class InboundEventServiceTest {
         var outboundB = mock(OutboundAuthzCache.class);
         var deliveryB = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 publishRedis, objectMapper, clock, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
-        InboundEventService serviceB = new InboundEventService(plainJdbc, fenceB, mock(EventRouter.class),
+        InboundEventService serviceB = org.mockito.Mockito.spy(new InboundEventService(plainJdbc, fenceB, mock(EventRouter.class),
                 mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
-                outboundB, registryB, new JwtValidator(SECRET), clock, deliveryB, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                outboundB, registryB, new JwtValidator(SECRET), clock, deliveryB, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         var subscriberB = new RealtimeEventFanoutSubscriber(deliveryB, serviceB, objectMapper);
 
         UUID user = UUID.randomUUID();
@@ -710,6 +721,7 @@ class InboundEventServiceTest {
         subscriberB.onMessage(wire, null);
         subscriberB.onMessage(wire, null); // 중복 전달 — 멱등
 
+        verify(serviceB, org.mockito.Mockito.atLeastOnce()).applySessionRevocation(user, sid, exp.plusSeconds(60));
         verify(onB, org.mockito.Mockito.atLeastOnce()).close(REVOKED);
         verify(outboundB, org.mockito.Mockito.atLeastOnce()).evictSession("b-1");
         verify(otherOnB, never()).close(any(CloseStatus.class));
@@ -731,6 +743,25 @@ class InboundEventServiceTest {
         assertThat(objectMapper.writeValueAsString(RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), Instant.now()))).contains("revokedUserId").contains("revokedSessionId")
                 .contains("revokedUntil");
+    }
+
+    /** 롤링 배포 중 옛 replica 가 읽는 봉투 모양 — revokedUntil 이 없던 시절의 6필드. */
+    private record OldFanoutShape(UUID originInstanceId, String destination, Object event,
+            java.util.Set<UUID> recipients, UUID revokedUserId, UUID revokedSessionId) {
+    }
+
+    @Test
+    @DisplayName("옛 replica(6필드 봉투)가 revokedUntil 이 든 새 봉투를 읽으면 모르는 키를 무시하고 읽는다 — 옛 동작(30일 폴백) 그대로")
+    void oldReplicaIgnoresUnknownRevokedUntil() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        String json = objectMapper.writeValueAsString(
+                RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(), user, sid, Instant.now()));
+
+        OldFanoutShape old = objectMapper.readValue(json, OldFanoutShape.class);
+
+        assertThat(old.revokedUserId()).isEqualTo(user);
+        assertThat(old.revokedSessionId()).isEqualTo(sid);
     }
 
     @Test
