@@ -24,6 +24,14 @@ import java.util.UUID;
  */
 public interface FocusSessionDetailRepository extends JpaRepository<FocusSessionDetail, UUID> {
 
+    /** 클라이언트 타이머가 아닌 서버의 실제 바다 도착 확정만 첫 무인도 정착을 허용한다. */
+    @Query("SELECT count(d) > 0 FROM FocusSessionDetail d WHERE d.userId = :userId AND d.islandId = :islandId "
+            + "AND d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.SEA "
+            + "AND d.lifecycle = com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.COMPLETED "
+            + "AND d.arrived = true")
+    boolean hasCompletedSeaArrival(@Param("userId") UUID userId, @Param("islandId") UUID islandId);
+
+
     /**
      * {@link #findOverlapping} 의 바깥 시간 경계 — 진행 중이거나, 창 시작 뒤에 끝났다. 별칭 {@code d}·파라미터
      * {@code :from} 을 쓴다.

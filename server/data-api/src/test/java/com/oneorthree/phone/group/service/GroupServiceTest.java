@@ -55,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import com.oneorthree.phone.group.repository.OnboardingIslandRepository;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -132,6 +133,9 @@ class GroupServiceTest {
     void fixClock() {
         lenient().when(clock.instant()).thenReturn(REJOINED_AT);
     }
+
+    @Mock
+    private OnboardingIslandRepository onboardingIslands;
 
     @InjectMocks
     private GroupService groupService;

@@ -102,3 +102,10 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 ```
 
 dev·loadtest·prod의 관리 포트는 `9091`입니다. 배포 시 호스트에 공개하지 않고 내부 수집기가 접근합니다. 지표·로그 분석은 [관측 README](../observability/README.md), 배포 구성은 [Scripts README](../scripts/README.md)를 참고합니다.
+
+
+### 첫 무인도 정착
+
+소속 없는 사용자의 망원경 목록에 정원이 남은 섬이 없으면 개인 무인도 하나를 앞에 넣습니다. `onboarding_islands`(V137)에 사용자당 목적지 하나를 저장하므로 재시작·시간대 변경·동시 조회에도 같은 섬입니다. 주민 0명·완공 건물 0개·항해 15분이며 기존 망원경 응답 계약을 사용합니다. 이미 예약이 있으면 새 후보가 생겨도 목적지를 유지합니다.
+
+준비·출항 시에는 비공개 섬과 빈 공동 지갑·건설 상태만 있고 소속과 현재 섬은 없습니다. 기존 바다 집중을 완료한 뒤 `POST /islands/{id}/arrivals`에서 서버의 `SEA / COMPLETED / arrived=true` 기록을 확인하고 방장 소속·현재 섬을 확정합니다. 이름은 `새로운 섬`으로 바뀌고 공개 섬이 됩니다. 중도 종료는 정착하지 않으며, 1.x 직접 가입도 예약 섬을 우회하지 못합니다. 도착 명령은 기존 멱등 영수증·사용자/context/섬 잠금을 사용합니다. 탈퇴 시 미정착 섬을 닫고 개인 예약을 지웁니다.

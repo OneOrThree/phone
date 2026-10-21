@@ -398,16 +398,17 @@ class TelescopeIntegrationTest {
     }
 
     @Test
-    @DisplayName("공개 섬이 하나도 없어도 빈 스냅샷({})을 저장하고 같은 버킷엔 그 행을 다시 읽는다 — 그사이 섬이 생겨도 빈 목록이다")
+    @DisplayName("공개 섬이 없으면 빈 스냅샷과 개인 무인도를 유지한다 — 늦게 생긴 공개 섬은 다음 버킷에 뽑는다")
     void anEmptyDrawIsStoredAndReread() {
         User viewer = user();
 
-        assertThat(telescope.list(viewer.getId()).items()).isEmpty();
+        UUID destination = telescope.list(viewer.getId()).items().get(0).islandId();
         assertThat(jdbc.queryForObject("select cardinality(island_ids) || ':' || has_nearby from telescope_buckets "
                 + "where user_id = ?", String.class, viewer.getId())).isEqualTo("0:false");
 
         island("늦게생긴섬", 10);
-        assertThat(telescope.list(viewer.getId()).items()).isEmpty();
+        assertThat(telescope.list(viewer.getId()).items()).extracting(TelescopeItemView::islandId)
+                .containsExactly(destination);
         assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
                 viewer.getId())).isEqualTo(1L);
     }
@@ -518,7 +519,8 @@ class TelescopeIntegrationTest {
         User viewer = user();
         List<UUID> full = fullIslands(6);
 
-        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items().stream()
+                .filter(TelescopeItemView::full).toList();
 
         assertThat(items).extracting(TelescopeItemView::islandId)
                 .containsExactlyElementsOf(byHash(viewer, full).subList(0, 1 + TelescopeService.RANDOM_SLOTS));

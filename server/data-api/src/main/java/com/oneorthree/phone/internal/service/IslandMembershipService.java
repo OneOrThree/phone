@@ -112,6 +112,7 @@ public class IslandMembershipService {
     private final IslandArrivalRepository arrivals;
     /** 도착 시각을 찍는 시계 (GROMO-2260) — 테스트가 {@code @MockitoBean Clock} 으로 고정한다. */
     private final Clock clock;
+    private final OnboardingIslandService onboardingIslands;
 
     // ---------------------------------------------------------------- §3.1 create
 
@@ -248,6 +249,7 @@ public class IslandMembershipService {
                     Group island = groupQueryService.findGroup(islandId)
                             .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
                     IslandMovementGuards.requireAlive(island);
+                    boolean settled = onboardingIslands.settleAtArrival(user, island, context);
                     Optional<GroupMember> membership =
                             groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId);
                     boolean member = membership.isPresent();
@@ -277,8 +279,14 @@ public class IslandMembershipService {
                             member ? islandId : liveCurrentIsland(userId));
                     // 도착은 가입·이탈이 아니다 — island.members.updated 로 방송하지 않는다(switch 와 같다). 주민 첫
                     // 도착만 그 섬 events 채널에 소식 하나를 낸다(GROMO-2302). receipt 에도 담아 재생이 같은 봉투를 돌려준다.
-                    List<EventEnvelope> events = first
-                            ? islandArrivalEvents.arrived(islandId, user, arrivedAt) : List.of();
+                    List<EventEnvelope> events = new ArrayList<>();
+                    if (settled) {
+                        events.add(islandStateEvents.created(islandId, userId));
+                        events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId));
+                    }
+                    if (first) {
+                        events.addAll(islandArrivalEvents.arrived(islandId, user, arrivedAt));
+                    }
                     return new PublicCommandResult(200, InternalJson.tree(view), InternalJson.tree(events));
                 }).value().data();
         return InternalJson.decode(data, IslandArrivalView.class);

@@ -113,6 +113,7 @@ public class TelescopeService {
     private final MagazinePinService magazinePins;
     private final IslandPromotionRepository promotions;
     private final Clock clock;
+    private final OnboardingIslandService onboardingIslands;
 
     /**
      * 보여 줄 수 있는 핀 하나 — 핀 행(출처·넣은 시각)과, 후보와 같은 술어를 지금도 통과한 섬 행(주민 수·정원).
@@ -144,9 +145,8 @@ public class TelescopeService {
      */
     @Transactional
     public TelescopeView list(UUID userId, Instant now) {
-        // 공유 잠금 — 탈퇴(getCallerForUpdate 뒤 개인 기록 정리·소프트 삭제)와 직렬화한다. 잠금 없이 읽으면 탈퇴가 그 사이에
-        // 커밋돼도 아래 스냅샷 INSERT 가 들어가 탈퇴자의 개인 기록이 다시 남는다(users 행은 남아 FK 가 막지 않는다).
-        userQueryService.getCallerForShare(userId);
+        // 탈퇴·동시 첫 조회와 직렬화한다. 소속 없는 사용자의 무인도 예약도 이 잠금 안에서 하나만 만든다.
+        userQueryService.getCallerForUpdate(userId);
         Instant bucketStart = now.truncatedTo(ChronoUnit.HOURS);
 
         List<UUID> joinedIds = groupMemberRepository.findActiveGroupIdsByUserId(userId);
@@ -240,6 +240,7 @@ public class TelescopeService {
         }
         int firstRandom = (int) items.stream().takeWhile(view -> !SLOT_RANDOM.equals(view.slot())).count();
         items.addAll(firstRandom, pinnedItems);
+        onboardingIslands.destination(userId, joinedIds, items).ifPresent(item -> items.add(0, item));
         // 60 − 버킷 안에서 지난 «온전한» 분 = ceil((bucketStart + 1h − now) / 1분). 정각엔 60, 59분 59초엔 1.
         int nextRefreshMinutes = 60 - (int) Duration.between(bucketStart, now).toMinutes();
         return new TelescopeView(bucketStart, nextRefreshMinutes, items);

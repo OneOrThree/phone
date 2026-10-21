@@ -37,6 +37,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.OnboardingIslandRepository;
 import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
@@ -80,6 +81,7 @@ import java.util.stream.Collectors;
 public class GroupService {
 
     private final GroupRepository groupRepository;
+    private final OnboardingIslandRepository onboardingIslands;
     private final GroupMembershipMutationLocks membershipLocks;
     private final IslandMembershipEvents membershipEvents;
     private final GroupQueryService groupQueryService;
@@ -320,6 +322,11 @@ public class GroupService {
         membershipLocks.lockGroup(groupId);
         Group group = groupQueryService.getGroup(groupId);
         if (group.getDeletedAt() != null || group.getStatus() == GroupStatus.ENDED) {
+            throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
+        }
+
+        // 1.x 가입은 비공개만으로 차단되지 않는다. 개인 무인도는 서버 도착 정착으로만 소속을 만든다.
+        if (onboardingIslands.existsByIslandId(groupId)) {
             throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
         }
 
