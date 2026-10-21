@@ -1,6 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Pic, Txt } from '@/design-system/patterns';
+import { Txt } from '@/design-system/patterns';
+import { CatAvatar } from '@/components/CatAvatar';
+import type { Outfit } from '@/components/CatOutfitLayers';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { RowIcon } from './IslandSheet';
 import { t } from '@/i18n';
@@ -13,6 +15,7 @@ export function HomeNavigationHud({
   name,
   clock,
   color,
+  outfit,
   requests,
   go,
   interactive = true,
@@ -20,6 +23,7 @@ export function HomeNavigationHud({
   name: string;
   clock: string;
   color: Color;
+  outfit?: Outfit;
   requests: number;
   go: (route: Route) => void;
   interactive?: boolean;
@@ -34,7 +38,13 @@ export function HomeNavigationHud({
             onPress={() => go('wardrobe')}
             style={styles.avatarButton}
           >
-            <Pic id={'avatar/' + color} w={c.avatarSize} h={c.avatarSize} style={styles.avatar} />
+            <View style={styles.avatar}>
+              <CatAvatar
+                color={color}
+                outfit={outfit}
+                size={c.avatarSize - 2 * semanticTokens.stroke.default}
+              />
+            </View>
           </Pressable>
         )}
         <View
@@ -101,6 +111,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatar: {
+    overflow: 'hidden',
     borderRadius: semanticTokens.radius.full,
     borderWidth: semanticTokens.stroke.default,
     borderColor: semanticTokens.color.outline,

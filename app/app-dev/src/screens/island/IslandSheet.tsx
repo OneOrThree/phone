@@ -32,6 +32,8 @@ import { C, art, k, Txt, Pic, Btn, Gear } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
+import { CatAvatar } from '@/components/CatAvatar';
+import type { Outfit } from '@/components/CatOutfitLayers';
 import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
 
@@ -1000,24 +1002,26 @@ export function RowIcon({ name }: { name: 'group' | 'gear' }) {
 // 아바타 그림(.av): 하늘색 바탕 · 갈색 테두리
 export function Avatar({
   color,
+  outfit,
   size = 40,
   radius = 14,
 }: {
-  color: string;
+  color: string | null | undefined;
+  outfit?: Outfit | null;
   size?: number;
   radius?: number;
 }) {
   return (
-    <Pic
-      id={'avatar/' + color}
-      w={size}
+    <View
       style={{
         borderRadius: radius,
         backgroundColor: C.sky,
         borderWidth: 1.5,
         borderColor: C.brown,
       }}
-    />
+    >
+      <CatAvatar color={color} outfit={outfit} size={size - 3} />
+    </View>
   );
 }
 

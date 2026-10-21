@@ -100,6 +100,7 @@ import {
 } from '@/constants/audio';
 import { Flag } from '@/screens/cosmetics/Cosmetics';
 import {
+  appearanceOutfit,
   CatOutfitLayers,
   OutfitItemArt,
   outfitOf,
@@ -6147,7 +6148,12 @@ export function RedesignScreens({ e }: any) {
           key={friend.requestId}
           title={name}
           tone="butter"
-          lead={<Avatar color="white" />}
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
           tail={requestActions(
             () => friendCmd(() => acceptFriendRequest(friend.requestId)),
             () => friendCmd(() => rejectFriendRequest(friend.requestId)),
@@ -6161,7 +6167,12 @@ export function RedesignScreens({ e }: any) {
         key={friend.requestId}
         title={friend.nickname ?? '탈퇴한 사용자'}
         sub="수락 기다리는 중"
-        lead={<Avatar color="white" />}
+        lead={
+          <Avatar
+            color={friend.catColor ?? 'white'}
+            outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+          />
+        }
         tail={
           <Btn
             small
@@ -6180,7 +6191,12 @@ export function RedesignScreens({ e }: any) {
           key={friend.userId}
           title={name}
           sub={friend.mainIslandName ?? undefined}
-          lead={<Avatar color="white" />}
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
           tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
         />
       );
@@ -6205,7 +6221,12 @@ export function RedesignScreens({ e }: any) {
             key={friend.userId}
             title={friend.nickname}
             sub={friend.relation === 'FRIEND' ? '친구' : undefined}
-            lead={<Avatar color="white" />}
+            lead={
+              <Avatar
+                color={friend.catColor ?? 'white'}
+                outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+              />
+            }
             tail={
               friend.relation === 'NONE' ? (
                 <Btn

@@ -3,7 +3,45 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { HomeNavigationHud } from './HomeNavigationHud';
 
+jest.mock('@/services/customizationCatalog', () => ({
+  useCustomizationCatalog: () => ({
+    mandarin: {
+      productId: 'mandarin',
+      slot: 'head',
+      imageUrl: 'https://x/mandarin.png',
+      width: 1254,
+      height: 1254,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      catFit: {
+        width: 1254,
+        height: 1254,
+        crop: [329, 349, 940, 942],
+        colors: ['black'],
+        motions: {},
+        stills: ['avatar'],
+        rigUrls: {},
+        head: { drawWidth: 64, depthY: 9, contacts: {}, shadow: { widthFactor: 0.2, height: 2 } },
+      },
+    },
+  }),
+}));
+
 afterEach(() => applyLocalePref('ko'));
+
+test('내 프로필 그림에 입은 머리가 얹힌다(GROMO-2391)', async () => {
+  const screen = await render(
+    <HomeNavigationHud
+      name="구름섬"
+      clock="01:24:08"
+      color="black"
+      outfit={{ head: 'mandarin' }}
+      requests={0}
+      go={jest.fn()}
+    />,
+  );
+  expect(screen.getByTestId('outfit-fit')).toBeTruthy();
+});
 
 test('프로필·친구·설정은 각 화면으로 바로 이어지고 꾸미기 글자는 표시하지 않는다', async () => {
   const go = jest.fn();
