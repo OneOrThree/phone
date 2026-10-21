@@ -13,6 +13,11 @@ STATIC = ROOT / "server/static"
 RESOURCES = ROOT / "server/data-api/src/main/resources"
 CAT_CATEGORIES = {"head", "neck", "shoes"}
 MOTIONS = {"walk": 6, "focus": 4, "reel": 4}
+# 6색 자세 자료(GROMO-2382) — fit-colors/gen_rigs.py 결과(오스카 승인 10/21). 머리·목에만 붙인다(신발은 보상에서 제외).
+FIT_DIR = HERE / "fit-colors/rigs"
+FIT_COLORS = ["black", "ginger", "cream", "gray", "white", "calico"]
+FIT_MOTIONS = {"walk": 6, "focus": 4, "reel": 4, "blink": 3, "read": 6}
+FIT_STILLS = ["idle", "loaf", "avatar"]
 
 
 def load(path):
@@ -93,6 +98,13 @@ def main():
             "side": "reference/raft-clean-side.png",
         }.items()
     }
+    # 검정 목 리그도 blink·still 이 더해져 새 해시 파일이 된다(원본 neck.22a4cc24.json 은 V134 가 계속 가리킨다)
+    fit = {color: load(FIT_DIR / color / "head.json") for color in FIT_COLORS}
+    neck_rigs = {
+        color: publish((FIT_DIR / color / "neck.json").read_bytes(), "rigs",
+                       "neck" if color == "black" else f"neck-{color}", "json")
+        for color in FIT_COLORS
+    }
     head_rig = load(source / "final/head-rig.json")
     # head-rig에는 reel-2 접촉 보정이 이미 반영돼 있다. HTML 원본과 대조해 이중 가산을 막는다.
     raw_contacts = (source / "head-contact.js").read_text().strip()
@@ -118,6 +130,8 @@ def main():
         "canopy": [[565, 403, 150, .5, 1, 0, "behindCat"], [550, 405, 150, .5, 1, 0, "behindCat"]],
     }
     items = []
+    # V134 에 실린 그대로의 렌더 자료(머지·적용된 시드는 바꾸지 않는다) — 6색 자료는 V136 이 덮어쓴다
+    base_render = {}
     for index, record in enumerate(design["items"]):
         item = manifest_items[record["sourceId"]]
         category = record["category"]
@@ -162,6 +176,17 @@ def main():
                 render["sideSource"] = original(item["sidePath"], kind, f"{category}-{slug}-side")
             if category == "oar":
                 render["replacementRafts"] = clean_rafts
+        base_render[product_id] = render
+        if category in ("head", "neck"):
+            render = {**render, "validatedMotions": FIT_MOTIONS, "validatedStills": FIT_STILLS,
+                      "validatedColors": FIT_COLORS}
+            if category == "head":
+                # contactFrames = 검정(승인 14프레임 값 그대로 + 새 자세), colorContactFrames = 나머지 5색
+                render["contactFrames"] = fit["black"]
+                render["colorContactFrames"] = {color: fit[color] for color in FIT_COLORS[1:]}
+            else:
+                render["rigPath"] = neck_rigs["black"]
+                render["colorRigPaths"] = {color: neck_rigs[color] for color in FIT_COLORS[1:]}
         items.append({
             **record, "productId": product_id, "kind": kind, "ownerType": "user",
             "sortOrder": index, "renderData": render,
@@ -215,13 +240,37 @@ def main():
             "    (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)\n"
             "VALUES (" + str(policy["revision"]) + ", "
             + ", ".join(sql(item[key]) for key in ["productId", "sourceId", "category", "rarity", "rarityReason"])
-            + ", " + sql(json.dumps(item["renderData"], ensure_ascii=False, separators=(",", ":")))
+            + ", " + sql(json.dumps(base_render[item["productId"]], ensure_ascii=False, separators=(",", ":")))
             + "::jsonb, " + str(item["sortOrder"]) + ");"
         )
     (RESOURCES / "db/migration/V134__seed_customization_reward_catalog.sql").write_text(
         "\n\n".join(statements) + "\n"
     )
-    print(f"카탈로그 {len(items)}종, 해시 파일 {len(file_index)}개, V134 생성 완료")
+    fitted = [item for item in items if item["category"] in ("head", "neck")]
+    updates = [
+        "-- GROMO-2382 머리·목 20종의 6색 자세 자료(걷기·집중·감기·눈 깜빡임·독서 + 가만히·식빵·프로필). build_reward_catalog.py 생성 결과.",
+        "-- 같은 상품의 모든 revision 행을 덮어쓴다. 신발·뗏목 행과 V134 는 바꾸지 않는다.",
+        "-- 머지·적용된 마이그레이션은 재생성하지 말고 새 버전으로 변경한다.",
+    ]
+    for item in fitted:
+        updates.append(
+            "UPDATE customization_reward_items SET render_data = "
+            + sql(json.dumps(item["renderData"], ensure_ascii=False, separators=(",", ":")))
+            + "::jsonb WHERE product_id = " + sql(item["productId"]) + ";"
+        )
+    # 위 UPDATE 가 놓친 머리·목 행(모든 revision)이 하나라도 있으면 배포를 실패시킨다 — 머리는 colorContactFrames, 목은 colorRigPaths
+    updates.append(
+        "DO $$ BEGIN\n"
+        "    IF (SELECT count(*) FROM customization_reward_items WHERE category IN ('head', 'neck'))\n"
+        "        <> (SELECT count(*) FROM customization_reward_items\n"
+        "            WHERE (category = 'head' AND render_data -> 'colorContactFrames' IS NOT NULL)\n"
+        "               OR (category = 'neck' AND render_data -> 'colorRigPaths' IS NOT NULL)) THEN\n"
+        "        RAISE EXCEPTION '6색 자세 자료가 빠진 머리·목 보상 행이 있습니다';\n"
+        "    END IF;\n"
+        "END $$;"
+    )
+    (RESOURCES / "db/migration/V136__customization_reward_fit_colors.sql").write_text("\n\n".join(updates) + "\n")
+    print(f"카탈로그 {len(items)}종, 해시 파일 {len(file_index)}개, V134·V136({len(fitted)}종) 생성 완료")
 
 
 if __name__ == "__main__":

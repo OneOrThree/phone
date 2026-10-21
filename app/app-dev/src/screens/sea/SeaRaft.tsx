@@ -29,7 +29,13 @@ export function SeaRaft({
       />
       <View style={[styles.absolute, { left: size * 0.48, top: size * 0.67 }]}>
         {focusing ? (
-          <CatSprite color={color} motion="read" size={catSize} reduce={reduceMotion} />
+          <CatSprite
+            color={color}
+            motion="read"
+            size={catSize}
+            reduce={reduceMotion}
+            outfit={outfit}
+          />
         ) : (
           <Image
             source={seaLoaf[color]}
@@ -57,7 +63,11 @@ export function SeaRaft({
             },
           ]}
         >
-          <CatOutfitLayers outfit={outfit} />
+          {/* 식빵은 정지 그림 자료로, 독서는 CatSprite 가 프레임마다 그린다 — 이 상자에는 정적 오버레이만 남는다 */}
+          <CatOutfitLayers
+            outfit={outfit}
+            pose={focusing ? undefined : { color, still: 'loaf', size: catSize }}
+          />
         </View>
       )}
       <Image

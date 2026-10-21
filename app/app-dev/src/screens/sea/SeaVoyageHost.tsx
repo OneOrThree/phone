@@ -52,6 +52,7 @@ const arrivalFrom = (detail: unknown): SeaArrival | null => {
       destinationName: p.destinationName,
       activeSeconds: p.finish.activeSeconds,
       rewards: p.finish.seaReward?.grantedProductIds ?? [],
+      newRewards: p.finish.seaReward?.newProductIds ?? [],
       minutesToNextTier: p.finish.seaReward?.minutesToNextTier ?? null,
       rewardsUnknown: !p.finish.seaReward,
     };

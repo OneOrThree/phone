@@ -74,6 +74,7 @@ export function BoatPortrait({ state, height = 270 }: { state: State; height?: n
               neck: state.equipped.neck ?? null,
               shoes: state.equipped.shoes ?? null,
             }}
+            pose={{ color: state.color, still: 'idle', size: 94 }}
           />
         </View>
         {state.equipped.clothes !== 'default' && (

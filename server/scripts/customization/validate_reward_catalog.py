@@ -10,6 +10,15 @@ ROOT = Path(__file__).resolve().parents[3]
 BUNDLE = ROOT / "server/data-api/src/main/resources/customization/reward-catalog-v1.json"
 GRADES = ("common", "uncommon", "rare", "legendary")
 CATEGORIES = ("head", "neck", "shoes", "flag", "mat", "oar", "cargo", "lantern", "canopy")
+MOTIONS = {"walk": 6, "focus": 4, "reel": 4}
+# 머리·목 6색 자세 자료(GROMO-2382). 독서는 책이 목을 가려 목 리그에 프레임이 없다.
+FIT_COLORS = ["black", "ginger", "cream", "gray", "white", "calico"]
+FIT_MOTIONS = {"walk": 6, "focus": 4, "reel": 4, "blink": 3, "read": 6}
+FIT_STILLS = ["idle", "loaf", "avatar"]
+
+
+def frame_ids(motions, stills=()):
+    return {f"{m}-{i}" for m, n in motions.items() for i in range(n)} | {f"still/{s}" for s in stills}
 
 
 def probabilities(policy, seconds, location):
@@ -89,20 +98,37 @@ def main():
         # 소품 그림은 캔버스를 꽉 채우지 않는다. 전체 캔버스 크롭은 알파 영역을 못 읽었다는 뜻이다.
         assert source["crop"] != [0, 0, source["width"], source["height"]], item["productId"]
         assert item["ownerType"] == "user"
-        if item["category"] in ("head", "neck", "shoes"):
+        render = item["renderData"]
+        if item["category"] == "shoes":
+            assert item["kind"] == "shoes"
+            assert render["validatedMotions"] == MOTIONS
+        elif item["category"] in ("head", "neck"):
             assert item["kind"] == item["category"]
-            assert item["renderData"]["validatedMotions"] == {"walk": 6, "focus": 4, "reel": 4}
+            assert render["validatedMotions"] == FIT_MOTIONS
+            assert render["validatedStills"] == FIT_STILLS and render["validatedColors"] == FIT_COLORS
+            if item["category"] == "head":
+                contacts = {"black": render["contactFrames"], **render["colorContactFrames"]}
+                assert list(contacts) == FIT_COLORS, item["productId"]
+                for frames in contacts.values():
+                    assert set(frames) == frame_ids(FIT_MOTIONS, FIT_STILLS), item["productId"]
+                    for fid, c in frames.items():
+                        assert all(isinstance(c[k], (int, float)) for k in ("x", "y", "angleDegrees")), fid
+                        # 프로필 그림만 고양이를 키워 그려 view 로 옮긴다
+                        assert ("view" in c) == (fid == "still/avatar"), fid
+            else:
+                rigs = {"black": render["rigPath"], **render["colorRigPaths"]}
+                assert list(rigs) == FIT_COLORS, item["productId"]
+                for path in rigs.values():
+                    assert path in bundle["files"], path
+                    frames = json.loads(static_file(path).read_text())["frames"]
+                    assert set(frames) == frame_ids({**FIT_MOTIONS, "read": 0}, FIT_STILLS), path
         else:
             assert item["kind"] == "decor"
             assert set(item["renderData"]["placements"]) == {"isometric", "side"}
     assert "cust.head.duck" not in {x["productId"] for x in items}
     assert next(x["productId"] for x in items if x["sourceId"] == "head-duck") == "cust.head.duck-plush"
-    for slot in ("neck", "shoes"):
-        sample = next(x for x in items if x["category"] == slot)
-        rig = json.loads(static_file(sample["renderData"]["rigPath"]).read_text())
-        frames = rig["frames"] if slot == "neck" else rig
-        assert set(frames) == {f"{motion}-{i}" for motion, count in {"walk": 6, "focus": 4, "reel": 4}.items()
-                               for i in range(count)}
+    shoes = next(x for x in items if x["category"] == "shoes")
+    assert set(json.loads(static_file(shoes["renderData"]["rigPath"]).read_text())) == frame_ids(MOTIONS)
     checked = 0
     for seconds in sorted(set(range(0, 14401, 60)) | {899, 900, 1799, 1800, 3599, 3600, 86400, 10**9}):
         per_place = {}
@@ -133,7 +159,7 @@ def main():
             computed = probabilities(policy, case["activeSeconds"], location)
             for grade, expected in zip(GRADES, case[location]):
                 assert abs(computed[grade] - expected) < 1e-12
-    print(f"90종·{len(bundle['files'])}개 파일·14자세·확률 {checked}조건·엑셀 경계값 일치")
+    print(f"90종·{len(bundle['files'])}개 파일·머리·목 6색 26자세·확률 {checked}조건·엑셀 경계값 일치")
 
 
 if __name__ == "__main__":

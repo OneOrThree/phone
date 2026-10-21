@@ -1,5 +1,7 @@
 package com.oneorthree.phone.appearance.repository;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +12,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -185,6 +190,66 @@ class CustomizationRewardCatalogMigrationTest {
         return jdbc.update("INSERT INTO focus_settlements (session_id, active_seconds, goal_achieved, completed_at, "
                 + "customization_reward_revision, customization_reward_product_id, customization_reward_new) "
                 + "VALUES (?, 900, false, now(), ?, ?, ?)", sessionId, revision, productId, newlyOwned);
+    }
+
+    @Test
+    @DisplayName("V136 은 머리·목 20종의 모든 revision 렌더 자료를 6색 자세 자료로 바꾸고 신발·뗏목은 그대로 둔다 (GROMO-2382)")
+    void fitColorsReplaceHeadAndNeckRenderData() throws IOException {
+        // V135 가 revision 1 의 머리·목 20행을 revision 2 로 복사해 둔 뒤에 V136 이 온다
+        migrate("135");
+        JdbcTemplate jdbc = jdbc();
+        String shoesBefore = jdbc.queryForObject("SELECT render_data::text FROM customization_reward_items "
+                + "WHERE product_id = 'cust.shoes.butter'", String.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items "
+                + "WHERE revision = 2 AND render_data -> 'validatedColors' IS NULL", Integer.class)).isEqualTo(20);
+
+        migrate("136");
+
+        ObjectMapper json = new ObjectMapper();
+        JsonNode bundle;
+        try (InputStream in = getClass().getResourceAsStream("/customization/reward-catalog-v1.json")) {
+            bundle = json.readTree(in);
+        }
+        int fitted = 0;
+        for (JsonNode item : bundle.path("items")) {
+            String category = item.path("category").asText();
+            if (!category.equals("head") && !category.equals("neck")) {
+                continue;
+            }
+            List<String> rows = jdbc.queryForList("SELECT render_data::text FROM customization_reward_items "
+                    + "WHERE product_id = ?", String.class, item.path("productId").asText());
+            assertThat(rows).hasSize(2);
+            for (String row : rows) {
+                assertThat(json.readTree(row)).as(item.path("productId").asText()).isEqualTo(item.path("renderData"));
+            }
+            fitted++;
+        }
+        assertThat(fitted).isEqualTo(20);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items "
+                + "WHERE render_data -> 'validatedColors' IS NOT NULL", Integer.class)).isEqualTo(40);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items "
+                + "WHERE revision = 2 AND render_data -> 'validatedColors' IS NOT NULL", Integer.class))
+                .as("V135 의 revision 2 머리·목 20행도 바뀐다").isEqualTo(20);
+        assertThat(jdbc.queryForObject("SELECT render_data->'colorContactFrames'->'ginger'->'blink-0'->>'x' "
+                + "FROM customization_reward_items WHERE revision = 2 AND product_id = 'cust.head.mandarin'",
+                String.class)).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT render_data::text FROM customization_reward_items "
+                + "WHERE product_id = 'cust.shoes.butter'", String.class)).isEqualTo(shoesBefore);
+    }
+
+    @Test
+    @DisplayName("V136 이 6색 자료를 넣지 못한 머리·목 행이 남으면 마이그레이션 전체를 실패시킨다 (GROMO-2382)")
+    void fitColorsRejectHeadOrNeckRowItDidNotUpdate() {
+        migrate("135");
+        JdbcTemplate jdbc = jdbc();
+        jdbc.update("INSERT INTO catalog_assets (product_id,title,kind,owner_type) "
+                + "VALUES ('cust.head.extra','추가 머리','head','user')");
+        jdbc.update("INSERT INTO customization_reward_items (revision, product_id, source_asset_id, category, rarity, "
+                + "rarity_reason, render_data, sort_order) "
+                + "VALUES (2, 'cust.head.extra', 'extra', 'head', 'common', 'test', '{}', 0)");
+        assertThatThrownBy(() -> migrate("136")).isInstanceOf(FlywayException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items "
+                + "WHERE render_data -> 'validatedColors' IS NOT NULL", Integer.class)).as("UPDATE 도 되돌린다").isZero();
     }
 
     private int migrate(String target) {

@@ -11,12 +11,15 @@
 - V133: `customization_reward_policies`, `customization_reward_items`.
 - V134: 정책 revision 1과 `catalog_assets` 90종, `customization_reward_items` 90행을 등록한다.
 - V135(GROMO-2301): 정책 revision 2 — 확률은 같고 신발·뗏목 6분류를 뺀 머리·목 20종만 뽑는다. 정산은 가장 큰 revision 을 쓴다. 추첨은 정산 때 서버 난수로 한 번 하고 결과를 `focus_settlements` 에 고정한다(세션 id 로 미리 계산할 수 없다). 신발·뗏목은 revision 1 에 등록만 돼 있고 지급되지 않는다.
+- V136(GROMO-2382): 머리·목 20종의 `render_data`를 6색 자세 자료로 덮어쓴다(같은 상품의 모든 revision — V135 의 revision 2 복사 행 포함). 신발·뗏목 행은 그대로다. 6색 자료가 빠진 머리·목 행이 하나라도 남으면 마이그레이션 전체를 실패시킨다.
+- `fit-colors/`: 6색 자세 자료 생성기와 결과(`rigs/<털색>/head.json·neck.json`). 아래 「6색 자세 자료」.
 - `reward-design.json`: 승인 엑셀에서 추출한 입력. 파일 해시로 출처를 식별한다.
 - `probability-fixtures.json`: 같은 엑셀에서 계산한 13개 시간의 등급 확률. 2301에서도 호환성 검증에 사용할 수 있다.
 
 기존 `sea_reward_tiers`는 수정하지 않는다. 이전 엔진에 90종을 단계 보상으로 넣으면 한 번에 여러 개를 지급하거나 보유 상품을 제외할 수 있기 때문이다.
 원본 시트·뗏목 배치를 기존 `customization_asset_meta`의 고양이 정적 오버레이로 오등록하지 않는다.
-새 목록의 그림 정보는 `customization_reward_items.render_data`에 보존하며, **기존 `GET /customization/catalog`는 아직 이 목록을 반환하지 않는다.**
+새 목록의 그림 정보는 `customization_reward_items.render_data`에 보존한다.
+GROMO-2382부터 `GET /customization/catalog`가 머리·목 20종을 `renderData`(render_data 원문)와 함께 반환한다 — width·height·anchor는 null, 신발(보상에서 제외)·뗏목은 반환하지 않는다.
 
 ## ID와 분류
 
@@ -81,14 +84,26 @@
 ### cat-fit-v1
 
 - 좌표계: `black-cat-512`, 512×512.
-- 검증 대상: 검정 고양이 `walk` 6프레임, `focus` 4프레임, `reel` 4프레임.
+- 검증 대상: 승인 합본은 검정 고양이 `walk` 6프레임, `focus` 4프레임, `reel` 4프레임. 머리·목은 V136 부터 아래 「6색 자세 자료」.
 - 머리: `contactFrames`의 x/y/각도에 `itemDepthY`를 더하고 `drawWidth`로 알파 크롭을 그린다. reel-2의 추가 이동을 이미 반영했다.
 - 목: `rigPath`의 목 곡선·가림 영역, `views`의 목줄·앞 장식 영역, `neckStyle`을 함께 사용한다. 펜던트의 공통 목줄은 `commonBand`.
 - 신발: `views`의 옆·앞·밑창 시점과 `rigPath`의 발별 행 변형 자료를 함께 사용한다.
 - `referenceCode`의 `fitting.js`는 승인 합본의 합성 알고리즘 참고본이다. 앱 런타임으로 자동 실행하지 않는다.
 
 1254×1254 정적 오버레이를 쓰는 기존 API와 좌표계가 다르다. PNG 전체나 시트를 고양이 위에 한 장으로 얹지 않는다.
-다른 털색·체형, 책 읽기·웅크리기 자세는 이 합본에서 검증되지 않았다. 해당 자세의 자료를 만들기 전까지 임의로 걷기 좌표를 재사용하지 않는다.
+자료에 없는 털색·자세(신발 전부, 던지기·기지개·하품·그루밍·갸웃 등)에는 다른 자세 좌표를 빌려 쓰지 않는다 — 그동안은 그리지 않는다.
+
+### 6색 자세 자료(머리·목, GROMO-2382)
+
+- `validatedColors`: black·ginger·cream·gray·white·calico. 기존 `contactFrames`·`rigPath`는 검정, 나머지 5색은
+  `colorContactFrames{털색: {프레임: {x, y, angleDegrees}}}`(머리)·`colorRigPaths{털색: 목 rig 경로}`(목).
+- 애니메이션 프레임 id는 `<자세>-<번호>`, `validatedMotions` = walk 6·focus 4·reel 4·blink 3·read 6.
+  독서(read)는 책이 목을 가려 목 rig에 프레임이 없다 — 목은 그리지 않는다.
+- 정지 그림 id는 `still/<이름>`, `validatedStills` = idle(`idle.png`)·loaf(`loaf/loaf.png`)·avatar(`avatar.png`).
+- avatar는 고양이를 키워 아래로 그린 그림이라 좌표를 보통 크기로 두고 `view{x, y, scale}`(머리 접촉점·목 rig 프레임)로
+  옮긴다 — 그림 좌표 = scale × 리그 좌표 + (x, y).
+- 만드는 법: 프레임마다 검정 부위를 같은 털색 프레임에 닮음 변환으로 맞춰 검정 승인 리그를 옮긴다(`fit-colors/gen_rigs.py`).
+  검정의 승인 14프레임 값은 그대로 두고 새 자세만 생성값이다. 사람 보정은 `fit-colors/overrides.json`으로만 한다.
 
 ### raft-fit-v1
 
@@ -109,8 +124,21 @@ python3 server/scripts/customization/build_reward_catalog.py /path/to/customizat
 python3 server/scripts/customization/validate_reward_catalog.py
 ```
 
+6색 자세 자료를 다시 만들 때(numpy·Pillow·skia-python 필요, 결과는 `fit-colors/rigs/`):
+
+```sh
+cd server/scripts/customization/fit-colors
+uv run --with numpy --with pillow --with skia-python python selftest.py   # 검정→검정 이 승인 리그와 같은지
+uv run --with numpy --with pillow --with skia-python python gen_rigs.py   # 6색 rigs/<털색>/{head,neck}.json
+uv run --with numpy --with pillow --with skia-python python check.py      # 수치 검사 → checks.md
+uv run --with numpy --with pillow --with skia-python python board.py ginger rigs/ginger out.png  # 눈 검사 보드
+```
+
+그다음 위 build·validate 를 다시 돌리면 목 rig 를 해시 이름으로 `server/static/customization/rigs/`에 내고
+`reward-catalog-v1.json`과 V136 을 다시 쓴다. V134 는 6색 자료 없이 처음 등록한 그대로 생성된다.
+
 생성기는 원본 합본을 수정하지 않으며 DB에 접속하지 않는다.
-V134는 아직 배포되지 않은 작업 중에만 재생성한다. 머지·적용 후 변경은 새 migration과 revision을 사용한다.
+V134·V136은 아직 배포되지 않은 작업 중에만 재생성한다. 머지·적용 후 변경은 새 migration과 revision을 사용한다.
 적용 순서는 정적 파일 배포 → V133/V134 적용 → 2301·앱 어댑터 연결이다. 운영 DB 직접 적용은 하지 않았다.
 
 ```sh

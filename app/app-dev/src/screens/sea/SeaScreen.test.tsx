@@ -350,7 +350,9 @@ test('보상이 없거나 모르는 ID이면 예시 오리를 지급한 것처�
   await screen.rerender(
     <SeaScreen {...p} result={{ ...result, rewards: ['unknown'], minutesToNextTier: 25 }} />,
   );
-  expect(screen.getByText('unknown')).toBeTruthy();
+  // 이름을 모르는 id 는 상품 id 그대로 보이지 않는다(GROMO-2382) — 보상 칸은 숨기고 다음 단계 안내만 남는다
+  expect(screen.queryByText('unknown')).toBeNull();
+  expect(screen.queryByText('이번 항해에서 건진 아이템은 없어요')).toBeNull();
   expect(screen.getByText('다음 단계까지 25분')).toBeTruthy();
   expect(screen.queryByText('오리 인형')).toBeNull();
   await screen.rerender(<SeaScreen {...p} result={{ ...result, rewardsUnknown: true }} />);

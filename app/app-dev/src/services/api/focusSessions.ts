@@ -87,7 +87,12 @@ export type FocusFinishView = {
   /** 바다 항해 정산(GROMO-2310 타입만 — 결과창은 GROMO-2311). */
   kind?: 'island' | 'sea';
   arrived?: boolean;
-  seaReward?: { grantedProductIds: string[]; minutesToNextTier: number | null } | null;
+  seaReward?: {
+    grantedProductIds: string[];
+    minutesToNextTier: number | null;
+    /** grantedProductIds 중 처음 받은 것(GROMO-2382 NEW!). 구버전 서버는 없다. */
+    newProductIds?: string[] | null;
+  } | null;
 };
 
 export type FocusSessionStartInput = {

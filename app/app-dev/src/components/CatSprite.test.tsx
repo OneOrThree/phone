@@ -2,7 +2,11 @@ import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 import { cat } from '@/constants/assets';
-import { CatSprite } from './CatSprite';
+import { CatSprite, catFrameBox } from './CatSprite';
+import { CatOutfitLayers } from './CatOutfitLayers';
+
+// 장착 그림 레이어는 이 파일에서 받은 props 만 본다(GROMO-2382)
+jest.mock('./CatOutfitLayers', () => ({ CatOutfitLayers: jest.fn(() => null) }));
 
 describe('CatSprite 재생 제어', () => {
   let onAppStateChange: ((state: 'active' | 'background' | 'inactive') => void) | undefined;
@@ -18,6 +22,22 @@ describe('CatSprite 재생 제어', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     jest.useRealTimers();
+  });
+
+  it('outfit 을 주면 지금 자세·표시 프레임·고양이 상자 크기를 장착 레이어에 넘긴다', async () => {
+    const outfit = { head: 'cust.head.mandarin' };
+    await render(<CatSprite color="black" motion="walk" size={100} outfit={outfit} />);
+    const extent = catFrameBox('black', 'walk', 100).extent;
+    const lastPose = () => jest.mocked(CatOutfitLayers).mock.lastCall![0];
+    expect(lastPose()).toEqual({
+      outfit,
+      pose: { color: 'black', motion: 'walk', frame: 0, size: extent },
+    });
+    await act(async () => jest.advanceTimersByTime(125));
+    expect(lastPose().pose).toEqual({ color: 'black', motion: 'walk', frame: 1, size: extent });
+    jest.mocked(CatOutfitLayers).mockClear();
+    await render(<CatSprite color="black" motion="walk" size={100} />);
+    expect(CatOutfitLayers).not.toHaveBeenCalled();
   });
 
   it('걷기 프레임을 진행하고 color·motion 변경 시 첫 프레임으로 되돌린다', async () => {
