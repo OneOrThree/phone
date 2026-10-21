@@ -33,7 +33,9 @@ import java.util.UUID;
  *
  * <h2>정책 값 검증</h2>
  * 정책의 가중치는 JSON 그대로 들어온다. 0 이상의 정수가 아니거나 등급 키가 빠졌으면 {@link IllegalArgumentException} 이다 —
- * {@code 1.5} 를 1 로 버리는 식으로 조용히 고치지 않는다. 호출자(정산)는 이 예외를 잡아 보상만 건너뛴다.
+ * {@code 1.5} 를 1 로 버리는 식으로 조용히 고치지 않는다. 계산한 네 등급 확률도 유한한 0~1 이고 합이 1 이어야 한다 — 최대
+ * 가산(ppm, DB 는 각각 100만까지 허용)이 기본 일반 확률보다 크면 일반이 음수가 되거나 희귀·전설이 1 을 넘는데, 이것을 아이템
+ * 고르기의 재정규화로 덮으면 정책과 다른 분포로 지급된다. 호출자(정산)는 이 예외를 잡아 보상만 건너뛴다.
  */
 public final class CustomizationRewardDraw {
 
@@ -41,6 +43,8 @@ public final class CustomizationRewardDraw {
     public static final List<String> RARITIES = List.of("common", "uncommon", "rare", "legendary");
 
     private static final double PPM = 1_000_000.0;
+    /** 등급 확률 합의 허용 오차 — 부동소수 끝자리만 받는다(fixture 일치는 1e-12). */
+    private static final double PROBABILITY_SUM_TOLERANCE = 1e-9;
     private static final long GAMMA = 0x9E3779B97F4A7C15L;
     private static final long MIX_A = 0xBF58476D1CE4E5B9L;
     private static final long MIX_B = 0x94D049BB133111EBL;
@@ -50,6 +54,7 @@ public final class CustomizationRewardDraw {
 
     /**
      * @return 등급 → 확률({@link #RARITIES} 순). 최소 시간 미만이면 전부 0, 이상이면 합이 1 이다
+     * @throws IllegalArgumentException 가중치가 0 이상의 정수가 아니거나, 계산한 확률이 0~1 을 벗어나거나 합이 1 이 아닐 때
      */
     public static Map<String, Double> probabilities(CustomizationRewardPolicy policy, FocusSessionKind location,
                                                     long activeSeconds) {
@@ -80,6 +85,19 @@ public final class CustomizationRewardDraw {
         p.put("uncommon", remaining * uncommon / (common + uncommon));
         p.put("rare", rare);
         p.put("legendary", legendary);
+        double sum = 0;
+        for (Map.Entry<String, Double> entry : p.entrySet()) {
+            double value = entry.getValue();
+            if (!(value >= 0 && value <= 1)) {
+                throw new IllegalArgumentException("등급 확률이 0~1 을 벗어난다 — revision=" + policy.getRevision() + ", "
+                        + location + " " + activeSeconds + "초 " + entry.getKey() + "=" + value);
+            }
+            sum += value;
+        }
+        if (Math.abs(sum - 1) > PROBABILITY_SUM_TOLERANCE) {
+            throw new IllegalArgumentException("등급 확률 합이 1 이 아니다 — revision=" + policy.getRevision() + ", "
+                    + location + " " + activeSeconds + "초 합=" + sum);
+        }
         return p;
     }
 

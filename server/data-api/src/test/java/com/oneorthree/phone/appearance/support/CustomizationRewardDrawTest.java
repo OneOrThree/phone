@@ -242,6 +242,29 @@ class CustomizationRewardDrawTest {
                 session)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    @DisplayName("최대 가산(ppm)이 커서 등급 확률이 0~1 을 벗어나면 재정규화로 덮지 않고 IllegalArgumentException 이다")
+    void outOfRangeProbabilitiesAreRejected() {
+        CustomizationRewardPolicy huge = CustomizationRewardPolicy.builder()
+                .revision(3)
+                .minimumActiveSeconds(everyCategory.getMinimumActiveSeconds())
+                .rareUnlockSeconds(everyCategory.getRareUnlockSeconds())
+                .legendaryUnlockSeconds(everyCategory.getLegendaryUnlockSeconds())
+                .timeHalfSeconds(everyCategory.getTimeHalfSeconds())
+                .rareMaxBonusPpm(1_000_000)
+                .legendaryMaxBonusPpm(1_000_000)
+                .locationWeights(catOnly.getLocationWeights())
+                .categoryWeights(catOnly.getCategoryWeights())
+                .build();
+
+        assertThatThrownBy(() -> CustomizationRewardDraw.probabilities(huge, FocusSessionKind.ISLAND, 3600))
+                .as("일반이 음수가 된다").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> CustomizationRewardDraw.pick(huge, allItems, FocusSessionKind.ISLAND, 1_000_000_000L,
+                UUID.randomUUID())).as("희귀가 1 을 넘는다").isInstanceOf(IllegalArgumentException.class);
+        assertThat(CustomizationRewardDraw.probabilities(huge, FocusSessionKind.SEA, 3600).values())
+                .as("같은 정책이라도 범위 안이면 그대로 쓴다").allSatisfy(p -> assertThat(p).isBetween(0.0, 1.0));
+    }
+
     private static CustomizationRewardItem pick(CustomizationRewardPolicy policy, List<CustomizationRewardItem> items,
                                                 FocusSessionKind location, long seconds, UUID session) {
         return CustomizationRewardDraw.pick(policy, items, location, seconds, session).orElseThrow();

@@ -295,6 +295,28 @@ class CustomizationRewardSettlementIntegrationTest {
     }
 
     @Test
+    @DisplayName("최대 가산이 커서 등급 확률이 0~1 을 벗어나는 정책이면 finish 는 200 이고 보상만 건너뛴다")
+    void outOfRangeProbabilityPolicySkipsOnlyTheReward() {
+        appendRevisionFrom(2, "location_weights", "category_weights");
+        jdbc.update("update customization_reward_policies set rare_max_bonus_ppm = 1000000, "
+                + "legendary_max_bonus_ppm = 1000000 where revision = ?", currentRevision());
+        try {
+            UUID user = newUser();
+            FocusSessionView started = start(user, newIsland(user));
+            backdate(started.id(), 2 * 3600);
+
+            FocusFinishView finished = finish(user, started.id(), started.version(), UUID.randomUUID());
+
+            assertThat(finished.seaReward().grantedProductIds()).as("2시간 섬 — 일반 확률이 음수").isEmpty();
+            assertThat(finished.earnedFish()).as("정산 나머지는 그대로").isEqualTo(120);
+            assertThat(settledReward(started.id())).containsEntry("customization_reward_product_id", null);
+            assertThat(owned(user)).isEmpty();
+        } finally {
+            appendRevisionFrom(2, "location_weights", "category_weights");
+        }
+    }
+
+    @Test
     @DisplayName("다른 출처로 이미 가진 상품이 뽑히면 결과에는 나오지만 보유 행은 그대로 1개이고 사건도 없다")
     void preOwnedWinKeepsTheExistingRow() {
         String only = seedSingleItemRevision("");
