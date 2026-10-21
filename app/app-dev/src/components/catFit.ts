@@ -33,6 +33,8 @@ export type FitPose = { color: string; motion?: string; frame?: number; still?: 
  */
 export function catFitFrameId(fit: CatFit, pose: FitPose): string | null {
   if (!fit.colors.includes(pose.color)) return null;
+  // 독서(read)는 책이 목을 가린다 — 목은 그리지 않는다(README 「6색 자세 자료」, rig 에도 read 프레임이 없다)
+  if (fit.neck && pose.motion === 'read') return null;
   if (pose.still) return fit.stills.includes(pose.still) ? `still/${pose.still}` : null;
   const count = pose.motion ? fit.motions[pose.motion] : undefined;
   const frame = pose.frame ?? 0;

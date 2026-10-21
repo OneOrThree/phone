@@ -40,9 +40,17 @@ public class CustomizationCatalogUseCase {
         if (items == null) {
             throw new UpstreamContractMismatchException("꾸미기 카탈로그 응답이 없습니다");
         }
-        return items.stream().map(i -> new ItemView(i.productId(), i.kind(), i.slot(), i.title(),
-                baseUrl + i.imagePath(), i.width(), i.height(), i.anchorX(), i.anchorY(), i.sortOrder(),
-                i.retiredAt(), i.renderData())).toList();
+        return items.stream().map(this::view).toList();
+    }
+
+    private ItemView view(CustomizationCatalogItem i) {
+        // 크기·앵커 null 은 renderData 로 그리는 집중 보상 행만 — 정적 오버레이 행은 이전 계약대로 넷 다 있어야 한다
+        if (i.renderData() == null
+                && (i.width() == null || i.height() == null || i.anchorX() == null || i.anchorY() == null)) {
+            throw new UpstreamContractMismatchException("꾸미기 카탈로그 정적 행에 크기·앵커가 없습니다");
+        }
+        return new ItemView(i.productId(), i.kind(), i.slot(), i.title(), baseUrl + i.imagePath(), i.width(),
+                i.height(), i.anchorX(), i.anchorY(), i.sortOrder(), i.retiredAt(), i.renderData());
     }
 
     public record ItemView(
