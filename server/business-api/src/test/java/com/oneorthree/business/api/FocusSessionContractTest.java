@@ -598,15 +598,22 @@ class FocusSessionContractTest extends UpstreamTestBase {
     }
 
     /**
-     * 바다 집중 보상 (GROMO-2274) — 상류의 {@code seaReward} 는 공개 두 필드만 내려가고, 섬 세션의 null 은 키째 보존된다.
-     * 상품이 없어도 바다 세션은 객체({@code grantedProductIds:[]})이고, 다음 단계가 없으면 남은 분이 명시 null 이다.
+     * 집중 꾸미기 보상 (GROMO-2274 모양 · GROMO-2301 NEW!) — 상류의 {@code seaReward} 는 공개 세 필드만 내려가고, 구버전
+     * Data 의 null 은 키째 보존된다. 상품이 없어도 객체({@code grantedProductIds:[]})이고, 다음 단계가 없으면 남은 분이 명시
+     * null 이다. {@code newProductIds} 를 모르는 구버전 Data 면 빈 목록으로 채운다.
      */
     @Test
     void finishProjectsTheSeaRewardWithoutLeakingUpstreamFields() throws Exception {
-        String received = "{\"grantedProductIds\":[\"sea-scarf\",\"sea-hat\"],\"minutesToNextTier\":12}";
-        assertFinishSeaReward(received.replace("12}", "12,\"ledger\":1}"), received);
+        String firstWin = "{\"grantedProductIds\":[\"cust.head.hat\"],\"minutesToNextTier\":null,"
+                + "\"newProductIds\":[\"cust.head.hat\"]}";
+        assertFinishSeaReward(firstWin.replace("]}", "],\"ledger\":1}"), firstWin);
+        String duplicate = "{\"grantedProductIds\":[\"cust.head.hat\"],\"minutesToNextTier\":null,"
+                + "\"newProductIds\":[]}";
+        assertFinishSeaReward(duplicate, duplicate);
+        String legacy = "{\"grantedProductIds\":[\"sea-scarf\",\"sea-hat\"],\"minutesToNextTier\":12}";
+        assertFinishSeaReward(legacy, legacy.replace("12}", "12,\"newProductIds\":[]}"));
         String empty = "{\"grantedProductIds\":[],\"minutesToNextTier\":null}";
-        assertFinishSeaReward(empty, empty);
+        assertFinishSeaReward(empty, empty.replace("null}", "null,\"newProductIds\":[]}"));
         assertFinishSeaReward("null", "null");
     }
 

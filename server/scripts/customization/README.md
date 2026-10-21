@@ -10,6 +10,7 @@
 - `server/static/customization/`: 승인된 원본 PNG·자세 보정 JSON·이식 참고용 합성 코드. 파일 내용은 변경하지 않고 이름에 SHA-256 앞 8자를 붙였다.
 - V133: `customization_reward_policies`, `customization_reward_items`.
 - V134: 정책 revision 1과 `catalog_assets` 90종, `customization_reward_items` 90행을 등록한다.
+- V135(GROMO-2301): 정책 revision 2 — 확률은 같고 신발·뗏목 6분류를 뺀 머리·목 20종만 뽑는다. 정산은 가장 큰 revision 을 쓴다. 추첨은 정산 때 서버 난수로 한 번 하고 결과를 `focus_settlements` 에 고정한다(세션 id 로 미리 계산할 수 없다). 신발·뗏목은 revision 1 에 등록만 돼 있고 지급되지 않는다.
 - `reward-design.json`: 승인 엑셀에서 추출한 입력. 파일 해시로 출처를 식별한다.
 - `probability-fixtures.json`: 같은 엑셀에서 계산한 13개 시간의 등급 확률. 2301에서도 호환성 검증에 사용할 수 있다.
 

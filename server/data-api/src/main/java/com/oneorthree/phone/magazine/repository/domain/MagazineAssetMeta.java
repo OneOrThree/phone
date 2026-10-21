@@ -35,7 +35,7 @@ public class MagazineAssetMeta {
     @Column(nullable = false, length = 20)
     private String kind;
 
-    /** {@code free} · {@code season}(바다 시즌 보상으로 owned_products 행이 생겨야 가진 것). */
+    /** {@code free} · {@code season}(owned_products 행이 있어야 가진 것 — 지급하던 바다 단계표는 GROMO-2301 에서 지웠다). */
     @Column(nullable = false, length = 10)
     private String bundle;
 
