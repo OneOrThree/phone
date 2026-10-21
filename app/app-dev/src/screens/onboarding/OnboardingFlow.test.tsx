@@ -63,11 +63,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGeneration = 1;
   applyLocalePref('ko');
-  (useTelescope as jest.Mock).mockReturnValue({
-    items: [destination],
+  (useTelescope as jest.Mock).mockImplementation(({ active }) => ({
+    items: active ? [destination] : [],
     status: 'ready',
     reload: jest.fn(),
-  });
+  }));
   (updateProfile as jest.Mock).mockImplementation(async (body) => ({
     ...body,
     name: body.name,
@@ -129,6 +129,7 @@ test('망원경 재진입은 안내부터 시작하며 실제 세션 시작 성�
   expect(startSea).toHaveBeenCalledWith('island-1');
   expect(current.onboardingStory).toBe('done');
   expect(screen.getByTestId('onboarding-depart')).toBeTruthy();
+  expect(screen.getByText('별빛섬으로 가는 중')).toBeTruthy();
   await pressContinue(screen);
   expect(reset).toHaveBeenCalledWith('sea', '별빛섬');
 });

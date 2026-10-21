@@ -48,6 +48,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const [name, setName] = useState(state.name);
   const [color, setColor] = useState<Color>(state.color);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [departing, setDeparting] = useState<TelescopeItem | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const skipAfterName = useRef(false);
@@ -59,7 +60,8 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   latest.current = e;
   const list = useTelescope({ active: !!e.islands && ['scope', 'ready'].includes(step) });
   const items = previewItems ?? list.items;
-  const selected = items.find((item) => item.islandId === selectedId);
+  const selected =
+    step === 'depart' ? departing : items.find((item) => item.islandId === selectedId);
   const line = storyHasLine(step) ? t(`onboardingStory.${step}`, { name }) : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
@@ -170,6 +172,8 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
         latest.current.reset('sea');
         return;
       }
+      // 목록 훅은 망원경을 닫으면 빈 목록을 돌려주므로 출항 목적지는 별도로 보관한다.
+      setDeparting(selected);
       move('depart');
     } catch (thrown) {
       if (!live()) return;
