@@ -68,7 +68,7 @@ public class AppleTokenRevoker {
         }
     }
 
-    /** 절대 던지지 않는다. */
+    /** {@link Exception} 은 하나도 던지지 않는다({@link Error} 는 그대로 올라간다). */
     public void revoke(UUID userId, String authorizationCode) {
         if (!enabled()) {
             log.warn("Apple 토큰 폐기 건너뜀(설정 없음) — userId={}", userId);
@@ -89,6 +89,9 @@ public class AppleTokenRevoker {
             }
             post(userId, "/auth/revoke", form("client_id", clientId, "client_secret", secret, "token", revoked,
                     "token_type_hint", refresh != null ? "refresh_token" : "access_token"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Apple 토큰 폐기 중단(인터럽트) — userId={}", userId);
         } catch (Exception e) {
             // 메시지에 비밀이 섞일 수 있어 클래스만 남긴다.
             log.warn("Apple 토큰 폐기 실패 — userId={}, {}", userId, e.getClass().getSimpleName());
