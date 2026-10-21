@@ -179,6 +179,43 @@ beforeEach(async () => {
 });
 
 describe('IslandProjection', () => {
+  test('휴식에서 빠졌다가 같은 화면에서 다시 들어와도 이름·털색·외양을 잃지 않는다 (GROMO-2390)', () => {
+    const p = new IslandProjection('i1');
+    const look = { head: 'hat-1', neck: 'scarf-1', version: 2 };
+    p.loadRest(
+      restSnap(
+        [
+          {
+            userId: 'u1',
+            name: '모모',
+            catColor: 'ginger',
+            appearance: look,
+            restSeat: 2,
+            restStartedAt: NOW,
+          },
+        ],
+        [wm('rest.member', 'u1', 1)],
+      ),
+    );
+    p.apply(restEvent('u1', 2, { status: 'active' })); // 휴식 해제 — 목록에서 빠진다
+    assert.equal(p.rest().length, 0);
+    p.apply(restEvent('u1', 3)); // 같은 화면에서 다시 휴식
+    assert.equal(p.rest()[0].name, '모모');
+    assert.equal(p.rest()[0].catColor, 'ginger');
+    assert.deepEqual(p.rest()[0].appearance, look);
+  });
+
+  test('집중 완료 뒤 같은 화면에서 새 집중으로 다시 들어와도 외양을 잃지 않는다', () => {
+    const p = new IslandProjection('i1');
+    const look = { head: 'hat-1', neck: null, version: 4 };
+    p.loadFocus(focusSnap([focusItem('u1', { appearance: look })], [wm('focus.member', 'u1', 1)]));
+    p.apply(focusEvent('u1', 2, { status: 'completed' }));
+    assert.equal(p.focus().length, 0);
+    p.apply(focusEvent('u1', 3));
+    assert.deepEqual(p.focus()[0].appearance, look);
+    assert.equal(p.focus()[0].catColor, 'ginger');
+  });
+
   test('스냅숏이 정본이다 — 목록을 통째로 교체하고 워터마크를 심는다', () => {
     const p = new IslandProjection('i1');
     p.loadFocus(

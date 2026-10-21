@@ -211,6 +211,8 @@ export class IslandProjection {
   private focusMap = new Map<string, LiveFocusMember>();
   private restMap = new Map<string, LiveRestMember>();
   private versions = new Map<string, number>();
+  /** 사용자별 마지막 이름·털색·외양 — 목록에서 빠졌다가(휴식 해제·집중 완료) 이벤트만으로 다시 들어올 때 프로필을 잃지 않게 한다. */
+  private profiles = new Map<string, Pick<FocusMember, 'name' | 'catColor' | 'appearance'>>();
   private seenEmotes = new Set<string>();
   private emoteQueue: string[] = [];
   private emoteMap = new Map<string, LiveEmote>();
@@ -244,6 +246,7 @@ export class IslandProjection {
     const anchorMs = ms(snap.serverNow);
     for (const m of snap.items ?? []) {
       if (!m || typeof m.userId !== 'string' || typeof m.sessionId !== 'string') continue;
+      this.profiles.set(m.userId, { name: m.name, catColor: m.catColor, appearance: m.appearance });
       this.focusMap.set(m.userId, {
         ...m,
         status: m.status === 'paused' ? 'paused' : 'active',
@@ -259,6 +262,11 @@ export class IslandProjection {
     const anchorMs = ms(snap.serverNow);
     for (const m of snap.items ?? []) {
       if (!m || typeof m.userId !== 'string') continue;
+      this.profiles.set(m.userId, {
+        name: m.name,
+        catColor: m.catColor,
+        appearance: m.appearance ?? null,
+      });
       this.restMap.set(m.userId, {
         ...m,
         anchorMs: Number.isFinite(anchorMs) ? anchorMs : Date.now(),
@@ -351,11 +359,12 @@ export class IslandProjection {
             : null,
         };
       }
+      const profile = prev ?? this.profiles.get(userId);
       this.focusMap.set(userId, {
         userId,
-        name: prev?.name ?? null,
-        catColor: prev?.catColor ?? null,
-        appearance: prev?.appearance ?? null,
+        name: profile?.name ?? null,
+        catColor: profile?.catColor ?? null,
+        appearance: profile?.appearance ?? null,
         sessionId: str(p?.sessionId) ?? prev?.sessionId ?? '',
         subject: str(p?.subject) ?? prev?.subject ?? '',
         activeSeconds: num(p?.activeSeconds) ?? 0,
@@ -380,11 +389,12 @@ export class IslandProjection {
     }
     if (status === 'paused') {
       const prev = this.restMap.get(userId);
+      const profile = prev ?? this.profiles.get(userId);
       this.restMap.set(userId, {
         userId,
-        name: prev?.name ?? null,
-        catColor: prev?.catColor ?? null,
-        appearance: prev?.appearance ?? null,
+        name: profile?.name ?? null,
+        catColor: profile?.catColor ?? null,
+        appearance: profile?.appearance ?? null,
         restSeat: num(p?.restSeat) ?? prev?.restSeat ?? null,
         restStartedAt: str(p?.restStartedAt) ?? prev?.restStartedAt ?? null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
