@@ -5401,10 +5401,17 @@
           "minutesToNextTier": {
             "type": "integer",
             "format": "int32"
+          },
+          "newProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
-          "grantedProductIds"
+          "grantedProductIds",
+          "newProductIds"
         ]
       },
       "AuthSessionResult": {
@@ -7862,6 +7869,10 @@
           "retiredAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "renderData": {
+            "type": "object",
+            "additionalProperties": {}
           }
         },
         "required": [

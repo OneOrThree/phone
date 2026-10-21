@@ -7074,7 +7074,6 @@
             "type": "string",
             "enum": [
               "MEMBER",
-              "KICKED",
               "NONE"
             ]
           },
@@ -7791,6 +7790,12 @@
           "minutesToNextTier": {
             "type": "integer",
             "format": "int32"
+          },
+          "newProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -9224,7 +9229,6 @@
             "type": "string",
             "enum": [
               "MEMBER",
-              "KICKED",
               "NONE"
             ]
           },
@@ -9307,7 +9311,6 @@
             "type": "string",
             "enum": [
               "MEMBER",
-              "KICKED",
               "NONE"
             ]
           },
@@ -11079,6 +11082,10 @@
           "retiredAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "renderData": {
+            "type": "object",
+            "additionalProperties": {}
           }
         }
       },
