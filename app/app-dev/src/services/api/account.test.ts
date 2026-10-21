@@ -79,6 +79,20 @@ test('withdrawAccount — DELETE /me 에 확인 본문과 멱등 키를 싣는�
   assert.deepEqual(result, { deleted: true });
 });
 
+test('withdrawAccount — Apple 코드를 넘기면 본문에 싣고, 없으면 키를 생략한다', async () => {
+  stub([{ status: 200, body: { data: { deleted: true } } }]);
+
+  await withdrawAccount('k1', 'apple-code');
+  await withdrawAccount('k2', '');
+
+  assert.deepEqual(body(calls[0]), {
+    confirmation: 'DELETE',
+    appleAuthorizationCode: 'apple-code',
+  });
+  // 빈 값·null 은 서버가 400 이라 키 자체를 보내지 않는다
+  assert.deepEqual(body(calls[1]), { confirmation: 'DELETE' });
+});
+
 test('대표 섬 변경은 PATCH /me의 mainIslandId만 보내고 재시도 키를 유지한다', async () => {
   stub([
     {
