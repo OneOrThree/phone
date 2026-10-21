@@ -3643,7 +3643,7 @@
       "id": 93,
       "type": "timeseries",
       "title": "강퇴 재검사 중단 / 초",
-      "description": "강퇴 재검사를 못 하고 세션 이동을 중단한 수.",
+      "description": "강퇴 재검사로 이동 전달을 멈춘 횟수 — 재판정 예약(세션×섬)마다 1, 통과 판정 때만 재개",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -3690,12 +3690,62 @@
       }
     },
     {
+      "id": 94,
+      "type": "timeseries",
+      "title": "이동 actor 퇴출 / 초 (reason)",
+      "description": "sweep(dead_instance)·PING 대조(ghost)·빠진 세션 EVICTED(missing) — 롤링 배포 중 dead_instance 일시 상승 뒤 0 이 정상",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 281,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason,instance)(rate(movement_cluster_evict_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} {{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 75,
       "type": "row",
       "title": "Outbox relay (data-api · 티켓 2337·2338)",
       "gridPos": {
         "x": 0,
-        "y": 281,
+        "y": 289,
         "w": 24,
         "h": 1
       },
@@ -3713,7 +3763,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 282,
+        "y": 290,
         "w": 12,
         "h": 8
       },
@@ -3763,7 +3813,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 282,
+        "y": 290,
         "w": 12,
         "h": 8
       },
@@ -3813,7 +3863,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 290,
+        "y": 298,
         "w": 12,
         "h": 8
       },
@@ -3875,7 +3925,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 290,
+        "y": 298,
         "w": 12,
         "h": 8
       },
@@ -3937,7 +3987,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 298,
+        "y": 306,
         "w": 12,
         "h": 8
       },
@@ -4000,7 +4050,7 @@
       "title": "인가 캐시 · 아웃바운드 (realtime · 티켓 2340·2342)",
       "gridPos": {
         "x": 0,
-        "y": 306,
+        "y": 314,
         "w": 24,
         "h": 1
       },
@@ -4018,7 +4068,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 307,
+        "y": 315,
         "w": 12,
         "h": 8
       },
@@ -4068,7 +4118,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 307,
+        "y": 315,
         "w": 12,
         "h": 8
       },
@@ -4118,7 +4168,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 315,
+        "y": 323,
         "w": 12,
         "h": 8
       },
@@ -4174,7 +4224,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 315,
+        "y": 323,
         "w": 12,
         "h": 8
       },
@@ -4224,7 +4274,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 323,
+        "y": 331,
         "w": 12,
         "h": 8
       },
@@ -4274,7 +4324,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 323,
+        "y": 331,
         "w": 12,
         "h": 8
       },
@@ -4324,7 +4374,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 331,
+        "y": 339,
         "w": 12,
         "h": 8
       },
@@ -4374,7 +4424,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 331,
+        "y": 339,
         "w": 12,
         "h": 8
       },
@@ -4424,7 +4474,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 339,
+        "y": 347,
         "w": 12,
         "h": 8
       },
@@ -4480,7 +4530,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 339,
+        "y": 347,
         "w": 12,
         "h": 8
       },
