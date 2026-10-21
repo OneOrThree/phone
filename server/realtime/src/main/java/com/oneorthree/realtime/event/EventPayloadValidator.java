@@ -66,6 +66,9 @@ final class EventPayloadValidator {
             uuidField(payload, "userId");
             instantField(payload, "arrivedAt", false);
         }
+        if (type == RealtimeEventType.MEMBER_APPEARANCE_UPDATED) {
+            validateMemberAppearance(payload);
+        }
         if (type == RealtimeEventType.FOCUS_EMOTE) {
             validateEmote(payload);
         }
@@ -87,6 +90,31 @@ final class EventPayloadValidator {
                     && !"village_points".equals(textField(payload, "currency"))) {
                 throw new IllegalArgumentException("자산 소유자와 재화가 일치하지 않습니다.");
             }
+        }
+    }
+
+    /** 외양 슬롯 — 값은 문자열 또는 null 이고 키가 없어도 된다(미착용). */
+    private static final Set<String> APPEARANCE_SLOTS = Set.of("clothes", "decor", "head", "neck", "shoes");
+
+    /**
+     * 외양 변경 봉투의 도메인 불변식 (GROMO-2389) — 주인·외양 객체·양의 version. {@code version} 의 봉투 일치는 위
+     * 공통 검사가 본다. 이 사건은 바다 방 상태(Redis)와 앱 전달 둘 다에 쓰이므로 부수 효과 전에 호출자가 먼저 부른다.
+     */
+    private static void validateMemberAppearance(JsonNode payload) {
+        uuidField(payload, "userId");
+        JsonNode appearance = payload.get("appearance");
+        if (appearance == null || !appearance.isObject()) {
+            throw new IllegalArgumentException("외양 사건에 appearance 객체가 없습니다.");
+        }
+        for (String slot : APPEARANCE_SLOTS) {
+            JsonNode value = appearance.get(slot);
+            if (value != null && !value.isNull() && !value.isString()) {
+                throw new IllegalArgumentException("외양 슬롯 값은 문자열 또는 null 이어야 합니다.");
+            }
+        }
+        JsonNode version = payload.get("version");
+        if (version == null || !version.isIntegralNumber() || !version.canConvertToLong() || version.longValue() < 1) {
+            throw new IllegalArgumentException("외양 version 은 양수여야 합니다.");
         }
     }
 

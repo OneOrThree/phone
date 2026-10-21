@@ -313,6 +313,28 @@ class SeaRoomIntegrationTest {
     }
 
     @Test
+    @DisplayName("[2389] 계약 밖 외양 payload(appearance 누락·슬롯 타입 틀림·version 불일치)는 Redis 를 건드리지 않고, 뒤의 정상 사건은 적용된다")
+    void malformedAppearanceEventsNeverTouchRedis() throws Exception {
+        UUID alice = sailor();
+        Client a = connect(alice);
+        roomOf(a.enter());
+        // 사건마다 eventId 가 새로여야 한다 — 같은 id 는 수신 기록 중복으로 건너뛴다
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"appearance\":{", "\"noAppearance\":{"));
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"head\":\"head-new\"", "\"head\":5"));
+        // 봉투 version(2) 과 params.version 이 어긋난다 — 큰 version 이 저장되면 이후 정상 사건이 모두 무시된다
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"version\":2}}", "\"version\":99}}"));
+        postEvent(appearanceEvent(alice, null, 2, "head-new")
+                .replace("\"userId\":\"" + alice + "\",\"appearance\"", "\"userId\":\"nope\",\"appearance\""));
+
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "head")).isFalse();
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "appearanceVersion")).isFalse();
+
+        postEvent(appearanceEvent(alice, null, 2, "head-new"));
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("head-new");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "appearanceVersion")).isEqualTo("2");
+    }
+
+    @Test
     @DisplayName("바다 밖 사용자의 사건·불량 params 는 200 이고 키도 프레임도 만들지 않는다")
     void eventsOutsideTheSeaAreNoOps() throws Exception {
         UUID alice = sailor();

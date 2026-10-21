@@ -171,6 +171,9 @@ public class InboundEventService {
             seaRooms.applyMemberUpdated(envelope);
         } else {
             if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)) {
+                if (!validAppearance(eventId, envelope)) {
+                    return true; // 계약 밖 payload — Redis 도 앱 전달도 건드리지 않는다(수신 기록만 남겨 재전달을 끊는다)
+                }
                 // 바다 방에 있는 사용자의 머리·목 표시를 고친다(GROMO-2389) — 앱 전달과는 별개의 부수 효과다.
                 seaRooms.applyAppearanceUpdated(envelope);
             }
@@ -178,6 +181,30 @@ public class InboundEventService {
             deliver(eventId, type, envelope);
         }
         return true;
+    }
+
+    /**
+     * 외양 사건을 부수 효과(바다 방 Redis 갱신)·전달 전에 검증한다 — 늦게 발견하면 잘못 큰 version 이 이미 저장돼 이후 정상
+     * 사건이 모두 무시된다. 실패는 400 이 아니라 «기록만 하고 끝»이다(relay 가 permanent 로 적어 순서 축을 막지 않게,
+     * 다른 type 의 봉투 검증 실패와 같은 취급).
+     */
+    private static boolean validAppearance(String eventId, JsonNode envelope) {
+        try {
+            JsonNode params = envelope.get("params");
+            if (params == null || !params.isObject()) {
+                throw new IllegalArgumentException("외양 사건 params 가 객체가 아닙니다.");
+            }
+            JsonNode subject = envelope.get("subjectId");
+            UUID islandId = subject == null || subject.isNull() ? null : UUID.fromString(requiredText(envelope,
+                    "subjectId"));
+            EventPayloadValidator.validate(RealtimeEventType.MEMBER_APPEARANCE_UPDATED, islandId,
+                    longValue(envelope, "version"), params);
+            return true;
+        } catch (RuntimeException e) {
+            log.error("외양 사건 검증 실패 — 적용·전달하지 않는다. eventId={} reason={}", eventId,
+                    e.getClass().getSimpleName());
+            return false;
+        }
     }
 
     /**

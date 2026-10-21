@@ -222,6 +222,11 @@ class EventRouterTest {
             payload.put("userId", user.toString());
             payload.put("arrivedAt", Instant.now().toString());
         }
+        if (type == RealtimeEventType.MEMBER_APPEARANCE_UPDATED) {
+            // 외양 사건은 주인·외양 객체·양의 version 까지 본다(GROMO-2389)
+            payload.put("userId", user.toString());
+            payload.putObject("appearance").put("head", "head-ribbon").putNull("neck");
+        }
         if (type == RealtimeEventType.WALLET_UPDATED || type == RealtimeEventType.INVENTORY_UPDATED) {
             payload.put("ownerType", islandId == null ? "user" : "island");
             payload.put("ownerId", (islandId == null ? user : islandId).toString());

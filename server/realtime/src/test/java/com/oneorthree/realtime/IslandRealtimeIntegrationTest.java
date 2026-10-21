@@ -380,6 +380,25 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
+    @DisplayName("계약 밖 외양 payload(슬롯 타입 틀림·version 불일치)는 200 으로 받되 섬 토픽으로 전달하지 않는다 (GROMO-2389)")
+    void malformedAppearanceEventsAreNeverDelivered() throws Exception {
+        StompSession residentSession = connect(focusing);
+        BlockingQueue<Map<String, Object>> resident = subscribe(residentSession, "events");
+        Map<String, Object> probe = null;
+        for (int attempt = 0; attempt < 30 && probe == null; attempt++) {
+            postEvent(memberArrivedEvent(resting));
+            probe = resident.poll(500, TimeUnit.MILLISECONDS);
+        }
+        assertThat(probe).as("구독이 살아 있다").isNotNull();
+        resident.clear();
+
+        postEvent(appearanceEvent(resting, island, 4).replace("\"head\":\"head-ribbon\"", "\"head\":5"));
+        postEvent(appearanceEvent(resting, island, 4).replace("\"version\":4}}", "\"version\":9}}"));
+
+        assertThat(resident.poll(2, TimeUnit.SECONDS)).isNull();
+    }
+
+    @Test
     @DisplayName("schema 2 · userId 누락 · 계약 밖 status 인 주민 사건은 200 으로 받되 방송하지 않는다")
     void malformedMemberEventsAreAcceptedButNeverBroadcast() throws Exception {
         // P2-①: 서비스 토큰은 「Data 가 보냈다」만 증명한다 — 내용이 계약을 지킨다는 보증이 아니다.
