@@ -114,6 +114,8 @@ iOS·Android [세션 리플레이](https://us.posthog.com/project/669473/replay)
 
 프로젝트 토큰과 수집 호스트는 각각 `EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN`, `EXPO_PUBLIC_POSTHOG_HOST`로 빌드별 재정의할 수 있습니다. 기존 키가 빌드 환경변수에 남아 있으면 기본값보다 우선하므로 교체해야 합니다. 빈 토큰은 수집을 끄며, dev TestFlight는 기존대로 빈 토큰을 강제합니다.
 
+Android CI의 main 릴리스는 AWS Secrets Manager `gromo/prod/android`의 `POSTHOG_PROJECT_TOKEN`과 `POSTHOG_REGION`을 읽어 위 SDK 환경변수에 적용합니다. `POSTHOG_REGION`은 `US Cloud`·`EU Cloud` 또는 해당 PostHog 주소(예: `https://us.i.posthog.com`)로 지정할 수 있으며 수집 호스트로 변환됩니다. 두 값이 없거나 유효하지 않으면 릴리스 빌드를 중단합니다. 심볼·소스맵 업로드 인증은 별도의 GitHub secret `POSTHOG_CLI_API_KEY`를 사용하며, 이 개인 API 키는 앱에 포함하지 않습니다. CI는 `npm ci`로 설치한 고정 버전 `posthog-cli`를 사용합니다.
+
 ### 첫 섬·집중, 섬·친구, 오류 대시보드
 
 [Catus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)은 로그인 → 첫 섬 도착 → 첫 실제 집중 → 다른 날 재집중과 집중 습관·장소별 집중을 보는 9개 지표로 구성합니다. [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)의 6개 지표와 [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)의 4개 지표, [섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)의 6개 지표는 별도 대시보드에서 확인합니다. 성장·경제·장소별 집중 카드 8개는 게시·SQL 검증을 마쳤으며 필요한 이벤트는 아직 미계측입니다. 각 카드에는 집계 대상과 데이터의 의미를 짧게 설명합니다. 저장된 정의·상세 집계 기준·이벤트 구현 상태는 [analytics/README.md](analytics/README.md)에서 연결합니다.
