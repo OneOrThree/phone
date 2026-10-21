@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { assets } from '@/constants/assets';
 import { art, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { CatAvatar } from '@/components/CatAvatar';
+import { appearanceOutfit } from '@/components/CatOutfitLayers';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { displayIsland, dayKey, earnedBy, islandFocusRecord, type State } from '@/services/model';
 import { getSession } from '@/services/api/session';
@@ -95,7 +96,12 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           (m, index, rows) =>
             m.userId !== me && rows.findIndex((r) => r.userId === m.userId) === index,
         )
-        .map((m) => ({ id: m.userId, name: m.name ?? '주민', color: m.catColor ?? 'black' }))
+        .map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: m.catColor ?? 'black',
+          outfit: appearanceOutfit(m.appearance),
+        }))
     : island.members;
   const resident = memberRows.find((m) => m.id === memberId);
   const localResident = !server ? island.members.find((m) => m.id === memberId) : undefined;
@@ -440,13 +446,11 @@ export function Diary({ e, font }: { e: any; font?: string }) {
                 }}
                 style={({ pressed }) => [styles.resident, pressed && styles.pressed]}
               >
-                <Image
-                  source={
-                    assets[`characters/cat/${m.color}/idle.png`] ??
-                    assets['characters/cat/black/idle.png']
-                  }
-                  style={styles.avatar}
-                  resizeMode="contain"
+                <CatAvatar
+                  color={m.color}
+                  outfit={'outfit' in m ? m.outfit : undefined}
+                  still="idle"
+                  size={D.avatarSize}
                 />
                 <T style={styles.residentName}>{m.name}</T>
               </Pressable>
@@ -459,13 +463,11 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     return (
       <>
         <View style={styles.profile}>
-          <Image
-            source={
-              assets[`characters/cat/${resident.color}/idle.png`] ??
-              assets['characters/cat/black/idle.png']
-            }
-            style={styles.avatar}
-            resizeMode="contain"
+          <CatAvatar
+            color={resident.color}
+            outfit={'outfit' in resident ? resident.outfit : undefined}
+            still="idle"
+            size={D.avatarSize}
           />
           <T style={styles.profileName}>{resident.name}</T>
         </View>
@@ -954,7 +956,6 @@ const styles = StyleSheet.create({
     borderRadius: semanticTokens.radius.control,
   },
   residentName: { fontSize: F.label, fontWeight: F.bold, textAlign: 'center' },
-  avatar: { width: D.avatarSize, height: D.avatarSize },
   profile: { flexDirection: 'row', alignItems: 'center', gap: S.control },
   profileName: { fontSize: F.heading },
   tableRow: {

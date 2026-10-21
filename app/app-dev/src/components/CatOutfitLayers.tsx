@@ -64,6 +64,13 @@ export const outfitOf = (state: { equipped: Outfit }): Outfit => ({
   shoes: state.equipped.shoes ?? null,
 });
 
+/** 서버가 남의 착용으로 주는 appearance(타입이 unknown 이거나 옛 서버에 head·neck 이 없을 수 있다)에서 머리·목만 꺼낸다(GROMO-2391). */
+export function appearanceOutfit(raw: unknown): Outfit {
+  const a = (typeof raw === 'object' && raw ? raw : {}) as Record<string, unknown>;
+  const id = (v: unknown) => (typeof v === 'string' ? v : null);
+  return { head: id(a.head), neck: id(a.neck) };
+}
+
 /** 장착 중인 항목을 shoes → neck → head 순으로 — 카탈로그에 없는 id 는 건너뛴다. */
 export function outfitLayers(outfit: Outfit, catalog: CatalogTable): CatalogEntry[] {
   return OUTFIT_ORDER.flatMap((slot) => {
@@ -77,7 +84,7 @@ export function outfitLayers(outfit: Outfit, catalog: CatalogTable): CatalogEntr
  * 카탈로그 그림으로 고양이 위에 머리·목·신발을 겹친다(GROMO-2311). 부모는 고양이와 같은 정사각 상자(position 이 있는 View)여야 한다.
  * 그림을 못 읽으면 아무것도 그리지 않는다(Image 실패는 조용히 비어 보인다).
  *
- * - 정적 오버레이(오리 모자 등)는 정지 그림(pose 없음·still) 위에만 그린다 — 애니메이션 프레임 좌표가 없다.
+ * - 정적 오버레이(오리 모자 등)는 정지 그림(pose 없음·idle 등 still) 위에만 그린다 — 애니메이션 프레임 좌표가 없고, avatar 는 크기·위치가 달라 그리지 않는다.
  * - cat-fit 항목(GROMO-2382)은 pose 가 자료에 있는 털색·자세·프레임일 때만 그린다(6색 × walk·focus·reel·blink·read +
  *   idle·loaf·avatar). 그 밖의 자세(던지기·기지개 등)는 그동안만 숨긴다 — 다른 자세 좌표를 빌려 쓰지 않는다.
  */
@@ -85,7 +92,9 @@ export function CatOutfitLayers({ outfit, pose }: { outfit: Outfit; pose?: Outfi
   const catalog = useCustomizationCatalog();
   const [measured, setMeasured] = useState(0);
   const layers = outfitLayers(outfit, catalog);
-  const statics = !pose || pose.still ? layers.filter((entry) => !entry.catFit) : [];
+  // 프로필 그림(avatar)은 고양이를 1.09배·아래로 옮겨 그려 idle 512 상자 기준 정적 오버레이가 어긋난다 — 그리지 않는다(GROMO-2391)
+  const statics =
+    !pose || (pose.still && pose.still !== 'avatar') ? layers.filter((entry) => !entry.catFit) : [];
   // 검증 밖 프레임에서도 레이어는 마운트해 둬 그림·rig 를 다시 받지 않는다(그 프레임만 비운다). 자료에 없는 털색은 받지도 않는다
   const fits = pose
     ? FIT_ORDER.flatMap((slot) =>

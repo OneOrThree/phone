@@ -24,6 +24,9 @@ export type FriendItem = {
   focusStartedAt: string | null;
   focusTagName: string | null;
   mainIslandName: string | null;
+  /** 친구 고양이 색·착용(GROMO-2389) — 미선택·탈퇴·옛 서버는 null/없음. */
+  catColor?: string | null;
+  appearance?: unknown;
 };
 
 /** 받은·보낸 요청의 한 건 — 수락·거절·취소는 `requestId` 를 쓴다(`userId` 가 아니다). */
@@ -33,6 +36,9 @@ export type FriendRequestItem = {
   nickname: string | null;
   tierLevel: number | null;
   createdAt: string;
+  /** 서버가 아직 안 싣는 목록이라 선택 필드 — 없으면 앱이 흰색. */
+  catColor?: string | null;
+  appearance?: unknown;
 };
 
 /** 나와의 관계 — 검색 결과의 버튼·배지 축. PENDING 은 보낸 것과 받은 것을 구분하지 않는다. */
@@ -45,6 +51,8 @@ export type FriendSearchItem = {
   tierLevel: number | null;
   occupation: string | null;
   relation: FriendRelation;
+  catColor?: string | null;
+  appearance?: unknown;
 };
 
 export type FriendsScreen = {

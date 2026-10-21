@@ -117,6 +117,17 @@ test('cat-fit 항목은 자세를 모르는 정지 그림에서 숨기고, 자�
   expect(calico.toJSON()).toBeNull();
 });
 
+test('프로필 그림(still/avatar)은 고양이를 키워 그려 정적 오버레이를 숨기고 cat-fit 만 그린다', async () => {
+  const avatar = await render(
+    <CatOutfitLayers
+      outfit={{ head: 'mandarin', neck: 'scarf' }}
+      pose={{ color: 'ginger', still: 'avatar', size: 100 }}
+    />,
+  );
+  expect(avatar.getByTestId('outfit-fit')).toBeTruthy();
+  expect(avatar.queryByTestId('outfit-neck')).toBeNull();
+});
+
 test('OutfitItemArt — cat-fit 은 대표 영역만 잘라 상자에 맞추고, 정적 오버레이는 그림 전체', async () => {
   const art = await render(<OutfitItemArt entry={mockTable.mandarin} size={120} testID="art" />);
   const scale = 120 / 611;

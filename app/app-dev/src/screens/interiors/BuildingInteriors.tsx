@@ -61,6 +61,8 @@ import { useBoardNotices } from './useBoardNotices';
 import { isNearScrollEnd } from '@/utils/scrollEnd';
 import { useMailbox } from './useMailbox';
 import { Guestbook } from './Guestbook';
+import { CatAvatar } from '@/components/CatAvatar';
+import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -2926,7 +2928,9 @@ type QuestView = Omit<Quest, 'rate'> & {
 type ResidentRate = {
   id: string;
   name: string;
-  color: Cat;
+  // 서버가 털색을 안 준 주민(탈퇴 등)은 null — 그릴 때 중립 gray 로 둔다
+  color: string | null;
+  outfit?: Outfit;
   rate: number | null;
   achieved?: boolean;
   claimed?: boolean;
@@ -3890,6 +3894,7 @@ function boardFromApp(e: any) {
         id,
         name: id === 'me' ? `${state.name} · 나` : (who?.name ?? '떠난 주민'),
         color: id === 'me' ? state.color : (who?.color ?? 'gray'),
+        outfit: id === 'me' ? outfitOf(state) : undefined,
         rate: q ? questMemberRate(state, q, id, i.id, now) : null,
       };
     });
@@ -4262,13 +4267,14 @@ export function Board({
     ? serverQuests
     : (app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) })));
   const residentsOf = (quest: QuestView): ResidentRate[] => {
-    // 서버 경로의 주민 목록은 progress GET 이 정본 — 응답에 털색이 없으니 중립 자리표시자다.
+    // 서버 경로의 주민 목록은 progress GET 이 정본 — 털색·착용도 응답 값을 쓴다(GROMO-2389).
     if (serverBoard) {
       const open = board.questDetail?.occurrenceId === quest.id ? board.questDetail : null;
       return (open?.members ?? []).map((m) => ({
         id: m.userId,
         name: m.name ?? '주민',
-        color: 'gray' as Cat,
+        color: m.catColor ?? null,
+        outfit: appearanceOutfit(m.appearance),
         rate: m.rate,
         achieved: m.achieved,
         claimed: m.claimed,
@@ -5481,7 +5487,7 @@ export function Board({
                 주민별 달성률
               </Text>
               <View>
-                {residentsOf(quest).map(({ id, name, color, rate, achieved, claimed }) => {
+                {residentsOf(quest).map(({ id, name, color, outfit, rate, achieved, claimed }) => {
                   const unknown = rate == null;
                   return (
                     <View
@@ -5498,11 +5504,9 @@ export function Board({
                         borderStyle: 'dashed',
                       }}
                     >
-                      <Picture
-                        source={interiorArt.avatars[color]}
-                        label={`${name} 고양이 프로필`}
-                        style={{ width: 42, height: 42 }}
-                      />
+                      <View accessible accessibilityLabel={`${name} 고양이 프로필`}>
+                        <CatAvatar color={color ?? 'gray'} outfit={outfit} size={42} />
+                      </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={boardFont(14, 1.6, '700')}>
                           {name}
@@ -7541,19 +7545,27 @@ type LetterView = {
   friendId: string;
   from: string;
   island: string;
-  color: Cat;
+  color: string | null;
+  outfit?: Outfit;
   time: string;
   body: string;
   // 서버 목록 경로에서만 온다 — 읽은 편지를 옅게 그리는 데 쓴다.
   isRead?: boolean;
 };
-type FriendView = { id: string; name: string; island: string; color: Cat };
+type FriendView = {
+  id: string;
+  name: string;
+  island: string;
+  color: string | null;
+  outfit?: Outfit;
+};
 type ChatView = {
   id: string;
   name: string;
   text: string;
   time: string;
-  color: Cat;
+  color: string | null;
+  outfit?: Outfit;
   mine: boolean;
   failed?: boolean;
 };
@@ -7687,11 +7699,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     scopeKey: island ? String(island.id) : 'mock',
     chatActive: e?.route === 'chat',
   });
-  // 서버는 아바타 색을 주지 않는다 — userId 로 deterministic 하게 고른다.
-  const mailCat = (id: string): Cat =>
-    (['gray', 'cream', 'ginger', 'black', 'calico', 'white'] as Cat[])[
-      [...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 6
-    ];
+  // 우체통 낙서 작성자만 서버가 털색·착용을 준다(GROMO-2389) — 친구·편지 상대는 값이 없어 null(중립 gray 로 그린다).
   const friendIsland = (userId: string) =>
     mail.friends.find((f) => f.userId === userId)?.mainIslandName ?? '';
   const friends: FriendView[] = serverMail
@@ -7699,7 +7707,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         id: f.userId,
         name: f.nickname ?? '알 수 없음',
         island: f.mainIslandName ?? '',
-        color: mailCat(f.userId),
+        color: f.catColor ?? null,
+        outfit: appearanceOutfit(f.appearance),
       }))
     : state
       ? (state.friends ?? [])
@@ -7712,7 +7721,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         friendId: l.counterpartUserId,
         from: l.counterpartNickname ?? '알 수 없음',
         island: friendIsland(l.counterpartUserId),
-        color: mailCat(l.counterpartUserId),
+        color: l.catColor ?? null,
+        outfit: appearanceOutfit(l.appearance),
         time: letterTime(Date.parse(l.createdAt), now),
         body: l.content,
         isRead: l.isRead,
@@ -7736,7 +7746,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           friendId: mail.detail.senderId,
           from: mail.detail.senderNickname ?? '알 수 없음',
           island: friendIsland(mail.detail.senderId),
-          color: mailCat(mail.detail.senderId),
+          color: mail.detail.catColor ?? null,
+          outfit: appearanceOutfit(mail.detail.appearance),
           time: letterTime(Date.parse(mail.detail.createdAt), now),
           body: mail.detail.content,
         }
@@ -7765,7 +7776,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         name: m.name ?? '알 수 없음',
         text: m.text,
         time: chatTime(Date.parse(m.createdAt), now),
-        color: mailCat(m.userId),
+        color: m.catColor ?? null,
+        outfit: appearanceOutfit(m.appearance),
         mine: m.userId === mail.myId,
         failed: false,
       }))
@@ -7866,7 +7878,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 차단 판정이 true로 바뀌는 순간 한 번만 상세를 닫는다.
   }, [serverMail, route, mail.detailBlocked]);
 
-  const catAvatar = (color: Cat, size = 34) => (
+  const catAvatar = (color: string | null, size = 34, outfit?: Outfit) => (
     <View
       style={{
         width: size,
@@ -7881,11 +7893,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         boxShadow: '0 2px 0 #b58f6b',
       }}
     >
-      <Image
-        source={interiorArt.avatars[color]}
-        resizeMode="cover"
-        style={{ width: size, height: size }}
-      />
+      <CatAvatar color={color ?? 'gray'} outfit={outfit} size={size} />
     </View>
   );
 
@@ -8321,7 +8329,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 key={m.id}
                 style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: 7 }}
               >
-                {catAvatar(m.color, 30)}
+                {catAvatar(m.color, 30, m.outfit)}
                 <View
                   style={{
                     flex: 1,
@@ -8506,7 +8514,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         ]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
-          {catAvatar(openedLetter.color, 40)}
+          {catAvatar(openedLetter.color, 40, openedLetter.outfit)}
           <View style={{ flex: 1 }}>
             <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
             <Text
@@ -8641,7 +8649,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 transform: chosen === friend ? [{ translateX: 3 }] : undefined,
               }}
             >
-              {catAvatar(friend.color, 38)}
+              {catAvatar(friend.color, 38, friend.outfit)}
               <View style={{ flex: 1 }}>
                 <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
                 <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>

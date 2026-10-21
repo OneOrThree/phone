@@ -50,6 +50,8 @@ export type FocusStatsIsland = {
     userId: string;
     name: string | null;
     catColor: string | null;
+    /** 착용(GROMO-2389) — 옛 서버엔 없다. */
+    appearance?: unknown;
     totalSeconds: number;
     series: FocusSeriesPoint[];
   }[];
@@ -72,6 +74,7 @@ export type ScreenStatsIsland = {
     userId: string;
     name: string | null;
     catColor: string | null;
+    appearance?: unknown;
     minutes: number | null;
     measurementStatus: MeasurementStatus;
     series: ScreenSeriesPoint[];
