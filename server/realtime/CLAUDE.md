@@ -96,7 +96,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.authorization-client.cache-ttl-seconds`(30, 0=끔) 동안 들고 있다 — 거절·오류는 캐시하지 않는다. `island.members.updated`(가입·탈퇴·강퇴)의 `memberUserId`와
   `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
   ⚠️ 사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다(다중 인스턴스에서 즉시성이 필요하면 0). 개별 세션 폐기(로그아웃)는
-  realtime 으로 오는 사건이 없어 TTL 이 상한이다. 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
+  스위치 `AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED` ON 이면 `auth.session.revoked` 가 와서 그 sid 의 소켓을 즉시 닫는다(기본 OFF — 그때는 TTL 이 상한이다). 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
   지표: `realtime.authorization.cache{result=hit|miss|evict}`·`.inflight`·`.limit`·`.capacity.rejected`(세마포어가 찬 거절 전부)·`.rejected{reason=timeout|interrupted}`·`.duration{outcome}`.
   OFF 모드 `GroupClient` 는 `SimpleClientHttpRequestFactory`(connect·read 2s 타임아웃이 소켓 읽기마다 적용 — 본문 정지도 끊긴다, keep-alive 는 JDK 기본)에 동시 상한 `chat.data-api.max-concurrency`(32)를 둔다.
 - **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
@@ -283,7 +283,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
 | `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
-| `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <그 AT 의 최대 남은 수명>`. CONNECT·REST(`JwtFilter`)가 읽는다(프레임 검사는 인메모리). 쓰기 실패는 경고만, 읽기 실패는 fail-open. 사건은 `chat:events:v1` 제어 봉투로 전 replica 에 퍼져 각자 인메모리 펜스·세션 종료를 한다 |
+| `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <payload accessTokenExpiresAt + 60 s, 없으면 30일>`. CONNECT·REST(`JwtFilter`)가 읽는다(프레임 검사는 인메모리). 쓰기 실패는 경고만, 읽기 실패는 fail-open. 사건은 `chat:events:v1` 제어 봉투로 전 replica 에 퍼져 각자 인메모리 펜스·세션 종료를 한다 |
 | `chat:fanout` | chat | pub/sub | cross-instance delivery (채팅 전용 wire) |
 | `chat:events:v1` | realtime | pub/sub | cross-instance delivery of **island events**; `{originInstanceId,destination,event}` |
 | `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |
@@ -332,14 +332,16 @@ and it is a *different key* from the lease, so the `hasKey` check is unaffected.
 
 | 신호 | 의미 | 조치 |
 | --- | --- | --- |
-| warn `폐기 세션 펜스 Redis 쓰기 실패`(`ChatUserFence`) · 지표 `realtime.session.revoked.fence{op=write,result=failed}` | 내구 펜스가 안 섰다 — 인메모리 펜스와 종료는 정상. 이 장애 중 재시작·팬아웃 유실이 겹치면 그 sid 의 CONNECT·REST 가 AT 만료까지 열린다 | Redis 상태 확인. **`>0` 이면 알림** |
-| warn `폐기 세션 펜스 조회 실패`(`ChatUserFence`) · `op=read,result=failed` | **fail-open** — CONNECT·REST 의 폐기 펜스가 꺼진 상태(프레임·SEND 인메모리 펜스는 유효) | Redis 복구. **`>0` 이면 알림** |
-| error `세션 폐기 팬아웃 발행 실패`(`RealtimeEventDelivery`) | 다른 replica 의 기존 세션이 AT 만료까지 살 수 있다(재연결·REST 는 Redis 펜스가 막는다) | Redis Pub/Sub 확인, 필요하면 사용자 재로그인 유도 |
+| warn `폐기 세션 펜스 Redis 쓰기 실패`(`ChatUserFence`) · 지표 `realtime.session.revoked.fence{op=write,result=failed}` | 내구 펜스가 안 섰다 — 인메모리 펜스와 종료는 정상. 이 장애 중 재시작·팬아웃 유실이 겹치면 그 sid 의 CONNECT·REST 가 AT 만료까지 열린다 | Redis 상태 확인. **`increase(realtime_session_revoked_fence_total{result="failed"}[5m]) > 0` 이면 알림** |
+| warn `폐기 세션 펜스 조회 실패`(`ChatUserFence`) · `op=read,result=failed` | **fail-open** — CONNECT·REST 의 폐기 펜스가 꺼진 상태(프레임·SEND 인메모리 펜스는 유효) | Redis 복구. **`increase(realtime_session_revoked_fence_total{result="failed"}[5m]) > 0` 이면 알림** |
+| error `세션 폐기 팬아웃 발행 실패`(`RealtimeEventDelivery`) · 지표 `realtime.session.revoked.fanout{result=failed}` | 다른 replica 의 기존 세션이 AT 만료까지 살 수 있다(재연결·REST 는 Redis 펜스가 막는다) | Redis Pub/Sub 확인, 필요하면 사용자 재로그인 유도. **`increase(realtime_session_revoked_fanout_total{result="failed"}[5m]) > 0` 이면 알림** |
+| 지표 `realtime.session.revoked.close{result=failed}` | 소켓 close 가 두 번 다 실패 — 수신 인스턴스는 500 을 돌려 relay 가 재시도한다(`closed`·`already_gone` 은 정상). 시도 기준이라 재시도가 성공하면 `failed` 1 뒤 `closed` 1 이 또 오른다 | 반복되면 해당 인스턴스 소켓 상태 확인 |
 | warn `세션 폐기 사건에 userId/sessionId 가 없다`(`InboundEventService`) | Data 가 필드 없는 사건을 보냈다 — 200 + skip | Data 봉투 계약 점검 |
 | warn `팬아웃 봉투가 섬 사건도 세션 폐기도 아니다`(`RealtimeEventFanoutSubscriber`) | 반쪽 제어 필드·옛 발행자 봉투를 버렸다(롤링 배포 중 소량은 정상) | 지속되면 발행자 버전 확인 |
 | 소켓 종료 reason `SESSION_REVOKED`(1008) | 정상 — 폐기된 sid 의 연결을 닫았다 | — |
 | realtime 이 `/internal/events` 에 400/500 | 폐기 사건이 거절됐다 | data-api outbox 의 그 사용자 USER 축 행이 백오프 중인지 확인(A18 보류라 폐기하지 않고 재시도 — 그동안 탈퇴 전파가 늦어진다) |
 
+`realtime.session.revoked.{fence,close,fanout}` 계열은 기동 때 0 으로 등록한다 — `increase()` 알림이 첫 장애를 놓치지 않는다.
 ## API surface
 
 The ticket (GROMO-292/293) predates the current conventions, so the endpoints were
@@ -485,7 +487,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
    flag → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
    key restarts at 0 and a number can collide with a live cache written just before expiry (so it also assumes a Redis
-   that does not evict keys). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
+   that does not evict keys — likewise `cache:chat:revoked:*`). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
    turning the Data producer off leaves already-queued events, which are harmless. **Never roll Realtime back to a
    version without `user.blocks.updated` while the Data producer is on** — the old consumer answers 400 and the
    relay marks that blocker's `USER_BLOCKS` axis permanent. Turn the producer off first.
@@ -498,8 +500,8 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 `cache-ttl-seconds`(30, 0=끔) 동안 캐시한다(거절·오류는 캐시하지 않고, ON 실패 시 기존 Redis 캐시 fallback도 없다).
 항목은 사용자·섬 두 축의 무효화 세대를 품고 조회 때 현재 세대와 대조한다. evict 사건 3종: `island.members.updated`
 (`memberUserId` 있으면 사용자 단위, 없으면 섬 단위), `user.withdrawn`. 이동 방 강퇴 재검사는 캐시를 우회하는
-`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는 realtime 으로 오는 사건이 없어
-TTL이 상한이다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
+`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는 스위치(기본 OFF) ON 이면
+`auth.session.revoked` 가 와서 즉시 닫고, OFF 면 TTL이 상한이다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
 실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
 
 현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound
@@ -536,7 +538,8 @@ unknown/duplicate/trailing/빈본문/타입 오류는503이다. 초기값은 con
 켜는 순서: Data(프로필·전용 토큰·feature) → Realtime client 주입 → sid/gen 없는 AT 소진 확인·부하 검증 → Realtime ON.
 Data가 꺼진 채 Realtime만 켜면 404→503으로 그룹 채팅 경계가 전부 막힌다(ON에는 fallback이 없다).
 main의 AT 발급 경로(로그인·게스트·갱신)는 이미 전부 sid/gen을 싣는다. 그래도 그 이전에 받은 AT는 ON에서
-그룹 채팅 경계401이고, dev AT 수명은30일이다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
+그룹 채팅 경계401이고, dev AT 수명은30일이다.
+sid 없는 AT 가 소진되면(prod 발급 뒤 1 h, dev 30 d) `.or(extractUserId)` 폴백 4곳(`JwtFilter:42`·`ChatOutboundChannelInterceptor:457`·`StompAuthChannelInterceptor:630`·CONNECT `:196`)을 제거할 수 있다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
 DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프레임의 회수는 보장하지 않는다.
 신규64개(HTTP35·verifier10·JWT11·config6·전달 가드2)를 포함한 전체 Realtime build는 `norm.sh` exit 0,
 테스트205개(기존141+신규64)·실패0·오류0·skip0이다(2026-09-15).

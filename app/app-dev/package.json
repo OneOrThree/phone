@@ -39,6 +39,8 @@
     "gen:focus-ocean:check": "python3 scripts/build-focus-ocean.py --check",
     "gen:tile-atlas": "python3 scripts/build-tile-atlas.py",
     "gen:tile-atlas:check": "python3 scripts/build-tile-atlas.py --check",
+    "gen:facility-crops": "python3 scripts/build-facility-crops.py",
+    "gen:facility-crops:check": "python3 scripts/build-facility-crops.py --check",
     "gen:localized-stamp": "python3 scripts/gen-localized-stamp.py",
     "gen:localized-stamp:check": "python3 scripts/gen-localized-stamp.py --check",
     "postinstall": "patch-package"

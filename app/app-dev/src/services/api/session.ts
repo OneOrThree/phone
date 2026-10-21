@@ -123,6 +123,17 @@ function serialized<T>(work: () => Promise<T>): Promise<T> {
   return done;
 }
 
+/**
+ * 함께 시작한 두 저장소 작업이 **모두 정착한 뒤** 결과를 낸다. `Promise.all` 은 첫 실패에서 바로 던져서
+ * 남은 쪽의 쓰기가 {@link serialized} 잠금이 풀린 뒤에 착지할 수 있다 — {@link commit} 의 allSettled 와 같은 이유다.
+ */
+async function settleBoth<A, B>(a: Promise<A>, b: Promise<B>): Promise<[A, B]> {
+  const [ra, rb] = await Promise.allSettled([a, b]);
+  if (ra.status === 'rejected') throw ra.reason;
+  if (rb.status === 'rejected') throw rb.reason;
+  return [ra.value, rb.value];
+}
+
 /** 요청이 시작된 시점의 세션 세대. 응답 적용 전에 다시 읽어 비교한다. */
 export function sessionGeneration(): number {
   return generation;
@@ -261,11 +272,24 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
-      await finishInterruptedLogout();
-      const bundle = await readItem(KEY_BUNDLE);
-      cached = bundle ? await readBundledSession(bundle) : null;
-      const ownerClearStatus = await resolveLocalDataOwnerClear();
-      const savedLastUserId = ownerClearStatus === 'blocked' ? null : await readItem(KEY_LAST_USER);
+      // 토큰 쪽(로그아웃 마무리 → 커밋 마커 → 슬롯)과 소유자 쪽(삭제 의도 정리 → 소유자 표식)은
+      // 서로 다른 키만 만진다 — 두 줄을 함께 읽는다(GROMO-2377). 각 줄 안의 순서는 그대로다
+      // (앞 단계가 뒤에 읽을 키를 지울 수 있다). Android 레거시 이관은 아래에서 따로, 순서대로 한다.
+      const [{ bundle, session }, { ownerClearStatus, savedLastUserId }] = await settleBoth(
+        (async () => {
+          await finishInterruptedLogout();
+          const stored = await readItem(KEY_BUNDLE);
+          return { bundle: stored, session: stored ? await readBundledSession(stored) : null };
+        })(),
+        (async () => {
+          const status = await resolveLocalDataOwnerClear();
+          return {
+            ownerClearStatus: status,
+            savedLastUserId: status === 'blocked' ? null : await readItem(KEY_LAST_USER),
+          };
+        })(),
+      );
+      cached = session;
       // 소유자 표식이 없을 때만 의미가 있다. 표식 값(채택 대상 userId)이 복구된 세션의 사용자와
       // 같을 때만 대기로 본다 — 다르면 커밋되지 못한 다른 로그인의 잔여 표식이다. 읽지 못하면
       // 채택 대기로 간주한다 — 추론이 틀리면 이전 사용자의 데이터가 다른 계정에 올라가므로,

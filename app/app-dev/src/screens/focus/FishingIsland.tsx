@@ -2,6 +2,7 @@ import { FocusEmoteBubble } from './FocusEmoteBubble';
 import * as Haptics from 'expo-haptics';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
+import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
@@ -503,17 +504,37 @@ export function FishingIsland({
   const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
   const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
   live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
+  const gesture = useMapGesture(cam);
   // 끌기 기준점. 손가락 수가 바뀌면(핀치 → 한 손가락) 지금 위치에서 다시 잡아 지도가 튀지 않게 한다
   const start = useRef({ zoom: 1, x: 0, y: 0, dist: 0, n: 0, dx: 0, dy: 0 }),
     dragged = useRef(false),
     node = useRef<View>(null);
   // 확대·축소 0.8~1.8배: 보던 곳을 유지하고, 1.4배부터는 내 자리를 가운데로
-  const zoomTo = (z: (c: typeof cam) => number) =>
-    setCam((c) => {
-      const zoom = Math.max(0.8, Math.min(1.8, z(c))),
-        { focus: f, seated: me } = live.current;
-      return zoom >= 1.4 && me ? { zoom, x: f.x, y: f.y } : { ...c, zoom };
-    });
+  const zoomed = (c: typeof cam, z: number) => {
+    const zoom = Math.max(0.8, Math.min(1.8, z)),
+      { focus: f, seated: me } = live.current;
+    return zoom >= 1.4 && me ? { zoom, x: f.x, y: f.y } : { ...c, zoom };
+  };
+  // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 지도를 c 카메라 자리로 옮겨 보이기만 한다.
+  const show = (c: typeof cam) => {
+    const { cam: committed, L: l, ratio: r } = live.current,
+      from = fishingCamera(l.width, l.height, committed.zoom, committed, r),
+      to = fishingCamera(l.width, l.height, c.zoom, c, r);
+    gesture.show(
+      c,
+      viewportShift(
+        { left: from.left, top: from.top, scale: from.size },
+        { left: to.left, top: to.top, scale: to.size },
+        l.width,
+        l.height,
+      ),
+    );
+  };
+  // 손을 떼면 보이는 카메라로 한 번만 다시 배치한다. transform 은 커밋 직후 useMapGesture 가 항등으로 되돌린다.
+  const settle = () => {
+    const c = gesture.release();
+    if (c) setCam(c);
+  };
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -529,7 +550,8 @@ export function FishingIsland({
         const n = Math.max(1, e.nativeEvent.touches?.length ?? 1),
           t = e.nativeEvent.touches ?? [],
           s = start.current,
-          { cam: c, L: l, ratio: r } = live.current,
+          c = gesture.visible(),
+          { L: l, ratio: r } = live.current,
           v = fishingCamera(l.width, l.height, c.zoom, c, r);
         if (n !== s.n) {
           start.current = { zoom: c.zoom, x: v.sx, y: v.sy, dist: 0, n, dx: g.dx, dy: g.dy };
@@ -538,23 +560,25 @@ export function FishingIsland({
         if (n > 1) {
           const d = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
           if (!s.dist) s.dist = d;
-          else zoomTo(() => (s.zoom * d) / s.dist);
+          else show(zoomed(c, (s.zoom * d) / s.dist));
           return;
         }
         // 끌어서 둘러보기: 스크롤 위치를 제한한 뒤 보는 곳으로 되돌려 저장한다(끝에 걸린 채 더 끌어도 밀리지 않게).
         // 화면보다 좁은 방향은 가운데 고정이라 움직이지 않는다.
         const sx = Math.max(0, Math.min(v.size - l.width, s.x - (g.dx - s.dx))),
           sy = Math.max(0, Math.min(v.sizeY - l.height, s.y - (g.dy - s.dy)));
-        setCam({
+        show({
           zoom: c.zoom,
           x: v.size > l.width ? ((sx + l.width / 2) / v.size) * 100 : c.x,
           y: v.sizeY > l.height ? ((sy - v.offTop + l.height * r) / v.sizeY) * 100 : c.y,
         });
       },
       onPanResponderRelease: () => {
+        settle();
         setTimeout(() => (dragged.current = false), 80);
       },
       onPanResponderTerminate: () => {
+        settle();
         dragged.current = false;
       },
     }),
@@ -566,11 +590,17 @@ export function FishingIsland({
     const wheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      zoomTo((c) => c.zoom * Math.exp(-e.deltaY / 200));
+      setCam((c) => zoomed(c, c.zoom * Math.exp(-e.deltaY / 200)));
     };
     el?.addEventListener?.('wheel', wheel, { passive: false });
     return () => el?.removeEventListener?.('wheel', wheel);
   }, []);
+  // 끄는 동안에는 바다를 다시 깔지 않으므로, 최소 배율(0.8)에서 화면 반 폭·높이만큼 섬 밖까지 미리 깐다.
+  // 보는 곳(화면 가운데)은 늘 지도 안이라 어느 카메라로 가도 이 범위가 화면을 덮는다.
+  const minScale = fishingCamera(L.width, L.height, 0.8, cam, ratio).size / 1536,
+    reachX = L.width / 2 / minScale,
+    reachY = L.height / 2 / minScale,
+    oceanCover = { left: -reachX, top: -reachY, right: 1536 + reachX, bottom: 1024 + reachY };
   const { size, sizeY, left, top } = view,
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
@@ -582,56 +612,75 @@ export function FishingIsland({
       {...pan.panHandlers}
       style={{ flex: 1, backgroundColor: '#74B9B9', overflow: clip }}
     >
-      <IslandOcean left={left} top={top} scale={size / 1536} />
-      <View
-        style={{ position: 'absolute', left, top, width: size, height: sizeY }}
-        {...a11yHidden(inert || (!!overlay && overlayBlocksMap))}
+      {/* 지도 손가락 변환(GROMO-2373): 끄는 동안 이 컨테이너 하나만 움직이고 쉬는 동안은 항등이다. */}
+      <Animated.View
+        pointerEvents="box-none"
+        collapsable={false}
+        style={[
+          StyleSheet.absoluteFill,
+          { width: L.width, height: L.height, transform: gesture.transform },
+        ]}
       >
-        <Pressable
-          // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
-          accessible={!!onTap}
-          accessibilityRole={onTap ? 'button' : undefined}
-          accessibilityLabel={onTap ? t('focusFlow.spot.groundA11y') : undefined}
-          accessibilityActions={
-            onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
-          }
-          onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
-          style={StyleSheet.absoluteFill}
-          onPress={(e) => {
-            if (dragged.current || !onTap) return;
-            const ev = e.nativeEvent as any,
-              rect =
-                Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
-            onTap({
-              x: ((rect ? ev.clientX - rect.left : ev.locationX) / size) * 100,
-              y: ((rect ? ev.clientY - rect.top : ev.locationY) / sizeY) * 100,
-            });
-          }}
+        <IslandOcean left={left} top={top} scale={size / 1536} cover={oceanCover} />
+        <View
+          testID="fishing-map"
+          style={{ position: 'absolute', left, top, width: size, height: sizeY }}
+          {...a11yHidden(inert || (!!overlay && overlayBlocksMap))}
         >
-          <Image
-            source={require('@/assets/backgrounds/island/ocean/focus-day.png')}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="stretch"
-          />
-        </Pressable>
-        <Svg
-          pointerEvents="none"
-          width={size}
-          height={sizeY}
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          style={{ position: 'absolute', zIndex: 3 }}
-        >
+          <Pressable
+            // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
+            accessible={!!onTap}
+            accessibilityRole={onTap ? 'button' : undefined}
+            accessibilityLabel={onTap ? t('focusFlow.spot.groundA11y') : undefined}
+            accessibilityActions={
+              onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
+            }
+            onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
+            style={StyleSheet.absoluteFill}
+            onPress={(e) => {
+              if (dragged.current || !onTap) return;
+              const ev = e.nativeEvent as any,
+                rect =
+                  Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
+              onTap({
+                x: ((rect ? ev.clientX - rect.left : ev.locationX) / size) * 100,
+                y: ((rect ? ev.clientY - rect.top : ev.locationY) / sizeY) * 100,
+              });
+            }}
+          >
+            <Image
+              source={require('@/assets/backgrounds/island/ocean/focus-day.png')}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="stretch"
+            />
+          </Pressable>
           {spots
             .filter((s) => s.bx != null)
             .map((s, n) => {
-              const start = castLineStart(s);
+              const start = castLineStart(s),
+                sag = (start.y + s.by!) / 2 + LINE_SAG,
+                // 줄 하나를 감싸는 상자(지도 %, 선 굵기 여유 0.1)만 그린다 — 지도 크기 SVG 는 확대할수록 비트맵이 커진다(GROMO-2373).
+                x0 = Math.min(start.x, s.bx! - 0.35) - 0.1,
+                x1 = Math.max(start.x, s.bx! + 0.35) + 0.1,
+                y0 = Math.min(start.y, s.by! - 0.2, sag) - 0.1,
+                y1 = Math.max(start.y, s.by! + 0.2, sag) + 0.1;
               return (
-                <React.Fragment key={n}>
+                <Svg
+                  key={n}
+                  pointerEvents="none"
+                  width={((x1 - x0) * size) / 100}
+                  height={((y1 - y0) * sizeY) / 100}
+                  viewBox={`${x0} ${y0} ${x1 - x0} ${y1 - y0}`}
+                  preserveAspectRatio="none"
+                  style={{
+                    position: 'absolute',
+                    zIndex: 3,
+                    left: (x0 * size) / 100,
+                    top: (y0 * sizeY) / 100,
+                  }}
+                >
                   <Path
-                    d={`M ${start.x} ${start.y} Q ${(start.x + s.bx!) / 2} ${
-                      (start.y + s.by!) / 2 + LINE_SAG
-                    } ${s.bx} ${s.by}`}
+                    d={`M ${start.x} ${start.y} Q ${(start.x + s.bx!) / 2} ${sag} ${s.bx} ${s.by}`}
                     fill="none"
                     stroke="#fff5db"
                     strokeWidth={0.14}
@@ -645,102 +694,102 @@ export function FishingIsland({
                     stroke="#946752"
                     strokeWidth={0.06}
                   />
-                </React.Fragment>
+                </Svg>
               );
             })}
-        </Svg>
-        <FishingFloatMotion
-          active={!inert && !reduceMotion}
-          spots={spots
-            .filter((s) => s.bx != null)
-            .map((s, n) => ({
-              key: String(n),
-              x: (size * s.bx!) / 100,
-              y: (sizeY * s.by!) / 100,
-              face: s.face < 0 ? -1 : 1,
-              k: (size * 0.077) / LAB_CAT_PX,
-            }))}
-        />
-        {goldenFish && (
-          <Image
-            source={art['fish/gold']}
-            accessibilityLabel={t('focusFlow.fish.goldenCaughtImageA11y')}
-            testID="fishing-island-golden-fish"
-            resizeMode="contain"
-            style={{
-              position: 'absolute',
-              zIndex: 14,
-              left: size * 0.5 - size * 0.045,
-              top: sizeY * 0.54 - size * 0.045,
-              width: size * 0.09,
-              height: size * 0.09,
-            }}
+          <FishingFloatMotion
+            active={!inert && !reduceMotion}
+            spots={spots
+              .filter((s) => s.bx != null)
+              .map((s, n) => ({
+                key: String(n),
+                x: (size * s.bx!) / 100,
+                y: (sizeY * s.by!) / 100,
+                face: s.face < 0 ? -1 : 1,
+                k: (size * 0.077) / LAB_CAT_PX,
+              }))}
           />
-        )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={raftLabel}
-          testID="fishing-raft"
-          // 지도를 끌다 뗏목 위에서 손을 떼면 누르기로 치지 않는다
-          onPress={() => !dragged.current && onRaft()}
-          style={{
-            position: 'absolute',
-            zIndex: 15,
-            left: (size * RAFT.x) / 100 - raftW / 2,
-            top: (sizeY * RAFT.y) / 100 - (raftBox.h * raftK) / 2,
-            width: raftW,
-            height: raftBox.h * raftK,
-            overflow: 'hidden',
-          }}
-        >
-          <Image
-            source={assets['boats/raft/day.png']}
-            style={{
-              position: 'absolute',
-              left: -raftBox.x * raftK,
-              top: -raftBox.y * raftK,
-              width: 1024 * raftK,
-              height: 1024 * raftK,
-            }}
-          />
-        </Pressable>
-        {gram && (
+          {goldenFish && (
+            <Image
+              source={art['fish/gold']}
+              accessibilityLabel={t('focusFlow.fish.goldenCaughtImageA11y')}
+              testID="fishing-island-golden-fish"
+              resizeMode="contain"
+              style={{
+                position: 'absolute',
+                zIndex: 14,
+                left: size * 0.5 - size * 0.045,
+                top: sizeY * 0.54 - size * 0.045,
+                width: size * 0.09,
+                height: size * 0.09,
+              }}
+            />
+          )}
           <Pressable
-            accessible={!!onGram}
-            accessibilityRole={onGram ? 'button' : undefined}
-            accessibilityLabel={onGram ? t('focusFlow.music.gramA11y') : undefined}
-            testID="fishing-gram"
-            onPress={() => !dragged.current && onGram?.()}
-            // 그림이 작아(세로 폭 약 38px) 누르는 영역을 사방 8px 넓힌다
-            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={raftLabel}
+            testID="fishing-raft"
+            // 지도를 끌다 뗏목 위에서 손을 떼면 누르기로 치지 않는다
+            onPress={() => !dragged.current && onRaft()}
             style={{
               position: 'absolute',
-              // 자리 고르기 등 누를 수 없는 단계에서는 그림만(누르면 땅 누르기로 내려감)
-              pointerEvents: onGram ? 'auto' : 'none',
-              zIndex: 20 + Math.round(GRAM.y),
-              left: (size * GRAM.x) / 100 - gramW / 2,
-              top: (sizeY * GRAM.y) / 100 - (gramW * gramBox.h) / gramBox.w,
-              width: gramW,
-              height: (gramW * gramBox.h) / gramBox.w,
+              zIndex: 15,
+              left: (size * RAFT.x) / 100 - raftW / 2,
+              top: (sizeY * RAFT.y) / 100 - (raftBox.h * raftK) / 2,
+              width: raftW,
+              height: raftBox.h * raftK,
               overflow: 'hidden',
             }}
           >
             <Image
-              source={assets['buildings/gramophone/day.png']}
+              source={assets['boats/raft/day.png']}
               style={{
                 position: 'absolute',
-                left: (-gramBox.x * gramW) / gramBox.w,
-                top: (-gramBox.y * gramW) / gramBox.w,
-                width: (632 * gramW) / gramBox.w,
-                height: (910 * gramW) / gramBox.w,
+                left: -raftBox.x * raftK,
+                top: -raftBox.y * raftK,
+                width: 1024 * raftK,
+                height: 1024 * raftK,
               }}
             />
           </Pressable>
-        )}
-        <FishingSceneActive.Provider value={!inert}>
-          {children(size, sizeY, cam.zoom)}
-        </FishingSceneActive.Provider>
-      </View>
+          {gram && (
+            <Pressable
+              accessible={!!onGram}
+              accessibilityRole={onGram ? 'button' : undefined}
+              accessibilityLabel={onGram ? t('focusFlow.music.gramA11y') : undefined}
+              testID="fishing-gram"
+              onPress={() => !dragged.current && onGram?.()}
+              // 그림이 작아(세로 폭 약 38px) 누르는 영역을 사방 8px 넓힌다
+              hitSlop={8}
+              style={{
+                position: 'absolute',
+                // 자리 고르기 등 누를 수 없는 단계에서는 그림만(누르면 땅 누르기로 내려감)
+                pointerEvents: onGram ? 'auto' : 'none',
+                zIndex: 20 + Math.round(GRAM.y),
+                left: (size * GRAM.x) / 100 - gramW / 2,
+                top: (sizeY * GRAM.y) / 100 - (gramW * gramBox.h) / gramBox.w,
+                width: gramW,
+                height: (gramW * gramBox.h) / gramBox.w,
+                overflow: 'hidden',
+              }}
+            >
+              <Image
+                source={assets['buildings/gramophone/day.png']}
+                style={{
+                  position: 'absolute',
+                  left: (-gramBox.x * gramW) / gramBox.w,
+                  top: (-gramBox.y * gramW) / gramBox.w,
+                  width: (632 * gramW) / gramBox.w,
+                  height: (910 * gramW) / gramBox.w,
+                }}
+              />
+            </Pressable>
+          )}
+          <FishingSceneActive.Provider value={!inert}>
+            {children(size, sizeY, cam.zoom)}
+          </FishingSceneActive.Provider>
+        </View>
+      </Animated.View>
       {overlay?.((p) => ({ x: left + (size * p.x) / 100, y: top + (sizeY * p.y) / 100 }), size)}
     </View>
   );
@@ -920,8 +969,12 @@ export function FishingActor({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: animatedPosition?.left ?? (size * spot.x) / 100 - a / 2,
-        top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
+        // 걷는 주민(animatedPosition)은 left/top 대신 네이티브 드라이버 transform 으로 옮긴다(GROMO-2374).
+        left: animatedPosition ? 0 : (size * spot.x) / 100 - a / 2,
+        top: animatedPosition ? 0 : (sizeY * spot.y) / 100 - a * 0.90625,
+        transform: animatedPosition
+          ? [{ translateX: animatedPosition.left }, { translateY: animatedPosition.top }]
+          : undefined,
         width: a,
         height: a,
         zIndex:
@@ -1130,6 +1183,7 @@ export function FishingPeerActorView({
         cancelled = false;
       // 이전 방향의 composite가 cleanup에서 멈춘 실제 픽셀 좌표를 읽어 새 땅 경로를 계산한다.
       // actor.position은 상태 경계 좌표라 이동 도중 방향이 바뀐 경우의 현재 위치가 아니다.
+      // 네이티브 드라이버 값이라 stopAnimation 콜백은 네이티브 왕복 뒤에 온다(GROMO-2374) — 그 사이 정리는 cancelled 가 막는다.
       const fromSize = pixelSize.current;
       left.stopAnimation((currentLeft: number) => {
         top.stopAnimation((currentTop: number) => {
@@ -1173,12 +1227,12 @@ export function FishingPeerActorView({
               NativeAnimated.timing(left, {
                 toValue: (size * point.x) / 100 - (size * 0.077) / 2,
                 duration,
-                useNativeDriver: false,
+                ...NATIVE,
               }),
               NativeAnimated.timing(top, {
                 toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
                 duration,
-                useNativeDriver: false,
+                ...NATIVE,
               }),
             ]);
             movement = segment;
@@ -1204,6 +1258,8 @@ export function FishingPeerActorView({
         const fromSize = pixelSize.current;
         left.stopAnimation((currentLeft: number) => {
           top.stopAnimation((currentTop: number) => {
+            // 콜백이 비동기라(네이티브 드라이버) 그 사이 다음 단계가 시작됐으면 그 자리를 덮지 않는다.
+            if (motionToken.current !== token) return;
             const rebased = peerPixelsAtSize(
               currentLeft,
               currentTop,

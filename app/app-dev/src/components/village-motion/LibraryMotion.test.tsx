@@ -1,23 +1,30 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 import { LibraryMotion } from './LibraryMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
 
 describe('LibraryMotion', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
+  // 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
   const activeFrame = (view: MotionView) =>
-    [0, 1, 2, 3].find((index) => {
-      const style = view.getByTestId(`library-motion-frame-${index}`, {
-        includeHiddenElements: true,
-      }).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
-    });
+    [0, 1, 2, 3].find(
+      (index) =>
+        StyleSheet.flatten(
+          view.getByTestId(`library-motion-frame-${index}`, { includeHiddenElements: true }).props
+            .style,
+        ).opacity === 1,
+    );
 
   it('plays every door frame in order when triggered and returns to still', async () => {
     const view = await render(<LibraryMotion />);
@@ -109,7 +116,7 @@ describe('LibraryMotion', () => {
   it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
     const view = await render(<LibraryMotion themed />);
     const query = { includeHiddenElements: true };
-    expect(view.getByTestId('library-motion-theme-tint', query).props.source).toBe(
+    expect(view.getByTestId('library-motion-theme-tint-0', query).props.source).toBe(
       view.getByTestId('library-motion-frame-0', query).props.source,
     );
     await view.unmount();

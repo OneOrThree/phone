@@ -67,3 +67,32 @@ it('레이아웃과 낮·밤 변경을 실제 이미지에 반영한다', async 
   ).toBe(true);
   expect(StyleSheet.flatten(images[0].props.style).width).toBe(1024);
 });
+
+it('덮을 월드 범위를 주면 화면 크기를 기다리지 않고 그 범위를 화면 밖까지 빈틈없이 깐다(GROMO-2373)', async () => {
+  const [left, top, scale] = [-120, 40, 0.5];
+  const cover = { left: -300, top: -900, right: 1836, bottom: 1924 };
+  const screen = await render(<IslandOcean left={left} top={top} scale={scale} cover={cover} />);
+  const ocean = screen.getByTestId('island-ocean', { includeHiddenElements: true });
+  // 손가락 변환으로 움직여도 가장자리가 잘리지 않게 자르지 않는다.
+  expect(StyleSheet.flatten(ocean.props.style).overflow).toBeUndefined();
+  const tiles = visibleOceanTiles(
+    (cover.right - cover.left) * scale,
+    (cover.bottom - cover.top) * scale,
+    left,
+    top,
+    scale,
+    left + cover.left * scale,
+    top + cover.top * scale,
+  );
+  expect(ocean.children).toHaveLength(tiles.length);
+  const x0 = left + cover.left * scale,
+    x1 = left + cover.right * scale,
+    y0 = top + cover.top * scale,
+    y1 = top + cover.bottom * scale;
+  for (let y = y0; y < y1; y += 17) {
+    const row = tiles.filter((tile) => tile.top <= y && tile.top + tile.height > y);
+    expect(row[0].left).toBeLessThanOrEqual(x0);
+    expect(row[row.length - 1].left + row[row.length - 1].width).toBeGreaterThanOrEqual(x1);
+    row.slice(1).forEach((tile, i) => expect(tile.left).toBeCloseTo(row[i].left + row[i].width));
+  }
+});

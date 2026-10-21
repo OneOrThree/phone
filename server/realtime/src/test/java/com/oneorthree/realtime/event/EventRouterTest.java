@@ -183,7 +183,7 @@ class EventRouterTest {
         EventRouter router = new EventRouter(new RealtimeEventDelivery(
                 mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 mock(org.springframework.data.redis.core.StringRedisTemplate.class), mapper,
-                java.time.Clock.systemUTC()));
+                java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         assertThatThrownBy(() -> router.route(event(RealtimeEventType.JOIN_REQUEST_UPDATED, island),
                 new RealtimeAudience.UserAudience(Set.of(user)))).isInstanceOf(IllegalStateException.class);
     }

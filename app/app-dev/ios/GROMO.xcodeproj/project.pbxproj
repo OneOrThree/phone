@@ -54,6 +54,7 @@
 		A56FBC8C42C4606163A12EBE /* cat-white-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 286FF41589D833FDC4D83EA9 /* cat-white-focus.png */; };
 		21915A7E3DCD38AC8B9DAC86 /* cat-calico-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */; };
 		142C5F836FFCBA47F473452F /* ShieldPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */; };
+		8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -183,6 +184,7 @@
 		286FF41589D833FDC4D83EA9 /* cat-white-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-white-focus.png"; sourceTree = SOURCE_ROOT; };
 		D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-calico-focus.png"; sourceTree = SOURCE_ROOT; };
 		D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldPalette.swift; sourceTree = "<group>"; };
+		1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = file; name = "gowun-dodum.ttf"; path = "../src/assets/fonts/gowun-dodum.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -329,6 +331,7 @@
 				8FC73E13F7E9D0F235BEBFF6 /* Pods */,
 				074669341FFEBF850D25630F /* ExpoModulesProviders */,
 				5947CA12FF8B42FDC5A9310F /* screentimereport */,
+				15CF9E5DA6AC41789D40D714 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -422,6 +425,14 @@
 			);
 			name = Supporting;
 			path = GROMO/Supporting;
+			sourceTree = "<group>";
+		};
+		15CF9E5DA6AC41789D40D714 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */,
+			);
+			name = Resources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -606,6 +617,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */,
+				8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -666,7 +678,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  case \"$EXPO_PUBLIC_TERMS_VERSION\" in\n    [[:space:]]*|*[[:space:]])\n      echo \"error: iOS release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.\" >&2\n      exit 1\n      ;;\n  esac\n  # dev 청중(GROMO_IOS_AUDIENCE=dev)은 팀 dev 서버만, 그 외는 운영 서버만 허용한다 — 서로 바꿔 넣는 실수를 막는다\n  if [ \"${GROMO_IOS_AUDIENCE:-prod}\" = \"dev\" ]; then\n    if [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://oneorthree.dev.mooo.com\" ]; then\n      echo \"error: iOS dev 빌드 차단: GROMO_IOS_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL 은 팀 dev 서버 https://oneorthree.dev.mooo.com 이어야 합니다.\" >&2\n      exit 1\n    fi\n  elif [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://api.oneorthree.world\" ]; then\n    echo \"error: iOS release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
+			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  case \"$EXPO_PUBLIC_TERMS_VERSION\" in\n    [[:space:]]*|*[[:space:]])\n      echo \"error: iOS release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.\" >&2\n      exit 1\n      ;;\n  esac\n  # dev 청중(GROMO_IOS_AUDIENCE=dev)은 팀 dev 서버만, 그 외는 운영 서버만 허용한다 — 서로 바꿔 넣는 실수를 막는다\n  if [ \"${GROMO_IOS_AUDIENCE:-prod}\" = \"dev\" ]; then\n    if [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://oneorthree.dev.mooo.com\" ]; then\n      echo \"error: iOS dev 빌드 차단: GROMO_IOS_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL 은 팀 dev 서버 https://oneorthree.dev.mooo.com 이어야 합니다.\" >&2\n      exit 1\n    fi\n  elif [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://catus-api.oneorthree.world\" ]; then\n    echo \"error: iOS release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
 		};
 		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
 			isa = PBXShellScriptBuildPhase;

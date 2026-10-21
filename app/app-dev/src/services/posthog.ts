@@ -61,6 +61,8 @@ export function initPostHog(): void {
         captureNetworkTelemetry: false,
       },
       disableGeoip: true,
+      // 기능 플래그를 쓰지 않으므로 시작 때 플래그 요청을 보내지 않는다
+      preloadFeatureFlags: false,
     });
   } catch {
     // Analytics must never prevent the app from starting.

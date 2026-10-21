@@ -17,6 +17,7 @@ import Svg, { Path, Ellipse } from 'react-native-svg';
 import { C, T } from '@/design-system/primitives';
 import { State, sessionSeconds, currentIsland, Color, SECONDS_PER_FISH } from '@/services/model';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
+import { Ticking } from '@/hooks/useNow';
 export const clock = (n: number) =>
   `${Math.floor(n / 60)
     .toString()
@@ -237,7 +238,6 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
   const layout = useAppLayout();
   const [zoom, setZoom] = useState(1),
     [size, setSize] = useState({ w: 390, h: 740 }),
-    [now, setNow] = useState(Date.now()),
     zoomRef = useRef(1),
     initial = useRef({ distance: 0, zoom: 1 });
   const z = (n: number) => {
@@ -245,10 +245,6 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
     zoomRef.current = v;
     setZoom(v);
   };
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, []);
   const pan = useMemo(
     () =>
       PanResponder.create({
@@ -277,7 +273,8 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
       }),
     [],
   );
-  const seconds = sessionSeconds(state.session, now),
+  // 내 경과 시간은 내 배·글자만 매초 다시 그린다(Ticking) — 바다 전체를 다시 그리지 않는다(GROMO-2372)
+  const mySeconds = (now: number) => sessionSeconds(state.session, now),
     peers = currentIsland(state).members.filter((m) => m.focusing),
     people = [
       {
@@ -285,7 +282,7 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
         name: state.name,
         color: state.color,
         subject: state.session?.subject || '집중',
-        seconds,
+        seconds: 0,
       },
       ...peers,
     ];
@@ -330,6 +327,16 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
         const factor =
           (own ? zoom * 0.93 : 0.86) * (layout.compact ? 0.78 : layout.tablet ? 1.3 : 1);
         const adaptive = layout.tablet || layout.landscape;
+        const boat = (seconds: number) => (
+          <FishingBoat
+            {...p}
+            seconds={seconds}
+            hull="raft"
+            emote={own ? emote : null}
+            mine={own}
+            reduce={state.settings.reduceMotion}
+          />
+        );
         return (
           <React.Fragment key={p.id}>
             <View
@@ -341,13 +348,7 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
                 transform: [{ scale: factor }],
               }}
             >
-              <FishingBoat
-                {...p}
-                hull="raft"
-                emote={own ? emote : null}
-                mine={own}
-                reduce={state.settings.reduceMotion}
-              />
+              {own ? <Ticking>{(now) => boat(mySeconds(now))}</Ticking> : boat(p.seconds)}
             </View>
             {!(own && emote) && (
               <View
@@ -370,7 +371,8 @@ export function FocusSea({ state, emote }: { state: State; emote: string | null 
                     paddingVertical: 4,
                   }}
                 >
-                  {p.subject} · {clock(p.seconds)}
+                  {p.subject} ·{' '}
+                  {own ? <Ticking>{(now) => clock(mySeconds(now))}</Ticking> : clock(p.seconds)}
                 </Text>
               </View>
             )}

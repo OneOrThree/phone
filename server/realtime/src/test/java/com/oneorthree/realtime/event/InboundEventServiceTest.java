@@ -86,6 +86,9 @@ class InboundEventServiceTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     @MockitoSpyBean
     private ChatUserFence chatUserFence;
 
@@ -265,7 +268,7 @@ class InboundEventServiceTest {
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
                 mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -287,7 +290,7 @@ class InboundEventServiceTest {
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
                 mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -313,7 +316,7 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
                 outbound, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID kicked = UUID.randomUUID();
         UUID gone = UUID.randomUUID();
 
@@ -368,7 +371,7 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class), membership,
                 blocks, mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 decisions, cache, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID kicked = UUID.randomUUID();
         UUID blocker = UUID.randomUUID();
         UUID leaver = UUID.randomUUID();
@@ -498,12 +501,13 @@ class InboundEventServiceTest {
         var decisions = mock(CurrentMembershipDecisionCache.class);
         var outbound = mock(OutboundAuthzCache.class);
         var registry = new RealtimeSessionRegistry();
+        var meters = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         InboundEventService plain = new InboundEventService(plainJdbc, fence,
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
                 outbound, registry, new JwtValidator(SECRET), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), meters);
         UUID user = UUID.randomUUID();
         UUID revokedSid = UUID.randomUUID();
         WebSocketSession revoked = connect(registry, "stomp-revoked", user, revokedSid, SECRET);
@@ -521,6 +525,7 @@ class InboundEventServiceTest {
         // 폐기 펜스 — 같은 sid 의 재연결은 막고 다른 sid 는 통과시킨다(StompAuthChannelInterceptorTest 가 CONNECT 거절을 본다)
         assertThat(fence.isRevoked(revokedSid)).isTrue();
         assertThat(fence.isRevoked(UUID.randomUUID())).isFalse();
+        assertThat(meters.counter("realtime.session.revoked.close", "result", "closed").count()).isEqualTo(1.0);
     }
 
     @Test
@@ -532,6 +537,8 @@ class InboundEventServiceTest {
         WebSocketSession stuck = connect(sessionRegistry, "stomp-stuck-" + sid, user, sid, jwtSecret);
         org.mockito.Mockito.doThrow(new java.io.IOException("close 실패")).when(stuck).close(any(CloseStatus.class));
         String event = sessionRevoked(user, sid.toString());
+        double failedBefore = closeCount("failed");
+        double closedBefore = closeCount("closed");
 
         // 던지면 @Transactional accept 가 롤백돼 inbound_events 에 남지 않고, HTTP 는 5xx 로 나가 relay 가 다시 보낸다.
         assertThatThrownBy(() -> inboundEventService.accept(objectMapper.readTree(event)))
@@ -550,6 +557,92 @@ class InboundEventServiceTest {
         }).when(gone).close(any(CloseStatus.class));
         http(sessionRevoked(user, goneSid.toString()));
         sessionRegistry.closed("stomp-gone-" + goneSid);
+        assertThat(closeCount("failed") - failedBefore).isEqualTo(1.0);
+        // 첫 시도가 실패하고 끊긴 뒤 두 번째 시도가 성공으로 보는 경우는 closed 로 센다.
+        assertThat(closeCount("closed") - closedBefore).isEqualTo(1.0);
+    }
+
+    private double closeCount(String result) {
+        return meterRegistry.counter("realtime.session.revoked.close", "result", result).count();
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked — 폐기 펜스 Redis TTL 은 payload accessTokenExpiresAt + 60 s 다 (GROMO-2386)")
+    void sessionRevokedUsesPayloadExpiryForTheFence() throws Exception {
+        UUID sid = UUID.randomUUID();
+
+        http(sessionRevoked(UUID.randomUUID(), sid.toString(), Instant.now().plusSeconds(2).toString()));
+
+        Long ttl = redis.getExpire(RedisKeys.revokedSession(sid), java.util.concurrent.TimeUnit.MILLISECONDS);
+        // 하한은 set 시점이 payload 의 now 보다 늦는 CI 지연을 넉넉히 둔다(30일 폴백과는 세 자릿수 차이)
+        assertThat(ttl).isBetween(50_000L, 62_000L);
+    }
+
+    @Test
+    @DisplayName("revoked 계수 3종(fence·close·fanout)은 기동 때 0 으로 선등록돼 increase() 알림이 첫 장애를 본다 (GROMO-2386)")
+    void revokedMetersAreRegisteredAtStartup() {
+        for (String op : java.util.List.of("read", "write")) {
+            assertThat(meterRegistry.find("realtime.session.revoked.fence").tag("op", op).tag("result", "failed")
+                    .counter()).as("fence op=%s", op).isNotNull();
+        }
+        for (String result : java.util.List.of("closed", "already_gone", "failed")) {
+            assertThat(meterRegistry.find("realtime.session.revoked.close").tag("result", result).counter())
+                    .as("close result=%s", result).isNotNull();
+        }
+        assertThat(meterRegistry.find("realtime.session.revoked.fanout").tag("result", "failed").counter()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked — payload 에 만료가 없으면(옛 Data) 펜스 TTL 은 30일 폴백이다 (GROMO-2386)")
+    void sessionRevokedWithoutExpiryFallsBackToThirtyDays() throws Exception {
+        UUID sid = UUID.randomUUID();
+
+        http(sessionRevoked(UUID.randomUUID(), sid.toString()));
+
+        Long ttl = redis.getExpire(RedisKeys.revokedSession(sid), java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertThat(ttl).isGreaterThan(java.time.Duration.ofDays(29).toMillis());
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked — 읽을 수 없는 accessTokenExpiresAt 도 30일 폴백이다 (GROMO-2386)")
+    void sessionRevokedWithGarbageExpiryFallsBackToThirtyDays() throws Exception {
+        UUID sid = UUID.randomUUID();
+
+        http(sessionRevoked(UUID.randomUUID(), sid.toString(), "garbage"));
+
+        Long ttl = redis.getExpire(RedisKeys.revokedSession(sid), java.util.concurrent.TimeUnit.MILLISECONDS);
+        assertThat(ttl).isGreaterThan(java.time.Duration.ofDays(29).toMillis());
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked — 팬아웃 발행이 실패하면 realtime.session.revoked.fanout{failed} 를 세고 던지지 않는다 (GROMO-2386)")
+    void sessionRevokedFanoutFailureIsCounted() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        StringRedisTemplate broken = mock(StringRedisTemplate.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("redis down")).when(broken)
+                .convertAndSend(anyString(), anyString());
+        var meters = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var delivery = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
+                broken, objectMapper, java.time.Clock.systemUTC(), meters);
+        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
+                mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                mock(CurrentMembershipDecisionCache.class), mock(OutboundAuthzCache.class),
+                new RealtimeSessionRegistry(), new JwtValidator(SECRET), java.time.Clock.systemUTC(), delivery,
+                meters);
+
+        assertThat(plain.accept(objectMapper.readTree(sessionRevoked(UUID.randomUUID(),
+                UUID.randomUUID().toString())))).isTrue();
+
+        assertThat(meters.counter("realtime.session.revoked.fanout", "result", "failed").count()).isEqualTo(1.0);
+        // 선등록 — 아무 사건도 처리하기 전에 0 으로 이미 있다(새 registry 로 생성자만 거친 경우)
+        var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class), broken,
+                objectMapper, java.time.Clock.systemUTC(), fresh);
+        assertThat(fresh.find("realtime.session.revoked.fanout").tag("result", "failed").counter().count())
+                .isZero();
     }
 
     @Test
@@ -564,7 +657,7 @@ class InboundEventServiceTest {
                 mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
                 mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID user = UUID.randomUUID();
         UUID sid = UUID.randomUUID();
         connect(registry, "stomp-order", user, sid, SECRET);
@@ -587,23 +680,23 @@ class InboundEventServiceTest {
         // replica A — 사건을 HTTP 로 받는다. 발행은 실제 직렬화 그대로 잡아 B 의 구독자에 먹인다.
         StringRedisTemplate publishRedis = mock(StringRedisTemplate.class);
         var deliveryA = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
-                publishRedis, objectMapper, clock);
+                publishRedis, objectMapper, clock, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         var registryA = new RealtimeSessionRegistry();
         var fenceA = new ChatUserFence(null, null, null, clock, redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         InboundEventService serviceA = new InboundEventService(plainJdbc, fenceA, mock(EventRouter.class),
                 mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
-                mock(OutboundAuthzCache.class), registryA, new JwtValidator(SECRET), clock, deliveryA);
+                mock(OutboundAuthzCache.class), registryA, new JwtValidator(SECRET), clock, deliveryA, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         // replica B — Redis 를 쓰지 않는 인메모리 펜스만 가진다(redis=null 이면 Redis 를 건드리는 순간 NPE 라 증명이 된다).
         var registryB = new RealtimeSessionRegistry();
         var fenceB = new ChatUserFence(null, null, null, clock, null, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         var outboundB = mock(OutboundAuthzCache.class);
         var deliveryB = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
-                publishRedis, objectMapper, clock);
-        InboundEventService serviceB = new InboundEventService(plainJdbc, fenceB, mock(EventRouter.class),
+                publishRedis, objectMapper, clock, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        InboundEventService serviceB = org.mockito.Mockito.spy(new InboundEventService(plainJdbc, fenceB, mock(EventRouter.class),
                 mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
-                outboundB, registryB, new JwtValidator(SECRET), clock, deliveryB);
+                outboundB, registryB, new JwtValidator(SECRET), clock, deliveryB, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         var subscriberB = new RealtimeEventFanoutSubscriber(deliveryB, serviceB, objectMapper);
 
         UUID user = UUID.randomUUID();
@@ -612,18 +705,23 @@ class InboundEventServiceTest {
         WebSocketSession onB = connect(registryB, "b-1", user, sid, SECRET);
         WebSocketSession otherOnB = connect(registryB, "b-2", user, UUID.randomUUID(), SECRET);
 
-        serviceA.accept(objectMapper.readTree(sessionRevoked(user, sid.toString())));
+        Instant exp = Instant.now().plusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        serviceA.accept(objectMapper.readTree(sessionRevoked(user, sid.toString(), exp.toString())));
 
         var payload = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(publishRedis).convertAndSend(org.mockito.ArgumentMatchers.eq(RedisKeys.EVENT_FANOUT_CHANNEL),
                 payload.capture());
         verify(onA).close(REVOKED);
+        // GROMO-2386 — 만료가 봉투로 실려 간다: payload 만료 + 60 s
+        assertThat(Instant.parse(objectMapper.readTree(payload.getValue()).get("revokedUntil").stringValue()))
+                .isEqualTo(exp.plusSeconds(60));
         org.springframework.data.redis.connection.Message wire = new org.springframework.data.redis.connection
                 .DefaultMessage(RedisKeys.EVENT_FANOUT_CHANNEL.getBytes(StandardCharsets.UTF_8),
                 payload.getValue().getBytes(StandardCharsets.UTF_8));
         subscriberB.onMessage(wire, null);
         subscriberB.onMessage(wire, null); // 중복 전달 — 멱등
 
+        verify(serviceB, org.mockito.Mockito.atLeastOnce()).applySessionRevocation(user, sid, exp.plusSeconds(60));
         verify(onB, org.mockito.Mockito.atLeastOnce()).close(REVOKED);
         verify(outboundB, org.mockito.Mockito.atLeastOnce()).evictSession("b-1");
         verify(otherOnB, never()).close(any(CloseStatus.class));
@@ -640,9 +738,30 @@ class InboundEventServiceTest {
         String json = objectMapper.writeValueAsString(RealtimeEventFanoutEvent.island(UUID.randomUUID(),
                 "/topic/islands/x/focus", null, java.util.Set.of()));
 
-        assertThat(json).doesNotContain("revokedUserId").doesNotContain("revokedSessionId");
+        assertThat(json).doesNotContain("revokedUserId").doesNotContain("revokedSessionId")
+                .doesNotContain("revokedUntil");
         assertThat(objectMapper.writeValueAsString(RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(),
-                UUID.randomUUID(), UUID.randomUUID()))).contains("revokedUserId").contains("revokedSessionId");
+                UUID.randomUUID(), UUID.randomUUID(), Instant.now()))).contains("revokedUserId").contains("revokedSessionId")
+                .contains("revokedUntil");
+    }
+
+    /** 롤링 배포 중 옛 replica 가 읽는 봉투 모양 — revokedUntil 이 없던 시절의 6필드. */
+    private record OldFanoutShape(UUID originInstanceId, String destination, Object event,
+            java.util.Set<UUID> recipients, UUID revokedUserId, UUID revokedSessionId) {
+    }
+
+    @Test
+    @DisplayName("옛 replica(6필드 봉투)가 revokedUntil 이 든 새 봉투를 읽으면 모르는 키를 무시하고 읽는다 — 옛 동작(30일 폴백) 그대로")
+    void oldReplicaIgnoresUnknownRevokedUntil() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        String json = objectMapper.writeValueAsString(
+                RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(), user, sid, Instant.now()));
+
+        OldFanoutShape old = objectMapper.readValue(json, OldFanoutShape.class);
+
+        assertThat(old.revokedUserId()).isEqualTo(user);
+        assertThat(old.revokedSessionId()).isEqualTo(sid);
     }
 
     @Test
@@ -654,9 +773,9 @@ class InboundEventServiceTest {
         var subscriber = new RealtimeEventFanoutSubscriber(delivery, service, objectMapper);
         UUID origin = UUID.randomUUID();
         String halfControl = objectMapper.writeValueAsString(new RealtimeEventFanoutEvent(origin, null, null,
-                java.util.Set.of(), null, UUID.randomUUID()));
+                java.util.Set.of(), null, UUID.randomUUID(), null));
         String islandWithoutDestination = objectMapper.writeValueAsString(new RealtimeEventFanoutEvent(origin, null,
-                null, java.util.Set.of(), null, null));
+                null, java.util.Set.of(), null, null, null));
 
         for (String body : new String[] {halfControl, islandWithoutDestination}) {
             subscriber.onMessage(new org.springframework.data.redis.connection.DefaultMessage(
@@ -664,7 +783,7 @@ class InboundEventServiceTest {
                     body.getBytes(StandardCharsets.UTF_8)), null);
         }
 
-        verify(service, never()).applySessionRevocation(any(), any());
+        verify(service, never()).applySessionRevocation(any(), any(), any());
         verify(delivery, never()).deliverLocally(any(), any(), any());
     }
 
@@ -714,7 +833,7 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
                 mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC(),
-                mock(RealtimeEventDelivery.class));
+                mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID user = UUID.randomUUID();
         WebSocketSession session = connect(registry, "stomp-1", user, UUID.randomUUID(), SECRET);
 
@@ -753,11 +872,18 @@ class InboundEventServiceTest {
 
     /** Data {@code AuthSessionService.appendSessionRevoked} 봉투 — {@code sessionId} 가 null 이면 params 에서 뺀다. */
     private static String sessionRevoked(UUID user, String sessionId) {
+        return sessionRevoked(user, sessionId, null);
+    }
+
+    /** {@code accessTokenExpiresAt} 가 null 이면 키 자체를 싣지 않는다(옛 Data). */
+    private static String sessionRevoked(UUID user, String sessionId, String accessTokenExpiresAt) {
         return "{\"eventId\":\"auth.session.revoked:" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
                 + "\"type\":\"auth.session.revoked\",\"occurredAt\":\"2026-10-21T00:00:00Z\",\"scheduledAt\":null,"
                 + "\"userId\":\"" + user + "\",\"locale\":null,\"subjectId\":\"" + sessionId + "\",\"version\":3,"
                 + "\"params\":{" + (sessionId == null ? "" : "\"sessionId\":\"" + sessionId + "\",")
-                + "\"sessionEpoch\":3,\"bootstrapNonceHash\":null,\"reason\":\"LOGOUT\"}}";
+                + "\"sessionEpoch\":3,\"bootstrapNonceHash\":null,\"reason\":\"LOGOUT\""
+                + (accessTokenExpiresAt == null ? "" : ",\"accessTokenExpiresAt\":\"" + accessTokenExpiresAt + "\"")
+                + "}}";
     }
 
     /** Data {@code IslandArrivalEvents} 가 적는 봉투 모양 — {@code extra} 는 params 끝에 덧붙는다. */

@@ -1,7 +1,8 @@
-import React, { useContext, useEffect, useState, type ReactNode } from 'react';
-import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
+import React, { useContext, useEffect, useRef, type ReactNode } from 'react';
+import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { VillageThemeTint } from './VillageThemeTint';
+import { frameSteps, playMotion } from '../catMotion';
+import { MotionFrameImage, VillageThemeTint } from './VillageThemeTint';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 export type VillageHallState = 'normal' | 'arrival' | 'new-record' | 'weekly-goal';
@@ -21,6 +22,7 @@ const nightFrames: readonly ImageSourcePropType[] = [
 ];
 const doorSequence = [0, 1, 2, 3, 2, 1] as const;
 const frameDuration = 180;
+const doorSteps = frameSteps(doorSequence, frameDuration);
 
 /** 시청의 문 프레임 모션과 기록/주간 목표 강조를 표시한다. */
 export function VillageHallMotion({
@@ -44,33 +46,35 @@ export function VillageHallMotion({
   testID?: string;
 }) {
   const motionDisabled = useContext(MotionContext) || reduceMotion;
-  const [frame, setFrame] = useState(0);
+  const elapsed = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    setFrame(0);
-    if (motionDisabled || state === 'normal') return;
-    let sequenceIndex = 0;
-    const timer = setInterval(() => {
-      sequenceIndex = (sequenceIndex + 1) % doorSequence.length;
-      setFrame(doorSequence[sequenceIndex]);
-    }, frameDuration);
-    return () => clearInterval(timer);
-  }, [generation, motionDisabled, state]);
+    if (motionDisabled || state === 'normal') {
+      elapsed.setValue(0);
+      return;
+    }
+    const animation = playMotion(elapsed, doorSequence.length * frameDuration, true);
+    return () => animation.stop();
+  }, [elapsed, generation, motionDisabled, state]);
 
   return (
     <View testID={testID} style={[styles.root, style]}>
       {(night ? nightFrames : frames).map((source, index) => (
-        <Image
+        <MotionFrameImage
           key={index}
+          elapsed={elapsed}
+          steps={doorSteps}
+          index={index}
           testID={`village-hall-frame-${index}`}
           source={source}
-          resizeMode="stretch"
-          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+          style={styles.frame}
         />
       ))}
       {themed && (
         <VillageThemeTint
-          source={(night ? nightFrames : frames)[frame]}
+          sources={night ? nightFrames : frames}
+          elapsed={elapsed}
+          steps={doorSteps}
           testID="village-hall-theme-tint"
         />
       )}
@@ -86,8 +90,6 @@ export function VillageHallMotion({
 const styles = StyleSheet.create({
   root: { width: '100%', height: '100%', position: 'relative' },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
-  visible: { opacity: 1 },
-  hidden: { opacity: 0 },
   tooltip: {
     position: 'absolute',
     alignSelf: 'center',
