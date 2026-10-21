@@ -135,6 +135,6 @@ R61 PDF 17쪽을 시각 확인했으나 계정/프로필/색상 선택 화면이
 | onboardingComplete 예시 | name AND catColor, legacy 도 같은 함수 | Q04 확정(2026-09-19) |
 | notifications 1개 | 알림 서버 원자 부분 변경 | 기존 소유 경계 유지 |
 
-원본 예시는 [추출본](source-contracts.json)에 수정 없이 보존한다. 추가 재인증이 없는 현재 AT 인증 탈퇴를 더 강한 재인증으로 바꿨다고 주장하지 않는다. 단순 `confirmation: "DELETE"`는 사용자 의도 확인이며 별도 자격 증명이 아니다.
+원본 예시는 [추출본](source-contracts.json)에 수정 없이 보존한다. 추가 재인증이 없는 현재 AT 인증 탈퇴를 더 강한 재인증으로 바꿨다고 주장하지 않는다. 단순 `confirmation: "DELETE"`는 사용자 의도 확인이며 별도 자격 증명이 아니다. 선택으로 받는 `appleAuthorizationCode`도 탈퇴 인증이 아니라, 탈퇴 확정 뒤 Apple 토큰을 폐기(best-effort)하는 데만 쓴다([LLD §2.5](low-level-design.md)).
 
 탈퇴 중앙 TX는 랭킹 `user.withdrawn` outbox도 함께 기록한다. 소비자는 tombstone/version과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연/DLT 점수 재생을 거부한다. 비동기 제거 전에도 공개 projection은 현재 활성 조건을 확인한다. 상세 순서·writer 경합은 LLD 리그 이력·랭킹 투영 파기 절을 따른다.

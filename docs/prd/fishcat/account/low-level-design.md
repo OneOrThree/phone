@@ -276,6 +276,8 @@ ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다�
 
 요청 `{ "confirmation": "DELETE" }`. 대소문자까지 정확히 일치해야 하며 누락/다른 값은 400이다. 유효 AT와 활성 계정·세션 검사, 필수 멱등 키를 요구한다. confirmation은 재인증 수단이 아니다.
 
+선택 필드 `appleAuthorizationCode`(비어 있지 않은 문자열)를 함께 받을 수 있다. 허용 본문은 `{ "confirmation": "DELETE" }` 또는 `{ "confirmation": "DELETE", "appleAuthorizationCode": "<code>" }` 둘뿐이며, 그 밖의 필드·문자열이 아닌 값·빈 문자열·명시 null은 400 `INVALID_REQUEST`(코드가 틀리면 `field: appleAuthorizationCode`)다. 필드가 없는 기존 클라이언트는 그대로 동작한다. 이 코드는 App Store 5.1.1(v) 대응이다 — 앱이 탈퇴 직전 Sign in with Apple을 다시 돌려 받은 일회용 값이고, 탈퇴 판정에는 쓰지 않는다. Business는 Data의 탈퇴가 확정된 **뒤** 기존 best-effort 정리(미리보기 캐시·세션 거부목록) 다음에 Apple `/auth/token`으로 교환해 얻은 refresh token(없으면 access token)을 `/auth/revoke`로 폐기한다. 아무것도 저장하지 않고, 설정(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`) 누락·Apple 오류·타임아웃은 WARN 한 줄만 남기며 응답은 그대로 200 `{ "deleted": true }`다. 탈퇴가 확정되지 않은 경우(`HOST_WITHDRAW` 등)에는 Apple을 부르지 않는다.
+
 Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를 넣는다. 다른 주민이 있는 방장은 기존 400 `HOST_WITHDRAW`이고 전체 변경이 롤백된다. 성공은 200 `{ "data": { "deleted": true } }`. 원본 예상 계약의 200과 legacy DELETE `/api/v1/users/me`의 204를 구분한다.
 
 성공 후 같은 AT로 재요청하면 공통 검사 순서에 따라 세션·authGeneration 폐기보다 사용자 비활성이 먼저 판정되어 404 `USER_NOT_FOUND`이고, 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. 클라이언트는 최초 200 또는 같은 명령 재시도의 404 `USER_NOT_FOUND`를 탈퇴 확정으로 보고 아래 탈퇴 전용 로컬 파기를 실행한다. 401은 기존 refresh 흐름을 타며, 탈퇴한 계정의 refresh·logout도 같은 순서로 404 `USER_NOT_FOUND`다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.

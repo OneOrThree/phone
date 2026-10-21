@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
+import com.oneorthree.business.auth.AppleTokenRevoker;
 import com.oneorthree.business.auth.RevokedSessions;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -43,6 +44,7 @@ public class AccountUseCase {
     private final DataAuthClient data;
     private final PreviewCache previewCache;
     private final RevokedSessions revokedSessions;
+    private final AppleTokenRevoker appleRevoker;
 
     public AccountView me(AccessTokenClaims claims, Deadline deadline) {
         AccountMe me = relay(() -> data.fetchAccount(claims.userId(), claims.sessionId(),
@@ -64,7 +66,7 @@ public class AccountUseCase {
         return new ProfileView(profile.id(), profile.name(), profile.catColor(), profile.mainIslandId());
     }
 
-    public Deleted withdraw(AccessTokenClaims claims, Deadline deadline) {
+    public Deleted withdraw(AccessTokenClaims claims, String appleAuthorizationCode, Deadline deadline) {
         JsonNode response = relay(() -> data.deleteAccount(claims.userId(), claims.sessionId(),
                 claims.authGeneration(), deadline));
         JsonNode deleted = response == null ? null : response.get("deleted");
@@ -85,6 +87,10 @@ public class AccountUseCase {
                 // 탈퇴는 이미 커밋됐다 — 기록 실패로 실패처럼 보이게 하지 않는다. Data 의 세션 폐기가 2차 방어다.
                 log.warn("탈퇴 세션 거부목록 기록 실패 — userId={}", claims.userId(), e);
             }
+        }
+        if (appleAuthorizationCode != null) {
+            // 마지막에 둔다 — Apple 이 느려도 위의 정리가 끝난 뒤다. revoke 는 던지지 않는다(GROMO-2401).
+            appleRevoker.revoke(claims.userId(), appleAuthorizationCode);
         }
         return new Deleted(true);
     }
