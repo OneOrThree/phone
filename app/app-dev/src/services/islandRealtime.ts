@@ -681,6 +681,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       }
       // 서버 ChatStompErrorHandler 는 message 헤더에 항상 enum 이름(대문자 코드)을 싣는다. 사람 문장("Session closed." 등)은
       // Spring 전송 계층 ERROR 라 close 가 따라오고 재접속이 처리한다 — 거절 상태·strike 에 넣거나 토스트하지 않는다.
+      // (프레임 파싱 실패처럼 close 없이 오는 Spring ERROR 는 조용히 무시되고 연결이 산다 — stompjs 가 만드는 프레임이라 드물고, 허용한 트레이드오프)
       if (!/^[A-Z][A-Z0-9_]*$/.test(code)) return;
       // 섬 구독 거절 ERROR 는 어느 채널 탓인지 `channel` 네이티브 헤더로 알려 준다(없으면 아래 종전 분류).
       const channel = str(frame.headers.channel);

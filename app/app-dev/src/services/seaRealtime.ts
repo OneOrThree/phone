@@ -264,6 +264,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       // 서버가 ERROR 뒤 소켓을 닫는다 — stompjs 가 5초 뒤 재접속해 onConnect 가 enter 부터 다시 한다
       const code = str(frame.headers.message) ?? '';
       // 사람 문장("Session closed." 등)은 Spring 전송 계층 ERROR — close 가 따라오고 stompjs 재접속이 처리한다. 3회 카운트에 넣지 않는다
+      // (close 없이 오는 Spring ERROR 는 조용히 무시된다 — islandRealtime 의 같은 가드 주석 참고)
       if (!/^[A-Z][A-Z0-9_]*$/.test(code)) return;
       // 이모트 연타 거절은 방 연결의 이상이 아니다 — 백오프 카운트에 넣지 않는다(연타 3번에 방이 30초 쉬지 않게)
       if (code === 'EMOTE_TOO_FREQUENT') return opts.onError(t('openSea.emoteTooFrequent'));
