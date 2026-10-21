@@ -15,13 +15,13 @@ Table customization_reward_policies [note: '꾸미기 보상 추첨(GROMO-2301 C
   duplicates_allowed boolean [not null, note: 'CHECK true']
   location_weights jsonb [not null, note: 'ISLAND·SEA 각각 common/uncommon/rare/legendary 가중치']
   category_weights jsonb [not null, note: '카테고리 → 양수 가중치. 여기 없는 카테고리의 아이템은 뽑히지 않는다(revision 1 = 9분류, revision 2 = head·neck)']
-  source_workbook_sha256 char(64) [not null]
+  source_workbook_sha256 character [not null, note: 'char(64) — 승인 엑셀 SHA-256']
   created_at timestamptz [not null, default: `now()`]
 }
 
 Table customization_reward_items [note: 'revision별 후보(revision 1 = 90종, revision 2 = 머리·목 20종 — 신발·뗏목은 등록만 되고 지급되지 않는다). 뗏목은 kind=decor, category로 6분류 보존. 원본 시트를 기존 정적 오버레이 API에 넣지 않는다'] {
-  revision integer [not null, ref: > customization_reward_policies.revision]
-  product_id varchar(80) [not null, ref: > catalog_assets.product_id]
+  revision integer [not null]
+  product_id varchar(80) [not null]
   source_asset_id varchar(80) [not null]
   category varchar(10) [not null, note: 'head/neck/shoes/flag/mat/oar/cargo/lantern/canopy']
   rarity varchar(10) [not null, note: 'common/uncommon/rare/legendary']
@@ -34,6 +34,8 @@ Table customization_reward_items [note: 'revision별 후보(revision 1 = 90종, 
     (revision, category, rarity) [name: 'idx_customization_reward_items_draw']
   }
 }
+Ref: customization_reward_items.revision > customization_reward_policies.revision [delete: restrict]  // GROMO-2313 V133
+Ref: customization_reward_items.product_id > catalog_assets.product_id [delete: restrict]  // GROMO-2313 V133
 
 // Use DBML to define your database structure
 // Docs: https://dbml.dbdiagram.io/docs
