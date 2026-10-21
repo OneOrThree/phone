@@ -6241,7 +6241,12 @@ export function RedesignScreens({ e }: any) {
           key={friend.userId}
           title={name}
           sub={friend.mainIslandName ?? undefined}
-          lead={<Avatar color={friend.catColor} outfit={appearanceOutfit(friend.appearance)} />}
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
           tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
         />
       );
@@ -6266,7 +6271,12 @@ export function RedesignScreens({ e }: any) {
             key={friend.userId}
             title={friend.nickname}
             sub={friend.relation === 'FRIEND' ? '친구' : undefined}
-            lead={<Avatar color={friend.catColor} outfit={appearanceOutfit(friend.appearance)} />}
+            lead={
+              <Avatar
+                color={friend.catColor ?? 'white'}
+                outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+              />
+            }
             tail={
               friend.relation === 'NONE' ? (
                 <Btn
