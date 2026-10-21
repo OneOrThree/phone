@@ -1,9 +1,25 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { act, fireEvent, render as renderNative } from '@testing-library/react-native';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { initialState, reducer } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
+
+const render = (ui: React.ReactElement) =>
+  renderNative(ui, {
+    wrapper: ({ children }: { children: React.ReactNode }) => (
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 402, height: 874 },
+          insets: { top: 44, bottom: 34, left: 0, right: 0 },
+        }}
+      >
+        {children}
+      </SafeAreaProvider>
+    ),
+  });
 
 // 세션 세대를 테스트가 바꿀 수 있게 한다(나머지 export 는 실제 구현 유지).
 let mockGeneration = 0;
@@ -15,21 +31,23 @@ beforeEach(() => {
   mockGeneration = 0;
 });
 
-// 시트 틀만 목으로 바꾸고 SheetGroup·SheetRow 는 실제 구현을 쓴다 — 구분선 인덱스(divider)까지 같이 본다.
-jest.mock('@/screens/island/IslandSheet', () => ({
-  ...jest.requireActual('@/screens/island/IslandSheet'),
-  IslandSheet: ({ children }: any) => {
-    const { View } = require('react-native');
-    return <View>{children}</View>;
-  },
-}));
-jest.mock('@/screens/world/WorldViews', () => ({
-  Sailing: ({ destination, from, onArrive }: any) => {
+jest.mock('@/components/VideoCutscene', () => ({
+  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
-      <Pressable testID="sailing" onPress={onArrive}>
+      <Pressable testID="sailing" onPress={onFinish}>
+        <Text testID="sailing-label">{accessibilityLabel}</Text>
+      </Pressable>
+    );
+  },
+}));
+
+jest.mock('@/screens/world/DepartureStory', () => ({
+  DepartureStory: ({ destination, onComplete }: any) => {
+    const { Pressable, Text } = require('react-native');
+    return (
+      <Pressable testID="departure-story" onPress={onComplete}>
         <Text>{destination}</Text>
-        <Text testID="sailing-from">{from}</Text>
       </Pressable>
     );
   },
@@ -75,26 +93,47 @@ function env(visitingId: string | null = null) {
   };
 }
 
-test('도착한 적 없는 섬과 현재 섬은 빼고, arrivedBefore 가 없으면 포함한다', async () => {
+async function renderMembers(e: any) {
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByLabelText('소속 섬으로'));
+  return screen;
+}
+async function pressSea(screen: any) {
+  const close = screen.queryByLabelText('닫기');
+  if (close) await fireEvent.press(close);
+  await fireEvent.press(screen.getByLabelText('바다로 출항'));
+}
+
+test('두 목적지를 표시하고 임시 메뉴는 제거한다', async () => {
   const e = env();
   const screen = await render(<RaftDestinations e={e} />);
+  expect(screen.getByText('어디로 떠나볼까요?')).toBeTruthy();
+  expect(screen.getByLabelText('집중하러 가기')).toBeTruthy();
+  expect(screen.getByLabelText('바다로 출항')).toBeTruthy();
+  for (const old of ['망원경', '내 뗏목', '구경 끝내기'])
+    expect(screen.queryByText(old)).toBeNull();
+  await fireEvent.press(screen.getByLabelText('집중하러 가기'));
+  expect(e.go).toHaveBeenCalledWith('focusTravel');
+  expect(e.dispatch).toHaveBeenCalledWith({ type: 'RAFT_DESTINATION', destination: 'focus' });
+});
+
+test('소속 섬 창은 도착한 섬만 보여 주며 지금 섬으로도 돌아갈 수 있다', async () => {
+  const screen = await renderMembers(env());
   expect(screen.getByText('둘섬으로')).toBeTruthy();
   expect(screen.getByText('넷섬으로')).toBeTruthy();
-  expect(screen.queryByText('하나섬으로')).toBeNull();
+  expect(screen.getByText('하나섬으로')).toBeTruthy();
   expect(screen.queryByText('셋섬으로')).toBeNull();
-  expect(screen.getByText('앞바다 낚시섬')).toBeTruthy();
-  expect(screen.getByText('망원경')).toBeTruthy();
-  expect(screen.getByText('내 뗏목')).toBeTruthy();
+  expect(screen.queryByLabelText('바다로 출항')).toBeNull();
 });
 
 test('「○○섬으로」는 switchCurrent 뒤 항해 연출을 거쳐 home 으로 reset 한다', async () => {
   const e = env();
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('둘섬으로'));
   expect(e.islands.switchCurrent).toHaveBeenCalledWith('b');
   await fireEvent.press(await screen.findByTestId('sailing'));
   expect(e.reset).toHaveBeenCalledWith('home');
-  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.dispatch).not.toHaveBeenCalledWith({ type: 'END_VISIT' });
 });
 
 test('거절되면 서버 문구를 알리고 연출하지 않는다', async () => {
@@ -102,7 +141,7 @@ test('거절되면 서버 문구를 알리고 연출하지 않는다', async () 
   e.islands.switchCurrent.mockRejectedValue(
     new ApiError('ISLAND_NOT_ARRIVED', '아직 가 본 적 없는 섬이에요.', 403),
   );
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('둘섬으로'));
   await act(async () => {});
   expect(e.notify).toHaveBeenCalledWith('아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.');
@@ -111,12 +150,12 @@ test('거절되면 서버 문구를 알리고 연출하지 않는다', async () 
 
 test('방문 중에는 소속 섬 전부(방문 섬 포함, 미도착 제외)만 보이고 떠나면 END_VISIT 한다', async () => {
   const e = env('b');
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   expect(screen.getByText('하나섬으로')).toBeTruthy();
   expect(screen.getByText('둘섬으로')).toBeTruthy();
   expect(screen.getByText('넷섬으로')).toBeTruthy();
   expect(screen.queryByText('셋섬으로')).toBeNull();
-  expect(screen.queryByText('앞바다 낚시섬')).toBeNull();
+  expect(screen.queryByLabelText('집중하러 가기')).toBeNull();
   expect(screen.queryByText('망원경')).toBeNull();
   expect(screen.queryByText('내 뗏목')).toBeNull();
   await fireEvent.press(screen.getByText('하나섬으로'));
@@ -127,8 +166,8 @@ test('방문 중에는 소속 섬 전부(방문 섬 포함, 미도착 제외)만
 
 test('방문 중 시트를 닫으면 방문 섬 지도로, 항해 중 뒤로가기는 삼킨다', async () => {
   const e = env('b');
-  const screen = await render(<RaftDestinations e={e} />);
-  expect(e.backOverride.current).toBeNull();
+  const screen = await renderMembers(e);
+  expect(e.backOverride.current).toEqual(expect.any(Function));
   await fireEvent.press(screen.getByText('하나섬으로'));
   await screen.findByTestId('sailing');
   expect(e.backOverride.current?.()).toBe(true);
@@ -139,10 +178,12 @@ test('이동 요청 중에는 닫기·뒤로가기·다른 행이 막히고 완�
   const e = env('b');
   let finish!: () => void;
   e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.backOverride.current?.()).toBe(true);
-  await fireEvent.press(screen.getByText('넷섬으로'));
+  expect(screen.queryByText('어느 섬으로 갈까요?')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('바다로 출항'));
+  expect(e.reset).not.toHaveBeenCalled();
   expect(e.islands.switchCurrent).toHaveBeenCalledTimes(1);
   expect(e.replace).not.toHaveBeenCalled();
   await act(async () => finish());
@@ -188,21 +229,24 @@ test('가입하지 않은 섬을 구경하다 떠날 때 확인창은 방문당 
     items: [isl('a', '하나', { arrivedBefore: true })],
     currentIslandId: 'a',
   });
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.confirm).toHaveBeenCalledTimes(1);
   expect(e.confirm.mock.calls[0][0]).toBe('가입하지 않고 떠날까요?');
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'VISIT_LEAVE_ASKED' });
   expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+  // 앱 루트의 가입 확인창을 네이티브 소속 섬 선택창이 덮지 않아야 한다.
+  expect(screen.queryByText('어느 섬으로 갈까요?')).toBeNull();
   // 리듀서가 매 액션마다 상태를 깊은 복사한다 — 방문 중 다른 액션이 끼어도 다시 묻지 않는다
   await act(async () => e.dispatch({ type: 'TRAVEL_FROM', name: '구경섬' }));
   await screen.rerender(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByLabelText('소속 섬으로'));
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.confirm).toHaveBeenCalledTimes(1);
   expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
   // 시트를 닫았다 다시 열어도(같은 방문) 바로 떠난다
   await screen.unmount();
-  const again = await render(<RaftDestinations e={e} />);
+  const again = await renderMembers(e);
   await fireEvent.press(again.getByText('하나섬으로'));
   expect(e.confirm).toHaveBeenCalledTimes(1);
   expect(e.islands.switchCurrent).toHaveBeenCalledTimes(2);
@@ -213,7 +257,7 @@ test('확인창을 거쳐 「떠나기」를 고르면 그때 이동한다', asy
     items: [isl('a', '하나', { arrivedBefore: true })],
     currentIslandId: 'a',
   });
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.confirm.mock.calls[0][3]).toEqual({
     ok: '떠나기',
@@ -227,8 +271,8 @@ test('확인창을 거쳐 「떠나기」를 고르면 그때 이동한다', asy
 
 test('확인창의 취소 자리는 가입 버튼이고 누르면 가입만 한다(떠나기 동작은 돌리지 않는다)', async () => {
   const e = visitEnv();
-  const screen = await render(<RaftDestinations e={e} />);
-  await fireEvent.press(screen.getByText('구경 끝내기'));
+  const screen = await renderMembers(e);
+  await pressSea(screen);
   const opts = e.confirm.mock.calls[0][3];
   expect(opts.cancel).toBe('이 섬에 가입');
   await act(async () => opts.onCancel());
@@ -249,7 +293,7 @@ test('승인제 섬이면 가입 버튼 글자는 「가입 신청」이고 신�
     island: { approvalRequired: true },
   });
   e.islands.join.mockResolvedValue({ status: 'pending' });
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   const opts = e.confirm.mock.calls[0][3];
   expect(opts.cancel).toBe('가입 신청');
@@ -262,8 +306,8 @@ test('승인제 섬이면 가입 버튼 글자는 「가입 신청」이고 신�
 
 test('정원이 찬 섬이면 취소 자리는 기본 「취소」다(가입 버튼 없음)', async () => {
   const full = visitEnv({ island: { maxMembers: 1, memberCount: 1 } });
-  const screen = await render(<RaftDestinations e={full} />);
-  await fireEvent.press(screen.getByText('구경 끝내기'));
+  const screen = await renderMembers(full);
+  await pressSea(screen);
   expect(full.confirm).toHaveBeenCalledTimes(1);
   expect(full.confirm.mock.calls[0][3]).toEqual({ ok: '떠나기' });
 });
@@ -276,7 +320,7 @@ test('가입 신청을 이미 낸 사람은 membershipStatus 가 아직 none 이
     currentIslandId: 'a',
     joinRequest: request,
   });
-  const moveScreen = await render(<RaftDestinations e={move} />);
+  const moveScreen = await renderMembers(move);
   await fireEvent.press(moveScreen.getByText('하나섬으로'));
   expect(move.confirm).not.toHaveBeenCalled();
   expect(move.dispatch).not.toHaveBeenCalledWith({ type: 'VISIT_LEAVE_ASKED' });
@@ -285,11 +329,12 @@ test('가입 신청을 이미 낸 사람은 membershipStatus 가 아직 none 이
 
   // 구경 끝내기
   const end = visitEnv({ joinRequest: request });
-  const endScreen = await render(<RaftDestinations e={end} />);
-  await fireEvent.press(endScreen.getByText('구경 끝내기'));
+  const endScreen = await renderMembers(end);
+  await pressSea(endScreen);
+  await fireEvent.press(endScreen.getByTestId('departure-story'));
   expect(end.confirm).not.toHaveBeenCalled();
   expect(end.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
-  expect(end.reset).toHaveBeenCalledWith('chooseIsland');
+  expect(end.reset).toHaveBeenCalledWith('sea');
 });
 
 test.each(['pending', 'active'])(
@@ -300,7 +345,7 @@ test.each(['pending', 'active'])(
       currentIslandId: 'a',
       membershipStatus,
     });
-    const screen = await render(<RaftDestinations e={e} />);
+    const screen = await renderMembers(e);
     await fireEvent.press(screen.getByText('하나섬으로'));
     expect(e.confirm).not.toHaveBeenCalled();
     expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
@@ -309,15 +354,17 @@ test.each(['pending', 'active'])(
 
 test('소속 섬이 없어도 방문 중에는 「구경 끝내기」가 있어 확인 뒤 구경을 끝내고 섬 선택으로 간다', async () => {
   const e = visitEnv();
-  const screen = await render(<RaftDestinations e={e} />);
-  expect(screen.queryByText(/섬으로$/)).toBeNull();
-  await fireEvent.press(screen.getByText('구경 끝내기'));
+  const screen = await renderMembers(e);
+  expect(screen.getByText('이동할 수 있는 소속 섬이 없어요.')).toBeTruthy();
+  await pressSea(screen);
   expect(e.confirm).toHaveBeenCalledTimes(1);
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'VISIT_LEAVE_ASKED' });
   expect(e.reset).not.toHaveBeenCalled();
   await act(async () => e.confirm.mock.calls[0][2]());
+  expect(e.reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('departure-story'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
-  expect(e.reset).toHaveBeenCalledWith('chooseIsland');
+  expect(e.reset).toHaveBeenCalledWith('sea');
   expect(e.state.visitingIslandId).toBeNull();
 });
 
@@ -327,11 +374,13 @@ test('현재 섬이 있으면 「구경 끝내기」는 home 으로 간다(이�
     currentIslandId: 'a',
   });
   e.dispatch({ type: 'VISIT_LEAVE_ASKED' });
-  const screen = await render(<RaftDestinations e={e} />);
-  await fireEvent.press(screen.getByText('구경 끝내기'));
+  const screen = await renderMembers(e);
+  await pressSea(screen);
   expect(e.confirm).not.toHaveBeenCalled();
+  expect(e.reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('departure-story'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
-  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.reset).toHaveBeenCalledWith('sea');
 });
 
 test('방문 스냅샷이 구경 중인 섬과 다르면 가입 여부를 알 수 없어 확인 없이 떠난다(구경 끝내기도 막히지 않는다)', async () => {
@@ -341,70 +390,44 @@ test('방문 스냅샷이 구경 중인 섬과 다르면 가입 여부를 알 �
   });
   // ISLAND_VISIT 가 visit 만 바꾸고 visitingIslandId 는 그대로인 구간 — visit 는 v, 구경 중인 섬은 other
   e.state = { ...e.state, visitingIslandId: 'other' };
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.confirm).not.toHaveBeenCalled();
   expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
   await screen.unmount();
 
-  const again = await render(<RaftDestinations e={e} />);
-  await fireEvent.press(again.getByText('구경 끝내기'));
+  const again = await renderMembers(e);
+  await pressSea(again);
+  await fireEvent.press(again.getByTestId('departure-story'));
   expect(e.confirm).not.toHaveBeenCalled();
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
-  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.reset).toHaveBeenCalledWith('sea');
 });
 
 test('「구경 끝내기」는 방문 중에만 보인다', async () => {
-  const screen = await render(<RaftDestinations e={env()} />);
+  const screen = await renderMembers(env());
   expect(screen.queryByText('구경 끝내기')).toBeNull();
 });
 
-test('조건부로 빠진 행이 구분선 위치를 어긋나게 하지 않는다', async () => {
-  const topBorder = (label: string, screen: any) =>
-    StyleSheet.flatten(screen.getByLabelText(label).props.style).borderTopWidth;
-  // 방문 중: 첫 행 위에는 선이 없고 그 아래 행(구경 끝내기 포함)마다 있다
-  const visiting = await render(<RaftDestinations e={env('b')} />);
-  expect(topBorder('하나섬으로', visiting)).toBe(0);
-  expect(topBorder('둘섬으로', visiting)).toBe(1);
-  expect(topBorder('구경 끝내기', visiting)).toBe(1);
-  await visiting.unmount();
-  // 평상시: 낚시섬이 첫 행
-  const home = await render(<RaftDestinations e={env()} />);
-  expect(topBorder('앞바다 낚시섬', home)).toBe(0);
-  expect(topBorder('둘섬으로', home)).toBe(1);
-  expect(topBorder('내 뗏목', home)).toBe(1);
-});
-
-test('방문 중 항해 출발지는 방문 섬 이름이다', async () => {
+test('소속 섬 창의 구분선과 뒤로가기는 목록 안에서 처리한다', async () => {
   const e = env('b');
-  const screen = await render(<RaftDestinations e={e} />);
-  await fireEvent.press(screen.getByText('하나섬으로'));
-  expect((await screen.findByTestId('sailing-from')).props.children).toBe('둘');
-});
-
-test('항해 출발지는 누른 시점의 섬 이름이다 — 이동 응답의 소속 동기화가 현재 섬을 바꿔도 목적지로 바뀌지 않는다', async () => {
-  const e = env();
-  e.islands.switchCurrent.mockImplementation(async () => {
-    e.state = reducer(e.state, {
-      type: 'ISLAND_SYNC',
-      memberships: {
-        ...e.state.serverIslands!,
-        currentIslandId: 'b',
-        items: e.state.serverIslands!.memberships,
-      },
-    });
+  const screen = await renderMembers(e);
+  const topBorder = (label: string) =>
+    StyleSheet.flatten(screen.getByLabelText(label + ', 가 본 소속 섬').props.style).borderTopWidth;
+  expect(topBorder('하나섬으로')).toBe(0);
+  expect(topBorder('둘섬으로')).toBe(1);
+  await act(async () => {
+    e.backOverride.current?.();
   });
-  const screen = await render(<RaftDestinations e={e} />);
-  await fireEvent.press(screen.getByText('둘섬으로'));
-  expect(e.state.serverIslands!.currentIslandId).toBe('b');
-  expect((await screen.findByTestId('sailing-from')).props.children).toBe('하나');
+  expect(screen.queryByText('어느 섬으로 갈까요?')).toBeNull();
+  expect(screen.getByLabelText('바다로 출항')).toBeTruthy();
 });
 
 test('요청이 끝나도 그 사이 다른 곳이 갈아 끼운 뒤로가기 처리는 지우지 않는다', async () => {
   const e = env('b');
   let fail!: (error: Error) => void;
   e.islands.switchCurrent.mockReturnValue(new Promise<void>((_, reject) => (fail = reject)));
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.backOverride.current?.()).toBe(true); // 요청 중 = 삼킴
   const other = () => false;
@@ -419,7 +442,7 @@ test('요청 중 언마운트되면 응답이 와도 아무것도 하지 않는�
   let finish!: () => void;
   e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
   const err = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   await screen.unmount();
   await act(async () => finish());
@@ -433,7 +456,7 @@ test('마운트된 채 세션 세대가 바뀌면 항해·토스트 없이 요�
   const e = env('b');
   let finish!: () => void;
   e.islands.switchCurrent.mockReturnValueOnce(new Promise<void>((r) => (finish = r)));
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   mockGeneration += 1;
   await act(async () => finish());
@@ -441,7 +464,8 @@ test('마운트된 채 세션 세대가 바뀌면 항해·토스트 없이 요�
   expect(e.notify).not.toHaveBeenCalled();
   expect(e.reset).not.toHaveBeenCalled();
   expect(e.backOverride.current).toBeNull();
-  // 행이 다시 눌린다(pending 해제)
+  // 다시 소속 섬 창을 열어 선택할 수 있다(pending 해제).
+  await fireEvent.press(screen.getByLabelText('소속 섬으로'));
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.islands.switchCurrent).toHaveBeenCalledTimes(2);
 });
@@ -451,7 +475,7 @@ test('세대 변경과 언마운트가 겹쳐도 reset 하지 않는다', async 
   let finish!: () => void;
   e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
   const err = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await renderMembers(e);
   await fireEvent.press(screen.getByText('하나섬으로'));
   mockGeneration += 1;
   await screen.unmount();
@@ -460,4 +484,66 @@ test('세대 변경과 언마운트가 겹쳐도 reset 하지 않는다', async 
   expect(e.notify).not.toHaveBeenCalled();
   expect(err).not.toHaveBeenCalled();
   err.mockRestore();
+});
+
+test('마지막 목적지는 저장본 복원 뒤에도 선택 상태로 보인다', async () => {
+  const e = env();
+  const chosen = reducer(e.state, { type: 'RAFT_DESTINATION', destination: 'sea' });
+  e.state = reducer(initialState(true), { type: 'LOAD', state: chosen });
+  const screen = await render(<RaftDestinations e={e} />);
+  expect(screen.getByLabelText('바다로 출항').props.accessibilityState.selected).toBe(true);
+});
+
+test('영어에서도 두 목적지와 소속 섬 선택 창을 연다', async () => {
+  applyLocalePref('en');
+  try {
+    const screen = await render(<RaftDestinations e={env()} />);
+    expect(screen.getByText('Where shall we sail?')).toBeTruthy();
+    expect(screen.getByLabelText('Start focusing')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('My islands'));
+    expect(screen.getByText('Which island?')).toBeTruthy();
+    expect(screen.getByText('To 둘')).toBeTruthy();
+  } finally {
+    applyLocalePref('ko');
+  }
+});
+
+test('지금 소속 섬을 고르면 다시 항해하지 않고 섬 홈으로 돌아간다', async () => {
+  const e = env();
+  const screen = await renderMembers(e);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('sailing')).toBeNull();
+});
+
+test('섬 이름에 이미 섬이 들어 있으면 도착 문구에 중복해서 붙이지 않는다', async () => {
+  const e = env();
+  e.state.serverIslands!.memberships[1].name = '구름섬';
+  const screen = await renderMembers(e);
+  expect(screen.getByText('구름섬으로')).toBeTruthy();
+  expect(screen.queryByText('구름섬섬으로')).toBeNull();
+});
+
+test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길은 유지한다', async () => {
+  const e = env();
+  e.state.serverIslands!.memberships[0].arrivedBefore = false;
+  const screen = await renderMembers(e);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+});
+
+test('바다 출항은 출항 영상이 끝나기 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
+  const e = env();
+  const screen = await render(<RaftDestinations e={e} />);
+  await pressSea(screen);
+  expect(e.reset).not.toHaveBeenCalled();
+  expect(screen.queryByText('어디로 떠나볼까요?')).toBeNull();
+  expect(e.backOverride.current?.()).toBe(true);
+  await fireEvent.press(screen.getByTestId('departure-story'));
+  expect(e.reset).toHaveBeenCalledTimes(1);
+  expect(e.reset).toHaveBeenCalledWith('sea');
+  await screen.unmount();
+  expect(e.backOverride.current).toBeNull();
 });

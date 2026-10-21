@@ -145,11 +145,13 @@ public class IslandInvitationService {
     /**
      * 초대 도착 (GROMO-2264) — 그 섬에 도착을 남기고, 누구나 가입 섬이면 가입한다.
      *
-     * <p>판정 순서는 {@link IslandJoinService#join} 과 같다(이미 주민 → 강퇴 → 열린 신청 → 소속 상한). 이미 주민이면
-     * 도착만, 열린 신청이 있으면 그대로다. 강퇴·상한은 가입이 던질 거절을 <b>미리</b> 걸러 사유로 바꾼다 — 가입 안에서
+     * <p>판정 순서는 {@link IslandJoinService#join} 과 같다(이미 주민 → 열린 신청 → 소속 상한 → 강퇴). 이미 주민이면
+     * 도착만, 열린 신청이 있으면 그대로다. 상한은 가입이 던질 거절을 <b>미리</b> 걸러 사유로 바꾼다 — 가입 안에서
      * 던져진 예외는 이 트랜잭션을 롤백 전용으로 만들어 잡아서 바꿀 수 없다. 그다음 누구나 가입 섬은 가입(origin=visit)을
      * 그대로 써서 가입·이동·도착한다. <b>승인제 섬은 도착만</b>이다(기획 정본 «항해 단축 티켓») — 승인 전까지 방문자이고
      * [가입 신청] 은 방문자가 직접 누른다. 링크 하나가 오픈채팅에 퍼져도 섬장의 신청 목록이 저절로 차지 않는다.
+     * <b>강퇴된 섬도 도착만</b>이다(GROMO-2315) — 가입이 강퇴자를 승인 대기로 돌리므로 승인제 섬과 같다. 사유
+     * {@code KICKED} 는 그 차이(안내 문구)만 알리고, 신청은 방문자가 직접 한다.
      */
     private InvitationResolvedView.Arrival arriveByInvitation(User caller, Group island, String token) {
         UUID userId = caller.getId();
@@ -159,13 +161,14 @@ public class IslandInvitationService {
         String reason = null;
         if (prior.isPresent() && !prior.get().isLeft()) {
             status = IslandSummaries.STATUS_ACTIVE;
-        } else if (prior.isPresent() && prior.get().isKicked()) {
-            reason = REASON_KICKED;
         } else if (joinRequestRepository.findByIslandIdAndApplicantIdAndStatus(
                 islandId, userId, IslandJoinRequestStatus.PENDING).isPresent()) {
             status = IslandSummaries.STATUS_PENDING;
         } else if (movementGuards.atJoinedIslandLimit(caller)) {
             reason = REASON_ISLAND_LIMIT;
+        } else if (prior.isPresent() && prior.get().isKicked()) {
+            // 강퇴자의 가입은 승인 대기다(GROMO-2315) — 신청은 방문자가 직접 한다(승인제 섬과 같다).
+            reason = REASON_KICKED;
         } else if (!island.isApprovalRequired()) {
             // 해석에는 명령 키가 없어 이번 호출용 키를 만든다 — 재시도 멱등은 receipt 가 아니라 위의 판정이 준다.
             status = joins.join(userId, islandId, new JoinIslandCommandRequest(token), UUID.randomUUID()).status();
@@ -237,7 +240,8 @@ public class IslandInvitationService {
         int memberCount = groupMemberRepository.countByGroupIdIn(List.of(island.getId())).stream()
                 .mapToInt(row -> (int) row.getMemberCount())
                 .sum();
-        boolean mine = groupMemberRepository.findByUserAndGroup(caller, island).isPresent();
+        Optional<GroupMember> prior = groupMemberRepository.findAnyByUserAndGroup(caller, island);
+        boolean mine = prior.filter(member -> !member.isLeft()).isPresent();
         IslandJoinRequest latest = joinRequestRepository
                 .findLatestByIslandIdAndApplicantId(
                         island.getId(), caller.getId(), PageRequest.of(0, 1))
@@ -245,7 +249,7 @@ public class IslandInvitationService {
         String status = mine ? IslandSummaries.STATUS_ACTIVE
                 : latest != null && latest.isPending()
                         ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
-        return IslandSummaries.of(island, memberCount, status,
+        return IslandSummaries.of(island, prior.map(GroupMember::isKicked).orElse(false), memberCount, status,
                 latest == null ? null : latest.getId(),
                 arrivals.existsByUserIdAndIslandId(caller.getId(), island.getId()));
     }

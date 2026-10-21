@@ -100,9 +100,16 @@ import {
   DEFAULT_FREE_AUDIO_TRACK_IDS,
   hasBundledAudio,
 } from '@/constants/audio';
-import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
-import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
+import { Flag } from '@/screens/cosmetics/Cosmetics';
+import {
+  appearanceOutfit,
+  CatOutfitLayers,
+  OutfitItemArt,
+  outfitOf,
+  type Outfit,
+} from '@/components/CatOutfitLayers';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
+import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
@@ -143,8 +150,6 @@ import {
   Avatar,
   Preview,
   IslandThumb,
-  HatArt,
-  HatOn,
   RaftCatArt,
   Cta,
   SearchField,
@@ -248,13 +253,7 @@ function MainIslandRadio({ selected }: { selected: boolean }) {
     </View>
   );
 }
-/** 상태에 실린 머리·목·신발 — 키 없음(옛 서버·미장착)과 null(해제)은 모두 «미장착» 이다. */
-const outfitOf = (state: State): Outfit => ({
-  head: state.equipped.head ?? null,
-  neck: state.equipped.neck ?? null,
-  shoes: state.equipped.shoes ?? null,
-});
-function Boat({ state, h = 260, scarf }: any) {
+function Boat({ state, h = 260 }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
       <Pic id="boat/raft" w={h * 0.86} />
@@ -263,7 +262,7 @@ function Boat({ state, h = 260, scarf }: any) {
         w={h * 0.42}
         style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
       />
-      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림과 같은 상자 */}
+      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림(idle.png)과 같은 상자 */}
       <View
         pointerEvents="none"
         style={{
@@ -274,23 +273,48 @@ function Boat({ state, h = 260, scarf }: any) {
           height: h * 0.42,
         }}
       >
-        <CatOutfitLayers outfit={outfitOf(state)} />
-      </View>
-      {scarf && (
-        <View
-          style={{
-            position: 'absolute',
-            left: '44%',
-            top: '41%',
-            width: 44,
-            height: 16,
-            borderRadius: 8,
-            backgroundColor: C.pink,
-            borderWidth: 1.5,
-            borderColor: C.brown,
-            transform: [{ rotate: '-8deg' }],
-          }}
+        <CatOutfitLayers
+          outfit={outfitOf(state)}
+          pose={{ color: state.color, still: 'idle', size: h * 0.42 }}
         />
+      </View>
+    </View>
+  );
+}
+/**
+ * 뗏목 합성 그림(440×317)을 미리보기 안쪽 상자(폭·높이)의 92%×86% 에 contain 으로 넣었을 때의 실제 그림 크기 — 넓은 폰에서는
+ * 높이가 먼저 차서 그림 폭이 92% 보다 좁다. 꾸미기 오버레이도 이 상자에 맞춘다(GROMO-2382).
+ */
+export const raftArtSize = (width: number, height: number) => {
+  const w = Math.min(width * 0.92, (height * 0.86 * 440) / 317);
+  return { width: w, height: (w * 317) / 440 };
+};
+/** 검정 고양이 뗏목 합성 그림과 그 위 꾸미기를 실제 그림 상자 하나에 겹친다 — 부모(Preview) 안쪽을 재서 맞춘다. */
+function BlackRaftCat({ id, outfit }: { id: string; outfit: Outfit }) {
+  const [art, setArt] = useState<{ width: number; height: number } | null>(null);
+  return (
+    <View
+      testID="raft-cat-frame"
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
+      onLayout={(e) => setArt(raftArtSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height))}
+    >
+      {art && (
+        <View testID="raft-cat-art" style={art}>
+          <Pic id={id} w="100%" h="100%" />
+          {/* 합성 그림 안 고양이(idle) 상자 = 왼쪽 25.0%·위 9.1%·폭 43.0% — 그림 실측(GROMO-2382) */}
+          <View
+            style={{
+              position: 'absolute',
+              left: '25.0%',
+              top: '9.1%',
+              width: '43.0%',
+              aspectRatio: 1,
+            }}
+          >
+            <CatOutfitLayers outfit={outfit} pose={{ color: 'black', still: 'idle' }} />
+          </View>
+        </View>
       )}
     </View>
   );
@@ -979,6 +1003,8 @@ export function RedesignScreens({ e }: any) {
       ? !!p.owned
       : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
   const catalog = useCustomizationCatalog();
+  // 결과창에서 처음 받은 꾸미기 — 옷장 칸에 NEW!, 한 번 누르면 사라진다(GROMO-2382)
+  const unseenOutfits = useUnseenOutfits();
   const productTitle = (id: string) =>
     server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
@@ -2668,6 +2694,13 @@ export function RedesignScreens({ e }: any) {
                     setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
                   onSkip: () => setGuideStep(99),
                 }
+              : undefined
+          }
+          friendRequestCount={
+            server
+              ? friendsScreen?.status === 'ready'
+                ? (friendsScreen.data?.friendRequests.length ?? 0)
+                : 0
               : undefined
           }
           boardStatus={e.boardStatus}
@@ -5082,47 +5115,13 @@ export function RedesignScreens({ e }: any) {
       </IslandSheet>
     );
   // 뗏목 위 고양이 그림. 합성 그림은 검정 고양이만 있어서 다른 털색은 뗏목 + 고양이를 겹쳐 그린다
-  const worn = state.equipped.clothes;
-  // 스카프는 합성 그림, 밀짚모자는 그림 위에 도형을 겹친다(모자 쓴 고양이 그림이 없어서)
-  const raftCat = (h: number, scarf = worn === 'scarf', hat = worn === 'straw-hat') =>
+  const raftCat = (h: number) =>
     state.color === 'black' ? (
       <Preview h={h}>
-        <Pic id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'} w="92%" h="86%" />
-        {hat && <HatOn image="raft" style={{ width: '92%', height: '86%' }} />}
-        {/* 합성 그림(440×317) 안 고양이 상자 ≈ 왼쪽 16.6%·위 2.8%·폭 55.7% — 밀짚모자 좌표에서 역산한 값, 실기기 확인 필요 */}
-        <View
-          pointerEvents="none"
-          style={{ position: 'absolute', width: '92%', aspectRatio: 440 / 317 }}
-        >
-          <View
-            style={{
-              position: 'absolute',
-              left: '16.6%',
-              top: '2.8%',
-              width: '55.7%',
-              aspectRatio: 1,
-            }}
-          >
-            <CatOutfitLayers outfit={outfitOf(state)} />
-          </View>
-        </View>
+        <BlackRaftCat id="boat/raft/cat" outfit={outfitOf(state)} />
       </Preview>
     ) : (
-      <View>
-        <Boat state={state} h={layout.compact ? 150 : h} scarf={scarf} />
-        {hat && (
-          // Boat 안 고양이 자리(left 0.36h · top 0.12h · 폭 0.42h) + 테두리 2
-          <HatOn
-            image="cat"
-            style={{
-              left: 2 + (layout.compact ? 150 : h) * 0.36,
-              top: 2 + (layout.compact ? 150 : h) * 0.12,
-              width: (layout.compact ? 150 : h) * 0.42,
-              height: (layout.compact ? 150 : h) * 0.42,
-            }}
-          />
-        )}
-      </View>
+      <Boat state={state} h={layout.compact ? 150 : h} />
     );
   // island(currentIsland(state))는 로컬 목업 섬(state.islandId, 기본값 소다 섬)을 가리켜
   // 서버 모드에서도 항상 「소다 섬」으로 보였다. 서버 모드는 snap.memberships 의 현재 섬 이름이 정본이다.
@@ -5177,9 +5176,7 @@ export function RedesignScreens({ e }: any) {
             overflow: 'hidden',
           }}
         >
-          {p.id === 'straw-hat' ? (
-            <HatArt />
-          ) : p.kind === 'island' ? (
+          {p.kind === 'island' ? (
             <Pic id="island/whole" w="100%" h="100%" cover />
           ) : (
             <Pic
@@ -5447,7 +5444,7 @@ export function RedesignScreens({ e }: any) {
         toast={sheetToast}
       >
         {clothes ? (
-          raftCat(260, p.id === 'scarf', p.id === 'straw-hat')
+          raftCat(260)
         ) : audio ? (
           <Preview h={220} bg={C.soft}>
             <Pic id="bld/gramophone" w={170} />
@@ -5894,8 +5891,8 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'wardrobe') {
-    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
-    type WardrobeSlot = 'clothes' | 'decor' | 'head' | 'neck' | 'shoes';
+    // 가진 장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
+    type WardrobeSlot = 'decor' | 'head' | 'neck' | 'shoes';
     const slotWorn = (slot: WardrobeSlot): string | null => {
       const v = state.equipped[slot];
       return v == null || v === 'default' || v === 'none' ? null : v;
@@ -5908,22 +5905,22 @@ export function RedesignScreens({ e }: any) {
       a11yLabel: string = label,
     ) => {
       const on = slotWorn(slot) === value;
+      const fresh = value != null && unseenOutfits.has(value);
       return (
         <Pressable
           key={`${slot}:${value}`}
           accessibilityRole="button"
-          accessibilityLabel={a11yLabel}
+          accessibilityLabel={fresh ? `${a11yLabel} ${t('common.newBadge')}` : a11yLabel}
           accessibilityState={{ selected: on }}
           onPress={() => {
+            if (fresh) markOutfitSeen(value);
             // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다. null 은 해제.
             if (server) {
               shopApi.equip({ [slot]: value }).catch((thrown) => {
                 const m = serverErrorText(thrown);
                 if (m) notify(m);
               });
-              return;
             }
-            act('EQUIP', { key: 'clothes', value: value ?? 'default' });
           }}
           style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
@@ -5946,6 +5943,11 @@ export function RedesignScreens({ e }: any) {
                 <CheckDot />
               </View>
             )}
+            {fresh && (
+              <Badge small style={{ position: 'absolute', top: -8, left: -6 }}>
+                {t('common.newBadge')}
+              </Badge>
+            )}
           </View>
           <Txt
             style={{
@@ -5961,28 +5963,13 @@ export function RedesignScreens({ e }: any) {
       );
     };
     const slotIds = (slot: WardrobeSlot): string[] =>
-      server
-        ? ((shopApi.my?.[slot] as string[] | undefined) ?? [])
-        : slot === 'clothes'
-          ? products
-              .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-              .map((p) => p.id)
-          : [];
+      server ? ((shopApi.my?.[slot] as string[] | undefined) ?? []) : [];
 
     const picture = (slot: WardrobeSlot, id: string) => {
       const entry = catalog[id];
-      if (entry)
-        return (
-          <Image
-            accessible={false}
-            testID={`wardrobe-art-${id}`}
-            source={{ uri: entry.imageUrl }}
-            style={{ width: 60, height: 60 }}
-            resizeMode="contain"
-          />
-        );
-      if (slot === 'clothes' && id === 'straw-hat') return <HatArt w={72} scale={0.7} />;
-      return slot === 'clothes' || slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
+      // 집중 보상 목은 원본 전체가 아니라 앞 장식만 잘라 보인다(GROMO-2382)
+      if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
+      return slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
     };
     return (
       <IslandSheet
@@ -5995,11 +5982,11 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        {(['clothes', 'decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
+        {(['decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
           const worn = slotWorn(slot);
           // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
           const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
-          if (slot !== 'clothes' && ids.length === 0 && !worn) return null;
+          if (ids.length === 0 && !worn) return null;
           return (
             <View key={slot} style={{ gap: 10 }}>
               <Txt kind="section" style={st.sec}>
@@ -6010,8 +5997,8 @@ export function RedesignScreens({ e }: any) {
                   slot,
                   null,
                   t('wardrobe.default'),
-                  slot === 'clothes' ? <Pic id={'cat/' + state.color} w={60.5} /> : null,
-                  // 슬롯마다 같은 「기본」이 다섯 번 읽히지 않게 슬롯 이름을 붙인다
+                  null,
+                  // 슬롯마다 같은 「기본」이 네 번 읽히지 않게 슬롯 이름을 붙인다
                   t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
                 )}
                 {ids.map((id) =>
@@ -6166,7 +6153,12 @@ export function RedesignScreens({ e }: any) {
           key={friend.requestId}
           title={name}
           tone="butter"
-          lead={<Avatar color="white" />}
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
           tail={requestActions(
             () => friendCmd(() => acceptFriendRequest(friend.requestId)),
             () => friendCmd(() => rejectFriendRequest(friend.requestId)),
@@ -6180,7 +6172,12 @@ export function RedesignScreens({ e }: any) {
         key={friend.requestId}
         title={friend.nickname ?? '탈퇴한 사용자'}
         sub="수락 기다리는 중"
-        lead={<Avatar color="white" />}
+        lead={
+          <Avatar
+            color={friend.catColor ?? 'white'}
+            outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+          />
+        }
         tail={
           <Btn
             small
@@ -6199,7 +6196,12 @@ export function RedesignScreens({ e }: any) {
           key={friend.userId}
           title={name}
           sub={friend.mainIslandName ?? undefined}
-          lead={<Avatar color="white" />}
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
           tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
         />
       );
@@ -6224,7 +6226,12 @@ export function RedesignScreens({ e }: any) {
             key={friend.userId}
             title={friend.nickname}
             sub={friend.relation === 'FRIEND' ? '친구' : undefined}
-            lead={<Avatar color="white" />}
+            lead={
+              <Avatar
+                color={friend.catColor ?? 'white'}
+                outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+              />
+            }
             tail={
               friend.relation === 'NONE' ? (
                 <Btn
@@ -6541,6 +6548,15 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'settings') {
+    const primaryIslandName = server
+      ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+        snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+        t('account.boat.myIslandFallback'))
+      : (mainIsland(state)?.name ?? island.name);
+    const canChangeMainIsland =
+      (server
+        ? (snap?.memberships.length ?? 0)
+        : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length) > 1;
     const toggle = (label: string, key: string, sub?: string) => (
       <SheetRow
         title={label}
@@ -6571,6 +6587,21 @@ export function RedesignScreens({ e }: any) {
         onBack={back}
         onClose={home}
       >
+        <SheetGroup>
+          <SheetRow
+            title={t('account.profile.title')}
+            sub={t('account.profile.sub')}
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
+            chevron
+            onPress={() => go('profile')}
+          />
+          <SheetRow
+            title={t(canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain')}
+            sub={primaryIslandName}
+            chevron={canChangeMainIsland}
+            onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
+          />
+        </SheetGroup>
         {sec(t('settings.generalSection'))}
         <SheetGroup flat>
           {toggle(t('settings.notifications'), 'notifications')}

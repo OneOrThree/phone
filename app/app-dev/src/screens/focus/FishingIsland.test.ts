@@ -48,13 +48,15 @@ jest.mock('@/components/CatSprite', () => {
       left,
       keyPoses,
       replayKey,
+      outfit,
     }: {
       testID?: string;
       motion: string;
       left?: boolean;
       keyPoses?: boolean;
       replayKey?: number;
-    }) => React.createElement(View, { testID, motion, left, keyPoses, replayKey }),
+      outfit?: object;
+    }) => React.createElement(View, { testID, motion, left, keyPoses, replayKey, outfit }),
   };
 });
 
@@ -755,6 +757,44 @@ test('입장 도중 완료되어 기지개로 전환돼도 좌석에 도착하�
     }),
   );
   assert.notEqual(screen.queryByTestId('fishing-actor-catch'), null);
+  await screen.unmount();
+});
+
+test('낚시섬 주민은 넘겨받은 머리·목을 입는다 (GROMO-2390)', async () => {
+  const noop = jest.fn();
+  const screen = await render(
+    React.createElement(FishingPeerActorView, {
+      actor: {
+        userId: 'u1',
+        sessionId: 's1',
+        name: '주민',
+        color: 'ginger',
+        subject: '수학',
+        seconds: 0,
+        status: 'active',
+        key: 'u1:s1',
+        slot: 0,
+        spot: PEER_SPOTS[0],
+        position: PEER_SPOTS[0],
+        phase: 'fishing',
+        visible: true,
+        generation: 1,
+      } as any,
+      outfit: { head: 'hat-1', neck: null },
+      size: 640,
+      sizeY: 640 / 1.5,
+      reduce: false,
+      onEntered: noop,
+      onCast: noop,
+      onPausedExit: noop,
+      onStretch: noop,
+      onCompletedExit: noop,
+    }),
+  );
+  assert.deepEqual(screen.getByTestId('fishing-actor-cat').props.outfit, {
+    head: 'hat-1',
+    neck: null,
+  });
   await screen.unmount();
 });
 

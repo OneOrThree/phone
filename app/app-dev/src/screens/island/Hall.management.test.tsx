@@ -11,6 +11,30 @@ jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
   useIslandManagement: jest.fn(),
 }));
+// 주민 아바타의 머리·목 합성(GROMO-2391) — 카탈로그는 세션 없이 고정 표로 대신한다
+jest.mock('@/services/customizationCatalog', () => ({
+  useCustomizationCatalog: () => ({
+    mandarin: {
+      productId: 'mandarin',
+      slot: 'head',
+      imageUrl: 'https://x/mandarin.png',
+      width: 1254,
+      height: 1254,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      catFit: {
+        width: 1254,
+        height: 1254,
+        crop: [329, 349, 940, 942],
+        colors: ['cream'],
+        motions: {},
+        stills: ['avatar'],
+        rigUrls: {},
+        head: { drawWidth: 64, depthY: 9, contacts: {}, shadow: { widthFactor: 0.2, height: 2 } },
+      },
+    },
+  }),
+}));
 let mockSessionGeneration = 0;
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockSessionGeneration }));
 jest.mock('@/screens/island/useLedgerScreen', () => ({
@@ -378,6 +402,26 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
   assert.ok(!env.dispatch.mock.calls.some(([a]: any) => a.type === 'LEAVE'));
   await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
   assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
+  assert.equal(env.reset.mock.calls.length, 0); // 다음 위치를 모르면 바다로 단정하지 않는다
+});
+
+test.each([
+  ['먼바다면 바다로', { islandId: null }, null, 'sea'],
+  ['다른 섬이면 홈으로', { islandId: 'srv-2' }, 'srv-2', 'home'],
+  // 응답 뒤 다른 기기가 새 섬으로 옮겼으면 더 최신인 재조회 current 를 따른다
+  ['먼바다여도 재조회에 current 가 있으면 홈으로', { islandId: null }, 'srv-3', 'home'],
+])('탈퇴 응답의 다음 위치가 %s 간다(GROMO-2366)', async (_name, nextLocation, current, to) => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: current, nextLocation }));
+  const env = { ...e('manage', state), islands: { leave } };
+  const screen = await render(<Hall e={env} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
+  expect(env.reset.mock.calls).toEqual(to === 'sea' ? [['sea']] : []);
+  assert.equal(env.home.mock.calls.length, to === 'home' ? 1 : 0);
 });
 
 test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 서버로 탈퇴한다', async () => {
@@ -532,6 +576,25 @@ test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으
   // 색 없는 주민 칸이 내 색(state.color)으로 칠해지지 않는다 — 내 색 그림은 어디에도 없다
   if (state.color !== 'cream' && state.color !== 'calico')
     assert.ok(!all.includes(art[`avatar/${state.color}`]));
+});
+
+test('서버 주민이 머리를 입었으면 그 아바타에 합성 캔버스가 얹힌다(GROMO-2391)', async () => {
+  managementMock.mockReturnValue(
+    management({
+      members: [
+        {
+          id: 'host',
+          name: '방장',
+          catColor: 'cream',
+          role: 'host',
+          appearance: { head: 'mandarin' },
+        },
+        { id: 'u2', name: '주민', catColor: 'gray', role: 'member', appearance: {} },
+      ],
+    }),
+  );
+  const screen = await render(<Hall e={e('manage', initialState(true))} />);
+  assert.equal(screen.getAllByTestId('outfit-fit').length, 1);
 });
 
 test('섬 이름·소개 입력 길이는 서버 계약 50/200자와 같다(H24)', async () => {

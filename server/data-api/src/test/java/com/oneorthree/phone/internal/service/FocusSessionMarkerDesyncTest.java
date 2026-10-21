@@ -1,6 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
+import com.oneorthree.phone.appearance.service.CustomizationRewardService;
 import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
 import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
@@ -74,7 +74,7 @@ class FocusSessionMarkerDesyncTest {
     @Mock private FocusSettlementRepository focusSettlementRepository;
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
     @Mock private FocusRewardAccrualService rewardAccruals;
-    @Mock private SeaFocusRewardService seaFocusRewards;
+    @Mock private CustomizationRewardService customizationRewards;
     @Mock private com.oneorthree.phone.ranking.service.IslandWeeklyFocusService weeklyFocus;
 
     private FocusSessionLifecycleService service() {
@@ -83,7 +83,7 @@ class FocusSessionMarkerDesyncTest {
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
-                new SeaSessionPredicate(), seaFocusRewards,
+                new SeaSessionPredicate(), customizationRewards,
                 null, new SeaSessionEvents(outboxCommandPort,
                 new org.springframework.beans.factory.support.StaticListableBeanFactory()
                         .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),

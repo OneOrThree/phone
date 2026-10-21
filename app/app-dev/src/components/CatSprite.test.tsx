@@ -4,7 +4,8 @@ import { Animated, AppState, Easing, StyleSheet } from 'react-native';
 import { cat } from '@/constants/assets';
 import { observeAnimatedOnJsDriver } from './animatedJsDriver.testing';
 import { CAT_IDLE_ATLASES } from '@/constants/cat-idle-atlases';
-import { CatSprite } from './CatSprite';
+import { CatSprite, catFrameBox } from './CatSprite';
+import { CatOutfitLayers } from './CatOutfitLayers';
 import {
   CAT_FRAME_DELAYS_MS,
   CAT_FRAME_SEQUENCES,
@@ -25,6 +26,9 @@ const shownFrame = (view: SpriteView) => {
 const shownCell = (view: SpriteView) => Number(shownFrame(view).props.testID.slice(-1));
 const advance = (ms: number) => act(async () => jest.advanceTimersByTime(ms));
 
+// 장착 그림 레이어는 이 파일에서 받은 props 만 본다(GROMO-2382)
+jest.mock('./CatOutfitLayers', () => ({ CatOutfitLayers: jest.fn(() => null) }));
+
 describe('CatSprite 재생 제어', () => {
   let onAppStateChange: ((state: 'active' | 'background' | 'inactive') => void) | undefined;
 
@@ -40,6 +44,30 @@ describe('CatSprite 재생 제어', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     jest.useRealTimers();
+  });
+
+  it('outfit 을 주면 셀마다 그 프레임·자세·고양이 상자 크기로 장착 레이어를 깔고, 보이는 셀을 따라간다', async () => {
+    const outfit = { head: 'cust.head.mandarin' };
+    const view = await render(
+      <CatSprite color="black" motion="walk" size={100} outfit={outfit} testID="cat" />,
+    );
+    const extent = catFrameBox('black', 'walk', 100).extent;
+    const poses = jest.mocked(CatOutfitLayers).mock.calls.map(([props]) => props.pose);
+    for (const frame of CAT_FRAME_SEQUENCES.walk)
+      expect(poses).toContainEqual({ color: 'black', motion: 'walk', frame, size: extent });
+    const shownOutfit = () =>
+      view
+        .getAllByTestId(/^cat-outfit-/)
+        .filter((layer) => StyleSheet.flatten(layer.props.style).opacity > 0.5)
+        .map((layer) => Number(layer.props.testID.slice(-1)));
+    expect(shownOutfit()).toEqual([0]);
+    await advance(125);
+    expect(shownCell(view)).toBe(1);
+    expect(shownOutfit()).toEqual([1]);
+    await view.unmount();
+    jest.mocked(CatOutfitLayers).mockClear();
+    await render(<CatSprite color="black" motion="walk" size={100} />);
+    expect(CatOutfitLayers).not.toHaveBeenCalled();
   });
 
   it('걷기 프레임을 진행하고 color·motion 변경 시 첫 프레임으로 되돌린다', async () => {

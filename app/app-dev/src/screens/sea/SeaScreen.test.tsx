@@ -1,11 +1,15 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
 import { duckPreviewArt } from './seaRewardCatalog';
+import { SeaRaft } from './SeaRaft';
+import { applyLocalePref } from '@/i18n';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
+jest.mock('./SeaRaft', () => ({ SeaRaft: jest.fn(() => null) }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: jest.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
 }));
@@ -36,7 +40,115 @@ const props = (): SeaScreenProps => ({
   onTelescope: jest.fn(),
   onMessage: jest.fn(async () => {}),
   onEmote: jest.fn(async () => {}),
+  onFriendRequest: jest.fn(async () => true),
 });
+
+test('유저 카드는 고양이·장착 정보·집중 시간·한마디 전체와 친구 요청을 표시한다', async () => {
+  const p = props();
+  const person: SeaParticipant = {
+    ...people[1],
+    color: 'calico',
+    activeSeconds: 3661,
+    message: '오늘도 내 속도로 한 걸음씩 가보자!',
+    outfit: { head: 'hat', neck: null, shoes: undefined },
+  };
+  const screen = await render(<SeaScreen {...p} participants={[people[0], person]} />);
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  expect(screen.getByText(person.message!)).toBeTruthy();
+  expect(screen.getByText('집중 시간')).toBeTruthy();
+  expect(screen.getByText('01:01:01')).toBeTruthy();
+  expect(SeaRaft).toHaveBeenLastCalledWith(
+    expect.objectContaining({ color: 'calico', focusing: true, outfit: person.outfit }),
+    undefined,
+  );
+  expect(screen.queryByLabelText('차단하기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(p.onFriendRequest).toHaveBeenCalledWith('1');
+  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+  await fireEvent.press(screen.getByLabelText('친구 요청 보냄'));
+  expect(p.onFriendRequest).toHaveBeenCalledTimes(1);
+});
+
+test('친구 요청 중에는 중복 탭·카드 닫기를 막고 실패 후 다시 요청할 수 있다', async () => {
+  let finish!: (ok: boolean) => void;
+  const p = props();
+  p.onFriendRequest = jest.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const screen = await render(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  await fireEvent.press(screen.getByLabelText('처리 중…'));
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  expect(p.onFriendRequest).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('sea-participant-avatar')).toBeTruthy();
+  await act(async () => finish(false));
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  await act(async () => finish(true));
+  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+});
+
+test('본인에게는 친구 요청이 없고 참가자가 떠나면 카드의 친구 요청도 없어진다', async () => {
+  const p = props();
+  const screen = await render(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByLabelText('내 뗏목'));
+  expect(screen.queryByLabelText('친구 요청')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  await screen.rerender(
+    <SeaScreen {...p} participants={people.filter((person) => person.userId !== '1')} />,
+  );
+  expect(screen.getByText('바다를 떠난 고양이예요')).toBeTruthy();
+  expect(screen.queryByLabelText('친구 요청')).toBeNull();
+});
+
+test('게스트의 친구 요청은 로그인으로 이어지고 이전 계정의 늦은 성공을 적용하지 않는다', async () => {
+  const p = props();
+  const signIn = jest.fn();
+  const screen = await render(<SeaScreen {...p} guest onSignIn={signIn} />);
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(signIn).toHaveBeenCalledTimes(1);
+  expect(p.onFriendRequest).not.toHaveBeenCalled();
+  let finish!: (ok: boolean) => void;
+  p.onFriendRequest = jest.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await screen.rerender(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  const next = { ...p, self: { ...p.self, userId: 'new-account' } };
+  await screen.rerender(<SeaScreen {...next} />);
+  await act(async () => finish(true));
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
+});
+
+test('친구 요청 버튼과 집중 시간은 영어 설정도 따른다', async () => {
+  applyLocalePref('en');
+  try {
+    const screen = await render(<SeaScreen {...props()} />);
+    await fireEvent.press(screen.getByTestId('sea-person-1'));
+    expect(screen.getByText('Focus time')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Add friend'));
+    expect(screen.getByLabelText('Request sent')).toBeDisabled();
+  } finally {
+    applyLocalePref('ko');
+  }
+});
+
+const swipeTo = async (screen: Awaited<ReturnType<typeof render>>, x: number) => {
+  const scroll = screen.getByTestId('sea-participants');
+  await fireEvent(scroll, 'scrollBeginDrag');
+  await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x, y: 0 } } });
+  await fireEvent(scroll, 'momentumScrollEnd');
+};
 
 test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에게 도달할 수 있다', (count) => {
   const pages = seaPeerPages(people.slice(0, count), '0');
@@ -47,16 +159,16 @@ test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에�
   if (count === 10) expect(pages.map((page) => page.length)).toEqual([5, 4]);
 });
 
-test('작은 가로 화면에서는 장면 최소 높이를 해제하고 페이지와 본인을 화면 안에 둔다', async () => {
+test('작은 가로 화면에서도 스와이프로 전원을 탐색하고 본인을 화면 안에 둔다', async () => {
   const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
   const layout = { x: 0, y: 0, width: 874, height: 402 };
   await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
   await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
   expect(screen.getByTestId('sea-scene')).toHaveStyle({ minHeight: 0 });
-  expect(screen.getByTestId('sea-paging')).toHaveStyle({ top: 8, bottom: 'auto' });
+  expect(screen.queryByTestId('sea-paging')).toBeNull();
   expect(screen.getByTestId('sea-self')).toHaveStyle({ top: 193, bottom: 'auto' });
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  await swipeTo(screen, 874);
+  expect(screen.getByTestId('sea-person-9')).toBeTruthy();
   await fireEvent(screen.getByTestId('sea-screen'), 'layout', {
     nativeEvent: { layout: { ...layout, width: 402, height: 874 } },
   });
@@ -118,14 +230,12 @@ test('하선 중 중복 탭을 막고 실패하면 같은 세션에서 재시도
   await fireEvent(screen.getByTestId('sea-footer'), 'layout', {
     nativeEvent: { layout: { width: 402, height: 144 } },
   });
-  expect(screen.getByTestId('sea-paging')).toHaveStyle({ bottom: 144 });
   expect(screen.getByTestId('sea-self')).toHaveStyle({ bottom: 154 });
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  await swipeTo(screen, 402);
+  expect(screen.getByTestId('sea-person-9')).toBeTruthy();
   await fireEvent(screen.getByTestId('sea-footer'), 'layout', {
     nativeEvent: { layout: { width: 402, height: 80 } },
   });
-  expect(screen.getByTestId('sea-paging')).toHaveStyle({ bottom: 88 });
   expect(screen.getByTestId('sea-self')).toHaveStyle({ bottom: 98 });
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   expect(p.onFinish).toHaveBeenCalledTimes(2);
@@ -240,7 +350,9 @@ test('보상이 없거나 모르는 ID이면 예시 오리를 지급한 것처�
   await screen.rerender(
     <SeaScreen {...p} result={{ ...result, rewards: ['unknown'], minutesToNextTier: 25 }} />,
   );
-  expect(screen.getByText('unknown')).toBeTruthy();
+  // 이름을 모르는 id 는 상품 id 그대로 보이지 않는다(GROMO-2382) — 보상 칸은 숨기고 다음 단계 안내만 남는다
+  expect(screen.queryByText('unknown')).toBeNull();
+  expect(screen.queryByText('이번 항해에서 건진 아이템은 없어요')).toBeNull();
   expect(screen.getByText('다음 단계까지 25분')).toBeTruthy();
   expect(screen.queryByText('오리 인형')).toBeNull();
   await screen.rerender(<SeaScreen {...p} result={{ ...result, rewardsUnknown: true }} />);
@@ -311,15 +423,15 @@ test('스와이프로 마지막 참여자에 도달하고 드래그 직후에는
   const last = screen.getByTestId('sea-person-9');
   await fireEvent.press(last);
   expect(screen.queryByLabelText('닫기')).toBeNull();
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-1')).toBeNull();
 });
 
 test('스냅샷 순서 갱신은 선택한 페이지를 초기화하지 않는다', async () => {
   const p = props();
   const screen = await render(<SeaScreen {...p} />);
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
+  await swipeTo(screen, 402);
   await screen.rerender(<SeaScreen {...p} participants={[...people].reverse()} />);
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-1')).toBeNull();
   expect(screen.getByTestId('sea-person-6')).toBeTruthy();
 });
 
@@ -345,18 +457,19 @@ test('드래그 없이 터치를 마친 참여자는 바로 누를 수 있다', 
   expect(screen.getByLabelText('닫기')).toBeTruthy();
 });
 
-test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페이지로 되돌아가지 않는다', async () => {
+test('페이지 버튼과 숫자 없이 양방향 스와이프로 나머지 전원을 탐색한다', async () => {
   const screen = await render(<SeaScreen {...props()} />);
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  await fireEvent.scroll(screen.getByTestId('sea-participants'), {
-    nativeEvent: { contentOffset: { x: 80, y: 0 } },
-  });
-  expect(screen.getByText('2 / 2')).toBeTruthy();
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  await fireEvent.scroll(screen.getByTestId('sea-participants'), {
-    nativeEvent: { contentOffset: { x: 402, y: 0 } },
-  });
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-paging')).toBeNull();
+  expect(screen.queryByText('1 / 2')).toBeNull();
+  expect(screen.getByTestId('sea-person-1')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-9')).toBeNull();
+  await swipeTo(screen, 402);
+  expect(screen.getByTestId('sea-person-9')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-1')).toBeNull();
+  expect(screen.getByLabelText('내 뗏목')).toBeTruthy();
+  await swipeTo(screen, 0);
+  expect(screen.getByTestId('sea-person-1')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-9')).toBeNull();
 });
 
 test('본인과 참가자 이모트는 접근성 이름에 포함되고 사라지면 제거된다', async () => {
@@ -409,6 +522,45 @@ test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 �
   await screen.rerender(<SeaScreen {...p} messageCooldownSeconds={299} />);
   expect(screen.getByText('5분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
   expect(p.onMessage).not.toHaveBeenCalled();
+});
+
+test('뗏목 위 잡지(GROMO-2314) — 세로는 고양이 오른쪽에 얹고, 가로 compact 는 뗏목 크기에 비례해 줄여 옆에 나란히 둔다', async () => {
+  const onOpen = jest.fn();
+  const magazine = {
+    issueNo: 20,
+    delivery: false,
+    received: true,
+    unread: true,
+    onShown: jest.fn(),
+    onOpen,
+    onLater: jest.fn(),
+  };
+  const screen = await render(<SeaScreen {...props()} magazine={magazine} />);
+  const object = () => StyleSheet.flatten(screen.getByTestId('sea-magazine-object').props.style);
+  const art = () => StyleSheet.flatten(screen.getByTestId('sea-magazine-object-art').props.style);
+  expect(object().position).toBe('absolute');
+  expect(art().width).toBe(46);
+  const wide = async (height: number) => {
+    const layout = { x: 0, y: 0, width: 874, height };
+    await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
+    await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
+  };
+  await wide(402);
+  // 뗏목을 덮지 않고 같은 줄 옆에 — 뗏목 누름 자리를 가리지 않는다
+  expect(object().position).toBeUndefined();
+  expect(StyleSheet.flatten(screen.getByTestId('sea-self-row').props.style).flexDirection).toBe(
+    'row',
+  );
+  const larger = art().width as number;
+  expect(object().width).toBeGreaterThanOrEqual(44);
+  expect(object().height).toBeGreaterThanOrEqual(44);
+  await wide(300);
+  expect(art().width).toBeLessThan(larger);
+  expect(object().width).toBeGreaterThanOrEqual(44);
+  expect(object().height).toBeGreaterThanOrEqual(44);
+  expect(screen.getByTestId('sea-magazine-object-dot')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('고양이 잡지 20호, 아직 안 읽음'));
+  expect(onOpen).toHaveBeenCalledTimes(1);
 });
 
 test('집중 중 내 말풍선에서도 한마디 입력을 열고 저장하며 종료는 호출하지 않는다', async () => {

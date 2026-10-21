@@ -74,6 +74,8 @@ export type JoinRequestsPage = {
     id: string;
     applicantId: string;
     name: string | null;
+    catColor?: string | null;
+    appearance?: unknown;
     status: string;
     version: number;
   }[];

@@ -2,7 +2,10 @@
 // stompjs Client 는 목이다(islandRealtime.test 와 같은 FakeClient) — 구독·발행 순서를 그대로 기록한다.
 import { openSeaRoom, seaMemberFromWire, seaParticipantsAt, SEA_SYNC_MS } from './seaRealtime';
 
-jest.mock('@/services/api/session', () => ({ getAccessToken: () => 'AT' }));
+jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
+  getAccessToken: () => 'AT',
+}));
 jest.mock('@stomp/stompjs', () => {
   class FakeClient {
     static instances: FakeClient[] = [];
@@ -135,6 +138,46 @@ test('방 사건 — joined·updated 는 갱신, left 는 멱등 제거, 다른 
   expect(spy.members.map((m) => m.userId)).toEqual(['me', 'a']);
   roomEvent('sea.member.joined', { member: member('z') }, 'room-old');
   expect(spy.members.some((m) => m.userId === 'z')).toBe(false);
+});
+
+test('남의 뗏목 외양 — appearance 를 outfit 으로 싣고 version 이 작거나 같은 갱신은 무시한다 (GROMO-2390)', () => {
+  const { spy } = open();
+  const look = (head: string | null, version: number) => ({
+    appearance: { head, neck: null, version },
+  });
+  joinRoom([member('me'), member('a', look('hat-1', 5))]);
+  const a = () => spy.members.find((m) => m.userId === 'a');
+  expect(a().outfit).toEqual({ head: 'hat-1', neck: null });
+  roomEvent('sea.member.updated', { member: member('a', look('hat-2', 6)) });
+  expect(a().outfit.head).toBe('hat-2');
+  roomEvent('sea.member.updated', { member: member('a', look('hat-1', 5)) }); // 늦게 온 옛 갱신
+  expect(a().outfit.head).toBe('hat-2');
+  roomEvent('sea.member.updated', { member: member('a', look(null, 7)) }); // 벗었다
+  expect(a().outfit.head).toBeNull();
+  roomEvent('sea.member.updated', { member: member('a', { remark: '한마디' }) }); // appearance 없는 갱신
+  expect(a().outfit.head).toBeNull();
+  roomEvent('sea.member.updated', { member: member('a', look('hat-3', 8)) });
+  roomEvent('sea.member.updated', { member: member('a', { state: 'adrift' }) });
+  expect(a().outfit.head).toBe('hat-3');
+  // 옛 서버(appearance 없음)는 outfit 을 싣지 않는다
+  expect(seaMemberFromWire(member('b'), 1)).not.toHaveProperty('outfit');
+  expect(
+    seaParticipantsAt([seaMemberFromWire(member('c', look('h', 1)), 1)!], 1)[0],
+  ).not.toHaveProperty('outfitVersion');
+});
+
+test('먼저 온 더 새 외양 갱신을 늦게 온 옛 스냅숏이 되돌리지 않는다 — 다른 필드는 스냅숏이 정본 (GROMO-2390)', () => {
+  const { spy } = open();
+  const look = (head: string, version: number) => ({ appearance: { head, neck: null, version } });
+  joinRoom([member('me'), member('a', look('hat-5', 5))]);
+  roomEvent('sea.member.updated', { member: member('a', look('hat-6', 6)) });
+  personal('sea.room.snapshot', {
+    roomId: 'room-1',
+    members: [member('me'), member('a', { ...look('hat-5', 5), remark: '새 한마디' })],
+  });
+  const a = spy.members.find((m) => m.userId === 'a');
+  expect(a.outfit.head).toBe('hat-6');
+  expect(a.message).toBe('새 한마디');
 });
 
 test('45초마다 sync 를 보내고, 오류 큐 NOT_IN_SEA_ROOM 이면 다시 enter 한다', () => {

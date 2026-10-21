@@ -35,6 +35,7 @@ import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
   ConstructionBuildingSprite,
@@ -46,6 +47,7 @@ import {
   HomeQuestIndicator,
 } from '@/screens/island/HomeQuestIndicator';
 import { useAppLayout } from '@/utils/layout';
+import { HomeNavigationHud } from './HomeNavigationHud';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import legacyDoorCoords from '@/constants/legacy-doors.json';
@@ -110,6 +112,12 @@ import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import {
+  lookOf,
+  newerLook,
+  parseAppearanceEvent,
+  type MemberLook,
+} from '@/services/memberAppearance';
 import {
   constructionPhase,
   normalizedConstructionProgress,
@@ -339,8 +347,10 @@ function Wanderer({
   scene,
   assets,
   buildings,
+  outfit,
 }: {
   color: Color;
+  outfit?: Outfit;
   start: Point;
   s: number;
   reduce: boolean;
@@ -437,6 +447,7 @@ function Wanderer({
         motion={walking ? 'walking' : 'blink'}
         left={left}
         reduce={reduce}
+        outfit={outfit}
       />
     </Animated.View>
   );
@@ -451,9 +462,11 @@ function RemoteResident({
   s,
   reduce,
   subscribe,
+  outfit,
 }: {
   userId: string;
   color: Color;
+  outfit?: Outfit;
   start: Point;
   s: number;
   reduce: boolean;
@@ -501,6 +514,7 @@ function RemoteResident({
         motion={walking ? 'walking' : 'blink'}
         left={left}
         reduce={reduce}
+        outfit={outfit}
       />
     </Animated.View>
   );
@@ -1270,6 +1284,7 @@ function FinalIslandScene({
   build,
   showHud = true,
   showActions = true,
+  friendRequestCount,
   request,
   notify,
   dispatch,
@@ -1297,6 +1312,7 @@ function FinalIslandScene({
   build: (b: Building) => void;
   showHud?: boolean;
   showActions?: boolean;
+  friendRequestCount?: number;
   request?: Route | null;
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
@@ -1635,6 +1651,10 @@ function FinalIslandScene({
     walkCells = useRef<WorldPoint[]>([]),
     arrival = useRef<Point | null>(null);
   const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
+  // 실시간으로 받은 다른 주민의 외양(GROMO-2390) — 홈 응답의 appearance 와 version 으로 합쳐 그린다
+  const [looks, setLooks] = useState<Record<string, MemberLook>>({});
+  // 같은 섬의 일시 해제(백그라운드)에는 유지하고, 섬이 바뀔 때만 비운다 — 복귀 때 홈 스냅숏은 다시 읽지 않아 옛 외양으로 되돌아간다
+  useEffect(() => () => setLooks({}), [facts?.islandId]);
   const remoteListeners = useRef(new Map<string, RemoteListener>()).current;
   const subscribeRemote = useCallback(
     (userId: string, listener: RemoteListener) => {
@@ -1801,6 +1821,31 @@ function FinalIslandScene({
     onRemotePosition: (userId, p, durationMs) =>
       remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving, durationMs),
   };
+  const applyAppearance = useCallback((body: unknown, islandId: string) => {
+    const changed = parseAppearanceEvent(body, islandId);
+    if (!changed) return;
+    setLooks((prev) => {
+      const next = newerLook(prev[changed.userId], changed.look)!;
+      return next === prev[changed.userId] ? prev : { ...prev, [changed.userId]: next };
+    });
+  }, []);
+  // 이동 동기화가 꺼진 빌드(기본·웹)도 주민 외양은 실시간으로 받는다 — 그 섬 events 토픽만 여는 가벼운 채널.
+  // 이동 채널이 열리는 조건(아래 effect)과 겹치지 않아 한 섬에 events 구독은 하나뿐이다.
+  const eventsOnlyIslandId =
+    !(syncIslandId && me) && facts && showActions && appActive ? facts.islandId : null;
+  useEffect(() => {
+    if (!eventsOnlyIslandId) return;
+    const channel = stompIslandChannel({
+      islandId: eventsOnlyIslandId,
+      presence: false,
+      emote: false,
+      events: true,
+      onEvent: (body) => applyAppearance(body, eventsOnlyIslandId),
+      onOpen: () => {},
+      onError: () => {},
+    });
+    return () => channel.close();
+  }, [eventsOnlyIslandId, applyAppearance]);
   useEffect(() => {
     if (!syncIslandId || !me) return;
     let channel: IslandChannel | null = null;
@@ -1826,10 +1871,12 @@ function FinalIslandScene({
       // 홈 = 내 소속 섬이라 주민 소식(GROMO-2311) 구독 조건을 늘 만족한다 — 방문(facts=null)에는 이 채널이 열리지 않는다
       events: true,
       onEvent: (body) => {
-        if ((body as { type?: unknown } | null)?.type === 'island.member.arrived') {
+        const type = (body as { type?: unknown } | null)?.type;
+        if (type === 'island.member.arrived') {
           const arrived = arrivals(body);
           if (arrived) notifyRef.current?.(memberArrivedText(arrived));
-        } else controller.onMessage(body);
+        } else if (type === 'member.appearance.updated') applyAppearance(body, syncIslandId);
+        else controller.onMessage(body);
       },
       onOpen: () => {},
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
@@ -2001,20 +2048,24 @@ function FinalIslandScene({
     }
   }, [request]);
 
-  const wanderColors = useMemo(() => {
+  const wanderers = useMemo(() => {
     const myId = getSession()?.userId;
     // 서버 주민 색은 고른 사람만 — catColor null 은 임의 색으로 채우지 않는다
     const others = facts
-      ? facts.members.filter((m) => m.id !== myId && m.catColor).map((m) => catColor(m.catColor))
-      : i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
+      ? facts.members
+          .filter((m) => m.id !== myId && m.catColor)
+          .map((m) => ({ color: catColor(m.catColor), outfit: lookOf(looks, m.id, m) }))
+      : i.members
+          .filter((m) => m.id !== 'me')
+          .map((m) => ({ color: m.color as Color, outfit: undefined }));
     // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
     const spare = facts
       ? []
-      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
-          (c) => c !== state.color && !others.includes(c),
-        );
+      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[])
+          .filter((c) => c !== state.color && !others.some((o) => o.color === c))
+          .map((color) => ({ color, outfit: undefined }));
     return [...others, ...spare].slice(0, 2);
-  }, [i.members, facts, state.color]);
+  }, [i.members, facts, state.color, looks]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
@@ -2224,10 +2275,11 @@ function FinalIslandScene({
         })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
         {!remoteActors &&
-          wanderColors.map((color, n) => (
+          wanderers.map(({ color, outfit }, n) => (
             <Wanderer
               key={color + n}
               color={color}
+              outfit={outfit}
               start={nearestLand(grid, WANDER_STARTS[n])}
               scene={scene}
               assets={mapAssets}
@@ -2239,12 +2291,14 @@ function FinalIslandScene({
           ))}
         {/* 이동 동기화 중이면 Wanderer 대신 서버가 정한 주민 — 색을 고른 주민만(catColor null·명단 밖은 그리지 않는다) */}
         {remoteActors?.map((a) => {
-          const color = facts?.members.find((m) => m.id === a.userId)?.catColor;
+          const member = facts?.members.find((m) => m.id === a.userId);
+          const color = member?.catColor;
           return color ? (
             <RemoteResident
               key={a.userId}
               userId={a.userId}
               color={catColor(color)}
+              outfit={lookOf(looks, a.userId, member)}
               start={worldToImage(a, sizeOf(grid))}
               s={s}
               reduce={state.settings.reduceMotion}
@@ -2300,6 +2354,7 @@ function FinalIslandScene({
                   reduce={state.settings.reduceMotion}
                   onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
                   generation={motionGen}
+                  outfit={outfitOf(state)}
                 />
               </View>
             </Pressable>
@@ -2341,7 +2396,8 @@ function FinalIslandScene({
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     // 오른쪽 여백은 오른쪽 안전영역으로 따로 잡는다(노치가 오른쪽인 가로 방향) — 아래 집중 버튼과 같은 규칙
     hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
-    hudMax = Math.max(0, Math.min(L.width / 2, L.width - hudLeft - hudRight)),
+    hudAvailable = Math.max(0, L.width - hudLeft - hudRight),
+    hudMax = visiting ? Math.min(L.width / 2, hudAvailable) : hudAvailable,
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -2407,88 +2463,47 @@ function FinalIslandScene({
             position: 'absolute',
             top: hudTop,
             left: hudLeft,
+            width: visiting ? undefined : hudMax,
             zIndex: 10,
             alignItems: 'flex-start',
           }}
         >
-          <View
-            testID="island-focus-pill"
-            pointerEvents="none"
-            // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
-            accessible={!visiting}
-            accessibilityLabel={
-              visiting
-                ? undefined
-                : t('home.a11y.todayFocusClock', { name: i.name, clock: todayClock })
-            }
-            style={{
-              backgroundColor: '#FFFDFAB3',
-              borderRadius: 999,
-              paddingVertical: 6,
-              paddingLeft: 14,
-              paddingRight: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 10,
-              // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
-              // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
-              minWidth: visiting ? undefined : Math.min(210, hudMax),
-              maxWidth: hudMax,
-            }}
-          >
-            {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
-            {visiting ? (
-              <View>
-                <Txt
-                  kind="meta"
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
-                >
-                  {t('home.hud.visiting', { name: i.name })}
+          {!visiting ? (
+            <HomeNavigationHud
+              name={i.name}
+              clock={todayClock}
+              color={state.color}
+              outfit={outfitOf(state)}
+              requests={
+                friendRequestCount ??
+                (state.friends ?? []).filter((f) => f.status === 'received').length
+              }
+              go={go}
+              interactive={showActions}
+            />
+          ) : (
+            <View
+              pointerEvents="none"
+              style={{
+                backgroundColor: `${semanticTokens.color.surface}B3`,
+                borderRadius: semanticTokens.radius.full,
+                paddingVertical: primitiveTokens.space[2],
+                paddingHorizontal: semanticTokens.spacing.component,
+                maxWidth: hudMax,
+              }}
+            >
+              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                {t('home.hud.visiting', { name: i.name })}
+              </Txt>
+              {visitHud?.todayMinutes != null && (
+                <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                  {t('home.hud.todayFocusVisitor', {
+                    time: formatDuration(visitHud.todayMinutes * 60),
+                  })}
                 </Txt>
-                {visitHud?.todayMinutes != null && (
-                  <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-                    {t('home.hud.todayFocusVisitor', {
-                      time: formatDuration(visitHud.todayMinutes * 60),
-                    })}
-                  </Txt>
-                )}
-              </View>
-            ) : (
-              <>
-                {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Txt
-                    kind="meta"
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
-                  >
-                    {i.name}
-                  </Txt>
-                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                    {t('home.hud.todayFocus')}
-                  </Txt>
-                </View>
-                <Txt
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={{
-                    flexShrink: 1,
-                    minWidth: 0,
-                    fontSize: 22,
-                    lineHeight: 31.9,
-                    fontWeight: '700',
-                    fontVariant: ['tabular-nums'],
-                    marginLeft: 'auto',
-                  }}
-                >
-                  {todayClock}
-                </Txt>
-              </>
-            )}
-          </View>
+              )}
+            </View>
+          )}
           {visiting && visitHud && visitHud.focusCount !== null && (
             <Pressable
               testID="visit-focus-count"
@@ -2733,7 +2748,10 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
           style={{
             position: 'absolute',
             right: semanticTokens.spacing.page,
-            top: Math.max(L.insets.top, semanticTokens.spacing.page),
+            top:
+              Math.max(L.insets.top, semanticTokens.spacing.page) +
+              2 * semanticTokens.size.tapMin +
+              primitiveTokens.space[4],
             zIndex: 20,
           }}
         >

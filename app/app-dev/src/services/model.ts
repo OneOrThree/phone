@@ -54,6 +54,8 @@ export type Route =
   // 바다 항해 집중(GROMO-2310) — 항해·정박·표류. seaArrival 은 섬에 내린 뒤 결과창(내용은 GROMO-2311)
   | 'sea'
   | 'seaArrival'
+  // 바다에서 펼친 오늘 호(GROMO-2314) — 인자 = 호 id. 소속 섬이 없어도 머무른다(seaRouteHeld)
+  | 'seaMagazine'
   | 'promotionEditor'
   | 'magazine'
   | 'mainIsland'
@@ -252,6 +254,10 @@ export type RecordItem = {
   ackId?: string;
   // 바다 항해 기록(GROMO-2310)은 'sea' — 섬 집중 집계에서 뺀다. 없으면 섬 집중(옛 기록 호환)
   kind?: 'island' | 'sea';
+  // 이 세션에 받은 꾸미기 상품 id(finish 의 seaReward.grantedProductIds, GROMO-2382) — 없으면 키째 없다
+  rewards?: string[];
+  // 그중 처음 받은 것(seaReward.newProductIds) — NEW! 배지. 없으면 키째 없다
+  newRewards?: string[];
 };
 // 그 섬의 집중 기록인가 — 서버 섬 집계(findActiveSpansOnIsland)처럼 목적지가 그 섬인 바다 항해는 섬 집중이 아니다
 export const islandFocusRecord = (r: RecordItem, islandId: string) =>
@@ -279,6 +285,7 @@ export type State = {
   version: 1;
   schema?: 2;
   friends?: Friend[];
+  lastRaftDestination?: string;
   rewards?: Reward[];
   screenDays?: Record<string, number | null>;
   screenTimeUnconfirmedDays?: string[];
@@ -345,6 +352,8 @@ export type State = {
     memberships: IslandSummary[];
     currentIslandId: string | null;
     lossReason: 'LEFT' | 'KICKED' | null;
+    // 강퇴로 잃은 섬(GROMO-2366) — /me/islands 에는 잃은 섬이 없어 강퇴 안내의 문구·「봤음」 표시가 쓴다
+    kickedIsland?: { id: string; name: string | null } | null;
     candidates: IslandSummary[];
     nextCursor: string | null;
     visit: VisitScreen | null;
@@ -514,23 +523,6 @@ export const trackNames: Record<string, string> = {
   },
 };
 export const products: Product[] = [
-  {
-    id: 'scarf',
-    title: '바다 스카프',
-    kind: 'clothes',
-    price: 100,
-    currency: 'fish',
-    description: '고양이의 목에 두르는 가벼운 스카프',
-  },
-  // v2 시안 상점(내 꾸미기)의 두 번째 장신구. 가격은 스카프와 같은 5배 환산(시안 15마리)
-  {
-    id: 'straw-hat',
-    title: '밀짚모자',
-    kind: 'clothes',
-    price: 75,
-    currency: 'fish',
-    description: '햇볕을 가려 주는 챙 넓은 밀짚모자',
-  },
   {
     id: 'soda-theme',
     title: '소다 섬 테마',
@@ -1086,7 +1078,7 @@ export const myIslandsConsistent = (my: MyIslands) =>
 // 그대로 담는다. 없는 version은 합성하지 않는다.
 export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?: number };
 /**
- * 소속 섬이 없어도 머무를 수 있는 바다 라우트인가(GROMO-2310). 항해·표류·결과창 모두 — 표류(세션 없음)도 정상 상태라
+ * 소속 섬이 없어도 머무를 수 있는 바다 라우트인가(GROMO-2310). 항해·표류·결과창·바다 잡지(GROMO-2314) 모두 — 표류(세션 없음)도 정상 상태라
  * 강퇴된 뒤 그만둬도 멀어지는 연출·표류 화면이 끊기지 않는다. 바다 라우트를 떠나는 순간 App 의 소속 가드가 섬 선택으로 보낸다.
  */
 /**
@@ -1094,7 +1086,12 @@ export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?
  */
 export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
-export const seaRouteHeld = (route: Route) => route === 'sea' || route === 'seaArrival';
+export const seaRouteHeld = (route: Route) =>
+  route === 'sea' || route === 'seaArrival' || route === 'seaMagazine';
+/** 현재 섬이 없을 때 갈 화면(GROMO-2366) — 섬을 잃은 사람(나가기·강퇴)은 먼바다, 처음 온 사람은 섬 선택. */
+export const noIslandRoute = (s: {
+  serverIslands?: { lossReason: string | null } | null;
+}): Route => (s.serverIslands?.lossReason ? 'sea' : 'chooseIsland');
 /** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
 export const SERVER_VISIT_ROUTES: readonly Route[] = [
   'visitIsland',
@@ -1580,7 +1577,7 @@ export function reducer(state: State, a: Action): State {
     delete loaded.visitingIslandId;
     delete loaded.visitLeaveAsked;
     delete loaded.visitGreeted;
-    const retired = ['flag', 'sailboat', 'cabinboat'];
+    const retired = ['flag', 'sailboat', 'cabinboat', 'scarf', 'straw-hat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
@@ -1648,6 +1645,7 @@ export function reducer(state: State, a: Action): State {
       },
       equipped: {
         ...loaded.equipped,
+        clothes: 'default',
         hull: 'raft',
         decor: 'none',
         position: 'front',
@@ -1877,6 +1875,22 @@ export function reducer(state: State, a: Action): State {
           s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
         }
         s.tutorialEnrollment = 'existing';
+      }
+      // 강퇴로 잃은 섬을 남긴다 — 이번에 사라진 소속(직전 current 가 그 안에 있으면 그것), 사라진 게 없으면
+      // 직전 current. 다른 기기에서 current 가 바뀌었어도 실제로 빠진 섬을 고른다. 덮어쓰기 전 소속 목록에만 있다.
+      // 둘 다 없으면(새로 잃은 섬이 없다) 그대로 둔다
+      if (my.lossReason !== 'KICKED' || my.currentIslandId != null) snap.kickedIsland = null;
+      else {
+        const kept = new Set(my.items.map((item) => item.id)),
+          gone = snap.memberships.filter((item) => !kept.has(item.id)),
+          lostId =
+            (gone.find((item) => item.id === snap.currentIslandId) ?? gone[0])?.id ??
+            snap.currentIslandId;
+        if (lostId)
+          snap.kickedIsland = {
+            id: lostId,
+            name: snap.memberships.find((item) => item.id === lostId)?.name ?? null,
+          };
       }
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
@@ -2565,8 +2579,7 @@ export function reducer(state: State, a: Action): State {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
       i.fish = balance(i) - p.price;
-      if (p.kind === 'clothes') s.owned.push(p.id);
-      else i.sharedOwned.push(p.id);
+      i.sharedOwned.push(p.id);
       log(`${p.title} 구매 −${p.price}마리`);
       s.orders.unshift({
         id: uuid(),
@@ -2577,13 +2590,6 @@ export function reducer(state: State, a: Action): State {
         at: now,
         buyer: s.name,
       });
-      break;
-    }
-    case 'EQUIP': {
-      if (a.key !== 'clothes') return state;
-      const value = a.value;
-      if (!['default', 'none', 'raft'].includes(value) && !s.owned.includes(value)) return state;
-      s.equipped[a.key as keyof State['equipped']] = value;
       break;
     }
     case 'DECOR_POSITION':
@@ -2614,6 +2620,9 @@ export function reducer(state: State, a: Action): State {
         i.playing = !!a.value;
         if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
       }
+      break;
+    case 'RAFT_DESTINATION':
+      s.lastRaftDestination = a.destination;
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;

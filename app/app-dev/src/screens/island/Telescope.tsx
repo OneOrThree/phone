@@ -10,7 +10,8 @@ import {
   View,
   type ImageStyle,
 } from 'react-native';
-import { Badge, Btn, Pic, Txt, art } from '@/design-system/patterns';
+import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
+import { Badge, Btn, Pic, Txt } from '@/design-system/patterns';
 import { Card } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
@@ -26,6 +27,7 @@ import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/servic
 import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { SeaVoyagePreparation } from '@/screens/sea/SeaVoyagePreparation';
+import { RAFT_TELESCOPE_ASPECT, raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
 import { saveSeaRemark } from '@/screens/sea/seaRemark';
 import { intentKeyPool, serverVisit, sessionRoute, type Route, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -34,11 +36,18 @@ import { isTelescopeMock } from '@/services/api/magazineMock';
 
 const { space } = primitiveTokens;
 const { color, stroke, size } = semanticTokens;
-/** 파노라마 섬 그림 지름. 한 화면에 두세 섬이 보이고 다음 섬이 삐져나와 가로로 밀 수 있다는 걸 알린다. */
+const TELESCOPE = componentTokens.telescope;
+/** 말풍선 잡지 칸 자리표시의 섬 그림 높이. */
 const ISLAND = space[16] * 2;
-/** 소속 섬 깃발 크기. 깃대 끝이 그림 높이의 88% 라(Flag 도형) 그만큼 올려 섬 꼭대기에 꽂는다. */
+/** 파노라마 섬 그림 — 섬만 잘라 둔 그림이라 너비가 높이를 정한다. */
+const ART_W = TELESCOPE.islandArtWidth;
+const ART_H = Math.round(ART_W / ISLAND_ART_ASPECT);
+/** 소속 섬 깃발 크기. 깃대는 그림 가로 25% 에 서 있고 끝이 높이의 88% 라(Flag 도형) 그 점을 섬 그림 위 가운데에 꽂는다. */
 const FLAG = size.tapMin;
 const FLAG_POLE_BASE = Math.round(FLAG * 0.88);
+const FLAG_POLE_X = Math.round(FLAG * 0.25);
+/** 깃발이 섬 칸 위로 삐져나오는 만큼 — 가로 스크롤이 잘라 내지 않게 위를 비운다. */
+const FLAG_ALLOWANCE = Math.max(0, FLAG_POLE_BASE - TELESCOPE.islandArtTop);
 // 눌림 opacity — SheetRow·Row 와 같은 값(DESIGN §7.3). 내보낸 공용 상수가 없어(SheetRow 는 인라인 0.7, 토큰은 diary 전용) 여기서 한 번만 이름을 붙인다.
 const PRESSED_OPACITY = 0.7;
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill 만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다(IslandSheet 와 같다)
@@ -53,39 +62,28 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   chip: { flexShrink: 1 },
-  // 위 막대 아래에 흐름으로 쌓는다 — 예전 절대 위치(top: 18%)는 큰 글자·가로 화면에서 위 막대와 겹쳤다. 보통 크기 폰에서는 그 자리(뗏목 위)와 거의 같다.
-  band: { marginTop: space[10] },
   panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
-  cell: { width: ISLAND, alignItems: 'center', gap: space[2] },
-  // 그림자(바깥)와 잘라내기(안쪽)를 다른 뷰에 둔다 — 한 뷰에 overflow: hidden + boxShadow 를 같이 주면 iOS 가 그 뷰에 내부
-  // 컨테이너를 만들고, 망원경을 닫아 재활용된 그 뷰가 홈의 다른 부모로 다시 쓰일 때 「Attempt to unmount a view which is mounted
-  // inside a different view」로 앱이 죽는다(RN 0.86 prepareForRecycle 이 컨테이너 상태를 지우지 않음).
-  island: {
-    width: ISLAND,
-    height: ISLAND,
-    borderRadius: ISLAND / 2,
-    boxShadow: `0px ${space[1]}px 0px ${color.outline}`,
+  // 섬 칸 — 폭은 섬 칸(122)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
+  cell: { minWidth: TELESCOPE.islandBox, alignItems: 'center' },
+  art: { width: ART_W, height: ART_H, marginTop: TELESCOPE.islandArtTop },
+  // 깃대 밑동을 섬 그림 위 가운데에 꽂는다
+  flag: { position: 'absolute', top: -FLAG_POLE_BASE, left: ART_W / 2 - FLAG_POLE_X },
+  // 이름 알약(Badge soft)을 섬 그림 아래 가운데에 둔다(Badge 기본 배치는 왼쪽 정렬)
+  pill: { alignSelf: 'center', marginTop: TELESCOPE.pillGap, maxWidth: TELESCOPE.pillMaxWidth },
+  // 망원경 든 뗏목 고양이 — 장식이라 바다 그림 바로 위, 파노라마 아래에 깐다
+  raft: {
+    position: 'absolute',
+    width: TELESCOPE.raft.width,
+    height: TELESCOPE.raft.width / RAFT_TELESCOPE_ASPECT,
   },
-  islandClip: {
-    flex: 1,
-    borderRadius: ISLAND / 2,
-    borderWidth: stroke.strong,
-    borderColor: color.outline,
-    backgroundColor: color.secondary,
-    overflow: 'hidden',
-  },
-  flag: { position: 'absolute', top: -FLAG_POLE_BASE, right: space[8] },
-  // 이름 알약(Badge soft)을 섬 아래 가운데에 두고 칸 폭을 넘지 않게 한다(Badge 기본 배치는 왼쪽 정렬)
-  pill: { alignSelf: 'center', maxWidth: ISLAND },
   // 말풍선 이름이 오른쪽 위 닫기(×) 밑으로 들어가지 않게 비운다
   bubbleName: { paddingRight: space[10] },
-  // 「찜」 리본 — 공용 Badge(Butter + Brown)를 마스킹테이프처럼 살짝 기울여 섬 왼쪽 위 테두리에 붙인다
+  // 「찜」 리본 — 공용 Badge(Butter + Brown)를 마스킹테이프처럼 살짝 기울여 섬 그림 왼쪽 위에 붙인다
   ribbon: {
     position: 'absolute',
-    top: space[2],
-    left: space[1],
-    transform: [{ rotate: componentTokens.telescope.ribbonTilt }],
+    ...TELESCOPE.ribbonOffset,
+    transform: [{ rotate: TELESCOPE.ribbonTilt }],
   },
   // 테이프답게 끝이 각지게 — Badge 의 알약 반경만 덮어쓴다
   tape: { borderRadius: space[1] },
@@ -222,7 +220,8 @@ function Panel({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 파노라마의 섬 하나 — 둥근 스티커 그림 + 이름 알약. 소속 섬 위에는 깃발, 잡지에서 넣은 섬 위에는 「찜」 리본.
+ * 파노라마의 섬 하나 — 건물 수에 맞는 섬 그림(`islandStage`, 잡지 칸 섬 프로필과 같은 4장) + 이름 알약. 소속 섬은 이름만,
+ * 그 밖의 섬은 「이름 · 항해 시간」. 소속 섬 그림 위에는 깃발, 잡지에서 넣은 섬 그림 왼쪽 위에는 「찜」 리본.
  * 위아래로 번갈아 어긋나게 둬 한 줄 목록처럼 안 보이게 한다.
  */
 function IslandCell({
@@ -242,57 +241,64 @@ function IslandCell({
 }) {
   const joined = isJoined(item);
   const magazine = isMagazinePin(item);
+  const time = formatDuration(item.sailingMinutes * 60);
   return (
     <Pressable
       testID={`telescope-island-${item.islandId}`}
       accessibilityRole="button"
+      // 소속 섬이 아니면 알약처럼 항해 시간도 읽는다
       accessibilityLabel={
         joined
           ? t('telescope.joinedIslandA11y', { name: item.name })
-          : magazine
-            ? t('telescope.pinnedIslandA11y', { name: item.name })
-            : item.name
+          : t('telescope.islandTimeA11y', {
+              label: magazine ? t('telescope.pinnedIslandA11y', { name: item.name }) : item.name,
+              time,
+            })
       }
       accessibilityHint={t('telescope.islandHint')}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.cell,
-        index % 2 ? { marginTop: space[6] } : null,
+        index % 2 ? { marginTop: TELESCOPE.stagger } : null,
         pressed ? { opacity: PRESSED_OPACITY } : null,
       ]}
     >
-      <View style={styles.island}>
-        <View style={styles.islandClip}>
-          <Pic id="island/whole" w="100%" h="100%" cover />
-        </View>
+      <View style={styles.art}>
+        <Image
+          testID={`telescope-art-${item.islandId}`}
+          source={ISLAND_STAGE_ART[islandStage(item.memberCount, item.buildingCount)]}
+          resizeMode="contain"
+          style={FILL}
+        />
+        {joined && (
+          // 장식 — 소속 여부는 위 접근성 라벨이 말한다.
+          <View
+            testID={`telescope-flag-${item.islandId}`}
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.flag}
+          >
+            <Flag size={FLAG} />
+          </View>
+        )}
+        {magazine && (
+          // 장식 — 잡지에서 넣은 섬이라는 뜻은 위 접근성 라벨이 말한다.
+          <View
+            testID={`telescope-ribbon-${item.islandId}`}
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.ribbon}
+          >
+            <Badge style={styles.tape}>{t('telescope.ribbon')}</Badge>
+          </View>
+        )}
       </View>
-      {joined && (
-        // 장식 — 소속 여부는 위 접근성 라벨이 말한다.
-        <View
-          testID={`telescope-flag-${item.islandId}`}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.flag}
-        >
-          <Flag size={FLAG} />
-        </View>
-      )}
-      {magazine && (
-        // 장식 — 잡지에서 넣은 섬이라는 뜻은 위 접근성 라벨이 말한다.
-        <View
-          testID={`telescope-ribbon-${item.islandId}`}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.ribbon}
-        >
-          <Badge style={styles.tape}>{t('telescope.ribbon')}</Badge>
-        </View>
-      )}
-      <Badge soft numberOfLines={largeText ? 2 : 1} style={styles.pill}>
-        {item.name}
+      {/* 긴 이름은 가운데를 줄여 끝의 「 · 항해 시간」을 남긴다(안드로이드 두 줄은 끝 말줄임만 된다) */}
+      <Badge soft numberOfLines={largeText ? 2 : 1} ellipsizeMode="middle" style={styles.pill}>
+        {joined ? item.name : t('telescope.islandLabel', { name: item.name, time })}
       </Badge>
     </Pressable>
   );
@@ -467,6 +473,19 @@ export function Telescope({ e }: { e: any }) {
   const [starting, setStarting] = useState(false);
   const startingRef = useRef(false);
   const [startError, setStartError] = useState<string | undefined>();
+  // 섬 띠를 바다 그림의 수평선에 맞춘다 — 그림은 cover 가운데 맞춤이라 화면 크기로 수평선 높이를 잰다. 띠는 위 막대 아래 흐름에
+  // 그대로 두고 위 여백만 늘려(큰 글자·가로 화면에서 위 막대가 길어지면 기본 여백으로 물러나) 겹치지 않는다.
+  // 첫 그림부터 제자리에 오게 onLayout 전에는 창 크기와 보통 글자의 위 막대 높이(안전 영역 + 여백 + 작은 버튼 터치 44)로 잡는다.
+  const [scene, setScene] = useState<{ width: number; height: number } | null>(null);
+  const [topBarHeight, setTopBarHeight] = useState<number | null>(null);
+  const { width: sceneW, height: sceneH } = scene ?? L;
+  const barH = topBarHeight ?? L.insets.top + space[2] + size.tapMin;
+  const seaScale = Math.max(sceneW / telescopeSea.width, sceneH / telescopeSea.height);
+  const horizonY = (sceneH - telescopeSea.height * seaScale) / 2 + telescopeSea.horizon * seaScale;
+  const bandTop = Math.max(
+    space[10],
+    Math.round(horizonY - TELESCOPE.horizonGap - barH - FLAG_ALLOWANCE),
+  );
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -644,7 +663,14 @@ export function Telescope({ e }: { e: any }) {
   if (sail.sailing) return sail.sailing;
 
   return (
-    <View testID="telescope" style={styles.root}>
+    <View
+      testID="telescope"
+      style={styles.root}
+      onLayout={(ev) => {
+        const { width, height } = ev.nativeEvent.layout;
+        setScene({ width, height });
+      }}
+    >
       {/* 말풍선이 열려 있는 동안 뒤 화면은 스크린리더 탐색에서 숨긴다 */}
       <View
         style={StyleSheet.absoluteFill}
@@ -652,12 +678,30 @@ export function Telescope({ e }: { e: any }) {
         importantForAccessibility={popupOpen ? 'no-hide-descendants' : 'auto'}
       >
         <Image
-          source={art['sea/mine']}
+          source={telescopeSea.source}
           resizeMode="cover"
           accessibilityElementsHidden
           importantForAccessibility="no"
           style={FILL}
         />
+        {/* 가로 화면에서는 섬 띠 뒤에 깔려 가리므로 세로일 때만 둔다 */}
+        {sceneW <= sceneH && (
+          <View
+            testID="telescope-raft"
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={[
+              styles.raft,
+              {
+                right: L.insets.right + TELESCOPE.raft.right,
+                bottom: L.insets.bottom + TELESCOPE.raft.bottom,
+              },
+            ]}
+          >
+            <Image source={raftTelescope[s.color]} resizeMode="contain" style={FILL} />
+          </View>
+        )}
         {/* 위 막대와 파노라마를 세로로 쌓는다 — 큰 글자·가로 화면에서도 겹치지 않고, 화면보다 길면 세로로 밀어 끝까지 닿는다 */}
         <ScrollView
           testID="telescope-scroll"
@@ -666,6 +710,7 @@ export function Telescope({ e }: { e: any }) {
         >
           <View
             testID="telescope-top-bar"
+            onLayout={(ev) => setTopBarHeight(ev.nativeEvent.layout.height)}
             style={[
               styles.topBar,
               {
@@ -689,7 +734,7 @@ export function Telescope({ e }: { e: any }) {
               </View>
             )}
           </View>
-          <View testID="telescope-band" style={styles.band}>
+          <View testID="telescope-band" style={{ marginTop: bandTop }}>
             {list.status === 'loading' ? (
               <Panel>
                 <ActivityIndicator color={color.outline} />
@@ -714,13 +759,14 @@ export function Telescope({ e }: { e: any }) {
               </Panel>
             ) : (
               <ScrollView
+                testID="telescope-panorama"
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{
-                  paddingTop: FLAG_POLE_BASE,
+                  paddingTop: FLAG_ALLOWANCE,
                   paddingLeft: L.insets.left + semanticTokens.spacing.page,
                   paddingRight: L.insets.right + semanticTokens.spacing.page,
-                  gap: space[4],
+                  gap: TELESCOPE.cellGap,
                 }}
               >
                 {list.items.map((item, index) => (

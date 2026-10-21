@@ -1,6 +1,5 @@
 package com.oneorthree.phone.withdrawal.service;
 
-import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -11,21 +10,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 계정 탈퇴 ↔ 바다 집중 누적 파기 (GROMO-2274 · 계약 §0 N42) — 사용자 행은 익명화만 되고 삭제되지 않아
+ * 계정 탈퇴 ↔ 옛 바다 집중 누적 파기 (GROMO-2274 · 계약 §0 N42) — 사용자 행은 익명화만 되고 삭제되지 않아
  * {@code sea_focus_totals.user_id REFERENCES users ON DELETE CASCADE} 가 돌지 않는다. 탈퇴 트랜잭션이 직접 지우는지를
  * 실제 Flyway(V117) 스키마에서 고정한다: 탈퇴자의 누적은 0 행, 같은 시각에 쌓인 남의 누적은 그대로다.
  *
- * <p>지급된 상품({@code owned_products})은 이 서비스의 파기가 아니라 기존 {@code AppearanceService#eraseWithdrawnUser}
- * 몫이다 — 같은 탈퇴 한 번에 함께 사라지는지도 본다(바다 쪽에서 따로 지우지 않아도 남지 않는다는 근거).
+ * <p>누적 엔진은 GROMO-2301 에서 지웠지만 표와 지난 행은 DROP 전까지 남으므로 행을 SQL 로 심는다. 개인 보유 상품
+ * ({@code owned_products})이 같은 탈퇴 한 번에 함께 사라지는지도 본다.
  */
 @SpringBootTest
 class SeaFocusTotalWithdrawalIntegrationTest {
@@ -38,45 +34,35 @@ class SeaFocusTotalWithdrawalIntegrationTest {
     @Autowired
     AccountWithdrawalService withdrawal;
     @Autowired
-    SeaFocusRewardService sea;
-    @Autowired
     AuthService auth;
     @Autowired
     JwtProvider jwt;
     @Autowired
     JdbcTemplate jdbc;
-    @Autowired
-    PlatformTransactionManager transactions;
 
     @Test
-    @DisplayName("탈퇴하면 그 유저의 바다 누적은 0 행이 되고 지급된 상품도 남지 않는다 — 남의 누적·상품은 그대로다")
+    @DisplayName("탈퇴하면 그 유저의 바다 누적은 0 행이 되고 보유 상품도 남지 않는다 — 남의 누적·상품은 그대로다")
     void withdrawalDeletesOnlyTheWithdrawnUsersSeaTotals() {
         UUID leaver = newUser();
         UUID bystander = newUser();
         String scarf = product();
-        jdbc.update("insert into sea_reward_tiers (set_key, threshold_minutes, product_id) values ('base', 10, ?)",
-                scarf);
-        settle(leaver, 1800);
-        settle(bystander, 1800);
+        for (UUID user : new UUID[] {leaver, bystander}) {
+            jdbc.update("insert into sea_focus_totals (user_id, lifetime_seconds, month_key, month_seconds) "
+                    + "values (?, 1800, '2026-10', 1800)", user);
+            jdbc.update("insert into owned_products (id, owner_type, user_id, product_id, granted_ref) "
+                    + "values (?, 'user', ?, ?, 'sea:base:10')", UUID.randomUUID(), user, scarf);
+        }
         assertThat(totalsOf(leaver)).as("탈퇴 전에는 누적이 있다").isEqualTo(1);
         assertThat(ownedOf(leaver)).isEqualTo(1);
 
         withdrawal.withdraw(leaver);
 
         assertThat(totalsOf(leaver)).as("탈퇴자의 누적은 0 행").isZero();
-        assertThat(ownedOf(leaver)).as("지급된 상품은 외양 도메인의 파기가 지운다").isZero();
+        assertThat(ownedOf(leaver)).as("보유 상품은 외양 도메인의 파기가 지운다").isZero();
         assertThat(totalsOf(bystander)).as("남의 누적은 그대로").isEqualTo(1);
         assertThat(jdbc.queryForObject("select lifetime_seconds from sea_focus_totals where user_id=?", Long.class,
                 bystander)).isEqualTo(1800L);
         assertThat(ownedOf(bystander)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select count(*) from sea_reward_tiers", Integer.class))
-                .as("단계표는 운영 카탈로그라 정리 대상이 아니다").isEqualTo(1);
-    }
-
-    /** 바다 집중이 끝난 것처럼 정산한다 — 서버에 바다 세션이 없어(E1-1) 엔진을 직접 부른다. */
-    private void settle(UUID user, long seconds) {
-        new TransactionTemplate(transactions).executeWithoutResult(
-                status -> sea.settle(user, seconds, Instant.parse("2026-10-12T03:00:00Z")));
     }
 
     private UUID newUser() {

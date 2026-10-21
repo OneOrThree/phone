@@ -1,7 +1,6 @@
 package com.oneorthree.phone.withdrawal.service;
 
 import com.oneorthree.phone.appearance.service.AppearanceService;
-import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.character.service.CharacterGenerationService;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -90,7 +89,6 @@ public class AccountWithdrawalService {
     private final EquipmentService equipmentService;
     private final PublicCommandService publicCommandService;
     private final AppearanceService appearanceService;
-    private final SeaFocusRewardService seaFocusRewardService;
     private final SeaRemarkService seaRemarkService;
     private final IslandQuestService islandQuestService;
 
@@ -173,13 +171,11 @@ public class AccountWithdrawalService {
         leagueService.eraseWithdrawnUser(userId);
         characterGenerationService.eraseWithdrawnUser(userId);
         equipmentService.eraseWithdrawnUser(userId);
-        // 섬 개인 외양·개인 보유품 삭제, 퀘스트 cohort 삭제·정산 수령자·퀘스트 작성자 연결 해제(GROMO-1950·1952).
+        // 섬 개인 외양·개인 보유품·옛 바다 집중 누적 삭제, 퀘스트 cohort 삭제·정산 수령자·퀘스트 작성자 연결 해제
+        // (GROMO-1950·1952·2274 — 바다 누적은 유저 행이 익명화만 돼 ON DELETE CASCADE 가 돌지 않는다).
         // 섬 소유 보유품·정산 행·퀘스트 정의는 섬 자산·원장 근거라 남는다. 섬 잠금은 위 그룹 선점에서 이미 쥐었다.
         // 상점 주문(shop_orders)은 payer_user_id 를 CHECK 가 NULL 로 강제해 탈퇴자 연결이 없다 — 파기 단계가 없다.
         appearanceService.eraseWithdrawnUser(userId);
-        // 바다 집중 누적(GROMO-2274 · 계약 §0 N42) — 개인 이력이라 지운다. 유저 행은 익명화만 되고 삭제되지 않아
-        // 테이블의 ON DELETE CASCADE 가 돌지 않는다. 지급된 상품은 바로 위 appearanceService 가 이미 지웠다.
-        seaFocusRewardService.eraseWithdrawnUser(userId);
         // 고양이 잡지 받음 상태(GROMO-2289 V120) — 개인 열람 기록이라 지운다. 유저 행이 지워지지 않아 CASCADE 가 돌지 않는다.
         magazineReceiptRepository.deleteAllOfUser(userId);
         // 바다 한마디(GROMO-2299) — 같은 이유로 직접 지운다.

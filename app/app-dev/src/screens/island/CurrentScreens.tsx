@@ -59,12 +59,14 @@ import {
   hoursMinutes,
   trackNames,
   SERVER_VISIT_ROUTES,
+  noIslandRoute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
+import { lookOf } from '@/services/memberAppearance';
 import {
   isGoldenFishParticipant,
   memberArrivedText,
@@ -79,6 +81,7 @@ import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { FocusResultSummary } from '@/screens/focus/FocusResultSummary';
 import { Sailing } from '@/screens/world/WorldViews';
+import { DepartureStory } from '@/screens/world/DepartureStory';
 import {
   FiButton,
   FiModal,
@@ -109,6 +112,7 @@ import {
 import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
+import { outfitOf } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import {
   GuideBox,
@@ -139,6 +143,7 @@ import {
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { SeaVoyageHost } from '@/screens/sea/SeaVoyageHost';
+import { seaAssets } from '@/screens/sea/seaAssets';
 import { Telescope } from '@/screens/island/Telescope';
 import { MagazineReader } from '@/screens/magazine/MagazineReader';
 import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
@@ -261,7 +266,7 @@ function Sheet({
 
 export function CurrentScreens({ e }: any) {
   const friendsRouteActive = e.route === 'friends' || e.route === 'friendSearch';
-  const friendsSafetyRouteActive = friendsRouteActive || e.route === 'boat';
+  const friendsSafetyRouteActive = friendsRouteActive || e.route === 'boat' || e.route === 'home';
   const serverIslands = e.islands;
   const dispatch = e.dispatch;
   const friendsScreen = useFriendsScreen({
@@ -555,18 +560,39 @@ function CurrentScreensContent({ e }: any) {
     islandId: e.islands ? (state.serverIslands?.currentIslandId ?? null) : i.id,
     notify: e.notify,
   });
-  // 오늘 고양이 잡지(GROMO-2289) — 섬 홈(펠리컨 배달·우체통 빨간 점)과 우체통(잡지 보기 버튼)이 같이 본다. 구경 중에는 읽지 않는다
-  const magazine = useMagazineToday(['home', 'mail'].includes(r) && !state.visitingIslandId);
+  // 오늘 고양이 잡지(GROMO-2289) — 섬 홈(펠리컨 배달·우체통 빨간 점)과 우체통(잡지 보기 버튼)이 같이 본다. 구경 중에는 읽지 않는다.
+  // 먼바다(GROMO-2314)도 표류 중 펠리컨·뗏목 옆 잡지 물건에 쓴다
+  const magazine = useMagazineToday(
+    (['home', 'mail'].includes(r) && !state.visitingIslandId) || r === 'sea',
+  );
   const endServerVisit = () => {
     e.dispatch({ type: 'END_VISIT' });
-    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : noIslandRoute(state));
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
   // 바다 항해 집중(GROMO-2310) — 섬 소속·구경 여부와 무관한 바다 화면이라 아래 섬 관문보다 먼저 연다.
   // 계정이 바뀌면 사용자 ID 를 key 로 화면(바다 방 연결 포함)을 새로 만든다.
   if (r === 'sea' || r === 'seaArrival')
-    return everySecond(e, (timed) => <SeaVoyageHost key={getSession()?.userId ?? ''} e={timed} />);
+    return everySecond({ ...e, magazineToday: magazine.today }, (timed) => (
+      <SeaVoyageHost key={getSession()?.userId ?? ''} e={timed} />
+    ));
+  // 바다에서 펼친 오늘 호(GROMO-2314) — 배경은 먼바다, 칸에 망원경 동그라미. 소속 섬이 없어도 열린다
+  if (r === 'seaMagazine')
+    return (
+      <MagazineReader
+        e={e}
+        place="SEA"
+        background={
+          <Image
+            testID="sea-magazine-background"
+            source={seaAssets.background}
+            resizeMode="cover"
+            style={StyleSheet.absoluteFill}
+          />
+        }
+      />
+    );
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
@@ -753,7 +779,6 @@ function CurrentScreensContent({ e }: any) {
     return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
-  // TODO E1-4 먼바다 화면이 생기면 바다 담당이 이 임시 입구(뗏목 행선지 「망원경」)와 함께 정리한다
   if (r === 'telescope') return <Telescope e={e} />;
   if (r === 'promotionEditor') return <PromotionEditor e={e} />;
   // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬도 실어 볼까요?」 안내는 내 섬 섬장만(쓰기 입구는 마을회관)
@@ -1526,6 +1551,8 @@ function EmoteFab({
     </>
   );
 }
+/** 방문 낚시 구경이 주민 스냅숏(외양 포함)을 다시 읽는 간격. */
+const VISIT_RESYNC_MS = 30_000;
 function FocusVisit({ e, islandId, onBack }: any) {
   const s: State = e.state,
     i = viewIsland(s, islandId ?? s.serverIslands?.currentIslandId ?? s.islandId),
@@ -1553,6 +1580,14 @@ function FocusVisit({ e, islandId, onBack }: any) {
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
+  // 다른 섬 방문은 소속원이 아니라 events 토픽(member.appearance.updated)을 구독할 수 없다(서버: 소속 주민만, 아니면 ERROR+연결 종료).
+  // 그래서 방문 화면은 focus-members 를 주기적으로 다시 읽어 갈아입은 외양을 반영한다.
+  const resyncLive = live.resync;
+  useEffect(() => {
+    if (!visiting || liveIslandId === null) return;
+    const id = setInterval(resyncLive, VISIT_RESYNC_MS);
+    return () => clearInterval(id);
+  }, [visiting, liveIslandId, resyncLive]);
   const myId = getSession()?.userId;
   const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
@@ -1633,6 +1668,11 @@ function FocusVisit({ e, islandId, onBack }: any) {
             <FishingPeerActorView
               key={actor.key}
               actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+              outfit={lookOf(
+                live.looks,
+                actor.userId,
+                live.focus.find((m) => m.userId === actor.userId),
+              )}
               size={size}
               sizeY={sizeY}
               reduce={reduce}
@@ -1759,6 +1799,8 @@ function FocusFlow({ e: environment }: any) {
     wide = L.width >= 600,
     reduce = s.settings.reduceMotion,
     tutorialStep: number = e.guideStep;
+  // 낚시섬의 내 고양이에 입힐 장착 그림(GROMO-2382)
+  const myOutfit = outfitOf(s);
   const screenReader = useScreenReaderEnabled();
   const advanceTutorial = (from: number, to: number) => {
     if (tutorialStep === from)
@@ -2534,12 +2576,9 @@ function FocusFlow({ e: environment }: any) {
   };
   if (r === 'focusTravel')
     return (
-      <Sailing
-        state={s}
-        from={t('focusFlow.common.ourIsland')}
+      <DepartureStory
         destination={t('focusFlow.common.fishingIsland')}
-        duration={1900}
-        onArrive={() => e.replace('fishingArrival')}
+        onComplete={() => e.replace('fishingArrival')}
       />
     );
   if (r === 'returnTravel')
@@ -2734,6 +2773,10 @@ function FocusFlow({ e: environment }: any) {
         seconds={result?.seconds ?? 0}
         fish={result?.fish ?? 0}
         questTitles={achievedQuestTitles}
+        recordId={result?.id}
+        // 집중 보상은 세션당 최대 1개다(2301 정산) — 첫 아이템만 보인다
+        rewardId={result?.rewards?.[0]}
+        rewardNew={!!result?.rewards && !!result.newRewards?.includes(result.rewards[0])}
       />
     </FiModal>
   );
@@ -3172,6 +3215,11 @@ function FocusFlow({ e: environment }: any) {
                   <FishingPeerActorView
                     key={actor.key}
                     actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                    outfit={lookOf(
+                      live.looks,
+                      actor.userId,
+                      live.focus.find((m) => m.userId === actor.userId),
+                    )}
                     size={size}
                     sizeY={sizeY}
                     emote={emoteByUser.get(actor.userId) ?? null}
@@ -3232,6 +3280,7 @@ function FocusFlow({ e: environment }: any) {
                     catchVisibleSpots={peerCatchSpots}
                     catchGramVisible={i.buildings.includes('gram')}
                     catchFuturePeerSpots={PEER_SPOTS}
+                    outfit={myOutfit}
                   />
                 ) : (
                   <FishingWalker
@@ -3242,6 +3291,7 @@ function FocusFlow({ e: environment }: any) {
                     walking={walker.walking}
                     left={walker.left}
                     reduce={reduce}
+                    outfit={myOutfit}
                   />
                 )}
               </>

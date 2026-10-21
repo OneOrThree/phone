@@ -15,7 +15,7 @@ export type SeaParticipant = {
   subject?: string;
   message?: string;
   emote?: SeaEmote;
-  /** 장착한 머리·목·신발(카탈로그 id) — 내 뗏목에만 채운다. */
+  /** 장착한 머리·목·신발(카탈로그 id). undefined·null은 미장착이다. 바다 서버는 현재 내 장착 정보만 별도로 알 수 있다. */
   outfit?: Outfit;
 };
 
@@ -37,6 +37,8 @@ export type SeaArrival = {
   activeSeconds: number;
   /** 이번에 받은 꾸미기 productId 목록 — 이름·그림은 카탈로그로 푼다. */
   rewards: string[];
+  /** 그중 처음 받은 것 — NEW! 배지(GROMO-2382). 구버전 서버면 없다. */
+  newRewards?: string[];
   /** 다음 단계까지 남은 분 — 모르면 null. */
   minutesToNextTier: number | null;
   /**

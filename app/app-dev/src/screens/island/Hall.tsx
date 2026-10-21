@@ -13,6 +13,8 @@ import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
 import { art, CharCount, Wheel } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { CatAvatar } from '@/components/CatAvatar';
+import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
@@ -169,7 +171,7 @@ function Icon({ d, size }: { d: string; size: number }) {
 }
 // 고양이 색 미선택(null)·모름 — 남의 칸을 내 색으로 칠하지 않고 빈 자리표시자 원으로 둔다(2-16 H21)
 const NO_CAT_COLOR = '';
-function Avatar({ color, n, size }: any) {
+function Avatar({ color, outfit, n, size }: any) {
   return (
     <View
       style={{
@@ -182,15 +184,11 @@ function Avatar({ color, n, size }: any) {
         overflow: 'hidden',
       }}
     >
-      <Image
-        source={art[`avatar/${color}`]}
-        resizeMode="contain"
-        style={{
-          width: '100%',
-          height: '100%',
-          transform: [{ scale: 1.2 }],
-          transformOrigin: 'center bottom',
-        }}
+      <CatAvatar
+        color={color}
+        outfit={outfit}
+        size={size - 2.6}
+        style={{ transform: [{ scale: 1.2 }], transformOrigin: 'center bottom' }}
       />
     </View>
   );
@@ -286,7 +284,12 @@ export function Hall({ e }: any) {
   const transferCandidates = liveManagement
     ? (management.members ?? [])
         .filter((m) => m.role !== 'host')
-        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? NO_CAT_COLOR }))
+        .map((m) => ({
+          id: m.id,
+          name: m.name ?? '주민',
+          color: m.catColor ?? NO_CAT_COLOR,
+          outfit: appearanceOutfit(m.appearance),
+        }))
     : i.members;
   // 가계부: 서버 원장·지갑 조각이 정본이다 — 로컬 i.ledger 문자열·로컬 잔액 합산을 쓰지 않는다.
   // 방문자에게는 조회 자체를 하지 않는다(서버도 403). 리뷰·데모 모크 모드는 서버가 아예 없다 —
@@ -2066,8 +2069,10 @@ export function Hall({ e }: any) {
         onOk: () =>
           void runManagement(async () => {
             const my = await e.islands.leave(liveIslandId);
-            // current 가 비면 App 이 섬 선택 화면으로 보낸다. 다른 섬이 current 면 홈으로.
+            // 재조회한 current 가 응답보다 최신이라 먼저 본다 — 다른 섬이 current 면 홈. current 가 비고 서버가
+            // 먼바다라고 했으면 바다로(GROMO-2366), 다음 위치를 모르면(구 응답) App 이 보낸다.
             if (my.currentIslandId) e.home();
+            else if (my.nextLocation?.islandId === null) e.reset('sea');
           }, '섬을 떠났어요.'),
       });
       return;
@@ -2109,7 +2114,11 @@ export function Hall({ e }: any) {
       <T style={{ fontSize: 27, lineHeight: 27, color: '#5e4d42' }}>×</T>
     </Pressable>
   );
-  const person = (m: { id: string; name: string; color: string }, n: number, opts: any = {}) => (
+  const person = (
+    m: { id: string; name: string; color: string; outfit?: Outfit },
+    n: number,
+    opts: any = {},
+  ) => (
     <View
       key={m.id}
       // 방장 칸은 보조기기가 이름 뒤에 '방장'까지 읽는다
@@ -2133,7 +2142,7 @@ export function Hall({ e }: any) {
       ]}
     >
       <View pointerEvents="none">
-        <Avatar color={m.color} n={n} size={opts.av ?? (land ? 31 : 38)} />
+        <Avatar color={m.color} outfit={m.outfit} n={n} size={opts.av ?? (land ? 31 : 38)} />
         {/* 방장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
             Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
         {opts.crown && (
@@ -2226,10 +2235,13 @@ export function Hall({ e }: any) {
           id: m.id,
           name: m.name ?? '주민',
           color: m.catColor ?? NO_CAT_COLOR,
+          outfit: appearanceOutfit(m.appearance),
           isHost: m.role === 'host',
         }))
       : [
-          ...(visitor ? [] : [{ id: 'me', name: '나', color: s.color, isHost: host }]),
+          ...(visitor
+            ? []
+            : [{ id: 'me', name: '나', color: s.color, outfit: outfitOf(s), isHost: host }]),
           ...i.members.map((m) => ({
             id: m.id,
             name: m.name,
@@ -2350,7 +2362,7 @@ export function Hall({ e }: any) {
                 // 가로 2열: 목록 폭 = 화면 − 왼쪽 side − 오른쪽 16 − 테두리 4 − 안쪽 여백 32
                 style={{ width: land ? (W - side - 52 - 10) / 2 : '100%' }}
               >
-                {person({ ...m, name: m.name, color: m.color }, n, {
+                {person(m, n, {
                   size: 16,
                   grow: true,
                   style: {
@@ -2821,6 +2833,9 @@ export function Hall({ e }: any) {
                   color: liveManagement
                     ? ((q as { catColor?: string | null }).catColor ?? NO_CAT_COLOR)
                     : ((q as { color?: string }).color ?? s.color),
+                  outfit: liveManagement
+                    ? appearanceOutfit((q as { appearance?: unknown }).appearance)
+                    : undefined,
                 },
                 n,
                 {

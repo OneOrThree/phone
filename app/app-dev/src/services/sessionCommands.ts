@@ -120,7 +120,16 @@ export const recordFromFinish = (f: FocusFinishView, ackId?: string): RecordItem
   intervals: mapIntervals(f.activeIntervals),
   ...(ackId ? { ackId } : {}),
   ...(f.kind ? { kind: f.kind } : {}),
+  ...(f.seaReward?.grantedProductIds?.length ? { rewards: f.seaReward.grantedProductIds } : {}),
+  ...newRewardsOf(f),
 });
+
+/** 받은 것 중 처음 받은 것 — 서버가 newProductIds 를 안 주면(구버전) 없다. */
+function newRewardsOf(f: FocusFinishView) {
+  const granted = f.seaReward?.grantedProductIds ?? [];
+  const fresh = (f.seaReward?.newProductIds ?? []).filter((id) => granted.includes(id));
+  return fresh.length ? { newRewards: fresh } : {};
+}
 
 export const createSessionCommands = (deps: SessionCommandDeps) => {
   const api = { ...defaultApi, ...deps.api },

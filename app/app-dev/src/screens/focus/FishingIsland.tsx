@@ -25,6 +25,7 @@ import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
 import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
+import type { Outfit } from '@/components/CatOutfitLayers';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
@@ -844,6 +845,7 @@ export function FishingActor({
   generation,
   animatedPosition,
   catchAvoidSpots = [],
+  outfit,
 }: {
   spot: Spot;
   size: number;
@@ -875,6 +877,8 @@ export function FishingActor({
     top: Animated.AnimatedInterpolation<number> | Animated.Value;
   };
   catchAvoidSpots?: Spot[];
+  /** 내 고양이의 장착 그림(GROMO-2382). */
+  outfit?: Outfit;
 }) {
   const [reeling, setReeling] = useState(false),
     [goldenReeling, setGoldenReeling] = useState(false),
@@ -1015,6 +1019,7 @@ export function FishingActor({
         keyPoses={keyed}
         replayKey={keyed ? reelNonce : undefined}
         poseTransform={keyed ? pose.body : undefined}
+        outfit={outfit}
         testID="fishing-actor-cat"
       />
       {isFishing && (
@@ -1113,6 +1118,7 @@ export function FishingActor({
 /** 실시간 주민: 자리 배정 훅의 경로/상태를 스프라이트 모션으로 표현한다. */
 export function FishingPeerActorView({
   actor,
+  outfit,
   size,
   sizeY,
   emote,
@@ -1126,6 +1132,8 @@ export function FishingPeerActorView({
   onCompletedExit,
 }: {
   actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
+  /** 남의 고양이 머리·목(GROMO-2390). */
+  outfit?: Outfit;
   size: number;
   sizeY: number;
   emote?: string | null;
@@ -1318,6 +1326,7 @@ export function FishingPeerActorView({
       size={size}
       sizeY={sizeY}
       color={actor.color}
+      outfit={outfit}
       name={actor.name}
       subject={actor.subject}
       seconds={actor.seconds}
@@ -1348,6 +1357,7 @@ export function FishingWalker({
   walking,
   left,
   reduce,
+  outfit,
 }: {
   p: Point;
   size: number;
@@ -1356,6 +1366,7 @@ export function FishingWalker({
   walking: boolean;
   left: boolean;
   reduce: boolean;
+  outfit?: Outfit;
 }) {
   const a = size * 0.077;
   return (
@@ -1374,6 +1385,7 @@ export function FishingWalker({
         motion={walking ? 'walk' : 'idle'}
         left={left}
         reduce={reduce}
+        outfit={outfit}
       />
       <View style={{ position: 'absolute', top: a * (0.98 - 0.90625), left: -100, width: 200 }}>
         <Text style={[nameText(true), { textAlign: 'center' }]}>{t('focusFlow.common.me')}</Text>

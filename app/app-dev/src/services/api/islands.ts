@@ -336,6 +336,8 @@ export type RestMember = {
   userId: string;
   name: string | null;
   catColor: string | null;
+  /** 머리·목 착용(GROMO-2389) — 옛 서버는 키가 없다. */
+  appearance?: unknown;
   restSeat: number | null;
   restStartedAt: string | null;
 };

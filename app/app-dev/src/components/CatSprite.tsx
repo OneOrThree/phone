@@ -8,6 +8,7 @@ import {
 } from '@/constants/cat-idle-atlases';
 import metrics from '@/constants/motion-metrics.json';
 import { Color } from '@/services/model';
+import { CatOutfitLayers, type Outfit } from './CatOutfitLayers';
 import {
   CAT_FRAME_SEQUENCES,
   CatFrameMotion,
@@ -216,6 +217,23 @@ function useCatPlayback(
   return { run, effectiveMotion: normalized === 'idle' ? idleBehavior : normalized };
 }
 
+/** 재생 경과 값이 이 셀 차례일 때만 1인 opacity(계단 함수). 값이 없으면(멈춤·다른 시간표 재생 중) 첫 셀만 보인다. */
+function useCellOpacity(
+  value: Animated.Value | undefined,
+  steps: readonly CatKeyPose[],
+  cell: number,
+) {
+  return useMemo(
+    () =>
+      value
+        ? value.interpolate({ ...frameOpacityRange(steps, cell), extrapolate: 'clamp' })
+        : cell === steps[0][0]
+          ? 1
+          : 0,
+    [value, steps, cell],
+  );
+}
+
 /** 한 셀을 미리 깔아 두고, 재생 경과 값이 그 셀 차례일 때만 보이게 한다(opacity 계단 함수). */
 function CatFrameLayer({
   cell,
@@ -235,15 +253,7 @@ function CatFrameLayer({
   viewportStyle?: object;
   testID?: string;
 }) {
-  const opacity = useMemo(
-    () =>
-      value
-        ? value.interpolate({ ...frameOpacityRange(steps, cell), extrapolate: 'clamp' })
-        : cell === steps[0][0]
-          ? 1
-          : 0,
-    [value, steps, cell],
-  );
+  const opacity = useCellOpacity(value, steps, cell);
   const image = (
     <Animated.Image
       testID={testID}
@@ -255,6 +265,44 @@ function CatFrameLayer({
   if (!viewportStyle) return image;
   return (
     <View style={{ position: 'absolute', ...viewportStyle, overflow: 'hidden' }}>{image}</View>
+  );
+}
+
+/**
+ * 장착 그림(GROMO-2382)도 셀마다 그 셀 프레임으로 깔고 고양이 셀과 같은 opacity 계단을 건다 — 프레임 전환에 React 를 깨우지 않는다.
+ * ponytail: 셀 수만큼(걷기 6) Skia 캔버스가 뜬다. 여러 고양이가 옷을 입은 화면이 무거우면 보이는 셀 하나만 그리는 방식을 찾는다.
+ */
+function CatOutfitCell({
+  cell,
+  steps,
+  value,
+  outfit,
+  pose,
+  testID,
+}: {
+  cell: number;
+  steps: readonly CatKeyPose[];
+  value?: Animated.Value;
+  outfit: Outfit;
+  pose: { color: Color; motion: string; size: number };
+  testID?: string;
+}) {
+  const opacity = useCellOpacity(value, steps, cell);
+  return (
+    <Animated.View
+      testID={testID}
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: pose.size,
+        height: pose.size,
+        opacity,
+      }}
+    >
+      <CatOutfitLayers outfit={outfit} pose={{ ...pose, frame: cell }} />
+    </Animated.View>
   );
 }
 
@@ -271,6 +319,7 @@ export function CatSprite({
   keyPoses = false,
   replayKey,
   poseTransform,
+  outfit,
   testID,
 }: {
   color: Color;
@@ -288,6 +337,8 @@ export function CatSprite({
   replayKey?: number;
   /** 발 기준점에서 몸 전체에 거는 추가 변환(호흡·기울기). 좌우 반전 안쪽에 적용돼 방향을 따라간다. */
   poseTransform?: CatPoseTransform;
+  /** 장착한 머리·목(GROMO-2382) — 지금 자세·프레임에 맞춰 그린다. 검증 안 된 자세에서는 CatOutfitLayers 가 숨긴다. */
+  outfit?: Outfit;
   testID?: string;
 }) {
   const [appState, setAppState] = useState(AppState.currentState);
@@ -433,6 +484,18 @@ export function CatSprite({
           {...frameVisual(cell)}
         />
       ))}
+      {outfit &&
+        cells.map((cell) => (
+          <CatOutfitCell
+            key={cell}
+            cell={cell}
+            steps={steps}
+            value={value}
+            outfit={outfit}
+            pose={{ color, motion: effectiveMotion, size: extent }}
+            testID={testID ? `${testID}-outfit-${cell}` : undefined}
+          />
+        ))}
       {isTilting && (
         <Animated.View
           testID={testID ? `${testID}-question` : 'cat-question'}

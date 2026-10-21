@@ -1664,9 +1664,11 @@ test('복구된 결과·집중 화면은 남아 있던 휴식 안내 단계를 �
   await app.unmount();
 });
 
-test.each(['next-island', null])(
+test.each(['next-island', null, 'lost'])(
   '체험 중 소속이 %s로 바뀌면 체험을 지우고 안전한 화면으로 돌아간다',
-  async (nextIsland) => {
+  async (next) => {
+    // 'lost' 는 현재 섬 없이 강퇴로 잃은 경우 — 섬 고르기 대신 먼바다로 간다(GROMO-2366)
+    const nextIsland = next === 'lost' ? null : next;
     mockBootRoute = 'home';
     const app = await render(<App />);
     await waitFor(() => expect(captured).toBeTruthy());
@@ -1686,10 +1688,16 @@ test.each(['next-island', null])(
     await act(async () => {
       captured.dispatch({
         type: 'ISLAND_SYNC',
-        memberships: { items: nextIsland ? [{ id: nextIsland }] : [], currentIslandId: nextIsland },
+        memberships: {
+          items: nextIsland ? [{ id: nextIsland }] : [],
+          currentIslandId: nextIsland,
+          lossReason: next === 'lost' ? 'KICKED' : null,
+        },
       });
     });
-    await waitFor(() => expect(captured.route).toBe(nextIsland ? 'home' : 'chooseIsland'));
+    await waitFor(() =>
+      expect(captured.route).toBe(nextIsland ? 'home' : next === 'lost' ? 'sea' : 'chooseIsland'),
+    );
     expect(captured.state.tutorialExperience).toBeUndefined();
     expect(captured.state.session).toBeNull();
     expect(captured.guideStep).toBe(4);
@@ -2107,6 +2115,165 @@ test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이�
   await saveSession({ accessToken: 'BT', refreshToken: 'BR', userId: 'guide-new' });
   await act(async () => oldComplete(22));
   expect((await readAccountGuides('guide-new')).focusDone).toBe(false);
+  await app.unmount();
+});
+
+const islandSync = (
+  currentIslandId: string | null,
+  lossReason: 'LEFT' | 'KICKED' | null,
+  items: { id: string; name: string }[] = [],
+) => ({
+  type: 'ISLAND_SYNC',
+  memberships: { items, nextCursor: null, currentIslandId, lossReason },
+});
+
+test.each([
+  ['LEFT', 'sea'],
+  ['KICKED', 'sea'],
+  [null, 'chooseIsland'],
+] as const)(
+  '현재 섬이 없어지면 상실 사유 %s 는 %s 로 보낸다(GROMO-2366)',
+  async (lossReason, to) => {
+    const app = await render(<App />);
+    await waitFor(() => expect(captured).toBeTruthy());
+    await act(async () => {
+      captured.dispatch({ type: 'LOGIN' });
+      captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+      captured.reset('settings');
+    });
+    await act(async () => captured.dispatch(islandSync(null, lossReason)));
+    await waitFor(() => expect(captured.route).toBe(to));
+    await app.unmount();
+  },
+);
+
+const kickedApp = async (userId: string) => {
+  // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있어 multiRemove 로 지운다
+  await AsyncStorage.multiRemove([`kickNoticeSeen:${userId}`]);
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    captured.reset('settings');
+  });
+  return app;
+};
+const settle = () => new Promise((done) => setTimeout(done, 50));
+
+test('강퇴 동기화는 안내를 띄우고 바다로 보내며, 현재 섬이 생긴 뒤 다시 강퇴되면 또 띄운다(GROMO-2366)', async () => {
+  const removeItem = AsyncStorage.removeItem as jest.Mock;
+  const previousRemove = removeItem.getMockImplementation();
+  removeItem.mockImplementation((key: string) => AsyncStorage.multiRemove([key]));
+  try {
+    const app = await kickedApp('kick-a');
+    await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+    await waitFor(() => expect(captured.route).toBe('sea'));
+    await waitFor(() =>
+      expect(screen.getByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeTruthy(),
+    );
+    await waitFor(async () =>
+      expect(await AsyncStorage.getItem('kickNoticeSeen:kick-a')).toBe('i1'),
+    );
+    // 바다 표류에서 연 망원경은 섬이 없어도 바다로 되돌리지 않는다
+    await act(async () => {
+      captured.go('telescope');
+      await settle();
+    });
+    expect(captured.route).toBe('telescope');
+
+    // 같은 섬에 다시 들어갔다가 또 강퇴되면 「봤음」이 지워져 있어 다시 띄운다
+    await act(async () => captured.notify('다른 안내'));
+    await act(async () => {
+      captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+      await settle();
+    });
+    await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+    await waitFor(() =>
+      expect(screen.getByTestId('global-toast')).toHaveTextContent(
+        '「소다 섬」에서 더 이상 함께할 수 없게 되었어요.',
+      ),
+    );
+    await app.unmount();
+  } finally {
+    removeItem.mockImplementation(previousRemove);
+  }
+});
+
+test('강퇴 뒤 망원경으로 가입한 섬에서도 강퇴되면 사유가 그대로여도 다시 띄운다(GROMO-2366)', async () => {
+  const app = await kickedApp('kick-b');
+  await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+  await waitFor(() =>
+    expect(screen.getByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeTruthy(),
+  );
+  await act(async () => captured.notify('다른 안내'));
+  // 망원경 가입은 현재 섬을 옮기지 않는다 — 새로 잃은 섬이 없으니 띄우지 않는다
+  await act(async () => {
+    captured.dispatch(islandSync(null, 'KICKED', [{ id: 'i2', name: '별섬' }]));
+    await settle();
+  });
+  expect(screen.getByTestId('global-toast')).toHaveTextContent('다른 안내');
+  await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+  await waitFor(() =>
+    expect(screen.getByTestId('global-toast')).toHaveTextContent(
+      '「별섬」에서 더 이상 함께할 수 없게 되었어요.',
+    ),
+  );
+  await waitFor(async () => expect(await AsyncStorage.getItem('kickNoticeSeen:kick-b')).toBe('i2'));
+  await app.unmount();
+});
+
+test('이미 본 섬의 강퇴는 다시 읽혀도 띄우지 않는다(GROMO-2366)', async () => {
+  const app = await kickedApp('kick-c');
+  await AsyncStorage.setItem('kickNoticeSeen:kick-c', 'i1');
+  await act(async () => {
+    captured.dispatch(islandSync(null, 'KICKED'));
+    await settle();
+  });
+  await waitFor(() => expect(captured.route).toBe('sea'));
+  expect(screen.queryByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeNull();
+  await app.unmount();
+});
+
+test.each([
+  ['KICKED', 'sea'],
+  [null, 'chooseIsland'],
+] as const)(
+  '화면을 잃은 강퇴 복구는 현재 섬이 없으면 상실 사유 %s 일 때 %s 로 보낸다(GROMO-2366)',
+  async (lossReason, to) => {
+    mockBootRoute = 'home';
+    await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+    const app = await render(<App />);
+    await waitFor(() => expect(captured?.state.onboarded).toBe(true));
+    // 섬 고르기·현재 섬 화면처럼 소속 검사가 그냥 지나치는 화면에서도 복구 신호는 화면을 옮긴다
+    await act(async () => captured.reset('currentIsland'));
+    await act(async () => {
+      captured.dispatch({ type: 'KICKED_FROM_ISLAND', id: captured.state.islandId });
+      captured.dispatch(islandSync(null, lossReason));
+    });
+    await waitFor(() => expect(captured.route).toBe(to));
+    expect(captured.state.membershipRecovery).toBeUndefined();
+    await app.unmount();
+  },
+);
+
+test('계정이 바뀌면 같은 강퇴 상태여도 그 계정의 「봤음」으로 다시 본다(GROMO-2366)', async () => {
+  await AsyncStorage.multiRemove(['kickNoticeSeen:kick-e']);
+  const app = await kickedApp('kick-d');
+  await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+  await waitFor(() =>
+    expect(screen.getByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeTruthy(),
+  );
+  await act(async () => captured.notify('다른 안내'));
+  await act(async () => {
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'kick-e' });
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId('global-toast')).toHaveTextContent(
+      '「소다 섬」에서 더 이상 함께할 수 없게 되었어요.',
+    ),
+  );
   await app.unmount();
 });
 

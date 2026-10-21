@@ -49,6 +49,9 @@ export type QuestCurrent = { items: QuestItem[] };
 export type QuestMember = {
   userId: string;
   name: string | null;
+  /** 판정 대상 주민의 털색·착용(GROMO-2389) — 탈퇴·옛 서버는 null/없음. */
+  catColor?: string | null;
+  appearance?: unknown;
   rate: number | null;
   measurementStatus: string;
   achieved: boolean;

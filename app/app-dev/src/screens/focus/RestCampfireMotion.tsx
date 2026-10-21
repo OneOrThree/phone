@@ -13,6 +13,7 @@ import { cat } from '@/constants/assets';
 import { componentTokens } from '@/design-system/tokens';
 import metrics from '@/constants/motion-metrics.json';
 import type { Color } from '@/services/model';
+import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
 
 // GROMO-2361 모닥불 휴식 장면 움직임. 숫자는 움직임 검토실(doc/animation-lab-2026-10-19/scenes-rest-raft.js)
 // rest()·restCatOnly() 를 그대로 옮겼다(강도 1·입자 1). 검토실 좌표는 960×720 캔버스이고 배경 1024 를
@@ -414,6 +415,7 @@ export function RestCat({
   n,
   flip,
   testID,
+  outfit,
 }: {
   t: Animated.Value;
   still: boolean;
@@ -425,6 +427,8 @@ export function RestCat({
   n: number;
   flip: boolean;
   testID?: string;
+  /** 머리·목(GROMO-2390) — 식빵은 still/loaf, 책 읽기는 첫 장(read 0)에 맞춰 그린다. 그림과 같이 좌우 반전한다. */
+  outfit?: Outfit;
 }) {
   const extent = n * metrics[color].reading.scale;
   const anim = useMemo(() => {
@@ -459,11 +463,11 @@ export function RestCat({
       }}
     >
       {pose === 'loaf' ? (
-        <Image
-          source={loafSource}
-          // 오른쪽 자리는 불을 보게 좌우 반전
-          style={{ width: n, height: n, transform: [{ scaleX: flip ? -1 : 1 }] }}
-        />
+        // 오른쪽 자리는 불을 보게 좌우 반전 — 장식도 같은 상자 안이라 같이 뒤집힌다
+        <View style={{ width: n, height: n, transform: [{ scaleX: flip ? -1 : 1 }] }}>
+          <Image source={loafSource} style={{ width: n, height: n }} />
+          {outfit && <CatOutfitLayers outfit={outfit} pose={{ color, still: 'loaf', size: n }} />}
+        </View>
       ) : (
         // 책 읽기도 식빵과 같이 오른쪽 자리에서 반전한다. 셀 가운데(512 중 256)가 발 x 라 가운데 기준 반전은 발 앵커를 옮기지 않는다.
         <View
@@ -486,6 +490,12 @@ export function RestCat({
               transform: [{ translateX: anim ? anim.page : 0 }],
             }}
           />
+          {outfit && (
+            <CatOutfitLayers
+              outfit={outfit}
+              pose={{ color, motion: 'read', frame: 0, size: extent }}
+            />
+          )}
         </View>
       )}
     </Animated.View>

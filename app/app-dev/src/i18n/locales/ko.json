@@ -8,7 +8,9 @@
     "save": "저장",
     "later": "나중에",
     "manageIsland": "섬 관리",
-    "readyStampA11y": "준비 완료 도장"
+    "readyStampA11y": "준비 완료 도장",
+    "caughtItem": "낚은 아이템",
+    "newBadge": "NEW!"
   },
   "errors": {
     "GENERIC": "연결을 확인한 뒤 다시 시도해 주세요.",
@@ -334,6 +336,8 @@
     "memberConverted": "회원으로 전환했어요.",
     "restoreFailed": "저장된 상태를 불러오지 못했어요.",
     "storageCheck": "기기 저장 공간을 확인해 주세요.",
+    "kickedFrom": "「{{island}}」에서 더 이상 함께할 수 없게 되었어요.",
+    "kicked": "섬에서 더 이상 함께할 수 없게 되었어요.",
     "build": {
       "confirmTitle": "{{building}} 짓기",
       "confirmBody": "섬 물고기 {{cost}}마리를 차감하고 {{minutes}}분 동안 공사해요.",
@@ -388,7 +392,12 @@
       "focusingNow": "지금 {{count}}명이 낚시섬에서 집중 중",
       "quietNow": "지금 낚시섬은 조용해요",
       "focusingNowHint": "터치하면 낚시섬 구경으로 가요",
-      "todayFocusVisitor": "오늘 집중 {{time}}"
+      "todayFocusVisitor": "오늘 집중 {{time}}",
+      "customize": "내 고양이 꾸미기",
+      "friends": "친구",
+      "friendsRequests": "친구, 받은 요청 {{count}}개",
+      "settings": "설정",
+      "todayFocusWithClock": "오늘의 집중 {{clock}}"
     },
     "build": "{{building}} 짓기",
     "buildProgress": "{{current}}/{{total}} 마리",
@@ -460,20 +469,25 @@
     },
     "raft": {
       "title": "뗏목",
-      "from": "우리 섬",
       "fishingIsland": "앞바다 낚시섬",
       "toIsland": "{{name}}섬으로",
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
-      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
+      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요.",
+      "departureTitle": "어디로 떠나볼까요?",
+      "myIslands": "소속 섬으로",
+      "departSea": "바다로 출항",
+      "goFocus": "집중하러 가기",
+      "islandsTitle": "어느 섬으로 갈까요?",
+      "visitedMember": "가 본 소속 섬",
+      "noIslands": "이동할 수 있는 소속 섬이 없어요."
     }
   },
   "wardrobe": {
     "default": "기본",
     "defaultFor": "{{slot}} 기본",
     "section": {
-      "clothes": "옷",
       "decor": "장식",
       "head": "머리",
       "neck": "목",
@@ -709,6 +723,8 @@
     "loadFailed": "섬을 불러오지 못했어요.",
     "islandHint": "누르면 섬 정보를 볼 수 있어요",
     "joinedIslandA11y": "{{name}}, 내가 사는 섬",
+    "islandLabel": "{{name}} · {{time}}",
+    "islandTimeA11y": "{{label}}, 항해 {{time}}",
     "residents": "주민 {{count}}/{{max}}",
     "averageFocus": "평균 {{time}}",
     "averageUnknown": "아직 집계 전",
@@ -855,7 +871,8 @@
       "noCells": "오늘은 실린 홍보가 없어요",
       "endTitle": "우리 섬도 실어 볼까요?",
       "endBody": "홍보는 마을회관에서 쓸 수 있어요. 아침 7시부터 자정까지 신청하면 다음 날 아침 호에 실려요",
-      "zoomClose": "크게 보기 닫기"
+      "zoomClose": "크게 보기 닫기",
+      "scopeEvicted": "{{name}}이 망원경에서 빠져요"
     },
     "rack": {
       "open": "잡지 꽂이",
@@ -876,6 +893,7 @@
     "delivery": {
       "mailbox": "우체통에 고양이 잡지가 왔어요!",
       "noMailbox": "고양이 잡지 왔어요!",
+      "seaCutscene": "펠리컨이 고양이 잡지를 들고 뗏목으로 날아와요",
       "later": "나중에",
       "readLater": "나중에 읽기",
       "openMailbox": "우체통 열어보기",
@@ -975,6 +993,7 @@
     "sessionRevoked": "다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요."
   },
   "openSea": {
+    "abandonCutscene": "{{name}} 항해를 그만두고 바다에 머물러요. 섬이 멀어져요.",
     "name": "먼바다",
     "skip": "건너뛰기",
     "duration": "{{minutes}}분 {{seconds}}초",
@@ -987,7 +1006,6 @@
     "next": "다음 참여자 보기",
     "arrived": "무사히 도착했어요!",
     "voyageTime": "항해한 시간",
-    "rewardTitle": "항해 중 건진 것",
     "additionalRewards": "{{names}}도 함께 받았어요",
     "noReward": "이번 항해에서 건진 아이템은 없어요",
     "entering": "섬으로 이동 중…",
@@ -1037,7 +1055,12 @@
     "nextTier": "다음 단계까지 {{minutes}}분",
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
-    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
+    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요.",
+    "focusTime": "집중 시간",
+    "requestFriend": "친구 요청",
+    "friendRequested": "친구 요청 보냄",
+    "friendExists": "이미 친구이거나 보낸 요청이 있어요.",
+    "friendUnavailable": "친구 요청을 보낼 수 없는 상대예요."
   },
   "safety": {
     "blockTitle": "차단하기",
@@ -1046,6 +1069,12 @@
     "blockBody": "{{name}}님의 친구 요청과 편지는 앱 목록에서 숨겨져요. 친구 요청 알림은 기기에 표시될 수 있어요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.",
     "blocked": "{{name}}님을 차단했어요.",
     "failed": "처리하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+  },
+  "departureStory": {
+    "label": "출항 준비: {{destination}}. 뗏목에 올라 밧줄을 풀고 바다로 떠나요."
+  },
+  "arrivalCutscene": {
+    "label": "{{destination}}에 도착하고 있어요. 뗏목이 부두에 닿아요."
   },
   "onboardingStory": {
     "brand": "집중할고양",

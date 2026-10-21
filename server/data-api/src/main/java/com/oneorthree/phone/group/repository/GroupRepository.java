@@ -170,9 +170,9 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * 순서가 안정»하고(PRD M03), 인스턴스가 달라도 같은 순서가 나온다. 경계도 그 해시라서 이미
      * 돌려준 후보가 다시 나오지 않는다.
      *
-     * <p>공개·생존·<b>실제 남은 정원</b>·미소속·<b>강퇴 이력 없음</b> 을 같은 질의에서 판정한다.
+     * <p>공개·생존·<b>실제 남은 정원</b>·미소속을 같은 질의에서 판정한다.
      * 승인제도 공개 섬이면 후보에 포함하고, 응답의 가입 방식에 따라 즉시 가입/가입 신청을 안내한다.
-     * 자진 탈퇴자는 재가입할 수 있으므로 제외하지 않는다.
+     * 자진 탈퇴·강퇴한 섬도 다시 신청할 수 있으므로 제외하지 않는다(강퇴는 GROMO-2315, 10/20 결정).
      *
      * @param userId 탐색하는 사용자 id 문자열
      * @param seed 이 탐색 세션의 셔플 seed
@@ -185,8 +185,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "AND (SELECT count(*) FROM group_members m "
             + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
             + "AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "
-            + "                AND k.user_id = CAST(:userId AS uuid) "
-            + "                AND (k.is_left = false OR k.left_reason = 'KICKED')) "
+            + "                AND k.user_id = CAST(:userId AS uuid) AND k.is_left = false) "
             + "AND (CAST(:afterHandle AS text) IS NULL "
             + "     OR md5(CAST(:seed AS text) || CAST(g.id AS text)) > CAST(:afterHandle AS text)) "
             + "ORDER BY md5(CAST(:seed AS text) || CAST(g.id AS text)) ASC LIMIT :limit",
@@ -198,7 +197,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
 
     /**
      * «망원경이 보여 줄 수 있는 섬» 표 (GROMO-2265·2268) — 후보와 핀이 <b>같은 술어</b>를 쓰도록 한 곳에 둔다.
-     * 공개·생존·미소속·강퇴 이력 없음이고 <b>정원 조건은 없다</b>. 주민 수는
+     * 공개·생존·미소속이고 <b>정원 조건은 없다</b>. 강퇴된 섬도 보인다(GROMO-2315, 10/20 결정). 주민 수는
      * {@link GroupMemberRepository#countByGroupIdIn} 과 같은 모수(탈퇴 계정 제외)다. 바인딩은 {@code :userId} 하나다.
      */
     String TELESCOPE_VISIBLE_SQL = "SELECT g.id, g.max_members, "
@@ -207,12 +206,11 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "FROM groups g "
             + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
             + "AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "
-            + "                AND k.user_id = CAST(:userId AS uuid) "
-            + "                AND (k.is_left = false OR k.left_reason = 'KICKED'))";
+            + "                AND k.user_id = CAST(:userId AS uuid) AND k.is_left = false)";
 
     /**
-     * 망원경 후보 (GROMO-2265, 섬 외부 계약 §5) — {@link #findDiscoverableIslandIds} 와 같은 공개·생존·미소속·
-     * 강퇴 이력 없음 조건이되 <b>정원 조건이 없다</b>. 정원 찬 섬도 «구경만» 칸을 채우므로 주민 수·정원을 함께 준다.
+     * 망원경 후보 (GROMO-2265, 섬 외부 계약 §5) — {@link #findDiscoverableIslandIds} 와 같은 공개·생존·미소속
+     * 조건이되 <b>정원 조건이 없다</b>. 정원 찬 섬도 «구경만» 칸을 채우므로 주민 수·정원을 함께 준다.
      *
      * <p>순서는 «정원 남은 섬 먼저, 그 안에서 {@code md5(seed || id)}» 다. 조립이 가까운 섬·무작위 칸을 정원 남은
      * 섬부터 채우고 모자랄 때만 찬 섬을 쓰므로, 앞의 몇 행만 읽어도 해시 순 전체를 훑은 것과 같은 결과다 — 해시
@@ -243,7 +241,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             @Param("excludeIds") String excludeIds);
 
     /**
-     * 주어진 섬 중 망원경이 아직 보여 줄 수 있는 섬 (GROMO-2268) — 핀 섬이 그사이 비공개·종료·강퇴·내 소속이 되면
+     * 주어진 섬 중 망원경이 아직 보여 줄 수 있는 섬 (GROMO-2268) — 핀 섬이 그사이 비공개·종료·내 소속이 되면
      * 여기서 빠진다. 후보({@link #findTelescopeCandidates})와 같은 표({@link #TELESCOPE_VISIBLE_SQL})라 «후보가 될 수
      * 있는 섬만 핀으로 보인다». 순서는 없다 — 호출자가 핀 순서를 쥔다.
      *

@@ -445,6 +445,7 @@ export async function getTelescopeMock(now = Date.now()): Promise<Telescope> {
     averageFocusMinutesPerDay: c.averageFocusMinutesPerDay,
     full: false,
     arrivedBefore: slot === 'joined',
+    buildingCount: c.buildingCount,
     magazineCell: null,
     ...extra,
   });
@@ -459,7 +460,12 @@ export async function getTelescopeMock(now = Date.now()): Promise<Telescope> {
       // 편집부 칸에서 넣었거나 칸이 숨겨진 섬 — 미리보기는 자리표시 그대로
       item(MOCK_CELLS[2], 'pinned', magazine),
       item(MOCK_CELLS[4], 'pinned', { pinnedFrom: 'observatory', pinnedAt }),
-      item(MOCK_CELLS[5], 'random'),
+      // 섬 그림 4장(집 5·5·3·1·0채)이 다 보이게 무인도 하나 — 항해 시간 글자(1시간 30분)도 같이 본다
+      item(MOCK_CELLS[5], 'random', {
+        memberCount: 0,
+        averageFocusMinutesPerDay: null,
+        sailingMinutes: 90,
+      }),
     ],
   };
 }

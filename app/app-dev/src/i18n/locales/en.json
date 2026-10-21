@@ -8,7 +8,9 @@
     "save": "Save",
     "later": "Later",
     "manageIsland": "Manage island",
-    "readyStampA11y": "Ready stamp"
+    "readyStampA11y": "Ready stamp",
+    "caughtItem": "Caught item",
+    "newBadge": "NEW!"
   },
   "errors": {
     "GENERIC": "Please check your connection and try again.",
@@ -340,6 +342,8 @@
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",
     "storageCheck": "Please check your device storage.",
+    "kickedFrom": "You can no longer stay on \"{{island}}\".",
+    "kicked": "You can no longer stay on that island.",
     "build": {
       "confirmTitle": "Build {{building}}",
       "confirmBody": {
@@ -397,7 +401,15 @@
       "focusingNow": "{{count}} focusing on Fishing Island now",
       "quietNow": "Fishing Island is quiet right now",
       "focusingNowHint": "Tap to watch Fishing Island.",
-      "todayFocusVisitor": "Focus today {{time}}"
+      "todayFocusVisitor": "Focus today {{time}}",
+      "customize": "Customize my cat",
+      "friends": "Friends",
+      "friendsRequests": {
+        "one": "Friends, {{count}} pending request",
+        "other": "Friends, {{count}} pending requests"
+      },
+      "settings": "Settings",
+      "todayFocusWithClock": "Focus today {{clock}}"
     },
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
@@ -484,20 +496,25 @@
     },
     "raft": {
       "title": "Raft",
-      "from": "Our island",
       "fishingIsland": "Fishing Island",
       "toIsland": "To {{name}}",
       "telescope": "Telescope",
       "myRaft": "My Raft",
       "endVisit": "End visit",
-      "moveBlocked": "You can't move to another island right now."
+      "moveBlocked": "You can't move to another island right now.",
+      "departureTitle": "Where shall we sail?",
+      "myIslands": "My islands",
+      "departSea": "Set sail",
+      "goFocus": "Start focusing",
+      "islandsTitle": "Which island?",
+      "visitedMember": "Joined and visited",
+      "noIslands": "No joined islands to travel to."
     }
   },
   "wardrobe": {
     "default": "Default",
     "defaultFor": "{{slot}}: default",
     "section": {
-      "clothes": "Clothes",
       "decor": "Decor",
       "head": "Head",
       "neck": "Neck",
@@ -736,6 +753,8 @@
     "loadFailed": "Couldn't load the islands.",
     "islandHint": "Opens the island's details",
     "joinedIslandA11y": "{{name}}, your island",
+    "islandLabel": "{{name}} · {{time}}",
+    "islandTimeA11y": "{{label}}, sailing {{time}}",
     "residents": "Residents {{count}}/{{max}}",
     "averageFocus": "Average {{time}}",
     "averageUnknown": "Not tallied yet",
@@ -882,7 +901,8 @@
       "noCells": "No promotions in this issue",
       "endTitle": "Want to feature your island?",
       "endBody": "Write it at the town hall. Apply between 7 AM and midnight to be in the next morning's issue",
-      "zoomClose": "Close large view"
+      "zoomClose": "Close large view",
+      "scopeEvicted": "{{name}} is leaving your telescope"
     },
     "rack": {
       "open": "Magazine rack",
@@ -903,6 +923,7 @@
     "delivery": {
       "mailbox": "A cat magazine arrived in your mailbox!",
       "noMailbox": "Your cat magazine is here!",
+      "seaCutscene": "A pelican flies to the raft carrying your cat magazine.",
       "later": "Later",
       "readLater": "Read later",
       "openMailbox": "Open mailbox",
@@ -1002,6 +1023,7 @@
     "sessionRevoked": "Signed out elsewhere, so the live connection was closed."
   },
   "openSea": {
+    "abandonCutscene": "Giving up the voyage to {{name}}. The island drifts away.",
     "name": "Open sea",
     "skip": "Skip",
     "duration": "{{minutes}}m {{seconds}}s",
@@ -1014,7 +1036,6 @@
     "next": "Next participants",
     "arrived": "You arrived safely!",
     "voyageTime": "Voyage time",
-    "rewardTitle": "Found along the way",
     "additionalRewards": "Also received: {{names}}",
     "noReward": "No item found on this voyage",
     "entering": "Entering the island…",
@@ -1064,7 +1085,12 @@
     "nextTier": "{{minutes}} min until the next tier",
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
-    "welcomeBody": "You arrived at \"{{island}}\" as a new resident."
+    "welcomeBody": "You arrived at \"{{island}}\" as a new resident.",
+    "focusTime": "Focus time",
+    "requestFriend": "Add friend",
+    "friendRequested": "Request sent",
+    "friendExists": "You are already friends or have a pending request.",
+    "friendUnavailable": "You cannot send a friend request to this user."
   },
   "safety": {
     "blockTitle": "Block user",
@@ -1073,6 +1099,12 @@
     "blockBody": "Friend requests and letters from {{name}} will be hidden from your app list. Request notifications may still appear on your device. Content received while blocked may reappear after unblocking.",
     "blocked": "Blocked {{name}}.",
     "failed": "Couldn't complete this action. Check your connection and try again."
+  },
+  "departureStory": {
+    "label": "Preparing to depart for {{destination}}. Boarding the raft, casting off, and setting sail."
+  },
+  "arrivalCutscene": {
+    "label": "Arriving at {{destination}}. The raft pulls in to the dock."
   },
   "onboardingStory": {
     "brand": "Focus Cat",

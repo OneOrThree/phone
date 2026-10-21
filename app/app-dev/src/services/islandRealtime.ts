@@ -22,6 +22,7 @@ import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
+import { parseAppearanceEvent, type MemberLook } from '@/services/memberAppearance';
 import {
   focusMembers,
   restMembers,
@@ -210,6 +211,8 @@ export class IslandProjection {
   private focusMap = new Map<string, LiveFocusMember>();
   private restMap = new Map<string, LiveRestMember>();
   private versions = new Map<string, number>();
+  /** 사용자별 마지막 이름·털색·외양 — 목록에서 빠졌다가(휴식 해제·집중 완료) 이벤트만으로 다시 들어올 때 프로필을 잃지 않게 한다. */
+  private profiles = new Map<string, Pick<FocusMember, 'name' | 'catColor' | 'appearance'>>();
   private seenEmotes = new Set<string>();
   private emoteQueue: string[] = [];
   private emoteMap = new Map<string, LiveEmote>();
@@ -243,6 +246,7 @@ export class IslandProjection {
     const anchorMs = ms(snap.serverNow);
     for (const m of snap.items ?? []) {
       if (!m || typeof m.userId !== 'string' || typeof m.sessionId !== 'string') continue;
+      this.profiles.set(m.userId, { name: m.name, catColor: m.catColor, appearance: m.appearance });
       this.focusMap.set(m.userId, {
         ...m,
         status: m.status === 'paused' ? 'paused' : 'active',
@@ -258,6 +262,11 @@ export class IslandProjection {
     const anchorMs = ms(snap.serverNow);
     for (const m of snap.items ?? []) {
       if (!m || typeof m.userId !== 'string') continue;
+      this.profiles.set(m.userId, {
+        name: m.name,
+        catColor: m.catColor,
+        appearance: m.appearance ?? null,
+      });
       this.restMap.set(m.userId, {
         ...m,
         anchorMs: Number.isFinite(anchorMs) ? anchorMs : Date.now(),
@@ -350,11 +359,12 @@ export class IslandProjection {
             : null,
         };
       }
+      const profile = prev ?? this.profiles.get(userId);
       this.focusMap.set(userId, {
         userId,
-        name: prev?.name ?? null,
-        catColor: prev?.catColor ?? null,
-        appearance: prev?.appearance ?? null,
+        name: profile?.name ?? null,
+        catColor: profile?.catColor ?? null,
+        appearance: profile?.appearance ?? null,
         sessionId: str(p?.sessionId) ?? prev?.sessionId ?? '',
         subject: str(p?.subject) ?? prev?.subject ?? '',
         activeSeconds: num(p?.activeSeconds) ?? 0,
@@ -379,10 +389,12 @@ export class IslandProjection {
     }
     if (status === 'paused') {
       const prev = this.restMap.get(userId);
+      const profile = prev ?? this.profiles.get(userId);
       this.restMap.set(userId, {
         userId,
-        name: prev?.name ?? null,
-        catColor: prev?.catColor ?? null,
+        name: profile?.name ?? null,
+        catColor: profile?.catColor ?? null,
+        appearance: profile?.appearance ?? null,
         restSeat: num(p?.restSeat) ?? prev?.restSeat ?? null,
         restStartedAt: str(p?.restStartedAt) ?? prev?.restStartedAt ?? null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
@@ -796,6 +808,8 @@ export type IslandRealtimeDeps = {
   onMemberArrived?: (event: MemberArrivedEvent) => void;
   /** 방문자가 보낸 응원을 받았다(주민 화면). eventId 로 중복 제거된 뒤 1번만 불린다. */
   onVisitorEmote?: (emote: LiveEmote) => void;
+  /** 다른 주민이 옷을 갈아입었다(`member.appearance.updated`, GROMO-2390) — 병합은 호출부가 version 으로 한다. */
+  onMemberAppearance?: (userId: string, look: MemberLook) => void;
   onView: (view: PresenceView) => void;
   /** 검증된 포커스/휴식 상태 경계 변화. 새 화면 상태를 발행한 뒤 호출한다. */
   onTransition?: (transition: IslandPresenceTransition) => void;
@@ -1056,6 +1070,11 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       if ((raw as RealtimeEnvelope | null)?.type === 'island.member.arrived') {
         const arrived = arrivalFilter(raw);
         if (arrived) deps.onMemberArrived?.(arrived);
+        return;
+      }
+      if ((raw as RealtimeEnvelope | null)?.type === 'member.appearance.updated') {
+        const changed = parseAppearanceEvent(raw, islandId);
+        if (changed) deps.onMemberAppearance?.(changed.userId, changed.look);
         return;
       }
       const golden = parseGoldenFishEvent(raw, islandId);
