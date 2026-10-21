@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -54,7 +55,8 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Clock clock;
-    private final MeterRegistry meterRegistry;
+    /** 기동 때 0 으로 등록 — increase() 알림이 첫 장애를 보게 한다. */
+    private final Counter sessionRevokedFanoutFailed;
 
     /**
      * 수신 집합을 들고 있는 시간.
@@ -99,7 +101,8 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.clock = clock;
-        this.meterRegistry = meterRegistry;
+        this.sessionRevokedFanoutFailed = Counter.builder("realtime.session.revoked.fanout")
+                .tag("result", "failed").register(meterRegistry);
     }
 
     /** 다른 인스턴스가 보낸 것인지 판정하기 위해 구독자가 읽는다. */
@@ -140,7 +143,7 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
             redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, objectMapper.writeValueAsString(
                     RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId, until)));
         } catch (RuntimeException e) {
-            meterRegistry.counter("realtime.session.revoked.fanout", "result", "failed").increment();
+            sessionRevokedFanoutFailed.increment();
             log.error("세션 폐기 팬아웃 발행 실패 — 다른 replica 의 기존 연결은 AT 만료까지 살 수 있다. reason={}",
                     e.getClass().getName());
         }

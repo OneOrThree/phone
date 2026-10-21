@@ -339,6 +339,7 @@ and it is a *different key* from the lease, so the `hasKey` check is unaffected.
 | 지표 `realtime.session.revoked.fanout{result=failed}` | 위 error 로그와 같은 뜻 | `increase(realtime_session_revoked_fanout_total{result="failed"}[5m]) > 0` 이면 알림 |
 | warn `세션 폐기 사건에 userId/sessionId 가 없다`(`InboundEventService`) | Data 가 필드 없는 사건을 보냈다 — 200 + skip | Data 봉투 계약 점검 |
 | warn `팬아웃 봉투가 섬 사건도 세션 폐기도 아니다`(`RealtimeEventFanoutSubscriber`) | 반쪽 제어 필드·옛 발행자 봉투를 버렸다(롤링 배포 중 소량은 정상) | 지속되면 발행자 버전 확인 |
+| (참고) `realtime.session.revoked.{fence,close,fanout}` 계열은 기동 때 0 으로 등록 — `increase()` 알림이 첫 장애를 놓치지 않는다 | — | — |
 | 소켓 종료 reason `SESSION_REVOKED`(1008) | 정상 — 폐기된 sid 의 연결을 닫았다 | — |
 | realtime 이 `/internal/events` 에 400/500 | 폐기 사건이 거절됐다 | data-api outbox 의 그 사용자 USER 축 행이 백오프 중인지 확인(A18 보류라 폐기하지 않고 재시도 — 그동안 탈퇴 전파가 늦어진다) |
 

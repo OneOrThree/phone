@@ -611,6 +611,12 @@ class InboundEventServiceTest {
                 UUID.randomUUID().toString())))).isTrue();
 
         assertThat(meters.counter("realtime.session.revoked.fanout", "result", "failed").count()).isEqualTo(1.0);
+        // 선등록 — 아무 사건도 처리하기 전에 0 으로 이미 있다(새 registry 로 생성자만 거친 경우)
+        var fresh = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class), broken,
+                objectMapper, java.time.Clock.systemUTC(), fresh);
+        assertThat(fresh.find("realtime.session.revoked.fanout").tag("result", "failed").counter().count())
+                .isZero();
     }
 
     @Test

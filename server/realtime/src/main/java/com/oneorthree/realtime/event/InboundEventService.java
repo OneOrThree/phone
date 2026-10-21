@@ -13,6 +13,7 @@ import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -165,6 +166,14 @@ public class InboundEventService {
     private final Clock clock;
     private final RealtimeEventDelivery eventDelivery;
     private final MeterRegistry meterRegistry;
+
+    /** close 계수 3종을 기동 때 0 으로 등록 — increase() 알림이 첫 장애를 보게 한다. */
+    @PostConstruct
+    void registerMeters() {
+        for (String result : List.of("closed", "already_gone", "failed")) {
+            meterRegistry.counter("realtime.session.revoked.close", "result", result);
+        }
+    }
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -407,7 +416,7 @@ public class InboundEventService {
             boolean wasConnected = sessions.isConnected(stompId);
             boolean closed = sessions.close(stompId, status) || sessions.close(stompId, status);
             boolean failedNow = !closed && sessions.isConnected(stompId);
-            // realtime.session.revoked.close — 지연 등록(ChatUserFence 의 fence 계수와 같은 패턴)
+            // realtime.session.revoked.close — 같은 이름·태그는 registerMeters 가 만든 Counter 를 돌려준다
             meterRegistry.counter("realtime.session.revoked.close", "result",
                     failedNow ? "failed" : wasConnected ? "closed" : "already_gone").increment();
             failed |= failedNow;

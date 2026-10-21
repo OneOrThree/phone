@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * GROMO-2350 — 스위치 {@code auth.session-revoked.realtime-events-enabled} ON 이면 세션 폐기 사건이 NOTI 에 더해
@@ -64,7 +65,8 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
         // GROMO-2386 — realtime 펜스 TTL 의 근거: 폐기 시각 + AT 수명(ci 3600 s)
         Instant revokedAt = authSessionRepository.findById(login.sessionId()).orElseThrow().getRevokedAt();
         assertThat(Instant.parse((String) revoked.get(0).getParams().get("accessTokenExpiresAt")))
-                .isEqualTo(revokedAt.plusSeconds(3600));
+                // payload 는 메모리 시각(ns), DB 는 µs 반올림이라 동등 비교하지 않는다
+                .isCloseTo(revokedAt.plusSeconds(3600), within(1, java.time.temporal.ChronoUnit.MICROS));
         List<EventOutboxDelivery> deliveries = eventOutboxDeliveryRepository.findByOutboxId(revoked.get(0).getId());
         assertThat(deliveries)
                 .extracting(EventOutboxDelivery::getTarget, EventOutboxDelivery::getEndpointKey)

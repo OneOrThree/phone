@@ -7,6 +7,7 @@ import com.oneorthree.realtime.message.repository.ChatMessageRepository;
 import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -98,10 +99,20 @@ public class ChatUserFence {
     /**
      * Redis 내구 펜스 실패 계수 — {@code realtime.session.revoked.fence{op=read|write,result=failed}}.
      * 읽기 실패는 fail-open(CONNECT·REST 펜스가 꺼진 상태), 쓰기 실패는 내구 펜스가 안 선 상태다.
-     * 둘 다 5분 증가분이 0 보다 크면 알린다. 처음 실패할 때 계열이 생긴다.
+     * 둘 다 5분 증가분이 0 보다 크면 알린다. 기동 때 0 으로 등록 — increase() 알림이 첫 장애를 보게 한다.
      */
+    @PostConstruct
+    void registerMeters() {
+        fenceFailedCounter("read");
+        fenceFailedCounter("write");
+    }
+
     private void fenceFailed(String op) {
-        meterRegistry.counter("realtime.session.revoked.fence", "op", op, "result", "failed").increment();
+        fenceFailedCounter(op).increment();
+    }
+
+    private io.micrometer.core.instrument.Counter fenceFailedCounter(String op) {
+        return meterRegistry.counter("realtime.session.revoked.fence", "op", op, "result", "failed");
     }
 
     /** 이 JVM 의 인메모리 펜스만 올린다 — 팬아웃으로 전파를 받은 replica 용(Redis 는 수신 인스턴스가 한 번 썼다). 멱등: 더 늦은 만료만 남긴다. */
