@@ -48,10 +48,13 @@ export function feedbackEmailUrl(appVersion: string): string {
   const body = t('settings.feedback.body', {
     version: appVersion,
     // 안드로이드의 Platform.Version 은 API 레벨(36)이라 사용자가 아는 OS 버전(16)을 넣는다.
+    // 웹에는 Platform.Version 이 없어 브라우저 user agent 를 넣는다.
     os:
       Platform.OS === 'android'
         ? `android ${Platform.constants.Release}`
-        : `${Platform.OS} ${Platform.Version}`,
+        : Platform.OS === 'web'
+          ? `web ${navigator.userAgent}`
+          : `${Platform.OS} ${Platform.Version}`,
   });
   return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.feedback.subject'))}&body=${encodeURIComponent(body)}`;
 }
