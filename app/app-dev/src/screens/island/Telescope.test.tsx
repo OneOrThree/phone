@@ -183,13 +183,100 @@ function env(over: { session?: boolean; islands?: boolean } = {}) {
 async function open(items: TelescopeItem[], e = env()) {
   mockGet.mockImplementation(async () => wire(items));
   const screen = await render(<Telescope e={e} />);
-  await screen.findByTestId(`telescope-island-${items[0].islandId}`);
+  await screen.findAllByTestId(/^telescope-island-/);
   return { screen, e };
 }
 const press = async (screen: any, id: string) =>
   fireEvent.press(screen.getByTestId(`telescope-island-${id}`));
 const disabled = (screen: any, label: string) =>
   screen.getByLabelText(label).props.accessibilityState.disabled;
+
+test('목록에서 빠진 섬의 승인 대기 신청도 망원경에서 확인·취소 화면으로 돌아갈 수 있다', async () => {
+  const e = env();
+  e.state = reducer(initialState(), {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'request-1', islandId: 'not-in-bucket', status: 'pending', version: 1 },
+  });
+  const { screen } = await open([item('other-island')], e);
+  expect(screen.queryByTestId('telescope-island-not-in-bucket')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('가입 신청 확인'));
+  expect(e.go).toHaveBeenCalledWith('approval');
+
+  e.state = reducer(e.state, {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'request-1', islandId: 'not-in-bucket', status: 'cancelled', version: 2 },
+  });
+  await screen.rerender(<Telescope e={e} />);
+  expect(screen.queryByLabelText('가입 신청 확인')).toBeNull();
+});
+
+test('잡지 등에서 직접 망원경에 들어와도 부팅 동기화 성공 전에는 목적지를 열지 않고 실패를 재시도한다', async () => {
+  const e = { ...env(), islandBootError: true };
+  e.islands!.sync.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  mockGet.mockResolvedValue(wire([item('synced-island')]));
+  const screen = await render(<Telescope e={e} />);
+  await screen.findByLabelText('다시 시도');
+  expect(screen.getByText('섬을 불러오지 못했어요.')).toBeTruthy();
+  expect(mockGet).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('telescope-island-synced-island')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('다시 시도'));
+  await screen.findByTestId('telescope-island-synced-island');
+  expect(e.islands!.sync).toHaveBeenCalledTimes(2);
+  expect(mockGet).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ['기존 섬 목록이 비었으면', []],
+  ['기존 섬이 모두 정원이 찼으면', [item('full', { full: true })]],
+] as const)('%s 무인도 하나를 표시하고 가입 없이 15분 항해를 시작한다', async (_, regular) => {
+  const e = env();
+  e.state = reducer(initialState(), {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  const deserted = item('reserved', {
+    name: '무인도',
+    memberCount: 0,
+    buildingCount: 0,
+    slot: 'nearby',
+    sailingMinutes: 15,
+  });
+  const { screen } = await open([deserted, ...regular], e);
+  expect(screen.getAllByTestId(/^telescope-island-/)).toHaveLength(1);
+  expect(screen.getByTestId('telescope-art-reserved').props.source).toBe(ISLAND_STAGE_ART.houses0);
+  await press(screen, 'reserved');
+  expect(screen.getByText('항해 15분')).toBeTruthy();
+  expect(screen.queryByLabelText('바로 가입')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('항해하기'));
+  await fireEvent.press(screen.getByLabelText('항해 시작'));
+  await act(async () => {});
+  expect(e.focus.startSea).toHaveBeenCalledWith('reserved');
+  expect(e.islands!.join).not.toHaveBeenCalled();
+  expect(mockArrive).not.toHaveBeenCalled();
+  expect(e.reset).toHaveBeenCalledWith('sea', '무인도');
+});
+
+test.each([
+  ['빈자리 있는 섬과 정원 찬 섬', [item('open'), item('full', { full: true })]],
+  ['이미 가입한 정원 찬 섬', [mine('joined', { full: true })]],
+] as const)(
+  '현재 섬이 없어도 %s 있으면 기존 목록을 유지하고 예약 무인도는 숨긴다',
+  async (_, regular) => {
+    const e = env();
+    e.state = initialState();
+    const { screen } = await open(
+      [
+        item('reserved', { memberCount: 0, buildingCount: 0, slot: 'nearby', sailingMinutes: 15 }),
+        ...regular,
+      ],
+      e,
+    );
+    expect(screen.getAllByTestId(/^telescope-island-/).map((n) => n.props.testID)).toEqual(
+      regular.map((i) => `telescope-island-${i.islandId}`),
+    );
+    expect(screen.queryByTestId('telescope-island-reserved')).toBeNull();
+  },
+);
 
 test('섬 8개가 응답 순서대로 파노라마에 뜨고 소속 섬(joined)에만 깃발이 꽂힌다', async () => {
   const { screen } = await open(EIGHT());

@@ -439,7 +439,12 @@ export function SeaVoyageHost({ e }: { e: any }) {
           eRef.current.replace('visitIsland', id);
         }
       }}
-      onTelescope={() => e.go('telescope')}
+      onTelescope={async () => {
+        const generation = sessionGeneration();
+        // 부팅 중 소속 조회가 실패해도 바다에 머문다. 망원경을 누르면 소속·저장소 복구부터 재시도한다.
+        if (e.islandBootError && e.islands) await e.islands.sync();
+        if (mounted.current && sessionGeneration() === generation) eRef.current.go('telescope');
+      }}
       magazine={
         drifting && issue
           ? {

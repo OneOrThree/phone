@@ -152,7 +152,7 @@ test('방문 지도에서 귀환하면 방문만 종료하고 원래 서버 섬�
 
 test.each([
   ['LEFT', 'sea'],
-  [null, 'chooseIsland'],
+  [null, 'sea'],
 ] as const)(
   '현재 섬 없이 방문 지도에서 귀환하면 상실 사유 %s 는 %s 로 간다(GROMO-2366)',
   async (lossReason, to) => {

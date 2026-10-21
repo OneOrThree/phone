@@ -59,7 +59,6 @@ import {
   hoursMinutes,
   trackNames,
   SERVER_VISIT_ROUTES,
-  noIslandRoute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
@@ -567,7 +566,7 @@ function CurrentScreensContent({ e }: any) {
   );
   const endServerVisit = () => {
     e.dispatch({ type: 'END_VISIT' });
-    e.reset(state.serverIslands?.currentIslandId ? 'home' : noIslandRoute(state));
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'sea');
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
@@ -595,10 +594,10 @@ function CurrentScreensContent({ e }: any) {
     );
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
-      <Overlay close={() => e.reset('chooseIsland')}>
+      <Overlay close={() => e.reset('sea')}>
         <Txt kind="h17">가입한 섬이 없어요</Txt>
-        <Txt kind="meta">섬을 선택하거나 새로 만든 뒤 이용할 수 있어요.</Txt>
-        <Btn title="첫 섬 선택으로" onPress={() => e.reset('chooseIsland')} />
+        <Txt kind="meta">바다에서 머물 섬을 찾아보세요.</Txt>
+        <Btn title="바다로 가기" onPress={() => e.reset('sea')} />
       </Overlay>
     );
   // 구경 중에는 구경하는 섬의 홈·회관 정보·게시판 열람과 돌아가는 배만 연다(허용 목록).
@@ -2707,7 +2706,7 @@ function FocusFlow({ e: environment }: any) {
     Keyboard.dismiss();
     if (!e.focus && !i.joined) {
       e.notify(t('focusFlow.setup.needsIsland'));
-      e.replace('chooseIsland');
+      e.replace('sea');
       return;
     }
     if (e.focus) {

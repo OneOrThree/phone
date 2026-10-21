@@ -187,7 +187,7 @@ test('첫 소속 도착: POST 성공 + 소속 재조회 실패여도 응답의 �
     arrivedBefore: false,
   });
   expect(state.serverIslands?.currentIslandId).toBe('a');
-  expect(state.onboarded).toBe(true); // 소속 검사가 chooseIsland 로 되돌리지 않는다
+  expect(state.onboarded).toBe(true); // 소속 검사가 sea 로 되돌리지 않는다
   expect(e.islands.sync).toHaveBeenCalledTimes(2); // 반영 뒤 한 번 더 시도
 });
 

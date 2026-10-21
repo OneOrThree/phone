@@ -278,7 +278,7 @@ test('확인창의 취소 자리는 가입 버튼이고 누르면 가입만 한�
   await act(async () => opts.onCancel());
   expect(e.islands.join).toHaveBeenCalledTimes(1);
   expect(e.islands.join).toHaveBeenCalledWith('v', { showApproval: false });
-  // 바로 가입이면 가입 훅이 구경을 끝내고 홈으로 보낸다 — endVisit 이었다면 소속 섬이 없어 chooseIsland 였다
+  // 바로 가입이면 가입 훅이 구경을 끝내고 홈으로 보낸다 — endVisit 이었다면 소속 섬이 없어 sea 였다
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledTimes(1);
   expect(e.reset).toHaveBeenCalledWith('home');

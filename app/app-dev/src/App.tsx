@@ -70,7 +70,6 @@ import {
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { assets, cat } from '@/constants/assets';
 import { Flag, BoatPortrait, IslandDecor, IslandPreview } from '@/screens/cosmetics/Cosmetics';
-import { InviteEntry } from '@/screens/discovery/InviteEntry';
 import { IslandDiscovery } from '@/screens/discovery/IslandDiscovery';
 import { IslandHome } from '@/screens/island/IslandHome';
 import { Welcome, SceneHero, RestWorld, Sailing } from '@/screens/world/WorldViews';
@@ -101,7 +100,6 @@ import {
   seaRouteHeld,
   visitRouteHeld,
   sessionRoute,
-  noIslandRoute,
   tickIdle,
 } from '@/services/model';
 import {
@@ -197,7 +195,6 @@ const STALE_ADOPTION = Symbol('staleAdoption');
 const titles: Record<Route, string> = {
   login: 'GROMO',
   character: '내 고양이',
-  chooseIsland: '첫 섬 선택',
   createIsland: '새 섬 만들기',
   joinIsland: '섬 찾기',
   approval: '가입 승인 대기',
@@ -306,7 +303,6 @@ export default function App() {
 const DEEP_LINK_HOLD_ROUTES: Route[] = [
   'login',
   'character',
-  'chooseIsland',
   'createIsland',
   'joinIsland',
   'approval',
@@ -321,7 +317,7 @@ function Gromo() {
   );
   const [loaded, setLoaded] = useState(false),
     [storageOwnerReady, setStorageOwnerReady] = useState(true),
-    // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
+    // 부팅 섬 동기화 실패 — 바다에서 망원경을 열 때 동기화를 재시도할 플래그(로컬 폴백 금지)
     [islandBootError, setIslandBootError] = useState(false),
     [hasServerSession, setHasServerSession] = useState(
       () => !REVIEW && !DEMO && getSession() !== null,
@@ -622,7 +618,7 @@ function Gromo() {
       restorePrevious();
     } else if (route === 'character' && !state.onboarded && hasServerSession && !REVIEW && !DEMO) {
       // 로그인 직후 첫 단계(GROMO-2215 · 로드맵 1-03). 로그인 성공이 reset() 으로 history 를 비우므로 아래 분기로
-      // 내려가면 chooseIsland 로 «앞으로» 갔다. 뒤로가기는 로그인 전으로 — 세션을 끝내야 로그인 화면이 뜬다.
+      // 내려가면 sea 로 «앞으로» 갔다. 뒤로가기는 로그인 전으로 — 세션을 끝내야 로그인 화면이 뜬다.
       // 프로필 화면의 로그아웃과 같은 순서다. 게스트면 기기 id 가 회전돼 다시 시작하면 새 게스트가 된다.
       signOut()
         .then((ok) => {
@@ -631,10 +627,7 @@ function Gromo() {
           reset('login');
         })
         .catch(() => {});
-    } else
-      transitionRoute(
-        state.onboarded ? 'home' : state.onboardingStory === 'done' ? 'sea' : noIslandRoute(state),
-      );
+    } else transitionRoute(state.onboarded ? 'home' : 'sea');
   };
   const home = () => {
     const finish = () => {
@@ -709,15 +702,21 @@ function Gromo() {
     () => ({
       ...islandCommands,
       sync: async () => {
+        const generation = sessionGeneration();
         const my = await islandCommands.sync();
+        if (sessionGeneration() !== generation) return my;
         const transfer = pendingBootOwnerTransfer.current;
         if (transfer) {
           pendingBootOwnerTransfer.current = null;
           try {
             await transfer();
+            if (sessionGeneration() === generation) setIslandBootError(false);
           } catch (error) {
             // 재시도가 다시 실패하면 다음 재시도에서 전환을 이어서 시도한다.
-            pendingBootOwnerTransfer.current ??= transfer;
+            if (sessionGeneration() === generation) {
+              pendingBootOwnerTransfer.current ??= transfer;
+              setIslandBootError(true);
+            }
             throw error;
           }
         }
@@ -794,11 +793,11 @@ function Gromo() {
       .then((r) => {
         if (!live) return;
         // current 없음(서버 409) 또는 응답이 로컬이 아는 current 와 다른 섬(전환 경합) —
-        // 둘 다 이 스냅샷을 그대로 적용하지 않고 소속 동기화로 반영해 chooseIsland 로 보낸다.
+        // 둘 다 이 스냅샷을 그대로 적용하지 않고 소속 동기화로 반영해 sea 로 보낸다.
         const current = stateRef.current?.serverIslands?.currentIslandId;
         if (r.status !== 'loaded' || r.facts.islandId !== current) {
           // 동기화가 실패하거나 current 를 바꾸지 못하면 effect 가 다시 돌지 않는다 — 스피너에 갇히지
-          // 않게 재시도 화면으로 떨어뜨린다. current 가 바뀌면 effect 가 새로 불러오고 chooseIsland 는 App 이 연다
+          // 않게 재시도 화면으로 떨어뜨린다. current 가 바뀌면 effect 가 새로 불러오고 sea 는 App 이 연다
           syncIslands()
             .then((my) => {
               if (live && my.currentIslandId === current) setHomeError(true);
@@ -1455,7 +1454,7 @@ function Gromo() {
         // 두고 로그인 화면을 고른다.
         if (account) dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
         // 세션이 유효하면 섬 소속·대기 신청도 서버 정본으로 맞춘다(GROMO-2006). 실패·모순 응답은
-        // 로컬 저장본으로 home에 들어가지 않고 chooseIsland의 명시 오류+재시도로 보낸다.
+        // 로컬 저장본으로 home에 들어가지 않고 바다로 보내고 망원경 진입 때 재시도한다.
         // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
         // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
         const bootGen = sessionGeneration();
@@ -1547,11 +1546,14 @@ function Gromo() {
             }
             if (bootSessionIsCurrent()) setStorageOwnerGate(true);
           };
-          // 정본 동기화가 실패했으면 소유자 전환을 보류한다 — chooseIsland 재시도 성공 뒤에 끝낸다.
+          // 정본 동기화가 실패했으면 소유자 전환을 보류한다 — 바다의 망원경 진입 재시도 성공 뒤에 끝낸다.
           // 부팅 중 owner 기록이 거절돼도 같은 재시도 경로로 넘긴다.
           if (bootSyncSucceeded && bootRoute)
             await transferOwner().catch(() => {
-              pendingBootOwnerTransfer.current = transferOwner;
+              if (bootSessionIsCurrent()) {
+                pendingBootOwnerTransfer.current = transferOwner;
+                setIslandBootError(true);
+              }
             });
           else pendingBootOwnerTransfer.current = transferOwner;
         }
@@ -1579,7 +1581,7 @@ function Gromo() {
       setModal(null);
       setWalkRequest(null);
       setVisited(state.onboarded ? state.islandId : '');
-      reset(state.onboarded ? 'home' : noIslandRoute(state));
+      reset(state.onboarded ? 'home' : 'sea');
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
@@ -1590,7 +1592,6 @@ function Gromo() {
       [
         'login',
         'character',
-        'chooseIsland',
         'createIsland',
         'joinIsland',
         'approval',
@@ -1602,8 +1603,8 @@ function Gromo() {
     )
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
-    // 섬을 잃은 사람(나가기·강퇴)은 바다로, 처음 온 사람은 섬 선택으로 보낸다(GROMO-2366).
-    reset(noIslandRoute(state));
+    // 현재 섬이 없으면 이야기 이력·소속 상실 사유와 관계없이 바다로 보낸다.
+    reset('sea');
   }, [
     loaded,
     state.loggedIn,
@@ -1661,13 +1662,7 @@ function Gromo() {
       experienceIsland !== state.serverIslands.currentIslandId
     ) {
       setGuideStep(4);
-      reset(
-        state.serverIslands.currentIslandId
-          ? 'home'
-          : state.onboardingStory === 'done'
-            ? 'sea'
-            : noIslandRoute(state),
-      );
+      reset(state.serverIslands.currentIslandId ? 'home' : 'sea');
       return;
     }
     const restoring = !tutorialBootReconciled.current;
@@ -1965,13 +1960,7 @@ function Gromo() {
     // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
     if (['home', 'visitIsland'].includes(route) && state.visitingIslandId && state.serverIslands) {
       dispatch({ type: 'END_VISIT' });
-      reset(
-        state.serverIslands.currentIslandId
-          ? 'home'
-          : state.onboardingStory === 'done'
-            ? 'sea'
-            : noIslandRoute(state),
-      );
+      reset(state.serverIslands.currentIslandId ? 'home' : 'sea');
       return true;
     }
     // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다

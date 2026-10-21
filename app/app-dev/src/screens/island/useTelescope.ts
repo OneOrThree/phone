@@ -32,7 +32,13 @@ export interface TelescopeState {
   reload: () => void;
 }
 
-export function useTelescope({ active }: { active: boolean }): TelescopeState {
+export function useTelescope({
+  active,
+  beforeLoad,
+}: {
+  active: boolean;
+  beforeLoad?: () => Promise<unknown>;
+}): TelescopeState {
   const [nonce, setNonce] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<ApiError | null>(null);
@@ -41,6 +47,9 @@ export function useTelescope({ active }: { active: boolean }): TelescopeState {
   const req = useRef(0);
   const loaded = useRef(false);
   const refreshAt = useRef(0);
+  // 준비 함수의 변경으로 진행 요청을 끊지 않는다. 재시도는 항상 최신 부팅 상태를 읽는다.
+  const beforeLoadRef = useRef(beforeLoad);
+  beforeLoadRef.current = beforeLoad;
   // 세션이 바뀌면(로그아웃·계정 전환·세션 상실) App 이 route 를 reset 해 이 화면은 언마운트된다 — loaded·data 는 세션별로 비우지 않고 session 은 늦은 옛 응답을 버리는 데만 쓴다.
   const session = sessionGeneration();
 
@@ -52,24 +61,27 @@ export function useTelescope({ active }: { active: boolean }): TelescopeState {
     const gen = ++req.current;
     const stale = () => gen !== req.current || session !== sessionGeneration();
     if (!loaded.current) setStatus('loading');
-    // 목업 QA(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)는 서버 없이 잡지 찜 섬을 보인다
-    (isTelescopeMock() ? getTelescopeMock() : getTelescope())
-      .then((next) => {
-        if (stale()) return;
-        loaded.current = true;
-        setData(next);
-        // 0 이하를 받으면 곧바로 다시 읽는 고리가 되니 최소 1분으로 둔다.
-        const wait = Math.max(1, next.nextRefreshMinutes);
-        refreshAt.current = Date.now() + wait * MINUTE_MS;
-        setMinutes(wait);
-        setError(null);
-        setStatus('ready');
-      })
-      .catch((thrown) => {
-        if (stale() || loaded.current) return;
-        setError(thrown as ApiError);
-        setStatus('error');
-      });
+    const load = async () => {
+      // 잡지 등 어느 경로로 들어와도 부팅 소속·저장소 복구가 끝난 뒤 목적지를 연다.
+      if (beforeLoadRef.current) await beforeLoadRef.current();
+      if (stale()) return;
+      // 목업 QA(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)는 서버 없이 잡지 찜 섬을 보인다.
+      const next = await (isTelescopeMock() ? getTelescopeMock() : getTelescope());
+      if (stale()) return;
+      loaded.current = true;
+      setData(next);
+      // 0 이하를 받으면 곧바로 다시 읽는 고리가 되니 최소 1분으로 둔다.
+      const wait = Math.max(1, next.nextRefreshMinutes);
+      refreshAt.current = Date.now() + wait * MINUTE_MS;
+      setMinutes(wait);
+      setError(null);
+      setStatus('ready');
+    };
+    load().catch((thrown) => {
+      if (stale() || loaded.current) return;
+      setError(thrown as ApiError);
+      setStatus('error');
+    });
     return () => {
       req.current += 1;
     };

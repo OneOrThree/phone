@@ -16,7 +16,6 @@ export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | '
 export type Route =
   | 'login'
   | 'character'
-  | 'chooseIsland'
   | 'createIsland'
   | 'joinIsland'
   | 'approval'
@@ -1088,10 +1087,6 @@ export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
 export const seaRouteHeld = (route: Route) =>
   route === 'sea' || route === 'seaArrival' || route === 'seaMagazine';
-/** 현재 섬이 없을 때 갈 화면(GROMO-2366) — 섬을 잃은 사람(나가기·강퇴)은 먼바다, 처음 온 사람은 섬 선택. */
-export const noIslandRoute = (s: {
-  serverIslands?: { lossReason: string | null } | null;
-}): Route => (s.serverIslands?.lossReason ? 'sea' : 'chooseIsland');
 /** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
 export const SERVER_VISIT_ROUTES: readonly Route[] = [
   'visitIsland',

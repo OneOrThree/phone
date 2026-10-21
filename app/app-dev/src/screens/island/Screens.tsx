@@ -87,7 +87,6 @@ import {
 } from '@/i18n';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
-import type { IslandSummary } from '@/services/api/islands';
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -837,13 +836,6 @@ export function RedesignScreens({ e }: any) {
     [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [custom, setCustom] = useState(false),
-    [invite, setInvite] = useState(false),
-    [inviteCode, setInviteCode] = useState(''),
-    [inviteError, setInviteError] = useState(''),
-    // 초대 모달이 놓인 칸의 높이(키보드가 뜨면 줄어든다)
-    [inviteArea, setInviteArea] = useState(layout.height),
-    // iOS는 absoluteFill 칸이 키보드만큼 줄지 않아 키보드 높이를 따로 빼야 한다
-    [keyboardHeight, setKeyboardHeight] = useState(0),
     [memberMenu, setMemberMenu] = useState<string | null>(null),
     [questHours, setQuestHours] = useState('0시간'),
     [questMins, setQuestMins] = useState('30분'),
@@ -870,12 +862,8 @@ export function RedesignScreens({ e }: any) {
       productId: string;
       product: any;
     } | null>(null),
-    // 초대 코드 확인으로 받은 섬 미리보기 — 가입은 사용자가 카드를 보고 명시적으로 누른다
-    [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
     [serverDone, setServerDone] = useState(''),
-    // 초대로 가입을 확정한 섬 id — 정본 스냅숏 카드와 같은 가입인지 이름이 아닌 id로 비교한다
-    [serverDoneId, setServerDoneId] = useState(''),
     [safetyTarget, setSafetyTarget] = useState<{
       id: string;
       name: string;
@@ -900,8 +888,6 @@ export function RedesignScreens({ e }: any) {
     setCustom(false);
     setFan(false);
     setMemberMenu(null);
-    setInvite(false);
-    setInviteError('');
     setSearch('');
     setEditing(false);
     setCapacityOpen(false);
@@ -910,9 +896,7 @@ export function RedesignScreens({ e }: any) {
     setDiscoveryPick(null);
     setServerError('');
     setSoundDialog(null);
-    setInvitePick(null);
     setServerDone('');
-    setServerDoneId('');
     setSafetyTarget(null);
   }, [route]);
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
@@ -1131,24 +1115,6 @@ export function RedesignScreens({ e }: any) {
     };
   }, [server, route, pendingId]);
   useEffect(() => {
-    if (!invite) return;
-    // 안드로이드 뒤로 가기는 화면 이동 대신 초대 모달만 닫는다(App 리스너보다 나중에 등록돼 먼저 불린다)
-    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setInvite(false);
-      return true;
-    });
-    const show = Keyboard.addListener('keyboardDidShow', (ev) =>
-      setKeyboardHeight(ev.endCoordinates.height),
-    );
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
-    return () => {
-      backSub.remove();
-      show.remove();
-      hide.remove();
-      setKeyboardHeight(0);
-    };
-  }, [invite]);
-  useEffect(() => {
     if (!soundDialog) return;
     const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
       setSoundDialog(null);
@@ -1252,29 +1218,11 @@ export function RedesignScreens({ e }: any) {
       else go('approval', i.id);
     } else go('arrival');
   };
-  const resolveInvite = () => {
-    // 서버 모드: 코드 해석 → 섬 미리보기 → 사용자가 카드의 참여 버튼을 눌러야 가입한다
-    if (server) {
-      run(async () => setInvitePick(await server.resolveInvite(inviteCode.trim())), setInviteError);
-      return;
-    }
-    const i = findIslandByInviteCode(state.islands, inviteCode);
-    if (!i) {
-      setInviteError(t('errors.SLUG_NOT_FOUND'));
-      return;
-    }
-    if (!i.joined && isFull(i)) {
-      setInviteError(t('onboarding.islandFull'));
-      return;
-    }
-    setInvite(false);
-    join(i);
-  };
   const setTrack = (value: string) => act('TRACK', { value });
   const startFocus = () => {
     if (!island.joined) {
       notify('섬에 가입한 뒤 집중할 수 있어요.');
-      e.replace('chooseIsland');
+      e.replace('sea');
       return;
     }
     // 카운트업 집중: 목표 시간은 받지 않는다
@@ -1604,7 +1552,7 @@ export function RedesignScreens({ e }: any) {
             onPress={() => {
               if (!server) {
                 // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
-                go('chooseIsland');
+                go('sea');
                 return;
               }
               // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
@@ -1624,7 +1572,7 @@ export function RedesignScreens({ e }: any) {
                     color: saved.catColor ?? state.color,
                   });
                   // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
-                  if (routeNowRef.current === 'character') go('chooseIsland');
+                  if (routeNowRef.current === 'character') go('sea');
                 }),
               );
             }}
@@ -1681,312 +1629,6 @@ export function RedesignScreens({ e }: any) {
         home={home}
         reset={reset}
       />
-    );
-  if (route === 'chooseIsland')
-    return (
-      <View style={{ flex: 1 }}>
-        {/* 초대 모달이 열리면 뒤 화면은 스크린리더에서 숨긴다 */}
-        <View
-          style={{ flex: 1 }}
-          importantForAccessibility={invite ? 'no-hide-descendants' : 'auto'}
-          accessibilityElementsHidden={invite}
-          aria-hidden={invite}
-        >
-          <Onboard
-            title={t('onboarding.chooseIsland.title')}
-            back={back}
-            left={
-              <View style={{ alignItems: 'center', gap: 4 }}>
-                <Pic id="boat/raft" w={210} />
-                <Txt style={H17}>{t('onboarding.chooseIsland.firstVoyage')}</Txt>
-              </View>
-            }
-          >
-            {!layout.compact && (
-              <View
-                style={[
-                  k.preview,
-                  {
-                    height: 120,
-                    flexDirection: 'row',
-                    justifyContent: 'flex-start',
-                    paddingHorizontal: 20,
-                    gap: 14,
-                  },
-                ]}
-              >
-                <Pic id="boat/raft" w={100} />
-                <Txt style={H17}>{t('onboarding.chooseIsland.firstVoyage')}</Txt>
-              </View>
-            )}
-            <Txt style={H22}>{t('onboarding.chooseIsland.whereStart')}</Txt>
-            {server && !!snap?.memberships.length && (
-              <Btn title={t('islandPicker.enterJoined')} onPress={() => go('currentIsland')} />
-            )}
-            <Group>
-              <Row
-                title={t('onboarding.chooseIsland.createAlone.title')}
-                sub={
-                  <Txt kind="meta" style={RS}>
-                    {t('onboarding.chooseIsland.createAlone.sub')}
-                  </Txt>
-                }
-                lead={<Pic id="boat/raft" w={52} />}
-                tail={<Chev />}
-                onPress={() => go('createIsland')}
-              />
-              <Row
-                title={t('onboarding.chooseIsland.joinExisting.title')}
-                sub={
-                  <Txt kind="meta" style={RS}>
-                    {t('onboarding.chooseIsland.joinExisting.sub')}
-                  </Txt>
-                }
-                lead={<Pic id="bld/observatory" w={52} />}
-                tail={<Chev />}
-                onPress={() => go('joinIsland')}
-              />
-            </Group>
-            {/* 부팅 섬 동기화 실패 — 로컬 저장본으로 home에 가지 않고 명시 오류+재시도를 띄운다 */}
-            {server && e.islandBootError && (
-              <View
-                style={{
-                  gap: 6,
-                  borderWidth: 1.5,
-                  borderColor: C.danger,
-                  borderRadius: 14,
-                  paddingVertical: 12,
-                  paddingHorizontal: 14,
-                }}
-              >
-                <Txt style={H17}>{t('onboarding.chooseIsland.bootErrorTitle')}</Txt>
-                <Txt kind="meta" style={[META, serverError ? { color: C.danger } : null]}>
-                  {serverError || t('errors.GENERIC')}
-                </Txt>
-                <Btn
-                  kind="ghost"
-                  title={t('common.retry')}
-                  disabled={serverBusy}
-                  onPress={() => run(() => server.sync())}
-                />
-              </View>
-            )}
-            {/* 진행 중 가입 신청 — 발견 후보에 없어도 재시작 후 상태·취소에 닿을 수 있게 한다 */}
-            {server &&
-              !e.islandBootError &&
-              (() => {
-                const pending = reqList.find((r) => r.status === 'pending');
-                return pending ? (
-                  <Btn
-                    kind="sec"
-                    id="pending-resume"
-                    title={t('onboarding.chooseIsland.pendingResume', {
-                      island:
-                        pending.islandName ?? t('onboarding.chooseIsland.pendingIslandFallback'),
-                    })}
-                    onPress={() => go('approval', pending.islandId)}
-                  />
-                ) : null;
-              })()}
-            {/* 재시작 복구 — 서버 current가 확인된 소속을 보여준다(home은 열지 않는다) */}
-            {server &&
-              !e.islandBootError &&
-              (() => {
-                const cur = snap?.memberships.find((m) => m.id === snap.currentIslandId);
-                return cur
-                  ? doneCard(
-                      t('onboarding.chooseIsland.membershipConfirmedTitle'),
-                      t('onboarding.chooseIsland.membershipConfirmedSub', { island: cur.name }),
-                    )
-                  : null;
-              })()}
-            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다.
-                초대 코드로 막 가입한 직후엔 snap.currentIslandId 가 이미 그 섬이라 위 「가입이
-                확인됐어요」 카드와 같은 가입을 동시에 가리킨다 — 그때는 정본 스냅숏 카드만 남기고
-                serverDone 카드는 건너뛴다(같은 가입인지는 이름이 아니라 id로 본다). */}
-            {serverDone &&
-              !(serverDoneId && snap?.currentIslandId === serverDoneId) &&
-              doneCard(
-                t('onboarding.joinedCard.title'),
-                t('onboarding.joinedCard.sub', { island: serverDone }),
-              )}
-            {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
-            <Btn
-              kind="sec"
-              id="invite-open"
-              title={t('onboarding.chooseIsland.alreadyInvited')}
-              style={{ marginTop: 6 }}
-              onPress={() => {
-                setInviteError('');
-                setInvitePick(null);
-                setInvite(true);
-              }}
-            />
-          </Onboard>
-        </View>
-        {invite && (
-          <View
-            // 칸이 키보드만큼 줄지 않은 환경(iOS)에서만 남는 겹침을 아래 여백으로 빼 카드를 키보드 위에 둔다
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                paddingBottom: Math.max(0, keyboardHeight - (layout.height - inviteArea)),
-              },
-            ]}
-            onLayout={(ev) => setInviteArea(ev.nativeEvent.layout.height)}
-          >
-            <Pressable
-              accessible={false}
-              onPress={() => {
-                setInvite(false);
-                setInvitePick(null);
-              }}
-              style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3966' }]}
-            />
-            <View
-              pointerEvents="box-none"
-              style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-            >
-              {/* 키보드가 올라와 남은 높이가 낮아지면(가로 폰) 카드 안에서 스크롤해 확인 버튼까지 닿는다 */}
-              <View
-                accessibilityViewIsModal
-                style={{
-                  width: layout.compact || layout.tablet ? layout.modalWidth : layout.width - 48,
-                  maxHeight: Math.max(
-                    120,
-                    // 칸이 이미 줄었으면(안드로이드·웹) 그대로, 아니면 화면 높이에서 키보드를 뺀 높이
-                    inviteArea -
-                      Math.max(0, keyboardHeight - (layout.height - inviteArea)) -
-                      ins.top -
-                      ins.bottom -
-                      24,
-                  ),
-                  backgroundColor: C.paper,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  borderRadius: 24,
-                  boxShadow: '0px 6px 0px ' + C.brown,
-                }}
-              >
-                <ScrollView
-                  style={{ flexShrink: 1 }}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{
-                    paddingHorizontal: 20,
-                    paddingTop: layout.compact ? 14 : 20,
-                    paddingBottom: layout.compact ? 14 : 18,
-                    gap: layout.compact ? 10 : 14,
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <Txt style={H22}>{t('onboarding.chooseIsland.inviteModal.title')}</Txt>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t('common.close')}
-                      hitSlop={12}
-                      onPress={() => {
-                        setInvite(false);
-                        setInvitePick(null);
-                      }}
-                    >
-                      <Txt style={{ fontSize: 24, lineHeight: 34.8, color: C.muted }}>×</Txt>
-                    </Pressable>
-                  </View>
-                  {invitePick ? (
-                    <>
-                      {/* 확인된 초대 섬 — 공개 DTO 필드만 보여주고 가입은 이 버튼으로 확정한다 */}
-                      <View
-                        style={{
-                          gap: 6,
-                          borderWidth: 1.5,
-                          borderColor: '#E7CF9A',
-                          borderRadius: 14,
-                          paddingVertical: 10,
-                          paddingHorizontal: 14,
-                        }}
-                      >
-                        <Txt style={H17}>{invitePick.name}</Txt>
-                        <Txt kind="meta" style={META}>
-                          {invitePick.intro}
-                        </Txt>
-                        <Txt kind="meta" style={META}>
-                          {t('onboarding.residents', {
-                            count: invitePick.memberCount,
-                            max: invitePick.maxMembers,
-                          })}
-                        </Txt>
-                        <Badge soft>
-                          {invitePick.approvalRequired
-                            ? t('onboarding.approvalBadge')
-                            : t('onboarding.instantJoinBadge')}
-                        </Badge>
-                      </View>
-                      <Txt
-                        kind="meta"
-                        lineBreakStrategyIOS="hangul-word"
-                        style={[META, KEEP, inviteError ? { color: C.danger } : null]}
-                      >
-                        {inviteError}
-                      </Txt>
-                      <Btn
-                        title={
-                          invitePick.approvalRequired
-                            ? t('onboarding.joinRequest')
-                            : t('onboarding.chooseIsland.inviteModal.joinThisIsland')
-                        }
-                        disabled={serverBusy}
-                        onPress={() =>
-                          run(async () => {
-                            const r = await server.join(invitePick.id);
-                            // pending 은 App 이 approval 경로로 보낸다 — active 만 여기서 확정 표시
-                            if (r.status === 'active') {
-                              setServerDone(invitePick.name);
-                              setServerDoneId(invitePick.id);
-                              setInvitePick(null);
-                              setInvite(false);
-                            }
-                          }, setInviteError)
-                        }
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Field
-                        label={t('onboarding.chooseIsland.inviteModal.label')}
-                        value={inviteCode}
-                        onChange={(v: string) => {
-                          setInviteCode(v);
-                          setInviteError('');
-                        }}
-                        inputStyle={INP}
-                      />
-                      <Txt
-                        kind="meta"
-                        lineBreakStrategyIOS="hangul-word"
-                        style={[META, KEEP, inviteError ? { color: C.danger } : null]}
-                      >
-                        {inviteError || t('onboarding.chooseIsland.inviteModal.hint')}
-                      </Txt>
-                      <Btn
-                        title={t('common.ok')}
-                        onPress={resolveInvite}
-                        disabled={!inviteCode.trim() || serverBusy}
-                      />
-                    </>
-                  )}
-                </ScrollView>
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
     );
   if (route === 'createIsland') {
     const capacityWheel = (
@@ -4028,7 +3670,7 @@ export function RedesignScreens({ e }: any) {
                   );
                   act('LEAVE');
                   if (hasOtherIsland) home();
-                  else reset('chooseIsland');
+                  else reset('sea');
                 })
               }
             />
@@ -4996,7 +4638,7 @@ export function RedesignScreens({ e }: any) {
         title="바다 건너 섬"
         tall
         onBack={back}
-        onClose={state.onboarded ? home : () => replace('chooseIsland')}
+        onClose={state.onboarded ? home : () => replace('sea')}
         toast={sheetToast}
         footer={
           state.onboarded ? (

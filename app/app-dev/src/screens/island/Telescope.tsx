@@ -20,6 +20,7 @@ import { Flag } from '@/screens/cosmetics/Cosmetics';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
+import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import type { MagazineCell } from '@/services/api/magazine';
@@ -57,6 +58,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.secondary },
   topBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: space[2],
@@ -172,7 +174,7 @@ export async function arriveWithOutcome(
       throw syncError;
     if (!sameLogin()) return { member: true, arrivedBefore };
     // 소속 조회가 실패해도 도착 응답이 현재 섬을 알려 준다 — 첫 소속이면 로컬이 «소속 없음» 인 채로 홈에 가 소속 검사가
-    // chooseIsland 로 되돌리지 않게 먼저 반영하고(기존 ISLAND_SYNC 재사용, 소속 목록은 그대로), 한 번 더 맞춰 본다
+    // sea 로 되돌리지 않게 먼저 반영하고(기존 ISLAND_SYNC 재사용, 소속 목록은 그대로), 한 번 더 맞춰 본다
     if (arrival.currentIslandId)
       e.dispatch?.({
         type: 'ISLAND_SYNC',
@@ -409,13 +411,15 @@ function IslandBubble({
       ) : (
         <>
           <Btn dynamicHeight title={t('telescope.sail')} disabled={locked} onPress={onSail} />
-          <Btn
-            dynamicHeight
-            kind="sec"
-            title={joinLabel}
-            disabled={locked || pending || item.full}
-            onPress={onJoin}
-          />
+          {item.memberCount > 0 && (
+            <Btn
+              dynamicHeight
+              kind="sec"
+              title={joinLabel}
+              disabled={locked || pending || item.full}
+              onPress={onJoin}
+            />
+          )}
         </>
       )}
       {item.slot === 'pinned' && (
@@ -448,12 +452,26 @@ function IslandBubble({
  *   지금 구경 중인 섬은 «항해 중»이라(서버에는 항해 상태가 없어 앱이 거친다) 「항해를 그만둘까요?」 확인 뒤에 빼고 구경도 끝낸다.
  *   리본·[빼기]는 목록의 `slot` 만 본다 — 넣었다는 상태를 로컬에 따로 들지 않는다(목록이 정본).
  */
-export function Telescope({ e }: { e: any }) {
+export function Telescope({ e, previewItems }: { e: any; previewItems?: TelescopeItem[] }) {
   const s: State = e.state;
   const L = useAppLayout();
   // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
   const largeText = (L.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
-  const list = useTelescope({ active: !!e.islands || isTelescopeMock() });
+  const liveList = useTelescope({
+    active: !previewItems && (!!e.islands || isTelescopeMock()),
+    beforeLoad: e.islandBootError ? e.islands?.sync : undefined,
+  });
+  const list = previewItems
+    ? { ...liveList, status: 'ready' as const, items: previewItems }
+    : liveList;
+  const items = visibleTelescopeItems(list.items);
+  const uninhabitedOnly = items.length === 1 && items[0].memberCount === 0;
+  const requests = new Map(
+    [...(s.serverIslands?.joinRequests ?? []), ...(s.serverIslands?.requestStatus ?? [])].map(
+      (request) => [request.id, request],
+    ),
+  );
+  const hasPendingRequest = [...requests.values()].some((request) => request.status === 'pending');
   // 읽기가 실패해 오류 안내로 바뀌면 한 번 알린다 — 안드로이드는 아래 오류 문구의 live region 이, iOS 는 여기서 직접(IslandSheet.SheetToast 와 같은 방식)
   const errorText =
     list.status === 'error' ? errorTextOr(list.error, 'telescope.loadFailed') : null;
@@ -495,7 +513,7 @@ export function Telescope({ e }: { e: any }) {
   }, []);
 
   // 목록이 다시 읽히면 같은 섬의 최신 값으로 말풍선을 갱신한다. 목록에서 사라진 섬이면 말풍선도 닫힌다.
-  const selected = list.items.find((item) => item.islandId === selectedId) ?? null;
+  const selected = items.find((item) => item.islandId === selectedId) ?? null;
   // 지금 구경(방문) 중인 섬 — 이 섬이 «항해 중인 섬»이다. [항해하기] 요청·연출 중에는 섬 칸이 막히고 연출이 화면을 덮어
   // 말풍선이 열리지 않으므로 따로 보지 않는다.
   const voyagingId = serverVisit(s)?.island.id;
@@ -571,7 +589,7 @@ export function Telescope({ e }: { e: any }) {
     // 시작했으면 그 화면으로 간다(null = 진행 세션 없음 → 바다 표류 화면). 바다가 아니면 한마디도 저장하지 않는다.
     const route = view ? sessionRoute(view) : 'sea';
     try {
-      if (remark && route === 'sea')
+      if (remark && route === 'sea' && !previewItems)
         await saveSeaRemark(e, remark).catch(() => e.notify(t('openSea.remarkFailed')));
       if (!alive()) return;
       // 라우트 인자는 목적지 이름 — 서버가 세션에 이름을 싣기 전(T1)에도 항해 화면이 섬 이름을 쓴다
@@ -728,6 +746,16 @@ export function Telescope({ e }: { e: any }) {
               title={t('telescope.back')}
               onPress={e.back}
             />
+            {hasPendingRequest && (
+              <Btn
+                small
+                kind="glass"
+                dynamicHeight={largeText}
+                title={t('telescope.pendingRequests')}
+                disabled={list.status !== 'ready'}
+                onPress={() => e.go('approval')}
+              />
+            )}
             {list.minutes !== null && (
               <View style={styles.chip}>
                 <Badge>{t('telescope.nextIslands', { minutes: list.minutes })}</Badge>
@@ -753,7 +781,7 @@ export function Telescope({ e }: { e: any }) {
                   onPress={list.reload}
                 />
               </Panel>
-            ) : list.items.length === 0 ? (
+            ) : items.length === 0 ? (
               <Panel>
                 <Txt style={styles.panelText}>{t('telescope.empty')}</Txt>
               </Panel>
@@ -763,13 +791,14 @@ export function Telescope({ e }: { e: any }) {
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{
+                  ...(uninhabitedOnly ? { flexGrow: 1, justifyContent: 'center' } : {}),
                   paddingTop: FLAG_ALLOWANCE,
                   paddingLeft: L.insets.left + semanticTokens.spacing.page,
                   paddingRight: L.insets.right + semanticTokens.spacing.page,
                   gap: TELESCOPE.cellGap,
                 }}
               >
-                {list.items.map((item, index) => (
+                {items.map((item, index) => (
                   <IslandCell
                     key={item.islandId}
                     item={item}
@@ -788,7 +817,7 @@ export function Telescope({ e }: { e: any }) {
         <IslandBubble
           item={selected}
           // 서버 세션이 없는 목업(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)은 보기만 — 행동 버튼은 실제 API 를 부르므로 막는다
-          locked={!e.islands || sail.pending || joiningId !== null || unpinning}
+          locked={(!e.islands && !previewItems) || sail.pending || joiningId !== null || unpinning}
           joining={joiningId === selected.islandId}
           voyaging={selected.islandId === voyagingId}
           onClose={() => setSelectedId(null)}

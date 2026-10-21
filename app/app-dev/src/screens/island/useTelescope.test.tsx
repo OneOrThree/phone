@@ -7,6 +7,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { ApiError, request } from '@/services/api/client';
 import { getTelescope, pinToTelescope, type Telescope } from '@/services/api/telescope';
+import * as sessionApi from '@/services/api/session';
 
 jest.mock('@/services/api/client', () => ({
   ...jest.requireActual('@/services/api/client'),
@@ -63,6 +64,28 @@ const mount = async (active = true) => {
   if (active) await waitFor(() => expect(hook.result.current.status).toBe('ready'));
   return hook;
 };
+
+test('부팅 복구 중 계정이 바뀌면 늦은 성공으로 목적지 API를 부르지 않는다', async () => {
+  const generation = jest.spyOn(sessionApi, 'sessionGeneration').mockReturnValue(1);
+  let complete!: () => void;
+  const beforeLoad = jest.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        complete = resolve;
+      }),
+  );
+  try {
+    const hook = await renderHook(() => useTelescope({ active: true, beforeLoad }));
+    expect(beforeLoad).toHaveBeenCalledTimes(1);
+    expect(getMock).not.toHaveBeenCalled();
+    generation.mockReturnValue(2);
+    await act(async () => complete());
+    expect(getMock).not.toHaveBeenCalled();
+    expect(hook.result.current.items).toEqual([]);
+  } finally {
+    generation.mockRestore();
+  }
+});
 
 test('마운트된 채로 넣기가 성공하면 목록을 다시 읽어 새 핀이 보인다(느린 넣기보다 먼저 받은 옛 목록)', async () => {
   getMock.mockResolvedValueOnce(wire('a', 'b')).mockResolvedValueOnce(wire('a', 'p'));

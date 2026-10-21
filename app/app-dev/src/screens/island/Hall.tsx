@@ -2096,7 +2096,7 @@ export function Hall({ e }: any) {
       onOk: () => {
         e.dispatch({ type: 'LEAVE' });
         if (next) e.home();
-        else e.reset('chooseIsland');
+        else e.reset('sea');
       },
     });
   };

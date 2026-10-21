@@ -452,9 +452,9 @@ test('로그인 직후 터치 차단막이 끝나야 새 온보딩의 고양이 
 });
 
 // 티켓 2006 재실행 복구 회귀 — character CTA는 서버 모드에서 PATCH /me(name+catColor)가
-// 성공한 뒤에만 chooseIsland로 넘어간다. 로컬 dispatch만으로 넘어가면 GET /me.onboardingComplete가
+// 성공한 뒤에만 sea로 넘어간다. 로컬 dispatch만으로 넘어가면 GET /me.onboardingComplete가
 // 갱신되지 않아, 재실행 복구(restoredRoute)가 서버값을 정본으로 봐서 이 화면으로 되돌아간다.
-test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을 반영하고 chooseIsland로 넘어간다', async () => {
+test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을 반영하고 sea로 넘어간다', async () => {
   let exposed: any;
   mockUpdateProfile.mockResolvedValue({
     id: 'u1',
@@ -471,7 +471,7 @@ test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을
   assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '수빈', catColor: 'black' });
   await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
   assert.equal(exposed.go.mock.calls.length, 1);
-  assert.equal(exposed.go.mock.calls[0][0], 'chooseIsland');
+  assert.equal(exposed.go.mock.calls[0][0], 'sea');
 });
 
 test('character CTA의 PATCH /me 실패는 PROFILE·화면 전환 없이 서버 오류 문구만 보여준다', async () => {
@@ -504,7 +504,7 @@ test('character CTA는 실패 뒤 같은 입력으로 다시 눌러도 같은 �
   assert.equal(mockUpdateProfile.mock.calls[1][1], mockUpdateProfile.mock.calls[0][1]);
 });
 
-test('character CTA는 저장 응답 전에 화면을 떠났으면 chooseIsland로 다시 끌어오지 않는다', async () => {
+test('character CTA는 저장 응답 전에 화면을 떠났으면 sea로 다시 끌어오지 않는다', async () => {
   let exposed: any;
   let resolveSave: (v: unknown) => void = () => {};
   mockUpdateProfile.mockReturnValue(new Promise((resolve) => (resolveSave = resolve)));
@@ -524,14 +524,14 @@ test('character CTA는 저장 응답 전에 화면을 떠났으면 chooseIsland�
   assert.equal(exposed.go.mock.calls.length, 0);
 });
 
-test('목업 모드 character CTA는 PATCH 없이 바로 chooseIsland로 넘어간다', async () => {
+test('목업 모드 character CTA는 PATCH 없이 바로 sea로 넘어간다', async () => {
   let exposed: any;
   const s = await render(<Harness route="character" expose={(value: any) => (exposed = value)} />);
 
   await fireEvent.press(s.getByText('내 고양이와 시작'));
   assert.equal(mockUpdateProfile.mock.calls.length, 0);
   assert.equal(exposed.go.mock.calls.length, 1);
-  assert.equal(exposed.go.mock.calls[0][0], 'chooseIsland');
+  assert.equal(exposed.go.mock.calls[0][0], 'sea');
 });
 
 const flush = async () => act(async () => {});
@@ -904,163 +904,14 @@ test('CLIENT_STALE_SESSION 실패는 오류 문구 없이 버린다', async () =
   assert.ok(s.queryByText('가입이 완료됐어요') === null);
 });
 
-test('초대 코드는 해석 뒤 미리보기를 보여주고 명시 확인 전에 join하지 않는다', async () => {
-  const join = jest.fn(async (_id: string) => ({ status: 'active' as const }));
-  const api = () => ({
-    resolveInvite: jest.fn(async (_code: string) =>
-      islandSummary({ id: 'inv-1', name: '초대 섬' }),
-    ),
-    join,
-  });
-  const s = await render(<Harness route="chooseIsland" api={api} />);
-  await fireEvent.press(s.getByTestId('invite-open'));
-  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'ABC123');
-  await fireEvent.press(s.getByLabelText('확인'));
-  await waitFor(() => s.getByText('초대 섬'));
-  assert.equal(join.mock.calls.length, 0);
-  await fireEvent.press(s.getByText('이 섬에 참여'));
-  await waitFor(() => s.getByText('가입이 완료됐어요'));
-  assert.equal(join.mock.calls.length, 1);
-});
-
-// join()은 active 확정 전에 syncIslands()로 snap.currentIslandId를 이미 그 섬으로 맞춘다.
-// chooseIsland의 「재시작 복구」 카드(cur)와 방금 가입 응답 카드(serverDone)가 같은 섬을 가리키면
-// 정본 스냅숏(cur) 카드만 남기고 serverDone 카드는 건너뛴다(joinIsland 화면과 같은 dedupe 규칙).
-test('초대 코드로 가입한 직후 chooseIsland는 확인 카드를 한 번만 보여준다', async () => {
-  const join = jest.fn(async (id: string, dispatch: any) => {
-    dispatch({
-      type: 'ISLAND_SYNC',
-      memberships: {
-        items: [islandSummary({ id, name: '초대 섬', membershipStatus: 'active' })],
-        nextCursor: null,
-        currentIslandId: id,
-        lossReason: null,
-      },
-    });
-    return { status: 'active' as const };
-  });
-  const api = (dispatch: any) => ({
-    resolveInvite: jest.fn(async (_code: string) =>
-      islandSummary({ id: 'inv-1', name: '초대 섬' }),
-    ),
-    join: (id: string) => join(id, dispatch),
-  });
-  const s = await render(<Harness route="chooseIsland" api={api} />);
-  await fireEvent.press(s.getByTestId('invite-open'));
-  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'ABC123');
-  await fireEvent.press(s.getByLabelText('확인'));
-  await waitFor(() => s.getByText('초대 섬'));
-  await fireEvent.press(s.getByText('이 섬에 참여'));
-
-  await waitFor(() => s.getByText('가입이 확인됐어요'));
-  s.getByText('서버에서 「초대 섬」 소속이 확인됐어요.');
-  assert.equal(s.queryByText('가입이 완료됐어요'), null);
-});
-
-test('이전 섬과 이름이 같아도 방금 가입한 섬(id 다름)의 완료 카드는 숨기지 않는다', async () => {
-  // 서버가 current 를 바꾸지 않은 채 같은 이름의 다른 섬을 가리키는 경우 — 이름 비교면 완료 카드가 사라진다.
-  const join = jest.fn(async (id: string, dispatch: any) => {
-    dispatch({
-      type: 'ISLAND_SYNC',
-      memberships: {
-        items: [
-          islandSummary({ id: 'old-1', name: '같은 이름', membershipStatus: 'active' }),
-          islandSummary({ id, name: '같은 이름', membershipStatus: 'active' }),
-        ],
-        nextCursor: null,
-        currentIslandId: 'old-1',
-        lossReason: null,
-      },
-    });
-    return { status: 'active' as const };
-  });
-  const api = (dispatch: any) => ({
-    resolveInvite: jest.fn(async (_code: string) =>
-      islandSummary({ id: 'inv-2', name: '같은 이름' }),
-    ),
-    join: (id: string) => join(id, dispatch),
-  });
-  const s = await render(<Harness route="chooseIsland" api={api} />);
-  await fireEvent.press(s.getByTestId('invite-open'));
-  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'ABC123');
-  await fireEvent.press(s.getByLabelText('확인'));
-  await waitFor(() => s.getByText('같은 이름'));
-  await fireEvent.press(s.getByText('이 섬에 참여'));
-
-  await waitFor(() => s.getByText('가입이 완료됐어요'));
-});
-
-test('부팅 동기화 실패는 chooseIsland에 명시 오류+재시도를 띄우고 재시도가 sync를 부른다', async () => {
-  const sync = jest.fn(async () => {});
-  const api = () => ({ sync });
-  const s = await render(<Harness route="chooseIsland" api={api} bootError />);
-  await waitFor(() => s.getByText('섬 정보를 불러오지 못했어요'));
-  await fireEvent.press(s.getByLabelText('다시 시도'));
-  await flush();
-  assert.equal(sync.mock.calls.length, 1);
-});
-
-test('재시작 복구 — 서버 current가 있으면 chooseIsland에 소속 확인 카드를 보여준다', async () => {
-  const api = () => ({ sync: jest.fn(async () => {}) });
-  const s = await render(
-    <Harness
-      route="chooseIsland"
-      api={api}
-      seed={(d: any) =>
-        d({
-          type: 'ISLAND_SYNC',
-          memberships: {
-            items: [islandSummary({ id: 'srv-1', name: '복구 섬' })],
-            nextCursor: null,
-            currentIslandId: 'srv-1',
-            lossReason: null,
-          },
-        })
-      }
-    />,
-  );
-  await waitFor(() => s.getByText('가입이 확인됐어요'));
-  s.getByText('서버에서 「복구 섬」 소속이 확인됐어요.');
-});
-
-test('재시작 후 pending 신청은 발견 후보와 무관하게 chooseIsland에서 approval로 닿는다', async () => {
-  let exposed: any;
-  const api = () => ({ sync: jest.fn(async () => {}) });
-  const s = await render(
-    <Harness
-      route="chooseIsland"
-      api={api}
-      expose={(x: any) => (exposed = x)}
-      seed={(d: any) => d({ type: 'ISLAND_SYNC_REQUESTS', requests: [pendingReq()] })}
-    />,
-  );
-  await waitFor(() => s.getByTestId('pending-resume'));
-  await fireEvent.press(s.getByTestId('pending-resume'));
-  assert.equal(exposed.go.mock.calls[0][0], 'approval');
-  assert.equal(exposed.go.mock.calls[0][1], 'isl-9');
-});
-
 test('joinIsland를 나갔다 같은 route로 재진입하면 explore를 다시 부른다', async () => {
   const explore = jest.fn(async () => {});
   const api = () => ({ explore });
   const s = await render(<Harness route="joinIsland" api={api} />);
   await waitFor(() => assert.equal(explore.mock.calls.length, 1));
-  await s.rerender(<Harness route="chooseIsland" api={api} />);
+  await s.rerender(<Harness route="sea" api={api} />);
   await s.rerender(<Harness route="joinIsland" api={api} />);
   await waitFor(() => assert.equal(explore.mock.calls.length, 2));
-});
-
-test('초대 코드가 없으면 resolve 오류를 코드별 문구로 보여준다', async () => {
-  const api = () => ({
-    resolveInvite: jest.fn(async () => {
-      throw new ApiError('SLUG_NOT_FOUND', 'not found', 404);
-    }),
-  });
-  const s = await render(<Harness route="chooseIsland" api={api} />);
-  await fireEvent.press(s.getByTestId('invite-open'));
-  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'WRONG');
-  await fireEvent.press(s.getByLabelText('확인'));
-  await waitFor(() => s.getByText('초대 코드를 다시 확인해 주세요.'));
 });
 
 test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', async () => {
@@ -1853,7 +1704,7 @@ test('가입 닉네임은 마지막 글자를 지운 뒤 새 이름을 입력할
   await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
   assert.equal(s.getByLabelText('닉네임').props.value, 'abc');
   await fireEvent.press(s.getByText('내 고양이와 시작'));
-  assert.ok(exposed.go.mock.calls.some((call: unknown[]) => call[0] === 'chooseIsland'));
+  assert.ok(exposed.go.mock.calls.some((call: unknown[]) => call[0] === 'sea'));
 });
 
 test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
@@ -2339,7 +2190,7 @@ test('서버 첫 생성은 소속 없음 확인 뒤 guide로 진입한다', asyn
   assert.equal(exposed.reset.mock.calls.at(-1)[0], 'guide');
 });
 
-test.each(['joinIsland', 'approval', 'chooseIsland'])(
+test.each(['joinIsland', 'approval'])(
   '서버 첫 소속 확인 카드 %s는 첫 안내를 연다',
   async (route) => {
     let exposed: any;
@@ -2388,29 +2239,6 @@ test('기존 사용자의 추가 섬 생성은 첫 안내를 반복하지 않는
   await fireEvent.press(screen.getByLabelText('섬 만들기'));
   await fireEvent.press(screen.getByText('섬으로 가기'));
   expect(exposed.reset).toHaveBeenCalledWith('home');
-});
-
-test('재시작 복구 카드에서도 섬으로 가기로 home 에 들어간다', async () => {
-  let exposed: any;
-  const api = () => ({ sync: jest.fn(async () => {}) });
-  const s = await render(
-    <Harness
-      route="chooseIsland"
-      api={api}
-      seed={(d: any) => syncCurrent(d)}
-      expose={(x: any) => (exposed = x)}
-    />,
-  );
-  await waitFor(() => s.getByText('가입이 확인됐어요'));
-  await fireEvent.press(s.getByText('섬으로 가기'));
-  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'home');
-});
-
-test('current 가 없으면 섬으로 가기를 띄우지 않는다', async () => {
-  const api = () => ({ sync: jest.fn(async () => {}) });
-  const s = await render(<Harness route="chooseIsland" api={api} />);
-  await waitFor(() => s.getByText('어디에서 시작할까요?'));
-  assert.equal(s.queryByText('섬으로 가기'), null);
 });
 
 test('서버 모드 home 은 스냅샷 전에는 목업 섬 대신 로딩을, 실패면 재시도를 보여준다', async () => {
@@ -2582,31 +2410,6 @@ test('승인 완료·현재 섬 없음에서도 명시적으로 입장하고 서
   assert.equal(exposed.reset.mock.calls[0][0], 'guide');
 });
 
-test('현재 섬 없이 재실행한 기존 주민도 가입한 섬 선택으로 갈 수 있다', async () => {
-  const initial = reducer(initialState(false), {
-    type: 'ISLAND_SYNC',
-    memberships: {
-      items: [islandSummary({ id: 'approved' })],
-      currentIslandId: null,
-      nextCursor: null,
-      lossReason: null,
-    },
-  });
-  let exposed: any;
-  const screen = await render(
-    <Harness
-      route="chooseIsland"
-      initial={initial}
-      expose={(value: any) => {
-        exposed = value;
-      }}
-      api={() => ({})}
-    />,
-  );
-  await fireEvent.press(screen.getByText('가입한 섬으로 들어가기'));
-  assert.equal(exposed.go.mock.calls[0][0], 'currentIsland');
-});
-
 describe('en', () => {
   test.each(['mainIsland', 'currentIsland'] as const)(
     'en 섬 선택은 제목·버튼·오류를 번역한다: %s',
@@ -2698,16 +2501,6 @@ describe('en', () => {
     assert.equal(retryHome.mock.calls.length, 1);
   });
 
-  test('en 로케일 — 첫 섬 선택은 영문 제목과 두 선택지를 보여준다', async () => {
-    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
-    applyLocalePref('system');
-    const s = await render(<Harness route="chooseIsland" api={() => ({})} />);
-
-    assert.ok(s.getByText('Choose Your First Island'));
-    assert.ok(s.getByText('Create an island and start alone'));
-    assert.ok(s.getByText('Join an existing island'));
-  });
-
   test('en 로케일 — 새 섬 만들기는 영문 제목과 입력 라벨을 보여준다', async () => {
     mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
     applyLocalePref('system');
@@ -2749,34 +2542,6 @@ describe('en', () => {
 
     assert.ok(s.getByText('Find an Island'));
     await waitFor(() => assert.ok(s.getByText('Join Request')));
-  });
-
-  test('en 로케일 — 초대 코드 모달은 영문 제목과 입력 라벨을 보여준다', async () => {
-    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
-    applyLocalePref('system');
-    const s = await render(<Harness route="chooseIsland" api={() => ({})} />);
-
-    await fireEvent.press(s.getByTestId('invite-open'));
-    assert.ok(s.getByText('Enter Invite Code'));
-    assert.ok(s.getByLabelText('Invite code'));
-  });
-
-  // GROMO-2252 r3 1a: 대체 섬 이름(pendingIslandFallback)이 {{island}}에 들어가도
-  // en 템플릿에 더 이상 따옴표를 두르지 않는다("the island you applied to" 는 실제 이름이 아니다).
-  test('en 로케일 — 대체 섬 이름이 들어간 가입 신청 재개 문구는 따옴표로 감싸지 않는다', async () => {
-    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
-    applyLocalePref('system');
-    const s = await render(
-      <Harness
-        route="chooseIsland"
-        api={() => ({})}
-        seed={(d: any) => d({ type: 'ISLAND_REQUEST', request: pendingReq({ islandName: null }) })}
-      />,
-    );
-
-    await waitFor(() =>
-      assert.ok(s.getByText('Your join request for the island you applied to is in progress')),
-    );
   });
 });
 

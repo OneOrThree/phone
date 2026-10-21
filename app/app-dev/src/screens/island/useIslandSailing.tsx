@@ -3,7 +3,7 @@ import { VideoCutscene } from '@/components/VideoCutscene';
 import { t } from '@/i18n';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
-import { canSwitchIsland, noIslandRoute, type State } from '@/services/model';
+import { canSwitchIsland, type State } from '@/services/model';
 
 const ARRIVAL = require('@/assets/ota/cutscenes/arrival.mp4');
 
@@ -103,11 +103,11 @@ export function useIslandSailing(e: any) {
 }
 
 /**
- * 구경(서버 방문 모드)만 끝낸다 — 소속 섬 이동 없이 방문 상태를 지우고 현재 섬 홈으로, 현재 섬이 없으면 섬 선택(섬을 잃었으면 먼바다)으로 간다
+ * 구경(서버 방문 모드)만 끝낸다 — 소속 섬 이동 없이 방문 상태를 지우고 현재 섬 홈으로, 현재 섬이 없으면 먼바다로 간다
  * (CurrentScreens 의 endServerVisit 와 같다). 뗏목 행선지의 「구경 끝내기」(GROMO-2259)와 망원경의 «항해를 그만두고 빼기»
  * (GROMO-2273)가 같이 쓴다.
  */
 export function endServerVisit(e: any) {
   e.dispatch({ type: 'END_VISIT' });
-  e.reset(e.state.serverIslands?.currentIslandId ? 'home' : noIslandRoute(e.state));
+  e.reset(e.state.serverIslands?.currentIslandId ? 'home' : 'sea');
 }
