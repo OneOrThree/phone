@@ -1361,6 +1361,32 @@ describe('stompIslandChannel', () => {
     assert.equal(c.deactivated, 2);
   });
 
+  test('channel 헤더로 다른 채널 탓이 분명한 ERROR 는 응원(emote) 구독을 끄지 않는다', () => {
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => {},
+    });
+    const c = client();
+    c.opts.onStompError({
+      headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' },
+      body: '',
+    });
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+    c.opts.onConnect({});
+    // events 가 이미 꺼진 뒤의 events ERROR(eventsFault=false)도 응원엔 닿지 않는다
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+    const subs = c.subs.length;
+    c.opts.onConnect({});
+    const dests = c.subs.slice(subs).map((x: { dest: string }) => x.dest);
+    assert.ok(dests.includes('/topic/islands/i1/emotes'), 'emotes 구독 유지');
+  });
+
   describe('realtimeClientOptions 재접속 지터', () => {
     afterEach(() => jest.restoreAllMocks());
     test('재접속 지연은 2.5~7.5 s 안에서 접속마다 새로 뽑는다 — 타이머 없이 reconnectDelay 로', () => {

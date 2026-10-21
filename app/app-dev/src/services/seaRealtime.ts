@@ -123,8 +123,11 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     retryTimer = null;
     if (closed || revoked || !suspended) return;
     suspended = false;
-    // stompErrors 는 그대로 둔다 — 다시 붙자마자 또 거절되면 바로 다음(더 긴) 백오프로 쉰다
-    client.activate();
+    // stompErrors 는 그대로 둔다 — 다시 붙자마자 또 거절되면 바로 다음(더 긴) 백오프로 쉰다.
+    // stompjs 는 DEACTIVATING 중의 activate 를 종료 뒤로 예약하므로, 종료가 끝난 뒤 폐기·닫힘을 다시 보고 되살린다
+    void client.deactivate().then(() => {
+      if (!closed && !revoked) client.activate();
+    });
   };
   const seenLeft = new Set<string>();
   const emit = () => opts.onMembers([...members.values()]);

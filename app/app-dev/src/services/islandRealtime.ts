@@ -700,7 +700,8 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         eventsStrikes.set(code, strikes);
         if (strikes >= EVENTS_STRIKE_LIMIT) eventsDenied = true;
       }
-      if (emoteEnabled && !eventsFault) emoteDenied = true;
+      // channel 헤더로 events·movement 탓이 분명한 ERROR 는 응원 구독에 반영하지 않는다(헤더 없는 ERROR 만 종전 규칙)
+      if (emoteEnabled && !eventsFault && !channel) emoteDenied = true;
       if (opts.movement && (channel ? channel === 'movement' : !eventsFault)) {
         // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
         // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
