@@ -2141,13 +2141,38 @@ test.each([
     await act(async () => {
       captured.dispatch({ type: 'LOGIN' });
       captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
-      captured.reset('settings');
+      // 설정은 바다에서도 여는 화면이라(GROMO-2404) 섬이 있어야 하는 홈에서 잃는다
+      captured.reset('home');
     });
     await act(async () => captured.dispatch(islandSync(null, lossReason)));
     await waitFor(() => expect(captured.route).toBe(to));
     await app.unmount();
   },
 );
+
+test('소속 섬이 없는 계정이 바다에서 연 친구·설정·꾸미기는 바다로 되돌리지 않는다(GROMO-2404)', async () => {
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync(null, null));
+    captured.reset('sea');
+  });
+  for (const route of ['friends', 'settings', 'wardrobe', 'profile', 'blockedUsers']) {
+    await act(async () => {
+      captured.go(route);
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(captured.route).toBe(route);
+    // 시트의 닫기(X)는 홈을 거치지 않고 바다로 돌아간다
+    await act(async () => {
+      captured.home();
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(captured.route).toBe('sea');
+  }
+  await app.unmount();
+});
 
 const kickedApp = async (userId: string) => {
   // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있어 multiRemove 로 지운다
@@ -2158,7 +2183,7 @@ const kickedApp = async (userId: string) => {
   await act(async () => {
     captured.dispatch({ type: 'LOGIN' });
     captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
-    captured.reset('settings');
+    captured.reset('home');
   });
   return app;
 };

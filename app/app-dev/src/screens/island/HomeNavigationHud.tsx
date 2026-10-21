@@ -10,6 +10,65 @@ import type { Color, Route } from '@/services/model';
 
 const c = componentTokens.homeNavigation;
 
+/** 왼쪽 위 내 고양이 — 누르면 꾸미기. 홈(프로필 패널 안)과 바다 표류(GROMO-2404)가 같은 모양을 쓴다. */
+export function HudAvatarButton({
+  color,
+  outfit,
+  go,
+}: {
+  color: Color;
+  outfit?: Outfit;
+  go: (route: Route) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t('home.hud.customize')}
+      onPress={() => go('wardrobe')}
+      style={styles.avatarButton}
+    >
+      <View style={styles.avatar}>
+        <CatAvatar
+          color={color}
+          outfit={outfit}
+          size={c.avatarSize - 2 * semanticTokens.stroke.default}
+        />
+      </View>
+    </Pressable>
+  );
+}
+
+/** 오른쪽 위 친구(받은 요청 수 배지)·설정 둥근 버튼. 홈과 바다 표류가 같이 쓴다. */
+export function HudActions({ requests, go }: { requests: number; go: (route: Route) => void }) {
+  return (
+    <View style={styles.actions}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          requests ? t('home.hud.friendsRequests', { count: requests }) : t('home.hud.friends')
+        }
+        onPress={() => go('friends')}
+        style={styles.action}
+      >
+        <RowIcon name="group" />
+        {requests > 0 && (
+          <View style={styles.badge} pointerEvents="none" accessible={false}>
+            <Txt style={styles.badgeText}>{requests > 99 ? '99+' : requests}</Txt>
+          </View>
+        )}
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('home.hud.settings')}
+        onPress={() => go('settings')}
+        style={styles.action}
+      >
+        <RowIcon name="gear" />
+      </Pressable>
+    </View>
+  );
+}
+
 /** 프로필·섬 정보는 한 표면에, 친구·설정은 같은 중심선에 둔다. */
 export function HomeNavigationHud({
   name,
@@ -31,22 +90,7 @@ export function HomeNavigationHud({
   return (
     <View style={styles.row} pointerEvents={interactive ? 'auto' : 'none'}>
       <View style={styles.profile} testID="home-profile-panel">
-        {interactive && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('home.hud.customize')}
-            onPress={() => go('wardrobe')}
-            style={styles.avatarButton}
-          >
-            <View style={styles.avatar}>
-              <CatAvatar
-                color={color}
-                outfit={outfit}
-                size={c.avatarSize - 2 * semanticTokens.stroke.default}
-              />
-            </View>
-          </Pressable>
-        )}
+        {interactive && <HudAvatarButton color={color} outfit={outfit} go={go} />}
         <View
           accessible
           accessibilityLabel={t('home.a11y.todayFocusClock', { name, clock })}
@@ -58,33 +102,7 @@ export function HomeNavigationHud({
           <Txt style={styles.clock}>{t('home.hud.todayFocusWithClock', { clock })}</Txt>
         </View>
       </View>
-      {interactive && (
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              requests ? t('home.hud.friendsRequests', { count: requests }) : t('home.hud.friends')
-            }
-            onPress={() => go('friends')}
-            style={styles.action}
-          >
-            <RowIcon name="group" />
-            {requests > 0 && (
-              <View style={styles.badge} pointerEvents="none" accessible={false}>
-                <Txt style={styles.badgeText}>{requests > 99 ? '99+' : requests}</Txt>
-              </View>
-            )}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('home.hud.settings')}
-            onPress={() => go('settings')}
-            style={styles.action}
-          >
-            <RowIcon name="gear" />
-          </Pressable>
-        </View>
-      )}
+      {interactive && <HudActions requests={requests} go={go} />}
     </View>
   );
 }

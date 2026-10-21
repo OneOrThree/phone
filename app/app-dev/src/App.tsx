@@ -633,7 +633,8 @@ function Gromo() {
     const finish = () => {
       setWalkRequest(null);
       setHistory([]);
-      transitionRoute('home');
+      // 소속 섬이 없으면(바다 표류에서 연 친구·설정·꾸미기의 닫기, GROMO-2404) 홈을 거치지 않고 바다로 — 뒤로가기와 같은 기준
+      transitionRoute(state.onboarded ? 'home' : 'sea');
     };
     const target = BUILDING_TRANSITION_RETURN_TARGET[route];
     if (target) returnToIsland(target, finish);
@@ -1599,6 +1600,15 @@ function Gromo() {
         'visit',
         // 바다 표류에서 연 망원경(GROMO-2366) — 섬이 없어도 여기서 갈 섬을 고른다
         'telescope',
+        // 바다 표류 HUD 로 연 친구·설정·꾸미기와 그 안에서 여는 화면(GROMO-2404) — 섬 없이도 쓴다
+        'friends',
+        'friendSearch',
+        'blockedUsers',
+        'settings',
+        'profile',
+        'language',
+        'permission',
+        'wardrobe',
       ].includes(route)
     )
       return;

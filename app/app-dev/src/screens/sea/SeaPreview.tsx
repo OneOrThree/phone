@@ -252,6 +252,8 @@ export function SeaPreview() {
                   messageCooldownSeconds={cooldown}
                   rewardCatalog={fixtureCatalog}
                   onTelescope={() => setPreparing(true)}
+                  // 표류 HUD(GROMO-2404) — 미리보기라 이동은 없고 요청 배지만 보인다
+                  hud={voyage || result ? null : { requests: 2, go: () => {} }}
                   magazine={
                     magazine && {
                       issueNo: 20,

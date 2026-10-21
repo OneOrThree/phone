@@ -265,7 +265,9 @@ function Sheet({
 
 export function CurrentScreens({ e }: any) {
   const friendsRouteActive = e.route === 'friends' || e.route === 'friendSearch';
-  const friendsSafetyRouteActive = friendsRouteActive || e.route === 'boat' || e.route === 'home';
+  // 바다 표류 HUD(GROMO-2404)도 홈처럼 요청 배지를 보여 같은 freshness 경계에 둔다
+  const friendsSafetyRouteActive =
+    friendsRouteActive || e.route === 'boat' || e.route === 'home' || e.route === 'sea';
   const serverIslands = e.islands;
   const dispatch = e.dispatch;
   const friendsScreen = useFriendsScreen({
