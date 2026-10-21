@@ -53,9 +53,9 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * 멀쩡한 세션이 넘침을 맞는다. 그래서 세션별 대기 프레임 수(실행 중 포함)를 세어 두고, 첫 거부({@code isConnected &&
  * closing.add})에서 <b>연결된 세션 중 가장 많이 점유한 세션</b>(넘친 세션 포함, 동률이면 넘친 세션 — 이땐 {@code overflow}
  * 만 센다)을 먼저 닫은 뒤 넘친 세션도 닫는다(둘 다 잃은 프레임은 재연결 복구). 가해자는 <b>한 번에 하나</b>(단일 슬롯 CAS)이고
- * 소켓 종료 콜백이 슬롯을 풀며 콜백이 안 오면 10초 뒤 만료된다 — 슬롯이 차 있는 동안의 거부는 넘친 세션만 닫는다. 세는 곳은
- * 실행기의 작업 장식기다 —
- * 인터셉터의 {@code preSend}/{@code beforeHandle} 쌍은 앞선 인터셉터가 프레임을 버리면 {@code beforeHandle} 이 안 불려 샌다.
+ * 소켓 종료 콜백이 슬롯을 풀며 콜백이 안 오면 10초 뒤 만료된다 — 슬롯이 차 있는 동안의 거부는 넘친 세션만 닫는다.
+ * 세는 곳은 실행기의 작업 장식기다. 인터셉터의 {@code preSend}/{@code beforeHandle} 쌍은 앞선 인터셉터가 프레임을 버리면
+ * {@code beforeHandle} 이 안 불려 샌다.
  * 장식기는 Spring 이 작업을 실행기에 넣는 «그 순간» 한 번 세고, 작업이 끝나거나 거부되면 반드시 뺀다.
  *
  * <p><b>예외를 던지지 않는다.</b> Spring 7 의 {@code ExecutorSubscribableChannel} 은 거부({@code RejectedExecutionException})를
@@ -85,9 +85,10 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  *   <li>{@code executor.*{name=realtime-outbound}} — {@link ExecutorServiceMetrics} 표준
  *       (큐 깊이 = {@code executor.queued}).</li>
  *   <li>{@code realtime.outbound.dropped{reason=queue_full|session_limit|closing}} — {@code closing} 은 종료 예약된 세션으로
- *       가다 버린 프레임. {@code session_limit} 은 Spring 의 세션 송신
- *       시간({@code send-time-limit-ms})·버퍼({@code send-buffer-size-limit-bytes}) 상한 초과로 닫힌 세션이다. Spring 은 둘을
- *       같은 4500 {@code SESSION_NOT_RELIABLE} 로 닫아 구분할 수 없다(CONNECT 없이 60초 지난 세션 정리도 같은 코드다).</li>
+ *       가다 버린 프레임이다. {@code session_limit} 은 Spring 의 세션 송신 시간({@code send-time-limit-ms})·
+ *       버퍼({@code send-buffer-size-limit-bytes}) 상한 초과로 닫힌 세션이다.
+ *       Spring 은 둘을 같은 4500 {@code SESSION_NOT_RELIABLE} 로 닫아 구분할 수 없다(CONNECT 없이 60초 지난 세션 정리도
+ *       같은 코드다).</li>
  *   <li>{@code realtime.outbound.closed{selected=offender|overflow}} — 포화로 닫은 세션. {@code offender} 는 최대 점유
  *       세션(먼저), {@code overflow} 는 넘친 프레임의 세션(종료 ACK 를 잃은 세션 포함). 최대 점유 세션이 곧 넘친 세션이면
  *       {@code overflow} 만 센다.</li>
@@ -162,6 +163,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         this.closedOverflow = closedCounter("overflow");
         this.offenderPending = DistributionSummary.builder("realtime.outbound.offender.pending")
                 .description("선점 때 가해자의 대기 프레임 수 — queue-capacity 의 큰 비중이면 느린 수신자 한 명, 작고 반복되면 전역 포화")
+                .baseUnit("frames")
                 .register(meterRegistry);
         this.sendTimers = KINDS.stream().collect(Collectors.toUnmodifiableMap(kind -> kind,
                 kind -> Timer.builder("realtime.outbound.send").tag("destination_kind", kind)
@@ -295,7 +297,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
                 offenderPending.record(waiting);
             }
             victims.add(heaviest);
-            log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(heaviest));
+            log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", waiting);
         }
         closedOverflow.increment();
         victims.add(sessionId);
