@@ -69,7 +69,7 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
-      'expo-audio',
+      ['expo-audio', { microphonePermission: false, recordAudioAndroid: false }],
       'expo-localization',
       'expo-apple-authentication',
       [
