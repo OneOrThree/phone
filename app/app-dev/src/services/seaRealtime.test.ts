@@ -252,6 +252,46 @@ test('백오프는 30초 → 60초 → 120초로 늘고 120초가 상한이다(�
   waitsFor(120_000);
 });
 
+test('비코드 ERROR(Session closed.)는 3번이어도 쉬지 않고 안내도 하지 않는다 — 코드 ERROR 는 종전 백오프', () => {
+  const { spy } = open();
+  for (let i = 0; i < 3; i += 1) stompError('Session closed.');
+  expect(client().connected).toBe(true);
+  expect(spy.errors).toEqual([]);
+  // 비코드가 카운터에 남지 않았다 — 코드 ERROR 3번째에야 쉰다
+  stompError();
+  stompError();
+  expect(client().connected).toBe(true);
+  stompError();
+  expect(client().connected).toBe(false);
+});
+
+test('close 사유 SESSION_REVOKED — 안내하고 재접속을 멈추며 백오프 재활성도 하지 않는다', () => {
+  const { spy, room } = open();
+  client().onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+  expect(client().log.slice(-1)).toEqual(['CLOSE']);
+  expect(spy.errors).toEqual(['다른 곳에서 로그아웃돼 실시간 연결을 끊었어요.']);
+  room.reconnect();
+  expect(client().connected).toBe(false);
+});
+
+test('쉬는 중에 세션 폐기 close 가 오면 백오프 타이머가 다시 붙이지 않는다', () => {
+  open();
+  for (let i = 0; i < 3; i += 1) stompError();
+  client().onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+  jest.advanceTimersByTime(300_000);
+  expect(client().connected).toBe(false);
+});
+
+test('다른 close(1002·OUTBOUND_QUEUE_FULL)는 아무것도 하지 않는다', () => {
+  const { spy } = open();
+  const before = client().log.length;
+  client().onWebSocketClose({ code: 1002, reason: 'Session closed.' });
+  client().onWebSocketClose({ code: 1008, reason: 'OUTBOUND_QUEUE_FULL' });
+  expect(client().log.length).toBe(before);
+  expect(client().connected).toBe(true);
+  expect(spy.errors).toEqual([]);
+});
+
 test('이모트 연타 ERROR(EMOTE_TOO_FREQUENT)는 안내만 하고 백오프로 세지 않는다', () => {
   const { spy } = open();
   for (let i = 0; i < 3; i += 1) stompError('EMOTE_TOO_FREQUENT');

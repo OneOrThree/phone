@@ -990,6 +990,10 @@
       "promotionFee": "Magazine promotion"
     }
   },
+  "realtime": {
+    "requestRejected": "Live request was rejected.",
+    "sessionRevoked": "Signed out elsewhere, so the live connection was closed."
+  },
   "openSea": {
     "name": "Open sea",
     "skip": "Skip",
