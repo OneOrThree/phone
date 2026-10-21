@@ -2136,7 +2136,10 @@ Ref: telescope_buckets.user_id > users.id [delete: cascade]  // GROMO-2306 V125 
 Ref: island_news.island_id > groups.id [delete: cascade]
 Ref: sea_focus_totals.user_id - users.id [delete: cascade]
 Ref: sea_reward_tiers.product_id > catalog_assets.product_id
-Ref: focus_settlements.(customization_reward_revision, customization_reward_product_id) > customization_reward_items.(revision, product_id)  // GROMO-2301 V135 — 복합 FK, ON DELETE RESTRICT, NOT VALID(새 행에만 강제)
+Ref: focus_settlements.session_id > focus_session_details.session_id [delete: restrict]  // V58 — 정산 원장 행은 상세가 사라져도 함께 지우지 않는다
+// GROMO-2301 V135 — 아래 두 줄은 «한» 복합 FK (revision, product_id) → customization_reward_items 다. 규약(한 컬럼에 Ref 하나)대로 컬럼마다 적는다. NOT VALID(새 행에만 강제)
+Ref: focus_settlements.customization_reward_revision > customization_reward_items.revision [delete: restrict]
+Ref: focus_settlements.customization_reward_product_id > customization_reward_items.product_id [delete: restrict]
 Ref: magazine_asset_meta.(product_id, kind) - catalog_assets.(product_id, kind)  // GROMO-2289 V118 — 복합 FK, ON DELETE RESTRICT
 Ref: island_promotions.island_id > groups.id [delete: cascade]  // GROMO-2289 V119 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
 Ref: island_promotions.applied_by > users.id  // GROMO-2289 V119 — 사용자 행은 익명화만 되고 지워지지 않는다
