@@ -328,6 +328,9 @@ class SeaRoomIntegrationTest {
         // 외양은 전체 스냅샷이다 — 빈 객체·슬롯 키 누락·숫자 hull 은 거부한다
         postEvent(appearanceEvent(alice, null, 2, "head-new").replaceAll("\"appearance\":\\{[^}]*\\}", "\"appearance\":{}"));
         postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"neck\":null,", ""));
+        // 봉투 계약 — schemaVersion 2 · 자원 version 상한(2^53-1) 초과는 부수 효과 전에 거부한다
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"schemaVersion\":1", "\"schemaVersion\":2"));
+        postEvent(appearanceEvent(alice, null, 9_007_199_254_740_992L, "head-new"));
         postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"hull\":\"raft\"", "\"hull\":7"));
 
         assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "head")).isFalse();

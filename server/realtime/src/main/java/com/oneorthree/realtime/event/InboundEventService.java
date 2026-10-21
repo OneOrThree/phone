@@ -197,8 +197,10 @@ public class InboundEventService {
             JsonNode subject = envelope.get("subjectId");
             UUID islandId = subject == null || subject.isNull() ? null : UUID.fromString(requiredText(envelope,
                     "subjectId"));
-            EventPayloadValidator.validate(RealtimeEventType.MEMBER_APPEARANCE_UPDATED, islandId,
-                    longValue(envelope, "version"), params);
+            // 봉투 전체 계약(schemaVersion·version 범위·payload 검증)을 전달용 봉투 생성과 같은 코드로 먼저 확인한다
+            new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"),
+                    RealtimeEventType.MEMBER_APPEARANCE_UPDATED, islandId, longValue(envelope, "version"),
+                    Instant.parse(requiredText(envelope, "occurredAt")), params);
             return true;
         } catch (RuntimeException e) {
             log.error("외양 사건 검증 실패 — 적용·전달하지 않는다. eventId={} reason={}", eventId,

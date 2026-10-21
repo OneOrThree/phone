@@ -43,7 +43,7 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
 
     private static final String FOCUS_BODY = "{\"items\":[{\"userId\":\"" + OTHER + "\",\"name\":null,"
             + "\"sessionId\":\"" + SESSION + "\",\"subject\":\"영어 단어\",\"activeSeconds\":1320,"
-            + "\"status\":\"active\",\"catColor\":\"ginger\",\"appearance\":" + APPEARANCE + "}],"
+            + "\"status\":\"active\",\"catColor\":\"ginger\",\"appearance\":" + APPEARANCE + ",\"appearanceVersion\":2}],"
             + "\"serverNow\":\"2026-09-11T09:10:00Z\","
             + "\"watermarks\":[{\"projection\":\"focus.member\",\"islandId\":\"" + ISLAND + "\","
             + "\"aggregateId\":\"" + OTHER + "\",\"version\":5}]}";
@@ -77,6 +77,8 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].appearance.head").value("head-ribbon"))
                 .andExpect(jsonPath("$.data.items[0].appearance.neck").value("neck-bell"))
                 .andExpect(jsonPath("$.data.items[0].appearance.position").value("back"))
+                // 같은 스냅샷의 개인 외양 version 을 그대로(BFF 정책 B14)
+                .andExpect(jsonPath("$.data.items[0].appearanceVersion").value(2))
                 .andExpect(jsonPath("$.data.serverNow").value("2026-09-11T09:10:00Z"))
                 .andExpect(jsonPath("$.data.watermarks[0].projection").value("focus.member"))
                 .andExpect(jsonPath("$.data.watermarks[0].aggregateId").value(OTHER.toString()))
@@ -190,7 +192,7 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
     @CsvSource(delimiter = '|', value = {
             "/islands/{islandId}/focus-members|get||items serverNow watermarks|items serverNow watermarks",
             "/islands/{islandId}/rest-members|get||items serverNow watermarks|items serverNow watermarks",
-            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status catColor appearance|userId name sessionId subject activeSeconds status",
+            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status catColor appearance appearanceVersion|userId name sessionId subject activeSeconds status appearanceVersion",
             "/islands/{islandId}/rest-members|get|items|userId name restSeat restStartedAt catColor appearance|userId name restSeat restStartedAt",
             "/islands/{islandId}/focus-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version",
             "/islands/{islandId}/rest-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version"})

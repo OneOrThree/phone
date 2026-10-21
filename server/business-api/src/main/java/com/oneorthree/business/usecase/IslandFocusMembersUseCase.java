@@ -34,7 +34,8 @@ import java.util.function.Supplier;
  * 섬 공동 진행 표시라 그대로 둔다(GROMO-2183, {@link BlockedProfileMask}). 확정 범위는 주민 목록과 focus-members
  * 두 곳이라 rest-members 는 아직 원래 이름을 내린다.
  *
- * <p>털색·착용 외양(GROMO-2389)은 두 목록 모두 차단 대상을 기본값으로 가린다 — 털색 null, 착용 아이템·자리는
+ * <p>털색·착용 외양(GROMO-2389)은 두 목록 모두 차단 대상을 기본값으로 가린다. focus-members 항목에는 BFF 정책 B14 의 {@code appearanceVersion}
+ * (= 같은 스냅샷의 {@code appearance.version}, 탈퇴 계정은 null)도 싣는다 — 털색 null, 착용 아이템·자리는
  * 기본(주민 목록과 같은 {@link MemberAppearanceView#neutral}).
  */
 @Service
@@ -117,7 +118,8 @@ public class IslandFocusMembersUseCase {
             @JsonProperty(required = true) long activeSeconds,
             @JsonProperty(required = true) String status,
             @JsonInclude(JsonInclude.Include.ALWAYS) String catColor,
-            @JsonInclude(JsonInclude.Include.ALWAYS) MemberAppearanceView appearance) {
+            @JsonInclude(JsonInclude.Include.ALWAYS) MemberAppearanceView appearance,
+            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Long appearanceVersion) {
         private static FocusMemberView from(IslandFocusMembers.Item item, Set<UUID> blocked) {
             if (item == null) {
                 return null;
@@ -127,7 +129,9 @@ public class IslandFocusMembersUseCase {
                     item.sessionId(), item.subject(), item.activeSeconds(), item.status(),
                     hidden ? null : item.catColor(),
                     hidden ? MemberAppearanceView.neutral(item.appearance())
-                            : MemberAppearanceView.from(item.appearance()));
+                            : MemberAppearanceView.from(item.appearance()),
+                    // 같은 스냅샷의 개인 외양 version 을 그대로(B14) — 차단 대상이어도 단조 값이라 유지한다
+                    item.appearance() == null ? null : item.appearance().version());
         }
     }
 

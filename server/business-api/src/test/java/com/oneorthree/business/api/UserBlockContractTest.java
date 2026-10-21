@@ -181,6 +181,7 @@ class UserBlockContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].appearance.neck").doesNotExist())
                 .andExpect(jsonPath("$.data.items[0].appearance.position").value("front"))
                 .andExpect(jsonPath("$.data.items[0].appearance.version").value(7))
+                .andExpect(jsonPath("$.data.items[0].appearanceVersion").value(7))
                 .andExpect(jsonPath("$.data.items[1].name").value("친구"))
                 .andExpect(jsonPath("$.data.items[1].status").value("paused"))
                 .andExpect(jsonPath("$.data.items[1].catColor").value("ginger"))

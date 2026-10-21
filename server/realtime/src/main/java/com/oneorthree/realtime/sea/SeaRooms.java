@@ -105,7 +105,6 @@ public class SeaRooms {
     private static final String STARTED_AT = "startedAt";
     private static final String ADRIFT_SINCE = "adriftSince";
     private static final String REV = "rev";
-    private static final int APPEARANCE_CAS_RETRIES = 3;
 
     /**
      * 입장. 1 = 들어갔다(또는 이미 그 방), 0 = 꽉 찼다(그 방을 open 에서 뺀다), -1 = 이미 다른 방에 있다(두 기기 경합),
@@ -193,6 +192,25 @@ public class SeaRooms {
             + "redis.call('HINCRBY', KEYS[1], 'rev', 1)\n"
             + "if ARGV[3] == 'add' then redis.call('ZADD', KEYS[2], ARGV[4], ARGV[2])\n"
             + "elseif ARGV[3] == 'rem' then redis.call('ZREM', KEYS[2], ARGV[2]) end\n"
+            + "return 1", Long.class);
+
+    /**
+     * 외양 갱신 (GROMO-2389) — 그 방에 있고 {@code appearanceVersion} 이 저장값보다 클 때만 head·neck·appearanceVersion 을 한 번에
+     * 쓴다. 비교와 쓰기가 한 스크립트라 {@code rev} 경쟁과 무관하다. {@code rev} 는 올리지 않는다 — 외양은 세션·한마디
+     * 전이의 CAS 기준이 아니라서, 올리면 입장 보정의 전이가 외양 보정 때문에 매번 진다. 1 = 썼다, 0 = 방에 없거나 같은/더 새
+     * 값이 이미 있다.
+     *
+     * <p>KEYS: user / ARGV: roomId, version, head|'', neck|''
+     */
+    static final RedisScript<Long> APPEARANCE = new DefaultRedisScript<>(
+            "if redis.call('HGET', KEYS[1], 'roomId') ~= ARGV[1] then return 0 end\n"
+            + "local stored = tonumber(redis.call('HGET', KEYS[1], 'appearanceVersion') or '0') or 0\n"
+            + "if tonumber(ARGV[2]) <= stored then return 0 end\n"
+            + "if ARGV[3] == '' then redis.call('HDEL', KEYS[1], 'head')\n"
+            + "else redis.call('HSET', KEYS[1], 'head', ARGV[3]) end\n"
+            + "if ARGV[4] == '' then redis.call('HDEL', KEYS[1], 'neck')\n"
+            + "else redis.call('HSET', KEYS[1], 'neck', ARGV[4]) end\n"
+            + "redis.call('HSET', KEYS[1], 'appearanceVersion', ARGV[2])\n"
             + "return 1", Long.class);
 
     private static final Set<String> MEMBER_STATUSES = Set.of("sailing", "ended", "remark");
@@ -482,7 +500,7 @@ public class SeaRooms {
      * 아무것도 하지 않는다 — 구성원 갱신이 섬 수만큼 중복 발행되지 않게 한다.
      *
      * <p>params 는 관대하게 읽는다(형식 불량은 경고 없이 끝낸다 — 앱 전달 경로는 이 사건을 어차피 기록만 한다).
-     * 바다 방에 없는 사용자면 아무것도 하지 않는다. Redis 쓰기 실패와 CAS 재시도 소진은 던진다(수신 기록 롤백 → relay 재전달).
+     * 바다 방에 없는 사용자면 아무것도 하지 않는다. Redis 쓰기 실패는 던진다(수신 기록 롤백 → relay 재전달).
      * 방 사건 발행 실패는 삼킨다.
      */
     public void applyAppearanceUpdated(JsonNode envelope) {
@@ -503,14 +521,8 @@ public class SeaRooms {
         long version = versionNode.longValue();
         String head = text(appearance, HEAD);
         String neck = text(appearance, NECK);
-        AppearanceCas outcome = casAppearance(userId, roomId, head, neck, version);
-        if (outcome == AppearanceCas.STALE) {
+        if (!writeAppearance(userId, roomId, head, neck, version)) {
             return; // 이미 같거나 더 새 값이 적용됐다 / 그사이 나갔다
-        }
-        if (outcome == AppearanceCas.EXHAUSTED) {
-            // 경쟁이 3번 이어졌다 — 조용히 끝내면 수신 기록이 커밋돼 사건이 사라진다(섬 0~1개 사용자는 중복 사건도 없다).
-            // 던져서 수신 기록을 롤백하고 relay 가 다시 전달하게 한다(sea.member.updated 의 Redis 실패와 같은 경로).
-            throw new UpstreamUnavailableException();
         }
         try {
             ObjectNode payload = objectMapper.createObjectNode();
@@ -527,30 +539,15 @@ public class SeaRooms {
         }
     }
 
-    private enum AppearanceCas { APPLIED, STALE, EXHAUSTED }
-
     /**
-     * 외양(head·neck·appearanceVersion)만 저장된 version 보다 클 때 읽은 rev 로 CAS 해 쓴다 — 경쟁이면 최신 해시를 다시 읽어
-     * 재시도한다. 입장 보정과 외양 사건이 같은 규칙을 쓴다. 세션·한마디 전이의 CAS 와는 별개의 재시도다(GROMO-2389).
+     * 외양(head·neck·appearanceVersion)을 {@link #APPEARANCE} 한 번으로 쓴다 — 입장 보정과 외양 사건이 같다.
      *
-     * @return {@code APPLIED} 썼다 · {@code STALE} 이미 같거나 더 새 값이 있거나 그사이 나갔다 · {@code EXHAUSTED} 경쟁이
-     *         재시도 상한까지 이어졌다
+     * @return 이번 호출이 썼으면 {@code true}. 방에 없거나 같은/더 새 값이 이미 있으면 {@code false}
      */
-    private AppearanceCas casAppearance(UUID userId, UUID roomId, String head, String neck, long version) {
-        for (int attempt = 0; attempt < APPEARANCE_CAS_RETRIES; attempt++) {
-            Map<String, String> current = stringMap(redis.opsForHash().entries(RedisKeys.seaUser(userId)));
-            if (version <= longOrZero(current.get(APPEARANCE_VERSION)) || current.get(REV) == null) {
-                return AppearanceCas.STALE;
-            }
-            Transition transition = new Transition(new HashMap<>(), new ArrayList<>(), "", "0");
-            putOrDelete(transition.set(), transition.delete(), HEAD, head);
-            putOrDelete(transition.set(), transition.delete(), NECK, neck);
-            transition.set().put(APPEARANCE_VERSION, Long.toString(version));
-            if (runUpdate(userId, roomId.toString(), transition, current.get(REV)) == 1) {
-                return AppearanceCas.APPLIED;
-            }
-        }
-        return AppearanceCas.EXHAUSTED;
+    private boolean writeAppearance(UUID userId, UUID roomId, String head, String neck, long version) {
+        Long result = redis.execute(APPEARANCE, List.of(RedisKeys.seaUser(userId)), roomId.toString(),
+                Long.toString(version), head == null ? "" : head, neck == null ? "" : neck);
+        return result != null && result == 1L;
     }
 
     /**
@@ -680,8 +677,8 @@ public class SeaRooms {
                 || first.appearanceVersion() != second.appearanceVersion();
         if (appearanceChanged) {
             // 외양은 세션·한마디 전이의 단일 CAS 와 분리한다(GROMO-2389) — 거기서 지면 외양 보정까지 버려진다.
-            // 저장된 appearanceVersion 기준의 자체 재시도라 경쟁에도 최신 값만 남는다.
-            casAppearance(userId, roomId, second.head(), second.neck(), second.appearanceVersion());
+            // 저장된 appearanceVersion 기준의 원자 스크립트라 경쟁에도 최신 값만 남는다.
+            writeAppearance(userId, roomId, second.head(), second.neck(), second.appearanceVersion());
         }
         if (!sessionChanged && !remarkChanged && !profileChanged) {
             return;

@@ -407,34 +407,24 @@ class SeaRoomsScriptTest {
     }
 
     @Test
-    @DisplayName("[GROMO-2389] CAS 경쟁이 재시도 상한(3)까지 이어지면 던진다 — 조용히 끝내 사건을 잃지 않는다")
-    void appearanceCasExhaustionThrows() throws Exception {
-        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
-        Fixture f = new Fixture();
-        UUID alice = UUID.randomUUID();
-        org.mockito.BDDMockito.given(f.seaState.fetch(alice)).willReturn(
-                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null));
-        org.mockito.BDDMockito.given(f.friends.fetchFriendIds(alice)).willReturn(java.util.Set.of());
-        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
-        f.seaRooms.enter(alice, "s");
-        // 쓰기 직전마다 다른 쪽이 rev 를 올린다 — 읽은 rev 로 한 CAS 가 매번 진다
-        org.springframework.data.redis.core.StringRedisTemplate racing = org.mockito.Mockito.spy(redis);
-        org.mockito.Mockito.doAnswer(invocation -> {
-            redis.opsForHash().increment(RedisKeys.seaUser(alice), "rev", 1);
-            return invocation.callRealMethod();
-        }).when(racing).execute(org.mockito.ArgumentMatchers.<org.springframework.data.redis.core.script.RedisScript<Long>>any(),
-                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Object[].class));
-        SeaRooms racingRooms = new SeaRooms(racing, f.seaState, f.friends, f.blockedUsers, f.publisher, f.sessions,
-                new tools.jackson.databind.ObjectMapper(), java.time.Clock.systemUTC());
-        tools.jackson.databind.JsonNode event = new tools.jackson.databind.ObjectMapper().readTree(
-                "{\"params\":{\"userId\":\"" + alice + "\",\"appearance\":{\"head\":\"h\",\"neck\":null},\"version\":2}}");
+    @DisplayName("[GROMO-2389] APPEARANCE — 더 큰 version 일 때만 head·neck·version 을 쓰고, rev 는 건드리지 않으며 방이 다르면 무시한다")
+    void appearanceScriptWritesOnlyNewerVersionAndKeepsRev() {
+        UUID user = UUID.randomUUID();
+        UUID room = UUID.randomUUID();
+        join(user, room);
+        String rev = (String) redis.opsForHash().get(RedisKeys.seaUser(user), "rev");
+        java.util.function.BiFunction<String, String[], Long> run = (roomId, args) -> redis.execute(
+                SeaRooms.APPEARANCE, List.of(RedisKeys.seaUser(user)), roomId, args[0], args[1], args[2]);
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> racingRooms.applyAppearanceUpdated(event))
-                .isInstanceOf(com.oneorthree.realtime.common.exception.UpstreamUnavailableException.class);
-        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "head")).isFalse();
-        // 경쟁이 사라지면 같은 사건이 적용된다(relay 재전달)
-        f.seaRooms.applyAppearanceUpdated(event);
-        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("h");
+        assertThat(run.apply(room.toString(), new String[] {"2", "h2", "n2"})).isEqualTo(1L);
+        assertThat(run.apply(room.toString(), new String[] {"1", "old", "old"})).as("옛 version").isEqualTo(0L);
+        assertThat(run.apply(room.toString(), new String[] {"2", "same", "same"})).as("같은 version").isEqualTo(0L);
+        assertThat(run.apply(UUID.randomUUID().toString(), new String[] {"9", "x", "x"})).as("다른 방").isEqualTo(0L);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "head")).isEqualTo("h2");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "appearanceVersion")).isEqualTo("2");
+        assertThat(run.apply(room.toString(), new String[] {"3", "", ""})).isEqualTo(1L);
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(user), "head")).as("빈 값은 지운다").isFalse();
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).as("rev 불변").isEqualTo(rev);
     }
 
     @Test
@@ -451,11 +441,11 @@ class SeaRoomsScriptTest {
                         new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("new-head", null, 2L)));
         org.mockito.BDDMockito.given(f.friends.fetchFriendIds(alice)).willReturn(java.util.Set.of());
         org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
-        // 보정의 두 번째 UPDATE(한마디 전이)만 직전에 rev 가 올라 져 버린다 — 첫 UPDATE 는 외양이다
+        // 보정의 UPDATE(한마디 전이)는 직전에 rev 가 올라 져 버린다 — 외양은 별도 스크립트라 영향이 없다
         org.springframework.data.redis.core.StringRedisTemplate racing = org.mockito.Mockito.spy(redis);
         java.util.concurrent.atomic.AtomicInteger updates = new java.util.concurrent.atomic.AtomicInteger();
         org.mockito.Mockito.doAnswer(invocation -> {
-            if (invocation.getArgument(0) == SeaRooms.UPDATE && updates.incrementAndGet() == 2) {
+            if (invocation.getArgument(0) == SeaRooms.UPDATE && updates.incrementAndGet() == 1) {
                 redis.opsForHash().increment(RedisKeys.seaUser(alice), "rev", 1);
             }
             return invocation.callRealMethod();
