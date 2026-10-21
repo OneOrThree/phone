@@ -294,23 +294,10 @@ async function check(name, fn) {
     assert.equal(x.reduceMotion, false);
     assert.equal(x.permission, false);
   });
-  await check('검색 결과 없음·초대 오류·정원 찬 섬 초대 차단·전망대 섬 찾기', async () => {
+  await check('검색 결과 없음·전망대 섬 찾기', async () => {
     await setup(p, 'explore');
     await p.getByRole('textbox', { name: '섬 이름이나 초대 코드' }).fill('없는이름');
     assert.ok((await p.locator('body').innerText()).includes('찾는 섬이 없어요'));
-    // 초대 코드는 첫 섬 선택의 '이미 초대받은 섬이 있어요!' 모달에서 넣는다
-    await setup(p, 'chooseIsland');
-    await click('이미 초대받은 섬이 있어요!');
-    await p.getByRole('textbox', { name: '초대 코드' }).fill('NO');
-    await click('확인');
-    assert.ok((await p.locator('body').innerText()).includes('다시 확인'));
-    // 정원이 가득 찬 딸기 섬의 초대 코드(이미 주민인 소다 섬 코드로는 차단을 확인할 수 없다)
-    await setup(p, 'chooseIsland', { fullStrawberry: true });
-    await click('이미 초대받은 섬이 있어요!');
-    await p.getByRole('textbox', { name: '초대 코드' }).fill('STRAWBERRY');
-    await click('확인');
-    assert.ok((await p.locator('body').innerText()).includes('정원이 가득 찬 섬이에요'));
-    assert.equal((await state(p)).state.islands[1].joined, false);
     await setup(p, 'tower');
     await click('섬 찾기');
     assert.equal((await state(p)).route, 'explore');

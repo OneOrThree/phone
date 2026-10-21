@@ -9,7 +9,7 @@ const add = (group, route, title, opts = {}) =>
   configs.push({ id: String(configs.length + 1).padStart(2, '0'), group, route, title, ...opts });
 add('01 · 처음 만나는 GROMO', 'login', '첫 시작');
 add('01 · 처음 만나는 GROMO', 'character', '내 고양이와 이름');
-add('01 · 처음 만나는 GROMO', 'chooseIsland', '첫 섬 선택 · 만들기·공개 섬·초대');
+add('01 · 처음 만나는 GROMO', 'sea', '섬 없는 사용자의 바다');
 add('01 · 처음 만나는 GROMO', 'createIsland', '새 섬 만들기', {
   text: '반짝이는 섬',
   body: '각자의 속도로 함께 집중해요.',
@@ -103,13 +103,6 @@ add('08 · 내 취향은 내 배에', 'profile', '로그아웃과 회원 탈퇴'
 add('08 · 내 취향은 내 배에', 'settings', '앱·알림·소리 설정');
 add('08 · 내 취향은 내 배에', 'settings', '공개 범위와 측정 권한', { bottom: true });
 add('08 · 내 취향은 내 배에', 'sound', '함께 듣는 음악과 기기 음량', { bottom: true });
-configs.splice(3, 0, {
-  id: '03-invite',
-  group: configs[2].group,
-  route: 'chooseIsland',
-  title: '초대 코드 입력',
-  invite: true,
-});
 (async () => {
   const b = await chromium.launch();
   const p = await b.newPage({ viewport: { width: 402, height: 874 }, deviceScaleFactor: 1 });
@@ -124,6 +117,10 @@ configs.splice(3, 0, {
         s = r.fixture(!c.fresh),
         is = s.islands[0];
       s.settings.reduceMotion = false;
+      if (c.route === 'sea') {
+        s.onboarded = false;
+        s.onboardingStory = 'scope';
+      }
       s.screenMinutes = 84;
       if (c.fresh) {
         s.loggedIn = true;
@@ -190,10 +187,6 @@ configs.splice(3, 0, {
     await p.evaluate(async () => {
       await Promise.all([...document.images].map((i) => i.decode().catch(() => {})));
     });
-    if (c.invite) {
-      await p.getByRole('button', { name: '이미 초대받은 섬이 있어요!', exact: true }).click();
-      await p.waitForTimeout(500);
-    }
     if (c.bottom) {
       await p.evaluate(() => {
         for (const el of document.querySelectorAll('div'))

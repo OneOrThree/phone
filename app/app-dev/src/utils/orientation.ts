@@ -8,7 +8,6 @@ import { Route } from '@/services/model';
 export const PORTRAIT_ROUTES: readonly Route[] = [
   'login',
   'character',
-  'chooseIsland',
   'createIsland',
   'joinIsland',
   'approval',

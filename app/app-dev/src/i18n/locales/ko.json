@@ -257,31 +257,6 @@
       "title": "가입이 완료됐어요",
       "sub": "「{{island}}」의 주민이 됐어요."
     },
-    "chooseIsland": {
-      "title": "첫 섬 선택",
-      "firstVoyage": "첫 항해를 떠나요",
-      "whereStart": "어디에서 시작할까요?",
-      "createAlone": {
-        "title": "혼자 시작할 섬 만들기",
-        "sub": "내 이름으로 새 섬을 열어요"
-      },
-      "joinExisting": {
-        "title": "기존 섬 참여",
-        "sub": "망원경으로 공개 섬 찾기"
-      },
-      "bootErrorTitle": "섬 정보를 불러오지 못했어요",
-      "pendingResume": "「{{island}}」 가입 신청이 진행 중이에요",
-      "pendingIslandFallback": "신청한 섬",
-      "membershipConfirmedTitle": "가입이 확인됐어요",
-      "membershipConfirmedSub": "서버에서 「{{island}}」 소속이 확인됐어요.",
-      "alreadyInvited": "이미 초대받은 섬이 있어요!",
-      "inviteModal": {
-        "title": "초대 코드 입력",
-        "label": "초대 코드",
-        "hint": "확인하면 그 섬에 바로 참여하거나, 방장에게 가입 승인을 요청해요.",
-        "joinThisIsland": "이 섬에 참여"
-      }
-    },
     "createIsland": {
       "capacityLabel": "정원 · 최대 {{max}}명",
       "capacityA11y": "정원",
@@ -1096,6 +1071,7 @@
     "invite": "어때, 같이 가볼래?",
     "scopeIntro": "좋아. 먼저 어디로 갈지\n골라보자.",
     "scope": "저기, 섬들이 보여.\n가고 싶은 섬을 골라봐.",
+    "uninhabited": "저기, 무인도가 보여.\n우리 저기로 가볼까?",
     "ready": "그동안 네 할 일에 집중해 줘.\n나는 저쪽으로 가볼게.",
     "depart": "좋아.\n도착하면 알려줄게.",
     "skip": "건너뛰기",

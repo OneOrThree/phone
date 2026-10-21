@@ -15,6 +15,7 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { useAppLayout } from '@/utils/layout';
 import { useGowun } from '@/screens/island/sceneKit';
 import { useTelescope } from '@/screens/island/useTelescope';
+import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
 import { Ticking } from '@/hooks/useNow';
 import { seaClock } from '@/screens/sea/seaModel';
 import { seaAssets } from '@/screens/sea/seaAssets';
@@ -60,10 +61,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const latest = useRef(e);
   latest.current = e;
   const list = useTelescope({ active: !!e.islands && ['scope', 'ready'].includes(step) });
-  const items = previewItems ?? list.items;
+  const items = visibleTelescopeItems(previewItems ?? list.items);
   const selected =
     step === 'depart' ? departing : items.find((item) => item.islandId === selectedId);
-  const line = storyHasLine(step) ? t(`onboardingStory.${step}`, { name }) : '';
+  const lineKey =
+    step === 'scope' && items.length === 1 && items[0].memberCount === 0 ? 'uninhabited' : step;
+  const line = storyHasLine(step) ? t(`onboardingStory.${lineKey}`, { name }) : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
   const width = Math.min(layout.width, ui.maxWidth);
@@ -610,7 +613,12 @@ const styles = StyleSheet.create({
   },
   error: { color: c.danger },
   feedback: { padding: space[6], gap: space[3] },
-  islands: { paddingHorizontal: space[2], gap: space[2] },
+  islands: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: space[2],
+    gap: space[2],
+  },
   island: { alignItems: 'center' },
   islandLabel: {
     padding: space[2],

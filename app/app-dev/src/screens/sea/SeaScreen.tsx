@@ -28,7 +28,7 @@ export type SeaScreenProps = {
   onFinish: (sessionId: string, intent: 'disembark' | 'stop') => Promise<void>;
   /** 결과 확인 및 목적지 방문/주민 라우트 전환을 모두 처리한다. */
   onExplore: (result: SeaArrival) => Promise<void>;
-  onTelescope: () => void;
+  onTelescope: () => void | Promise<void>;
   onMessage: (message: string) => Promise<void>;
   onEmote: (emote: SeaEmote) => Promise<void>;
   /** 서버가 요청 생성을 확인하면 true. 로그인 안내·실패 처리는 호스트가 맡는다. */
@@ -311,7 +311,7 @@ export function SeaScreen(props: SeaScreenProps) {
                   ? voyage.canDisembark
                     ? finish('disembark')
                     : open('stop')
-                  : props.onTelescope()
+                  : run(async () => props.onTelescope())
               }
             />
           </View>

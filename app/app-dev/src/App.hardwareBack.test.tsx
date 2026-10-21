@@ -200,7 +200,7 @@ test('방문 중 화면이 건 backOverride 가 true 를 돌려주면 방문을 
   assert.equal(await back(), true);
   assert.equal(override.mock.calls.length, 1);
   assert.equal(captured.state.visitingIslandId, null);
-  assert.equal(captured.route, 'chooseIsland');
+  assert.equal(captured.route, 'sea');
 });
 
 test('override 가 false 를 돌려주면(처리 안 함) 방문 분기로 넘어간다', async () => {
@@ -282,7 +282,7 @@ test('인사말 팝업이 떠 있으면 뒤로 가기는 방문을 끝내지 않
   // 팝업이 없으면 평소처럼 방문을 끝낸다
   assert.equal(await back(), true);
   assert.equal(captured.state.visitingIslandId, null);
-  assert.equal(captured.route, 'chooseIsland');
+  assert.equal(captured.route, 'sea');
 });
 
 test('인사말 팝업 위로 앱 확인창이 열려 있으면 확인창이 먼저 닫히고 그다음에 팝업이 닫힌다', async () => {
@@ -305,12 +305,12 @@ test('뒤로 가기는 최신 화면 상태로 동작한다 — 화면을 옮긴
   assert.equal(captured.route, 'login');
   assert.equal(pressBack(), false); // 로그인 화면의 뒤로 가기는 앱이 받지 않는다(OS 몫)
 
-  await act(async () => captured.go('chooseIsland'));
+  await act(async () => captured.go('sea'));
   await act(async () => captured.go('character'));
   assert.equal(captured.route, 'character');
 
   assert.equal(await back(), true);
-  assert.equal(captured.route, 'chooseIsland');
+  assert.equal(captured.route, 'sea');
   assert.equal(await back(), true);
   assert.equal(captured.route, 'login');
   assert.equal(pressBack(), false);
@@ -318,17 +318,17 @@ test('뒤로 가기는 최신 화면 상태로 동작한다 — 화면을 옮긴
 
 test('방문이 아닌 화면에서도 override·확인창이 먼저이고 override 가 없으면 이전 화면으로 간다', async () => {
   await mount();
-  await act(async () => captured.go('chooseIsland'));
+  await act(async () => captured.go('sea'));
   const override = jest.fn(() => true);
   captured.backOverride.current = override;
   await act(async () => captured.confirm('확인', '본문', () => {}));
 
   assert.equal(await back(), true); // 확인창만 닫는다
-  assert.equal(captured.route, 'chooseIsland');
+  assert.equal(captured.route, 'sea');
   assert.equal(override.mock.calls.length, 0);
 
   assert.equal(await back(), true); // override 가 처리한다
-  assert.equal(captured.route, 'chooseIsland');
+  assert.equal(captured.route, 'sea');
   assert.equal(override.mock.calls.length, 1);
 
   captured.backOverride.current = null;
@@ -410,7 +410,7 @@ test('섬을 잃은 사람은 방문을 끝내면 섬 고르기 대신 먼바다
 
 test.each([
   ['LEFT', 'sea'],
-  [null, 'chooseIsland'],
+  [null, 'sea'],
 ] as const)(
   '현재 섬이 없을 때 기록 없는 화면의 뒤로 가기는 상실 사유 %s 면 %s 로 간다(GROMO-2366)',
   async (lossReason, to) => {

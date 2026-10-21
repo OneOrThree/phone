@@ -206,8 +206,8 @@ test.each(interceptedRoutes)(
 
 // 대조군: 가로채기 목록에 없는 라우트는 그대로 RedesignScreens 로 떨어져야 한다 —
 // 이 대조군이 깨지면 위 가로채기 테스트 자체가 아무것도 증명하지 못하는 셈이라 같이 둔다.
-test('가로채기 목록에 없는 라우트 chooseIsland 는 RedesignScreens 를 부른다', async () => {
-  const screen = await mount('chooseIsland');
+test('가로채기 목록에 없는 라우트 character 는 RedesignScreens 를 부른다', async () => {
+  const screen = await mount('character');
   expect(redesignScreensMock).toHaveBeenCalled();
   await screen.unmount();
 });

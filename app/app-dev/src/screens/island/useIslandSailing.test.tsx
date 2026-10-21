@@ -92,7 +92,7 @@ describe('useIslandSailing', () => {
 
 test.each([
   ['KICKED', 'sea'],
-  [null, 'chooseIsland'],
+  [null, 'sea'],
 ] as const)(
   '현재 섬 없이 구경을 끝내면 상실 사유 %s 는 %s 로 간다(GROMO-2366)',
   (lossReason, to) => {

@@ -218,6 +218,39 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   expect(e.replace).not.toHaveBeenCalled();
 });
 
+test('부팅 소속 조회가 실패해도 바다에 머물고 망원경을 누르면 동기화를 재시도한다', async () => {
+  const sync = jest.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});
+  const e = env({
+    state: { name: '나냥', color: 'black', session: null },
+    islandBootError: true,
+    islands: { sync },
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(sync).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByLabelText('망원경'));
+  expect(sync).toHaveBeenCalledTimes(1);
+  expect(e.go).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('망원경')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('망원경'));
+  expect(sync).toHaveBeenCalledTimes(2);
+  expect(e.go).toHaveBeenCalledWith('telescope');
+});
+
+test('소속 재조회 중 계정이 바뀌면 늦은 응답으로 망원경을 열지 않는다', async () => {
+  const sync = jest.fn(async () => {
+    (sessionGeneration as jest.Mock).mockReturnValue(2);
+  });
+  const e = env({
+    state: { name: '나냥', color: 'black', session: null },
+    islandBootError: true,
+    islands: { sync },
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await fireEvent.press(screen.getByLabelText('망원경'));
+  expect(sync).toHaveBeenCalledTimes(1);
+  expect(e.go).not.toHaveBeenCalled();
+});
+
 test('정박 중 [섬에 내리기]는 finish 결과(arrived)를 seaArrival 라우트 인자로 넘긴다', async () => {
   const e = env({
     state: { name: '나냥', color: 'black', session: seaSession({ seconds: 1800 }) },

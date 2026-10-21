@@ -251,7 +251,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   });
   mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
     const memberships = await syncIslands();
-    return memberships.currentIslandId ? 'home' : 'chooseIsland';
+    return memberships.currentIslandId ? 'home' : 'sea';
   });
 
   await act(async () => {
@@ -309,7 +309,7 @@ test('owner 전환(transferOwner) 부팅은 기기 전역 언어 설정(gromo.lo
     mockSyncIslands.mockResolvedValue({ currentIslandId: 'server-island-b', items: [] });
     mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
       const memberships = await syncIslands();
-      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+      return memberships.currentIslandId ? 'home' : 'sea';
     });
 
     const removeItem = AsyncStorage.removeItem as jest.Mock;
@@ -370,9 +370,9 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
   mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
     try {
       const memberships = await syncIslands();
-      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+      return memberships.currentIslandId ? 'home' : 'sea';
     } catch {
-      return 'chooseIsland';
+      return 'sea';
     }
   });
 
@@ -381,7 +381,7 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
     for (let n = 0; n < 20; n += 1) await Promise.resolve();
   });
   await waitFor(() => assert.ok(captured));
-  await waitFor(() => assert.equal(captured.route, 'chooseIsland'));
+  await waitFor(() => assert.equal(captured.route, 'sea'));
   assert.equal(mockDecideBootRoute.mock.calls.length, 1);
   assert.equal(getLastSessionUserId(), 'user-a');
   assert.equal(
@@ -1560,8 +1560,8 @@ test('계정·섬 온보딩이 끝날 때까지 지원 딥링크를 보관한다
 
   await act(async () => mockEmitAppLink!('gromo://friends'));
   assert.equal(captured.route, 'character');
-  await act(async () => captured.reset('chooseIsland'));
-  assert.equal(captured.route, 'chooseIsland');
+  await act(async () => captured.reset('sea'));
+  assert.equal(captured.route, 'sea');
 
   await act(async () => {
     mockAppDispatch!({
@@ -1696,7 +1696,7 @@ test.each(['next-island', null, 'lost'])(
       });
     });
     await waitFor(() =>
-      expect(captured.route).toBe(nextIsland ? 'home' : next === 'lost' ? 'sea' : 'chooseIsland'),
+      expect(captured.route).toBe(nextIsland ? 'home' : next === 'lost' ? 'sea' : 'sea'),
     );
     expect(captured.state.tutorialExperience).toBeUndefined();
     expect(captured.state.session).toBeNull();
@@ -2130,7 +2130,7 @@ const islandSync = (
 test.each([
   ['LEFT', 'sea'],
   ['KICKED', 'sea'],
-  [null, 'chooseIsland'],
+  [null, 'sea'],
 ] as const)(
   '현재 섬이 없어지면 상실 사유 %s 는 %s 로 보낸다(GROMO-2366)',
   async (lossReason, to) => {
@@ -2238,7 +2238,7 @@ test('이미 본 섬의 강퇴는 다시 읽혀도 띄우지 않는다(GROMO-236
 
 test.each([
   ['KICKED', 'sea'],
-  [null, 'chooseIsland'],
+  [null, 'sea'],
 ] as const)(
   '화면을 잃은 강퇴 복구는 현재 섬이 없으면 상실 사유 %s 일 때 %s 로 보낸다(GROMO-2366)',
   async (lossReason, to) => {

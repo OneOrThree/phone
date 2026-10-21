@@ -7,7 +7,7 @@ fs.mkdirSync(path.join(root, '.docs'), { recursive: true });
 const routes = [
   'login',
   'character',
-  'chooseIsland',
+  'sea',
   'createIsland',
   'joinIsland',
   'approval',
