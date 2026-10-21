@@ -9,7 +9,7 @@ name: Android CI
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
 # - version: Play 키로 versionCode 조회. checkout + 표준 라이브러리 스크립트만.
-# - build: AWS 권한 없음. npm ci + Gradle, 일회용 키 서명.
+# - build: AWS·Play·서명 키 없음. npm ci + Gradle, 일회용 키 서명. main만 PostHog 분석 업로드 키 사용.
 # - sign: 업로드 키로 jarsigner 재서명 + 지문 대조. JDK·zip 만.
 # 네이티브 컴파일·XML 검사는 app-android-build.yml 담당.
 #
@@ -113,7 +113,7 @@ jobs:
     if: ${{ !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # AWS OIDC 권한 없음. 키 못 받음
+    # AWS OIDC 권한 없음. Play·서명 키를 받지 않는다.
     permissions:
       contents: read
     env:
