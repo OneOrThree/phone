@@ -16,8 +16,8 @@ name: Android CI
 # 빌드 대상:
 # - 앱 com.oneorthree.gromo, 서버 dev(https://oneorthree.dev.mooo.com). 운영 아님.
 # - GROMO_ANDROID_AUDIENCE=dev 로 build.gradle 의 dev 가드 탐. 수동 운영 빌드는 이 값 없음 → 기존 가드 그대로.
-# - OTA·PostHog 켠 채 빌드 (팀 결정 2026-10-07).
-#   ⚠️ OTA 채널은 production. 운영 OTA 내보내면 이 빌드도 받음.
+# - OTA 끈 채 빌드. build.gradle 이 GROMO_ANDROID_AUDIENCE=dev 를 보고 매니페스트에서 끔. OTA 채널이 production 이라
+#   켜 두면 운영 OTA 받아 운영 API JS 로 바뀜 (2026-10-07 팀 결정을 GROMO-2368 에서 바꿈). PostHog 는 켠 채.
 
 on:
   pull_request:
