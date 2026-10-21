@@ -6,6 +6,7 @@ import { updateProfile } from '@/services/api/account';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { OnboardingFlow } from './OnboardingFlow';
 import { applyLocalePref } from '@/i18n';
+import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 
 jest.mock('@/services/api/account', () => ({ updateProfile: jest.fn() }));
 jest.mock('@/screens/island/useTelescope', () => ({ useTelescope: jest.fn() }));
@@ -22,7 +23,6 @@ let mockGeneration = 1;
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockGeneration }));
 jest.mock('./StoryRaft', () => ({
   StoryRaft: () => null,
-  storyIslandArt: 1,
   storyCats: { black: 1, ginger: 1, cream: 1, gray: 1, white: 1, calico: 1 },
 }));
 const destination = { islandId: 'island-1', name: '별빛섬', sailingMinutes: 15 };
@@ -184,3 +184,28 @@ test.each(['focus', 'rest', 'sea'])(
     expect(current.onboardingStory).toBe(route === 'sea' ? 'done' : 'scope');
   },
 );
+
+test('서버가 마련한 15분 무인도는 집 0채로 표시하고 실제 목적지 id로 출항한다', async () => {
+  const deserted = {
+    ...destination,
+    islandId: 'reserved-island',
+    name: '무인도',
+    memberCount: 0,
+    buildingCount: 0,
+  };
+  (useTelescope as jest.Mock).mockReturnValue({
+    status: 'ready',
+    items: [deserted],
+    reload: jest.fn(),
+  });
+  const screen = await render(<Harness checkpoint="scope" />);
+  await pressContinue(screen);
+  expect(screen.getByTestId('onboarding-island-art-reserved-island').props.source).toEqual(
+    ISLAND_STAGE_ART.houses0,
+  );
+  await fireEvent.press(screen.getByTestId('onboarding-island-reserved-island'));
+  startSea.mockResolvedValue({ kind: 'sea', targetMinutes: 15 });
+  await pressContinue(screen);
+  expect(startSea).toHaveBeenCalledWith('reserved-island');
+  expect(current.onboardingStory).toBe('done');
+});
