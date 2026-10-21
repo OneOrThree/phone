@@ -1556,3 +1556,26 @@ test.each(['day', 'night'] as const)(
     await screen.unmount();
   },
 );
+
+test('구경 중 HUD 의 긴 섬 이름은 한 줄로 줄이고 「다시 바다로」 버튼을 가입 버튼 옆에 둔다(GROMO-2405)', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  visited.name = 'smoke-friends-d99a696f-ae05-49bc-8d44-544b2bb984d8';
+  state.visitingIslandId = visited.id;
+  const onLeave = jest.fn();
+  const onPress = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      visitJoin={{ label: '이 섬에 가입', disabled: false, onPress, onLeave }}
+    />,
+  );
+  const name = screen.getByLabelText(`${visited.name} 구경 중`);
+  expect(name.props.numberOfLines).toBe(1);
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(onLeave).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByLabelText('이 섬에 가입'));
+  expect(onPress).toHaveBeenCalledTimes(1);
+});

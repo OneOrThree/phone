@@ -5,7 +5,7 @@ import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
-import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
@@ -1469,6 +1469,13 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
                   label: join.label,
                   disabled: join.disabled,
                   onPress: () => void join.serverJoin(),
+                  // 「다시 바다로」(GROMO-2405) — 소속 섬 유무와 관계없이 구경을 끝내고 바다로. 가입하지 않은 사람에겐
+                  // 뗏목 행선지와 같은 확인창을 한 번 띄운다. 소속 섬으로는 뗏목의 「< 소속 섬으로」가 있다.
+                  onLeave: () =>
+                    confirmLeaveVisit(e, s, visit, join, () => {
+                      e.dispatch({ type: 'END_VISIT' });
+                      e.reset('sea');
+                    }),
                 }
               : undefined
           }
