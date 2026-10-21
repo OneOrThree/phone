@@ -2322,6 +2322,7 @@ function FinalIslandScene({
               name={i.name}
               clock={todayClock}
               color={state.color}
+              outfit={outfitOf(state)}
               requests={
                 friendRequestCount ??
                 (state.friends ?? []).filter((f) => f.status === 'received').length

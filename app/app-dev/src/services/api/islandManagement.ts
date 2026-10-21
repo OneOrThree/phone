@@ -94,6 +94,8 @@ export type IslandJoinRequestItem = {
   name: string | null;
   /** 신청자 고양이 색(계정 Q03) — 미선택 null. 이 필드를 싣기 전 서버면 없을 수 있다. */
   catColor?: string | null;
+  /** 신청자 착용(GROMO-2389) — 머리·목 id 는 appearanceOutfit 으로 꺼낸다. */
+  appearance?: unknown;
   status: 'pending';
   version: number;
 };

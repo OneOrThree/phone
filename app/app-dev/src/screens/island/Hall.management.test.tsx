@@ -11,6 +11,30 @@ jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
   useIslandManagement: jest.fn(),
 }));
+// 주민 아바타의 머리·목 합성(GROMO-2391) — 카탈로그는 세션 없이 고정 표로 대신한다
+jest.mock('@/services/customizationCatalog', () => ({
+  useCustomizationCatalog: () => ({
+    mandarin: {
+      productId: 'mandarin',
+      slot: 'head',
+      imageUrl: 'https://x/mandarin.png',
+      width: 1254,
+      height: 1254,
+      anchorX: 0.5,
+      anchorY: 0.5,
+      catFit: {
+        width: 1254,
+        height: 1254,
+        crop: [329, 349, 940, 942],
+        colors: ['cream'],
+        motions: {},
+        stills: ['avatar'],
+        rigUrls: {},
+        head: { drawWidth: 64, depthY: 9, contacts: {}, shadow: { widthFactor: 0.2, height: 2 } },
+      },
+    },
+  }),
+}));
 let mockSessionGeneration = 0;
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockSessionGeneration }));
 jest.mock('@/screens/island/useLedgerScreen', () => ({
@@ -552,6 +576,25 @@ test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으
   // 색 없는 주민 칸이 내 색(state.color)으로 칠해지지 않는다 — 내 색 그림은 어디에도 없다
   if (state.color !== 'cream' && state.color !== 'calico')
     assert.ok(!all.includes(art[`avatar/${state.color}`]));
+});
+
+test('서버 주민이 머리를 입었으면 그 아바타에 합성 캔버스가 얹힌다(GROMO-2391)', async () => {
+  managementMock.mockReturnValue(
+    management({
+      members: [
+        {
+          id: 'host',
+          name: '방장',
+          catColor: 'cream',
+          role: 'host',
+          appearance: { head: 'mandarin' },
+        },
+        { id: 'u2', name: '주민', catColor: 'gray', role: 'member', appearance: {} },
+      ],
+    }),
+  );
+  const screen = await render(<Hall e={e('manage', initialState(true))} />);
+  assert.equal(screen.getAllByTestId('outfit-fit').length, 1);
 });
 
 test('섬 이름·소개 입력 길이는 서버 계약 50/200자와 같다(H24)', async () => {
