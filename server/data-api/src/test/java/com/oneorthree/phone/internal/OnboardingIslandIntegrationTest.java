@@ -9,6 +9,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
@@ -180,6 +181,28 @@ class OnboardingIslandIntegrationTest {
         assertThat(jdbc.queryForObject("select status from groups where id=?", String.class, island))
                 .isEqualTo("ENDED");
         assertThat(count("select count(*) from groups where id=? and deleted_at is null", island)).isZero();
+    }
+
+    @Test
+    @DisplayName("화면 밖의 별도 가입 API로 소속이 생겼으면 무인도 첫 정착 조건을 다시 검사한다")
+    void rejectsSettlementWhenAnotherApiAddedMembership() {
+        UUID user = user();
+        UUID island = telescope.list(user).items().get(0).islandId();
+        var started = focus.startSea(user, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
+        UUID other = islands.create(user(), new CreateIslandCommandRequest("다른 섬", null, false, 5),
+                UUID.randomUUID()).id();
+        joins.join(user, other, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        Timestamp at = Timestamp.from(Instant.now().minusSeconds(901));
+        jdbc.update("update focus_sessions set started_at=? where id=?", at, started.id());
+        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, started.id());
+        jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, started.id());
+        assertThat(focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID())
+                .arrived()).isTrue();
+        assertThatThrownBy(() -> islands.arrive(user, island, UUID.randomUUID()))
+                .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.ISLAND_JOIN_UNAVAILABLE.getMessage());
+        assertThat(count("select count(*) from group_members where user_id=? and group_id=?", user, island)).isZero();
+        assertThat(jdbc.queryForObject("select is_private from groups where id=?", Boolean.class, island)).isTrue();
+        assertThat(count("select count(*) from onboarding_islands where user_id=?", user)).isEqualTo(1);
     }
 
     private UUID user() {

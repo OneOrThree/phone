@@ -85,6 +85,10 @@ public class OnboardingIslandService {
         if (!sessions.hasCompletedSeaArrival(user.getId(), island.getId())) {
             throw new GroupException(GroupErrorCode.ISLAND_NOT_ARRIVED);
         }
+        // 앱의 항해 화면에는 가입 동작이 없다. 별도 API 요청으로 소속이 생겼다면 첫 정착 조건도 다시 확인한다.
+        if (!members.findActiveGroupIdsByUserId(user.getId()).isEmpty()) {
+            throw new GroupException(GroupErrorCode.ISLAND_JOIN_UNAVAILABLE);
+        }
         guards.requireNoLiveFocusSession(user);
         guards.requireDepartureUnlocked(context);
         guards.requireJoinedIslandLimit(user);
