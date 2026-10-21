@@ -631,7 +631,10 @@ function Gromo() {
           reset('login');
         })
         .catch(() => {});
-    } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
+    } else
+      transitionRoute(
+        state.onboarded ? 'home' : state.onboardingStory === 'done' ? 'sea' : 'chooseIsland',
+      );
   };
   const home = () => {
     const finish = () => {
@@ -1617,7 +1620,13 @@ function Gromo() {
       experienceIsland !== state.serverIslands.currentIslandId
     ) {
       setGuideStep(4);
-      reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+      reset(
+        state.serverIslands.currentIslandId
+          ? 'home'
+          : state.onboardingStory === 'done'
+            ? 'sea'
+            : 'chooseIsland',
+      );
       return;
     }
     const restoring = !tutorialBootReconciled.current;
@@ -1917,7 +1926,13 @@ function Gromo() {
         state.serverIslands
       ) {
         dispatch({ type: 'END_VISIT' });
-        reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+        reset(
+          state.serverIslands.currentIslandId
+            ? 'home'
+            : state.onboardingStory === 'done'
+              ? 'sea'
+              : 'chooseIsland',
+        );
         return true;
       }
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
