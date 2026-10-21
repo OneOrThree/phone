@@ -9,11 +9,8 @@
   "query": [
     {
       "name": "type",
-      "gen": "enum",
-      "values": [
-        "NICKNAME",
-        "CODE"
-      ]
+      "gen": "const",
+      "value": "NICKNAME"
     },
     {
       "name": "q",

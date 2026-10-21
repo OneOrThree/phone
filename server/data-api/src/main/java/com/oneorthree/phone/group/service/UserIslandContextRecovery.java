@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.UserIslandContextRepository;
 import com.oneorthree.phone.group.repository.UserMainIslandRepository;
 import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
@@ -10,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -23,10 +27,13 @@ import java.util.UUID;
  *
  * <h2>두 갈래</h2>
  * <ul>
- *   <li>남은 소속이 있으면 <b>남은 메인 섬</b>으로 옮긴다 — 정책 「다른 소속 섬이 있으면 … 남은 메인
- *       섬으로 이동한다」. 후보는 {@link MainIslandService#mainIslandId} 가 이미 계산해 둔 값이다.</li>
- *   <li>남은 소속이 없으면 사유와 함께 비운다 — 정책 「마지막 소속 섬에서 탈퇴하면 `04 · 혼자 시작 /
- *       기존 섬 참여` 화면으로 이동한다」. 사유를 함께 적지 않으면 «한 번도 없음»과 구별이 사라진다.</li>
+ *   <li>남은 소속 중 <b>가 본 섬</b>이 있으면 그중 <b>최근 머문 섬</b>({@code island_arrivals.last_arrived_at}
+ *       최신)으로 옮긴다 — 섬 외부 계약 §1 (GROMO-2260). 종전의 «메인 섬» 규칙을 대체했다: 나가기
+ *       응답의 {@code nextLocation} 이 이 결과를 그대로 읽으므로 둘이 같은 규칙이어야 한다.</li>
+ *   <li>그런 섬이 없으면(소속이 없거나, 망원경으로 가입만 하고 아직 안 가 본 섬뿐) 사유와 함께 비운다 —
+ *       먼바다다. 사유를 함께 적지 않으면 «한 번도 없음»과 구별이 사라진다.</li>
+ *   <li><b>강퇴는 남은 소속이 있어도 비운다</b>(GROMO-2315, 10/16 결정) — 강퇴된 사람은 먼바다로 가고
+ *       {@code lossReason=KICKED} 로 앱이 강퇴 안내를 띄운다. 자진 이탈만 남은 섬으로 옮긴다.</li>
  * </ul>
  *
  * <h2>호출 지점은 하나다</h2>
@@ -52,7 +59,10 @@ public class UserIslandContextRecovery {
 
     private final UserIslandContextRepository contexts;
     private final UserMainIslandRepository mainIslands;
-    private final MainIslandService mainIslandService;
+    private final GroupMemberRepository groupMembers;
+    private final IslandArrivalRepository arrivals;
+    /** 복구 이동의 도착 시각 (GROMO-2260) — 테스트가 {@code @MockitoBean Clock} 으로 고정한다. */
+    private final Clock clock;
 
     /**
      * 멤버십이 끝났다 — 그 섬이 «지금 접속한 섬»이었으면 옮기거나 비운다.
@@ -69,11 +79,17 @@ public class UserIslandContextRecovery {
         if (context == null || !member.getGroup().getId().equals(context.getCurrentIslandId())) {
             return;
         }
-        UUID next = mainIslandService.mainIslandId(userId);
+        // 이탈 마킹이 끝난 행이라 남은 활성 소속에 잃은 섬은 없다(조회 전 자동 flush).
+        // 강퇴는 남은 섬이 있어도 먼바다다(GROMO-2315) — 옮길 후보를 보지 않는다.
+        List<UUID> remaining = member.isKicked() ? List.of() : groupMembers.findActiveGroupIdsByUserId(userId);
+        UUID next = remaining.isEmpty() ? null
+                : arrivals.findLatestArrivedIslandIdAmong(userId, remaining).orElse(null);
         if (next == null) {
             context.release(reasonOf(member));
         } else {
             context.moveTo(next);
+            // 다시 머물게 된 섬이다 — «최근 머문» 축을 함께 갱신해야 다음 복구가 이 섬을 오래된 섬으로 보지 않는다.
+            arrivals.recordArrival(userId, next, clock.instant(), true);
         }
     }
 

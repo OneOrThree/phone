@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import Svg, { G, Path, Polygon } from 'react-native-svg';
 import { Asset } from 'expo-asset';
-import { useFonts } from 'expo-font';
+import { GOWUN, useGowunFont } from '@/screens/island/sceneKit';
 import { useAppLayout } from '@/utils/layout';
 import {
   Building,
@@ -47,15 +47,22 @@ import {
   viewIsland,
 } from '@/services/model';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
-import { sessionGeneration } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { localized, t } from '@/i18n';
-import { semanticTokens } from '@/design-system/tokens';
+import { errorTextOr, localized, t } from '@/i18n';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { MagazineRack } from '@/screens/magazine/MagazineRack';
+import { magazineUnread } from '@/screens/magazine/useMagazineToday';
+import type { MagazineToday } from '@/services/api/magazine';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
+import { isNearScrollEnd } from '@/utils/scrollEnd';
 import { useMailbox } from './useMailbox';
+import { Guestbook } from './Guestbook';
+import { CatAvatar } from '@/components/CatAvatar';
+import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -68,7 +75,7 @@ export type Concept = {
   position: 'scene' | 'bottom' | 'middle';
   items: Item[];
   managementTab?: 'info' | 'residents' | 'requests';
-  boardPanel?: '' | 'notice' | 'quest' | 'blueprint';
+  boardPanel?: '' | 'notice' | 'quest' | 'blueprint' | 'guestbook';
   boardRole?: 'owner' | 'resident';
   boardView?: string;
 };
@@ -493,8 +500,8 @@ export const buildings: BuildingData[] = [
 export const BODY_FONT =
   Platform.OS === 'web'
     ? "Gowun,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif"
-    : 'Gowun';
-export const GOWUN = 'Gowun';
+    : GOWUN;
+export { GOWUN };
 export const INK = '#493b39';
 export const OUTLINE = '#7d5f4d';
 
@@ -518,13 +525,8 @@ export const assetUri = (source: ImageSourcePropType) => Asset.fromModule(source
 // 원본 크롬은 줄 높이를 1/64px 단위로 내려 잡는다. 같은 높이로 맞춰야 회전한 요소 가장자리가 어긋나지 않는다
 export const lh = (px: number) => Math.floor(px * 64) / 64;
 
-export function useInteriorFonts() {
-  return useFonts({
-    Gowun: require('@/assets/fonts/gowun-dodum.ttf'),
-    BoardHand: require('@/assets/interiors/fonts/Gaegu-Regular.ttf'),
-    'BoardHand-Bold': require('@/assets/interiors/fonts/Gaegu-Bold.ttf'),
-  });
-}
+// 장면 글꼴은 고운돋움 하나다(DESIGN.md §5.1). 네이티브는 앱에 들어 있어 첫 렌더부터 불러온 상태다
+export const useInteriorFonts = useGowunFont;
 
 // CSS ease (cubic-bezier(.25,.1,.25,1))
 const ease = Easing.bezier(0.25, 0.1, 0.25, 1);
@@ -2286,22 +2288,17 @@ function DeskHotspot({ reduceMotion }: { reduceMotion: boolean }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (reduceMotion || Platform.OS === 'web') return;
+    // 네이티브 드라이버(GROMO-2374)는 보간의 easing 을 버리므로 0.9초 easeInOut 왕복으로 같은 곡선을 만든다
     const loop = Animated.loop(
-      Animated.timing(t, {
-        toValue: 1,
-        duration: 1800,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }),
+      Animated.sequence([
+        Animated.timing(t, { toValue: 1, duration: 900, easing: easeInOut, useNativeDriver: true }),
+        Animated.timing(t, { toValue: 0, duration: 900, easing: easeInOut, useNativeDriver: true }),
+      ]),
     );
     loop.start();
     return () => loop.stop();
   }, [reduceMotion, t]);
-  const scale = t.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [1, 1.06, 1],
-    easing: easeInOut,
-  });
+  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
   const moving = !reduceMotion && Platform.OS !== 'web';
   return (
     <Animated.View
@@ -2315,11 +2312,10 @@ function DeskHotspot({ reduceMotion }: { reduceMotion: boolean }) {
           borderRadius: 18,
           backgroundColor: exact('#ffffff73'),
           boxShadow: '0 0 0 2px #ffffff70,0 0 0 6px #f4a7bb55',
-          transform: [
-            { translateX: '-50%' },
-            { translateY: '-50%' },
-            { scale: moving ? scale : 1 },
-          ],
+          // 네이티브 드라이버 transform 은 % 이동을 못 받는다 — 네이티브는 크기(36)의 절반만큼 margin 으로 가운데를 맞춘다
+          ...(moving
+            ? { marginLeft: -18, marginTop: -18, transform: [{ scale }] }
+            : { transform: [{ translateX: '-50%' }, { translateY: '-50%' }] }),
         },
         !reduceMotion && deskPulse,
       ]}
@@ -2921,7 +2917,9 @@ type QuestView = Omit<Quest, 'rate'> & {
 type ResidentRate = {
   id: string;
   name: string;
-  color: Cat;
+  // 서버가 털색을 안 준 주민(탈퇴 등)은 null — 그릴 때 중립 gray 로 둔다
+  color: string | null;
+  outfit?: Outfit;
   rate: number | null;
   achieved?: boolean;
   claimed?: boolean;
@@ -2949,7 +2947,7 @@ type QuestForm = {
 };
 type BoardState = {
   role: 'owner' | 'resident';
-  panel: '' | 'notice' | 'quest' | 'blueprint';
+  panel: '' | 'notice' | 'quest' | 'blueprint' | 'guestbook';
   view: string;
   noticeIndex: number;
   questIndex: number;
@@ -3227,19 +3225,43 @@ function Scroll({
   style,
   children,
   testID,
+  onEndReached,
 }: {
   style: any;
   children: React.ReactNode;
   testID?: string;
+  onEndReached?: () => void;
 }) {
   if (Platform.OS !== 'web')
     return (
-      <ScrollView testID={testID} style={style} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        testID={testID}
+        style={style}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={
+          onEndReached
+            ? (event) => {
+                if (isNearScrollEnd(event)) onEndReached();
+              }
+            : undefined
+        }
+      >
         {children}
       </ScrollView>
     );
   return (
-    <View testID={testID} style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>
+    <View
+      testID={testID}
+      {...(onEndReached
+        ? {
+            onScroll: (event: React.UIEvent<HTMLElement>) => {
+              if (isNearScrollEnd(event)) onEndReached();
+            },
+          }
+        : {})}
+      style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}
+    >
       {children}
     </View>
   );
@@ -3417,7 +3439,7 @@ function PaperAction({
     >
       <Text
         style={[
-          boardFont(16, 1.2, '400', '#7e5541', 'BoardHand-Bold'),
+          boardFont(16, 1.2, '700', '#7e5541'),
           { textDecorationLine: 'underline' },
           webOnly({ textUnderlineOffset: 4 }),
         ]}
@@ -3465,7 +3487,7 @@ function PaperStamp({
         pressed && { opacity: 0.55, transform: [{ rotate: '-1deg' }, { scale: 0.98 }] },
       ]}
     >
-      <Text style={boardFont(16, 1.2, '400', '#8d5b50', 'BoardHand-Bold')}>{label}</Text>
+      <Text style={boardFont(16, 1.2, '700', '#8d5b50')}>{label}</Text>
     </Pressable>
   );
 }
@@ -3706,7 +3728,7 @@ function QuestCard({
           gap: 6,
         }}
       >
-        <Text style={boardFont(18, 1.2, '400', INK, 'BoardHand-Bold')}>{quest.title}</Text>
+        <Text style={boardFont(18, 1.2, '700', INK)}>{quest.title}</Text>
       </View>
       <Text style={[boardFont(12, 1.45, '400', '#786147', GOWUN), { marginTop: 5 }]}>
         {quest.type === 'phone'
@@ -3764,7 +3786,12 @@ function QuestCard({
 }
 
 // 앱 라우트의 게시판 탭 이름 ↔ 종이
-const boardTabs = { notice: '공지', quest: '퀘스트', blueprint: '청사진' } as const;
+const boardTabs = {
+  notice: '공지',
+  quest: '퀘스트',
+  blueprint: '청사진',
+  guestbook: '방명록',
+} as const;
 // 건물 → 청사진 설명(buildOptions)과 완공 후 이동할 라우트
 const blueprintOption: Partial<Record<Building, string>> = {
   library: 'library',
@@ -3856,6 +3883,7 @@ function boardFromApp(e: any) {
         id,
         name: id === 'me' ? `${state.name} · 나` : (who?.name ?? '떠난 주민'),
         color: id === 'me' ? state.color : (who?.color ?? 'gray'),
+        outfit: id === 'me' ? outfitOf(state) : undefined,
         rate: q ? questMemberRate(state, q, id, i.id, now) : null,
       };
     });
@@ -4018,6 +4046,7 @@ export function Board({
   onBoardModalChange,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
+  const guestbookMore = useRef<(() => void) | null>(null);
   const [mockNotices, setNotices] = useState(() =>
     concept.boardPanel === 'notice' && concept.boardView === 'empty' ? [] : NOTICES,
   );
@@ -4034,7 +4063,7 @@ export function Board({
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
-    confirm: null as null | { target: 'notice' | 'comment'; index: number },
+    confirm: null as null | { target: 'notice' | 'comment'; index: number; commentId?: string },
     target: '',
     error: '',
   });
@@ -4227,13 +4256,14 @@ export function Board({
     ? serverQuests
     : (app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) })));
   const residentsOf = (quest: QuestView): ResidentRate[] => {
-    // 서버 경로의 주민 목록은 progress GET 이 정본 — 응답에 털색이 없으니 중립 자리표시자다.
+    // 서버 경로의 주민 목록은 progress GET 이 정본 — 털색·착용도 응답 값을 쓴다(GROMO-2389).
     if (serverBoard) {
       const open = board.questDetail?.occurrenceId === quest.id ? board.questDetail : null;
       return (open?.members ?? []).map((m) => ({
         id: m.userId,
         name: m.name ?? '주민',
-        color: 'gray' as Cat,
+        color: m.catColor ?? null,
+        outfit: appearanceOutfit(m.appearance),
         rate: m.rate,
         achieved: m.achieved,
         claimed: m.claimed,
@@ -4416,7 +4446,7 @@ export function Board({
   const apiWriteMessage = (err: unknown) =>
     err instanceof ApiError && err.code === CLIENT_STALE_SESSION ? '' : apiMessage(err);
   // 서버 상세 — 본문·댓글은 getNotice 만 준다. 탈퇴 작성자의 name 은 null 그대로 두고
-  // (합성 금지) 댓글 삭제는 공개 API 에 없으니 mine 을 붙이지 않는다.
+  // 본인 여부는 서버 작성자 ID와 현재 세션으로 판단한다.
   const serverDetailView: NoticeView | null = board.detail
     ? {
         id: board.detail.id,
@@ -4427,7 +4457,7 @@ export function Board({
           id: c.id,
           name: c.name ?? '',
           text: c.text,
-          mine: false,
+          mine: c.userId != null && c.userId === getSession()?.userId,
         })),
       }
     : null;
@@ -4558,10 +4588,11 @@ export function Board({
     },
     askDelete: (target: 'notice' | 'comment', index = 0) => {
       if (visitor) return;
-      if (target === 'notice' ? !owner : !owner && !notices[s.noticeIndex].comments[index].mine)
-        return;
+      const comment = (serverBoard ? serverDetailView : notices[s.noticeIndex])?.comments[index];
+      if (target === 'notice' ? !owner : !comment || (!owner && !comment.mine)) return;
       draftEpoch.current += 1;
-      if (e) return setUi((prev) => ({ ...prev, confirm: { target, index } }));
+      if (e)
+        return setUi((prev) => ({ ...prev, confirm: { target, index, commentId: comment?.id } }));
       render(
         target === 'notice'
           ? { deleteTarget: 'notice', view: 'confirm' }
@@ -4614,8 +4645,29 @@ export function Board({
         setNotices(mockNotices.filter((_, i) => i !== s.noticeIndex));
         return render({ noticeIndex: 0, view: 'list' });
       }
-      // 댓글 삭제는 공개 API 에 없다 — 서버 경로는 확인창만 닫는다(버튼도 숨겨져 있다).
-      if (e && serverBoard) return setUi((prev) => ({ ...prev, confirm: null }));
+      if (e && serverBoard) {
+        const notice = serverDetailView;
+        const comment = notice?.comments.find((item) => item.id === ui.confirm?.commentId);
+        if (!notice || !comment || (!owner && !comment.mine)) return;
+        const intent = `comment:${notice.id}:${comment.id}`;
+        if (deleteInflight.current === intent) return;
+        deleteInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        board.deleteComment(notice.id, comment.id).then(
+          () => {
+            if (deleteInflight.current === intent) deleteInflight.current = null;
+            if (!liveE(op) || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: '' }));
+          },
+          (err: unknown) => {
+            if (deleteInflight.current === intent) deleteInflight.current = null;
+            if (!liveE(op) || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: apiWriteMessage(err) }));
+          },
+        );
+        return;
+      }
       const notice = notices[s.noticeIndex];
       if (!notice) return;
       const comment = notice.comments[s.commentIndex];
@@ -4947,7 +4999,7 @@ export function Board({
   const noticeList = () => (
     <View>
       <View>
-        <Text style={[boardFont(14, 1.2, '400', '#9b7058', 'BoardHand'), { marginBottom: 1 }]}>
+        <Text style={[boardFont(14, 1.2, '400', '#9b7058'), { marginBottom: 1 }]}>
           {app ? `${app.island.name} 게시판` : '소다 섬 게시판'}
         </Text>
         <View
@@ -4959,7 +5011,7 @@ export function Board({
             marginBottom: 6,
           }}
         >
-          <Text style={boardFont(28, 1.15, '400', INK, 'BoardHand-Bold')}>
+          <Text style={boardFont(28, 1.15, '700', INK)}>
             공지{' '}
             <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#9b7058' }}>
               {notices.length}
@@ -5003,10 +5055,7 @@ export function Board({
               })}
             >
               <Text
-                style={[
-                  boardFont(17, 1.25, '400', INK, 'BoardHand-Bold'),
-                  webOnly({ wordBreak: 'keep-all' }),
-                ]}
+                style={[boardFont(17, 1.25, '700', INK), webOnly({ wordBreak: 'keep-all' })]}
                 lineBreakStrategyIOS="hangul-word"
               >
                 {notice.title}
@@ -5097,7 +5146,7 @@ export function Board({
         )}
         <Text
           style={[
-            boardFont(23, 1.2, '400', INK, 'BoardHand-Bold'),
+            boardFont(23, 1.2, '700', INK),
             { marginTop: 4, marginBottom: 3 },
             webOnly({ wordBreak: 'keep-all', textWrap: 'pretty' }),
           ]}
@@ -5232,8 +5281,7 @@ export function Board({
                   >
                     {text}
                   </Text>
-                  {/* 댓글 삭제는 공개 API 에 없다 — 서버 경로에서는 버튼을 숨긴다 */}
-                  {!visitor && !serverBoard && (owner || mine) && (
+                  {!visitor && (owner || mine) && (
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}
@@ -5425,7 +5473,7 @@ export function Board({
                 주민별 달성률
               </Text>
               <View>
-                {residentsOf(quest).map(({ id, name, color, rate, achieved, claimed }) => {
+                {residentsOf(quest).map(({ id, name, color, outfit, rate, achieved, claimed }) => {
                   const unknown = rate == null;
                   return (
                     <View
@@ -5442,11 +5490,13 @@ export function Board({
                         borderStyle: 'dashed',
                       }}
                     >
-                      <Picture
-                        source={interiorArt.avatars[color]}
-                        label={`${name} 고양이 프로필`}
-                        style={{ width: 42, height: 42 }}
-                      />
+                      <View accessible accessibilityLabel={`${name} 고양이 프로필`}>
+                        <CatAvatar
+                          color={color ?? 'gray'}
+                          outfit={color ? outfit : undefined}
+                          size={42}
+                        />
+                      </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={boardFont(14, 1.6, '700')}>
                           {name}
@@ -5652,7 +5702,7 @@ export function Board({
     return (
       <>
         <View style={{ marginBottom: 4 }}>
-          <Text style={[boardFont(14, 1.2, '400', '#98713d', 'BoardHand'), { marginBottom: 1 }]}>
+          <Text style={[boardFont(14, 1.2, '400', '#98713d'), { marginBottom: 1 }]}>
             매일 새 도전
           </Text>
           <View
@@ -5663,7 +5713,7 @@ export function Board({
               gap: 8,
             }}
           >
-            <Text style={boardFont(27, 1.15, '400', INK, 'BoardHand-Bold')}>
+            <Text style={boardFont(27, 1.15, '700', INK)}>
               퀘스트{' '}
               <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#92713f' }}>
                 {quests.length}
@@ -6141,10 +6191,43 @@ export function Board({
       2 * (scene.height * (blueprintCenterY - questCenterY) - questLabelHitHeight / 2 - 1),
     ),
   );
+  const noticeBox = sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height);
+  const questBox = sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height);
+  const blueprintBox = sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight);
+  // 방명록 = 선반 위 펜꽂이(그림 비율 1024×1536 기준 중심 0.54, 0.535). 알약 라벨이 큰 글자에서도 한 줄로 들어가도록
+  // 터치 영역을 글자 수·글자 배율로 키운다(글자 한 칸을 1em 으로 넉넉히 잡아 어떤 글꼴에서도 줄바꿈이 없다).
+  const guestbookPillHeight =
+    13 * 1.3 * fontScale * labelScale +
+    2 * (primitiveTokens.space[1] + semanticTokens.stroke.default);
+  const guestbookPillWidth =
+    Array.from(t('guestbook.title')).length * 13 * fontScale * labelScale +
+    2 * (primitiveTokens.space[3] + semanticTokens.stroke.default);
+  const guestbookBase = sceneHitbox(
+    0.54,
+    0.535,
+    Math.min(1, Math.max(0.2, guestbookPillWidth / scene.width)),
+    Math.max(0.07, guestbookPillHeight / scene.height),
+  );
   const boardHitboxes = {
-    notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
-    quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
-    blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
+    notice: noticeBox,
+    quest: questBox,
+    blueprint: blueprintBox,
+    // 위쪽 공지·청사진 터치 영역은 큰 글자에서 커진다 — 방명록은 그 1px 아래로 밀어 서로 겹치지 않게 하고(위 영역의
+    // 터치를 가로채지 않게), 넓어진 영역이 장면 밖으로 나가지 않게 가로·세로를 장면 안으로 맞춘다.
+    // 퀘스트 상자는 직접 비교하지 않는다 — 청사진 상자가 그 아래에 있어 청사진 아래면 퀘스트 아래이기도 하다.
+    // 아주 작은 창에서 눌려 남는 겹침은 zIndex(1 < 공지·청사진 2)로 위 영역이 이긴다.
+    guestbook: {
+      ...guestbookBase,
+      left: Math.min(Math.max(0, guestbookBase.left), scene.width - guestbookBase.width),
+      top: Math.min(
+        Math.max(
+          guestbookBase.top,
+          noticeBox.top + noticeBox.height + 1,
+          blueprintBox.top + blueprintBox.height + 1,
+        ),
+        scene.height - guestbookBase.height,
+      ),
+    },
   };
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
   const landScale = land ? width / 874 : 1;
@@ -6161,7 +6244,7 @@ export function Board({
   };
   const pressedFilter = (panel: BoardState['panel']) =>
     s.panel === panel && webOnly({ filter: 'brightness(1.08)' });
-  const paperPanel = s.panel === 'notice' || s.panel === 'quest';
+  const paperPanel = s.panel === 'notice' || s.panel === 'quest' || s.panel === 'guestbook';
   const noticeDetailOpen = s.panel === 'notice' && (s.view === 'detail' || s.view === 'comment');
   const noticeEditorOpen = s.panel === 'notice' && (s.view === 'write' || s.view === 'edit');
   const noticeOverlayOpen = noticeDetailOpen || noticeEditorOpen;
@@ -6184,9 +6267,11 @@ export function Board({
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
-  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
+  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
+  // 방명록은 목록뿐 아니라 제목+입력 칸+글자 수+[남기기](약 203px)가 한 번에 보여야 해서 바닥을 더 높게 둔다
   const sheetHeight = Math.min(height * 0.58, 492 * landScale);
-  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < 140;
+  const minPaperScroll = s.panel === 'guestbook' ? 210 : 140;
+  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < minPaperScroll;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
   const paperPad = sheetCramped
     ? { top: 38 * landScale, bottom: 28 * landScale }
@@ -6344,7 +6429,7 @@ export function Board({
               <Text
                 allowFontScaling
                 style={[
-                  boardFont(28 * labelScale, 1.1, '400', '#76503c', 'BoardHand'),
+                  boardFont(28 * labelScale, 1.1, '400', '#76503c'),
                   {
                     width: scene.width * 0.45,
                     letterSpacing: 0.56 * labelScale,
@@ -6378,7 +6463,7 @@ export function Board({
               <Text
                 allowFontScaling
                 style={[
-                  boardFont(22 * labelScale, 1.1, '400', '#82652c', 'BoardHand-Bold'),
+                  boardFont(22 * labelScale, 1.1, '700', '#82652c'),
                   { width: scene.width * 0.52, textAlign: 'center' },
                 ]}
               >
@@ -6406,6 +6491,41 @@ export function Board({
                   pressedFilter('blueprint'),
                 ]}
               />
+            )}
+            {/* 방명록은 선반 위 펜꽂이로 연다. 서버 게시판(주민)에서만 — 방문자는 VisitorBoard 에 방명록이 있다 */}
+            {serverBoard && (
+              <Pressable
+                testID="board-guestbook-area"
+                accessibilityRole="button"
+                accessibilityLabel={t('guestbook.title')}
+                onPress={() => nav.open('guestbook')}
+                style={[
+                  {
+                    position: 'absolute',
+                    // 공지·청사진(zIndex 2)보다 낮게 — 어떤 글자 배율에서 겹침이 남아도 그쪽 터치가 먼저다
+                    zIndex: 1,
+                    ...boardHitboxes.guestbook,
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                  },
+                  pressedFilter('guestbook'),
+                ]}
+              >
+                <View
+                  style={{
+                    paddingVertical: primitiveTokens.space[1],
+                    paddingHorizontal: primitiveTokens.space[3],
+                    borderRadius: semanticTokens.radius.full,
+                    borderWidth: semanticTokens.stroke.default,
+                    borderColor: semanticTokens.color.outline,
+                    backgroundColor: semanticTokens.color.surface,
+                  }}
+                >
+                  <Text allowFontScaling style={boardFont(13 * labelScale, 1.3, '700')}>
+                    {t('guestbook.title')}
+                  </Text>
+                </View>
+              </Pressable>
             )}
           </View>
         </View>
@@ -6484,22 +6604,6 @@ export function Board({
             }}
           >
             <Pressable
-              testID="board-panel-switch"
-              accessibilityRole="button"
-              accessibilityLabel={`${s.panel === 'notice' ? '퀘스트' : '공지'} 패널로 전환`}
-              onPress={() => nav.open(s.panel === 'notice' ? 'quest' : 'notice')}
-              style={{
-                width: 44,
-                height: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text allowFontScaling={false} style={boardFont(20, 1, '700', '#76503c')}>
-                ⇄
-              </Text>
-            </Pressable>
-            <Pressable
               testID="board-panel-close"
               accessibilityRole="button"
               accessibilityLabel="게시판 닫기"
@@ -6556,6 +6660,44 @@ export function Board({
         )}
         {s.panel === 'quest' && (
           <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
+        )}
+        {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 — 그 첫 조회가 끝나기 전·실패했을 때는 빈 종이가
+            아니라 공지·퀘스트와 같은 불러오는 중·오류+다시 시도를 보인다(다시 시도 = board.retry).
+            키보드는 공지 댓글·편지 입력과 같은 길로 피한다 — App 루트 KeyboardAvoidingView(iOS padding)·adjustResize(안드로이드)가
+            InteriorRoute 높이를 줄이면 paperScroll·sheetCramped 가 그 높이를 따른다(방명록은 minPaperScroll 바닥이 더 높다).
+            automaticallyAdjustKeyboardInsets 는 줄어들기 전 좌표로 inset 을 잡아 이중 보정이 될 수 있어 두지 않는다. */}
+        {s.panel === 'guestbook' && serverBoard && (
+          <Scroll
+            testID="board-guestbook-scroll"
+            style={{ maxHeight: paperScroll }}
+            onEndReached={() => guestbookMore.current?.()}
+          >
+            {board.islandId ? (
+              <Guestbook
+                islandId={board.islandId}
+                host={owner}
+                e={e}
+                onLoadMoreReady={(load) => {
+                  guestbookMore.current = load;
+                }}
+              />
+            ) : board.error && !board.loading ? (
+              <View>
+                <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                  {errorTextOr(board.error, 'guestbook.loadFailed')}
+                </Text>
+                <PaperAction
+                  testID="board-guestbook-retry"
+                  label={t('common.retry')}
+                  onPress={() => board.retry().catch(() => {})}
+                />
+              </View>
+            ) : (
+              <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+                {t('guestbook.loading')}
+              </Text>
+            )}
+          </Scroll>
         )}
         {s.panel === 'blueprint' && (
           <Scroll
@@ -6943,13 +7085,13 @@ function DeskDot({ reduceMotion }: { reduceMotion: boolean }) {
           toValue: 1,
           duration: 900,
           easing: easeInOut,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.timing(t, {
           toValue: 0,
           duration: 900,
           easing: easeInOut,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
       ]),
     );
@@ -6977,12 +7119,11 @@ function DeskDot({ reduceMotion }: { reduceMotion: boolean }) {
     <Animated.View
       style={[
         base,
+        // 네이티브 드라이버 transform 은 % 이동을 못 받는다 — 크기(9)의 절반만큼 margin 으로 가운데를 맞춘다(GROMO-2374)
         {
-          transform: [
-            { translateX: '-50%' },
-            { translateY: '-50%' },
-            { scale: t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
-          ],
+          marginLeft: -4.5,
+          marginTop: -4.5,
+          transform: [{ scale: t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) }],
         },
       ]}
     />
@@ -7393,19 +7534,27 @@ type LetterView = {
   friendId: string;
   from: string;
   island: string;
-  color: Cat;
+  color: string | null;
+  outfit?: Outfit;
   time: string;
   body: string;
   // 서버 목록 경로에서만 온다 — 읽은 편지를 옅게 그리는 데 쓴다.
   isRead?: boolean;
 };
-type FriendView = { id: string; name: string; island: string; color: Cat };
+type FriendView = {
+  id: string;
+  name: string;
+  island: string;
+  color: string | null;
+  outfit?: Outfit;
+};
 type ChatView = {
   id: string;
   name: string;
   text: string;
   time: string;
-  color: Cat;
+  color: string | null;
+  outfit?: Outfit;
   mine: boolean;
   failed?: boolean;
 };
@@ -7520,6 +7669,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
   const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
   const [letterSafetyTarget, setLetterSafetyTarget] = useState<LetterView | null>(null);
+  const [magazineRack, setMagazineRack] = useState(false);
   const [reactTransform, react] = useReact(reduceMotion);
   // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
   const say = (message: string) => (e ? e.notify(message) : showToast(message));
@@ -7533,12 +7683,12 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const liveApp = !!e && !isMockMode();
   // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
   const serverMail = liveApp && !state?.visitingIslandId;
-  const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });
-  // 서버는 아바타 색을 주지 않는다 — userId 로 deterministic 하게 고른다.
-  const mailCat = (id: string): Cat =>
-    (['gray', 'cream', 'ginger', 'black', 'calico', 'white'] as Cat[])[
-      [...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 6
-    ];
+  const mail = useMailbox({
+    active: serverMail,
+    scopeKey: island ? String(island.id) : 'mock',
+    chatActive: e?.route === 'chat',
+  });
+  // 우체통 낙서 작성자만 서버가 털색·착용을 준다(GROMO-2389) — 친구·편지 상대는 값이 없어 null(중립 gray 로 그린다).
   const friendIsland = (userId: string) =>
     mail.friends.find((f) => f.userId === userId)?.mainIslandName ?? '';
   const friends: FriendView[] = serverMail
@@ -7546,7 +7696,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         id: f.userId,
         name: f.nickname ?? '알 수 없음',
         island: f.mainIslandName ?? '',
-        color: mailCat(f.userId),
+        color: f.catColor ?? null,
+        outfit: appearanceOutfit(f.appearance),
       }))
     : state
       ? (state.friends ?? [])
@@ -7559,7 +7710,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         friendId: l.counterpartUserId,
         from: l.counterpartNickname ?? '알 수 없음',
         island: friendIsland(l.counterpartUserId),
-        color: mailCat(l.counterpartUserId),
+        color: l.catColor ?? null,
+        outfit: appearanceOutfit(l.appearance),
         time: letterTime(Date.parse(l.createdAt), now),
         body: l.content,
         isRead: l.isRead,
@@ -7583,7 +7735,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           friendId: mail.detail.senderId,
           from: mail.detail.senderNickname ?? '알 수 없음',
           island: friendIsland(mail.detail.senderId),
-          color: mailCat(mail.detail.senderId),
+          color: mail.detail.catColor ?? null,
+          outfit: appearanceOutfit(mail.detail.appearance),
           time: letterTime(Date.parse(mail.detail.createdAt), now),
           body: mail.detail.content,
         }
@@ -7612,7 +7765,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         name: m.name ?? '알 수 없음',
         text: m.text,
         time: chatTime(Date.parse(m.createdAt), now),
-        color: mailCat(m.userId),
+        color: m.catColor ?? null,
+        outfit: appearanceOutfit(m.appearance),
         mine: m.userId === mail.myId,
         failed: false,
       }))
@@ -7713,7 +7867,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 차단 판정이 true로 바뀌는 순간 한 번만 상세를 닫는다.
   }, [serverMail, route, mail.detailBlocked]);
 
-  const catAvatar = (color: Cat, size = 34) => (
+  const catAvatar = (color: string | null, size = 34, outfit?: Outfit) => (
     <View
       style={{
         width: size,
@@ -7728,11 +7882,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         boxShadow: '0 2px 0 #b58f6b',
       }}
     >
-      <Image
-        source={interiorArt.avatars[color]}
-        resizeMode="cover"
-        style={{ width: size, height: size }}
-      />
+      <CatAvatar color={color ?? 'gray'} outfit={color ? outfit : undefined} size={size} />
     </View>
   );
 
@@ -7837,6 +7987,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       : state
         ? letters.length
         : 3;
+  // 고양이 잡지(GROMO-2289 · C4) — 오늘 호가 나와 있으면 「고양이 잡지 보기 · N호」(안 읽었으면 빨간 점), 지난 호는 꽂이(C5)
+  const magazineToday: MagazineToday | null = e?.magazineToday ?? null;
+  const magazineIssue = magazineToday?.issue?.current ? magazineToday.issue : null;
+  const magazineUnreadDot = magazineUnread(magazineToday);
   const homeItems: [string, string][] = [
     ['우리 섬 채팅방', newChat ? `새 글 ${newChat}개` : ''],
     ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
@@ -7908,6 +8062,87 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   const home = (
     <>
+      {e && magazineToday?.issue && (
+        <View
+          style={{
+            flexDirection: 'row',
+            columnGap: componentTokens.mailboxAction.gap,
+            marginBottom: componentTokens.mailboxAction.gap,
+          }}
+        >
+          {magazineIssue && (
+            <Pressable
+              testID="mail-home-magazine"
+              accessibilityRole="button"
+              accessibilityLabel={t(
+                magazineUnreadDot ? 'magazine.mail.unreadA11y' : 'magazine.mail.open',
+                { no: magazineIssue.issueNo },
+              )}
+              onPress={() => e.go('magazine', magazineIssue.issueId)}
+              style={{
+                flex: 1,
+                minHeight: semanticTokens.size.tapMin,
+                paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
+                justifyContent: 'center',
+                borderWidth: componentTokens.mailboxAction.borderWidth,
+                borderColor: componentTokens.mailboxAction.border,
+                borderRadius: componentTokens.mailboxAction.pillRadius,
+                backgroundColor: semanticTokens.color.primary,
+                boxShadow: componentTokens.mailboxAction.shadow,
+              }}
+            >
+              <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+                {t('magazine.mail.open', { no: magazineIssue.issueNo })}
+              </Text>
+              {magazineUnreadDot && (
+                <View
+                  testID="mail-home-magazine-dot"
+                  style={{
+                    position: 'absolute',
+                    top: -componentTokens.mailboxAction.dotSize / 3,
+                    right: componentTokens.mailboxAction.dotSize / 2,
+                    width: componentTokens.mailboxAction.dotSize,
+                    height: componentTokens.mailboxAction.dotSize,
+                    borderRadius: componentTokens.mailboxAction.dotSize / 2,
+                    borderWidth: semanticTokens.stroke.strong,
+                    borderColor: componentTokens.mailboxAction.dotBorder,
+                    backgroundColor: semanticTokens.color.danger,
+                  }}
+                />
+              )}
+            </Pressable>
+          )}
+          <Pressable
+            testID="mail-home-rack"
+            accessibilityRole="button"
+            accessibilityLabel={t('magazine.rack.open')}
+            onPress={() => setMagazineRack(true)}
+            style={{
+              flex: magazineIssue ? 0 : 1,
+              minHeight: semanticTokens.size.tapMin,
+              paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
+              justifyContent: 'center',
+              borderWidth: componentTokens.mailboxAction.borderWidth,
+              borderColor: componentTokens.mailboxAction.border,
+              borderRadius: componentTokens.mailboxAction.pillRadius,
+              backgroundColor: semanticTokens.color.surface,
+              boxShadow: componentTokens.mailboxAction.shadow,
+            }}
+          >
+            <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+              {t('magazine.rack.open')}
+            </Text>
+          </Pressable>
+          <MagazineRack
+            visible={magazineRack}
+            onClose={() => setMagazineRack(false)}
+            onOpen={(id) => {
+              setMagazineRack(false);
+              e.go('magazine', id);
+            }}
+          />
+        </View>
+      )}
       <View
         style={[
           {
@@ -7958,6 +8193,31 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     setGroupSent(true);
     showToast('소다 섬 주민 모두에게 남겼어요');
   };
+  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
+    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
+      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
+        {error.message}
+      </Text>
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={{
+          minHeight: 28,
+          paddingVertical: 5,
+          paddingHorizontal: 12,
+          justifyContent: 'center',
+          borderWidth: 1.2,
+          borderColor: '#795642',
+          borderRadius: 7,
+          backgroundColor: '#fff8e8',
+          boxShadow: '0 2px 0 #795642',
+        }}
+      >
+        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
+      </Pressable>
+    </View>
+  );
   const islandRoom = (
     <>
       {header(
@@ -8006,6 +8266,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               아직 남긴 글이 없어요.
             </Text>
           ) : null}
+          {serverMail &&
+            mail.messagesRefreshError &&
+            mailRetry(mail.messagesRefreshError, 'chat-refresh-retry', () =>
+              mail.retry().catch(() => {}),
+            )}
           {serverMail && mail.messagesCursor ? (
             <Pressable
               testID="chat-more"
@@ -8053,7 +8318,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 key={m.id}
                 style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: 7 }}
               >
-                {catAvatar(m.color, 30)}
+                {catAvatar(m.color, 30, m.outfit)}
                 <View
                   style={{
                     flex: 1,
@@ -8125,31 +8390,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const mailStatus = (label: string) => (
     <View style={{ paddingVertical: 30, alignItems: 'center' }}>
       <Text style={mailFont(8, 1.4, '#826c5b', '800')}>{label}</Text>
-    </View>
-  );
-  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
-    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
-      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
-        {error.message}
-      </Text>
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        onPress={onRetry}
-        style={{
-          minHeight: 28,
-          paddingVertical: 5,
-          paddingHorizontal: 12,
-          justifyContent: 'center',
-          borderWidth: 1.2,
-          borderColor: '#795642',
-          borderRadius: 7,
-          backgroundColor: '#fff8e8',
-          boxShadow: '0 2px 0 #795642',
-        }}
-      >
-        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
-      </Pressable>
     </View>
   );
   const unreadCount = serverMail ? mail.letters.filter((l) => !l.isRead).length : letters.length;
@@ -8263,7 +8503,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         ]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
-          {catAvatar(openedLetter.color, 40)}
+          {catAvatar(openedLetter.color, 40, openedLetter.outfit)}
           <View style={{ flex: 1 }}>
             <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
             <Text
@@ -8398,7 +8638,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 transform: chosen === friend ? [{ translateX: 3 }] : undefined,
               }}
             >
-              {catAvatar(friend.color, 38)}
+              {catAvatar(friend.color, 38, friend.outfit)}
               <View style={{ flex: 1 }}>
                 <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
                 <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>
@@ -8610,9 +8850,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             visible
             targetUserId={letterSafetyTarget.friendId}
             targetName={letterSafetyTarget.from}
-            reportTargetType="LETTER"
-            reportTargetId={letterSafetyTarget.id}
-            reportEvidence={letterSafetyTarget.body}
             onClose={() => setLetterSafetyTarget(null)}
             onChanged={() => {
               back('inbox');
@@ -8716,7 +8953,7 @@ function ShopGramArtifact({ concept, reduceMotion, showToast }: ArtifactProps) {
         toValue: 1,
         duration: 2300,
         easing: Easing.linear,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
     );
     loop.start();

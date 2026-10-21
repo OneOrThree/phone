@@ -10,10 +10,11 @@ import {
   CLIENT_TIMEOUT,
   uuid,
 } from '@/services/api/client';
-import { me as apiMe } from '@/services/api/auth';
+import { type Account, me as apiMe } from '@/services/api/auth';
 import { updateProfile as apiUpdateProfile } from '@/services/api/account';
 import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
-import { sessionGeneration } from '@/services/api/session';
+import { readAccountGuides } from '@/services/accountGuides';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   cancelJoinRequest as apiCancelJoinRequest,
   createIsland as apiCreateIsland,
@@ -21,6 +22,7 @@ import {
   discoverIslands as apiDiscoverIslands,
   explore as apiExplore,
   joinIsland as apiJoinIsland,
+  type JoinOrigin,
   joinRequest as apiJoinRequest,
   myIslands as apiMyIslands,
   myJoinRequests as apiMyJoinRequests,
@@ -84,10 +86,20 @@ const contractError = () =>
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
+// 안내 이력의 조회·오류 복구는 useAccountGuides가 맡는다. 로컬 오류로 서버 정본·명령 성공을 버리지 않는다.
+const guidesForSync = async (ownerId: string | undefined) => {
+  if (!ownerId) return null;
+  try {
+    return await readAccountGuides(ownerId);
+  } catch {
+    return null;
+  }
+};
+
 // 결과 불명 — 쓰기가 서버에 닿았는지·커밋됐는지 알 수 없다. SERVICE_UNAVAILABLE은 서킷 오픈(미발송)뿐
 // 아니라 Data 응답 수신 중 연결이 끊긴 경우에도 나온다. 둘 다 공개 응답에선 HTTP 400으로 접히므로
-// (티켓 2088) 상태가 아니라 code로 가른다.
-const unknownOutcome = (e: unknown) =>
+// (티켓 2088) 상태가 아니라 code로 가른다. 망원경의 도착 기록(Telescope)도 같은 분류를 쓴다.
+export const unknownOutcome = (e: unknown) =>
   e instanceof ApiError &&
   ['UPSTREAM_TIMEOUT', 'SERVICE_UNAVAILABLE', CLIENT_TIMEOUT, CLIENT_NETWORK_ERROR].includes(
     e.code,
@@ -153,13 +165,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   // null current+소속은 유효하다(첫 pending 승인이 소속을 만들어도 current는 안 옮긴다).
   // /me 의 mainIslandId 도 함께 싣는다 — 소속 목록이 바뀌는 자리마다(가입·생성·승인·이탈 복구)
   // 서버 도출값(가장 최근 가입)과 프로필 선택값이 갈리지 않게 같은 액션으로 갈아 끼운다.
-  const syncIslandSnapshot = async () => {
+  // 부팅은 checkSession 이 방금 읽은 /me 계정을 넘겨 같은 요청을 두 번 보내지 않는다(GROMO-2377).
+  const syncIslandSnapshot = async (bootAccount?: Account) => {
     const g = generation();
     const revision = ++syncRevision;
-    const [my, requests, account] = await Promise.all([
+    const ownerId = getSession()?.userId;
+    const [my, requests, account, guides] = await Promise.all([
       api.myIslands(),
       allJoinRequests(g),
-      api.me(),
+      bootAccount ?? api.me(),
+      guidesForSync(ownerId),
     ]);
     alive(g);
     if (revision !== syncRevision) throw staleError();
@@ -167,12 +182,13 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     deps.dispatch({
       type: 'ISLAND_SYNC',
       memberships: my,
+      focusGuideDone: guides?.focusDone,
       requests,
       mainIslandId: account.mainIslandId,
     });
     return { my, requests };
   };
-  const syncIslands = async () => (await syncIslandSnapshot()).my;
+  const syncIslands = async (bootAccount?: Account) => (await syncIslandSnapshot(bootAccount)).my;
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
   // 쓰기 명령(write)은 결과 불명 오류에서도 재조회한다 — 서버가 이미 커밋했을 수 있다(GROMO-2118).
   // 조회는 아무것도 불명으로 만들지 않으므로 제외한다(승인 대기 폴링이 실패마다 재조회를 부르지 않게).
@@ -289,11 +305,20 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       call(async () => {
         const g = generation();
         const revision = ++syncRevision;
-        const [screen, requests] = await Promise.all([api.explore(), allJoinRequests(g)]);
+        const ownerId = getSession()?.userId;
+        const [screen, requests, guides] = await Promise.all([
+          api.explore(),
+          allJoinRequests(g),
+          guidesForSync(ownerId),
+        ]);
         alive(g);
         if (revision !== syncRevision) throw staleError();
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
-        deps.dispatch({ type: 'ISLAND_SYNC', memberships: screen.memberships });
+        deps.dispatch({
+          type: 'ISLAND_SYNC',
+          memberships: screen.memberships,
+          focusGuideDone: guides?.focusDone,
+        });
         deps.dispatch({
           type: 'ISLAND_CANDIDATES',
           items: screen.islands.items,
@@ -338,12 +363,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     // 가입·가입 신청. pending이면 requestId를 스냅샷에 남기고 승인 화면으로,
     // active면 /me/islands 재조회로 current를 확정한다(arrival/home은 CurrentScreens 차단이
     // 풀리기 전까지 열지 않는다). 응답이 확정되면 의도 키를 해제한다 — 취소·거절 뒤 같은 섬
-    // 재신청은 새 키를 쓴다.
-    join: (islandId: string, { showApproval = true }: { showApproval?: boolean } = {}) =>
+    // 재신청은 새 키를 쓴다. origin 은 선택(GROMO-2266 망원경) — 생략하면 본문·키가 이전과 같다.
+    join: (
+      islandId: string,
+      { showApproval = true, origin }: { showApproval?: boolean; origin?: JoinOrigin } = {},
+    ) =>
       call(async () => {
         const g = generation(),
           token = scoped().tokens[islandId],
-          body = token ?? '';
+          // 의도 키는 «본문이 같은 재시도»에만 같다 — origin 이 다르면 서버 지문이 달라 같은 키를 쓰면 충돌한다.
+          body = (token ?? '') + (origin ? `|origin:${origin}` : '');
         // 복구된 활성 소속에는 쓰기 응답의 version이 없으므로 임의로 만들지 않는다.
         let result: Omit<Awaited<ReturnType<IslandApi['join']>>, 'version'> & {
           version?: number;
@@ -352,6 +381,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           result = await api.join(islandId, {
             idempotencyKey: scoped().keys.key(`join:${islandId}`, body),
             invitationToken: token,
+            ...(origin && { origin }),
           });
           alive(g);
           if (result.status === 'active') await syncIslands();
@@ -484,14 +514,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         scoped().keys.release(`cancel:${requestId}`, '');
       }),
     // 섬 탈퇴(4-06) — 응답만으로 로컬 소속을 지우지 않고 /me/islands 재조회로 확정한다.
-    // 마지막 섬이었으면 current 가 비어 onboarded=false 가 되고 App 이 섬 선택 화면으로 보낸다.
-    // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다.
+    // 갈 섬이 없으면 current 가 비어 onboarded=false 가 되고 App 이 바다로 보낸다(GROMO-2366).
+    // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다 — 이때 다음 위치는 모른다.
     leave: (islandId: string) =>
       call(async () => {
         const g = generation();
-        let my;
+        let my, nextLocation;
         try {
-          await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          const res = await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          // 빈 본문(payload null)이어도 나가기는 성공이다 — 다음 위치만 «모름»으로 둔다
+          nextLocation = res?.nextLocation;
           alive(g);
           my = await syncIslands();
         } catch (error) {
@@ -505,7 +537,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         alive(g);
         if (my.items.some((item) => item.id === islandId)) throw contractError();
         scoped().keys.release(`leave:${islandId}`, '');
-        return my;
+        return { ...my, nextLocation };
       }),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가
     // 죽었으면 플래그도 건드리지 않는다.

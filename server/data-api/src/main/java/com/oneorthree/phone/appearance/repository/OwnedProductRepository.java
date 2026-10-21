@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,6 +33,33 @@ public interface OwnedProductRepository extends JpaRepository<OwnedProduct, UUID
             + "WHERE o.ownerType = 'island' AND o.groupId = :islandId AND o.productId = :productId")
     boolean existsByIslandIdAndProductId(@Param("islandId") UUID islandId,
             @Param("productId") String productId);
+
+    /**
+     * 주어진 상품 중 이 유저가 개인 인벤토리에 이미 가진 것의 id — 상품마다 {@link #existsByUserIdAndProductId} 를
+     * 묻지 않고 한 번에 거를 때 쓴다. {@code productIds} 는 비어 있으면 안 된다.
+     */
+    @Query("SELECT o.productId FROM OwnedProduct o "
+            + "WHERE o.ownerType = 'user' AND o.userId = :userId AND o.productId IN :productIds")
+    List<String> findProductIdsByUserIdAndProductIdIn(@Param("userId") UUID userId,
+            @Param("productIds") Collection<String> productIds);
+
+    /**
+     * 개인 보유 행을 없을 때만 넣는다 (GROMO-2301 집중 꾸미기 보상). check-then-insert 가 아니라 충돌을 무시해, 같은 상품을
+     * 먼저 넣은 트랜잭션이 있어도 유일 위반으로 정산 전체가 실패하지 않는다. 실제로 막는 인덱스는 V64 의
+     * {@code uq_owned_products_user}({@code (user_id, product_id) WHERE owner_type = 'user'})다 — 충돌 대상을 적지 않는 것은
+     * 그 부분 인덱스가 없는 엔티티 생성 스키마(CI 프로필)에서도 문장이 돌게 하려는 것이다({@code UserBlockRepository} 선례).
+     * 네이티브 INSERT 는 {@code @GeneratedUuidV7} 를 안 타므로 id 를 호출측({@code UuidV7.next()})이 넣는다.
+     *
+     * @param id 새 행에 쓸 id — 충돌로 무시되면 버려진다
+     * @return 꽂힌 행 수. {@code 0} 이면 이미 가진 상품이다
+     */
+    @Modifying
+    @Query(value = "INSERT INTO owned_products (id, owner_type, user_id, product_id, granted_ref, granted_at) "
+            + "VALUES (:id, 'user', :userId, :productId, :grantedRef, :grantedAt) "
+            + "ON CONFLICT DO NOTHING", nativeQuery = true)
+    int insertUserProductIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId,
+            @Param("productId") String productId, @Param("grantedRef") String grantedRef,
+            @Param("grantedAt") Instant grantedAt);
 
     /**
      * 적용 경로 전용 보유 행 공유 잠금 — <b>반드시 트랜잭션 안에서, 외양 행 잠금 전에</b>.

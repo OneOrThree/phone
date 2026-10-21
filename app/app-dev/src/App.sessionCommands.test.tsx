@@ -1,3 +1,4 @@
+import { readAccountGuides } from '@/services/accountGuides';
 import assert from 'node:assert/strict';
 import * as SecureStore from 'expo-secure-store';
 import React from 'react';
@@ -22,6 +23,10 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+// 앱 state 저장은 1초 모아 쓴다(GROMO-2372) — 저장본을 기다리는 waitFor 는 그보다 넉넉히 기다린다
+const SAVED_WRITE = { timeout: 3000 };
+// 저장은 1초 모아 쓴다(SAVE_DELAY_MS) — 저장을 여러 번 기다리는 테스트가 느린 CI 러너에서 기본 5초를 넘지 않게 늘린다
+jest.setTimeout(15_000);
 const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
 jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
@@ -160,6 +165,11 @@ jest.mock('@/services/sessionCommands', () => {
         commands: {
           ...result.commands,
           recover: (...recoverArgs: unknown[]) => mockRecoverFocus(...recoverArgs),
+          // 부팅은 조회를 먼저 시작하고 반영은 나중에 한다(GROMO-2377) — 시작 시점에 같은 mock 을 부른다
+          beginRecover: () => {
+            const read = mockRecoverFocus();
+            return () => read;
+          },
         },
       };
     },
@@ -241,7 +251,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   });
   mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
     const memberships = await syncIslands();
-    return memberships.currentIslandId ? 'home' : 'chooseIsland';
+    return memberships.currentIslandId ? 'home' : 'sea';
   });
 
   await act(async () => {
@@ -267,7 +277,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.equal(persisted.loggedIn, true);
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
-  });
+  }, SAVED_WRITE);
 });
 
 // 위 테스트와 같은 owner 불일치 부팅 조건(transferOwner)에서, STORAGE 삭제가 기기 전역 언어
@@ -299,7 +309,7 @@ test('owner 전환(transferOwner) 부팅은 기기 전역 언어 설정(gromo.lo
     mockSyncIslands.mockResolvedValue({ currentIslandId: 'server-island-b', items: [] });
     mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
       const memberships = await syncIslands();
-      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+      return memberships.currentIslandId ? 'home' : 'sea';
     });
 
     const removeItem = AsyncStorage.removeItem as jest.Mock;
@@ -360,9 +370,9 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
   mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
     try {
       const memberships = await syncIslands();
-      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+      return memberships.currentIslandId ? 'home' : 'sea';
     } catch {
-      return 'chooseIsland';
+      return 'sea';
     }
   });
 
@@ -371,7 +381,7 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
     for (let n = 0; n < 20; n += 1) await Promise.resolve();
   });
   await waitFor(() => assert.ok(captured));
-  await waitFor(() => assert.equal(captured.route, 'chooseIsland'));
+  await waitFor(() => assert.equal(captured.route, 'sea'));
   assert.equal(mockDecideBootRoute.mock.calls.length, 1);
   assert.equal(getLastSessionUserId(), 'user-a');
   assert.equal(
@@ -392,18 +402,20 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
     await assert.rejects(captured.islands.sync(), /소유자를 기록하지 못했어요/);
   });
   assert.equal(getLastSessionUserId(), 'user-a');
+  assert.equal(captured.islandBootError, true);
 
   await act(async () => {
     await captured.islands.sync();
   });
   await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b'));
+  assert.equal(captured.islandBootError, false);
   await waitFor(() => assert.equal(captured.route, 'home'));
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.equal(persisted.loggedIn, true);
     assert.notEqual(persisted.name, 'A-only-private-state');
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
-  });
+  }, SAVED_WRITE);
 });
 
 test('두 번째 부팅 route await 중 generation이 바뀌면 stale route와 owner를 기록하지 않는다', async () => {
@@ -553,7 +565,7 @@ test('오프라인 mismatch 뒤 같은 owner로 로그인하면 보류한 저장
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.deepEqual(persisted.owned, ['a-only-item']);
-  });
+  }, SAVED_WRITE);
 
   assert.equal(captured.state.name, 'A');
   assert.equal(captured.state.settings.sound, false);
@@ -1398,7 +1410,7 @@ test('일반 로그인 뒤 owner 기록이 일시 실패하면 알리고 같은 
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2')) ?? 'null');
     assert.equal(persisted?.name, '저장확인');
-  });
+  }, SAVED_WRITE);
 });
 
 const staleAdoptionLogin = () => {
@@ -1550,8 +1562,8 @@ test('계정·섬 온보딩이 끝날 때까지 지원 딥링크를 보관한다
 
   await act(async () => mockEmitAppLink!('gromo://friends'));
   assert.equal(captured.route, 'character');
-  await act(async () => captured.reset('chooseIsland'));
-  assert.equal(captured.route, 'chooseIsland');
+  await act(async () => captured.reset('sea'));
+  assert.equal(captured.route, 'sea');
 
   await act(async () => {
     mockAppDispatch!({
@@ -1624,7 +1636,7 @@ test.each([
     await waitFor(async () => {
       const stored = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
       expect(stored.tutorial).toEqual({ step: expected, sessionId: saved.session!.id });
-    });
+    }, SAVED_WRITE);
     await app.unmount();
   },
 );
@@ -1654,9 +1666,11 @@ test('복구된 결과·집중 화면은 남아 있던 휴식 안내 단계를 �
   await app.unmount();
 });
 
-test.each(['next-island', null])(
+test.each(['next-island', null, 'lost'])(
   '체험 중 소속이 %s로 바뀌면 체험을 지우고 안전한 화면으로 돌아간다',
-  async (nextIsland) => {
+  async (next) => {
+    // 'lost' 는 현재 섬 없이 강퇴로 잃은 경우 — 섬 고르기 대신 먼바다로 간다(GROMO-2366)
+    const nextIsland = next === 'lost' ? null : next;
     mockBootRoute = 'home';
     const app = await render(<App />);
     await waitFor(() => expect(captured).toBeTruthy());
@@ -1676,10 +1690,16 @@ test.each(['next-island', null])(
     await act(async () => {
       captured.dispatch({
         type: 'ISLAND_SYNC',
-        memberships: { items: nextIsland ? [{ id: nextIsland }] : [], currentIslandId: nextIsland },
+        memberships: {
+          items: nextIsland ? [{ id: nextIsland }] : [],
+          currentIslandId: nextIsland,
+          lossReason: next === 'lost' ? 'KICKED' : null,
+        },
       });
     });
-    await waitFor(() => expect(captured.route).toBe(nextIsland ? 'home' : 'chooseIsland'));
+    await waitFor(() =>
+      expect(captured.route).toBe(nextIsland ? 'home' : next === 'lost' ? 'sea' : 'sea'),
+    );
     expect(captured.state.tutorialExperience).toBeUndefined();
     expect(captured.state.session).toBeNull();
     expect(captured.guideStep).toBe(4);
@@ -2074,4 +2094,208 @@ test('인증 후 집중 세션이 시작되면 푸시 토큰 동기화를 즉시
   expect(stop).toHaveBeenCalled();
   expect(mockStartLiveActivityPushSync).toHaveBeenCalledTimes(before + 1);
   await app.unmount();
+});
+
+test('실제 앱의 집중 체험 완료는 일반 저장본과 별도 계정 키에 남는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'guide-persistence-user' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeDefined());
+  await act(async () => captured.setGuideStep(22));
+  await waitFor(async () =>
+    expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true),
+  );
+  await AsyncStorage.removeItem('gromo-r61-user-v2');
+  expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true);
+  await app.unmount();
+});
+
+test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이력을 쓰지 않는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'guide-old' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeDefined());
+  const oldComplete = captured.setGuideStep;
+  await saveSession({ accessToken: 'BT', refreshToken: 'BR', userId: 'guide-new' });
+  await act(async () => oldComplete(22));
+  expect((await readAccountGuides('guide-new')).focusDone).toBe(false);
+  await app.unmount();
+});
+
+const islandSync = (
+  currentIslandId: string | null,
+  lossReason: 'LEFT' | 'KICKED' | null,
+  items: { id: string; name: string }[] = [],
+) => ({
+  type: 'ISLAND_SYNC',
+  memberships: { items, nextCursor: null, currentIslandId, lossReason },
+});
+
+test.each([
+  ['LEFT', 'sea'],
+  ['KICKED', 'sea'],
+  [null, 'sea'],
+] as const)(
+  '현재 섬이 없어지면 상실 사유 %s 는 %s 로 보낸다(GROMO-2366)',
+  async (lossReason, to) => {
+    const app = await render(<App />);
+    await waitFor(() => expect(captured).toBeTruthy());
+    await act(async () => {
+      captured.dispatch({ type: 'LOGIN' });
+      captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+      captured.reset('settings');
+    });
+    await act(async () => captured.dispatch(islandSync(null, lossReason)));
+    await waitFor(() => expect(captured.route).toBe(to));
+    await app.unmount();
+  },
+);
+
+const kickedApp = async (userId: string) => {
+  // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있어 multiRemove 로 지운다
+  await AsyncStorage.multiRemove([`kickNoticeSeen:${userId}`]);
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    captured.reset('settings');
+  });
+  return app;
+};
+const settle = () => new Promise((done) => setTimeout(done, 50));
+
+test('강퇴 동기화는 안내를 띄우고 바다로 보내며, 현재 섬이 생긴 뒤 다시 강퇴되면 또 띄운다(GROMO-2366)', async () => {
+  const removeItem = AsyncStorage.removeItem as jest.Mock;
+  const previousRemove = removeItem.getMockImplementation();
+  removeItem.mockImplementation((key: string) => AsyncStorage.multiRemove([key]));
+  try {
+    const app = await kickedApp('kick-a');
+    await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+    await waitFor(() => expect(captured.route).toBe('sea'));
+    await waitFor(() =>
+      expect(screen.getByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeTruthy(),
+    );
+    await waitFor(async () =>
+      expect(await AsyncStorage.getItem('kickNoticeSeen:kick-a')).toBe('i1'),
+    );
+    // 바다 표류에서 연 망원경은 섬이 없어도 바다로 되돌리지 않는다
+    await act(async () => {
+      captured.go('telescope');
+      await settle();
+    });
+    expect(captured.route).toBe('telescope');
+
+    // 같은 섬에 다시 들어갔다가 또 강퇴되면 「봤음」이 지워져 있어 다시 띄운다
+    await act(async () => captured.notify('다른 안내'));
+    await act(async () => {
+      captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+      await settle();
+    });
+    await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+    await waitFor(() =>
+      expect(screen.getByTestId('global-toast')).toHaveTextContent(
+        '「소다 섬」에서 더 이상 함께할 수 없게 되었어요.',
+      ),
+    );
+    await app.unmount();
+  } finally {
+    removeItem.mockImplementation(previousRemove);
+  }
+});
+
+test('강퇴 뒤 망원경으로 가입한 섬에서도 강퇴되면 사유가 그대로여도 다시 띄운다(GROMO-2366)', async () => {
+  const app = await kickedApp('kick-b');
+  await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+  await waitFor(() =>
+    expect(screen.getByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeTruthy(),
+  );
+  await act(async () => captured.notify('다른 안내'));
+  // 망원경 가입은 현재 섬을 옮기지 않는다 — 새로 잃은 섬이 없으니 띄우지 않는다
+  await act(async () => {
+    captured.dispatch(islandSync(null, 'KICKED', [{ id: 'i2', name: '별섬' }]));
+    await settle();
+  });
+  expect(screen.getByTestId('global-toast')).toHaveTextContent('다른 안내');
+  await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+  await waitFor(() =>
+    expect(screen.getByTestId('global-toast')).toHaveTextContent(
+      '「별섬」에서 더 이상 함께할 수 없게 되었어요.',
+    ),
+  );
+  await waitFor(async () => expect(await AsyncStorage.getItem('kickNoticeSeen:kick-b')).toBe('i2'));
+  await app.unmount();
+});
+
+test('이미 본 섬의 강퇴는 다시 읽혀도 띄우지 않는다(GROMO-2366)', async () => {
+  const app = await kickedApp('kick-c');
+  await AsyncStorage.setItem('kickNoticeSeen:kick-c', 'i1');
+  await act(async () => {
+    captured.dispatch(islandSync(null, 'KICKED'));
+    await settle();
+  });
+  await waitFor(() => expect(captured.route).toBe('sea'));
+  expect(screen.queryByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeNull();
+  await app.unmount();
+});
+
+test.each([
+  ['KICKED', 'sea'],
+  [null, 'sea'],
+] as const)(
+  '화면을 잃은 강퇴 복구는 현재 섬이 없으면 상실 사유 %s 일 때 %s 로 보낸다(GROMO-2366)',
+  async (lossReason, to) => {
+    mockBootRoute = 'home';
+    await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+    const app = await render(<App />);
+    await waitFor(() => expect(captured?.state.onboarded).toBe(true));
+    // 섬 고르기·현재 섬 화면처럼 소속 검사가 그냥 지나치는 화면에서도 복구 신호는 화면을 옮긴다
+    await act(async () => captured.reset('currentIsland'));
+    await act(async () => {
+      captured.dispatch({ type: 'KICKED_FROM_ISLAND', id: captured.state.islandId });
+      captured.dispatch(islandSync(null, lossReason));
+    });
+    await waitFor(() => expect(captured.route).toBe(to));
+    expect(captured.state.membershipRecovery).toBeUndefined();
+    await app.unmount();
+  },
+);
+
+test('계정이 바뀌면 같은 강퇴 상태여도 그 계정의 「봤음」으로 다시 본다(GROMO-2366)', async () => {
+  await AsyncStorage.multiRemove(['kickNoticeSeen:kick-e']);
+  const app = await kickedApp('kick-d');
+  await act(async () => captured.dispatch(islandSync(null, 'KICKED')));
+  await waitFor(() =>
+    expect(screen.getByText('「소다 섬」에서 더 이상 함께할 수 없게 되었어요.')).toBeTruthy(),
+  );
+  await act(async () => captured.notify('다른 안내'));
+  await act(async () => {
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'kick-e' });
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId('global-toast')).toHaveTextContent(
+      '「소다 섬」에서 더 이상 함께할 수 없게 되었어요.',
+    ),
+  );
+  await app.unmount();
+});
+
+test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
+  const g = global as { __DEV__?: boolean };
+  const dev = g.__DEV__;
+  const qa = process.env.EXPO_PUBLIC_QA;
+  g.__DEV__ = false;
+  delete process.env.EXPO_PUBLIC_QA;
+  try {
+    jest.isolateModules(() => {
+      expect(require('@/App').TESTFLIGHT_ALL_BUILDINGS).toBe(false);
+    });
+    process.env.EXPO_PUBLIC_QA = '1';
+    jest.isolateModules(() => {
+      expect(require('@/App').TESTFLIGHT_ALL_BUILDINGS).toBe(true);
+    });
+  } finally {
+    g.__DEV__ = dev;
+    if (qa === undefined) delete process.env.EXPO_PUBLIC_QA;
+    else process.env.EXPO_PUBLIC_QA = qa;
+  }
 });

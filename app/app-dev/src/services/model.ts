@@ -16,7 +16,6 @@ export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | '
 export type Route =
   | 'login'
   | 'character'
-  | 'chooseIsland'
   | 'createIsland'
   | 'joinIsland'
   | 'approval'
@@ -49,6 +48,15 @@ export type Route =
   | 'product'
   | 'orders'
   | 'boat'
+  | 'raft'
+  | 'telescope'
+  // 바다 항해 집중(GROMO-2310) — 항해·정박·표류. seaArrival 은 섬에 내린 뒤 결과창(내용은 GROMO-2311)
+  | 'sea'
+  | 'seaArrival'
+  // 바다에서 펼친 오늘 호(GROMO-2314) — 인자 = 호 id. 소속 섬이 없어도 머무른다(seaRouteHeld)
+  | 'seaMagazine'
+  | 'promotionEditor'
+  | 'magazine'
   | 'mainIsland'
   | 'currentIsland'
   | 'profile'
@@ -224,6 +232,12 @@ export type Session = {
   // 로컬 체험의 최초 보상. 서버 세션에는 클라이언트가 보상을 만들지 않는다.
   tutorialFish?: boolean;
   intervals?: { start: number; end: number }[];
+  // 서버 세션 종류(GROMO-2310). 없으면 섬 집중. sea 면 islandId = 목적지, targetMinutes = 항해 분이고 pause/resume 이 없다
+  kind?: 'island' | 'sea';
+  targetMinutes?: number;
+  destinationIslandName?: string;
+  // 서버 뷰를 받은 기기 시각(ms). 바다 항해 화면이 기기·서버 시계 차이 없이 경과를 센다(sessionSeconds 는 쓰지 않는다)
+  syncedAt?: number;
 };
 export type RecordItem = {
   id: string;
@@ -237,7 +251,16 @@ export type RecordItem = {
   // 서버가 자동 종료한 세션의 미확인 결과(pending-result) — 결과창을 닫을 때 acknowledge 대상
   // 세션 id다. 확인이 끝나면 지운다(GROMO-2009).
   ackId?: string;
+  // 바다 항해 기록(GROMO-2310)은 'sea' — 섬 집중 집계에서 뺀다. 없으면 섬 집중(옛 기록 호환)
+  kind?: 'island' | 'sea';
+  // 이 세션에 받은 꾸미기 상품 id(finish 의 seaReward.grantedProductIds, GROMO-2382) — 없으면 키째 없다
+  rewards?: string[];
+  // 그중 처음 받은 것(seaReward.newProductIds) — NEW! 배지. 없으면 키째 없다
+  newRewards?: string[];
 };
+// 그 섬의 집중 기록인가 — 서버 섬 집계(findActiveSpansOnIsland)처럼 목적지가 그 섬인 바다 항해는 섬 집중이 아니다
+export const islandFocusRecord = (r: RecordItem, islandId: string) =>
+  r.islandId === islandId && r.kind !== 'sea';
 export type Product = {
   id: string;
   title: string;
@@ -248,6 +271,8 @@ export type Product = {
   building?: Building;
 };
 export type State = {
+  /** 계정 귀속 로컬 연출 체크포인트. 서버 프로필 완료·섬 소속과는 독립이다. */
+  onboardingStory?: 'intro' | 'scope' | 'done';
   // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
   tutorial?: { step: number; sessionId?: string };
   tutorialRevision?: number;
@@ -255,9 +280,11 @@ export type State = {
   tutorialExperience?: { session: Session | null; result: RecordItem | null; fromRest?: boolean };
   // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
   tutorialEnrollment?: 'awaiting-first-island' | 'existing';
+  focusGuideDone?: boolean;
   version: 1;
   schema?: 2;
   friends?: Friend[];
+  lastRaftDestination?: string;
   rewards?: Reward[];
   screenDays?: Record<string, number | null>;
   screenTimeUnconfirmedDays?: string[];
@@ -275,7 +302,16 @@ export type State = {
   islandId: string;
   fish: number;
   owned: string[];
-  equipped: { clothes: string; decor: string; hull: string; position: string };
+  equipped: {
+    clothes: string;
+    decor: string;
+    hull: string;
+    position: string;
+    /** 머리·목·신발 슬롯(GROMO-2331) — 옛 서버면 없다. 카탈로그 그림으로 겹쳐 그린다. */
+    head?: string | null;
+    neck?: string | null;
+    shoes?: string | null;
+  };
   settings: {
     notifications: boolean;
     sound: boolean;
@@ -315,6 +351,8 @@ export type State = {
     memberships: IslandSummary[];
     currentIslandId: string | null;
     lossReason: 'LEFT' | 'KICKED' | null;
+    // 강퇴로 잃은 섬(GROMO-2366) — /me/islands 에는 잃은 섬이 없어 강퇴 안내의 문구·「봤음」 표시가 쓴다
+    kickedIsland?: { id: string; name: string | null } | null;
     candidates: IslandSummary[];
     nextCursor: string | null;
     visit: VisitScreen | null;
@@ -337,6 +375,10 @@ export type State = {
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
   visitingIslandId?: string | null;
+  // 이번 방문에서 「가입하지 않고 떠날까요?」를 이미 물었는지(GROMO-2259). 새 방문(VISIT·SERVER_VISITING)·구경 끝(END_VISIT)에서 지운다
+  visitLeaveAsked?: boolean;
+  // 이번 방문에서 섬장 인사말 말풍선을 이미 띄웠는지(GROMO-2263). visitLeaveAsked 와 같은 시점에 지운다
+  visitGreeted?: boolean;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
   // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
@@ -480,23 +522,6 @@ export const trackNames: Record<string, string> = {
   },
 };
 export const products: Product[] = [
-  {
-    id: 'scarf',
-    title: '바다 스카프',
-    kind: 'clothes',
-    price: 100,
-    currency: 'fish',
-    description: '고양이의 목에 두르는 가벼운 스카프',
-  },
-  // v2 시안 상점(내 꾸미기)의 두 번째 장신구. 가격은 스카프와 같은 5배 환산(시안 15마리)
-  {
-    id: 'straw-hat',
-    title: '밀짚모자',
-    kind: 'clothes',
-    price: 75,
-    currency: 'fish',
-    description: '햇볕을 가려 주는 챙 넓은 밀짚모자',
-  },
   {
     id: 'soda-theme',
     title: '소다 섬 테마',
@@ -825,6 +850,15 @@ export function demoState(): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+/** 목업 섬 전환 가능 여부 — 진행 중 세션이 없고, 소속 섬이며, 온보딩 뒤에는 현재 섬에 전망대가 있어야 한다. */
+export const canSwitchIsland = (s: State, id: string) => {
+  const target = s.islands.find((x) => x.id === id);
+  return (
+    !s.session &&
+    !!target?.joined &&
+    !(s.onboarded && target.id !== s.islandId && !currentIsland(s).buildings.includes('tower'))
+  );
+};
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
   s.islands.find((i) => i.joined && !i.closed);
@@ -833,6 +867,12 @@ export const serverHome = (s: State) => {
   const snap = s.serverIslands;
   return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
 };
+// 서버 방문 화면 스냅샷 — 지금 구경 중인 섬의 것일 때만 돌려준다. ISLAND_VISIT 가 visit 만 바꾸고
+// visitingIslandId 는 그대로인 구간에 HUD·가입·떠나기 확인이 서로 다른 섬을 보지 않게 한다(GROMO-2259).
+export const serverVisit = (s: State): VisitScreen | null =>
+  s.visitingIslandId && s.serverIslands?.visit?.island.id === s.visitingIslandId
+    ? s.serverIslands.visit
+    : null;
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State, islandId = s.visitingIslandId) =>
   s.serverIslands
@@ -935,13 +975,17 @@ export const shouldShowMailboxGuide = (s: State, userId: string) =>
   !s.visitingIslandId &&
   !s.session &&
   currentIsland(s).joined &&
-  currentIsland(s).buildings.includes('mail') &&
+  (s.serverIslands
+    ? serverHome(s)?.completedBuildings.includes('mail')
+    : currentIsland(s).buildings.includes('mail')) &&
   !s.mailboxGuideSeenBy?.includes(userId);
 
 export const shouldShowShopGuide = (s: State, userId: string) =>
   !s.visitingIslandId &&
   currentIsland(s).joined &&
-  currentIsland(s).buildings.includes('shop') &&
+  (s.serverIslands
+    ? serverHome(s)?.completedBuildings.includes('shop')
+    : currentIsland(s).buildings.includes('shop')) &&
   !s.shopGuideSeenBy?.includes(userId);
 
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
@@ -998,12 +1042,24 @@ export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
         : i.approval
           ? 'apply'
           : 'join';
+// 읽는 시점에 번역한다 — 모듈 최상위에서 t() 를 부르면 import 시점 언어로 굳는다(i18n/index.ts)
+// 게터 객체다 — 펼치거나 직렬화하면 그 시점 로케일로 굳는다(펼치지 말 것).
 export const visitorJoinLabel: Record<VisitorJoin, string> = {
-  join: '이 섬에 가입',
-  apply: '가입 신청',
-  cancel: '신청 취소',
-  full: '정원이 가득 찼어요',
-  blocked: '다시 가입할 수 없어요',
+  get join() {
+    return t('islandVisit.visitorJoin.join');
+  },
+  get apply() {
+    return t('islandVisit.visitorJoin.apply');
+  },
+  get cancel() {
+    return t('islandVisit.visitorJoin.cancel');
+  },
+  get full() {
+    return t('islandVisit.visitorJoin.full');
+  },
+  get blocked() {
+    return t('islandVisit.visitorJoin.blocked');
+  },
 };
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
@@ -1020,11 +1076,37 @@ export const myIslandsConsistent = (my: MyIslands) =>
 // requestStatus 항목 — 취소 응답({id,status:'cancelled'})처럼 version이 없는 서버 결과도
 // 그대로 담는다. 없는 version은 합성하지 않는다.
 export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?: number };
+/**
+ * 소속 섬이 없어도 머무를 수 있는 바다 라우트인가(GROMO-2310). 항해·표류·결과창·바다 잡지(GROMO-2314) 모두 — 표류(세션 없음)도 정상 상태라
+ * 강퇴된 뒤 그만둬도 멀어지는 연출·표류 화면이 끊기지 않는다. 바다 라우트를 떠나는 순간 App 의 소속 가드가 섬 선택으로 보낸다.
+ */
+/**
+ * 진행 세션이 열 화면 — 앱 안의 「세션 → 라우트」는 전부 이것을 쓴다(GROMO-2310). 바다 세션은 휴식이 없고 항해 화면이 집중 화면이다.
+ */
+export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
+  x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
+export const seaRouteHeld = (route: Route) =>
+  route === 'sea' || route === 'seaArrival' || route === 'seaMagazine';
+/** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
+export const SERVER_VISIT_ROUTES: readonly Route[] = [
+  'visitIsland',
+  'manage',
+  'members',
+  'board',
+  'notice',
+  'visitIslandFocus',
+  'raft',
+];
+/** 소속이 없어도(바다 도착 뒤 강퇴 등) 서버 방문 중에 열 수 있는 화면은 소속 검사가 되돌리지 않는다(GROMO-2311). */
+export const visitRouteHeld = (route: Route, visitingIslandId: string | null | undefined) =>
+  !!visitingIslandId && SERVER_VISIT_ROUTES.includes(route);
 export const intentKeyPool = (gen: () => string) => {
   const keys: Record<string, string> = {};
   const slot = (name: string, exactBody: string) => `${name}:${exactBody}`;
   return {
     key: (name: string, exactBody: string) => (keys[slot(name, exactBody)] ??= gen()),
+    // 이미 키가 있다 = 같은 의도의 두 번째 이상 호출(응답 유실 재시도)
+    has: (name: string, exactBody: string) => slot(name, exactBody) in keys,
     release: (name: string, exactBody: string) => {
       delete keys[slot(name, exactBody)];
     },
@@ -1066,7 +1148,7 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
   if (!residents) return 0;
   const from = weekStart(now);
   const mine = s.records
-    .filter((r) => r.islandId === i.id)
+    .filter((r) => islandFocusRecord(r, i.id))
     .reduce((a, r) => a + recordSecondsBetween(r, from, now), 0);
   return (
     (mine +
@@ -1097,7 +1179,7 @@ export const todayFocusSeconds = (s: State, islandId: string, now = Date.now()) 
   const from = kstDayStart(dayKey(now)),
     until = from + 86400000;
   return s.records
-    .filter((r) => r.islandId === islandId)
+    .filter((r) => islandFocusRecord(r, islandId))
     .reduce((sum, r) => sum + recordSecondsBetween(r, from, until), 0);
 };
 export function questRate(s: State, q: Quest, islandId = s.islandId): number | null {
@@ -1222,7 +1304,8 @@ function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) 
   if (s.mainIslandId === island.id) s.mainIslandId = nextIsland?.id ?? null;
   if (wasCurrent || s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
   // 소속을 잃은 섬의 진행 중 집중은 서버에서도 강제 종료된다. 로컬 상태에 좀비 세션을 남기지 않는다.
-  if (s.session?.islandId === island.id) s.session = null;
+  // 바다 세션(GROMO-2310)의 islandId 는 목적지라 소속과 무관하다
+  if (s.session?.kind !== 'sea' && s.session?.islandId === island.id) s.session = null;
 }
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
@@ -1259,7 +1342,7 @@ function focusTotal(records: RecordItem[], islandId: string, day: string, q: Que
     return from + (h * 60 + m) * 60000;
   };
   return records
-    .filter((r) => r.islandId === islandId)
+    .filter((r) => islandFocusRecord(r, islandId))
     .reduce(
       (n, r) =>
         n +
@@ -1299,7 +1382,8 @@ export function questMemberRate(
         : member?.screenDays?.[dayKey(now)];
     return v == null ? null : v <= q.target ? 100 : Math.max(0, Math.floor((q.target / v) * 100));
   }
-  const session = s.session?.islandId === islandId ? s.session : null;
+  // 진행 중 바다 항해도 목적지 섬의 집중이 아니다
+  const session = s.session?.kind !== 'sea' && s.session?.islandId === islandId ? s.session : null;
   const live = session
     ? [
         {
@@ -1378,7 +1462,7 @@ function evaluateQuests(s: State, now: number) {
           let achieved = round.achieved.includes(id);
           if (!achieved) {
             const live =
-              s.session?.islandId === i.id
+              s.session?.kind !== 'sea' && s.session?.islandId === i.id
                 ? [
                     {
                       id: s.session.id,
@@ -1461,6 +1545,24 @@ function evaluateQuests(s: State, now: number) {
       q.claimed = q.rounds[today]?.claimed.includes('me') ?? false;
     }
 }
+// TICK 이 이 state 를 그 날(KST)에 훑어 바뀐 게 없음을 확인했으면 그 날을 적어 둔다(GROMO-2372).
+// TICK 이 시각에 따라 바꾸는 것은 ① 공사 완공(endsAt) ② 날짜(오늘 스크린타임 칸·퀘스트 회차) ③ 퀘스트 섬의
+// 진행 중 집중(달성 판정)뿐이라, 같은 state·같은 날이면 ①③만 따로 보면 된다.
+const idleTicks = new WeakMap<State, string>();
+/** 이 TICK 이 아무것도 바꾸지 않음이 확실하면 true — 깊은 복사 없이 같은 state 를 돌려줘도 된다. */
+export function tickIdle(state: State, now: number): boolean {
+  if (idleTicks.get(state) !== dayKey(now)) return false;
+  if (state.islands.some((i) => i.construction && now >= i.construction.endsAt)) return false;
+  const session = state.session;
+  return !(
+    session &&
+    session.kind !== 'sea' &&
+    state.islands.some(
+      (i) =>
+        i.id === session.islandId && i.joined && i.buildings.includes('board') && i.quests.length,
+    )
+  );
+}
 export type Action = { type: string; [key: string]: any };
 export function reducer(state: State, a: Action): State {
   if (a.type === 'RESET') return initialState(!!a.full);
@@ -1468,7 +1570,9 @@ export function reducer(state: State, a: Action): State {
     const loaded = JSON.parse(JSON.stringify(a.state)) as State;
     // 앱을 다시 켜면 구경을 끝내고 내 섬에서 시작한다
     delete loaded.visitingIslandId;
-    const retired = ['flag', 'sailboat', 'cabinboat'];
+    delete loaded.visitLeaveAsked;
+    delete loaded.visitGreeted;
+    const retired = ['flag', 'sailboat', 'cabinboat', 'scarf', 'straw-hat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
@@ -1536,6 +1640,7 @@ export function reducer(state: State, a: Action): State {
       },
       equipped: {
         ...loaded.equipped,
+        clothes: 'default',
         hull: 'raft',
         decor: 'none',
         position: 'front',
@@ -1550,7 +1655,11 @@ export function reducer(state: State, a: Action): State {
     next.onboarded = joined.length > 0;
     if (!joined.some((island) => island.id === next.islandId) && joined[0])
       next.islandId = joined[0].id;
-    if (next.session && !joined.some((island) => island.id === next.session!.islandId))
+    if (
+      next.session &&
+      next.session.kind !== 'sea' &&
+      !joined.some((island) => island.id === next.session!.islandId)
+    )
       next.session = null;
     if (!next.onboarded) next.visitingIslandId = null;
     return next;
@@ -1591,6 +1700,8 @@ export function reducer(state: State, a: Action): State {
     state.islands.some((island) => isHost(island) && island.members.length > 0)
   )
     return state;
+  // 할 일 없는 TICK(매초)은 깊은 복사·비교 없이 그대로 돌려준다(GROMO-2372)
+  if (a.type === 'TICK' && tickIdle(state, a.now ?? Date.now())) return state;
   const s = JSON.parse(JSON.stringify(state)) as State,
     i = currentIsland(s),
     now = a.now ?? Date.now();
@@ -1599,6 +1710,12 @@ export function reducer(state: State, a: Action): State {
   // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
   // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    case 'FOCUS_GUIDE_RESTORED':
+      s.focusGuideDone = true;
+      s.tutorialEnrollment = 'existing';
+      s.tutorial = { step: 99 };
+      delete s.tutorialExperience;
+      break;
     case 'GUIDE_STEP': {
       if (
         a.expected &&
@@ -1607,6 +1724,8 @@ export function reducer(state: State, a: Action): State {
       )
         return state;
       const step = a.step as number;
+      if (s.focusGuideDone && step < 22) return state;
+      if (step >= 22) s.focusGuideDone = true;
       if ([0, 4, 99].includes(step)) delete s.tutorialExperience;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       s.tutorial = {
@@ -1628,6 +1747,9 @@ export function reducer(state: State, a: Action): State {
     case 'LOGIN':
       s.loggedIn = true;
       if (Array.isArray(a.linkedProviders)) s.linkedProviders = [...a.linkedProviders];
+      break;
+    case 'ONBOARDING_STORY':
+      if (['intro', 'scope', 'done'].includes(a.checkpoint)) s.onboardingStory = a.checkpoint;
       break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)
@@ -1691,16 +1813,23 @@ export function reducer(state: State, a: Action): State {
     case 'VISIT':
       if (!canVisit(state, a.id)) return state;
       s.visitingIslandId = a.id;
+      delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'END_VISIT':
       s.visitingIslandId = null;
+      delete s.visitLeaveAsked;
+      delete s.visitGreeted;
+      break;
+    case 'VISIT_LEAVE_ASKED':
+      s.visitLeaveAsked = true;
+      break;
+    case 'VISIT_GREETED':
+      s.visitGreeted = true;
       break;
     case 'SWITCH_ISLAND': {
-      if (s.session) return state;
-      const target = s.islands.find((x) => x.id === a.id);
-      if (!target?.joined || (!i.buildings.includes('tower') && s.onboarded && target.id !== i.id))
-        return state;
-      s.islandId = target.id;
+      if (!canSwitchIsland(s, a.id)) return state;
+      s.islandId = a.id as string;
       s.visitingIslandId = null;
       break;
     }
@@ -1717,6 +1846,12 @@ export function reducer(state: State, a: Action): State {
     // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
     // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.
     case 'ISLAND_SYNC': {
+      if (a.focusGuideDone) {
+        s.focusGuideDone = true;
+        s.tutorialEnrollment = 'existing';
+        s.tutorial = { step: 99 };
+        delete s.tutorialExperience;
+      }
       // /me/islands 정본 — 소속·current·상실 사유를 갈아 끼우고 로컬 joined 표시를 맞춘다
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
@@ -1735,6 +1870,22 @@ export function reducer(state: State, a: Action): State {
           s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
         }
         s.tutorialEnrollment = 'existing';
+      }
+      // 강퇴로 잃은 섬을 남긴다 — 이번에 사라진 소속(직전 current 가 그 안에 있으면 그것), 사라진 게 없으면
+      // 직전 current. 다른 기기에서 current 가 바뀌었어도 실제로 빠진 섬을 고른다. 덮어쓰기 전 소속 목록에만 있다.
+      // 둘 다 없으면(새로 잃은 섬이 없다) 그대로 둔다
+      if (my.lossReason !== 'KICKED' || my.currentIslandId != null) snap.kickedIsland = null;
+      else {
+        const kept = new Set(my.items.map((item) => item.id)),
+          gone = snap.memberships.filter((item) => !kept.has(item.id)),
+          lostId =
+            (gone.find((item) => item.id === snap.currentIslandId) ?? gone[0])?.id ??
+            snap.currentIslandId;
+        if (lostId)
+          snap.kickedIsland = {
+            id: lostId,
+            name: snap.memberships.find((item) => item.id === lostId)?.name ?? null,
+          };
       }
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
@@ -1761,7 +1912,8 @@ export function reducer(state: State, a: Action): State {
       const ids = new Set(my.items.map((x) => x.id));
       for (const island of s.islands)
         if (island.joined && !ids.has(island.id)) island.joined = false;
-      if (s.session && !ids.has(s.session.islandId)) s.session = null;
+      // 바다 세션의 islandId 는 목적지 — 가입하지 않은 섬으로도 항해한다(GROMO-2310). 섬 집중만 정리한다
+      if (s.session && s.session.kind !== 'sea' && !ids.has(s.session.islandId)) s.session = null;
       if (s.visitingIslandId && snap.visit?.island.id !== s.visitingIslandId)
         s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
@@ -1858,6 +2010,9 @@ export function reducer(state: State, a: Action): State {
           decor: inv.equipped.decor ?? 'none',
           hull: inv.equipped.hull,
           position: inv.equipped.position,
+          ...(inv.equipped.head !== undefined && { head: inv.equipped.head }),
+          ...(inv.equipped.neck !== undefined && { neck: inv.equipped.neck }),
+          ...(inv.equipped.shoes !== undefined && { shoes: inv.equipped.shoes }),
         };
       }
       break;
@@ -1908,6 +2063,8 @@ export function reducer(state: State, a: Action): State {
     case 'SERVER_VISITING':
       if (s.serverIslands?.visit?.island.id !== a.islandId) return state;
       s.visitingIslandId = a.islandId as string;
+      delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'ISLAND_REQUEST': {
       // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.
@@ -2143,6 +2300,12 @@ export function reducer(state: State, a: Action): State {
         if (next && next.id === s.session?.id && s.session.tutorialFish)
           next = { ...next, tutorialFish: true };
         s.session = next;
+        // 응답 직후 종료돼도 서버의 실제 항해를 복구하면 온보딩을 다시 시작하지 않는다.
+        if (
+          next?.kind === 'sea' &&
+          (s.onboardingStory === 'intro' || s.onboardingStory === 'scope')
+        )
+          s.onboardingStory = 'done';
         if (next) delete s.tutorialExperience;
       }
       break;
@@ -2243,7 +2406,9 @@ export function reducer(state: State, a: Action): State {
         s.screenDays[dayKey(now)] = null;
       }
       evaluateQuests(s, now);
-      return JSON.stringify(s) === JSON.stringify(state) ? state : s;
+      if (JSON.stringify(s) !== JSON.stringify(state)) return s;
+      idleTicks.set(state, dayKey(now));
+      return state;
     }
     case 'CLAIM': {
       const reward = s.rewards?.find(
@@ -2409,8 +2574,7 @@ export function reducer(state: State, a: Action): State {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
       i.fish = balance(i) - p.price;
-      if (p.kind === 'clothes') s.owned.push(p.id);
-      else i.sharedOwned.push(p.id);
+      i.sharedOwned.push(p.id);
       log(`${p.title} 구매 −${p.price}마리`);
       s.orders.unshift({
         id: uuid(),
@@ -2421,13 +2585,6 @@ export function reducer(state: State, a: Action): State {
         at: now,
         buyer: s.name,
       });
-      break;
-    }
-    case 'EQUIP': {
-      if (a.key !== 'clothes') return state;
-      const value = a.value;
-      if (!['default', 'none', 'raft'].includes(value) && !s.owned.includes(value)) return state;
-      s.equipped[a.key as keyof State['equipped']] = value;
       break;
     }
     case 'DECOR_POSITION':
@@ -2458,6 +2615,9 @@ export function reducer(state: State, a: Action): State {
         i.playing = !!a.value;
         if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
       }
+      break;
+    case 'RAFT_DESTINATION':
+      s.lastRaftDestination = a.destination;
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
@@ -2538,7 +2698,8 @@ export function reducer(state: State, a: Action): State {
       if (!kickedIsland?.joined) return state;
       const shouldResetScreen =
         s.islandId === kickedIsland.id ||
-        s.session?.islandId === kickedIsland.id ||
+        // 목적지 섬에서 강퇴돼도 바다 항해는 그 섬 소속이 아니다(서버 정본) — 항해 화면을 내리지 않는다
+        (s.session?.kind !== 'sea' && s.session?.islandId === kickedIsland.id) ||
         s.visitingIslandId === kickedIsland.id;
       kickedIsland.kicked = true;
       removeOwnMembership(s, kickedIsland, false);
@@ -2612,6 +2773,7 @@ export function reducer(state: State, a: Action): State {
       delete s.tutorial;
       delete s.tutorialExperience;
       delete s.tutorialEnrollment;
+      delete s.focusGuideDone;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;

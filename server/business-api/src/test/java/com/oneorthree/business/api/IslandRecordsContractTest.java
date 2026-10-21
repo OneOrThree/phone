@@ -63,7 +63,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             + "\"completedAt\":\"2026-09-11T09:10:00Z\"}";
     private static final String FOCUS_ME = "{\"scope\":\"me\",\"totalSeconds\":1500,\"series\":[{\"date\":\"2026-09-11\","
             + "\"seconds\":1500}],\"records\":[" + RECORD + "],\"members\":null,\"asOf\":\"2026-09-11T09:10:00Z\","
-            + "\"nextSnapshotId\":\"" + SNAPSHOT + "\",\"nextOffset\":30}";
+            + "\"nextSnapshotId\":\"" + SNAPSHOT + "\",\"nextOffset\":30,\"earnedFish\":28}";
     private static final String FOCUS_ISLAND = "{\"scope\":\"island\",\"totalSeconds\":null,\"series\":null,"
             + "\"records\":null,\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
             + "\"totalSeconds\":60,\"series\":[{\"date\":\"2026-09-11\",\"seconds\":60}]}],"
@@ -88,6 +88,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scope").value("me"))
                 .andExpect(jsonPath("$.data.totalSeconds").value(1500))
+                .andExpect(jsonPath("$.data.earnedFish").value(28))
                 .andExpect(jsonPath("$.data.records[0].subject").value("수학"))
                 .andExpect(jsonPath("$.data.asOf").value("2026-09-11T09:10:00Z"))
                 .andExpect(jsonPath("$.data.members").doesNotExist())

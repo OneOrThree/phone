@@ -55,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import com.oneorthree.phone.group.repository.OnboardingIslandRepository;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -115,6 +116,10 @@ class GroupServiceTest {
     @Mock
     private IslandJoinRequestEvents joinRequestEvents;
 
+    // 1.x 생성·참여도 도착을 남긴다(GROMO-2260) — 스텁 없이 호출만 받는다.
+    @Mock
+    private com.oneorthree.phone.group.repository.IslandArrivalRepository islandArrivalRepository;
+
     /**
      * 재가입 시각을 찍는 시계 (GROMO-2050). {@code lenient} 로 고정한다 — 재가입을 밟지 않는 경로가
      * 훨씬 많아 strict stub 이면 「쓰지 않은 stub」으로 떨어진다.
@@ -128,6 +133,9 @@ class GroupServiceTest {
     void fixClock() {
         lenient().when(clock.instant()).thenReturn(REJOINED_AT);
     }
+
+    @Mock
+    private OnboardingIslandRepository onboardingIslands;
 
     @InjectMocks
     private GroupService groupService;
@@ -305,7 +313,7 @@ class GroupServiceTest {
     void createGroupSuccess() {
         // given
         CreateGroupRequest request = durationRequest("1234", null, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         given(passwordEncoder.encode("1234")).willReturn("hashed-pw");
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -334,7 +342,7 @@ class GroupServiceTest {
     @DisplayName("isPrivate=true 생성 → 비공개 그룹으로 저장")
     void createGroupPrivate() {
         // given
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
@@ -350,7 +358,7 @@ class GroupServiceTest {
     @DisplayName("isPrivate 미전송(기본값) → 공개 그룹으로 저장")
     void createGroupDefaultsToPublic() {
         // given
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
@@ -367,7 +375,7 @@ class GroupServiceTest {
     void createGroupDefaultsMaxMembers() {
         // given
         CreateGroupRequest request = durationRequest(null, null, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
@@ -384,7 +392,7 @@ class GroupServiceTest {
     void createGroupWithoutPassword() {
         // given
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
@@ -404,7 +412,7 @@ class GroupServiceTest {
     void createGroupAllowsGuest() {
         // given: 유일한 차이는 is_guest=true 뿐
         User guest = User.builder().isGuest(true).build();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(guest);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
@@ -422,7 +430,7 @@ class GroupServiceTest {
     @DisplayName("유저 없음·탈퇴 선커밋 → UserException(USER_NOT_FOUND), 그룹 저장 안 함 (D9 — 종전 GUEST_FORBIDDEN 오분류 정정)")
     void createGroupUserNotFound() {
         // given: 없는 유저와 탈퇴가 먼저 커밋된 유저는 공유 락 조회에서 똑같이 빈 결과다
-        given(userQueryService.getCallerForShare(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+        given(userQueryService.getCallerForUpdate(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then: joinGroup 등 형제 경로와 같은 404 — 부작용(그룹 저장) 없음
         // GROMO-1247: 그룹 부재(GroupErrorCode.NOT_FOUND)와 구분되는 요청자 전용 코드다.
@@ -434,16 +442,16 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("createGroup 은 요청자를 공유 락으로 로드한다 — 계정 탈퇴 배타 락과 직렬화 (GROMO-1226)")
-    void createGroupLoadsUserWithSharedLock() {
+    @DisplayName("createGroup 은 요청자를 배타 락으로 로드한다 — 계정 탈퇴·같은 사람의 동시 가입과 직렬화 (GROMO-1226·2260)")
+    void createGroupLoadsUserWithExclusiveLock() {
         // 락 없는 findById 면 탈퇴의 정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를
         // 빠져나가, 탈퇴자가 OWNER 인 is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 불가).
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         groupService.createGroup(USER_ID, durationRequest(null, 5, 60));
 
-        verify(userQueryService).getCallerForShare(USER_ID);
+        verify(userQueryService).getCallerForUpdate(USER_ID);
         verify(userQueryService, never()).getCaller(USER_ID);
     }
 
@@ -1291,7 +1299,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = openGroup();
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1314,7 +1322,7 @@ class GroupServiceTest {
         com.oneorthree.phone.group.repository.domain.IslandJoinRequest pending =
                 com.oneorthree.phone.group.repository.domain.IslandJoinRequest.pending(group, user, null);
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1335,21 +1343,21 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("joinGroup 은 유저를 공유 락으로 로드한다 — 계정 탈퇴 배타 락과 직렬화 (GROMO-801 codex 리뷰)")
-    void joinGroupLoadsUserWithSharedLock() {
+    @DisplayName("joinGroup 은 유저를 배타 락으로 로드한다 — 계정 탈퇴·같은 사람의 동시 가입과 직렬화 (GROMO-801·2260)")
+    void joinGroupLoadsUserWithExclusiveLock() {
         // 락 없는 findById 로 로드하면 탈퇴(유저 행 배타 락)의 정리 스캔 이후·커밋 이전에 낀 가입이
         // 정리를 빠져나가 유령 멤버십으로 남는다. 공유 락 조회는 탈퇴하고만 직렬화되고, 탈퇴가 먼저
         // 커밋된 유저는 is_deleted 필터로 기존 계약(NOT_FOUND)대로 거절된다.
         User user = normalUser();
         Group group = openGroup();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
 
-        verify(userQueryService).getCallerForShare(USER_ID);
+        verify(userQueryService).getCallerForUpdate(USER_ID);
         verify(userQueryService, never()).getCaller(USER_ID);
     }
 
@@ -1360,7 +1368,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = passwordGroup();
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1378,7 +1386,7 @@ class GroupServiceTest {
     void joinGroupAllowsGuest() {
         // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
         User guest = User.builder().isGuest(true).build();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(guest);
         given(groupQueryService.getGroup(GROUP_ID))
                 .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
@@ -1394,7 +1402,7 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 그룹 → GroupException GROUP_NOT_FOUND")
     void joinGroupNotFound() {
         // given
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
         given(groupQueryService.getGroup(GROUP_ID_99))
                 .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
 
@@ -1413,7 +1421,7 @@ class GroupServiceTest {
 
         // (1) 유저 부재 → (2) 유저 존재 를 한 스텁에 이어 둔다. 이미 던지도록 스텁된 메서드를
         // given(mock.method(...)) 로 재스텁하면 그 줄이 메서드를 호출해 예외가 터진다(Mockito).
-        given(userQueryService.getCallerForShare(USER_ID))
+        given(userQueryService.getCallerForUpdate(USER_ID))
                 .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND))
                 .willReturn(normalUser());
         Throwable userThrown = catchThrowable(
@@ -1446,7 +1454,7 @@ class GroupServiceTest {
         Group group = openGroup();
         GroupMember existing = GroupMember.builder().user(user).group(group).build();
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(existing));
 
@@ -1466,7 +1474,7 @@ class GroupServiceTest {
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
         left.leave(Instant.now());
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(left));
@@ -1495,7 +1503,7 @@ class GroupServiceTest {
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
         kicked.kick(Instant.now());
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findAnyByUserAndGroup(user, group)).willReturn(Optional.of(kicked));
@@ -1521,7 +1529,7 @@ class GroupServiceTest {
                 GroupMember.builder().user(User.builder().build()).build()
         );
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(members);
@@ -1540,7 +1548,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = Group.builder().id(GROUP_ID).name("한자리남은방")
                 .maxMembers(2).status(GroupStatus.WAITING).build();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(
@@ -1559,7 +1567,7 @@ class GroupServiceTest {
         User user = normalUser();
         Group group = passwordGroup();
 
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
@@ -1575,25 +1583,25 @@ class GroupServiceTest {
     @DisplayName("존재하지 않는 userId → UserException")
     void joinGroupUserNotFound() {
         // given
-        given(userQueryService.getCallerForShare(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+        given(userQueryService.getCallerForUpdate(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
                 .isInstanceOf(UserException.class);
     }
 
-    // ── 멀티 그룹 상한 (MAX_JOINED_GROUPS = 10) ─────────────────────────────
+    // ── 멀티 그룹 상한 (MAX_JOINED_GROUPS = 3, GROMO-2260) ─────────────────────────────
 
     @Test
-    @DisplayName("소속 9개에서 참가 → 10번째까지는 허용(경계)")
-    void joinGroupAllowedAtNinthGroup() {
-        // given: 이미 9개 소속 → 이번 참가로 10개
+    @DisplayName("소속 2개에서 참가 → 3번째까지는 허용(경계)")
+    void joinGroupAllowedAtSecondGroup() {
+        // given: 이미 2개 소속 → 이번 참가로 3개
         User user = normalUser();
         Group group = openGroup();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
-        given(groupMemberRepository.countByUser(user)).willReturn(9L);
+        given(groupMemberRepository.countByUser(user)).willReturn(2L);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
@@ -1604,15 +1612,15 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("소속 10개에서 참가 → GROUP_LIMIT_EXCEEDED(409)")
+    @DisplayName("소속 3개에서 참가 → GROUP_LIMIT_EXCEEDED(409)")
     void joinGroupRejectedAtLimit() {
-        // given: 상한(10) 도달
+        // given: 상한(3) 도달
         User user = normalUser();
         Group group = openGroup();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
-        given(groupMemberRepository.countByUser(user)).willReturn(10L);
+        given(groupMemberRepository.countByUser(user)).willReturn(3L);
 
         // when & then: 앱이 code 문자열로 분기하므로 에러 코드까지 고정한다
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
@@ -1625,10 +1633,10 @@ class GroupServiceTest {
     @Test
     @DisplayName("이미 멤버인 그룹은 상한과 무관하게 ALREADY_MEMBER 로 끝난다")
     void joinGroupAlreadyMemberTakesPrecedenceOverLimit() {
-        // given: 10개 소속이면서 그중 한 곳에 다시 참가 시도 — 소속 수가 늘지 않으므로 상한 사유가 아니다
+        // given: 3개 소속이면서 그중 한 곳에 다시 참가 시도 — 소속 수가 늘지 않으므로 상한 사유가 아니다
         User user = normalUser();
         Group group = openGroup();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group))
                 .willReturn(Optional.of(GroupMember.builder().user(user).group(group).build()));
@@ -1641,12 +1649,12 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("소속 10개에서 그룹 생성 → GROUP_LIMIT_EXCEEDED (생성도 곧 가입이므로 같은 상한)")
+    @DisplayName("소속 3개에서 그룹 생성 → GROUP_LIMIT_EXCEEDED (생성도 곧 가입이므로 같은 상한)")
     void createGroupRejectedAtLimit() {
         // given
         User user = normalUser();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupMemberRepository.countByUser(user)).willReturn(10L);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+        given(groupMemberRepository.countByUser(user)).willReturn(3L);
 
         // when & then
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 30)))
@@ -1664,7 +1672,7 @@ class GroupServiceTest {
     /** 참여가 성공 경로를 타도록 공통 스텁을 깐다. */
     private User givenJoinableGroup(Group group) {
         User user = normalUser();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(group.getId())).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());

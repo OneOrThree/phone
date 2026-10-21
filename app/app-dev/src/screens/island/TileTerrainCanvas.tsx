@@ -1,6 +1,7 @@
+import { CoastalAtlas } from './CoastalAtlas';
 import React, { useEffect, useMemo, useState } from 'react';
+import { TileTerrainFacilities } from './TileTerrainFacilities';
 import {
-  Atlas,
   Canvas,
   Circle,
   Group,
@@ -221,6 +222,8 @@ export function TileTerrainCanvas({
   onAssetsFail,
   navDebug,
   reduceMotion = false,
+  pressedFacility,
+  showFacilityOutlines = false,
 }: {
   width: number;
   height: number;
@@ -236,21 +239,32 @@ export function TileTerrainCanvas({
   navDebug?: NavDebug | null;
   /** 설정의 모션 줄이기 — 보정 원을 50ms로 깜빡이지 않고 창 동안 정적으로 보여준다(GROMO-2249 보완8 항목 6). */
   reduceMotion?: boolean;
+  pressedFacility?: string | null;
+  showFacilityOutlines?: boolean;
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png(밤 tileset-night@2x.png) 변형을 고른다.
   // 스냅샷이 cache 면 파일 URI(GROMO-2233). 소스는 마운트 때 고정되고, 디코드 실패 때만 부모가 번들로 바꾼다.
   // 번들 쪽은 Metro 의 @2x 배율 해석에 기댄 우회, Expo 57 / `expo export --platform ios` 로 확인(2026-10-08).
   // 낮·밤이 바뀌면 소스가 바뀌어 useImage 가 다시 로드한다.
   const file: TilesetFile = night ? 'tileset-night@2x.png' : 'tileset@2x.png';
+  // 번들 타일셋(낮·밤 13 MB)은 타일 섬 빌드에만 싣는다(GROMO-2379). 조건을 require 바로 옆에 process.env 로 써야
+  // 배포 빌드에서 값이 리터럴로 접혀 Metro 가 꺼진 빌드의 require 를 지운다 — 다른 모듈의 상수로 빼면 접히지 않는다.
   const source = useMemo(
     () =>
       tilesetUri(assets, file) ??
-      (file === 'tileset-night@2x.png'
-        ? require('@/assets/village-world/v1/tileset-night.png')
-        : require('@/assets/village-world/v1/tileset.png')),
+      (process.env.EXPO_PUBLIC_TILE_ISLAND !== '1'
+        ? null
+        : file === 'tileset-night@2x.png'
+          ? require('@/assets/village-world/v1/tileset-night.png')
+          : require('@/assets/village-world/v1/tileset.png')),
     [assets, file],
   );
   // 캐시 PNG 가 깨져 디코드에 실패하면 빈 섬이 되지 않게 소스 전체를 번들로 강등한다(번들 이미지는 다시 로드).
+  const coastline = readMapJson('tileset.json', bundledTileset, assets).coastlineMaskVersion;
+  const needsCoastMask = coastline !== 1;
+  const coastMask = useImage(
+    needsCoastMask ? require('@/assets/backgrounds/island/ocean/home-mask.png') : null,
+  );
   const image = useImage(source, () => {
     if (assets.kind === 'cache') onAssetsFail?.(file);
   });
@@ -301,7 +315,7 @@ export function TileTerrainCanvas({
     }, CORRECTION_TICK_MS);
     return () => clearInterval(id);
   }, [correctedAt, reduceMotion]);
-  if (!image || !atlas) return null;
+  if (!image || !atlas || (needsCoastMask && !coastMask)) return null;
   const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
   const arrow =
@@ -321,7 +335,23 @@ export function TileTerrainCanvas({
           { scale },
         ]}
       >
-        <Atlas image={image} sprites={atlas.sprites} transforms={atlas.transforms} />
+        <CoastalAtlas
+          image={image}
+          sprites={atlas.sprites}
+          transforms={atlas.transforms}
+          mask={needsCoastMask ? coastMask : null}
+        />
+        {showFacilityOutlines && (
+          <TileTerrainFacilities
+            image={image}
+            coastMask={needsCoastMask ? coastMask : null}
+            atlas={atlas}
+            baseScale={base}
+            pressedFacility={pressedFacility}
+            reduceMotion={reduceMotion}
+            night={night}
+          />
+        )}
         {grid && (
           <Path path={grid} style="stroke" strokeWidth={1 / scale} color="rgba(255,0,0,0.6)" />
         )}

@@ -6,6 +6,7 @@ import com.oneorthree.realtime.movement.nav.NavJsonLoader;
 import com.oneorthree.realtime.movement.nav.Pathfinder.PathResult;
 import com.oneorthree.realtime.movement.nav.WorldCoords;
 import com.oneorthree.realtime.movement.nav.WorldPoint;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
@@ -20,7 +21,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -64,6 +64,14 @@ public final class RoomRuntime {
     private static final Timer DEFAULT_PATHFIND_TIMER =
             Timer.builder("movement.pathfind").register(new SimpleMeterRegistry());
 
+    /**
+     * 위 Timer 와 같은 이유의 기본값(2270) — 운영은 {@code MovementRooms} 가 만든 Counter 를 주입한다. 방마다
+     * 새로 만든다(공유하면 테스트 사이에 드롭 수가 섞인다).
+     */
+    private static Counter newRateLimitedCounter() {
+        return Counter.builder("movement.intent.rate_limited").register(new SimpleMeterRegistry());
+    }
+
     private final UUID islandId;
     private final NavGrid nav;
     private final Pathfinder pathfinder;
@@ -78,7 +86,7 @@ public final class RoomRuntime {
     // 보완5) — 세션 교체(재접속)마다 새로 만들지 않고, actor 가 있거나 departed 에 남아 있는 동안
     // 그대로 유지된다(정리는 pruneExpiredDeparted() 끝줄).
     private final ConcurrentHashMap<UUID, Bucket> userBuckets = new ConcurrentHashMap<>();
-    private final AtomicLong rateLimitedDropCount = new AtomicLong();
+    private final Counter rateLimitedCounter;
 
     // 아래 셋은 틱 스레드만 만진다(단일 작성자) — 그래서 평범한 Map 이다.
     private final Map<UUID, Actor> actors = new LinkedHashMap<>();
@@ -90,13 +98,15 @@ public final class RoomRuntime {
     private boolean lastTickHadMoving;
 
     public RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener) {
-        this(islandId, nav, pathfinder, rules, listener, System::nanoTime, DEFAULT_PATHFIND_TIMER);
+        this(islandId, nav, pathfinder, rules, listener, System::nanoTime, DEFAULT_PATHFIND_TIMER,
+                newRateLimitedCounter());
     }
 
     /** 패키지 전용 — 토큰 버킷 리필 시계를 테스트가 주입하기 위함(codex P2, 틱 번호 대신 벽시계 나노초). */
     RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
             LongSupplier nowNanos) {
-        this(islandId, nav, pathfinder, rules, listener, nowNanos, DEFAULT_PATHFIND_TIMER);
+        this(islandId, nav, pathfinder, rules, listener, nowNanos, DEFAULT_PATHFIND_TIMER,
+                newRateLimitedCounter());
     }
 
     /**
@@ -106,7 +116,7 @@ public final class RoomRuntime {
      * 틱 p99 판단에 쓴다).
      */
     RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
-            LongSupplier nowNanos, Timer pathfindTimer) {
+            LongSupplier nowNanos, Timer pathfindTimer, Counter rateLimitedCounter) {
         this.islandId = islandId;
         this.nav = nav;
         this.pathfinder = pathfinder;
@@ -114,6 +124,7 @@ public final class RoomRuntime {
         this.listener = listener;
         this.nowNanos = nowNanos;
         this.pathfindTimer = pathfindTimer;
+        this.rateLimitedCounter = rateLimitedCounter;
     }
 
     public void join(UUID userId, String sessionKey) {
@@ -152,7 +163,7 @@ public final class RoomRuntime {
             return bucket;
         });
         if (!consumed[0]) {
-            rateLimitedDropCount.incrementAndGet();
+            rateLimitedCounter.increment();
             LOG.debug("사용자 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", userId,
                     intent.commandSeq());
             return;
@@ -168,6 +179,15 @@ public final class RoomRuntime {
     /** 1단계는 레이아웃 버전을 기록만 한다 — 통행 칸은 바뀌지 않는다(N11). */
     public void applyLayout(long newLayoutRevision) {
         queue.add(new ApplyLayout(newLayoutRevision));
+    }
+
+    /**
+     * 소유권 인계(GROMO-2339 단계 B) — 앞 소유자가 종료하며 남긴 위치를 퇴장 기억(N23)으로 심는다. 지금 방에 없는
+     * 사용자만 심으므로, 그 사용자가 다시 입장하면 스폰이 아니라 그 자리에서 시작한다(FullState 가 0 으로 튀지 않는다).
+     * 다른 명령과 같은 큐라 이 뒤에 들어온 join 보다 먼저 처리된다.
+     */
+    public void restore(Map<UUID, MovementEvent.Point> positions) {
+        queue.add(new Restore(Map.copyOf(positions)));
     }
 
     /** 공개 API(Ticker·테스트) — 매번 Snapshot 을 발행하는 평범한 틱({@code tick(tickNumber, true)} 위임). */
@@ -237,9 +257,12 @@ public final class RoomRuntime {
         return departed.size();
     }
 
-    /** 패키지 전용 — 테스트용. 토큰 버킷 초과로 조용히 버려진 intent 수(codex P2, N8). */
+    /**
+     * 패키지 전용 — 테스트용. 토큰 버킷 초과로 조용히 버려진 intent 수(codex P2, N8).
+     * 주입된 Counter 기준이다(운영은 프로세스 전체 합계, 테스트는 방마다 새 Counter).
+     */
     long rateLimitedDropCount() {
-        return rateLimitedDropCount.get();
+        return (long) rateLimitedCounter.count();
     }
 
     /** 패키지 전용 — 테스트용. 지금 살아 있는 사용자 토큰 버킷 수(codex P2, 2246 보완5). */
@@ -340,6 +363,8 @@ public final class RoomRuntime {
                 guarded("ApplyLayout revision=" + a.layoutRevision(), () -> processApplyLayout(a));
             } else if (c instanceof RequestFullState r) {
                 guarded("RequestFullState session=" + r.sessionKey(), () -> processRequestFullState(r));
+            } else if (c instanceof Restore r) {
+                guarded("Restore count=" + r.positions().size(), () -> processRestore(r));
             } else if (c instanceof Intent i) {
                 latest.merge(i.sessionKey(), i.intent(), RoomRuntime::newerIntent);
             }
@@ -386,15 +411,35 @@ public final class RoomRuntime {
                 // SUBSCRIBE 는 2247 의 requestFullState 가 별도로 받으므로 여기서는 챙기지 않는다.
                 return false;
             }
+            String replaced = actor.sessionKey;
             // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20). 토큰
             // 버킷은 세션이 아니라 사용자 기준이라(2246 보완5) 여기서 지울 게 없다 — 재접속을 반복해도
             // 버킷은 그대로 이어져, 순간 20 을 다시 받는 우회가 되지 않는다.
             actor.sessionKey = cmd.sessionKey();
             actor.lastCommandSeq = 0;
             sessionToUser.put(cmd.sessionKey(), cmd.userId());
+            notifyReplaced(replaced, cmd.sessionKey());
         }
         emit(fullStateOf(), Target.ALL);
         return true;
+    }
+
+    /** {@link #emit} 과 같은 이유로 교체 통지 콜백의 예외도 삼킨다. */
+    private void notifyReplaced(String replacedSessionKey, String newSessionKey) {
+        try {
+            listener.onSessionReplaced(islandId, replacedSessionKey, newSessionKey);
+        } catch (RuntimeException e) {
+            LOG.warn("섬 {} 세션 교체 통지 콜백 실패 — 삼키고 계속한다", islandId, e);
+        }
+    }
+
+    private void processRestore(Restore cmd) {
+        long now = nowNanos.getAsLong();
+        cmd.positions().forEach((userId, position) -> {
+            if (!actors.containsKey(userId)) {
+                departed.put(userId, new Departed(position, now));
+            }
+        });
     }
 
     /**
@@ -698,16 +743,29 @@ public final class RoomRuntime {
     /**
      * {@link RoomRuntime} 은 네트워크를 모른다 — 이벤트는 이 콜백으로만 나간다.
      *
-     * <p><b>구현은 로컬 전송을 전제한다</b>(2246 보완14) — 이 콜백 하나로는 같은 JVM 인스턴스에 붙은
-     * 구독자에게만 닿는다. 다른 인스턴스에 붙은 구독자에게도 보내려면(수평 확장) Redis 팬아웃
-     * ({@code chat:events:v1}) 으로 중계하는 구현이 필요한데, 그 설계는 2단계 결정이다 — 지금
-     * 구현({@code MovementRooms} 가 주입하는 것)은 로컬 전송만 한다.
+     * <p>구현은 둘이다 — 플래그 OFF 면 로컬 전송({@code MovementPublisher}), ON 이면 Redis 릴레이({@code MovementRelay},
+     * GROMO-2339 — 소유자 인스턴스의 사건을 전 인스턴스로). 이 클래스는 어느 쪽인지 모른다.
      */
     public interface Listener {
 
         void onEvent(UUID islandId, MovementEvent event, Target target);
 
         void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot);
+
+        /**
+         * 같은 사용자의 새 세션이 actor 를 가져갔다(N6). 단일 인스턴스는 구독 처리기가 이미 옛 세션을 멈춰 아무것도 안
+         * 해도 된다(기본). 다중 인스턴스(GROMO-2339)는 옛 세션이 다른 인스턴스에 있을 수 있어 그쪽에 알린다.
+         */
+        default void onSessionReplaced(UUID islandId, String replacedSessionKey, String newSessionKey) {
+        }
+
+        /**
+         * 방 하나를 만들 때 그 방에 줄 콜백 — 기본은 자기 자신. 다중 인스턴스(GROMO-2339)는 «이 방을 만든 소유권 세대»에 묶은
+         * 콜백을 돌려줘, 리스를 잃고 다시 얻은 뒤 옛 방의 늦은 사건이 새 리스로 나가지 않게 한다.
+         */
+        default Listener forRoom(UUID islandId) {
+            return this;
+        }
     }
 
     // ── 큐 명령 ──────────────────────────────────────────────────────────
@@ -725,6 +783,10 @@ public final class RoomRuntime {
     }
 
     private record RequestFullState(String sessionKey) implements Command {
+    }
+
+    /** {@link #restore} — 인계받은 위치(사용자 → 좌표). */
+    private record Restore(Map<UUID, MovementEvent.Point> positions) implements Command {
     }
 
     /**

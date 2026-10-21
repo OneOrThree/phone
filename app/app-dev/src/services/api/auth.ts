@@ -265,6 +265,7 @@ export async function login(
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       userId: result.userId,
+      provider,
     },
     generation,
     onSessionPublished,

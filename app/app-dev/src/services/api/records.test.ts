@@ -40,6 +40,7 @@ const Q = { from: '2026-09-13', to: '2026-09-19' };
 const focusMe = {
   scope: 'me',
   totalSeconds: 1500,
+  earnedFish: 28,
   series: [{ date: '2026-09-15', seconds: 1500 }],
   records: [
     { id: 'r1', subject: '수학', activeSeconds: 1500, completedAt: '2026-09-15T09:10:00Z' },
@@ -123,6 +124,7 @@ test('getFocusStatistics — from·to·timezone=Asia/Seoul·scope·cursor 만 �
   assert.equal(params.get('scope'), 'me');
   assert.equal(stats.scope, 'me');
   assert.equal(stats.totalSeconds, 1500);
+  assert.equal(stats.earnedFish, 28);
 });
 
 test('getFocusStatistics scope=island — members 배열과 nextCursor 를 돌려준다', async () => {
@@ -271,3 +273,21 @@ test('도서관 오늘은 KST 자정에 바뀌고 일요일에 주간이 바뀐�
     to: '2026-10-17',
   });
 });
+
+test.each([-1, 1.5, '3'])(
+  'getFocusStatistics — 잘못된 적립량 %s는 계약 오류다',
+  async (earnedFish) => {
+    stub(200, { data: { ...focusMe, earnedFish } });
+    const error = await failed(getFocusStatistics(ISLAND, { ...Q, scope: 'me' }));
+    assert.equal(error.code, CLIENT_CONTRACT_ERROR);
+  },
+);
+
+test.each([undefined, null, 0])(
+  'getFocusStatistics — 구 서버 미제공과 실제 0마리를 구분한다 (%s)',
+  async (earnedFish) => {
+    stub(200, { data: { ...focusMe, earnedFish } });
+    const stats = await getFocusStatistics(ISLAND, { ...Q, scope: 'me' });
+    assert.equal(stats.earnedFish, earnedFish);
+  },
+);

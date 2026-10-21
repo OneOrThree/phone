@@ -17,6 +17,11 @@ public enum ApiErrorCode implements ErrorCode {
     // 없으면 「욕설을 걸렀다」는 정상 400 이 502 UPSTREAM_CONTRACT_ERROR 로 나가 서버 장애처럼 보이고,
     // 앱은 사용자에게 왜 막혔는지 안내할 수 없다(NICKNAME_INVALID 와 같은 이유로 여기 둔다).
     BANNED_WORD(HttpStatus.BAD_REQUEST, "사용할 수 없는 표현이 포함돼 있어요.", false),
+    // GROMO-2289 고양이 잡지 홍보 7종(PROMOTION_LAYOUT_INVALID 부터 PROMOTION_TEXT_TOO_LONG 까지, 상태별로 흩어져 있다).
+    // Data 의 MagazineErrorCode 와 이름·상태가 같아야 registeredUpstream 이 붙는다 — 없으면 신청 창·꾸미기
+    // 판정 같은 정상 거절이 502 로 나가 앱이 사용자에게 왜 막혔는지 안내할 수 없다. MAGAZINE_NOT_READY(503)는 등록하지
+    // 않는다 — IslandPromotionUseCase 가 공개 SERVICE_UNAVAILABLE 로 바꾼다.
+    PROMOTION_LAYOUT_INVALID(HttpStatus.BAD_REQUEST, "홍보 칸 꾸미기 내용이 올바르지 않아요", false),
     HOST_WITHDRAW(HttpStatus.BAD_REQUEST, "섬 방장을 위임한 뒤 탈퇴할 수 있습니다.", false),
     REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인 자격이 유효하지 않습니다.", false),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다. 다시 로그인해 주세요.", false),
@@ -40,15 +45,40 @@ public enum ApiErrorCode implements ErrorCode {
     // 앱은 소셜 로그인 안내 대신 「서버 장애」를 띄운다. 일반 FORBIDDEN 과 코드를 «가르는» 이유는
     // 앱이 이 하나에만 회원 전환 화면을 열어야 하기 때문이다.
     SOCIAL_LOGIN_REQUIRED(HttpStatus.FORBIDDEN, "소셜 로그인하면 이용할 수 있어요.", false),
+    // GROMO-2260. Data 의 GroupErrorCode.ISLAND_NOT_ARRIVED 와 이름·상태가 같다 — 망원경에서 가입만 하고
+    // 아직 항해하지 않은 섬으로 즉시 이동을 시도했다. 앱은 이 코드에만 망원경 항해를 권한다.
+    ISLAND_NOT_ARRIVED(HttpStatus.FORBIDDEN, "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요", false),
+    PROMOTION_ASSET_NOT_OWNED(HttpStatus.FORBIDDEN, "갖고 있지 않은 꾸미기 재료가 있어요", false),
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 대상을 찾을 수 없습니다.", false),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다. 다시 로그인해 주세요.", false),
     GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "섬을 찾을 수 없습니다.", false),
+    PROMOTION_NOT_FOUND(HttpStatus.NOT_FOUND, "홍보를 찾을 수 없어요", false),
+    // GROMO-2289 잡지 발행. Data 의 MagazineErrorCode 와 이름·상태가 같다 — 없는 호이거나 최근 7호보다 오래된 호.
+    MAGAZINE_ISSUE_NOT_FOUND(HttpStatus.NOT_FOUND, "잡지 호를 찾을 수 없어요", false),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청 경로를 찾을 수 없습니다.", false),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다.", false),
     SLUG_NOT_FOUND(HttpStatus.NOT_FOUND, "초대 링크를 찾을 수 없습니다.", false),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다.", false),
     VERSION_CONFLICT(HttpStatus.CONFLICT, "상태가 변경되었습니다. 최신 내용을 확인해 주세요.", false),
     STATE_CONFLICT(HttpStatus.CONFLICT, "현재 상태에서는 이 작업을 수행할 수 없습니다.", false),
+    // GROMO-2260 소속 섬 상한(3). Data 의 GROUP_LIMIT_EXCEEDED 를 섬 사용 사례가 이 코드로 옮긴다 — 앱이
+    // 일반 STATE_CONFLICT 와 갈라 「섬을 하나 나가세요」 안내를 띄워야 한다.
+    ISLAND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요", false),
+    // GROMO-2262. Data 의 GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY 와 이름·상태가 같다 — 같은 KST 날의
+    // 두 번째 방명록. 앱이 이 코드에만 「오늘은 이미 남겼어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+    GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요", false),
+    // GROMO-2267. Data 의 GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY 와 이름·상태가 같다 — 같은 KST 날의 두 번째
+    // 잡지 홍보 신청. 앱이 이 코드에만 「오늘은 이미 신청했어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+    PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요", false),
+    PROMOTION_WINDOW_CLOSED(HttpStatus.CONFLICT, "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요", false),
+    // 10/16 비공개 섬 홍보 허용 — 더는 던지지 않는다(공개 이름 동결). 제거 시점: 앱 2316(비공개 버튼 해제·분기 삭제) 배포 뒤. 문구는 옛 정책 그대로(이름·문구 동결).
+    PROMOTION_PRIVATE_ISLAND(HttpStatus.CONFLICT, "비공개 섬은 잡지에 홍보할 수 없어요", false),
+    PROMOTION_LOCKED(HttpStatus.CONFLICT, "자정이 지나 홍보를 고칠 수 없어요", false),
+    // GROMO-2299. Data 의 FocusErrorCode 와 이름·상태가 같다 — 바다 항해 세 거절. 앱이 일반 STATE_CONFLICT 와 갈라
+    // 「지금은 갈 수 없는 섬이에요」·「항해 중에는 쉴 수 없어요」·「한마디는 5분에 한 번」을 띄운다.
+    SEA_DESTINATION_UNAVAILABLE(HttpStatus.CONFLICT, "지금은 갈 수 없는 섬입니다.", false),
+    SEA_SESSION_NO_REST(HttpStatus.CONFLICT, "항해 중에는 쉴 수 없습니다.", false),
+    SEA_REMARK_LOCKED(HttpStatus.CONFLICT, "한마디는 5분에 한 번만 바꿀 수 있습니다.", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),
@@ -67,6 +97,7 @@ public enum ApiErrorCode implements ErrorCode {
     REQUEST_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "요청 본문이 너무 큽니다.", false),
     UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 형식입니다.", false),
     OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "입력값이 허용 범위를 벗어났습니다.", false),
+    PROMOTION_TEXT_TOO_LONG(HttpStatus.UNPROCESSABLE_ENTITY, "홍보 글은 60자까지 쓸 수 있어요", false),
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 많습니다. 잠시 후 다시 시도해 주세요.", true),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "요청을 처리할 수 없습니다.", false),
     UPSTREAM_CONTRACT_ERROR(HttpStatus.BAD_GATEWAY, "요청을 처리할 수 없습니다.", false),

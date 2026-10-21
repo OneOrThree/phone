@@ -47,7 +47,6 @@ const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?revie
       ['visitIsland', 'cloud'],
       ['visitIslandFocus', 'cloud'],
       ['shop'],
-      ['product', 'scarf'],
       ['product', 'rain'],
       ['orders'],
       ['wardrobe'],
@@ -64,6 +63,8 @@ const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?revie
       await p.evaluate(
         ({ route, detail, tab }) => {
           const s = window.__gromoReview.fixture(true);
+          s.tutorial = { step: 99 };
+          s.focusGuideDone = true;
           if (['boat', 'mainIsland'].includes(route)) {
             s.islands.find((island) => island.id === 'strawberry').joined = true;
             s.islands.find((island) => island.id === 'cloud').joined = true;
@@ -95,6 +96,17 @@ const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?revie
           .filter((i) => i.src && (!i.complete || !i.naturalWidth))
           .map((i) => i.src),
       );
+      const signOverflows = await p.locator('img[src*="wooden-name-sign"]').evaluateAll(
+        (images) =>
+          images.filter((image) => {
+            const imageBox = image.parentElement.getBoundingClientRect();
+            const signBox = image.parentElement.parentElement.getBoundingClientRect();
+            return imageBox.width > signBox.width + 1 || imageBox.height > signBox.height + 1;
+          }).length,
+      );
+      if (signOverflows) errors.push(`${route}: 팻말 이미지 ${signOverflows}개가 영역을 넘음`);
+      if (route === 'home' && (await p.evaluate(() => window.__gromoReview.route)) !== 'home')
+        errors.push('홈 검수 화면이 다른 경로로 바뀜');
       await p.screenshot({
         path: path.join(out, `${orientation}-${route}${detail ? '-' + detail : ''}.png`),
       });
@@ -115,6 +127,7 @@ const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?revie
     ),
   );
   await b.close();
+  if (report.some((r) => r.broken.length || r.errors.length)) process.exitCode = 1;
 })().catch((e) => {
   console.error(e);
   process.exit(1);

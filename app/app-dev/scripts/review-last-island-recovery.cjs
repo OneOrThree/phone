@@ -145,15 +145,12 @@ const reviewUrl = process.env.GROMO_REVIEW_URL ?? 'http://127.0.0.1:18762/?revie
       fixture.islandId,
     );
 
-    await page.waitForFunction(() => window.__gromoReview.route === 'chooseIsland');
+    await page.waitForFunction(() => window.__gromoReview.route === 'sea');
     await page.evaluate(() => window.__gromoReview.back());
-    assert.equal(await page.evaluate(() => window.__gromoReview.route), 'chooseIsland');
+    assert.equal(await page.evaluate(() => window.__gromoReview.route), 'sea');
     assert.equal(await page.evaluate(() => window.__gromoReview.state.onboarded), false);
     assert.equal(await page.getByRole('button', { name: '탈퇴하기', exact: true }).count(), 0);
-    assert.ok(
-      await page.getByRole('button', { name: '혼자 시작할 섬 만들기', exact: true }).count(),
-    );
-    assert.ok(await page.getByRole('button', { name: '기존 섬 참여', exact: true }).count());
+    assert.ok(await page.getByTestId('sea-primary-action').count());
     assert.deepEqual(errors, []);
     report.push({ orientation, pass: true });
     await page.close();

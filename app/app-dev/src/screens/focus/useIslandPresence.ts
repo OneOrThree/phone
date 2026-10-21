@@ -10,12 +10,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { sessionGeneration } from '@/services/api/session';
 import type { Color } from '@/services/model';
+import { newerLook, type MemberLook } from '@/services/memberAppearance';
 import {
   EMPTY_PRESENCE,
   startIslandRealtime,
   type IslandRealtime,
   type IslandPresenceTransition,
+  type LiveEmote,
   type GoldenFishEvent,
+  type MemberArrivedEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
 
@@ -24,10 +27,16 @@ const COLORS: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
 export const catColor = (v: unknown): Color =>
   COLORS.includes(v as Color) ? (v as Color) : 'gray';
 
+const NO_LOOKS: Record<string, MemberLook> = {};
+
 export type IslandPresence = PresenceView & {
   /** STOMP SEND — 즉시 실패(미연결·세션 없음)면 false. 화면 표시는 브로드캐스트가 돌아올 때다. */
   sendEmote: (type: string) => boolean;
   retry: () => void;
+  /** 소켓은 그대로 두고 스냅숏만 다시 읽는다 — 이벤트가 안 오는 방문 화면의 주기 갱신용. */
+  resync: () => void;
+  /** 실시간으로 받은 주민 외양(GROMO-2390) — 스냅숏 appearance 와 version 으로 합쳐 쓴다. */
+  looks: Record<string, MemberLook>;
 };
 
 export function useIslandPresence(
@@ -36,26 +45,41 @@ export function useIslandPresence(
     islandId: string | null;
     /** 응원 자격이 되는 내 진행 중 서버 세션 id — 없으면 emotes 를 구독·발신하지 않는다. */
     emoteSessionId?: string | null;
+    /** 서버 계약 호환용 — 앱 화면은 넘기지 않는다(2026-10-16). 방문자 모드(GROMO-2259): 세션 없이 응원을 보낸다. */
+    visitor?: boolean;
+    /** 방문자가 보낸 응원을 받았다(주민 화면). */
+    onVisitorEmote?: (emote: LiveEmote) => void;
     onSendError?: (message: string) => void;
     onTransition?: (transition: IslandPresenceTransition) => void;
     onGoldenFish?: (event: GoldenFishEvent) => void;
+    /** 주민 소식(GROMO-2311) — 현재 소속 섬의 주민 화면에서만 `events` 를 켠다. */
+    events?: boolean;
+    onMemberArrived?: (event: MemberArrivedEvent) => void;
   },
   start: typeof startIslandRealtime = startIslandRealtime,
 ): IslandPresence {
-  const { active, islandId, emoteSessionId } = opts;
+  const { active, islandId, emoteSessionId, visitor } = opts;
   const generation = sessionGeneration();
   const [nonce, setNonce] = useState(0);
   const scope = `${generation}:${active ? islandId : ''}:${nonce}`;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const [snapshot, setSnapshot] = useState({ scope, view: EMPTY_PRESENCE });
+  const [looksState, setLooksState] = useState<{
+    scope: string;
+    looks: Record<string, MemberLook>;
+  }>({ scope, looks: {} });
   const rt = useRef<IslandRealtime | null>(null);
   const onSendError = useRef(opts.onSendError);
   onSendError.current = opts.onSendError;
   const onTransition = useRef(opts.onTransition);
   onTransition.current = opts.onTransition;
+  const onVisitorEmote = useRef(opts.onVisitorEmote);
+  onVisitorEmote.current = opts.onVisitorEmote;
   const onGoldenFish = useRef(opts.onGoldenFish);
   onGoldenFish.current = opts.onGoldenFish;
+  const onMemberArrived = useRef(opts.onMemberArrived);
+  onMemberArrived.current = opts.onMemberArrived;
 
   useEffect(() => {
     if (!active || !islandId) {
@@ -67,6 +91,8 @@ export function useIslandPresence(
     const session = start({
       islandId,
       emoteSessionId,
+      visitor,
+      events: opts.events,
       alive,
       onView: (view) => {
         if (alive()) setSnapshot({ scope, view });
@@ -74,8 +100,22 @@ export function useIslandPresence(
       onTransition: (transition) => {
         if (alive()) onTransition.current?.(transition);
       },
+      onVisitorEmote: (emote) => {
+        if (alive()) onVisitorEmote.current?.(emote);
+      },
       onGoldenFish: (event) => {
         if (alive()) onGoldenFish.current?.(event);
+      },
+      onMemberArrived: (event) => {
+        if (alive()) onMemberArrived.current?.(event);
+      },
+      onMemberAppearance: (userId, look) => {
+        if (!alive()) return;
+        setLooksState((prev) => {
+          const current = prev.scope === scope ? prev.looks : NO_LOOKS;
+          const next = newerLook(current[userId], look)!;
+          return next === current[userId] ? prev : { scope, looks: { ...current, [userId]: next } };
+        });
       },
       onSendError: (message) => {
         if (alive()) onSendError.current?.(message);
@@ -106,5 +146,7 @@ export function useIslandPresence(
     ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),
     sendEmote: useCallback((type: string) => rt.current?.sendEmote(type) ?? false, []),
     retry: useCallback(() => setNonce((n) => n + 1), []),
+    resync: useCallback(() => rt.current?.resync('manual'), []),
+    looks: looksState.scope === scope ? looksState.looks : NO_LOOKS,
   };
 }

@@ -27,11 +27,13 @@ import Svg, {
   Polygon,
   Image as SvgImage,
 } from 'react-native-svg';
-import { useFonts } from 'expo-font';
+import { useGowun } from './sceneKit';
 import { C, art, k, Txt, Pic, Btn, Gear } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
+import { CatAvatar } from '@/components/CatAvatar';
+import type { Outfit } from '@/components/CatOutfitLayers';
 import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
 
@@ -144,6 +146,7 @@ export function IslandSheet({
   footer,
   toast,
   scrollRef,
+  onScroll,
   keepOnBackdrop = false,
   children,
 }: {
@@ -163,6 +166,7 @@ export function IslandSheet({
   toast?: string;
   // 편지방처럼 새 글을 보낸 뒤 아래로 스크롤해야 할 때
   scrollRef?: Ref<ScrollView>;
+  onScroll?: React.ComponentProps<typeof ScrollView>['onScroll'];
   // 글을 쓰는 시트는 바깥(스크림)을 눌러도 닫지 않는다. 작성 중인 글 보호용, × 닫기는 그대로
   keepOnBackdrop?: boolean;
   children?: React.ReactNode;
@@ -345,6 +349,9 @@ export function IslandSheet({
         >
           <ScrollView
             ref={scrollRef}
+            testID="island-sheet-scroll"
+            onScroll={onScroll}
+            scrollEventThrottle={16}
             style={{ flex: 1 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -420,7 +427,11 @@ function SheetToast({ text, bottom, right = 0 }: { text: string; bottom: number;
   );
 }
 
-// 섬 위 작은 팝업(.gpop). 가로 폰에서는 children | side 를 2단(.land .gpop)으로 눕힌다
+// 섬 위 작은 팝업(.gpop). 가로 폰에서는 children | side 를 2단(.land .gpop)으로 눕힌다.
+// 표현만 한다 — 열려 있는 동안 모달이라는 것은 iOS accessibilityViewIsModal 로만 알린다(VoiceOver 가 형제 장면을 무시).
+// 안드로이드 뒤로 가기와 Android 스크린리더용 뒤 장면 숨김(importantForAccessibility="no-hide-descendants")은 호출자 몫이다:
+// 뒤로 가기는 e.backOverride 로 팝업 닫기를 걸고(App 의 뒤로 가기 핸들러가 방문 분기보다 먼저 본다), 형제를 가릴 수 없는
+// 팝업 대신 뒤 장면을 감싼 쪽이 숨긴다.
 export function IslandPopup({
   bg,
   onClose,
@@ -437,7 +448,7 @@ export function IslandPopup({
   const two = L.compact;
   const col: ViewStyle = { flex: 1, gap: 10, minWidth: 0 };
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={StyleSheet.absoluteFill} accessibilityViewIsModal>
       <Backdrop bg={bg} onClose={onClose} />
       <View
         style={[
@@ -583,11 +594,8 @@ export function WoodBoard({
 }) {
   const L = useAppLayout();
   // 사용자가 직접 쓴 퀘스트·공지 제목이 올라가므로 서브셋이 아닌 전체 고운돋움을 쓴다.
-  // 항해·휴식 화면과 같은 파일이라 같은 글꼴 이름으로 한 번만 등록한다
-  const [loaded] = useFonts({
-    GromoSailing: require('@/assets/fonts/gowun-dodum.ttf'),
-  });
-  const font = loaded ? 'GromoSailing' : undefined;
+  // 다른 장면 화면과 같은 글꼴 이름(sceneKit 의 GOWUN) 하나로 쓴다
+  const font = useGowun();
   const make = tab === 'quest' ? '＋ 만들기' : '＋ 작성';
 
   // 가로 폰: 세로형 보드가 안 들어가므로 오른쪽 사이드 패널 안에 같은 포스트잇·종이를 흐름 배치
@@ -991,26 +999,31 @@ export function RowIcon({ name }: { name: 'group' | 'gear' }) {
 // 아바타 그림(.av): 하늘색 바탕 · 갈색 테두리
 export function Avatar({
   color,
+  outfit,
   size = 40,
   radius = 14,
 }: {
-  color: string;
+  color: string | null | undefined;
+  outfit?: Outfit | null;
   size?: number;
   radius?: number;
 }) {
   return (
-    <Pic
-      id={'avatar/' + color}
-      w={size}
+    <View
       style={{
         borderRadius: radius,
         backgroundColor: C.sky,
         borderWidth: 1.5,
         borderColor: C.brown,
       }}
-    />
+    >
+      <CatAvatar color={color} outfit={outfit} size={size - 3} />
+    </View>
   );
 }
+
+// SheetRow 의 `below` 줄 — 본문 칸 안 sub 아래에 왼쪽 정렬
+const rowBelow: ViewStyle = { alignItems: 'flex-start', marginTop: 4 };
 
 // 리스트 행(.row). tone = on(분홍) · butter(노랑). dense = 가로 축음기 시트의 낮은 행
 export function SheetRow({
@@ -1019,6 +1032,7 @@ export function SheetRow({
   right,
   lead,
   tail,
+  below,
   chevron = false,
   onPress,
   tone,
@@ -1033,6 +1047,8 @@ export function SheetRow({
   right?: React.ReactNode;
   lead?: React.ReactNode;
   tail?: React.ReactNode;
+  // 본문 칸(제목·sub) 안 sub 아래에 한 줄 더 놓는 내용. 큰 글자에서 tail 의 배지를 이리로 내려, 고정 폭 lead·tail 옆에서 본문 칸이 줄지 않게 한다
+  below?: React.ReactNode;
   chevron?: boolean;
   onPress?: () => void;
   tone?: 'on' | 'butter';
@@ -1071,6 +1087,7 @@ export function SheetRow({
             {sub}
           </Txt>
         )}
+        {!!below && <View style={rowBelow}>{below}</View>}
       </View>
       {typeof rightText === 'string' ? (
         <Txt
@@ -1194,15 +1211,6 @@ export function IslandThumb({ warm = false }: { warm?: boolean }) {
   );
 }
 
-// 밀짚모자 그림(.hatart). 시안도 그림 파일 없이 CSS 도형(타원 챙 + 둥근 모자 + 분홍 띠)으로 그린다.
-// w = 줄어든 상자 폭(꾸미기 썸네일은 칸이 좁아 72로 줄어든 뒤 scale 0.7), 높이는 56 고정
-export function HatArt({ scale = 1, w = 88 }: { scale?: number; w?: number }) {
-  return (
-    <Svg width={w * scale} height={56 * scale} viewBox={`0 0 ${w} 56`}>
-      <HatShapes w={w} />
-    </Svg>
-  );
-}
 function HatShapes({ w }: { w: number }) {
   // CSS처럼 모서리 반지름(위 22 · 아래 6)이 몸통 폭을 넘으면 같은 비율로 줄인다
   const f = Math.min(1, (w - 46) / 44);
@@ -1293,22 +1301,6 @@ export function RaftCatArt({
         </G>
       )}
     </Svg>
-  );
-}
-
-// 고양이 그림 위에 겹쳐 쓰는 밀짚모자. 그림과 같은 상자·같은 비율(viewBox, contain)로 겹치고
-// 모자 위치(x, y, 폭)는 그 그림의 원본 픽셀 좌표로 준다
-export function HatOn({ image, style }: { image: 'raft' | 'cat'; style: StyleProp<ViewStyle> }) {
-  // 뗏목 합성 그림 440×317의 머리 · 고양이 idle 512×512의 머리
-  const [vw, vh, x, y, w] = image === 'raft' ? [440, 317, 157, 20, 110] : [512, 512, 175, 23, 230];
-  return (
-    <View pointerEvents="none" style={[{ position: 'absolute' }, style]}>
-      <Svg width="100%" height="100%" viewBox={`0 0 ${vw} ${vh}`}>
-        <G transform={`translate(${x} ${y}) scale(${w / 88})`}>
-          <HatShapes w={88} />
-        </G>
-      </Svg>
-    </View>
   );
 }
 

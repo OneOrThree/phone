@@ -25,7 +25,7 @@ import {
 } from './session';
 
 export const DEV_API_URL = 'https://oneorthree.dev.mooo.com';
-export const PRODUCTION_API_URL = 'https://api.oneorthree.world';
+export const PRODUCTION_API_URL = 'https://catus-api.oneorthree.world';
 export const LOCAL_WEB_API_URL = 'http://localhost:8080';
 
 export function isProductionApiUrl(value: string | undefined): boolean {
@@ -195,6 +195,8 @@ export interface RequestOptions {
   generation?: number;
   /** 서버 작업 특성상 공용 15초보다 긴 응답 시간이 필요한 경우의 호출별 제한. */
   timeoutMs?: number;
+  /** 성공 응답의 HTTP 상태를 받는다 — 같은 본문을 201(새로 만듦)·200(이미 있음)으로 나누는 계약에서만 쓴다. */
+  onStatus?: (status: number) => void;
 }
 
 /**
@@ -399,6 +401,7 @@ async function requestAttempt<T>(
     throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
   }
 
+  options.onStatus?.(response.status);
   // 무접두 공개 경로는 `{data}` 봉투다. 봉투가 없는 응답은 본문 그대로 돌려준다.
   const envelope = payload as { data?: unknown } | null;
   return (

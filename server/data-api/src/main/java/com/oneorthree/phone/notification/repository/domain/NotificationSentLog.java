@@ -148,6 +148,19 @@ public class NotificationSentLog {
      */
     public static final String TYPE_MAIN_ISLAND_TRANSFERRED = "MAIN_ISLAND_TRANSFERRED";
 
+    /**
+     * 발송 종류 — 섬에서 강퇴됐다(GROMO-2315). 용법은 {@link #TYPE_MAIN_ISLAND_TRANSFERRED} 와 같다 —
+     * {@code target_user_id} 에 <b>강퇴된 섬 id</b>, {@code subject_id} 는 비운다(같은 섬 재가입 후 재강퇴의 기록이
+     * 선점 유니크 축에 걸리지 않게).
+     */
+    public static final String TYPE_ISLAND_KICKED = "ISLAND_KICKED";
+
+    /**
+     * 발송 종류 — 오늘의 고양이 잡지 호 발행(GROMO-2307). {@code subject_id} = <b>호 id</b> 라 선점 유니크
+     * {@code (user_id, kind, subject_id)} 가 계정당 호당 한 번을 접는다(구 경로의 유일한 중복 방지).
+     */
+    public static final String TYPE_MAGAZINE_PUBLISHED = "MAGAZINE_PUBLISHED";
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -166,7 +179,11 @@ public class NotificationSentLog {
     @Column(name = "target_user_id")
     private UUID targetUserId;
 
-    /** 실발송 시각 — PENDING/DEFERRED 클레임 행은 아직 발송 전이라 null 이다(V45). */
+    /**
+     * 실발송 시각 — PENDING/DEFERRED 클레임 행은 아직 발송 전이라 null 이다(V45). <b>실제 발송 기준은
+     * {@code sent_at IS NOT NULL}</b> 이다 — status=SENT 만으로 세지 말 것(필터로 폐기한 선점도 SENT 이고 sent_at 이 없다,
+     * GROMO-2307).
+     */
     @Column(name = "sent_at")
     private Instant sentAt;
 

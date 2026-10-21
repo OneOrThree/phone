@@ -1,0 +1,77 @@
+{
+  "mode": "movement",
+  "trafficPattern": "aligned-periodic",
+  "runId": "7fe19d7e-f1d9-4712-8d71-b3f732a32ec7",
+  "messageTypes": {
+    "FullState": 550,
+    "PathAccepted": 19000,
+    "Arrived": 10000,
+    "Snapshot": 36420
+  },
+  "targets": [
+    "ws://localhost:18083/ws/realtime",
+    "ws://localhost:18085/ws/realtime"
+  ],
+  "userOffset": 0,
+  "serverConnections": null,
+  "eventWindowStart": 1792476380168,
+  "eventWindowEnd": 1792476400170,
+  "eventReceipts": [],
+  "receivedBytes": 78436596,
+  "sentBytes": 393800,
+  "fullyDeliveredMessages": 1900,
+  "sendPerSecond": 94.99207865330754,
+  "deliveryPerSecond": 949.9207865330754,
+  "goodputPerSecond": 94.99207865330754,
+  "latestCommandConfirmed": 100,
+  "loadgen": {
+    "rssBytes": 171966464,
+    "cpuCores": 0.12339070228178338
+  },
+  "startedAt": "2026-10-20T06:06:18.043Z",
+  "endedAt": "2026-10-20T06:06:43.173Z",
+  "connections": 100,
+  "ready": 100,
+  "seconds": 20,
+  "frequency": 1,
+  "measurementMs": 20001.667791,
+  "sent": 1900,
+  "expectedDeliveries": 19000,
+  "delivered": 19000,
+  "missing": 0,
+  "duplicate": 0,
+  "frames": 65970,
+  "snapshots": 36420,
+  "errors": 1,
+  "rejected": 0,
+  "errorCodes": {
+    "PROMETHEUS_QUERY_FAILED": 1
+  },
+  "connectMs": {
+    "count": 100,
+    "p50": 3.4650410000000136,
+    "p95": 6.639083999999912,
+    "p99": 17.500374999999963,
+    "max": 23.343541
+  },
+  "readyMs": {
+    "count": 100,
+    "p50": 34.582875,
+    "p95": 57.885583,
+    "p99": 61.39716699999997,
+    "max": 66.07520799999999
+  },
+  "deliveryMs": {
+    "count": 19000,
+    "p50": 36.5268750000032,
+    "p95": 63.01712499999849,
+    "p99": 83.0926670000008,
+    "max": 90.33629100000007
+  },
+  "eventLoopDelayMs": {
+    "mean": 20.756298746071135,
+    "max": 43.483135,
+    "p99": 22.462463
+  },
+  "valid": false
+}

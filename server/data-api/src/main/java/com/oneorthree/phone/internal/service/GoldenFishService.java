@@ -67,6 +67,11 @@ import java.util.UUID;
  * 않는다」). 진 추첨에서는 잠그지 않는다 — 250번 중 249번이 지므로, 지는 추첨까지 매분 전 세션을
  * 잠그면 집중 적립 틱과 쓸데없이 경합한다.
  *
+ * <h2>바다 세션은 참여자가 아니다 (GROMO-2274)</h2>
+ * 황금 물고기는 섬 통장으로 가는 보상이라, 같은 {@link SeaSessionPredicate} 가 바다 집중이라고 한 세션은 잠근 뒤의
+ * 확정 명단에서 빠진다 — 받지도, 인원에 세어지지도 않는다(그래서 섬 세션 하나와 바다 세션 하나뿐이면 「혼자」다).
+ * 지금은 판정이 늘 {@code false} 라 종전 그대로다.
+ *
  * <h2>잠금 순서</h2>
  * 세션 상세(sessionId 오름차순) → 섬 건설 상태 → 섬 통장. {@link FocusRewardAccrualService} 의
  * 꼬리(상세 → 건설 상태 → 통장)와 같고, 상세를 <b>전부 잡은 뒤에</b> 아래로 내려가므로 그 틱과
@@ -95,6 +100,7 @@ public class GoldenFishService {
     private final IslandWalletService wallet;
     private final IslandWalletEvents walletEvents;
     private final OutboxCommandPort outbox;
+    private final SeaSessionPredicate seaSessions;
 
     /**
      * 섬 하나의 한 분 추첨 — 스케줄러가 섬마다 자기 트랜잭션으로 부른다.
@@ -120,11 +126,14 @@ public class GoldenFishService {
         }
 
         // 당첨 — 여기서부터 쓴다. 상세를 sessionId 오름차순으로 잠가 잠금 순서를 고정한다.
+        // ponytail: 확률표의 인원(candidates)은 잠금 전 스냅샷이라 바다 세션을 셀 수 있다 — 확정 명단에서만 거른다.
+        // E1-1 이 세션 kind 열을 두면 후보 조회(findSessionIdsByIslandIdAndLifecycle)에서 먼저 거른다.
         List<FocusSessionDetail> caught = new ArrayList<>();
         for (UUID sessionId : candidates.stream().sorted().toList()) {
             details.findBySessionIdForUpdate(sessionId)
                     .filter(detail -> detail.getLifecycle() == FocusSessionLifecycle.ACTIVE
-                            && islandId.equals(detail.getIslandId()) && detail.getUserId() != null)
+                            && islandId.equals(detail.getIslandId()) && detail.getUserId() != null
+                            && !seaSessions.isSea(detail))
                     .ifPresent(caught::add);
         }
         if (caught.size() < MIN_MEMBERS) {

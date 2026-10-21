@@ -14,6 +14,7 @@ import { primitiveTokens } from '@/design-system/tokens';
 import { buildingNames, type Building } from '@/services/model';
 import { normalizedConstructionProgress } from './constructionProgress';
 import { useConstruction } from './useConstruction';
+import { useNow } from '@/hooks/useNow';
 import { buildBlockedText } from './Hall';
 
 type Tracked = { building: Building; startedAt: number; endsAt: number } | null;
@@ -49,7 +50,8 @@ export function ServerBuildCard({
 }) {
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
-  const now = Date.now();
+  // 카드만 매초 다시 그린다 — 남은 분·완공 확인 재조회가 초 단위다(GROMO-2372, 홈 지도는 다시 그리지 않는다)
+  const now = useNow(1000);
   const construction = useConstruction({
     // 공사 중이 아니면 바로 옵션을 읽어 「N마리로 건설하기」 한 버튼으로 짓게 한다
     active: !tracked,

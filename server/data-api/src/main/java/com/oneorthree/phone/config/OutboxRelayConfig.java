@@ -9,9 +9,12 @@ import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.scheduler.OutboxRelayScheduler;
 import com.oneorthree.phone.outbox.service.OutboxRelayService;
 import com.oneorthree.phone.outbox.service.OutboxRelayStore;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
@@ -22,6 +25,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.client.RestClient;
 
 import java.time.Clock;
@@ -64,8 +68,38 @@ public class OutboxRelayConfig {
      * @return relay 의 트랜잭션 경계
      */
     @Bean
-    public OutboxRelayStore outboxRelayStore(EventOutboxDeliveryRepository deliveryRepository, Clock clock) {
-        return new OutboxRelayStore(deliveryRepository, properties, clock);
+    public OutboxRelayStore outboxRelayStore(
+            EventOutboxDeliveryRepository deliveryRepository,
+            Clock clock,
+            ObjectProvider<MeterRegistry> meterRegistry) {
+        return new OutboxRelayStore(deliveryRepository, properties, clock,
+                meterRegistry.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    /**
+     * relay 전용 풀 — 틱 1 + 축 작업 {@code worker-threads} (GROMO-2338).
+     *
+     * <p><b>왜 공용 {@code taskScheduler}(6) 에서 떼어 내나.</b> relay 틱이 예산(기본 5s) 동안 축 작업을 돌리면 그 풀의
+     * 알림·정리 크론이 슬롯을 잃는다. 반대로 크론이 몰리는 정시에 relay 가 밀리면 미전달이 쌓인다. 정산·집중 보상
+     * 풀과 같은 이유로 격리한다({@code SchedulingConfig}).
+     *
+     * <p><b>틱은 한 스레드만 쓴다.</b> {@code fixedDelay} 는 앞 실행이 끝나야 다음 지연을 잡으므로 이 풀에서 틱이 겹치지
+     * 않는다 — 나머지 {@code worker-threads} 개가 축 작업 몫이다. 틱 스레드는 축 작업을 기다리기만 하므로(직접 돌지 않음)
+     * 축 작업이 틱을 기다리는 일이 없어 교착이 없다.
+     *
+     * <p>커넥션 예산: 스레드마다 한 번에 커넥션 하나라 relay 의 동시 커넥션은 최대 {@code worker-threads + 1} 이다 —
+     * 기본 4 면 Hikari 기본 10 중 5. 풀 크기를 넘기면 요청 스레드가 기다린다.
+     *
+     * @return {@code @Scheduled(scheduler = …)} 와 축 실행기가 함께 쓰는 풀
+     */
+    @Bean(OutboxRelayScheduler.SCHEDULER)
+    public ThreadPoolTaskScheduler outboxRelayTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(properties.getWorkerThreads() + 1);
+        scheduler.setThreadNamePrefix("outbox-relay-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setAwaitTerminationSeconds(30);
+        return scheduler;
     }
 
     /**
@@ -137,6 +171,7 @@ public class OutboxRelayConfig {
      * @param outboxKafkaTemplate Kafka 발행구
      * @param outboxRestClient 위성 호출 클라이언트
      * @param clock            서버 시계
+     * @param meterRegistry    relay 지표 — 레지스트리가 없는 기동(일부 슬라이스 테스트)에선 버리는 레지스트리
      * @return relay 본체
      */
     @Bean
@@ -145,7 +180,8 @@ public class OutboxRelayConfig {
             EventOutboxRepository outboxRepository,
             KafkaTemplate<String, String> outboxKafkaTemplate,
             RestClient outboxRestClient,
-            Clock clock) {
+            Clock clock,
+            ObjectProvider<MeterRegistry> meterRegistry) {
         List<OutboxTransport> transports = new ArrayList<>();
         transports.add(new KafkaOutboxTransport(
                 OutboxTarget.KAFKA, properties.getKafka().getTopic(), outboxKafkaTemplate, properties));
@@ -162,7 +198,9 @@ public class OutboxRelayConfig {
                 transports.add(new HttpOutboxTransport(target, outboxRestClient, properties));
             }
         }
-        return new OutboxRelayService(store, outboxRepository, properties, clock, transports);
+        return new OutboxRelayService(store, outboxRepository, properties, clock, transports,
+                meterRegistry.getIfAvailable(SimpleMeterRegistry::new),
+                outboxRelayTaskScheduler());   // @Configuration 프록시라 같은 싱글톤 빈이다
     }
 
     /**

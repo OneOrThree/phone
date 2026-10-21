@@ -1,7 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { FocusEmoteBubble } from './FocusEmoteBubble';
+import * as Haptics from 'expo-haptics';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { IslandOcean } from '@/screens/island/IslandOcean';
+import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
+  AccessibilityInfo,
+  Easing,
   AppState,
   Image,
   PanResponder,
@@ -12,17 +19,25 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, Ellipse, Image as SvgImage, Path, Pattern, Rect } from 'react-native-svg';
+import Svg, { Ellipse, Path } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
 import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
-import { C } from '@/design-system/primitives';
+import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
+import type { Outfit } from '@/components/CatOutfitLayers';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
+import {
+  FishingCatchMotion,
+  FishingFloatMotion,
+  FishingSceneActive,
+  LAB_CAT_PX,
+  useFishingPose,
+} from '@/screens/focus/FishingSceneMotion';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
@@ -80,6 +95,8 @@ const raftBounds = {
 };
 // fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
 const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
+// 움직임 검토실 line(): 줄 처짐 52 × (1 - tension .24) LAB px 를 고양이(지도 폭 7.7%) 비율로 옮긴 지도 세로 % 값.
+const LINE_SAG = ((52 * (1 - 0.24)) / LAB_CAT_PX) * 7.7 * FISHING_MAP_ASPECT;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
@@ -457,6 +474,7 @@ export function FishingIsland({
   inert = false,
   children,
   overlay,
+  overlayBlocksMap = true,
   goldenFish = false,
 }: {
   focus: Point;
@@ -474,33 +492,56 @@ export function FishingIsland({
   seated?: boolean;
   children: (size: number, sizeY: number, zoom: number) => React.ReactNode;
   overlay?: (toScreen: (p: Point) => Point, size: number) => React.ReactNode;
+  /** 단순 안내 오버레이는 지도 이동과 접근성을 막지 않는다. */
+  overlayBlocksMap?: boolean;
   /** 황금 물고기 컷신 재생이 끝난 뒤 섬에 남는 에셋. */
   goldenFish?: boolean;
 }) {
   const L = useAppLayout();
+  const reduceMotion = useContext(MotionContext);
   const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y });
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
   const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
-  const live = useRef({ cam, L, ratio, focus, seated, overlay });
-  live.current = { cam, L, ratio, focus, seated, overlay };
+  const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
+  live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
+  const gesture = useMapGesture(cam);
   // 끌기 기준점. 손가락 수가 바뀌면(핀치 → 한 손가락) 지금 위치에서 다시 잡아 지도가 튀지 않게 한다
   const start = useRef({ zoom: 1, x: 0, y: 0, dist: 0, n: 0, dx: 0, dy: 0 }),
     dragged = useRef(false),
     node = useRef<View>(null);
   // 확대·축소 0.8~1.8배: 보던 곳을 유지하고, 1.4배부터는 내 자리를 가운데로
-  const zoomTo = (z: (c: typeof cam) => number) =>
-    setCam((c) => {
-      const zoom = Math.max(0.8, Math.min(1.8, z(c))),
-        { focus: f, seated: me } = live.current;
-      return zoom >= 1.4 && me ? { zoom, x: f.x, y: f.y } : { ...c, zoom };
-    });
+  const zoomed = (c: typeof cam, z: number) => {
+    const zoom = Math.max(0.8, Math.min(1.8, z)),
+      { focus: f, seated: me } = live.current;
+    return zoom >= 1.4 && me ? { zoom, x: f.x, y: f.y } : { ...c, zoom };
+  };
+  // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 지도를 c 카메라 자리로 옮겨 보이기만 한다.
+  const show = (c: typeof cam) => {
+    const { cam: committed, L: l, ratio: r } = live.current,
+      from = fishingCamera(l.width, l.height, committed.zoom, committed, r),
+      to = fishingCamera(l.width, l.height, c.zoom, c, r);
+    gesture.show(
+      c,
+      viewportShift(
+        { left: from.left, top: from.top, scale: from.size },
+        { left: to.left, top: to.top, scale: to.size },
+        l.width,
+        l.height,
+      ),
+    );
+  };
+  // 손을 떼면 보이는 카메라로 한 번만 다시 배치한다. transform 은 커밋 직후 useMapGesture 가 항등으로 되돌린다.
+  const settle = () => {
+    const c = gesture.release();
+    if (c) setCam(c);
+  };
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       // 집중 준비 카드가 떠 있으면 지도를 끌지 않는다
       onMoveShouldSetPanResponder: (e, g) =>
-        !live.current.overlay &&
+        !(live.current.overlay && live.current.overlayBlocksMap) &&
         ((e.nativeEvent.touches?.length ?? 0) > 1 || Math.abs(g.dx) + Math.abs(g.dy) > 6),
       onPanResponderGrant: () => {
         start.current.n = 0;
@@ -510,7 +551,8 @@ export function FishingIsland({
         const n = Math.max(1, e.nativeEvent.touches?.length ?? 1),
           t = e.nativeEvent.touches ?? [],
           s = start.current,
-          { cam: c, L: l, ratio: r } = live.current,
+          c = gesture.visible(),
+          { L: l, ratio: r } = live.current,
           v = fishingCamera(l.width, l.height, c.zoom, c, r);
         if (n !== s.n) {
           start.current = { zoom: c.zoom, x: v.sx, y: v.sy, dist: 0, n, dx: g.dx, dy: g.dy };
@@ -519,23 +561,25 @@ export function FishingIsland({
         if (n > 1) {
           const d = Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
           if (!s.dist) s.dist = d;
-          else zoomTo(() => (s.zoom * d) / s.dist);
+          else show(zoomed(c, (s.zoom * d) / s.dist));
           return;
         }
         // 끌어서 둘러보기: 스크롤 위치를 제한한 뒤 보는 곳으로 되돌려 저장한다(끝에 걸린 채 더 끌어도 밀리지 않게).
         // 화면보다 좁은 방향은 가운데 고정이라 움직이지 않는다.
         const sx = Math.max(0, Math.min(v.size - l.width, s.x - (g.dx - s.dx))),
           sy = Math.max(0, Math.min(v.sizeY - l.height, s.y - (g.dy - s.dy)));
-        setCam({
+        show({
           zoom: c.zoom,
           x: v.size > l.width ? ((sx + l.width / 2) / v.size) * 100 : c.x,
           y: v.sizeY > l.height ? ((sy - v.offTop + l.height * r) / v.sizeY) * 100 : c.y,
         });
       },
       onPanResponderRelease: () => {
+        settle();
         setTimeout(() => (dragged.current = false), 80);
       },
       onPanResponderTerminate: () => {
+        settle();
         dragged.current = false;
       },
     }),
@@ -547,13 +591,18 @@ export function FishingIsland({
     const wheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      zoomTo((c) => c.zoom * Math.exp(-e.deltaY / 200));
+      setCam((c) => zoomed(c, c.zoom * Math.exp(-e.deltaY / 200)));
     };
     el?.addEventListener?.('wheel', wheel, { passive: false });
     return () => el?.removeEventListener?.('wheel', wheel);
   }, []);
+  // 끄는 동안에는 바다를 다시 깔지 않으므로, 최소 배율(0.8)에서 화면 반 폭·높이만큼 섬 밖까지 미리 깐다.
+  // 보는 곳(화면 가운데)은 늘 지도 안이라 어느 카메라로 가도 이 범위가 화면을 덮는다.
+  const minScale = fishingCamera(L.width, L.height, 0.8, cam, ratio).size / 1536,
+    reachX = L.width / 2 / minScale,
+    reachY = L.height / 2 / minScale,
+    oceanCover = { left: -reachX, top: -reachY, right: 1536 + reachX, bottom: 1024 + reachY };
   const { size, sizeY, left, top } = view,
-    tile = (L.width >= 600 ? L.width * 0.319 : 204) * cam.zoom,
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
     raftK = raftW / raftBox.w;
@@ -564,74 +613,75 @@ export function FishingIsland({
       {...pan.panHandlers}
       style={{ flex: 1, backgroundColor: '#74B9B9', overflow: clip }}
     >
-      {/* 지도 밖은 섬 그림 귀퉁이 바다를 뒤집어 이은 무늬 */}
-      <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-        <Defs>
-          <Pattern
-            id="fishing-sea"
-            x={-view.sx}
-            y={-view.sy}
-            width={tile}
-            height={tile}
-            patternUnits="userSpaceOnUse"
-          >
-            <SvgImage
-              href={require('@/assets/backgrounds/fishing-island/sea-tile.jpg')}
-              width={tile}
-              height={tile}
-              preserveAspectRatio="none"
-            />
-          </Pattern>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#fishing-sea)" />
-      </Svg>
-      <View
-        style={{ position: 'absolute', left, top, width: size, height: sizeY }}
-        {...a11yHidden(inert || !!overlay)}
+      {/* 지도 손가락 변환(GROMO-2373): 끄는 동안 이 컨테이너 하나만 움직이고 쉬는 동안은 항등이다. */}
+      <Animated.View
+        pointerEvents="box-none"
+        collapsable={false}
+        style={[
+          StyleSheet.absoluteFill,
+          { width: L.width, height: L.height, transform: gesture.transform },
+        ]}
       >
-        <Pressable
-          // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
-          accessible={!!onTap}
-          accessibilityRole={onTap ? 'button' : undefined}
-          accessibilityLabel={onTap ? t('focusFlow.spot.groundA11y') : undefined}
-          accessibilityActions={
-            onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
-          }
-          onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
-          style={StyleSheet.absoluteFill}
-          onPress={(e) => {
-            if (dragged.current || !onTap) return;
-            const ev = e.nativeEvent as any,
-              rect =
-                Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
-            onTap({
-              x: ((rect ? ev.clientX - rect.left : ev.locationX) / size) * 100,
-              y: ((rect ? ev.clientY - rect.top : ev.locationY) / sizeY) * 100,
-            });
-          }}
+        <IslandOcean left={left} top={top} scale={size / 1536} cover={oceanCover} />
+        <View
+          testID="fishing-map"
+          style={{ position: 'absolute', left, top, width: size, height: sizeY }}
+          {...a11yHidden(inert || (!!overlay && overlayBlocksMap))}
         >
-          <Image
-            source={require('@/assets/backgrounds/fishing-island/day.jpg')}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="stretch"
-          />
-        </Pressable>
-        <Svg
-          pointerEvents="none"
-          width={size}
-          height={sizeY}
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          style={{ position: 'absolute', zIndex: 3 }}
-        >
+          <Pressable
+            // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
+            accessible={!!onTap}
+            accessibilityRole={onTap ? 'button' : undefined}
+            accessibilityLabel={onTap ? t('focusFlow.spot.groundA11y') : undefined}
+            accessibilityActions={
+              onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
+            }
+            onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
+            style={StyleSheet.absoluteFill}
+            onPress={(e) => {
+              if (dragged.current || !onTap) return;
+              const ev = e.nativeEvent as any,
+                rect =
+                  Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
+              onTap({
+                x: ((rect ? ev.clientX - rect.left : ev.locationX) / size) * 100,
+                y: ((rect ? ev.clientY - rect.top : ev.locationY) / sizeY) * 100,
+              });
+            }}
+          >
+            <Image
+              source={require('@/assets/backgrounds/island/ocean/focus-day.png')}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="stretch"
+            />
+          </Pressable>
           {spots
             .filter((s) => s.bx != null)
             .map((s, n) => {
-              const start = castLineStart(s);
+              const start = castLineStart(s),
+                sag = (start.y + s.by!) / 2 + LINE_SAG,
+                // 줄 하나를 감싸는 상자(지도 %, 선 굵기 여유 0.1)만 그린다 — 지도 크기 SVG 는 확대할수록 비트맵이 커진다(GROMO-2373).
+                x0 = Math.min(start.x, s.bx! - 0.35) - 0.1,
+                x1 = Math.max(start.x, s.bx! + 0.35) + 0.1,
+                y0 = Math.min(start.y, s.by! - 0.2, sag) - 0.1,
+                y1 = Math.max(start.y, s.by! + 0.2, sag) + 0.1;
               return (
-                <React.Fragment key={n}>
+                <Svg
+                  key={n}
+                  pointerEvents="none"
+                  width={((x1 - x0) * size) / 100}
+                  height={((y1 - y0) * sizeY) / 100}
+                  viewBox={`${x0} ${y0} ${x1 - x0} ${y1 - y0}`}
+                  preserveAspectRatio="none"
+                  style={{
+                    position: 'absolute',
+                    zIndex: 3,
+                    left: (x0 * size) / 100,
+                    top: (y0 * sizeY) / 100,
+                  }}
+                >
                   <Path
-                    d={`M ${start.x} ${start.y} L ${s.bx} ${s.by}`}
+                    d={`M ${start.x} ${start.y} Q ${(start.x + s.bx!) / 2} ${sag} ${s.bx} ${s.by}`}
                     fill="none"
                     stroke="#fff5db"
                     strokeWidth={0.14}
@@ -645,88 +695,102 @@ export function FishingIsland({
                     stroke="#946752"
                     strokeWidth={0.06}
                   />
-                </React.Fragment>
+                </Svg>
               );
             })}
-        </Svg>
-        {goldenFish && (
-          <Image
-            source={art['fish/gold']}
-            accessibilityLabel={t('focusFlow.fish.goldenCaughtImageA11y')}
-            testID="fishing-island-golden-fish"
-            resizeMode="contain"
-            style={{
-              position: 'absolute',
-              zIndex: 14,
-              left: size * 0.5 - size * 0.045,
-              top: sizeY * 0.54 - size * 0.045,
-              width: size * 0.09,
-              height: size * 0.09,
-            }}
+          <FishingFloatMotion
+            active={!inert && !reduceMotion}
+            spots={spots
+              .filter((s) => s.bx != null)
+              .map((s, n) => ({
+                key: String(n),
+                x: (size * s.bx!) / 100,
+                y: (sizeY * s.by!) / 100,
+                face: s.face < 0 ? -1 : 1,
+                k: (size * 0.077) / LAB_CAT_PX,
+              }))}
           />
-        )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={raftLabel}
-          testID="fishing-raft"
-          // 지도를 끌다 뗏목 위에서 손을 떼면 누르기로 치지 않는다
-          onPress={() => !dragged.current && onRaft()}
-          style={{
-            position: 'absolute',
-            zIndex: 15,
-            left: (size * RAFT.x) / 100 - raftW / 2,
-            top: (sizeY * RAFT.y) / 100 - (raftBox.h * raftK) / 2,
-            width: raftW,
-            height: raftBox.h * raftK,
-            overflow: 'hidden',
-          }}
-        >
-          <Image
-            source={assets['boats/raft/day.png']}
-            style={{
-              position: 'absolute',
-              left: -raftBox.x * raftK,
-              top: -raftBox.y * raftK,
-              width: 1024 * raftK,
-              height: 1024 * raftK,
-            }}
-          />
-        </Pressable>
-        {gram && (
+          {goldenFish && (
+            <Image
+              source={art['fish/gold']}
+              accessibilityLabel={t('focusFlow.fish.goldenCaughtImageA11y')}
+              testID="fishing-island-golden-fish"
+              resizeMode="contain"
+              style={{
+                position: 'absolute',
+                zIndex: 14,
+                left: size * 0.5 - size * 0.045,
+                top: sizeY * 0.54 - size * 0.045,
+                width: size * 0.09,
+                height: size * 0.09,
+              }}
+            />
+          )}
           <Pressable
-            accessible={!!onGram}
-            accessibilityRole={onGram ? 'button' : undefined}
-            accessibilityLabel={onGram ? t('focusFlow.music.gramA11y') : undefined}
-            testID="fishing-gram"
-            onPress={() => !dragged.current && onGram?.()}
-            // 그림이 작아(세로 폭 약 38px) 누르는 영역을 사방 8px 넓힌다
-            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={raftLabel}
+            testID="fishing-raft"
+            // 지도를 끌다 뗏목 위에서 손을 떼면 누르기로 치지 않는다
+            onPress={() => !dragged.current && onRaft()}
             style={{
               position: 'absolute',
-              // 자리 고르기 등 누를 수 없는 단계에서는 그림만(누르면 땅 누르기로 내려감)
-              pointerEvents: onGram ? 'auto' : 'none',
-              zIndex: 20 + Math.round(GRAM.y),
-              left: (size * GRAM.x) / 100 - gramW / 2,
-              top: (sizeY * GRAM.y) / 100 - (gramW * gramBox.h) / gramBox.w,
-              width: gramW,
-              height: (gramW * gramBox.h) / gramBox.w,
+              zIndex: 15,
+              left: (size * RAFT.x) / 100 - raftW / 2,
+              top: (sizeY * RAFT.y) / 100 - (raftBox.h * raftK) / 2,
+              width: raftW,
+              height: raftBox.h * raftK,
               overflow: 'hidden',
             }}
           >
             <Image
-              source={assets['buildings/gramophone/day.png']}
+              source={assets['boats/raft/day.png']}
               style={{
                 position: 'absolute',
-                left: (-gramBox.x * gramW) / gramBox.w,
-                top: (-gramBox.y * gramW) / gramBox.w,
-                width: (632 * gramW) / gramBox.w,
-                height: (910 * gramW) / gramBox.w,
+                left: -raftBox.x * raftK,
+                top: -raftBox.y * raftK,
+                width: 1024 * raftK,
+                height: 1024 * raftK,
               }}
             />
           </Pressable>
-        )}
-        {children(size, sizeY, cam.zoom)}
-      </View>
+          {gram && (
+            <Pressable
+              accessible={!!onGram}
+              accessibilityRole={onGram ? 'button' : undefined}
+              accessibilityLabel={onGram ? t('focusFlow.music.gramA11y') : undefined}
+              testID="fishing-gram"
+              onPress={() => !dragged.current && onGram?.()}
+              // 그림이 작아(세로 폭 약 38px) 누르는 영역을 사방 8px 넓힌다
+              hitSlop={8}
+              style={{
+                position: 'absolute',
+                // 자리 고르기 등 누를 수 없는 단계에서는 그림만(누르면 땅 누르기로 내려감)
+                pointerEvents: onGram ? 'auto' : 'none',
+                zIndex: 20 + Math.round(GRAM.y),
+                left: (size * GRAM.x) / 100 - gramW / 2,
+                top: (sizeY * GRAM.y) / 100 - (gramW * gramBox.h) / gramBox.w,
+                width: gramW,
+                height: (gramW * gramBox.h) / gramBox.w,
+                overflow: 'hidden',
+              }}
+            >
+              <Image
+                source={assets['buildings/gramophone/day.png']}
+                style={{
+                  position: 'absolute',
+                  left: (-gramBox.x * gramW) / gramBox.w,
+                  top: (-gramBox.y * gramW) / gramBox.w,
+                  width: (632 * gramW) / gramBox.w,
+                  height: (910 * gramW) / gramBox.w,
+                }}
+              />
+            </Pressable>
+          )}
+          <FishingSceneActive.Provider value={!inert}>
+            {children(size, sizeY, cam.zoom)}
+          </FishingSceneActive.Provider>
+        </View>
+      </Animated.View>
       {overlay?.((p) => ({ x: left + (size * p.x) / 100, y: top + (sizeY * p.y) / 100 }), size)}
     </View>
   );
@@ -781,6 +845,7 @@ export function FishingActor({
   generation,
   animatedPosition,
   catchAvoidSpots = [],
+  outfit,
 }: {
   spot: Spot;
   size: number;
@@ -812,9 +877,15 @@ export function FishingActor({
     top: Animated.AnimatedInterpolation<number> | Animated.Value;
   };
   catchAvoidSpots?: Spot[];
+  /** 내 고양이의 장착 그림(GROMO-2382). */
+  outfit?: Outfit;
 }) {
   const [reeling, setReeling] = useState(false),
-    [goldenReeling, setGoldenReeling] = useState(false);
+    [goldenReeling, setGoldenReeling] = useState(false),
+    // 한 마리 잡을 때마다 올린다. 2초 창 안에서 또 잡아도 키 포즈·몸 변환·물보라를 처음부터 다시 튼다.
+    [reelNonce, setReelNonce] = useState(0),
+    // 연출 도중 덮이거나(inert) 백그라운드로 끊긴 사건. 돌아와도 그 사건의 연출은 다시 틀지 않는다.
+    [interruptedNonce, setInterruptedNonce] = useState<number | null>(null);
   const count = caughtFish ?? Math.floor(seconds / SECONDS_PER_FISH) + (tutorialFish ? 1 : 0),
     last = useRef(count),
     // 이미 표시된 더미를 가진 채 재마운트되면 기존 사건을 새 당첨으로 재생하지 않는다.
@@ -832,6 +903,7 @@ export function FishingActor({
       return;
     }
     setReeling(true);
+    setReelNonce((n) => n + 1);
     return afterForegroundMs(() => setReeling(false), 2000);
   }, [count, reduce]);
   // 컷신이 닫힌 뒤 참여자만 기존 낚아올리기 스프라이트로 한 번 알린다.
@@ -850,9 +922,40 @@ export function FishingActor({
     setGoldenReeling(true);
     return afterForegroundMs(() => setGoldenReeling(false), 2000);
   }, [goldenFishCount, goldenCatchToken, reduce]);
+  const sceneActive = useContext(FishingSceneActive),
+    [appState, setAppState] = useState(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription?.remove();
+  }, []);
+  // 황금 물고기 reel 은 기존 100ms 반복 그대로 두고, 일반 낚시 연출(키 포즈·몸 변환·물보라)은 끈다.
+  const isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
+    reelEvent = isFishing && !goldenReeling && (motion === 'reel' || (motion == null && reeling)),
+    // 덮인 채/백그라운드로 시작한 사건은 effect 를 기다리지 않고 첫 렌더부터 끊긴 것으로 본다.
+    running = isFishing && !goldenReeling && !reduce && sceneActive && appState === 'active',
+    interrupted = reelEvent && (interruptedNonce === reelNonce || (!reduce && !running)),
+    // 끊긴 사건은 남은 창 동안 기존 기본 reel(100ms 반복)로 두고, 끝나면 focus 키 포즈로 돌아간다.
+    keyed = isFishing && !goldenReeling && !interrupted,
+    catching = reelEvent && !interrupted;
+  const pose = useFishingPose({
+    active: isFishing && !goldenReeling && !reduce && sceneActive,
+    catching,
+    nonce: reelNonce,
+  });
+  // 일반 사건 창은 황금 reel 이 끼어드는 동안에도 흐른다(황금 여부와 무관하게 센다).
+  const eventWindow = isFishing && (motion === 'reel' || (motion == null && reeling));
+  useEffect(() => {
+    // 황금 reel 이 일반 사건 창을 덮으면 그 사건은 끊긴 것으로 기록한다(황금 뒤 창이 남아도 처음부터 다시 틀지 않는다).
+    if (goldenReeling) {
+      if (eventWindow) setInterruptedNonce(reelNonce);
+      return;
+    }
+    // 황금 구간엔 기록을 보존한다. 황금이 아닌데 사건이 없으면 비운다(부모가 motion='reel' 을 줄 땐 nonce 가 안 올라 같은 nonce 가 재사용된다).
+    if (!reelEvent) setInterruptedNonce(null);
+    else if (!reduce && !running) setInterruptedNonce(reelNonce);
+  }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
-    isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
     direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
@@ -870,8 +973,12 @@ export function FishingActor({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: animatedPosition?.left ?? (size * spot.x) / 100 - a / 2,
-        top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
+        // 걷는 주민(animatedPosition)은 left/top 대신 네이티브 드라이버 transform 으로 옮긴다(GROMO-2374).
+        left: animatedPosition ? 0 : (size * spot.x) / 100 - a / 2,
+        top: animatedPosition ? 0 : (sizeY * spot.y) / 100 - a * 0.90625,
+        transform: animatedPosition
+          ? [{ translateX: animatedPosition.left }, { translateY: animatedPosition.top }]
+          : undefined,
         width: a,
         height: a,
         zIndex:
@@ -909,6 +1016,10 @@ export function FishingActor({
         anchored={false}
         onFinish={onMotionFinish}
         generation={generation}
+        keyPoses={keyed}
+        replayKey={keyed ? reelNonce : undefined}
+        poseTransform={keyed ? pose.body : undefined}
+        outfit={outfit}
         testID="fishing-actor-cat"
       />
       {isFishing && (
@@ -930,25 +1041,34 @@ export function FishingActor({
           }}
         />
       )}
+      {/* DESIGN.md §8.3: 다른 주민의 물고기 획득은 공개하지 않는다 — 물보라·물고기는 내 고양이만. */}
+      {me && catching && !reduce && sceneActive && spot.bx != null && spot.by != null && (
+        <FishingCatchMotion
+          key={reelNonce}
+          reel={pose.reel}
+          k={a / LAB_CAT_PX}
+          face={face < 0 ? -1 : 1}
+          bob={{
+            x: (size * (spot.bx - spot.x)) / 100 + a / 2,
+            y: (sizeY * (spot.by - spot.y)) / 100 + a * 0.90625,
+          }}
+          home={
+            showsCatch && catchPlacement
+              ? {
+                  x: (catchPlacement.left + fishingCatchFrame.width / 2) * a,
+                  y: (catchPlacement.top + fishingCatchFrame.height / 2) * a,
+                }
+              : null
+          }
+        />
+      )}
       <View
         style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
         pointerEvents="none"
       >
         {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
         {emote ? (
-          <View
-            style={{
-              alignSelf: 'center',
-              backgroundColor: '#FFFDFA',
-              borderWidth: 2,
-              borderColor: OUTLINE,
-              borderRadius: 15,
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-            }}
-          >
-            <Image source={art[`emote/${emote}`]} style={{ width: 30, height: 30 }} />
-          </View>
+          <FocusEmoteBubble emote={emote} />
         ) : (
           subject != null && (
             <View
@@ -998,6 +1118,7 @@ export function FishingActor({
 /** 실시간 주민: 자리 배정 훅의 경로/상태를 스프라이트 모션으로 표현한다. */
 export function FishingPeerActorView({
   actor,
+  outfit,
   size,
   sizeY,
   emote,
@@ -1011,6 +1132,8 @@ export function FishingPeerActorView({
   onCompletedExit,
 }: {
   actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
+  /** 남의 고양이 머리·목(GROMO-2390). */
+  outfit?: Outfit;
   size: number;
   sizeY: number;
   emote?: string | null;
@@ -1068,6 +1191,7 @@ export function FishingPeerActorView({
         cancelled = false;
       // 이전 방향의 composite가 cleanup에서 멈춘 실제 픽셀 좌표를 읽어 새 땅 경로를 계산한다.
       // actor.position은 상태 경계 좌표라 이동 도중 방향이 바뀐 경우의 현재 위치가 아니다.
+      // 네이티브 드라이버 값이라 stopAnimation 콜백은 네이티브 왕복 뒤에 온다(GROMO-2374) — 그 사이 정리는 cancelled 가 막는다.
       const fromSize = pixelSize.current;
       left.stopAnimation((currentLeft: number) => {
         top.stopAnimation((currentTop: number) => {
@@ -1111,12 +1235,12 @@ export function FishingPeerActorView({
               NativeAnimated.timing(left, {
                 toValue: (size * point.x) / 100 - (size * 0.077) / 2,
                 duration,
-                useNativeDriver: false,
+                ...NATIVE,
               }),
               NativeAnimated.timing(top, {
                 toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
                 duration,
-                useNativeDriver: false,
+                ...NATIVE,
               }),
             ]);
             movement = segment;
@@ -1142,6 +1266,8 @@ export function FishingPeerActorView({
         const fromSize = pixelSize.current;
         left.stopAnimation((currentLeft: number) => {
           top.stopAnimation((currentTop: number) => {
+            // 콜백이 비동기라(네이티브 드라이버) 그 사이 다음 단계가 시작됐으면 그 자리를 덮지 않는다.
+            if (motionToken.current !== token) return;
             const rebased = peerPixelsAtSize(
               currentLeft,
               currentTop,
@@ -1200,6 +1326,7 @@ export function FishingPeerActorView({
       size={size}
       sizeY={sizeY}
       color={actor.color}
+      outfit={outfit}
       name={actor.name}
       subject={actor.subject}
       seconds={actor.seconds}
@@ -1230,6 +1357,7 @@ export function FishingWalker({
   walking,
   left,
   reduce,
+  outfit,
 }: {
   p: Point;
   size: number;
@@ -1238,6 +1366,7 @@ export function FishingWalker({
   walking: boolean;
   left: boolean;
   reduce: boolean;
+  outfit?: Outfit;
 }) {
   const a = size * 0.077;
   return (
@@ -1256,6 +1385,7 @@ export function FishingWalker({
         motion={walking ? 'walk' : 'idle'}
         left={left}
         reduce={reduce}
+        outfit={outfit}
       />
       <View style={{ position: 'absolute', top: a * (0.98 - 0.90625), left: -100, width: 200 }}>
         <Text style={[nameText(true), { textAlign: 'center' }]}>{t('focusFlow.common.me')}</Text>
@@ -1273,6 +1403,9 @@ export function FiButton({
   left = false,
   bg,
   style,
+  holdToConfirm = false,
+  haptics = true,
+  multiline = false,
 }: {
   title: string;
   onPress: () => void;
@@ -1282,13 +1415,124 @@ export function FiButton({
   left?: boolean;
   bg?: string;
   style?: any;
+  holdToConfirm?: boolean;
+  haptics?: boolean;
+  multiline?: boolean;
 }) {
+  const holdProgress = useRef(new Animated.Value(0)).current;
+  const holding = useRef(false);
+  const holdSource = useRef<'touch' | 'accessibility' | null>(null);
+  const [accessibleHolding, setAccessibleHolding] = useState(false);
+  const finishAction = useRef(onPress);
+  finishAction.current = onPress;
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopHold = useCallback(() => {
+    holding.current = false;
+    holdSource.current = null;
+    setAccessibleHolding(false);
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    if (pulseTimer.current) clearInterval(pulseTimer.current);
+    pulseTimer.current = null;
+    holdProgress.stopAnimation();
+    holdProgress.setValue(0);
+  }, [holdProgress]);
+  useEffect(() => {
+    if (!holdToConfirm) return;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') stopHold();
+    });
+    return () => {
+      listener.remove();
+      stopHold();
+    };
+  }, [holdToConfirm, stopHold]);
+  const completeHold = () => {
+    if (!holding.current) return;
+    stopHold();
+    holdProgress.setValue(1);
+    finishAction.current();
+  };
+  const startHold = (source: 'touch' | 'accessibility') => {
+    stopHold();
+    holding.current = true;
+    holdSource.current = source;
+    setAccessibleHolding(source === 'accessibility');
+    // RN longPress는 버튼 안에서 손가락이 조금 움직여도 취소된다. 누름이 유지되는 시간을 직접 잰다.
+    holdTimer.current = setTimeout(completeHold, componentTokens.focusEndHold.durationMs);
+    Animated.timing(holdProgress, {
+      toValue: 1,
+      duration: componentTokens.focusEndHold.durationMs,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+    if (haptics && Platform.OS !== 'web') {
+      const pulse = () =>
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      pulse();
+      pulseTimer.current = setInterval(pulse, componentTokens.focusEndHold.hapticIntervalMs);
+    }
+  };
+  const activateAccessibleHold = () => {
+    if (holdSource.current === 'accessibility') {
+      stopHold();
+      return;
+    }
+    startHold('accessibility');
+    AccessibilityInfo.announceForAccessibility(t('focusFlow.common.holdEndStarted'));
+  };
   return (
     <Pressable
       testID={id}
       accessibilityRole="button"
-      accessibilityLabel={title}
-      onPress={onPress}
+      accessibilityLabel={accessibleHolding ? t('focusFlow.common.holdEndCancel') : title}
+      accessibilityHint={
+        holdToConfirm
+          ? t(
+              accessibleHolding
+                ? 'focusFlow.common.holdEndCancelHint'
+                : 'focusFlow.common.holdEndA11yHint',
+            )
+          : undefined
+      }
+      accessibilityActions={
+        holdToConfirm
+          ? [
+              {
+                name: 'activate',
+                label: t(
+                  accessibleHolding
+                    ? 'focusFlow.common.holdEndCancel'
+                    : 'focusFlow.common.holdEndStart',
+                ),
+              },
+            ]
+          : undefined
+      }
+      onAccessibilityTap={holdToConfirm ? activateAccessibleHold : undefined}
+      onAccessibilityAction={
+        holdToConfirm
+          ? ({ nativeEvent }) => {
+              if (nativeEvent.actionName === 'activate') activateAccessibleHold();
+            }
+          : undefined
+      }
+      onPress={holdToConfirm ? undefined : onPress}
+      onPressIn={
+        holdToConfirm
+          ? () => {
+              if (holdSource.current !== 'accessibility') startHold('touch');
+            }
+          : undefined
+      }
+      onPressOut={
+        holdToConfirm
+          ? () => {
+              if (holdSource.current === 'touch') stopHold();
+            }
+          : undefined
+      }
       style={({ pressed }) => [
         {
           minHeight: 44,
@@ -1297,7 +1541,8 @@ export function FiButton({
           borderRadius: 999,
           borderWidth: 2,
           borderColor: OUTLINE,
-          backgroundColor: bg ?? (primary ? C.pink : C.cream),
+          backgroundColor: holdToConfirm ? C.cream : (bg ?? (primary ? C.pink : C.cream)),
+          overflow: holdToConfirm ? 'hidden' : undefined,
           boxShadow: `0px ${pressed ? 1 : 4}px 0px ${OUTLINE}`,
           transform: [{ translateY: pressed ? 3 : 0 }],
           justifyContent: 'center',
@@ -1305,8 +1550,24 @@ export function FiButton({
         style,
       ]}
     >
+      {holdToConfirm && (
+        <Animated.View
+          testID={id ? `${id}-progress` : undefined}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            right: 0,
+            transform: [{ scaleX: holdProgress }],
+            transformOrigin: 'left center',
+            backgroundColor: componentTokens.focusEndHold.fill,
+          }}
+        />
+      )}
       <Text
-        numberOfLines={1}
+        numberOfLines={multiline ? undefined : 1}
         style={{
           fontSize: small ? 11 : 14,
           lineHeight: small ? 14.3 : 18.2,
@@ -1315,16 +1576,25 @@ export function FiButton({
           textAlign: left ? 'left' : 'center',
         }}
       >
-        {title}
+        {holdToConfirm ? t('focusFlow.common.holdEndFocus') : title}
       </Text>
     </Pressable>
   );
 }
 // 낚시섬 모달(fi-modal): 반투명 막 위 가운데 카드. 가로(폭 600 이상)는 오른쪽 330px.
 // hidden: 위에 다른 모달(보상)이 떠 있을 때 — Android TalkBack은 형제 뷰를 자동으로 숨기지 않으므로 직접 숨긴다
-export function FiModal({ children, hidden }: { children: React.ReactNode; hidden?: boolean }) {
+export function FiModal({
+  children,
+  hidden,
+  footer,
+}: {
+  children: React.ReactNode;
+  hidden?: boolean;
+  footer?: React.ReactNode;
+}) {
   const wide = useAppLayout().width >= 600,
     safe = useSafeAreaInsets();
+  const contentPadding = wide ? semanticTokens.spacing.page : semanticTokens.spacing.section;
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
@@ -1348,11 +1618,21 @@ export function FiModal({ children, hidden }: { children: React.ReactNode; hidde
       >
         <ScrollView
           style={{ flexGrow: 0, flexShrink: 1 }}
-          contentContainerStyle={{ padding: wide ? 20 : 24 }}
+          contentContainerStyle={{ padding: contentPadding }}
           bounces={false}
         >
           {children}
         </ScrollView>
+        {footer && (
+          <View
+            style={{
+              paddingHorizontal: contentPadding,
+              paddingBottom: contentPadding,
+            }}
+          >
+            {footer}
+          </View>
+        )}
       </View>
     </View>
   );

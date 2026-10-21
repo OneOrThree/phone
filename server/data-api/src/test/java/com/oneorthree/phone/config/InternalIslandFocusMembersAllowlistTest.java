@@ -38,7 +38,7 @@ class InternalIslandFocusMembersAllowlistTest {
             }
         }
 
-        assertThat(routes).as("2종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(2);
+        assertThat(routes).as("3종(스냅샷 2 + 오늘 집중 1, GROMO-2258)이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(3);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }

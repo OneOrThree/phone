@@ -1,8 +1,10 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.support.AppleKeys;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -49,8 +51,16 @@ class AccountContractTest extends UpstreamTestBase {
     @SuppressWarnings("resource")
     private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
 
+    /** Apple 토큰 폐기(GROMO-2401) 상류. 키 설정이 있어야 폐기가 켜진다. */
+    private static final MockUpstream APPLE = MockUpstream.start();
+    private static final String APPLE_CODE = "{\"confirmation\":\"DELETE\",\"appleAuthorizationCode\":\"c-1\"}";
+
     @DynamicPropertySource
     static void redis(DynamicPropertyRegistry registry) {
+        registry.add("apple.revoke.base-url", APPLE::baseUrl);
+        registry.add("apple.revoke.team-id", () -> "TEAM123456");
+        registry.add("apple.revoke.key-id", () -> "KEY1234567");
+        registry.add("apple.revoke.private-key", () -> AppleKeys.pem(AppleKeys.generate()));
         REDIS.start();
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
@@ -58,6 +68,13 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Autowired
     StringRedisTemplate redis;
+
+    @BeforeEach
+    void resetApple() {
+        APPLE.reset();
+        // 탈퇴 성공이 세션을 거부목록에 올리므로, 탈퇴 성공 테스트가 여럿이면 뒤 테스트가 401 이 된다.
+        redis.delete("cache:business:revoked-session:" + SESSION);
+    }
 
     @Test
     void readsAccountWithSignedSessionProofAndDataEnvelope() throws Exception {
@@ -218,6 +235,61 @@ class AccountContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.error.field").value("confirmation"));
         assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    void withdrawalWithCodeRevokesAppleTokenAfterDataSucceeds() throws Exception {
+        DATA.on(DATA_DELETE, request -> ok("{\"deleted\":true}"));
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(APPLE.receivedFor("POST /auth/token").get(0).body()).contains("code=c-1");
+        assertThat(APPLE.receivedFor("POST /auth/revoke").get(0).body()).contains("token=RT");
+    }
+
+    @Test
+    void withdrawalWithoutCodeNeverCallsApple() throws Exception {
+        DATA.on(DATA_DELETE, request -> ok("{\"deleted\":true}"));
+
+        mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}")).andExpect(status().isOk());
+
+        assertThat(APPLE.received()).isEmpty();
+    }
+
+    @Test
+    void appleFailureNeverFailsWithdrawal() throws Exception {
+        DATA.on(DATA_DELETE, request -> ok("{\"deleted\":true}"));
+        APPLE.on("POST /auth/token", request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
+    }
+
+    @Test
+    void failedWithdrawalNeverCallsApple() throws Exception {
+        DATA.on(DATA_DELETE, request -> new MockUpstream.Response(400,
+                "{\"code\":\"HOST_WITHDRAW\",\"message\":\"x\"}"));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("HOST_WITHDRAW"));
+
+        assertThat(APPLE.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"\"", "\"  \"", "5", "null", "true", "[\"c\"]", "{}"})
+    void rejectsBadAppleAuthorizationCodeBeforeUpstream(String code) throws Exception {
+        mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\",\"appleAuthorizationCode\":" + code + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.field").value("appleAuthorizationCode"));
+        assertThat(DATA.received()).isEmpty();
+        assertThat(APPLE.received()).isEmpty();
     }
 
     @Test

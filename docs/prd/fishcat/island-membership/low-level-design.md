@@ -34,6 +34,8 @@
 
 필수 필드: `id:Id`, `name:string`, `intro:string`, `visibility:public|private`, `approvalRequired:boolean`, `memberCount:integer>=0`, `maxMembers:integer(1~15)`, `membershipStatus:none|pending|active`, `growthStage:string`, `themeId:string`.
 
+`approvalRequired` 는 **보는 사람 기준 가입 방식**이다 — 보는 사람이 그 섬에서 강퇴돼 나가 있으면 섬 설정과 무관하게 `true` 다(2026-10-16, GROMO-2315 — 강퇴자의 가입은 언제나 승인 대기). 섬 요약·망원경 칸(무작위·가까운 섬·핀)·발견·검색·초대 해석이 같은 규칙을 쓴다.
+
 `maxMembers`는 2026-09-19 결정 V-읽기(「마을회관 섬 정보 등록증 — 이름·소개·주민 수/정원」)로 **방문자 응답에도 들어간다**. 주민 수만 주면 방문 화면이 `3/15`를 그릴 수 없다. 값은 방장만 고칠 수 있고(관리 계약 3.1), 범위는 GROMO-1993의 1~15다.
 
 `intro`는 기존 `Group.description`의 공개 projection이다. 기존 nullable 행과 소개 없이 생성된 그룹도 `COALESCE(description, '')`로 항상 문자열을 반환한다. PublicIslandSummary를 사용하는 탐색/검색/상세/본인 소속/초대 요약 및 이를 확장하는 MemberIslandDetail, 관리 응답에 같은 매퍼를 적용한다. DB의 null을 일괄 변경하거나 legacy 응답 규칙을 바꾸지 않는다. 근거는 `Group.java:51`의 nullable description과 `CreateGroupRequest.java:39~40`의 선택 입력이다.
@@ -52,7 +54,7 @@ PublicIslandSummary의 공통 표시 필드에 `role:host|member`, `buildings:Bu
 
 - 신규 create는 `name:string`, `approvalRequired:boolean` 필수, `intro:string` 선택(누락 시 빈 소개). 이름·소개는 기존 검증값 50/200과 이름 안전 문자 규칙을 재사용한다. 명시 null은400, 빈 이름/도메인 범위 위반은422. 저장 전 임의로 잘라 성공시키지 않는다.
 - 초대 코드는 `InviteCode`라는 정책 value object로 다룬다. 구체 형식/대소문자 정규화/기간은 IM-D01~03 미정이다. 형식이 확정되기 전 샘플 `SODA`를 고정 길이4로 구현하지 않는다.
-- 이 11종 중 create/join/switch/invite/join-cancel 변경 명령은 Idempotency-Key 필수. invite-resolve는 조회 성격이며 범용 명령 키 대상이 아니다. GET에도 변경 키를 요구하지 않는다.
+- 이 11종 중 create/join/switch/invite/join-cancel 변경 명령은 Idempotency-Key 필수. invite-resolve는 범용 명령 키 대상이 아니다 — GROMO-2264 부터 `arrive:true` 면 도착(누구나 가입 섬은 가입까지)을 하지만 다시 불러도 같은 상태로 수렴한다(§3.10). GET에도 변경 키를 요구하지 않는다.
 - 원본에 없는 expectedVersion을 일괄 추가하지 않는다. 서버의 조건부 전이·DB 유일성·receipt가 동시성을 담당한다. 공개 version을 반환하는 것과 client expectedVersion을 받는 것은 별개다.
 
 ## 3. 계약 12종
@@ -77,7 +79,7 @@ Query `q:string?`, `cursor:Cursor?`, `limit:integer=20`(1~100). 성공200 `{data
 
 Query `cursor:Cursor?`, `limit:integer=1`(1~100). 성공200 `{data:{items:PublicIslandSummary[],nextCursor:Cursor?}}`.
 
-공개·미소속·미삭제·미종료·실제 가입 가능 정원 후보를 무작위로 고른다. ~~approvalRequired=false인 즉시 가입 섬만 포함한다.~~ → 2026-10-09 IM-발견1: 승인제 공개 섬도 포함한다. 응답의 `approvalRequired`에 따라 즉시 가입/가입 신청을 구분하며, 승인제 신청은 `pending`이고 실제 소속이 아니다. 현재 강퇴 이력으로 가입 불가능한 후보는 제외한다. 진행 집중에 대한 이동 제한은 후보의 공개/가입방식과 별개이며 실제 가입 커밋에서 검증한다. 첫 소속 탐색은 전망대가 없으므로 search의 전망대 가드를 가져오지 않는다.
+공개·미소속·미삭제·미종료·실제 가입 가능 정원 후보를 무작위로 고른다. ~~approvalRequired=false인 즉시 가입 섬만 포함한다.~~ → 2026-10-09 IM-발견1: 승인제 공개 섬도 포함한다. 응답의 `approvalRequired`에 따라 즉시 가입/가입 신청을 구분하며, 승인제 신청은 `pending`이고 실제 소속이 아니다. ~~현재 강퇴 이력으로 가입 불가능한 후보는 제외한다.~~ → 2026-10-20(GROMO-2315): 강퇴된 섬도 후보에 나온다 — 그 사람의 가입은 승인 대기 신청이다. 진행 집중에 대한 이동 제한은 후보의 공개/가입방식과 별개이며 실제 가입 커밋에서 검증한다. 첫 소속 탐색은 전망대가 없으므로 search의 전망대 가드를 가져오지 않는다.
 
 아래 §5의 고정 탐색 순서를 사용한다. 빈 결과는 items=[]/nextCursor=null. 한 명뿐인 섬도 후보가 될 수 있으며 전망대 랭킹 최소 2명과 섬 발견 조건을 섞지 않는다. 마지막 주민이 탈퇴한 섬은 같은 트랜잭션에서 종료·삭제 처리되어 발견·검색·방문 대상에서 제외한다.
 
@@ -101,7 +103,7 @@ Business의 `GET /screens/visit/{islandId}`는 `{island, buildings, members, joi
 
 활성 membership이더라도 종료/삭제 그룹은 반환하지 않는다. 목록 정렬은 membership 생성시각+id로 안정화하되 앱의 로컬 카드 순서를 이 API가 덮어쓰지 않는다. currentIslandId는 여전히 활성 소속인 섬 또는 null이다. 무효 context 처리 정책은 IM-D06 확정에 맞추고 권한 없는 대상을 그대로 표시하지 않는다.
 
-`lossReason`은 **현재 섬이 없는 이유**다(GROMO-2038). null이면 한 번도 소속된 적 없음(온보딩 첫 진입), `LEFT`는 마지막 섬에서 자진 이탈, `KICKED`는 마지막 섬에서 강퇴다. 정본은 `user_island_contexts.loss_reason`(V84)이고 쓰는 쪽은 `UserIslandContextRecovery#onMembershipRevoked` 하나다. **불변식: currentIslandId가 null이 아니면 lossReason은 항상 null**이며, V84의 `user_island_contexts_loss_reason_exclusive` CHECK와 `UserIslandContext#moveTo`가 저장 계층에서 같은 것을 강제하고 Business는 둘이 함께 온 상류 응답을 502 `UPSTREAM_CONTRACT_ERROR`로 끊는다. 이 값은 앱의 안내 문구만 가른다 — 강퇴와 자진 이탈 모두 `04 · 혼자 시작 / 기존 섬 참여` 화면으로 가고 재가입 제한·쿨다운은 이 계약이 만들지 않는다(정책 2026-09-20). Business와 Data는 따로 배포되므로 이 키는 상류 응답에서 **필수가 아니다** — 키를 모르는 Data가 붙는 혼합 구간에서도 정상 200이다.
+`lossReason`은 **현재 섬이 없는 이유**다(GROMO-2038). null이면 한 번도 소속된 적 없음(온보딩 첫 진입), `LEFT`는 마지막 섬에서 자진 이탈, `KICKED`는 현재 섬에서 강퇴다 — **다른 소속이 남아 있어도** 강퇴는 먼바다로 보낸다(2026-10-16, GROMO-2315). 그래서 `KICKED` 면 `items` 가 비어 있지 않을 수 있고, 자진 이탈만 남은 소속 중 최근 머문 섬으로 옮겨진다(사유 없음). 정본은 `user_island_contexts.loss_reason`(V84)이고 쓰는 쪽은 `UserIslandContextRecovery#onMembershipRevoked` 하나다. **불변식: currentIslandId가 null이 아니면 lossReason은 항상 null**이며, V84의 `user_island_contexts_loss_reason_exclusive` CHECK와 `UserIslandContext#moveTo`가 저장 계층에서 같은 것을 강제하고 Business는 둘이 함께 온 상류 응답을 502 `UPSTREAM_CONTRACT_ERROR`로 끊는다. ~~이 값은 앱의 안내 문구만 가른다 — 강퇴와 자진 이탈 모두 `04 · 혼자 시작 / 기존 섬 참여` 화면으로 가고 재가입 제한·쿨다운은 이 계약이 만들지 않는다(정책 2026-09-20).~~ → 앱은 `KICKED` 면 강퇴 안내를 한 번 띄운 뒤 먼바다로 간다(GROMO-2366). 재가입 쿨다운은 없고, 강퇴된 섬의 재가입은 승인 대기 신청이다. Business와 Data는 따로 배포되므로 이 키는 상류 응답에서 **필수가 아니다** — 키를 모르는 Data가 붙는 혼합 구간에서도 정상 200이다.
 
 ### 3.6 switch — PUT /me/current-island
 
@@ -118,7 +120,7 @@ Business의 `GET /screens/visit/{islandId}`는 `{island, buildings, members, joi
 - 즉시 가입: `{data:{status:"active",requestId:null,islandId,currentIslandId,version}}`.
 - 승인 대기: `{data:{status:"pending",requestId,islandId,version}}`. pending 응답에는 currentIslandId를 새로 설정하지 않는다.
 
-public/privacy/password/approvalRequired는 독립 축이다. 유효 초대가 있어도 강퇴 이력·정원·계정 상한·계정 활성을 우회하지 않는다. 초대가 승인을 우회하는지는 IM-D03 대기다. 승인제 pending을 만들 때 실제 자리를 예약하는지는 IM-D05 대기지만 승인 커밋의 정원 검사는 항상 필요하다.
+public/privacy/password/approvalRequired는 독립 축이다. 유효 초대가 있어도 정원·계정 상한·계정 활성을 우회하지 않는다. 강퇴 이력은 즉시 가입을 **승인 대기 신청**으로 바꾼다 — 누구나 가입 섬·초대여도 섬장이 승인한다(2026-10-16, GROMO-2315 — 종전 403 `KICKED_CANNOT_REJOIN`). 승인은 강퇴 행을 되살린다(`GroupMember.rejoin`). 초대가 승인을 우회하는지는 IM-D03 대기다. 승인제 pending을 만들 때 실제 자리를 예약하는지는 IM-D05 대기지만 승인 커밋의 정원 검사는 항상 필요하다.
 
 이미 active이면 새 키의 신규가입은409, 같은 성공 receipt는 저장 결과 재생. 같은 사용자·섬의 pending 요청이 이미 있으면 같은 pending 자원 반환을 제안하며 DB 부분 유일성으로 중복을 막는다. terminal 뒤 새 요청 정책은 IM-D05를 따른다. 즉시 가입의 current 이동은 switch와 같은 guard. **pending 신청만 만드는 것과 실제 이동을 구분**하며 신청자 집중 상태만으로 UI 원격승인을 현재 섬 이동으로 바꾸지 않는다.
 
@@ -146,7 +148,9 @@ IM-D03의 승인 유지 추천안이 채택될 경우, JoinRequest에는 `admiss
 
 ### 3.10 invite-resolve — POST /invitations/resolve
 
-입력 `{code:InviteCode}`, 성공200 `{data:{island:PublicIslandSummary,invitationToken:string}}`. 인증된 요청자의 초대 해석이며 가입·현재 섬 변경·클릭 귀속 확정을 하지 않는다. 토큰은 불투명한 전달값으로 표시하고 로그/URL/query에 복사하지 않는다.
+입력 `{code:InviteCode, arrive?:boolean}`, 성공200 `{data:{island:PublicIslandSummary,invitationToken:string,arrival:{islandId,arrived:true,membershipStatus,reason?}|null}}`. 인증된 요청자의 초대 해석이며 클릭 귀속 확정을 하지 않는다. **기본(`arrive` 없음·false)은 종전 그대로 읽기 전용 미리보기**다 — 가입·현재 섬 변경·도착 기록을 하지 않고 `arrival:null` 이다. 토큰은 불투명한 전달값으로 표시하고 로그/URL/query에 복사하지 않는다.
+
+**초대 도착 (GROMO-2264, 섬 외부 계약 §4 · 기획 정본 «항해 단축 티켓») — `arrive:true` 일 때만.** 도착은 명시적 opt-in 이다: 미리보기만 하고 닫는 앱이 서버만 가입·이동된 채 섬 없는 화면에 남지 않게 한다(시스템 편지 `?kind=system`·나가기/강퇴 `include=nextLocation` 과 같은 혼합 버전 규칙). 해석은 그 섬 1곳에 항해 없이 도착(`island_arrivals`)을 남긴다 — 이미 주민이면 도착만, 열린 신청이 있으면 그대로(`pending`), 소속 섬 3개는 `reason:ISLAND_LIMIT`·강퇴된 섬은 `reason:KICKED` 로 도착만 남긴다(판정 순서: 이미 주민 → 열린 신청 → 상한 → 강퇴). `KICKED` 는 신청 불가가 아니다 — 강퇴자의 가입은 승인 대기라 승인제 섬과 같이 도착만 하고, [가입 신청] 은 방문자가 §3.7 로 직접 한다(2026-10-16, GROMO-2315 — 종전에는 신청도 403). 그다음 **누구나 가입 섬은 도착과 함께 가입**한다(§3.7 가입 origin=visit 과 같다: 가입·현재 섬 이동). **승인제 섬은 도착만**이다(`none`, 사유 없음) — 승인 전까지 방문자이고 [가입 신청] 은 방문자가 §3.7 가입(`invitationToken` 포함 → pending, 초대 근거 보존)으로 직접 한다. 링크가 오픈채팅에 퍼져도 섬장의 신청 목록이 저절로 차지 않게 하려는 것이다. 누구나 가입 섬의 가입 거절(만원·진행 중 집중 등)은 해석 실패로 그대로 돌려주고 도착도 남기지 않는다. 도착이 먼저 남으므로 승인된 섬은 처음 한 번의 항해 없이 즉시 이동 대상이고, 승인 편지도 항해 안내 대신 「{섬이름}섬 가입이 승인됐어요. 이미 도착한 섬이라 뗏목에서 바로 갈 수 있어요」다. 도착으로 이미 주민이 됐으면 §3.7 가입을 다시 부를 일이 없다 — 불러도 종전대로 409 `ALREADY_MEMBER` 다.
 
 기존 링크 아키텍처의 서명 자격을 재사용한다: slug/groupId/inviterId/membershipEpoch/만료 등 정본 필드를 검증한 evidence를 Business가 Data 가입 명령에 싣는다. token에 client가 적은 islandId로 가입할 수 없고 group 일치·issuer 활성·epoch·만료를 Data TX에서 다시 확인한다. 구체 서명 format/audience/linkVersion 규칙은 내부 링크 계약과 일치시켜 중복 서명 체계를 만들지 않는다.
 
@@ -203,7 +207,7 @@ GROMO-1895 추가(explore 화면 「신청 중」 조각, [BFF Data 구현](../b
 
 discover 초기 요청은 유한한 후보 집합을 구성해 한 번 shuffle하고 서버의 조회 세션에 순서를 고정한다. cursor에는 무작위 세션 핸들과 경계 index를 서명한다. 매 페이지에서 후보 조건을 재검증하고 탈락한 후보는 건너뛰며 새 순서를 발급하지 않는다. 서버 조회 세션 TTL은 cursor보다 짧지 않고, 세션 만료는 같은 CURSOR_EXPIRED다. 후보 최대 수는 설정/부하 검증에서 정하며 전체 목록을 무한 저장하지 않는다. 후보 상한 안의 탐색이라는 계약이며 전역 모든 섬을 항상 빠짐없이 둘러본다고 표현하지 않는다.
 
-정원은 예약하지 않으므로 발견 직후 다른 사람이 가입하면 실제 join에서409가 가능하다. 후보 세션이 존재해도 public→private/종료/강퇴 변화 후의 섬을 노출하지 않는다. 같은 cursor 재시도는 고정된 후보 순서와 경계에서 재평가하며, 결과가 보안상 제거될 수 있음을 허용한다. 이전 페이지는 클라이언트 보관용이며 과거 미리보기가 현재 가입 허가가 아니다.
+정원은 예약하지 않으므로 발견 직후 다른 사람이 가입하면 실제 join에서409가 가능하다. 후보 세션이 존재해도 public→private/종료 변화 후의 섬을 노출하지 않는다(강퇴된 섬은 2026-10-20 부터 노출한다, GROMO-2315). 같은 cursor 재시도는 고정된 후보 순서와 경계에서 재평가하며, 결과가 보안상 제거될 수 있음을 허용한다. 이전 페이지는 클라이언트 보관용이며 과거 미리보기가 현재 가입 허가가 아니다.
 
 이름 검색은 trgm 거리+ID 또는 createdAt+ID keyset으로 처리한다. 검색 q 정규화와 정렬 키가 cursor 발급/검증에서 같아야 한다. 검색어/탭/선택 섬/limit 변경은 첫 페이지부터 시작한다. q에 code가 들어올 수 있으므로 access log와 APM query 수집에서 민감값 마스킹이 필요하다.
 

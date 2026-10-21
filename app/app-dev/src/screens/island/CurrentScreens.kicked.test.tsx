@@ -163,11 +163,14 @@ const mount = async (state: State, extra: Record<string, unknown> = {}) => {
 };
 
 beforeEach(async () => {
+  jest.useFakeTimers();
   jest.clearAllMocks();
   onTransition = undefined;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
+
+afterEach(() => jest.useRealTimers());
 
 test('진행 중 낚시 세션이 서버에 의해 강제 종료되면 안내하고 화면을 빠져나간다', async () => {
   const { dispatch, notify, home } = await mount(serverFocusState());
@@ -198,8 +201,8 @@ test('내가 직접 집중 종료를 부른 뒤 응답 전에 도착한 같은 �
     focus: { finish },
   });
 
-  await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   assert.equal(finish.mock.calls.length, 1);
 
   onTransition!(kickedTransition());
@@ -232,8 +235,8 @@ test('종료 요청 중 무시한 완료 이벤트가 있고 finish()가 실패�
     focus: { finish },
   });
 
-  await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   onTransition!(kickedTransition());
   assert.equal(home.mock.calls.length, 0);
 
@@ -255,9 +258,10 @@ test('종료 확인을 연달아 눌러도 finish()는 한 번만 부른다', as
   const finish = jest.fn(() => new Promise<void>(() => {}));
   const { screen } = await mount(serverFocusState(), { focus: { finish } });
 
-  await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
+  await fireEvent(screen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
 
   assert.equal(finish.mock.calls.length, 1);
 });
@@ -266,8 +270,8 @@ test('내가 종료한 세션의 완료 이벤트가 finish() 응답 뒤에 늦�
   const finish = jest.fn(() => Promise.resolve());
   const { screen, notify, home, reset } = await mount(serverFocusState(), { focus: { finish } });
 
-  await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   await act(async () => {});
   assert.equal(reset.mock.calls[0]?.[0], 'focusResult');
 
@@ -283,8 +287,8 @@ test('finish()가 응답 유실로 실패한 뒤 늦게 온 내 세션 완료 �
   const finish = jest.fn(() => Promise.reject({ message: '네트워크에 연결할 수 없어요.' }));
   const { screen, notify, home } = await mount(serverFocusState(), { focus: { finish } });
 
-  await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('end-focus'), 'pressIn');
+  await act(() => jest.advanceTimersByTime(3000));
   await act(async () => {});
   assert.equal(home.mock.calls.length, 0);
 

@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Data 가 <b>판정</b>하는 알림 종류 — 20종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
+ * Data 가 <b>판정</b>하는 알림 종류 — 22종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
  *
  * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
  * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
@@ -91,7 +91,7 @@ public enum NotificationKind {
     /** 보낸 요청이 수락됨. 대상 = 수락한 유저. */
     FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
 
-    // ── 섬 (MainIslandService) ─────────────────────────────────────────
+    // ── 섬 (MainIslandService · GroupMemberService 강퇴) ──────────────────
     /**
      * 메인 섬을 잃어 자동으로 옮겨졌다(GROMO-1971). 대상 = <b>옮겨 간 섬</b>. params: {@code islandId}·
      * {@code islandName}.
@@ -103,7 +103,24 @@ public enum NotificationKind {
      *
      * <p>시간축이 분인 것은 <b>같은 섬으로의</b> 재전송만 접기 위해서다(재훑기·재시도).
      */
-    MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND);
+    MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
+
+    /**
+     * 섬에서 강퇴됐다(GROMO-2315). 대상 = <b>강퇴된 섬</b>, 시간축은 <b>강퇴 시각 그대로</b>({@code leftAt}) — 재가입
+     * 승인 뒤 1분 안에 다시 강퇴돼도 두 번째 알림이 분 축 중복으로 버려지지 않는다(구 경로는 원래 두 번 보낸다). 사건은 강퇴
+     * 트랜잭션 안에서 한 번만 적히므로 이 축으로도 재처리 중복이 없다. params: {@code islandId}·{@code islandName}.
+     * 메인 섬에서 강퇴돼도 이전 알림은 내지 않고 이 알림 1건만 간다(10/20 결정).
+     */
+    ISLAND_KICKED(NotificationSlotGranularity.INSTANT, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
+
+    // ── 고양이 잡지 (MagazineIssueNotifier) ────────────────────────────────────
+    /**
+     * 오늘 호가 나왔다(GROMO-2307). 대상 = <b>호</b>({@code magazine_issues.id}), 축은 KST 날짜 —
+     * 결정적 키 {@code noti:MAGAZINE_PUBLISHED:<userId>:<issueId>:<날짜>} 가 「계정당 하루 한 번」을 접는다.
+     * params: {@code issueId}·{@code issueNo}·{@code issueDate}. 틱이 07:00~23:50 이라 조용한 시간(DROP)과
+     * 겹치지 않는다.
+     */
+    MAGAZINE_PUBLISHED(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.MAGAZINE_ISSUE);
 
     /** {@code subjectId} 가 가리키는 것 — 알림 서버의 상태 재검증이 무엇을 조회할지 가른다. */
     public enum SubjectKind {
@@ -120,7 +137,12 @@ public enum NotificationKind {
          * 「이미 일어난 이전」의 통보라 되물을 상태가 없다({@code NotificationEligibilityService}).
          * 키의 <b>대상 축</b>으로만 쓰여 서로 다른 이전이 한 건으로 접히지 않게 한다.
          */
-        ISLAND
+        ISLAND,
+        /**
+         * 고양이 잡지 호 id (GROMO-2307). 이미 발행된 호의 통보라 알림 서버가 상태를 재검증하지 않는다 —
+         * 키의 대상 축으로만 쓰여 다른 날의 호가 한 건으로 접히지 않게 한다.
+         */
+        MAGAZINE_ISSUE
     }
 
     private static final Map<String, NotificationKind> BY_NAME = Arrays.stream(values())

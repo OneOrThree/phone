@@ -37,6 +37,7 @@ public class AccountController {
      * 공개 오류의 {@code field} 를 싣기 위해 여기서 먼저 거른다(상류 오류 중계는 field 를 옮기지 않는다).
      */
     private static final Set<String> CAT_COLORS = Set.of("black", "ginger", "cream", "gray", "white", "calico");
+    private static final Set<String> WITHDRAW_FIELDS = Set.of("confirmation", "appleAuthorizationCode");
     private static final String CONFIRMATION = "DELETE";
 
     private final AccountUseCase account;
@@ -86,16 +87,24 @@ public class AccountController {
                 key, properties.deadline());
     }
 
-    /** 탈퇴. {@code confirmation} 은 재인증이 아니라 오조작 방지이며 대소문자까지 정확히 {@code "DELETE"} 다. */
+    /**
+     * 탈퇴. {@code confirmation} 은 재인증이 아니라 오조작 방지이며 대소문자까지 정확히 {@code "DELETE"} 다.
+     * 선택 필드 {@code appleAuthorizationCode}(비어 있지 않은 문자열)는 탈퇴 확정 뒤 Apple 토큰 폐기에 쓴다(GROMO-2401).
+     */
     @DeleteMapping(value = "/me", consumes = "application/json")
     public AccountUseCase.Deleted withdraw(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         CommandKeys.required(request);
         JsonNode confirmation = body == null ? null : body.get("confirmation");
-        if (body == null || !body.isObject() || body.size() != 1 || confirmation == null || !confirmation.isString()
+        if (body == null || !body.isObject() || !WITHDRAW_FIELDS.containsAll(body.propertyNames())
+                || confirmation == null || !confirmation.isString()
                 || !CONFIRMATION.equals(confirmation.stringValue())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "confirmation");
         }
-        return account.withdraw(claims, properties.deadline());
+        JsonNode code = body.get("appleAuthorizationCode");
+        if (code != null && (!code.isString() || code.stringValue().isBlank())) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "appleAuthorizationCode");
+        }
+        return account.withdraw(claims, code == null ? null : code.stringValue(), properties.deadline());
     }
 }

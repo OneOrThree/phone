@@ -1,7 +1,7 @@
 /**
  * GROMO-2006 부팅 경로 결정 회귀 — decideBootRoute의 세대 fence를 고정한다.
  * 핵심: checkSession이 active를 돌려준 뒤 syncIslands가 401로 실패하면 세션 상실 핸들러가
- * 이미 login으로 돌렸다 — stale account로 chooseIsland를 쓰면 안 된다.
+ * 이미 login으로 돌렸다 — stale account로 sea를 쓰면 안 된다.
  */
 import assert from 'node:assert/strict';
 import { decideBootRoute } from '@/services/islandBoot';
@@ -49,7 +49,7 @@ test('checkSession active 뒤 syncIslands의 401 → 세대가 죽어 null — l
     },
   });
   const route = await decideBootRoute(d.args as never);
-  assert.equal(route, null); // stale account로 chooseIsland를 쓰지 않는다
+  assert.equal(route, null); // stale account로 sea를 쓰지 않는다
   assert.equal(d.bootErrors.length, 0); // 죽은 세대의 오류 플래그도 쓰지 않는다
 });
 
@@ -85,7 +85,7 @@ test('성공 응답도 죽은 세대에 도착하면 버린다 — 플래그 해
   assert.equal(d.bootErrors.length, 0); // onBootError(false)도 쓰지 않는다
 });
 
-test('동기화 실패(세대 생존)는 오류 플래그를 세우고 무소속으로 chooseIsland를 돌려준다', async () => {
+test('동기화 실패(세대 생존)는 오류 플래그를 세우고 무소속으로 sea를 돌려준다', async () => {
   const d = deps({
     syncIslands: async () => {
       throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
@@ -93,7 +93,7 @@ test('동기화 실패(세대 생존)는 오류 플래그를 세우고 무소속
     saved: { loggedIn: true, onboarded: true },
   });
   const route = await decideBootRoute(d.args as never);
-  assert.equal(route, 'chooseIsland'); // 로컬 onboarded로 home에 들어가지 않는다
+  assert.equal(route, 'sea'); // 로컬 onboarded로 home에 들어가지 않는다
   assert.deepEqual(d.bootErrors, [true]);
 });
 
@@ -101,3 +101,18 @@ test('저장본도 계정도 없으면 null — 호출부가 setRoute를 하지 
   const d = deps({ account: null, serverMode: false, saved: null });
   assert.equal(await decideBootRoute(d.args as never), null);
 });
+
+test.each([
+  ['LEFT', 'sea'],
+  ['KICKED', 'sea'],
+  [null, 'sea'],
+] as const)(
+  '현재 섬이 없을 때 상실 사유 %s 면 %s 로 부팅한다(GROMO-2366)',
+  async (lossReason, route) => {
+    const d = deps({
+      syncIslands: async () => myIslands({ lossReason }),
+      saved: { loggedIn: true, onboarded: true },
+    });
+    assert.equal(await decideBootRoute(d.args as never), route);
+  },
+);

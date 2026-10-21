@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { LoginScreen } from './LoginScreen';
@@ -13,6 +14,14 @@ jest.mock('@/utils/layout', () => ({
     compact: false,
   }),
 }));
+
+test('브랜드 제목은 큰 글꼴보다 넉넉한 줄 높이를 사용해 한글을 자르지 않는다', async () => {
+  const screen = await render(
+    <LoginScreen providers={[]} termsAccepted={false} onTermsAcceptedChange={jest.fn()} />,
+  );
+  const style = StyleSheet.flatten(screen.getByRole('header').props.style);
+  expect(style.lineHeight).toBeGreaterThanOrEqual(style.fontSize * 1.2);
+});
 
 test('전달받은 제공자를 순서대로 표시한다', async () => {
   const screen = await render(

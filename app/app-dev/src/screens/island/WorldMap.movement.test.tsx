@@ -14,6 +14,7 @@ import { loadNav } from '@/utils/nav-path';
 // tilePath 를 하나의 탭에서만 가짜로 바꾸는 스파이용 — 네임스페이스로 가져와야 jest.spyOn 대상이 된다.
 import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
+import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -45,11 +46,22 @@ jest.mock('@/components/CatSprite', () => {
   const { View } = require('react-native');
   return {
     ...jest.requireActual('@/components/CatSprite'),
-    CatSprite: ({ testID, motion, color }: { testID?: string; motion?: string; color: string }) =>
+    CatSprite: ({
+      testID,
+      motion,
+      color,
+      outfit,
+    }: {
+      testID?: string;
+      motion?: string;
+      color: string;
+      outfit?: object;
+    }) =>
       ReactActual.createElement(View, {
         testID: testID ?? 'mock-cat-sprite',
         testPropMotion: motion,
         testPropColor: color,
+        testPropOutfit: outfit,
       }),
   };
 });
@@ -213,9 +225,20 @@ type Screen = Awaited<ReturnType<typeof render>>;
 const channel = () => mockChannels[mockChannels.length - 1];
 const emit = (body: unknown) => act(async () => channel().opts.onEvent(body));
 const flat = (style: unknown) => Object.assign({}, ...[style].flat(3)) as Record<string, number>;
+// 걷는 고양이는 고정 left/top 에 transform 이동을 더해 그린다(GROMO-2374) — 둘을 더한 화면 자리를 읽는다.
+const placed = (style: unknown) => {
+  const st = flat(style);
+  const [{ translateX }, { translateY }] = st.transform as unknown as {
+    translateX: number;
+    translateY: number;
+  }[];
+  st.left += translateX;
+  st.top += translateY;
+  return st;
+};
 // 내 고양이 컨테이너(left = x·s − hit/2, top = y·s − cat/2 − hit/2)에서 월드 좌표를 되돌린다.
 const myCat = (screen: Screen) => {
-  const st = flat(screen.getByTestId('home-cat-container').props.style);
+  const st = placed(screen.getByTestId('home-cat-container').props.style);
   return imageToWorld(
     {
       x: (st.left + st.width / 2) / SCALE,
@@ -226,7 +249,7 @@ const myCat = (screen: Screen) => {
 };
 const myMotion = (screen: Screen) => screen.getByTestId('home-cat-sprite').props.testPropMotion;
 const residentAt = (screen: Screen, userId: string) => {
-  const st = flat(screen.getByTestId(`remote-resident-${userId}`).props.style);
+  const st = placed(screen.getByTestId(`remote-resident-${userId}`).props.style);
   return imageToWorld({ x: st.left / SCALE, y: st.top / SCALE }, SIZE);
 };
 const residentMotion = (screen: Screen, userId: string) =>
@@ -260,6 +283,7 @@ const walkToEnd = async (screen: Screen) => {
   }
   return trail;
 };
+let jsDriver: ReturnType<typeof observeAnimatedOnJsDriver>;
 const renderHome = (islandId: string, props: object = {}) =>
   render(<FinalIsland state={serverState(islandId)} go={jest.fn()} build={jest.fn()} {...props} />);
 
@@ -269,8 +293,11 @@ beforeEach(async () => {
   // 테스트 네이티브 모듈 mock 은 AppState.currentState 기본값이 없다(RN 소스는 null) — appActive 게이트가
   // 막 마운트한 화면에서 채널을 열려면 'active' 로 보이게 한다(RaftWaterMotion.test.tsx 와 같은 패턴, 지적 1).
   (AppState as { currentState: string | null }).currentState = 'active';
+  // 고양이 이동은 네이티브 드라이버라 Jest 목에서는 값이 안 움직인다 — 같은 설정을 JS 드라이버로 돌려 위치를 본다.
+  jsDriver = observeAnimatedOnJsDriver();
 });
 afterEach(() => {
+  jsDriver.mockRestore();
   jest.useRealTimers();
 });
 
@@ -420,6 +447,8 @@ it('로컬 예측과 서버 경로가 멀리 떨어져 있어도 갈아탄 연�
         reset: jest.fn(),
       }) as unknown as Animated.CompositeAnimation,
   );
+  // beforeEach 의 JS 드라이버 스파이를 그대로 돌려받는다 — 앞선 호출 기록을 지운다.
+  timing.mockClear();
   let verts: WorldPoint[] = [SPAWN];
   try {
     // 서버는 지금 자리(SPAWN)에서 4칸 떨어진 아래쪽 줄로 경로를 확정했다 — 직선이면 건너뛴다.
@@ -470,6 +499,8 @@ it('연결 경로(navPath)가 비고 현재 셀이 서버 출발점과 다르면
         reset: jest.fn(),
       }) as unknown as Animated.CompositeAnimation,
   );
+  // beforeEach 의 JS 드라이버 스파이를 그대로 돌려받는다 — 앞선 호출 기록을 지운다.
+  timing.mockClear();
   let durations: number[] = [];
   let toValues: WorldPoint[] = [];
   try {
@@ -561,6 +592,8 @@ it('셀 열이 같아도 서버 speed 가 로컬과 다르면 남은 구간을 �
         reset: jest.fn(),
       }) as unknown as Animated.CompositeAnimation,
   );
+  // beforeEach 의 JS 드라이버 스파이를 그대로 돌려받는다 — 앞선 호출 기록을 지운다.
+  timing.mockClear();
   let durations: number[] = [];
   try {
     // 서버는 로컬과 같은 셀 경로를 확정했지만 속도(1000/5=200ms/unit)는 로컬 기본값(91ms/unit)과 다르다.
@@ -582,6 +615,76 @@ it('셀 열이 같아도 서버 speed 가 로컬과 다르면 남은 구간을 �
   expect(durations.length).toBeGreaterThan(0);
   for (const d of durations) expect(d).toBeCloseTo(200, 1);
   await screen.unmount();
+});
+
+it('다른 주민은 응답 appearance 로 머리·목을 입고, member.appearance.updated 는 version 이 큰 것만 바로 반영한다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  const island = nextIsland();
+  const state = serverState(island);
+  const members = (state.serverIslands as any).home.members;
+  members[1].appearance = { head: 'hat-u1', neck: null, version: 3 }; // U1 ginger
+  const screen = await renderHome(island, { state });
+  const headOf = (color: string) =>
+    screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+      .testPropOutfit?.head;
+  // 이동 동기화 전 Wanderer(ginger·white) — 응답에 옷이 있는 주민만 입는다
+  expect(headOf('ginger')).toBe('hat-u1');
+  expect(headOf('white')).toBeUndefined();
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  expect(headOf('ginger')).toBe('hat-u1'); // RemoteResident
+  const appearance = (head: string | null, version: number) => ({
+    eventId: `e${version}`,
+    schemaVersion: 1,
+    type: 'member.appearance.updated',
+    islandId: island,
+    aggregateVersion: version,
+    payload: { userId: U1, appearance: { head, neck: null }, version },
+  });
+  await emit(appearance('hat-new', 4));
+  expect(headOf('ginger')).toBe('hat-new');
+  await emit(appearance('hat-stale', 2)); // 늦게 온 옛 사건
+  expect(headOf('ginger')).toBe('hat-new');
+  await emit(appearance(null, 5)); // 벗었다
+  expect(headOf('ginger')).toBeNull();
+  await screen.unmount();
+});
+
+it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 외양은 유지한다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  const listeners: ((state: string) => void)[] = [];
+  const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+  Object.defineProperty(AppState, 'addEventListener', {
+    configurable: true,
+    value: ((_type: string, listener: (state: string) => void) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener,
+  });
+  try {
+    const island = nextIsland();
+    const state = serverState(island);
+    (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
+    const screen = await renderHome(island, { state });
+    const headOf = (color: string) =>
+      screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+        .testPropOutfit?.head;
+    await emit({
+      eventId: 'e4',
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId: island,
+      aggregateVersion: 4,
+      payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
+    });
+    expect(headOf('ginger')).toBe('hat-new');
+    await act(async () => listeners.forEach((listener) => listener('background')));
+    await act(async () => listeners.forEach((listener) => listener('active')));
+    expect(headOf('ginger')).toBe('hat-new');
+    await screen.unmount();
+  } finally {
+    if (originalAddEventListener)
+      Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+  }
 });
 
 it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
@@ -623,6 +726,35 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
   // 300ms 넘게 위치가 안 오면 제자리걸음을 멈춘다.
   await act(async () => jest.advanceTimersByTime(300));
   expect(residentMotion(screen, U1)).toBe('blink');
+  await screen.unmount();
+});
+
+it('걷는 고양이(내 고양이·떠돌이·다른 주민)는 left/top 이 아니라 transform 을 네이티브 드라이버로 옮긴다(GROMO-2374)', async () => {
+  jest.useFakeTimers();
+  // 떠돌이 행선지를 고정해 FullState 전에 한 번 걷게 한다(첫 출발 1.2초 뒤).
+  const random = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+  const screen = await renderHome(nextIsland());
+  await act(async () => jest.advanceTimersByTime(1500));
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  const box = (id: string) => flat(screen.getByTestId(id).props.style);
+  const ids = ['home-cat-container', `remote-resident-${U1}`];
+  const before = ids.map(box);
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  await emit(pathAccepted(U1, 3, 1, { x: 40.5, y: 45.5 }, [{ x: 41.5, y: 45.5 }]));
+  await emit(snapshot(101, [entity(U1, 1, { x: 41, y: 45.5 })]));
+  await act(async () => jest.advanceTimersByTime(150));
+  // 걷는 동안 left/top 은 그대로(레이아웃 없음)이고 transform 만 바뀐다.
+  ids.forEach((id, i) => {
+    const now = box(id);
+    expect(now.left).toBe(before[i].left);
+    expect(now.top).toBe(before[i].top);
+    expect(now.transform).not.toEqual(before[i].transform);
+  });
+  // 고양이 셋(떠돌이·내 고양이·다른 주민)의 이동이 모두 네이티브 드라이버 설정이다 — 테스트만 JS 로 돌린다(jsDriver).
+  const moves = jsDriver.mock.calls.filter(([value]) => value instanceof Animated.ValueXY);
+  expect(new Set(moves.map(([value]) => value)).size).toBe(3);
+  for (const [, config] of moves) expect(config.useNativeDriver).toBe(true);
+  random.mockRestore();
   await screen.unmount();
 });
 
@@ -1077,19 +1209,37 @@ describe('플래그 off·서버 홈 아님', () => {
   };
   afterAll(() => jest.dontMock('react'));
 
-  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 서버 홈이어도 채널을 열지 않고 Wanderer·로컬 걷기 그대로다', async () => {
+  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 이동 채널 없이 Wanderer·로컬 걷기 그대로이고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390)', async () => {
     jest.useFakeTimers();
     const opened = mockChannels.length;
+    const island = nextIsland();
+    const state = serverState(island);
+    (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
     const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
-    const screen = await render(
-      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
-    );
+    const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
     await tapGround(screen, { x: 42.5, y: 45.5 });
-    expect(mockChannels.length).toBe(opened);
+    // 이동 채널은 없고 events 토픽만 여는 채널 하나
+    expect(mockChannels.length).toBe(opened + 1);
+    expect(channel().opts).toMatchObject({ islandId: island, events: true, presence: false });
+    expect(channel().opts.movement).toBeFalsy();
     expect(myMotion(screen)).toBe('walking');
     expect(residents(screen)).toEqual([]);
     expect(otherCats(screen)).toBe(2);
+    const headOf = (color: string) =>
+      screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+        .testPropOutfit?.head;
+    expect(headOf('ginger')).toBe('hat-old');
+    await emit({
+      eventId: 'e4',
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId: island,
+      aggregateVersion: 4,
+      payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
+    });
+    expect(headOf('ginger')).toBe('hat-new');
     await screen.unmount();
+    expect(mockChannels[mockChannels.length - 1].close).toHaveBeenCalled();
   });
 
   it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {

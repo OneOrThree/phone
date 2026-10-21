@@ -11,6 +11,7 @@ import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -58,7 +59,7 @@ class OutboxRelayLeaseIntegrationTest {
     static class Configuration {
         @Bean
         OutboxRelayStore leaseTestStore(EventOutboxDeliveryRepository repository) {
-            return new OutboxRelayStore(repository, PROPERTIES, CLOCK);
+            return new OutboxRelayStore(repository, PROPERTIES, CLOCK, new SimpleMeterRegistry());
         }
     }
 
@@ -185,7 +186,8 @@ class OutboxRelayLeaseIntegrationTest {
     }
 
     private OutboxRelayService relay(OutboxTransport transport) {
-        return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport));
+        return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport), new SimpleMeterRegistry(),
+                Runnable::run);
     }
 
     private void append(OutboxTarget target) {

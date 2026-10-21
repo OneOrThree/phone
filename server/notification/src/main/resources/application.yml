@@ -1,9 +1,19 @@
 spring:
   application:
     name: notification
+  # 소비 설계의 근거는 docs/architecture/kafka-consumption.md — 값을 바꾸면 그 절부터 고친다.
   kafka:
     listener:
+      # §1 리스너 반환(= InboundService.accept 의 DB 커밋) 뒤 레코드 단위로 offset 커밋. auto-commit 은 dev/prod 에서 false.
       ack-mode: record
+      # §4 인스턴스 «안»의 소비 스레드 수. 파티션 3 = 그룹당 소비자 상한이라 증설 단위는 스레드가 아니라 인스턴스다.
+      concurrency: 1
+    consumer:
+      properties:
+        # §2 협력적 재할당 — 리밸런스 때 옮겨지는 파티션만 멈춘다. 클라이언트 기본 목록에 이미 있어 1단계 배포로 전환된다.
+        partition.assignment.strategy: org.apache.kafka.clients.consumer.CooperativeStickyAssignor
+        # §2 한 레코드 처리 상한(기본값 명시). 넘기면 쫓겨나 재전달되고 inbox 멱등이 받는다. 발송 워커와의 잠금 대기 때문에 줄이지 않는다.
+        max.poll.interval.ms: 300000
   flyway:
     enabled: true
   datasource:
@@ -11,8 +21,17 @@ spring:
       maximum-pool-size: 5
       connection-timeout: 3000
 server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
   port: ${SERVER_PORT:8082}
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
   server:
     port: 9091
   endpoints:

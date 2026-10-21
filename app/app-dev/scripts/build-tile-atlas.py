@@ -1,6 +1,6 @@
 """기존 마을 바닥 원화(낮·밤)를 2배로 올려 128px 타일 384조각 아틀라스와 레이어 데이터를 만든다 (GROMO-2229).
 
-- 원화 = ``backgrounds/island/base/{day,night}.png``(1536x1024, 길·나무·모닥불·부두·뗏목·다리가 그려져 있다).
+- 원화 = ``backgrounds/island/ocean/home-{day,night}.png``(1536x1024, 길·나무·모닥불·부두·뗏목·다리가 그려져 있다).
   -> Lanczos 2배 + UnsharpMask -> 3072x2048 -> 128px 타일 24x16 = 384조각.
 - 아틀라스 낮 ``tileset@2x.png``·밤 ``tileset-night@2x.png``: 각각 4096x2048, 130px 피치 31열 x 13행. 슬롯 = 1px extrusion + 128px 타일
   + 1px extrusion (Tiled 의미로 margin 1, spacing 2). 남는 슬롯은 투명. 낮·밤 위치가 같아 tilemap.json 한 벌을 같이 쓴다.
@@ -28,7 +28,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ASSETS = Path(__file__).resolve().parents[1] / "src/assets"
-BASE = ASSETS / "backgrounds/island/base"
+BASE = ASSETS / "backgrounds/island/ocean"
 V1 = ASSETS / "village-world/v1"
 # 원화 -> 아틀라스 파일명. 낮·밤은 같은 기하라 tilemap.json 하나로 둘 다 그린다.
 SOURCES = {"day.png": "tileset@2x.png", "night.png": "tileset-night@2x.png"}
@@ -105,7 +105,7 @@ def same_file(a, b):
 
 def build_atlas(src, out_png):
     """원화 한 장 -> 아틀라스 저장·검증. 재조립 1x(확인 컷용)를 돌려준다."""
-    base = Image.open(BASE / src).convert("RGBA")
+    base = Image.open(BASE / f"home-{src}").convert("RGBA")
     if base.size != (COLS * TILE // 2, ROWS * TILE // 2):
         raise SystemExit(f"{src} 크기 {base.size} != {(COLS * TILE // 2, ROWS * TILE // 2)}")
     high = upscale_2x(base)
@@ -143,8 +143,9 @@ def build(out):
     shrunk = {src: build_atlas(src, out / png) for src, png in SOURCES.items()}
 
     write_json(out / "tileset.json", {
-        "//": "기존 마을 바닥 원화 backgrounds/island/base/day.png(낮)·night.png(밤, nightImage)를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 낮·밤은 같은 기하라 tilemap.json 한 벌을 같이 쓴다. 최상위 scale 은 Tiled 비표준 확장이며 2230 TileTerrainCanvas 가 읽는 계약이다(Tiled 보존용은 properties 의 scale). 생성: scripts/build-tile-atlas.py",
+        "//": "기존 마을 바닥 원화 backgrounds/island/ocean/home-day.png(낮)·home-night.png(밤, nightImage)를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 낮·밤은 같은 기하라 tilemap.json 한 벌을 같이 쓴다. 최상위 scale 은 Tiled 비표준 확장이며 2230 TileTerrainCanvas 가 읽는 계약이다(Tiled 보존용은 properties 의 scale). 생성: scripts/build-tile-atlas.py",
         "name": "home-terrain",
+        "coastlineMaskVersion": 1,
         "image": "tileset@2x.png",
         "nightImage": "tileset-night@2x.png",
         "imagewidth": ATLAS_SIZE[0],

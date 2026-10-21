@@ -10,6 +10,7 @@ import {
   canVisit,
   visitorJoinState,
   visitorJoinLabel,
+  serverVisit,
   canBuild,
   canBuy,
   products,
@@ -159,6 +160,42 @@ test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 �
   s = act(s, 'TICK', { now: boardEndsAt + 2 * 86400000 });
   assert.ok(currentIsland(s).buildings.includes('board'));
   assert.equal(currentIsland(s).boardCompletedDay, dayKey(boardEndsAt));
+});
+test('할 일 없는 TICK 은 깊은 복사 없이 같은 state 를 돌려주고, 완공 시각·날짜가 오면 다시 처리한다(GROMO-2372)', () => {
+  let s = act(initialState(), 'CREATE_ISLAND', { name: '틱 섬' });
+  s = act(s, 'DEMO_CREDIT', { fish: 300 });
+  s = act(s, 'BUILD', { building: 'hall', now: 1000 });
+  s = act(s, 'TICK', { now: 2000 });
+  // 한 번 훑어 바뀐 게 없으면 같은 참조 — 그 뒤로는 JSON 복사조차 하지 않는다
+  assert.equal(act(s, 'TICK', { now: 3000 }), s);
+  const parse = jest.spyOn(JSON, 'parse');
+  try {
+    assert.equal(act(s, 'TICK', { now: 60999 }), s);
+    assert.equal(parse.mock.calls.length, 0);
+  } finally {
+    parse.mockRestore();
+  }
+  // 완공 시각이 되면 그 초에 완공한다
+  const done = act(s, 'TICK', { now: 61000 });
+  assert.notEqual(done, s);
+  assert.deepEqual(currentIsland(done).buildings, ['hall']);
+  // 날이 바뀌면 같은 state 라도 다시 훑는다(오늘 스크린타임 칸)
+  const nextDay = 1000 + 86400000;
+  assert.equal(dayKey(nextDay) === dayKey(61000), false);
+  assert.equal(act(done, 'TICK', { now: 62000 }), done);
+  assert.notEqual(act(done, 'TICK', { now: nextDay }), done);
+});
+test('퀘스트 섬에서 집중 중이면 TICK 을 건너뛰지 않아 목표에 닿는 그 초에 달성한다(GROMO-2372)', () => {
+  let s = initialState(true);
+  currentIsland(s).members = [];
+  const now = new Date(2026, 8, 15, 12).getTime();
+  s = act(s, 'START', { subject: '집중', now });
+  s = act(s, 'TICK', { now: now + 1000 });
+  assert.equal(act(s, 'TICK', { now: now + 2000 }), s);
+  s = act(s, 'TICK', { now: now + 30 * 60000 - 1000 });
+  assert.ok(!s.rewards?.some((r) => r.questId === 'q-focus'));
+  s = act(s, 'TICK', { now: now + 30 * 60000 });
+  assert.ok(s.rewards?.some((r) => r.questId === 'q-focus' && r.kind === 'personal'));
 });
 test('canBuild — en 로케일에서는 방장 아님 안내가 영문으로 나온다 (GROMO-2235 r6)', () => {
   const s = act(initialState(), 'JOIN', { id: 'strawberry' });
@@ -377,17 +414,17 @@ test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 �
   assert.equal(currentIsland(next).track, null);
   assert.equal(currentIsland(next).playing, false);
 });
-test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
+test('상품은 섬 잔액으로 구매하고 중복 결제를 막으며, 탈퇴해도 개인 보유품은 남긴다', () => {
   let s = initialState(true);
-  s = act(s, 'EQUIP', { key: 'clothes', value: 'scarf' });
-  assert.equal(s.equipped.clothes, 'default');
-  s = act(s, 'BUY', { id: 'scarf' });
-  assert.equal(balance(currentIsland(s)), 1100);
-  assert.ok(s.owned.includes('scarf'));
-  assert.deepEqual(act(s, 'BUY', { id: 'scarf' }), s);
+  assert.ok(products.every((p) => p.kind !== 'clothes'));
+  s = act(s, 'BUY', { id: 'soda-theme' });
+  assert.equal(balance(currentIsland(s)), 200);
+  assert.ok(currentIsland(s).sharedOwned.includes('soda-theme'));
+  assert.deepEqual(act(s, 'BUY', { id: 'soda-theme' }), s);
+  s.owned = ['flag'];
   currentIsland(s).members = [];
   s = act(s, 'LEAVE');
-  assert.ok(s.owned.includes('scarf'));
+  assert.ok(s.owned.includes('flag'));
   // 방장 혼자인 섬을 떠나면 섬을 삭제하므로 공동 잔액도 지운다 (정책-결정-2026-09-14, GROMO-1843)
   assert.equal(s.islands[0].fish, 0);
   assert.deepEqual(act(s, 'BUY', { id: 'sailboat' }), s);
@@ -973,6 +1010,53 @@ test('방문자는 다른 섬을 구경만 하고 쓰기는 막히며, 가입하
   assert.equal(viewIsland(s).id, 'strawberry');
 });
 
+test('가입 안내 확인 여부(visitLeaveAsked)는 다른 액션이 끼어도 유지되고 새 방문·구경 끝에서 지워진다', () => {
+  let s = act(initialState(true), 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitLeaveAsked, undefined);
+  s = act(s, 'VISIT_LEAVE_ASKED');
+  assert.equal(s.visitLeaveAsked, true);
+  // 리듀서는 매 액션에서 상태를 깊은 복사한다 — 그 사이에도 플래그는 남는다
+  s = act(s, 'TRAVEL_FROM', { name: '구름 섬' });
+  assert.equal(s.visitLeaveAsked, true);
+  s = act(s, 'END_VISIT');
+  assert.equal(s.visitLeaveAsked, undefined);
+  // 구경을 끝내지 않고 다른 방문을 시작해도 새 방문이다
+  s = act(act(s, 'VISIT', { id: 'cloud' }), 'VISIT_LEAVE_ASKED');
+  assert.equal(act(s, 'VISIT', { id: 'cloud' }).visitLeaveAsked, undefined);
+  // 앱을 다시 켜면 구경과 함께 지워진다
+  assert.equal(act(s, 'LOAD', { state: s }).visitLeaveAsked, undefined);
+
+  // 서버 방문
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let server = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  server = act(server, 'ISLAND_VISIT', { visit: { island } });
+  server = act(act(server, 'SERVER_VISITING', { islandId: 'v1' }), 'VISIT_LEAVE_ASKED');
+  assert.equal(server.visitLeaveAsked, true);
+  assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitLeaveAsked, undefined);
+});
+
+test('인사말 말풍선 여부(visitGreeted)는 방문 중 유지되고 새 방문·구경 끝·재실행에서 지워진다', () => {
+  let s = act(initialState(true), 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitGreeted, undefined);
+  s = act(act(s, 'VISIT_GREETED'), 'TRAVEL_FROM', { name: '구름 섬' });
+  assert.equal(s.visitGreeted, true);
+  assert.equal(act(s, 'END_VISIT').visitGreeted, undefined);
+  assert.equal(act(s, 'VISIT', { id: 'cloud' }).visitGreeted, undefined);
+  assert.equal(act(s, 'LOAD', { state: s }).visitGreeted, undefined);
+
+  // 서버 방문
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let server = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  server = act(server, 'ISLAND_VISIT', { visit: { island } });
+  server = act(act(server, 'SERVER_VISITING', { islandId: 'v1' }), 'VISIT_GREETED');
+  assert.equal(server.visitGreeted, true);
+  assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitGreeted, undefined);
+});
+
 test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
   assert.deepEqual(visitorJoinLabel, {
     join: '이 섬에 가입',
@@ -981,6 +1065,37 @@ test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
     full: '정원이 가득 찼어요',
     blocked: '다시 가입할 수 없어요',
   });
+});
+
+test('방문자 가입 버튼 라벨은 읽는 시점의 언어를 따른다(모듈 로드 때 굳지 않는다)', () => {
+  applyLocalePref('en');
+  try {
+    assert.deepEqual(visitorJoinLabel, {
+      join: 'Join This Island',
+      apply: 'Request to Join',
+      cancel: 'Cancel Join Request',
+      full: 'This island is full',
+      blocked: "You can't rejoin this island",
+    });
+  } finally {
+    applyLocalePref('system');
+  }
+  assert.equal(visitorJoinLabel.join, '이 섬에 가입');
+});
+
+test('serverVisit — 방문 스냅샷은 지금 구경 중인 섬의 것일 때만 돌려준다', () => {
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let s = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  s = act(s, 'ISLAND_VISIT', { visit: { island } });
+  assert.equal(serverVisit(s), null);
+  s = act(s, 'SERVER_VISITING', { islandId: 'v1' });
+  assert.equal(serverVisit(s)?.island.id, 'v1');
+  // visit 만 다른 섬 것으로 바뀌고 visitingIslandId 는 그대로인 구간
+  s = act(s, 'ISLAND_VISIT', { visit: { island: { ...island, id: 'v2' } } });
+  assert.equal(serverVisit(s), null);
+  assert.equal(serverVisit(act(initialState(true), 'END_VISIT')), null);
 });
 
 test('승인 대기 신청은 섬별로 보존하고 선택한 신청만 취소한다', () => {
@@ -1043,12 +1158,17 @@ test('건물 외양은 구매한 시설별로 독립 적용', () => {
 
 test('이전 목업의 선체·장식을 복원해도 기본 뗏목만 유지', () => {
   const legacy = initialState(true);
-  legacy.equipped = { ...legacy.equipped, hull: 'cabinboat', decor: 'flag' };
-  legacy.owned = ['scarf', 'flag', 'sailboat', 'cabinboat'];
+  legacy.equipped = { ...legacy.equipped, clothes: 'straw-hat', hull: 'cabinboat', decor: 'flag' };
+  legacy.owned = ['scarf', 'straw-hat', 'flag', 'sailboat', 'cabinboat'];
+  legacy.orders = [
+    { id: 'o1', product: 'scarf', islandId: legacy.islandId, currency: 'fish', price: 100, at: 1 },
+  ];
   const restored = reducer(initialState(), { type: 'LOAD', state: legacy });
   assert.equal(restored.equipped.hull, 'raft');
   assert.equal(restored.equipped.decor, 'none');
-  assert.deepEqual(restored.owned, ['scarf']);
+  assert.equal(restored.equipped.clothes, 'default');
+  assert.deepEqual(restored.owned, []);
+  assert.deepEqual(restored.orders, []);
   assert.equal(restored.fish, legacy.fish);
   assert.ok(products.every((p) => !['flag', 'sailboat', 'cabinboat'].includes(p.id)));
 });
@@ -1097,6 +1217,8 @@ test('섬 평균 집중: 이번 주(일요일 시작) 그 섬 집중 합계 ÷ �
     record('mon', 'soda', 1800, new Date(2026, 8, 14, 9).getTime()),
     record('last-sat', 'soda', 3600, new Date(2026, 8, 12, 23).getTime()),
     record('other', 'strawberry', 900, now - 1000),
+    // 소다 섬을 목적지로 한 바다 항해 — 섬 집중이 아니라 평균에서 빠진다
+    { ...record('sea', 'soda', 7200, new Date(2026, 8, 14, 10).getTime()), kind: 'sea' as const },
   ];
   // 소다 섬: 나 1800 + 민지 1320 + 두부 960 + 수아 600 = 4680 ÷ 4명
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 1170);
@@ -1571,7 +1693,7 @@ test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 �
     ['START', { subject: '집중' }],
     ['COMMENT', { id: 'welcome', text: '댓글' }],
     ['MESSAGE', { text: '메시지' }],
-    ['BUY', { id: 'scarf' }],
+    ['BUY', { id: 'soda-theme' }],
   ] as const)
     assert.deepEqual(act(s, type, data), s);
 });
@@ -1747,6 +1869,26 @@ test('현재 섬에서 강퇴돼도 다른 소속이 있으면 그 섬을 현재
   assert.equal(s.visitingIslandId, null);
   assert.equal(s.session, null);
   assert.deepEqual(s.membershipRecovery, { reason: 'kicked', islandId: kicked.id });
+});
+
+test('목적지 섬에서 강퇴돼도 바다 항해 세션은 남기고 화면 복구 신호도 남기지 않는다', () => {
+  let s = initialState(true);
+  const home = currentIsland(s);
+  const destination = s.islands.find((island) => island.id !== home.id)!;
+  destination.joined = true;
+  s.session = {
+    id: 'sea-1',
+    islandId: destination.id,
+    subject: '',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+    kind: 'sea',
+    targetMinutes: 30,
+  } as never;
+  s = act(s, 'KICKED_FROM_ISLAND', { id: destination.id });
+  assert.equal(s.session?.id, 'sea-1');
+  assert.equal(s.membershipRecovery, undefined);
 });
 
 test('가입한 보조 섬을 방문 중 강퇴되면 현재 섬으로 화면 복구 신호를 남긴다', () => {
@@ -1969,7 +2111,6 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
   old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
   saved.orders = [
-    { id: 'mine', product: 'scarf', islandId: old.id, currency: 'fish', price: 100, at: 1 },
     { id: 'theme', product: 'soda-theme', islandId: old.id, currency: 'fish', price: 1000, at: 1 },
     { id: 'open', product: 'rain', islandId: 'soda', currency: 'fish', price: 150, at: 1 },
   ];
@@ -1995,7 +2136,7 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   assert.equal(once.rewards?.length, 0);
   assert.deepEqual(
     once.orders.map((o) => o.id),
-    ['mine', 'open'],
+    ['open'],
   );
   // 열린 섬은 그대로
   assert.equal(balance(currentIsland(once)), balance(currentIsland(saved)));
@@ -2170,6 +2311,46 @@ test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, �
   });
   assert.equal(s.onboarded, false);
   assert.equal(s.serverIslands!.currentIslandId, null);
+});
+
+test('ISLAND_SYNC — 강퇴로 잃은 섬을 남기고, 망원경 가입 섬의 강퇴도 새로 남긴다(GROMO-2366)', () => {
+  const my = (
+    currentIslandId: string | null,
+    lossReason: 'LEFT' | 'KICKED' | null,
+    items = [sum('srv2')],
+  ) => ({ memberships: { items, nextCursor: null, currentIslandId, lossReason } });
+  let s = act(initialState(), 'ISLAND_SYNC', my('srv1', null, [sum('srv1'), sum('srv2')]));
+  s = act(s, 'ISLAND_SYNC', my(null, 'KICKED'));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'srv1', name: '서버 섬 srv1' });
+  // 새로 잃은 섬이 없으면(다시 읽기) 그대로 둔다
+  s = act(s, 'ISLAND_SYNC', my(null, 'KICKED'));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'srv1', name: '서버 섬 srv1' });
+  // current 를 옮기지 않은 망원경 가입 섬에서 강퇴 — 사라진 소속이 잃은 섬이다
+  s = act(s, 'ISLAND_SYNC', my(null, 'KICKED', []));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'srv2', name: '서버 섬 srv2' });
+  s = act(s, 'ISLAND_SYNC', my('srv2', null));
+  assert.equal(s.serverIslands!.kickedIsland, null);
+  // 나가기로 잃은 섬은 강퇴로 남기지 않는다
+  s = act(s, 'ISLAND_SYNC', my(null, 'LEFT'));
+  assert.equal(s.serverIslands!.kickedIsland, null);
+});
+
+test('ISLAND_SYNC — 강퇴로 잃은 섬은 직전 current 보다 실제로 사라진 소속을 먼저 고른다(GROMO-2366)', () => {
+  const sync = (currentIslandId: string | null, lossReason: 'KICKED' | null, ids: string[]) => ({
+    memberships: { items: ids.map((id) => sum(id)), nextCursor: null, currentIslandId, lossReason },
+  });
+  // current i1 인데 서버는 i2 가 빠졌다고 한다(다른 기기에서 current 가 바뀐 경우 등)
+  let s = act(initialState(), 'ISLAND_SYNC', sync('i1', null, ['i1', 'i2']));
+  s = act(s, 'ISLAND_SYNC', sync(null, 'KICKED', ['i1']));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'i2', name: '서버 섬 i2' });
+  // 여럿이 사라졌으면 직전 current 를 고른다
+  s = act(initialState(), 'ISLAND_SYNC', sync('i1', null, ['i2', 'i1', 'i3']));
+  s = act(s, 'ISLAND_SYNC', sync(null, 'KICKED', ['i3']));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'i1', name: '서버 섬 i1' });
+  // 사라진 소속이 없으면 직전 current 로 대신한다
+  s = act(initialState(), 'ISLAND_SYNC', sync('i1', null, ['i1']));
+  s = act(s, 'ISLAND_SYNC', sync(null, 'KICKED', ['i1']));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'i1', name: '서버 섬 i1' });
 });
 
 test('ISLAND_SYNC — mainIslandId를 실으면 /me 정본으로 갈아 끼우고, 안 실으면 현재 값을 유지한다', () => {

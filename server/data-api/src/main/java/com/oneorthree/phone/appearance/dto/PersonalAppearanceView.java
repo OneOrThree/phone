@@ -7,6 +7,9 @@ package com.oneorthree.phone.appearance.dto;
 public record PersonalAppearanceView(
         String clothes,
         String decor,
+        String head,
+        String neck,
+        String shoes,
         String hull,
         String position,
         long version) {

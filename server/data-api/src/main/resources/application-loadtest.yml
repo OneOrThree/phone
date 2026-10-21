@@ -115,3 +115,8 @@ letter:
   send:
     rate-limit:
       max-per-hour: ${LETTER_SEND_RATE_LIMIT_MAX:1000000}
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true

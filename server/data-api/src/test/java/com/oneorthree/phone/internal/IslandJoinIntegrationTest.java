@@ -180,8 +180,8 @@ class IslandJoinIntegrationTest {
     }
 
     @Test
-    @DisplayName("이미 활성 멤버·만원·강퇴 이력·소속 상한·잠긴 방은 기존 코드로 거절된다")
-    void joinRejectsMemberFullKickedLimitAndLockedIslands() {
+    @DisplayName("이미 활성 멤버·만원·소속 상한·잠긴 방은 기존 코드로 거절되고, 강퇴 이력은 누구나 가입 섬이어도 신청(pending)이 된다")
+    void joinRejectsMemberFullLimitAndLockedIslandsAndKickedGoesPending() {
         UUID applicant = newUser();
         UUID islandId = publicIsland("검증섬");
 
@@ -191,12 +191,15 @@ class IslandJoinIntegrationTest {
         assertThatThrownBy(() -> joins.join(applicant, full, null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ROOM_FULL);
 
-        // 강퇴 이력
+        // 강퇴 이력 — 403 이 아니라 섬장 승인 대기다(GROMO-2315). 행은 승인 전까지 강퇴 그대로다.
         joinAs(applicant, islandId, GroupMemberRole.MEMBER);
         jdbc.update("update group_members set is_left=true, left_reason='KICKED'"
                 + " where group_id=? and user_id=?", islandId, applicant);
-        assertThatThrownBy(() -> joins.join(applicant, islandId, null, UUID.randomUUID()))
-                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.KICKED_CANNOT_REJOIN);
+        JoinIslandResultView kicked = joins.join(applicant, islandId, null, UUID.randomUUID());
+        assertThat(kicked.status()).isEqualTo("pending");
+        assertThat(kicked.requestId()).isNotNull();
+        assertThat(count("select count(*) from group_members where group_id=? and user_id=? and is_left=true",
+                islandId, applicant)).isEqualTo(1);
 
         // 이미 멤버
         UUID member = newUser();
@@ -204,12 +207,12 @@ class IslandJoinIntegrationTest {
         assertThatThrownBy(() -> joins.join(member, islandId, null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ALREADY_MEMBER);
 
-        // 소속 상한 10
+        // 소속 상한 3 (GROMO-2260)
         UUID loaded = newUser();
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 3; i++) {
             joinAs(loaded, publicIsland("상한섬" + i), GroupMemberRole.MEMBER);
         }
-        assertThatThrownBy(() -> joins.join(loaded, publicIsland("열한번째"), null, UUID.randomUUID()))
+        assertThatThrownBy(() -> joins.join(loaded, publicIsland("네번째"), null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_LIMIT_EXCEEDED);
 
         // password 잠긴 기존 그룹 — IM-D04 미결 분기를 활성화하지 않는다

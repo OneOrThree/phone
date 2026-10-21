@@ -96,6 +96,28 @@ class MainIslandLegacyNotificationIntegrationTest {
     }
 
     @Test
+    @DisplayName("메인 섬에서 강퇴되면 구 경로도 강퇴 푸시 1건만 보낸다 — 메인 섬 이전 푸시는 없다 (GROMO-2315)")
+    void kickFromTheMainIslandSendsOnlyTheKickPushInLegacyMode() {
+        Actor host = reachableUser(true);
+        Actor actor = reachableUser(true);
+        UUID user = actor.id();
+        UUID first = island(user, "강퇴첫섬");
+        UUID latest = joined(user, island(host.id(), "강퇴메인섬"));
+        assertThat(mainIslandOf(actor)).isEqualTo(latest);
+
+        management.kick(host.id(), latest, user, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(sentLogs(user, "ISLAND_KICKED")).isEqualTo(1));
+        assertThat(jdbc.queryForObject("select target_user_id from notification_sent_logs where user_id=? and type=?",
+                UUID.class, user, "ISLAND_KICKED")).as("강퇴된 섬은 target_user_id 에 싣는다").isEqualTo(latest);
+        // 이전은 일어나지만 알림은 없다 — 비동기라 일정 시간 0 이 유지되는지 본다.
+        assertThat(mainIslandOf(actor)).isEqualTo(first);
+        await().during(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(sentLogs(user)).isZero());
+    }
+
+    @Test
     @DisplayName("알림을 끈 사용자에게는 보내지도 기록하지도 않지만 메인 섬 이전은 그대로 일어난다")
     void notificationOffSkipsSendAndLogButStillMovesTheMainIsland() {
         Actor actor = reachableUser(false);
@@ -242,9 +264,13 @@ class MainIslandLegacyNotificationIntegrationTest {
     }
 
     private long sentLogs(UUID userId) {
+        return sentLogs(userId, KIND);
+    }
+
+    private long sentLogs(UUID userId, String kind) {
         return jdbc.queryForObject(
                 "select count(*) from notification_sent_logs where user_id=? and type=? and sent_at is not null",
-                Long.class, userId, KIND);
+                Long.class, userId, kind);
     }
 
     private java.util.Map<String, Object> sentLogRow(UUID userId) {

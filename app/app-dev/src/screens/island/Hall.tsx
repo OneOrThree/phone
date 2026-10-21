@@ -13,14 +13,13 @@ import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
 import { art, CharCount, Wheel } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { CatAvatar } from '@/components/CatAvatar';
+import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
   Building,
   viewIsland,
-  visitorJoinState,
-  pendingVisitRequest,
-  visitorJoinLabel,
   buildingNames,
   costs,
   buildMinutes,
@@ -54,14 +53,38 @@ import {
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
-import { islandErrorMessage } from '@/services/islandErrors';
-import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
+import { t } from '@/i18n';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import {
+  ISLAND_GREETING_MAX,
+  ISLAND_INTRO_MAX,
+  ISLAND_NAME_MAX,
+} from '@/services/api/islandManagement';
+import { clampCodePoints } from '@/utils/codePoints';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 // App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
 const ledgerMockMode = () => isMockMode();
+// 편집 칸에 미리 채울 인사말 — 섬장이 쓴 것만. 안 썼으면(기본 문구가 합성돼 온다) 빈 칸이고, 기본 문구는 힌트로만 보인다.
+// 합성 문구를 그대로 채워 저장하면 섬 이름이 바뀌어도 안 따라가고, 이름이 길면 40 코드포인트를 넘을 수 있다.
+const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean } | null) =>
+  detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
+// 섬 관리 카드의 「냐옹잡지에 섬 홍보하기 ›」 줄
+const promotionRow = {
+  minHeight: semanticTokens.size.tapMin,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: semanticTokens.spacing.control,
+} as const;
+// 관리 쓰기(위임 · 승인 · 강퇴 · 저장) 중에는 홍보 쓰기 줄을 흐리게 막는다 — 공용 버튼의 꺼짐 투명도
+const promotionRowBusy = {
+  ...promotionRow,
+  opacity: componentTokens.button.disabledOpacity,
+} as const;
+const completionStamp = componentTokens.hallCompletionStamp;
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -148,7 +171,7 @@ function Icon({ d, size }: { d: string; size: number }) {
 }
 // 고양이 색 미선택(null)·모름 — 남의 칸을 내 색으로 칠하지 않고 빈 자리표시자 원으로 둔다(2-16 H21)
 const NO_CAT_COLOR = '';
-function Avatar({ color, n, size }: any) {
+function Avatar({ color, outfit, n, size }: any) {
   return (
     <View
       style={{
@@ -161,15 +184,11 @@ function Avatar({ color, n, size }: any) {
         overflow: 'hidden',
       }}
     >
-      <Image
-        source={art[`avatar/${color}`]}
-        resizeMode="contain"
-        style={{
-          width: '100%',
-          height: '100%',
-          transform: [{ scale: 1.2 }],
-          transformOrigin: 'center bottom',
-        }}
+      <CatAvatar
+        color={color}
+        outfit={outfit}
+        size={size - 2.6}
+        style={{ transform: [{ scale: 1.2 }], transformOrigin: 'center bottom' }}
       />
     </View>
   );
@@ -216,19 +235,11 @@ export function Hall({ e }: any) {
     intro: i.intro,
     approval: i.approval,
     capacity: capacityOf(i),
+    greeting: '',
   });
   const [managementError, setManagementError] = useState('');
   const [managementBusy, setManagementBusy] = useState(false);
   const managementRun = useRef(0);
-  const visitorJoinPending = useRef(false);
-  const visitorJoinMounted = useRef(true);
-  const [visitorJoinBusy, setVisitorJoinBusy] = useState(false);
-  useEffect(() => {
-    visitorJoinMounted.current = true;
-    return () => {
-      visitorJoinMounted.current = false;
-    };
-  }, []);
   // 같은 섬의 관리 화면이라도 route 또는 인증 세대가 바뀌면 이전 요청의 UI 완료를 버린다.
   // 세대는 렌더 때 snapshot으로 잡아 effect dependency에 넣는다.
   const managementSessionGeneration = sessionGeneration();
@@ -260,6 +271,8 @@ export function Hall({ e }: any) {
       notify(success);
     } catch (error) {
       if (run !== managementRun.current) return;
+      // 게스트 섬장이 인사말을 저장하면 서버가 403 SOCIAL_LOGIN_REQUIRED 로 거절한다 — 회원 전환 시트로 보낸다(GROMO-2005)
+      if (e.conversion?.offer(error)) return;
       const message = managementErrorMessage(error, operation);
       setManagementError(message);
       // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
@@ -271,7 +284,12 @@ export function Hall({ e }: any) {
   const transferCandidates = liveManagement
     ? (management.members ?? [])
         .filter((m) => m.role !== 'host')
-        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? NO_CAT_COLOR }))
+        .map((m) => ({
+          id: m.id,
+          name: m.name ?? '주민',
+          color: m.catColor ?? NO_CAT_COLOR,
+          outfit: appearanceOutfit(m.appearance),
+        }))
     : i.members;
   // 가계부: 서버 원장·지갑 조각이 정본이다 — 로컬 i.ledger 문자열·로컬 잔액 합산을 쓰지 않는다.
   // 방문자에게는 조회 자체를 하지 않는다(서버도 403). 리뷰·데모 모크 모드는 서버가 아예 없다 —
@@ -370,6 +388,13 @@ export function Hall({ e }: any) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(''), 2400);
   };
+  const {
+    join,
+    disabled: joinDisabled,
+    label: joinLabel,
+    busy: visitorJoinBusy,
+    serverJoin,
+  } = useVisitorJoin(e, s, i, notify);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -740,6 +765,7 @@ export function Hall({ e }: any) {
       construction_debit: '건설 사용',
       shop_purchase: '공동 구매',
       golden_fish: '황금 물고기',
+      promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
     const bookmark = (label: keyof typeof TAB_KEY, n: number) => {
@@ -903,10 +929,6 @@ export function Hall({ e }: any) {
       ) : null;
     const left = (
       <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
-        <T style={g(15.5, 24.8, { color: MUTED, letterSpacing: 0.465 })}>
-          {inviteCodeOf(i)} ISLAND LEDGER
-        </T>
-        <T style={g(28.4, 35.5, { marginTop: 1.3 })}>우리 섬 물고기</T>
         <T style={g(36.2, 45.25, { marginTop: 2.6 })} numberOfLines={1}>
           🐟 {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
           마리
@@ -1214,13 +1236,15 @@ export function Hall({ e }: any) {
     const liveItem = (b: string) => opts?.items.find((it) => it.id === b);
     const status = (b: Building) =>
       liveConstruction
-        ? liveItem(b)?.blockedReason === 'IN_PROGRESS'
-          ? 'build'
-          : opts?.selectedBuildingId === b
-            ? 'collect'
-            : liveItem(b) !== undefined && !liveItem(b)!.selectable
-              ? 'locked'
-              : 'none'
+        ? !liveItem(b)
+          ? 'done'
+          : liveItem(b)?.blockedReason === 'IN_PROGRESS'
+            ? 'build'
+            : opts?.selectedBuildingId === b
+              ? 'collect'
+              : liveItem(b) !== undefined && !liveItem(b)!.selectable
+                ? 'locked'
+                : 'none'
         : i.buildings.includes(b)
           ? 'done'
           : i.construction?.building === b
@@ -1253,7 +1277,8 @@ export function Hall({ e }: any) {
           right: land ? 16 : 18.1,
           top: land ? 14 : undefined,
           bottom: land ? 14 : 28.4,
-          minHeight: land ? undefined : 454.5,
+          minHeight: land ? undefined : Math.min(454.5, H - off.top - L.insets.bottom - 56.8),
+          maxHeight: H - off.top - L.insets.bottom - (land ? 28 : 56.8),
           paddingTop: land ? 14 : 20.7,
           paddingHorizontal: land ? 16 : 16.8,
           paddingBottom: land ? 14 : 22,
@@ -1269,7 +1294,12 @@ export function Hall({ e }: any) {
           overflow: 'hidden',
         }}
       >
-        {children}
+        <ScrollView
+          bounces={false}
+          contentContainerStyle={{ paddingBottom: completionStamp.inset }}
+        >
+          {children}
+        </ScrollView>
       </View>
     );
     // 서버 화면의 비정상 상태 — 목업 데이터로 메우지 않는다
@@ -1319,44 +1349,16 @@ export function Hall({ e }: any) {
         e.back,
       );
     }
-    // items 가 비었다 = canonical 7개 모두 완공(서버 계약) — 빈 목록을 오류로 읽지 않는다
-    if (liveConstruction && opts!.items.length === 0) {
-      return shell(
-        pickFrame(
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <T
-              testID="hall-construction-done"
-              style={g(18.1, 28.9, { fontWeight: '800', textAlign: 'center' })}
-            >
-              모든 건물을 지었어요
-            </T>
-          </View>,
-        ),
-        e.back,
-      );
-    }
-    // 서버 items 는 응답 순서 그대로 — 앱이 선형 순서(hall→board→…)를 다시 강제하지 않는다
+    // 미완공 옵션의 순서는 유지하고, 완료한 건물도 기존 그리드에서 지우지 않는다.
+    // options는 canonical 건물 중 미완공 목록 전체이므로 응답에서 빠진 건물은 완공이다.
     const cards: Building[] = liveConstruction
-      ? opts!.items.map((it) => it.id as Building)
+      ? [...opts!.items.map((it) => it.id as Building), ...grid.filter((b) => !liveItem(b))]
       : [...grid];
+    const allDone = cards.every((b) => status(b) === 'done');
     const pick = pickFrame(
       <>
         <View style={{ gap: 1.3, marginBottom: 11.6 }}>
-          <View
-            style={{
-              alignSelf: 'flex-start',
-              marginBottom: 3.9,
-              paddingVertical: 2.6,
-              paddingHorizontal: 10.3,
-              borderWidth: 1.3,
-              borderColor: '#7f624f',
-              borderRadius: 99,
-              backgroundColor: '#fff8e9',
-            }}
-          >
-            <T style={g(15.5, 24.8, { fontWeight: '800' })}>목각 건물 고르기</T>
-          </View>
-          <T style={g(25.8, 32.25)}>어떤 건물을 지을까요?</T>
+          <T style={g(25.8, 32.25)}>{allDone ? '건설 현황' : '어떤 건물을 지을까요?'}</T>
         </View>
         <View
           testID="hall-bld-grid"
@@ -1378,7 +1380,8 @@ export function Hall({ e }: any) {
               item = liveConstruction ? liveItem(b) : undefined,
               cardName = item?.name ?? buildingNames[b];
             // 흐린 카드도 눌러서 잠금 사유·공사 상태 패널을 본다
-            const tappable = !off || st === 'locked' || st === 'build';
+            const tappable =
+              !(liveConstruction && st === 'done') && (!off || st === 'locked' || st === 'build');
             return (
               <Pressable
                 key={b}
@@ -1404,25 +1407,21 @@ export function Hall({ e }: any) {
                 }}
               >
                 {st === 'done' && (
-                  <View
+                  <Image
+                    testID={`hall-completion-stamp-${b}`}
+                    source={require('@/assets/ui/construction-complete.png')}
+                    accessible={false}
+                    resizeMode="contain"
+                    fadeDuration={0}
                     style={{
                       alignSelf: 'flex-end',
-                      paddingVertical: 1.3,
-                      paddingHorizontal: 7.7,
-                      borderRadius: 99,
-                      backgroundColor: '#dff0d0',
+                      width: completionStamp.width,
+                      height: completionStamp.height,
+                      marginRight: completionStamp.inset,
+                      marginBottom: completionStamp.inset,
+                      transform: [{ rotate: completionStamp.rotation }],
                     }}
-                  >
-                    <T
-                      style={g(12.9, 20.64, {
-                        fontWeight: '800',
-                        fontStyle: 'italic',
-                        color: '#3f6b34',
-                      })}
-                    >
-                      완공
-                    </T>
-                  </View>
+                  />
                 )}
                 {st === 'build' && (
                   <View
@@ -1619,75 +1618,74 @@ export function Hall({ e }: any) {
                 ? '조회 불가'
                 : '목표를 정한 뒤 확인해 주세요',
           );
-      // 서버 경로의 본문 — 잔액·몫·공사 구간 모두 options/POST 응답 값이다
-      const liveCopy =
-        st === 'locked' ? (
-          para(`${name} — ${blockedText(planItem!.blockedReason)}`)
-        ) : st === 'build' ? (
-          startedInfo !== null && startedInfo.buildingId === plan && left > 0 ? (
-            <>
-              {row('공사 중', `남은 시간 ${hm(Math.ceil(left / 60000) * 60)}`)}
-              {bar(
-                ((e.now - Date.parse(startedInfo.startedAt)) /
-                  Math.max(
-                    1,
-                    Date.parse(startedInfo.completesAt) - Date.parse(startedInfo.startedAt),
-                  )) *
-                  100,
-              )}
-            </>
-          ) : startedInfo !== null && startedInfo.buildingId === plan ? (
-            para('완공 예정 시각이 지났어요. 서버에서 상태를 확인하고 있어요.')
-          ) : (
-            para('지금 공사가 진행 중이에요.')
-          )
-        ) : st === 'collect' ? (
+      // 서버 본문은 서버 모드에서만 계산한다. 데모에는 opts·planItem이 없다.
+      const liveCopy = !liveConstruction ? null : st === 'locked' ? (
+        para(`${name} — ${blockedText(planItem!.blockedReason)}`)
+      ) : st === 'build' ? (
+        startedInfo !== null && startedInfo.buildingId === plan && left > 0 ? (
           <>
-            {row(
-              '섬 잔액',
-              `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
+            {row('공사 중', `남은 시간 ${hm(Math.ceil(left / 60000) * 60)}`)}
+            {bar(
+              ((e.now - Date.parse(startedInfo.startedAt)) /
+                Math.max(
+                  1,
+                  Date.parse(startedInfo.completesAt) - Date.parse(startedInfo.startedAt),
+                )) *
+                100,
             )}
-            {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
-            {shareRow}
-            {!walletTotal(plan) && residentProgress && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  gap: 6.5,
-                  marginVertical: 7.7,
-                  paddingVertical: 3.9,
-                  borderTopWidth: 1.3,
-                  borderStyle: 'dashed',
-                  borderTopColor: 'rgba(223, 247, 255, 0.667)',
-                }}
-              >
-                {residentProgress.residents.map((m) => (
-                  <View
-                    key={m.userId}
-                    style={{
-                      paddingVertical: 1.3,
-                      paddingHorizontal: 7.7,
-                      borderRadius: 99,
-                      backgroundColor: 'rgba(255, 255, 255, 0.125)',
-                    }}
-                  >
-                    <T style={g(13, 17.55, { color: '#f7fcff' })}>
-                      {m.userId === meId ? '나' : (m.name ?? '주민')}
-                    </T>
-                  </View>
-                ))}
-              </View>
-            )}
-            {para(planDesc[plan] ?? '')}
           </>
+        ) : startedInfo !== null && startedInfo.buildingId === plan ? (
+          para('완공 예정 시각이 지났어요. 서버에서 상태를 확인하고 있어요.')
         ) : (
-          <>
-            {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
-            {shareRow}
-            {para(planDesc[plan] ?? '', true)}
-          </>
-        );
+          para('지금 공사가 진행 중이에요.')
+        )
+      ) : st === 'collect' ? (
+        <>
+          {row(
+            '섬 잔액',
+            `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
+          )}
+          {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
+          {shareRow}
+          {!walletTotal(plan) && residentProgress && (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 6.5,
+                marginVertical: 7.7,
+                paddingVertical: 3.9,
+                borderTopWidth: 1.3,
+                borderStyle: 'dashed',
+                borderTopColor: 'rgba(223, 247, 255, 0.667)',
+              }}
+            >
+              {residentProgress.residents.map((m) => (
+                <View
+                  key={m.userId}
+                  style={{
+                    paddingVertical: 1.3,
+                    paddingHorizontal: 7.7,
+                    borderRadius: 99,
+                    backgroundColor: 'rgba(255, 255, 255, 0.125)',
+                  }}
+                >
+                  <T style={g(13, 17.55, { color: '#f7fcff' })}>
+                    {m.userId === meId ? '나' : (m.name ?? '주민')}
+                  </T>
+                </View>
+              ))}
+            </View>
+          )}
+          {para(planDesc[plan] ?? '')}
+        </>
+      ) : (
+        <>
+          {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
+          {shareRow}
+          {para(planDesc[plan] ?? '', true)}
+        </>
+      );
       const copy = liveConstruction ? (
         liveCopy
       ) : st === 'locked' ? (
@@ -2071,8 +2069,10 @@ export function Hall({ e }: any) {
         onOk: () =>
           void runManagement(async () => {
             const my = await e.islands.leave(liveIslandId);
-            // current 가 비면 App 이 섬 선택 화면으로 보낸다. 다른 섬이 current 면 홈으로.
+            // 재조회한 current 가 응답보다 최신이라 먼저 본다 — 다른 섬이 current 면 홈. current 가 비고 서버가
+            // 먼바다라고 했으면 바다로(GROMO-2366), 다음 위치를 모르면(구 응답) App 이 보낸다.
             if (my.currentIslandId) e.home();
+            else if (my.nextLocation?.islandId === null) e.reset('sea');
           }, '섬을 떠났어요.'),
       });
       return;
@@ -2096,7 +2096,7 @@ export function Hall({ e }: any) {
       onOk: () => {
         e.dispatch({ type: 'LEAVE' });
         if (next) e.home();
-        else e.reset('chooseIsland');
+        else e.reset('sea');
       },
     });
   };
@@ -2114,7 +2114,11 @@ export function Hall({ e }: any) {
       <T style={{ fontSize: 27, lineHeight: 27, color: '#5e4d42' }}>×</T>
     </Pressable>
   );
-  const person = (m: { id: string; name: string; color: string }, n: number, opts: any = {}) => (
+  const person = (
+    m: { id: string; name: string; color: string; outfit?: Outfit },
+    n: number,
+    opts: any = {},
+  ) => (
     <View
       key={m.id}
       // 방장 칸은 보조기기가 이름 뒤에 '방장'까지 읽는다
@@ -2138,7 +2142,7 @@ export function Hall({ e }: any) {
       ]}
     >
       <View pointerEvents="none">
-        <Avatar color={m.color} n={n} size={opts.av ?? (land ? 31 : 38)} />
+        <Avatar color={m.color} outfit={m.outfit} n={n} size={opts.av ?? (land ? 31 : 38)} />
         {/* 방장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
             Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
         {opts.crown && (
@@ -2231,10 +2235,13 @@ export function Hall({ e }: any) {
           id: m.id,
           name: m.name ?? '주민',
           color: m.catColor ?? NO_CAT_COLOR,
+          outfit: appearanceOutfit(m.appearance),
           isHost: m.role === 'host',
         }))
       : [
-          ...(visitor ? [] : [{ id: 'me', name: '나', color: s.color, isHost: host }]),
+          ...(visitor
+            ? []
+            : [{ id: 'me', name: '나', color: s.color, outfit: outfitOf(s), isHost: host }]),
           ...i.members.map((m) => ({
             id: m.id,
             name: m.name,
@@ -2355,7 +2362,7 @@ export function Hall({ e }: any) {
                 // 가로 2열: 목록 폭 = 화면 − 왼쪽 side − 오른쪽 16 − 테두리 4 − 안쪽 여백 32
                 style={{ width: land ? (W - side - 52 - 10) / 2 : '100%' }}
               >
-                {person({ ...m, name: m.name, color: m.color }, n, {
+                {person(m, n, {
                   size: 16,
                   grow: true,
                   style: {
@@ -2428,18 +2435,29 @@ export function Hall({ e }: any) {
         {tail}
       </Pressable>
     );
-    const input = (label: string, key: 'name' | 'intro') => (
+    const input = (label: string, key: 'name' | 'intro' | 'greeting') => (
       <View style={{ gap: 5 }}>
         <T style={g(13, 20.8, { color: '#6d5b4a', fontWeight: '700' })}>{label}</T>
         <TextInput
-          testID={key === 'name' ? 'hall-name' : 'hall-intro'}
+          testID={`hall-${key}`}
           accessibilityLabel={label}
           value={draft[key]}
-          onChangeText={(v) => setDraft((d) => ({ ...d, [key]: v }))}
+          // 인사말은 코드포인트 40 — TextInput maxLength 는 UTF-16 이라 🐟 가 2로 세어 여기서 자른다
+          onChangeText={(v) =>
+            setDraft((d) => ({
+              ...d,
+              [key]: key === 'greeting' ? clampCodePoints(v, ISLAND_GREETING_MAX) : v,
+            }))
+          }
           multiline={key === 'intro'}
-          maxLength={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX}
+          maxLength={
+            key === 'name' ? ISLAND_NAME_MAX : key === 'intro' ? ISLAND_INTRO_MAX : undefined
+          }
+          placeholder={key === 'greeting' ? t('hall.greetingPlaceholder') : undefined}
+          placeholderTextColor={componentTokens.input.placeholder}
           style={{
-            height: key === 'intro' ? (land ? 57 : 62) : land ? 39 : 44,
+            // 이름·인사말 한 줄 칸은 가로에서도 실제 터치 높이 44 — 접근성 최소 터치 영역(DESIGN.md)
+            height: key === 'intro' ? (land ? 57 : 62) : 44,
             paddingVertical: land ? 7 : 10,
             paddingHorizontal: land ? 9 : 11,
             borderWidth: 1.5,
@@ -2454,7 +2472,17 @@ export function Hall({ e }: any) {
             textAlignVertical: 'top',
           }}
         />
-        <CharCount value={draft[key]} max={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX} />
+        <CharCount
+          value={draft[key]}
+          max={
+            key === 'name'
+              ? ISLAND_NAME_MAX
+              : key === 'intro'
+                ? ISLAND_INTRO_MAX
+                : ISLAND_GREETING_MAX
+          }
+          codePoints={key === 'greeting'}
+        />
       </View>
     );
     const approval = setting(
@@ -2550,6 +2578,12 @@ export function Hall({ e }: any) {
                   intro: draft.intro,
                   approvalRequired: draft.approval,
                   maxMembers: draft.capacity,
+                  // 인사말은 바꾼 때만 싣는다 — 안 바꾼 저장이 구서버(모르는 키 400)·게스트(403)에 걸리지 않게.
+                  // 앞뒤 공백만 다른 것은 안 바꾼 것이다(서버에 보내는 값도 앞뒤를 뗀 글이다).
+                  // 빈 값은 기본 문구로 되돌리는 값이라 그대로 보낸다
+                  ...(draft.greeting.trim() !== ownGreeting(management.detail).trim() && {
+                    greeting: draft.greeting.trim(),
+                  }),
                 }),
               '섬 정보를 저장했어요.',
               () => setPanel(''),
@@ -2601,6 +2635,8 @@ export function Hall({ e }: any) {
       <View style={{ gap: land ? 7 : 10 }}>
         {input('섬 이름', 'name')}
         {input('섬 소개', 'intro')}
+        {/* 인사말은 서버 모드(실제 섬)에서만 — 목업 로컬 섬에는 필드가 없다 */}
+        {liveManagement && input(t('hall.greeting'), 'greeting')}
       </View>
     );
     return shell(
@@ -2659,41 +2695,6 @@ export function Hall({ e }: any) {
     : host
       ? joinRequests(i)
       : [];
-  const join = visitorJoinState(s, i);
-  const joinDisabled = visitorJoinBusy || join === 'full' || join === 'blocked';
-  const joinLabel = visitorJoinBusy ? '처리 중이에요' : visitorJoinLabel[join];
-  const serverJoin = async () => {
-    if (visitorJoinPending.current || joinDisabled) return;
-    if (s.session) return notify('집중이나 휴식을 마친 뒤 가입해 주세요.');
-    visitorJoinPending.current = true;
-    setVisitorJoinBusy(true);
-    const generation = sessionGeneration();
-    // 즉시 가입의 재조회가 current/방문 상태를 바꿔도, 같은 화면·인증의 성공 처리는 마친다.
-    const alive = () => visitorJoinMounted.current && generation === sessionGeneration();
-    try {
-      if (join === 'cancel') {
-        const request = pendingVisitRequest(s, i.id);
-        if (!request) return;
-        await e.islands.cancel(request.id);
-        if (alive()) notify('가입 신청을 취소했어요.');
-      } else {
-        const result = await e.islands.join(i.id, { showApproval: false });
-        if (!alive()) return;
-        if (result.status === 'pending') {
-          notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
-        } else {
-          e.dispatch({ type: 'END_VISIT' });
-          e.reset('home');
-          e.notify(`${i.name} 주민이 됐어요`);
-        }
-      }
-    } catch (error) {
-      if (alive()) notify(islandErrorMessage(error));
-    } finally {
-      visitorJoinPending.current = false;
-      if (alive()) setVisitorJoinBusy(false);
-    }
-  };
   const section = (title: string, children: React.ReactNode, right?: string) => (
     <View
       style={{
@@ -2762,6 +2763,7 @@ export function Hall({ e }: any) {
                   capacity: liveManagement
                     ? (management.detail?.maxMembers ?? CAPACITY_MIN)
                     : capacityOf(i),
+                  greeting: liveManagement ? ownGreeting(management.detail) : '',
                 });
                 setPanel('edit');
               }}
@@ -2831,6 +2833,9 @@ export function Hall({ e }: any) {
                   color: liveManagement
                     ? ((q as { catColor?: string | null }).catColor ?? NO_CAT_COLOR)
                     : ((q as { color?: string }).color ?? s.color),
+                  outfit: liveManagement
+                    ? appearanceOutfit((q as { appearance?: unknown }).appearance)
+                    : undefined,
                 },
                 n,
                 {
@@ -2933,40 +2938,62 @@ export function Hall({ e }: any) {
         `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
       {!visitor && (
-        <View
-          style={{
-            minHeight: land ? 45 : 58,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            marginTop: land ? 5 : 14,
-            paddingTop: 6,
-          }}
-        >
-          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
-          <Pressable
-            testID="hall-invite"
-            accessibilityRole="button"
-            accessibilityLabel="섬에 친구 초대하기"
-            onPress={() =>
-              Share.share({
-                message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-              }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-            }
+        <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
+          {displayHost && (
+            // 냐옹잡지에 섬 홍보하기(GROMO-2289 · P3) — 홍보는 마을회관에서(10/5 · 10/14 확정). 내 섬 섬장만, 구경 중에는 없다.
+            // 친구 초대 줄보다 위에 둔다(10/15).
+            // 섬장 판정은 이 카드의 다른 섬장 전용 동작과 같은 displayHost 다 — 실서버 관리 화면에서는 관리 API 의 지금 역할이라
+            // 여기서 위임하거나 다른 기기에서 위임받은 것이 바로 반영된다(홈 스냅샷은 늦을 수 있다). 뒤로가기는 App 기록으로 이 카드에 돌아온다
+            <Pressable
+              testID="hall-promotion-editor"
+              accessibilityRole="button"
+              accessibilityLabel={t('magazine.editor.entry')}
+              // 위임 등 관리 쓰기가 끝나 역할이 다시 확정되기 전에는 못 들어간다 — 그 사이 회관을 떠나면 확정 역할(host)이
+              // 위임 전 값으로 남아 쓰기 화면이 섬장으로 열린다
+              accessibilityState={{ disabled: managementBusy }}
+              disabled={managementBusy}
+              onPress={() => e.go('promotionEditor')}
+              style={managementBusy ? promotionRowBusy : promotionRow}
+            >
+              <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
+                {t('magazine.editor.entry')}
+              </T>
+              <Icon d={CHEV} size={22} />
+            </Pressable>
+          )}
+          <View
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              borderWidth: 1.5,
-              borderColor: '#a78d6e',
-              backgroundColor: '#fffaf0',
+              minHeight: land ? 45 : 58,
+              flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
             }}
           >
-            <Icon d={SHARE} size={22} />
-          </Pressable>
+            <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
+            <Pressable
+              testID="hall-invite"
+              accessibilityRole="button"
+              accessibilityLabel="섬에 친구 초대하기"
+              onPress={() =>
+                Share.share({
+                  message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
+                }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
+              }
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                borderWidth: 1.5,
+                borderColor: '#a78d6e',
+                backgroundColor: '#fffaf0',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon d={SHARE} size={22} />
+            </Pressable>
+          </View>
         </View>
       )}
       {visitor ? (
@@ -2987,10 +3014,10 @@ export function Hall({ e }: any) {
               return;
             }
             e.dispatch({ type: 'JOIN', id: i.id });
-            if (join === 'apply') notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+            if (join === 'apply') notify(t('islandVisit.visitorJoin.requested'));
             else {
               // 바로 가입: 이 섬 주민이 되어 구경이 끝나므로 새 섬 홈으로 간다
-              e.notify(`${i.name} 주민이 됐어요`);
+              e.notify(t('islandVisit.visitorJoin.joined', { name: i.name }));
               e.home();
             }
           }}

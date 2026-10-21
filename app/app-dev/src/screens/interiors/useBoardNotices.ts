@@ -8,7 +8,7 @@
  * - 모든 비동기 적용 지점은 「요청 시작 시점의 mounted+epoch+세대」를 다시 본다 — 언마운트·
  *   범위 교체·계정 전환 뒤 도착한 늦은 응답은 버린다(client 의 CLIENT_STALE_SESSION 과 같은 fence).
  *
- * 쓰기 네 종은 의도(intent)마다 하나의 `Idempotency-Key` 를 쓴다. 같은 페이로드의 재시도
+ * 쓰기 명령은 의도(intent)마다 하나의 `Idempotency-Key` 를 쓴다. 같은 페이로드의 재시도
  * (응답 유실·retryable 실패)는 **같은 key** 로 다시 보내고, 쓰기 성공 + GET 새로고침이 끝나야
  * key 를 놓는다 — 다음 의도는 새 key 다(notices.ts 의 계약). 진행 중인 같은 슬롯 호출은
  * 새 요청을 내지 않고 진행 중인 promise 를 돌려준다(중복 탭).
@@ -27,6 +27,7 @@ import {
   createNotice as postNotice,
   createNoticeComment as postComment,
   deleteNotice as delNotice,
+  deleteNoticeComment as delComment,
   getBoard,
   getNotice,
   listNotices,
@@ -481,6 +482,24 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     [writable, runWrite, refreshList, alive, set],
   );
 
+  const deleteComment = useCallback(
+    async (noticeId: string, commentId: string): Promise<NoticeDeleted> => {
+      const islandId = writable();
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      return runWrite(
+        `delete-comment:${noticeId}:${commentId}`,
+        commentId,
+        (key) => delComment(islandId, noticeId, commentId, key),
+        async () => {
+          await refreshList(e, generation);
+          await refreshDetail(e, generation, islandId, noticeId);
+        },
+      );
+    },
+    [writable, runWrite, refreshList, refreshDetail],
+  );
+
   const addComment = useCallback(
     async (noticeId: string, text: string): Promise<CommentCreated> => {
       const islandId = writable();
@@ -632,6 +651,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     createNotice,
     updateNotice,
     deleteNotice,
+    deleteComment,
     addComment,
     selectQuest,
     createQuest,

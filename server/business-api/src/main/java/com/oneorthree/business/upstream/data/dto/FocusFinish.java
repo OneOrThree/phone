@@ -28,6 +28,12 @@ import java.util.UUID;
  * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131) — finish 시점엔 전부 닫혀 있다.
  *                      구버전 Data 가 안 보내면 {@code null} 로 두어 공개 응답에서도 빠지게 한다 —
  *                      빈 목록으로 채우면 앱이 «구간 0건»으로 읽어 같은 날 집중이 사라진다
+ * @param seaReward     집중 꾸미기 보상(모양은 GROMO-2274, 의미는 GROMO-2301) — 섬·바다 세션 모두 Data 가 정산 행에
+ *                      남긴 추첨 결과로 늘 객체를 보낸다(방금 정산·새 키 재종료·pending-result 가 같은 값). 15분 미만이면
+ *                      빈 목록이다. {@code null} 은 «받은 것 없음» 이 아니라 «모름» 이고, 이 필드를 모르거나 정산 행에
+ *                      결과를 남기기 전의 구버전 Data 만 그렇다(필수가 아니다)
+ * @param kind          {@code "island"} 또는 {@code "sea"}(GROMO-2299) — 선택이다(구버전 Data 는 안 보낸다)
+ * @param arrived       바다 세션의 도착 여부(항해 시간을 채웠는가). 섬 세션이거나 구버전 Data 면 {@code null}
  */
 public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
@@ -40,7 +46,10 @@ public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) Allocation allocation,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completedAt,
         @JsonSetter(nulls = Nulls.AS_EMPTY) List<QuestProgress> questProgress,
-        List<ActiveIntervalState> activeIntervals) {
+        List<ActiveIntervalState> activeIntervals,
+        SeaReward seaReward,
+        String kind,
+        Boolean arrived) {
 
     /**
      * @param personalFishAdded     개인 지갑 반영
@@ -58,5 +67,17 @@ public record FocusFinish(
     public record QuestProgress(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) double myRate) {
+    }
+
+    /**
+     * @param grantedProductIds 이 세션이 뽑은 꾸미기 상품 id(0~1개) — 이미 가진 상품이어도 들어간다. 없으면 빈 목록
+     * @param minutesToNextTier 옛 누적 단계표의 남은 분 — 단계표가 없어져 지금 Data 는 늘 {@code null} 이다
+     * @param newProductIds     {@code grantedProductIds} 중 이번 지급으로 처음 가진 것(결과창 NEW!) — 이미 가진 상품이면
+     *                          빈 목록. 이 필드를 모르는 구버전 Data 는 안 보내 빈 목록으로 받는다
+     */
+    public record SeaReward(
+            @JsonSetter(nulls = Nulls.AS_EMPTY) List<String> grantedProductIds,
+            Integer minutesToNextTier,
+            @JsonSetter(nulls = Nulls.AS_EMPTY) List<String> newProductIds) {
     }
 }

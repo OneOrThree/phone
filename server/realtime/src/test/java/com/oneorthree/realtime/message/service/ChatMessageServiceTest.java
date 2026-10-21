@@ -49,7 +49,14 @@ import static org.mockito.Mockito.verify;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ChatMessageServiceTest {
 
-    private static final String BEARER = "Bearer test-token";
+    private static final String SECRET = "test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256";
+    private static final UUID SENDER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    /** 저장 경계 재검사를 통과하는 «sid 없는 정상 구 토큰» — 서명·만료·발신자가 맞아야 한다. */
+    private static final String BEARER = "Bearer " + io.jsonwebtoken.Jwts.builder().subject(SENDER_ID.toString())
+            .claim("type", "access")
+            .expiration(java.util.Date.from(java.time.Instant.now().plusSeconds(3600)))
+            .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                    SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8))).compact();
 
     /** 재전송 되돌림이 «이 세션에만» 가야 한다 — 값 자체엔 의미가 없고, 전달되는지가 요점이다. */
     private static final String SESSION_ID = "stomp-session-1";
@@ -71,6 +78,11 @@ class ChatMessageServiceTest {
     @Mock
     private WithdrawnSenders withdrawnSenders;
 
+    private final com.oneorthree.realtime.message.service.ChatUserFence fence =
+            new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null, Clock.systemUTC(),
+                    org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class,
+                            org.mockito.Mockito.RETURNS_DEEP_STUBS), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+
     private ChatMessageService chatMessageService;
 
     private UUID groupId;
@@ -79,9 +91,10 @@ class ChatMessageServiceTest {
     @BeforeEach
     void setUp() {
         groupId = UUID.randomUUID();
-        senderId = UUID.randomUUID();
+        senderId = SENDER_ID;
         chatMessageService = new ChatMessageService(chatMessageRepository, chatMessageAppender, accessGuard, chatFanout,
-                Clock.fixed(NOW, ZoneOffset.UTC), withdrawnSenders);
+                Clock.fixed(NOW, ZoneOffset.UTC), withdrawnSenders,
+                new com.oneorthree.realtime.auth.JwtValidator(SECRET), fence);
     }
 
     @Test
@@ -95,6 +108,61 @@ class ChatMessageServiceTest {
 
         verify(chatMessageAppender, never()).append(any());
         verify(chatFanout, never()).broadcast(any());
+    }
+
+    @Test
+    @DisplayName("관문 통과 뒤 실행 전에 세션이 폐기되면(대기 중이던 SEND) 저장도 방송도 없이 거절한다, 다른 sid 는 저장된다")
+    void sessionRevokedWhileQueuedIsRejectedAtTheStoreBoundary() {
+        UUID revokedSid = UUID.randomUUID();
+        String revoked = sessionBearer(revokedSid);
+        // requireCanChat 는 통과(preSend 와 관문을 이미 지난 상태) → 그 뒤 펜스 등록 → 작업 실행
+        fence.revokeSession(revokedSid, java.time.Instant.now().plusSeconds(600));
+
+        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), revoked, SESSION_ID))
+                .isInstanceOf(com.oneorthree.realtime.common.exception.DomainException.class)
+                .extracting(e -> ((com.oneorthree.realtime.common.exception.DomainException) e).getErrorCode())
+                .isEqualTo(com.oneorthree.realtime.common.exception.CommonErrorCode.UNAUTHORIZED);
+
+        verify(chatMessageAppender, never()).append(any());
+        verify(chatFanout, never()).broadcast(any());
+
+        givenSaveEchoes();
+        assertThat(chatMessageService.send(groupId, senderId, request("안녕"), sessionBearer(UUID.randomUUID()),
+                SESSION_ID).content()).isEqualTo("안녕");
+    }
+
+    @Test
+    @DisplayName("대기 중 AT 가 만료되면(proof 도 비어 있다) 저장도 방송도 없이 거절한다, sid 없는 정상 구 토큰은 저장된다")
+    void expiredTokenIsRejectedAtTheStoreBoundaryButASidlessLegacyTokenIsNot() {
+        String expired = "Bearer " + io.jsonwebtoken.Jwts.builder().subject(senderId.toString())
+                .claim("type", "access").claim("sid", UUID.randomUUID().toString()).claim("gen", 0L)
+                .expiration(java.util.Date.from(java.time.Instant.now().minusSeconds(60)))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8))).compact();
+
+        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), expired, SESSION_ID))
+                .isInstanceOf(com.oneorthree.realtime.common.exception.DomainException.class)
+                .extracting(e -> ((com.oneorthree.realtime.common.exception.DomainException) e).getErrorCode())
+                .isEqualTo(com.oneorthree.realtime.common.exception.CommonErrorCode.UNAUTHORIZED);
+        verify(chatMessageAppender, never()).append(any());
+        verify(chatFanout, never()).broadcast(any());
+
+        String legacy = "Bearer " + io.jsonwebtoken.Jwts.builder().subject(senderId.toString())
+                .claim("type", "access")
+                .expiration(java.util.Date.from(java.time.Instant.now().plusSeconds(600)))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8))).compact();
+        givenSaveEchoes();
+        assertThat(chatMessageService.send(groupId, senderId, request("안녕"), legacy, SESSION_ID).content())
+                .isEqualTo("안녕");
+    }
+
+    private String sessionBearer(UUID sid) {
+        return "Bearer " + io.jsonwebtoken.Jwts.builder().subject(senderId.toString()).claim("type", "access")
+                .claim("sid", sid.toString()).claim("gen", 0L)
+                .expiration(java.util.Date.from(java.time.Instant.now().plusSeconds(600)))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8))).compact();
     }
 
     @Test

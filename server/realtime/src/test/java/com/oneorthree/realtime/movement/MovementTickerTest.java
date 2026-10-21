@@ -90,6 +90,19 @@ class MovementTickerTest {
     }
 
     @Test
+    @DisplayName("이동 지표 4종(틱 지연·틱 건너뜀·Snapshot 건너뜀·intent 속도제한)이 등록되고 초기값은 0 이다(2270)")
+    void registersMovementCounters() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        MovementRooms rooms = new MovementRooms(new NoopListener(), registry);
+        new MovementTicker(rooms, registry);
+
+        for (String name : List.of("movement.tick.delayed", "movement.tick.skipped",
+                "movement.snapshot.skipped", "movement.intent.rate_limited")) {
+            assertThat(registry.get(name).meter().measure().iterator().next().getValue()).isZero();
+        }
+    }
+
+    @Test
     @DisplayName("방 콜백은 movement-tick 스레드에서 실행된다")
     void tickCallbackRunsOnDedicatedThread() throws InterruptedException {
         AtomicReference<String> observedThreadName = new AtomicReference<>();

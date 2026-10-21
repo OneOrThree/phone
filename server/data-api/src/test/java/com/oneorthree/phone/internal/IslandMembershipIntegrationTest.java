@@ -168,7 +168,7 @@ class IslandMembershipIntegrationTest {
     }
 
     @Test
-    @DisplayName("발견 후보는 승인제를 포함하고 비공개·종료·삭제·만원·내 소속·강퇴 이력 섬은 제외한다")
+    @DisplayName("발견 후보는 승인제·강퇴된 섬을 포함하고 비공개·종료·삭제·만원·내 소속 섬은 제외한다")
     void discoverIncludesApprovalButExcludesUnavailableIslands() {
         UUID hunter = newUser();
         UUID open = publicIsland("열린섬");
@@ -190,7 +190,8 @@ class IslandMembershipIntegrationTest {
 
         Set<UUID> candidates = new HashSet<>(pageThroughDiscover(hunter, 50));
 
-        assertThat(candidates).contains(open, approval).doesNotContain(secret, ended, deleted, full, mine, kicked);
+        // 강퇴된 섬도 다시 신청할 수 있어 후보다(GROMO-2315, 10/20 결정) — 가입은 승인 대기가 된다.
+        assertThat(candidates).contains(open, approval, kicked).doesNotContain(secret, ended, deleted, full, mine);
     }
 
     @Test
@@ -209,6 +210,25 @@ class IslandMembershipIntegrationTest {
         assertThat(islands.view(islandId, visitor).visitor().approvalRequired()).isTrue();
         assertThat(joins.join(visitor, islandId, null, UUID.randomUUID()).status()).isEqualTo("pending");
         assertThat(islands.myIslands(visitor).items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("강퇴된 섬은 그 사람에게만 승인제로 보인다 — 발견·직접 조회의 approvalRequired 가 true, 남에게는 섬 설정 그대로")
+    void kickedIslandLooksApprovalRequiredOnlyToTheKickedViewer() {
+        UUID kickedUser = newUser();
+        UUID other = newUser();
+        UUID islandId = publicIsland("다시신청섬");
+        joinAs(kickedUser, islandId, GroupMemberRole.MEMBER);
+        jdbc.update("update group_members set is_left=true, left_reason='KICKED' "
+                + "where group_id=? and user_id=?", islandId, kickedUser);
+
+        // GROMO-2315: 강퇴자의 가입은 누구나 가입 섬이어도 신청이다 — 섬 설정만 주면 앱이 「바로 가입」을 띄운다.
+        assertThat(discovered(kickedUser, islandId).approvalRequired()).isTrue();
+        assertThat(islands.view(islandId, kickedUser).visitor().approvalRequired()).isTrue();
+        assertThat(discovered(other, islandId).approvalRequired()).as("섬 설정은 누구나 가입").isFalse();
+        assertThat(islands.view(islandId, other).visitor().approvalRequired()).isFalse();
+        // 보이는 가입 방식과 실제 가입이 같다.
+        assertThat(joins.join(kickedUser, islandId, null, UUID.randomUUID()).status()).isEqualTo("pending");
     }
 
     @Test
@@ -558,6 +578,24 @@ class IslandMembershipIntegrationTest {
         throw new IllegalStateException("커서가 끝나지 않는다");
     }
 
+    /** 발견 후보를 끝까지 넘겨 그 섬의 요약을 찾는다. */
+    private IslandSummaryView discovered(UUID userId, UUID islandId) {
+        String handle = null;
+        for (int guard = 0; guard < 500; guard++) {
+            IslandDiscoverPageView page = islands.discover(userId, SEED, handle, 50);
+            for (IslandSummaryView item : page.items()) {
+                if (item.id().equals(islandId)) {
+                    return item;
+                }
+            }
+            handle = page.nextHandle();
+            if (handle == null) {
+                break;
+            }
+        }
+        throw new AssertionError("발견 후보에 없다: " + islandId);
+    }
+
     private UUID newUser() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
     }
@@ -575,6 +613,9 @@ class IslandMembershipIntegrationTest {
         User user = users.getCaller(userId);
         Group island = groups.findById(islandId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island).role(role).build());
+        // V112 이전부터 있던 소속처럼 «가 본 섬» 으로 둔다 — V112 백필과 같은 상태(GROMO-2260).
+        jdbc.update("insert into island_arrivals (user_id, island_id, first_arrived_at, last_arrived_at)"
+                + " values (?, ?, now(), now()) on conflict do nothing", userId, islandId);
     }
 
     /** 검색 가드를 통과시키려고 현재 섬 하나를 쥐여 준다. */

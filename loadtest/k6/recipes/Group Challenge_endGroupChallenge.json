@@ -1,0 +1,26 @@
+{
+  "endpoint": "Group Challenge_endGroupChallenge",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}/end",
+  "tag": "Group Challenge",
+  "summary": "그룹 챌린지 종료",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.challengeId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

@@ -8,6 +8,7 @@ import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -45,8 +46,10 @@ class InternalIslandAllowlistTest {
         routes.addAll(routesOf(InternalIslandMembershipController.class));
         routes.addAll(routesOf(InternalIslandController.class));
 
-        assertThat(routes).as("6종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
-                .hasSize(6);
+        // GROMO-2260 이 섬 도착(POST …/islands/{islandId}/arrivals), GROMO-2265 가 망원경(GET …/telescope),
+        // GROMO-2268 이 망원경 핀 넣기·빼기(POST …/telescope/pins · DELETE …/telescope/pins/{islandId})를 더해 10종이다.
+        assertThat(routes).as("10종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+                .hasSize(10);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -58,6 +61,13 @@ class InternalIslandAllowlistTest {
 
         assertThat(allows(allow, "POST /internal/users/" + ID + "/islands/" + ID)).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/islands/" + ID)).isFalse();
+        assertThat(allows(allow, "GET /internal/users/" + ID + "/telescope/" + ID)).isFalse();
+        // 망원경 핀(GROMO-2268) — `GET …/telescope` 줄은 핀 경로를 덮지 못해 두 줄을 따로 열었다. 그 줄도 한 칸 더는 닫혀 있다.
+        assertThat(allows(allow, "POST /internal/users/" + ID + "/telescope/pins")).isTrue();
+        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/telescope/pins/" + ID)).isTrue();
+        assertThat(allows(allow, "POST /internal/users/" + ID + "/telescope/pins/" + ID)).isFalse();
+        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/telescope/pins")).isFalse();
+        assertThat(allows(allow, "GET /internal/users/" + ID + "/telescope/pins")).isFalse();
         // GROMO-1802 가 `GET /internal/islands/*/members` 를 따로 열었다 — 그 아래 한 칸은 여전히 닫혀 있다.
         assertThat(allows(allow, "GET /internal/islands/" + ID + "/members/" + ID)).isFalse();
     }
@@ -103,12 +113,15 @@ class InternalIslandAllowlistTest {
             GetMapping get = method.getAnnotation(GetMapping.class);
             PostMapping post = method.getAnnotation(PostMapping.class);
             PutMapping put = method.getAnnotation(PutMapping.class);
+            DeleteMapping delete = method.getAnnotation(DeleteMapping.class);
             if (get != null) {
                 routes.add("GET " + fill(prefix + first(get.value())));
             } else if (post != null) {
                 routes.add("POST " + fill(prefix + first(post.value())));
             } else if (put != null) {
                 routes.add("PUT " + fill(prefix + first(put.value())));
+            } else if (delete != null) {
+                routes.add("DELETE " + fill(prefix + first(delete.value())));
             }
         }
         return routes;

@@ -40,6 +40,41 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("GET /customization/catalog 는 배열 항목의 공개 필드와 required 를 문서화한다 (GROMO-2331·2382)")
+    void customizationCatalogIsDocumented() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/customization/catalog").path("get").path("responses")
+                .path("200").path("content");
+        var schema = content.iterator().next().path("schema").path("items");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        String[] fields = {"productId", "kind", "slot", "title", "imageUrl", "width", "height", "anchorX",
+                "anchorY", "sortOrder", "retiredAt"};
+        // renderData(GROMO-2382)는 집중 보상 행에만 실려 선택 필드다
+        assertThat(schema.path("properties").propertyNames()).contains(fields).contains("renderData")
+                .hasSize(fields.length + 1);
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields);
+    }
+
+    @Test
+    @DisplayName("집중 종료의 seaReward 는 grantedProductIds·minutesToNextTier·newProductIds 를 싣고 목록 둘이 필수다 (GROMO-2301)")
+    void finishSeaRewardIsDocumented() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/focus-sessions/{sessionId}/finish").path("post")
+                .path("responses").path("200").path("content");
+        var finish = document.at(content.iterator().next().path("schema").path("$ref").asText().substring(1));
+        var seaReward = document.at(finish.path("properties").path("seaReward").path("$ref").asText().substring(1));
+        assertThat(seaReward.path("properties").propertyNames())
+                .containsExactlyInAnyOrder("grantedProductIds", "minutesToNextTier", "newProductIds");
+        var required = new java.util.ArrayList<String>();
+        seaReward.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder("grantedProductIds", "newProductIds");
+    }
+
+    @Test
     @DisplayName("기본 /v0/api-docs 는 열지 않는다 — 허용은 public 그룹 경로 하나다")
     void defaultDocsPathStaysClosed() throws Exception {
         mockMvc.perform(get("/v0/api-docs"))
@@ -54,7 +89,8 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/quests/current|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
             "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/statistics/fish-earnings|members|userId name earnedFish|",
-            "/me/join-requests|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt"})
+            "/me/join-requests|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt",
+            "/me/telescope|items|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes averageFocusMinutesPerDay full arrivedBefore pinnedFrom pinnedAt magazineCell buildingCount|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes full arrivedBefore"})
     @DisplayName("동명 중첩 DTO가 있어도 각 도메인의 공개 필드와 required를 문서화한다")
     void nestedSchemasRemainSpecificToTheirDomain(String path, String collection, String fields,
             String requiredFields) throws Exception {
@@ -83,7 +119,10 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/me/settings|patch|200|notifications|",
             "/islands/{islandId}/host-transfer|post|200|hostUserId version|",
             "/me|delete|200|deleted|",
-            "/islands/{islandId}/notices/{noticeId}|delete|200|deleted|deleted"})
+            "/islands/{islandId}/notices/{noticeId}|delete|200|deleted|deleted",
+            // 집중 종료 응답(GROMO-2274) — seaReward 는 키가 늘 있고 값만 null 일 수 있다. 스펙은 속성으로만 싣고 required 에는 없다.
+            // GROMO-2299 가 kind·arrived 를 더했다 — 둘 다 선택(구버전 Data 는 안 보내고, arrived 는 섬 세션이면 생략).
+            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward kind arrived|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
     @DisplayName("동명 Result·Deleted도 각 작업의 필드와 필수 여부를 문서화한다")
     void resultSchemasRemainSpecificToTheirOperation(String path, String method, String responseStatus,
             String fields, String requiredFields) throws Exception {

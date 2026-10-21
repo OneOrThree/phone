@@ -54,7 +54,7 @@ const LANDSCAPE: Route[] = [
 test('시작·가입 6개만 세로로 고정한다', () => {
   assert.deepEqual(
     [...PORTRAIT_ROUTES],
-    ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'],
+    ['login', 'character', 'createIsland', 'joinIsland', 'approval'],
   );
   for (const route of PORTRAIT_ROUTES) assert.equal(isPortraitRoute(route), true, route);
 });

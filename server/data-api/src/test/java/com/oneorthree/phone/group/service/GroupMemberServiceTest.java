@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.IslandPurgePort;
+import com.oneorthree.phone.group.event.IslandKickedEvent;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -21,9 +22,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import com.oneorthree.phone.group.repository.OnboardingIslandRepository;
 import org.mockito.Mock;
 import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -78,6 +81,10 @@ class GroupMemberServiceTest {
     @Mock
     private IslandStateEvents islandStateEvents;
 
+    /** 강퇴 알림 사건(GROMO-2315) — 실제 알림 봉투는 통합 테스트(MainIslandIntegrationTest)가 본다. */
+    @Mock
+    private ApplicationEventPublisher events;
+
     /**
      * 이탈 시각을 찍는 시계 (GROMO-2050). {@code lenient} 로 고정한다 — 이탈을 밟지 않는 거절 경로가
      * 더 많아 strict stub 이면 「쓰지 않은 stub」으로 떨어진다.
@@ -91,6 +98,9 @@ class GroupMemberServiceTest {
     void fixClock() {
         lenient().when(clock.instant()).thenReturn(KICKED_AT);
     }
+
+    @Mock
+    private OnboardingIslandRepository onboardingIslands;
 
     @InjectMocks
     private GroupMemberService groupMemberService;
@@ -300,7 +310,7 @@ class GroupMemberServiceTest {
         // when
         groupMemberService.kickMember(GROUP_ID, TARGET_ID, OWNER_ID);
 
-        // then: 강퇴 마킹(재참여 차단), 행 삭제 없음
+        // then: 강퇴 마킹, 행 삭제 없음
         assertThat(targetMember.isLeft()).isTrue();
         assertThat(targetMember.isKicked()).isTrue();
         assertThat(targetMember.getLeftReason()).isEqualTo(GroupLeaveReason.KICKED);
@@ -308,6 +318,8 @@ class GroupMemberServiceTest {
         // 주간 섬 랭킹 분모가 경계 직후 강퇴로 줄어든다.
         assertThat(targetMember.getLeftAt()).isEqualTo(KICKED_AT);
         verify(groupMemberRepository, never()).delete(any());
+        // 강퇴된 본인에게 알림 사건 1건 (GROMO-2315) — 시각은 이탈 시각과 같다.
+        verify(events).publishEvent(new IslandKickedEvent(TARGET_ID, GROUP_ID, group.getName(), KICKED_AT));
         // 요청자·대상 모두 공유 락 로드여야 한다 (GROMO-1227) — 락 없는 findById 면 대상의 계정
         // 탈퇴와 직렬화되지 않아, kick() 의 full-row UPDATE 가 탈퇴의 leave 를 되덮는다(lost update).
         verify(userQueryService).getCallerForShare(OWNER_ID);

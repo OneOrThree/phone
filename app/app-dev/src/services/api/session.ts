@@ -16,11 +16,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import type { Provider } from './auth';
 
 export interface Session {
   accessToken: string;
   refreshToken: string;
   userId: string;
+  /**
+   * 소셜 로그인 제공자(GROMO-2401 — 탈퇴 때 Apple 토큰 폐기 여부 판단). 게스트와, 이 필드가 생기기
+   * 전에 저장된 세션에는 없다 — 없으면 «알 수 없음»으로 보고 재인증하지 않는다. 세션과 같은 슬롯에
+   * 같은 커밋 태그로 저장되므로 세션이 지워질 때 함께 사라진다.
+   */
+  provider?: Provider;
 }
 
 const KEY_ACCESS = 'gromo.accessToken';
@@ -45,6 +52,7 @@ const KEY_OWNER_ADOPTION_PENDING = 'gromo.ownerAdoptionPending';
 const KEY_BUNDLE = 'gromo.sessionBundle';
 const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
 const SESSION_SLOTS = ['A', 'B'] as const;
+const PROVIDERS: readonly string[] = ['apple', 'google', 'kakao', 'line'] satisfies Provider[];
 const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
 const KEY_LEGACY_PENDING_PROMOTION = 'gromo.legacySessionPendingPromotion';
 // 키 이름은 Android 한정이던 때의 것을 유지한다 — 이미 기록된 표식을 계속 읽어야 한다.
@@ -121,6 +129,17 @@ function serialized<T>(work: () => Promise<T>): Promise<T> {
   const done = queue.then(work, work);
   queue = done.catch(() => undefined);
   return done;
+}
+
+/**
+ * 함께 시작한 두 저장소 작업이 **모두 정착한 뒤** 결과를 낸다. `Promise.all` 은 첫 실패에서 바로 던져서
+ * 남은 쪽의 쓰기가 {@link serialized} 잠금이 풀린 뒤에 착지할 수 있다 — {@link commit} 의 allSettled 와 같은 이유다.
+ */
+async function settleBoth<A, B>(a: Promise<A>, b: Promise<B>): Promise<[A, B]> {
+  const [ra, rb] = await Promise.allSettled([a, b]);
+  if (ra.status === 'rejected') throw ra.reason;
+  if (rb.status === 'rejected') throw rb.reason;
+  return [ra.value, rb.value];
 }
 
 /** 요청이 시작된 시점의 세션 세대. 응답 적용 전에 다시 읽어 비교한다. */
@@ -261,11 +280,24 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
-      await finishInterruptedLogout();
-      const bundle = await readItem(KEY_BUNDLE);
-      cached = bundle ? await readBundledSession(bundle) : null;
-      const ownerClearStatus = await resolveLocalDataOwnerClear();
-      const savedLastUserId = ownerClearStatus === 'blocked' ? null : await readItem(KEY_LAST_USER);
+      // 토큰 쪽(로그아웃 마무리 → 커밋 마커 → 슬롯)과 소유자 쪽(삭제 의도 정리 → 소유자 표식)은
+      // 서로 다른 키만 만진다 — 두 줄을 함께 읽는다(GROMO-2377). 각 줄 안의 순서는 그대로다
+      // (앞 단계가 뒤에 읽을 키를 지울 수 있다). Android 레거시 이관은 아래에서 따로, 순서대로 한다.
+      const [{ bundle, session }, { ownerClearStatus, savedLastUserId }] = await settleBoth(
+        (async () => {
+          await finishInterruptedLogout();
+          const stored = await readItem(KEY_BUNDLE);
+          return { bundle: stored, session: stored ? await readBundledSession(stored) : null };
+        })(),
+        (async () => {
+          const status = await resolveLocalDataOwnerClear();
+          return {
+            ownerClearStatus: status,
+            savedLastUserId: status === 'blocked' ? null : await readItem(KEY_LAST_USER),
+          };
+        })(),
+      );
+      cached = session;
       // 소유자 표식이 없을 때만 의미가 있다. 표식 값(채택 대상 userId)이 복구된 세션의 사용자와
       // 같을 때만 대기로 본다 — 다르면 커밋되지 못한 다른 로그인의 잔여 표식이다. 읽지 못하면
       // 채택 대기로 간주한다 — 추론이 틀리면 이전 사용자의 데이터가 다른 계정에 올라가므로,
@@ -399,6 +431,7 @@ async function finishInterruptedLogout(): Promise<boolean> {
         removeItem(`${prefix}.accessToken`).catch(swallow),
         removeItem(`${prefix}.refreshToken`).catch(swallow),
         removeItem(`${prefix}.userId`).catch(swallow),
+        removeItem(`${prefix}.provider`).catch(swallow),
       ];
     }),
     ...(Platform.OS === 'android'
@@ -466,12 +499,20 @@ async function readBundledSession(bundle: string): Promise<Session | null> {
     return unbundled(bundle, accessToken, refreshToken, userId);
   }
   const prefix = `${SESSION_SLOT_PREFIX}.${marker.slot}`;
-  const [accessToken, refreshToken, userId] = await Promise.all([
+  const [accessToken, refreshToken, userId, rawProvider] = await Promise.all([
     readItem(`${prefix}.accessToken`),
     readItem(`${prefix}.refreshToken`),
     readItem(`${prefix}.userId`),
+    // 제공자는 보조 정보다 — 읽지 못하거나 태그가 어긋나면 «알 수 없음»이고 세션 복구는 막지 않는다.
+    readItem(`${prefix}.provider`).catch(() => null),
   ]);
-  return unbundled(marker.id, accessToken, refreshToken, userId);
+  const session = unbundled(marker.id, accessToken, refreshToken, userId);
+  const provider = rawProvider?.startsWith(`${marker.id}.`)
+    ? rawProvider.slice(marker.id.length + 1)
+    : null;
+  return session && provider && PROVIDERS.includes(provider)
+    ? { ...session, provider: provider as Provider }
+    : session;
 }
 
 /**
@@ -496,6 +537,11 @@ async function commit(session: Session): Promise<void> {
     writeItem(`${prefix}.accessToken`, `${bundleId}.${session.accessToken}`),
     writeItem(`${prefix}.refreshToken`, `${bundleId}.${session.refreshToken}`),
     writeItem(`${prefix}.userId`, `${bundleId}.${session.userId}`),
+    // 제공자 없는 세션(게스트)은 쓰지 않는다 — 비활성 슬롯의 옛 값은 bundleId 태그가 달라 읽히지 않는다.
+    // 보조 정보라 쓰기 실패는 삼킨다 — 실패해도 «알 수 없음»으로 읽힐 뿐 로그인을 실패시키지 않는다.
+    ...(session.provider
+      ? [writeItem(`${prefix}.provider`, `${bundleId}.${session.provider}`).catch(() => undefined)]
+      : []),
   ]);
   const failure = writes.find((w): w is PromiseRejectedResult => w.status === 'rejected');
   if (failure) throw failure.reason;
@@ -665,6 +711,7 @@ export function clearSession(
           removeItem(`${prefix}.accessToken`).catch(swallow),
           removeItem(`${prefix}.refreshToken`).catch(swallow),
           removeItem(`${prefix}.userId`).catch(swallow),
+          removeItem(`${prefix}.provider`).catch(swallow),
         ];
       }),
     ]);

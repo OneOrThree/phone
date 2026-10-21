@@ -17,8 +17,10 @@ import {
   pendingFocusResult as apiPendingResult,
   resumeFocusSession as apiResume,
   startFocusSession as apiStart,
+  startSeaFocusSession as apiStartSea,
 } from '@/services/api/focusSessions';
-import { intentKeyPool, RecordItem, Route, Session, State } from '@/services/model';
+import { getTelescope as apiTelescope } from '@/services/api/telescope';
+import { intentKeyPool, RecordItem, Route, Session, sessionRoute, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
 
 export type FocusApi = {
@@ -31,6 +33,9 @@ export type FocusApi = {
   acknowledge: typeof apiAcknowledge;
   tutorialReward: typeof apiTutorialReward;
   tutorialExperienceReward: typeof apiTutorialExperienceReward;
+  startSea: typeof apiStartSea;
+  /** startSea 409 SEA_DESTINATION_UNAVAILABLE 뒤 목적지가 아직 목록에 있는지 본다. */
+  telescope: typeof apiTelescope;
 };
 
 export type SessionCommandDeps = {
@@ -56,6 +61,8 @@ const defaultApi: FocusApi = {
   acknowledge: apiAcknowledge,
   tutorialReward: apiTutorialReward,
   tutorialExperienceReward: apiTutorialExperienceReward,
+  startSea: apiStartSea,
+  telescope: apiTelescope,
 };
 
 const staleError = () =>
@@ -90,6 +97,11 @@ export const sessionFromServer = (v: FocusSessionView): Session => ({
   status: v.status === 'paused' ? 'paused' : 'active',
   version: v.version,
   intervals: mapIntervals(v.activeIntervals),
+  syncedAt: Date.now(),
+  // 바다 세션(GROMO-2310)은 종류·항해 분·목적지 이름을 지닌다 — 없는 필드는 키째 뺀다(구버전 서버·섬 집중 모양 유지)
+  ...(v.kind ? { kind: v.kind } : {}),
+  ...(v.kind === 'sea' && v.targetMinutes != null ? { targetMinutes: v.targetMinutes } : {}),
+  ...(v.destinationIslandName ? { destinationIslandName: v.destinationIslandName } : {}),
 });
 
 /**
@@ -107,7 +119,17 @@ export const recordFromFinish = (f: FocusFinishView, ackId?: string): RecordItem
   contributed: true,
   intervals: mapIntervals(f.activeIntervals),
   ...(ackId ? { ackId } : {}),
+  ...(f.kind ? { kind: f.kind } : {}),
+  ...(f.seaReward?.grantedProductIds?.length ? { rewards: f.seaReward.grantedProductIds } : {}),
+  ...newRewardsOf(f),
 });
+
+/** 받은 것 중 처음 받은 것 — 서버가 newProductIds 를 안 주면(구버전) 없다. */
+function newRewardsOf(f: FocusFinishView) {
+  const granted = f.seaReward?.grantedProductIds ?? [];
+  const fresh = (f.seaReward?.newProductIds ?? []).filter((id) => granted.includes(id));
+  return fresh.length ? { newRewards: fresh } : {};
+}
 
 export const createSessionCommands = (deps: SessionCommandDeps) => {
   const api = { ...defaultApi, ...deps.api },
@@ -156,9 +178,14 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
   const transition = async <T>(
     kind: 'pause' | 'resume' | 'finish',
     fn: (id: string, expectedVersion: number, key: string) => Promise<T>,
+    // 결과 불명 재시도의 대상 — 그사이 복구가 로컬 세션을 지웠어도 같은 (세션, version) 키로 한 번 더 묻는다
+    target?: { id: string; version?: number },
   ): Promise<T> => {
     const g = generation();
-    const session = deps.getSession();
+    // 대상과 다른 세션이 로컬에 있으면 그 세션을 대신 끝내지 않는다 — 확정 실패로 돌려 호출부가 정본을 다시 읽게 한다
+    if (target && deps.getSession() && deps.getSession()?.id !== target.id)
+      throw new ApiError('STATE_CONFLICT', '다른 집중이 진행 중이에요.', 409);
+    const session = deps.getSession() ?? target ?? null;
     if (!session || session.version == null) {
       // 서버 세션이 아니면 전이할 수 없다 — 정본을 맞춘 뒤 실패로 돌린다.
       await syncCurrent(g).catch(() => {});
@@ -177,6 +204,85 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
       transitioning -= 1;
       transitionRevision += 1;
     }
+  };
+  // 바다 출항 본체 — startSea 가 전이 카운터 안에서 부른다
+  const startSeaOnce = async (destinationIslandId: string) => {
+    const g = generation(),
+      slot = 'startSea';
+    // 같은 키가 이미 있으면 직전 출항의 응답이 유실된 재시도다 — 서버는 최초 응답을 재생할 수 있다
+    const retried = scoped().keys.has(slot, destinationIslandId);
+    const once = () =>
+      api.startSea(destinationIslandId, scoped().keys.key(slot, destinationIslandId));
+    let view: FocusSessionView;
+    try {
+      try {
+        view = await once();
+      } catch (thrown) {
+        if (!(thrown instanceof ApiError) || thrown.code !== 'SEA_DESTINATION_UNAVAILABLE')
+          throw thrown;
+        scoped().keys.release(slot, destinationIslandId);
+        const list = await api.telescope();
+        alive(g);
+        if (!list.items.some((item) => item.islandId === destinationIslandId)) throw thrown;
+        view = await once();
+      }
+    } catch (thrown) {
+      // 확정 4xx(STATE_CONFLICT·403 등)는 서버가 영수증을 남기지 않는다(성공만 저장 — PublicCommandService.run) —
+      // 키를 풀어 다음 시도가 새 의도로 간다. 결과 불명(네트워크·5xx)과 처리 중(REQUEST_IN_PROGRESS)만 같은 키를 지킨다.
+      if (
+        thrown instanceof ApiError &&
+        thrown.status >= 400 &&
+        thrown.status < 500 &&
+        thrown.code !== 'REQUEST_IN_PROGRESS'
+      )
+        scoped().keys.release(slot, destinationIslandId);
+      throw thrown;
+    }
+    alive(g);
+    // 재시도면 응답이 «최초 응답»(activeSeconds 0·옛 serverNow) 재생일 수 있고, 그사이 다른 기기가 그 항해를 끝내고
+    // 다른 세션을 시작했을 수도 있다 — 응답과 무관하게 current 를 읽어 정본으로 쓴다. 첫 시도 성공은 조회를 더하지 않는다.
+    let latest: FocusSessionView | null = view;
+    if (retried) {
+      latest = await api.current();
+      alive(g);
+    }
+    deps.dispatch({ type: 'SESSION_SYNC', session: latest ? sessionFromServer(latest) : null });
+    scoped().keys.release(slot, destinationIslandId);
+    captureProductEvent('focus_started');
+    // 확정된 최신 세션 — 호출부가 이것의 종류로 화면을 고른다(null = 그사이 끝나 진행 세션이 없다)
+    return latest;
+  };
+  /**
+   * recover 를 두 단계로 나눈 것 — 조회(current·pending-result)는 지금 시작하고, 반영(SESSION_SYNC·결과)과
+   * 화면 결정은 돌려준 함수가 한다. 부팅이 섬 동기화와 겹쳐 읽되 반영은 그 뒤 원래 순서로 하게 한다
+   * (GROMO-2377). 세대·전이 fence 는 조회를 시작한 시점 기준이다.
+   */
+  const beginRecover = (): (() => Promise<Route | null>) => {
+    const g = generation();
+    const deferred = () => new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
+    // 폴링 응답이 동시에 진행한 재개·종료 명령의 최신 상태를 되돌리지 않게 한다.
+    const revision = transitionRevision;
+    const read = transitioning ? null : Promise.all([api.current(), api.pendingResult()]);
+    // 반영 전에 실패해도 처리되지 않은 거부로 남기지 않는다 — 실패는 반영 함수가 던진다
+    read?.catch(() => {});
+    return async () => {
+      if (!read) throw deferred();
+      const [view, pending] = await read;
+      alive(g);
+      if (transitioning || transitionRevision !== revision) throw deferred();
+      deps.dispatch({ type: 'SESSION_SYNC', session: view ? sessionFromServer(view) : null });
+      // 바다 세션은 휴식이 없다 — 항해 화면으로 돌아간다(GROMO-2310)
+      if (view) return sessionRoute(view);
+      if (pending) {
+        deps.dispatch({
+          type: 'SESSION_RESULT',
+          record: recordFromFinish(pending, pending.recordId),
+          fromRest: true,
+        });
+        return 'focusResult';
+      }
+      return null;
+    };
   };
   const commands = {
     // 체험 보상에는 current 재조회나 SESSION_SYNC도 필요 없다.
@@ -225,6 +331,24 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         captureProductEvent('focus_started');
         return view;
       }),
+    /**
+     * 바다 항해 집중 시작(GROMO-2310). 키는 목적지당 의도 하나. 409 `SEA_DESTINATION_UNAVAILABLE` 은 망원경
+     * 시간대가 바뀌어 목적지가 목록에서 빠졌을 수 있다는 뜻 — 목록을 한 번 다시 읽어 그 섬이 아직 있으면
+     * 새 키로 한 번만 다시 시도하고(확정 4xx 라 서버가 만든 것이 없다), 없으면 원 오류를 던진다.
+     */
+    startSea: (destinationIslandId: string) =>
+      call(async () => {
+        // 전이처럼 센다 — 표류 화면의 recover() 가 출항 전에 읽은 current(null) 를 늦게 적용해 새 세션을 지우지 않게
+        // recover 의 「전환 중이면 미루고, 그사이 전환이 있었으면 옛 응답을 버린다」 보호를 탄다.
+        transitioning += 1;
+        transitionRevision += 1;
+        try {
+          return await startSeaOnce(destinationIslandId);
+        } finally {
+          transitioning -= 1;
+          transitionRevision += 1;
+        }
+      }),
     pause: () =>
       call(async () => {
         const view = await transition('pause', api.pause);
@@ -238,10 +362,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         return view;
       }),
     // 종료 — 응답은 정산 뷰다. 기록·결과창 반영은 SESSION_RESULT 가 한다(물고기는 서버가 이미 적립).
-    finish: () =>
+    finish: (target?: { id: string; version?: number }) =>
       call(async () => {
         const fromRest = deps.getSession()?.status === 'paused',
-          result = await transition('finish', api.finish);
+          result = await transition('finish', api.finish, target);
         deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
         captureProductEvent('focus_completed', {
           duration_seconds: result.activeSeconds,
@@ -262,28 +386,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
      * 복구할 화면을 돌려준다. 진행 세션이 있으면 미확인 결과는 다음 실행으로 미룬다
      * (ack 전까지 서버가 계속 돌려주므로 잃지 않는다).
      */
-    recover: async (): Promise<Route | null> => {
-      const g = generation();
-      // 폴링 응답이 동시에 진행한 재개·종료 명령의 최신 상태를 되돌리지 않게 한다.
-      if (transitioning)
-        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
-      const revision = transitionRevision;
-      const [view, pending] = await Promise.all([api.current(), api.pendingResult()]);
-      alive(g);
-      if (transitioning || transitionRevision !== revision)
-        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
-      deps.dispatch({ type: 'SESSION_SYNC', session: view ? sessionFromServer(view) : null });
-      if (view) return view.status === 'paused' ? 'rest' : 'focus';
-      if (pending) {
-        deps.dispatch({
-          type: 'SESSION_RESULT',
-          record: recordFromFinish(pending, pending.recordId),
-          fromRest: true,
-        });
-        return 'focusResult';
-      }
-      return null;
-    },
+    recover: async (): Promise<Route | null> => beginRecover()(),
+    beginRecover,
   };
   return { commands };
 };

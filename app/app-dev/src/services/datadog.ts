@@ -27,11 +27,12 @@ export function initDatadog(): void {
           {
             site: 'US5',
             service: 'gromo-app-v2',
-            rumConfiguration: new dd.RumConfiguration(APPLICATION_ID, true, true, false, {
+            // 2번째 인자(터치 추적)는 끈다. 켜면 React.createElement 를 감싸 모든 렌더에 비용이 붙는다
+            rumConfiguration: new dd.RumConfiguration(APPLICATION_ID, false, true, false, {
               sessionSampleRate: 100,
               firstPartyHosts: [
                 {
-                  match: 'api.oneorthree.world',
+                  match: 'catus-api.oneorthree.world',
                   propagatorTypes: [dd.PropagatorType.DATADOG],
                 },
                 {

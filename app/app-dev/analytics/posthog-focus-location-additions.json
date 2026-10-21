@@ -1,0 +1,93 @@
+{
+  "project_id": 669473,
+  "target_dashboard_id": 2220995,
+  "target_dashboard_url": "https://us.posthog.com/project/669473/dashboard/2220995",
+  "operation": "append",
+  "preparation": {
+    "remote_status": "applied_and_verified",
+    "instrumentation_status": "not_implemented",
+    "query_validation_status": "executed_on_posthog_and_saved_dashboard",
+    "verified_at": "2026-10-21",
+    "contract": "posthog-growth-metric-contract.md"
+  },
+  "intro_note_to_append": "장소별 집중 카드 2개는 추가 계측 후 집계됩니다.",
+  "tiles": [
+    {
+      "type": "text",
+      "key": "focus-location-intro",
+      "tile_id": 13936020,
+      "body": "**장소별 집중 · 미계측**\n\n장소별 집중 카드 2개는 추가 계측 후 집계됩니다. 빈 결과는 실제 집중시간 0을 뜻하지 않습니다. 최근 28일이며 날짜는 한국 시간 기준입니다.",
+      "layouts": {
+        "sm": {
+          "h": 2,
+          "w": 12,
+          "x": 0,
+          "y": 31
+        }
+      },
+      "order": 8
+    },
+    {
+      "type": "insight",
+      "key": "focus-location-share",
+      "tile_id": 13935955,
+      "insight_id": 13089492,
+      "short_id": "O08XQ14T",
+      "title": "섬과 바다 중 어디서 집중할까 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일 완료한 집중을 실제 장소별 시간과 사람 수로 비교합니다. 한 세션에서 이동했다면 시간을 나누고, 장소를 모르는 시간은 별도로 표시합니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), focus_raw AS (\n SELECT timestamp, person_id, toString(properties.record_id) AS record_id,\n  toFloatOrNull(toString(properties.duration_seconds)) AS duration_seconds,\n  toFloatOrNull(toString(properties.island_seconds)) AS island_seconds, toFloatOrNull(toString(properties.sea_seconds)) AS sea_seconds,\n  toFloatOrNull(toString(properties.unknown_seconds)) AS unknown_seconds\n FROM filtered_events\n WHERE event = 'focus_location_summary' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1 AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), focus_latest AS (\n SELECT record_id, argMax(tuple(person_id, timestamp, duration_seconds, island_seconds, sea_seconds, unknown_seconds), timestamp) AS latest\n FROM focus_raw WHERE record_id != '' GROUP BY record_id\n), sessions AS (\n SELECT record_id, latest.1 AS person_id, toDate(toString(toTimeZone(latest.2, 'Asia/Seoul'))) AS focus_day,\n  latest.3 AS duration_seconds, latest.4 AS island_seconds, latest.5 AS sea_seconds, latest.6 AS unknown_seconds\n FROM focus_latest\n WHERE latest.3 > 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 - latest.4 - latest.5 - latest.6) < 0.001\n), location_rows AS (\n SELECT person_id, focus_day, record_id, '섬' AS location, island_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '바다' AS location, sea_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '미확인' AS location, unknown_seconds AS seconds FROM sessions\n)\nSELECT location AS \"장소\", uniqExactIf(person_id, seconds > 0) AS \"집중한 사람\",\n uniqExactIf(record_id, seconds > 0) AS \"해당 장소 포함 세션\", round(sum(seconds) / 60.0, 2) AS \"총 집중분\",\n round(100.0 * sum(seconds) / nullIf((SELECT sum(duration_seconds) FROM sessions), 0), 2) AS \"집중시간 비중 퍼센트\"\nFROM location_rows GROUP BY location ORDER BY \"총 집중분\" DESC",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 33
+        }
+      },
+      "order": 9
+    },
+    {
+      "type": "insight",
+      "key": "focus-location-duration",
+      "tile_id": 13935956,
+      "insight_id": 13089493,
+      "short_id": "IQg0DnO3",
+      "title": "장소별 하루 집중시간 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일 해당 장소에서 집중한 사람의 하루 평균·중앙값 집중시간입니다. 섬과 바다 양쪽에서 집중한 사람은 각각 포함되며, 장소의 효과를 뜻하지는 않습니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), focus_raw AS (\n SELECT timestamp, person_id, toString(properties.record_id) AS record_id,\n  toFloatOrNull(toString(properties.duration_seconds)) AS duration_seconds,\n  toFloatOrNull(toString(properties.island_seconds)) AS island_seconds, toFloatOrNull(toString(properties.sea_seconds)) AS sea_seconds,\n  toFloatOrNull(toString(properties.unknown_seconds)) AS unknown_seconds\n FROM filtered_events\n WHERE event = 'focus_location_summary' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1 AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), focus_latest AS (\n SELECT record_id, argMax(tuple(person_id, timestamp, duration_seconds, island_seconds, sea_seconds, unknown_seconds), timestamp) AS latest\n FROM focus_raw WHERE record_id != '' GROUP BY record_id\n), sessions AS (\n SELECT record_id, latest.1 AS person_id, toDate(toString(toTimeZone(latest.2, 'Asia/Seoul'))) AS focus_day,\n  latest.3 AS duration_seconds, latest.4 AS island_seconds, latest.5 AS sea_seconds, latest.6 AS unknown_seconds\n FROM focus_latest\n WHERE latest.3 > 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 - latest.4 - latest.5 - latest.6) < 0.001\n), location_rows AS (\n SELECT person_id, focus_day, record_id, '섬' AS location, island_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '바다' AS location, sea_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '미확인' AS location, unknown_seconds AS seconds FROM sessions\n), per_user_day AS (\n SELECT person_id, focus_day, location, sum(seconds) / 60.0 AS minutes\n FROM location_rows WHERE seconds > 0 GROUP BY person_id, focus_day, location\n)\nSELECT location AS \"장소\", uniqExact(person_id) AS \"집중한 사람\", count() AS \"사람·날짜 표본\",\n round(avg(minutes), 2) AS \"하루 평균 집중분\", round(quantileExact(0.5)(minutes), 2) AS \"하루 중앙값 집중분\"\nFROM per_user_day GROUP BY location ORDER BY location",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 38
+        }
+      },
+      "order": 10
+    }
+  ],
+  "dashboard_id": 2220995,
+  "dashboard_url": "https://us.posthog.com/project/669473/dashboard/2220995"
+}

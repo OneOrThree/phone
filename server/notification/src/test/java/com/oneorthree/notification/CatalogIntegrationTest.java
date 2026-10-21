@@ -80,8 +80,8 @@ class CatalogIntegrationTest {
     void actualFourLocaleCatalogRendersEveryKindIncludingSilentAndBundles() {
         Map<String, Object> params = inputs();
         List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds");
-        assertThat(kinds).hasSize(24);
-        assertThat(store.rows("SELECT id FROM templates")).hasSize(96);
+        assertThat(kinds).hasSize(26);
+        assertThat(store.rows("SELECT id FROM templates")).hasSize(104);
         for (Map<String, Object> kind : kinds) {
             for (String locale : List.of("ko", "en", "ja", "zh-Hant")) {
                 RenderedPush push = renderer.render(kind.get("id").toString(), locale, params);
@@ -134,6 +134,77 @@ class CatalogIntegrationTest {
         // 딥링크는 구 경로가 쓰는 gromo://group?g=<islandId> 와 같아야 한다 — 컷오버에서 라우팅이 바뀌면 안 된다.
         assertThat(push.data()).containsEntry("link", "gromo://group?g=33333333-3333-4333-8333-333333333333")
                 .containsEntry("type", "MAIN_ISLAND_TRANSFERRED");
+    }
+
+    /** 섬 강퇴(GROMO-2315) — V9 카탈로그가 사건을 받고, 이름 뒤에 «섬»을 덧붙이지 않은 문장과 홈 딥링크로 렌더한다. */
+    @Test
+    void islandKickedIsAcceptedByTheRealCatalogAndRendersTheIslandNameAsIs() {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", "noti:ISLAND_KICKED:catalog-check");
+        event.put("schemaVersion", 1);
+        event.put("type", "notification.requested");
+        event.put("userId", "44444444-4444-4444-8444-444444444444");
+        event.put("version", 1L);
+        event.put("locale", "ko");
+        event.put("subjectId", "33333333-3333-4333-8333-333333333333");
+        event.put("occurredAt", "2026-10-20T12:00:00Z");
+        event.put("params", Map.of("kind", "ISLAND_KICKED",
+                "islandId", "33333333-3333-4333-8333-333333333333", "islandName", "모래섬"));
+
+        inbound.accept(event);
+
+        Map<String, Object> delivery = store.one(
+                "SELECT kind,subject_id FROM deliveries WHERE event_id=?", event.get("eventId"));
+        assertThat(delivery).isNotNull();
+        assertThat(delivery.get("kind")).isEqualTo("ISLAND_KICKED");
+        assertThat(delivery.get("subject_id").toString()).isEqualTo("33333333-3333-4333-8333-333333333333");
+
+        RenderedPush push = renderer.render("ISLAND_KICKED", "ko", inputs());
+        assertThat(push.title()).isEqualTo("섬에서 나가게 되었어요");
+        assertThat(push.body()).isEqualTo("모래섬에서 더 이상 함께할 수 없게 되었어요");
+        assertThat(push.data()).containsEntry("link", "gromo://home").containsEntry("type", "ISLAND_KICKED");
+        for (String locale : List.of("ko", "en", "ja", "zh-Hant")) {
+            RenderedPush localized = renderer.render("ISLAND_KICKED", locale, inputs());
+            assertThat(localized.title()).as(locale).isNotBlank();
+            assertThat(localized.body()).as(locale).contains("모래섬").doesNotContain("{");
+        }
+    }
+
+    /** 잡지 발행(GROMO-2307) — V8 카탈로그가 사건을 받고 4로케일·딥링크·data.type 으로 렌더한다. */
+    @Test
+    void magazinePublishedIsAcceptedByTheRealCatalogAndRendersIssueNoAndLink() {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", "noti:MAGAZINE_PUBLISHED:catalog-check");
+        event.put("schemaVersion", 1);
+        event.put("type", "notification.requested");
+        event.put("userId", "44444444-4444-4444-8444-444444444444");
+        event.put("version", 1L);
+        event.put("locale", "ko");
+        event.put("subjectId", "55555555-5555-4555-8555-555555555555");
+        event.put("occurredAt", "2026-10-18T07:00:00Z");
+        event.put("params", Map.of("kind", "MAGAZINE_PUBLISHED",
+                "issueId", "55555555-5555-4555-8555-555555555555", "issueNo", "7", "issueDate", "2026-10-18"));
+
+        inbound.accept(event);
+
+        Map<String, Object> delivery = store.one(
+                "SELECT kind,subject_id FROM deliveries WHERE event_id=?", event.get("eventId"));
+        assertThat(delivery).isNotNull();
+        assertThat(delivery.get("kind")).isEqualTo("MAGAZINE_PUBLISHED");
+
+        RenderedPush push = renderer.render("MAGAZINE_PUBLISHED", "ko", inputs());
+        assertThat(push.title()).isEqualTo("오늘의 고양이 잡지가 왔어요");
+        assertThat(push.body()).isEqualTo("냐옹 7호가 나왔어요 — 새 섬 소식을 확인해 보세요");
+        assertThat(push.data()).containsEntry("link", "gromo://magazine?issue=55555555-5555-4555-8555-555555555555")
+                .containsEntry("type", "MAGAZINE_PUBLISHED");
+        assertThat(renderer.render("MAGAZINE_PUBLISHED", "en", inputs()).title()).isEqualTo("Today's Cat Magazine is here");
+        for (String locale : List.of("ko", "en", "ja", "zh-Hant")) {
+            RenderedPush localized = renderer.render("MAGAZINE_PUBLISHED", locale, inputs());
+            assertThat(localized.title()).as(locale).isNotBlank();
+            assertThat(localized.body()).as(locale).contains("7").doesNotContain("{");
+            assertThat(localized.data()).as(locale)
+                    .containsEntry("link", "gromo://magazine?issue=55555555-5555-4555-8555-555555555555");
+        }
     }
 
     @Test
@@ -192,6 +263,8 @@ class CatalogIntegrationTest {
         params.put("counterpartNickname", "친구");
         params.put("islandId", "33333333-3333-4333-8333-333333333333");
         params.put("islandName", "모래섬");
+        params.put("issueId", "55555555-5555-4555-8555-555555555555");
+        params.put("issueNo", "7");
         params.put("count", 3);
         params.put("resultCount", 2);
         params.put("refundCount", 1);

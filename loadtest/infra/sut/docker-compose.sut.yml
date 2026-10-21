@@ -44,5 +44,19 @@ services:
       - "9100:9100" # 크로스 VM 스크레이프 — dev(동일 네트워크)와 달리 호스트 공개 필요
     restart: unless-stopped
 
+  # 컨테이너별 CPU·메모리·throttling. 실험 VPC 내부에서만 수집한다.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    privileged: true
+    devices: [/dev/kmsg]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports: ["9200:8080"]
+    restart: unless-stopped
+
 volumes:
   gc_logs:

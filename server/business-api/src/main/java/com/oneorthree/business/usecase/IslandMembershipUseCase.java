@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.api.dto.IslandMembershipResponses.CurrentIslandView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.InvitationResolvedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandArrivalView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandCreatedView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitationView;
@@ -10,6 +11,8 @@ import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryVi
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.MyJoinRequestView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopePinView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopeView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
@@ -25,6 +28,7 @@ import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
+import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
@@ -32,6 +36,8 @@ import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.Telescope;
+import com.oneorthree.business.upstream.data.dto.TelescopePin;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -70,7 +76,10 @@ public class IslandMembershipUseCase {
             Map.entry("OBSERVATORY_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),
             // 진행 중 집중 세션이 있어 이동/생성을 거절했다(LLD §3.1·§3.6).
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
-            Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
+            // 소속 섬 상한 3 (GROMO-2260) — 앱이 「섬을 하나 나가세요」를 띄우도록 전용 코드로 옮긴다.
+            Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(ApiErrorCode.ISLAND_LIMIT_EXCEEDED, null)),
+            // 가 본 적 없는 소속 섬으로 즉시 이동 (GROMO-2260).
+            Map.entry("ISLAND_NOT_ARRIVED", new PublicFailure(ApiErrorCode.ISLAND_NOT_ARRIVED, "islandId")),
             Map.entry("CONCURRENT_UPDATE", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, null)),
             // ── GROMO-1760 섬 가입·초대. 422/410 의 원본 의미를 유지한다 — 형식 오류는 범위
             // 초과, 폐기·만료는 전용 코드(ApiErrorCode 의 동명 상수가 registeredUpstream 으로 붙는다).
@@ -78,6 +87,7 @@ public class IslandMembershipUseCase {
             Map.entry("INVITATION_REQUIRED", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             Map.entry("ISLAND_JOIN_UNAVAILABLE", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             Map.entry("ALREADY_MEMBER", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
+            // GROMO-2315 부터 Data 는 내지 않는다(강퇴자 신청은 pending) — 따로 배포되는 동안의 구 Data 응답용으로 남긴다.
             Map.entry("KICKED_CANNOT_REJOIN", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             Map.entry("ROOM_FULL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
             // 남의 요청은 범위 밖 — 「없다」와 같은 404 로 접어 소유 정보를 새지 않는다(LLD §3.8).
@@ -126,6 +136,43 @@ public class IslandMembershipUseCase {
         return new MyIslandsResponse(islands.items().stream().map(IslandSummaryView::from).toList(), null,
             islands.currentIslandId(),
                 islands.lossReason());
+    }
+
+    /**
+     * 망원경 목록 (GROMO-2265, 섬 외부 계약 §5). 페이지가 없다 — 1시간 버킷마다 통째로 바뀐다. 조립·게이트(없음)는
+     * 전부 Data 몫이고 여기서는 공개 필드만 옮긴다.
+     */
+    public TelescopeView telescope(AccessTokenClaims claims, Deadline deadline) {
+        Telescope telescope = relay(() -> data.fetchTelescope(claims.userId(), deadline));
+        if (telescope == null) {
+            throw new UpstreamContractMismatchException("망원경 응답이 없습니다");
+        }
+        return TelescopeView.from(telescope);
+    }
+
+    /**
+     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 비공개·없는 섬 404 · 이미 내 소속 409 · 5번째 밀어내기 ·
+     * 멱등·만료는 전부 Data 몫이고(404·409 는 위 표가 공개 코드로 옮긴다) 여기서는 응답이 요청과 맞는지만 본다. 강퇴된 섬도
+     * 넣을 수 있다(GROMO-2315 — 구 Data 의 403 은 위 표가 그대로 옮긴다).
+     */
+    public TelescopePinned pinTelescope(AccessTokenClaims claims, UUID islandId, String source, UUID promotionId,
+            Deadline deadline) {
+        TelescopePin pinned = relay(() -> data.pinTelescope(claims.userId(), islandId, source, promotionId,
+                deadline));
+        if (pinned == null || pinned.item() == null || !islandId.equals(pinned.item().islandId())
+                || !"pinned".equals(pinned.item().slot())) {
+            throw new UpstreamContractMismatchException("망원경 핀 응답의 항목이 요청과 다릅니다");
+        }
+        return new TelescopePinned(pinned.created(), TelescopePinView.from(pinned));
+    }
+
+    /** 망원경에서 섬 빼기 (GROMO-2268). 핀이 없어도 Data 가 {@code deleted:true} 로 답한다. */
+    public IslandNotices.Deleted unpinTelescope(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        IslandNotices.Deleted deleted = relay(() -> data.unpinTelescope(claims.userId(), islandId, deadline));
+        if (deleted == null || !deleted.deleted()) {
+            throw new UpstreamContractMismatchException("망원경 핀 삭제 응답이 계약과 다릅니다");
+        }
+        return deleted;
     }
 
     /**
@@ -221,13 +268,28 @@ public class IslandMembershipUseCase {
     }
 
     /**
+     * 섬 도착 (GROMO-2260) — 항해·방문이 끝난 자리에서 부른다. 앱의 명령 키를 그대로 전달한다 — 재생 판정은
+     * Data 의 receipt 다.
+     */
+    public IslandArrivalView arrive(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
+        var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, key, deadline));
+        if (arrival == null || !islandId.equals(arrival.islandId())) {
+            throw new UpstreamContractMismatchException("도착 응답의 섬이 요청과 다릅니다");
+        }
+        return IslandArrivalView.from(arrival);
+    }
+
+    /**
      * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
      * {@code pending} — 어느 쪽인지는 상류 판정이고 응답 형태로만 구분한다.
+     *
+     * <p>{@code origin=telescope}(GROMO-2260)이면 즉시 가입이어도 현재 섬이 옮겨지지 않는다 — 그래서
+     * {@code active} 의 {@code currentIslandId} 가 null(먼바다)일 수 있다.
      */
     public IslandJoinResultView join(AccessTokenClaims claims, UUID islandId, String invitationToken,
-            UUID key, Deadline deadline) {
+            String origin, UUID key, Deadline deadline) {
         JoinIslandResult result = relay(() ->
-                data.joinIsland(claims.userId(), islandId, invitationToken, key, deadline));
+                data.joinIsland(claims.userId(), islandId, invitationToken, origin, key, deadline));
         if (result == null || result.islandId() == null || result.status() == null) {
             throw new UpstreamContractMismatchException("가입 응답이 완전하지 않습니다");
         }
@@ -236,7 +298,8 @@ public class IslandMembershipUseCase {
         }
         // 형태 불변식 — pending 에는 requestId 가, active 에는 currentIslandId 가 있어야 한다.
         if (("pending".equals(result.status()) && result.requestId() == null)
-                || ("active".equals(result.status()) && result.currentIslandId() == null)) {
+                || ("active".equals(result.status()) && result.currentIslandId() == null
+                        && !"telescope".equals(origin))) {
             throw new UpstreamContractMismatchException("가입 응답의 상태와 필드가 어긋납니다");
         }
         return IslandJoinResultView.from(result);
@@ -304,13 +367,15 @@ public class IslandMembershipUseCase {
     }
 
     /**
-     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키가 없다.
-     * {@code invitationToken} 은 여기서 검증·해석하지 않고 가입 명령에 그대로 전달한다.
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). {@code arrive} 면 초대 도착까지 한다 (GROMO-2264 — 누구나 가입 섬은
+     * 가입까지, 승인제 섬은 도착만). 상태로 수렴하는 명령이라 멱등키가 없다 — 가입 거절 사유는 같은
+     * {@code DOMAIN_FAILURES} 표로 옮긴다. {@code invitationToken} 은 여기서 검증·해석하지 않고 가입 명령에 그대로
+     * 전달한다. {@code arrival} 은 도착을 요청하지 않았거나 구 Data 서버면 null 이다.
      */
-    public InvitationResolvedView resolveInvitation(AccessTokenClaims claims, String code,
+    public InvitationResolvedView resolveInvitation(AccessTokenClaims claims, String code, boolean arrive,
             Deadline deadline) {
         InvitationResolved resolved = relay(() ->
-                data.resolveInvitation(claims.userId(), code, deadline));
+                data.resolveInvitation(claims.userId(), code, arrive, deadline));
         if (resolved == null || resolved.island() == null
                 || resolved.invitationToken() == null || resolved.invitationToken().isBlank()) {
             throw new UpstreamContractMismatchException("초대 해석 응답이 완전하지 않습니다");
@@ -404,5 +469,12 @@ public class IslandMembershipUseCase {
 
     /** 공개 「신청 중」 목록 한 페이지 — {@code nextCursor} 는 서명 토큰이다(GROMO-2047). */
     public record MyJoinRequests(List<MyJoinRequestView> items, String nextCursor) {
+    }
+
+    /**
+     * 망원경에 섬을 넣은 결과 — {@code created} 는 새 핀(201)과 이미 있던 핀(200)을 가르는 값이라 공개 본문({@code view})에는
+     * 싣지 않는다(GROMO-2268).
+     */
+    public record TelescopePinned(boolean created, TelescopePinView view) {
     }
 }

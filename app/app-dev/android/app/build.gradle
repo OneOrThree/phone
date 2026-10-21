@@ -124,9 +124,9 @@ gradle.taskGraph.whenReady { taskGraph ->
         )
     }
     def apiUrl = System.getenv("EXPO_PUBLIC_API_URL")
-    if (includesReleaseArtifactTask && !devAudience && apiUrl != "https://api.oneorthree.world") {
+    if (includesReleaseArtifactTask && !devAudience && apiUrl != "https://catus-api.oneorthree.world") {
         throw new GradleException(
-            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요."
+            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요."
         )
     }
     // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
@@ -151,6 +151,24 @@ if (focusFirebase != null && focusFirebaseClient == null) {
     throw new GradleException("Firebase 클라이언트 설정의 Android 패키지가 앱과 다릅니다.")
 }
 
+// 인증이 없는 팀원/PR 빌드는 유지하고, 인증된 빌드는 업로드 실패를 숨기지 않는다.
+def posthogLocalDotenv = new File(rootDir, "../.env.posthog")
+def posthogDefaultDotenv = posthogLocalDotenv.exists() ? posthogLocalDotenv :
+    new File(System.getProperty("user.home"), ".config/posthog/catus.env")
+def posthogDotenv = System.getenv("POSTHOG_CLI_DOTENV_FILE") ?: posthogDefaultDotenv.absolutePath
+def posthogUploadEnabled = System.getenv("EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN") != "" &&
+    (System.getenv("POSTHOG_CLI_API_KEY") || new File(posthogDotenv).exists())
+if (posthogUploadEnabled) {
+    extensions.extraProperties.set("posthog.dotenvFile", posthogDotenv)
+    apply plugin: "com.posthog.android"
+    posthog {
+        uploadNativeSymbols.set(true)
+    }
+    apply from: new File(projectRoot, "node_modules/posthog-react-native/tooling/posthog.gradle")
+} else {
+    logger.lifecycle("PostHog: 업로드 인증 없음/수집 꺼짐 — 소스맵·네이티브 심볼 업로드 생략")
+}
+
 android {
   compileOptions { coreLibraryDesugaringEnabled true }
     ndkVersion rootProject.ext.ndkVersion
@@ -171,6 +189,9 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 4
         versionName "2.0.0"
+        // dev 청중(Play 내부 테스트용 팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
+        // 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다. iOS dev 빌드는 Fastfile beta_dev 가 같은 일을 한다.
+        manifestPlaceholders += [expoUpdatesEnabled: System.getenv("GROMO_ANDROID_AUDIENCE") == "dev" ? "false" : "true"]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -195,7 +216,7 @@ android {
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
         }

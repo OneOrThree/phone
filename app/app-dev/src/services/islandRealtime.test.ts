@@ -3,6 +3,7 @@
  * 모르는 주민 재조회, 응원 dedupe·TTL, STOMP 목적지·인증 헤더.
  */
 import assert from 'node:assert/strict';
+import { t } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
@@ -11,6 +12,7 @@ import {
   isGoldenFishParticipant,
   parseGoldenFishEvent,
   publishMoveIntent,
+  realtimeClientOptions,
   realtimeWsUrl,
   startIslandRealtime,
   stompIslandChannel,
@@ -179,6 +181,43 @@ beforeEach(async () => {
 });
 
 describe('IslandProjection', () => {
+  test('휴식에서 빠졌다가 같은 화면에서 다시 들어와도 이름·털색·외양을 잃지 않는다 (GROMO-2390)', () => {
+    const p = new IslandProjection('i1');
+    const look = { head: 'hat-1', neck: 'scarf-1', version: 2 };
+    p.loadRest(
+      restSnap(
+        [
+          {
+            userId: 'u1',
+            name: '모모',
+            catColor: 'ginger',
+            appearance: look,
+            restSeat: 2,
+            restStartedAt: NOW,
+          },
+        ],
+        [wm('rest.member', 'u1', 1)],
+      ),
+    );
+    p.apply(restEvent('u1', 2, { status: 'active' })); // 휴식 해제 — 목록에서 빠진다
+    assert.equal(p.rest().length, 0);
+    p.apply(restEvent('u1', 3)); // 같은 화면에서 다시 휴식
+    assert.equal(p.rest()[0].name, '모모');
+    assert.equal(p.rest()[0].catColor, 'ginger');
+    assert.deepEqual(p.rest()[0].appearance, look);
+  });
+
+  test('집중 완료 뒤 같은 화면에서 새 집중으로 다시 들어와도 외양을 잃지 않는다', () => {
+    const p = new IslandProjection('i1');
+    const look = { head: 'hat-1', neck: null, version: 4 };
+    p.loadFocus(focusSnap([focusItem('u1', { appearance: look })], [wm('focus.member', 'u1', 1)]));
+    p.apply(focusEvent('u1', 2, { status: 'completed' }));
+    assert.equal(p.focus().length, 0);
+    p.apply(focusEvent('u1', 3));
+    assert.deepEqual(p.focus()[0].appearance, look);
+    assert.equal(p.focus()[0].catColor, 'ginger');
+  });
+
   test('스냅숏이 정본이다 — 목록을 통째로 교체하고 워터마크를 심는다', () => {
     const p = new IslandProjection('i1');
     p.loadFocus(
@@ -250,6 +289,18 @@ describe('IslandProjection', () => {
     assert.equal(p.apply({ ...focusEvent('u1', 7), type: 'island.updated' }), false);
     // 버전이 소비되지 않아 2번 이벤트가 그대로 적용된다.
     assert.equal(p.apply(focusEvent('u1', 2)), true);
+  });
+
+  test('방문자 응원은 말풍선 상태에 넣지 않고 콜백으로만, eventId 당 1번 전한다', () => {
+    const p = new IslandProjection('i1');
+    p.loadFocus(focusSnap([], [wm('focus.member', 'u1', 1)]));
+    const got: string[] = [];
+    p.onVisitorEmote = (emote) => got.push(`${emote.eventId}:${emote.visitor}`);
+    const ev = emoteEvent('v1', { userId: 'guest', visitor: true, sessionId: undefined });
+    assert.equal(p.apply(ev), false);
+    assert.equal(p.apply(ev), false);
+    assert.deepEqual(got, ['v1:true']);
+    assert.equal(p.emotes().length, 0);
   });
 
   test('응원은 eventId 중복을 거르고 만료된 것은 띄우지 않는다', () => {
@@ -403,6 +454,7 @@ function start(
   deps: {
     islandId: string;
     emoteSessionId?: string | null;
+    visitor?: boolean;
     snapshots?: { focus: ReturnType<typeof focusSnap>; rest: ReturnType<typeof restSnap> };
     loadSnapshots?: () => Promise<{
       focus: ReturnType<typeof focusSnap>;
@@ -413,6 +465,7 @@ function start(
     transitions?: IslandPresenceTransition[];
     golden?: GoldenFishEvent[];
     sendError?: string[];
+    looks?: { userId: string; head: string | null; version: number | null }[];
   },
   channel: FakeChannel,
 ) {
@@ -420,10 +473,13 @@ function start(
   const rt = startIslandRealtime({
     islandId: deps.islandId,
     emoteSessionId: deps.emoteSessionId,
+    visitor: deps.visitor,
     onView: (v) => deps.views?.push(v),
     onTransition: (transition) => deps.transitions?.push(transition),
     onGoldenFish: (event) => deps.golden?.push(event),
     onSendError: (m) => deps.sendError?.push(m),
+    onMemberAppearance: (userId, look) =>
+      deps.looks?.push({ userId, head: look.head, version: look.version }),
     alive: () => true,
     connect: (opts) => {
       channel.opts = opts;
@@ -469,6 +525,27 @@ describe('startIslandRealtime', () => {
     assert.equal(first.length, 1);
     assert.equal(second.length, 1);
     assert.equal(first[0].eventId, event.eventId);
+  });
+
+  test('member.appearance.updated 는 주민 외양으로 전달하고 다른 섬 사건은 버린다 (GROMO-2390)', () => {
+    const channel = fakeChannel();
+    const looks: { userId: string; head: string | null; version: number | null }[] = [];
+    start({ islandId: 'i1', looks }, channel);
+    const event = (islandId: string, head: string | null, version: number) => ({
+      eventId: `e${version}`,
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId,
+      aggregateVersion: version,
+      payload: { userId: 'u2', appearance: { head, neck: null }, version },
+    });
+    channel.opts?.onEvent(event('i1', 'hat', 4));
+    channel.opts?.onEvent(event('other', 'hat', 5));
+    channel.opts?.onEvent(event('i1', null, 6));
+    assert.deepEqual(looks, [
+      { userId: 'u2', head: 'hat', version: 4 },
+      { userId: 'u2', head: null, version: 6 },
+    ]);
   });
 
   test('응원 세션은 presence 재연결 없이 구독과 발신 자격을 갱신한다', () => {
@@ -1002,6 +1079,21 @@ describe('startIslandRealtime', () => {
     assert.equal(channel.sent.length, 1);
   });
 
+  test('방문자 모드는 세션 없이 {type} 만 보내고 emotes 를 구독한다', async () => {
+    const channel = fakeChannel();
+    const { rt } = start({ islandId: 'i1', visitor: true }, channel);
+    assert.equal(channel.opts?.emote, true);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(channel.sent[0].destination, '/app/islands/i1/focus/emotes');
+    assert.deepEqual(channel.sent[0].body, { type: 'cheer' });
+  });
+
+  test('visitor 도 emoteSessionId 도 없으면 emotes 채널을 열지 않는다(emote:false) — 방문자는 응원을 받지도 않는다', async () => {
+    const channel = fakeChannel();
+    start({ islandId: 'i1' }, channel);
+    assert.equal(channel.opts?.emote, false);
+  });
+
   test('세션 없이는 응원을 보내지 않고, 끊기면 false 를 돌린다 — 가짜 성공 없음', async () => {
     const channel = fakeChannel();
     const { rt } = start({ islandId: 'i1' }, channel);
@@ -1188,7 +1280,7 @@ describe('stompIslandChannel', () => {
     assert.deepEqual(errors, ['실시간 요청이 거절됐어요.']);
   });
 
-  test('사람이 읽을 문구는 그대로 전달한다', () => {
+  test('/user/queue/errors 봉투의 사람 문구(message)는 그대로 전달한다 — errors 큐 경로는 불변', () => {
     const errors: string[] = [];
     stompIslandChannel({
       islandId: 'i1',
@@ -1201,6 +1293,175 @@ describe('stompIslandChannel', () => {
     const errorSub = c.subs.find((s: { dest: string }) => s.dest === '/user/queue/errors')!;
     errorSub.cb({ body: JSON.stringify({ message: '응원을 보낼 수 없어요.' }) });
     assert.deepEqual(errors, ['응원을 보낼 수 없어요.']);
+  });
+
+  test('비코드 STOMP ERROR(Session closed.)는 토스트·거절 상태·strike 어디에도 반영하지 않는다', () => {
+    const errors: string[] = [];
+    const denied: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+      onMovementDenied: () => denied.push('m'),
+    });
+    const c = client();
+    for (let i = 0; i < 5; i += 1) {
+      c.opts.onStompError({ headers: { message: 'Session closed.' }, body: '' });
+      c.opts.onConnect({}); // 재접속 — 접속당 1회 규칙이 아니라 진짜로 안 세는지 본다
+    }
+    assert.deepEqual(errors, []);
+    assert.deepEqual(denied, []);
+    const subs = c.subs.length;
+    c.opts.onConnect({});
+    const dests = c.subs.slice(subs).map((x: { dest: string }) => x.dest);
+    assert.ok(dests.includes('/topic/islands/i1/events'), 'events 구독 유지');
+    assert.ok(dests.includes('/topic/islands/i1/movement'), 'movement 구독 유지');
+    assert.ok(dests.includes('/topic/islands/i1/emotes'), 'emotes 구독 유지');
+    // 그 뒤 코드 ERROR 는 종전대로 — channel 없는 첫 ERROR 는 events 탓으로 치고(movement 무영향) 토스트한다
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
+    assert.deepEqual(denied, []);
+    assert.deepEqual(errors, ['실시간 요청이 거절됐어요.']);
+  });
+
+  test('ERROR 의 channel 헤더가 있으면 그 채널만 센다 — events', () => {
+    const denied: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push('m'),
+    });
+    const c = client();
+    // channel=events 인 UNAUTHORIZED 는 movement 를 건드리지 않는다
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+    assert.deepEqual(denied, []);
+    c.opts.onConnect({});
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+    // 같은 코드 2번 → events 끔
+    const subs = c.subs.length;
+    c.opts.onConnect({});
+    assert.ok(!c.subs.slice(subs).some((x: { dest: string }) => x.dest.endsWith('/events')));
+  });
+
+  test('ERROR 의 channel 헤더가 있으면 그 채널만 센다 — movement', () => {
+    const denied: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push('m'),
+    });
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'movement' }, body: '' });
+    assert.deepEqual(denied, ['m']);
+    // events strike 는 쌓이지 않았다 — 같은 코드가 한 번 더 와도 events 는 살아 있다
+    c.opts.onConnect({});
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'movement' }, body: '' });
+    const subs = c.subs.length;
+    c.opts.onConnect({});
+    assert.ok(c.subs.slice(subs).some((x: { dest: string }) => x.dest.endsWith('/events')));
+  });
+
+  test('close 사유 SESSION_REVOKED 면 재접속을 멈추고(deactivate) 안내한다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    c.onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+    assert.equal(c.deactivated, 1);
+    assert.deepEqual(errors, [t('realtime.sessionRevoked')]);
+  });
+
+  test('다른 close(1002 Session closed.·OUTBOUND_QUEUE_FULL)는 아무것도 하지 않는다 — stompjs 재접속에 맡긴다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    c.onWebSocketClose({ code: 1002, reason: 'Session closed.' });
+    c.onWebSocketClose({ code: 1008, reason: 'OUTBOUND_QUEUE_FULL' });
+    assert.equal(c.deactivated, 0);
+    assert.deepEqual(errors, []);
+  });
+
+  test('세션 폐기 뒤에는 reopen(포그라운드 복귀)도 폐기된 토큰으로 되살리지 않는다', async () => {
+    const ch = stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    c.onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+    ch.reopen();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(c.connected, false, 'reopen 이 activate 를 다시 부르지 않는다');
+    assert.equal(c.deactivated, 2);
+  });
+
+  test('channel 헤더로 다른 채널 탓이 분명한 ERROR 는 응원(emote) 구독을 끄지 않는다', () => {
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => {},
+    });
+    const c = client();
+    c.opts.onStompError({
+      headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' },
+      body: '',
+    });
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+    c.opts.onConnect({});
+    // events 가 이미 꺼진 뒤의 events ERROR(eventsFault=false)도 응원엔 닿지 않는다
+    c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+    const subs = c.subs.length;
+    c.opts.onConnect({});
+    const dests = c.subs.slice(subs).map((x: { dest: string }) => x.dest);
+    assert.ok(dests.includes('/topic/islands/i1/emotes'), 'emotes 구독 유지');
+  });
+
+  describe('realtimeClientOptions 재접속 지터', () => {
+    afterEach(() => jest.restoreAllMocks());
+    test('재접속 지연은 2.5~7.5 s 안에서 접속마다 새로 뽑는다 — 타이머 없이 reconnectDelay 로', () => {
+      const random = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+      const o = realtimeClientOptions();
+      assert.equal(o.reconnectDelay, 5000);
+      const fake = { connectHeaders: {}, reconnectDelay: 0 };
+      random.mockReturnValue(0);
+      o.beforeConnect(fake as never);
+      assert.equal(fake.reconnectDelay, 2500, '하한 2.5 s');
+      random.mockReturnValue(0.999);
+      o.beforeConnect(fake as never);
+      assert.ok(fake.reconnectDelay > 7490 && fake.reconnectDelay < 7500, '상한 7.5 s 미만');
+    });
   });
 
   test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {
@@ -1498,32 +1759,30 @@ describe('이동 채널 (GROMO-2248)', () => {
     );
   });
 
-  test('헤더가 없고 본문이 깨진 JSON 이면 예외 없이 일시 오류로 센다', () => {
+  test('헤더가 없고 본문이 깨진 JSON 이면 예외 없이 코드 없는 ERROR 로 보고 세지 않는다', () => {
     const errors: string[] = [];
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    assert.doesNotThrow(() => c.opts.onStompError({ headers: {}, body: '{not json' }));
+    for (let i = 0; i < 4; i += 1) {
+      assert.doesNotThrow(() => c.opts.onStompError({ headers: {}, body: '{not json' }));
+      c.activate();
+    }
     assert.equal(denied.length, 0);
-    c.activate();
-    c.opts.onStompError({ headers: {}, body: '{not json' });
-    c.activate();
-    c.opts.onStompError({ headers: {}, body: '{not json' });
-    assert.equal(denied.length, 1);
+    assert.deepEqual(errors, []);
   });
 
-  test('헤더가 없고 본문이 "null" 이면 예외 없이 일시 오류로 센다', () => {
+  test('헤더가 없고 본문이 "null" 이면 예외 없이 코드 없는 ERROR 로 보고 세지 않는다', () => {
     const errors: string[] = [];
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    assert.doesNotThrow(() => c.opts.onStompError({ headers: {}, body: 'null' }));
+    for (let i = 0; i < 4; i += 1) {
+      assert.doesNotThrow(() => c.opts.onStompError({ headers: {}, body: 'null' }));
+      c.activate();
+    }
     assert.equal(denied.length, 0);
-    c.activate();
-    c.opts.onStompError({ headers: {}, body: 'null' });
-    c.activate();
-    c.opts.onStompError({ headers: {}, body: 'null' });
-    assert.equal(denied.length, 1);
+    assert.deepEqual(errors, []);
   });
 });
 
@@ -1539,5 +1798,126 @@ describe('friendlyRealtimeErrorMessage', () => {
       friendlyRealtimeErrorMessage('실시간 연결이 거절됐어요.'),
       '실시간 연결이 거절됐어요.',
     );
+  });
+});
+
+describe('island.member.arrived (GROMO-2311)', () => {
+  const { memberArrivalFilter, parseMemberArrivedEvent } = jest.requireActual('./islandRealtime');
+  const ev = (over: Record<string, unknown> = {}, userId = 'u2') => ({
+    eventId: 'e1',
+    schemaVersion: 1,
+    type: 'island.member.arrived',
+    islandId: 'isl',
+    aggregateVersion: 3,
+    occurredAt: '2026-10-18T00:00:00Z',
+    payload: { islandId: 'isl', userId, name: '모모', catColor: 'gray', arrivedAt: 'x' },
+    ...over,
+  });
+
+  test('파서는 다른 type·섬을 버린다', () => {
+    expect(parseMemberArrivedEvent(ev(), 'isl')?.name).toBe('모모');
+    expect(parseMemberArrivedEvent(ev({ type: 'focus.emote' }), 'isl')).toBeNull();
+    expect(parseMemberArrivedEvent(ev(), 'other')).toBeNull();
+  });
+
+  test('eventId 중복·내 도착은 거르고 aggregateVersion 은 보지 않는다', () => {
+    const f = memberArrivalFilter('isl', () => 'me');
+    expect(f(ev())).not.toBeNull();
+    expect(f(ev())).toBeNull();
+    expect(f(ev({ eventId: 'e2', aggregateVersion: 1 }))).not.toBeNull();
+    expect(f(ev({ eventId: 'e3' }, 'me'))).toBeNull();
+  });
+});
+
+describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
+  const client = () => (Client as any).instances.at(-1);
+  beforeEach(() => {
+    (Client as any).instances.length = 0;
+  });
+  const open = (denied: number[] = []) =>
+    stompIslandChannel({
+      islandId: 'isl',
+      presence: false,
+      emote: false,
+      movement: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push(1),
+    });
+  const count = (c: any, dest: string) => c.subs.filter((s: any) => s.dest === dest).length;
+
+  test('이동과 겹치는 코드(MOVEMENT_TOO_FREQUENT)의 첫 ERROR 는 events 를 끄지 않고 재접속에서 다시 구독, 이동 상태도 보존한다', () => {
+    const denied: number[] = [];
+    open(denied);
+    const c = client();
+    expect(count(c, '/topic/islands/isl/events')).toBe(1);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(1);
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    expect(denied).toEqual([]);
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(2);
+  });
+
+  test('events 와 무관한 코드(NOT_FOCUSING)는 events 판정에서 제외 — 재접속에서 /events 를 다시 구독한다', () => {
+    open();
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' } });
+    c.opts.onConnect({});
+    c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(3);
+  });
+
+  test('구분 불가 코드가 같은 코드로 두 번 거절되면 세 번째 접속에서 /events 를 건너뛰고 이동은 재구독한다', () => {
+    const denied: number[] = [];
+    open(denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(3);
+    expect(denied).toEqual([]);
+  });
+
+  test('events + emote 동시 ON — events 거절은 응원 구독을 끊지 않는다', () => {
+    stompIslandChannel({
+      islandId: 'isl',
+      emote: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(1);
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(2);
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(3);
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+  });
+
+  test('events 구독이 60초 ERROR 없이 유지되면 strike 를 비운다 — 이후 ERROR 1회로는 차단되지 않는다', () => {
+    jest.useFakeTimers();
+    try {
+      open();
+      const c = client();
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // strike 1
+      c.opts.onConnect({});
+      jest.advanceTimersByTime(61_000); // 무사히 유지
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // 다시 strike 1
+      c.opts.onConnect({});
+      expect(count(c, '/topic/islands/isl/events')).toBe(3);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

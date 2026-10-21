@@ -6,7 +6,7 @@ test('서버 세션이 없고 로컬도 로그인 전이면 로그인 화면', (
 });
 
 test('서버 세션이 없으면 로컬 저장본대로 복구한다 (목업 흐름 유지)', () => {
-  assert.equal(restoredRoute({ loggedIn: true, onboarded: false }, null), 'chooseIsland');
+  assert.equal(restoredRoute({ loggedIn: true, onboarded: false }, null), 'sea');
   assert.equal(restoredRoute({ loggedIn: true, onboarded: true }, null), 'home');
   assert.equal(
     restoredRoute({ loggedIn: true, onboarded: true, session: { status: 'running' } }, null),
@@ -27,7 +27,7 @@ test('서버가 세션을 거절하면 로컬이 로그인 상태여도 로그�
 test('로컬 저장본이 없으면(iOS 재설치) 온보딩이 끝난 계정도 섬 선택부터다', () => {
   // 키체인 세션은 남고 AsyncStorage 만 사라진 상태. 앱 상태가 초기값이라 가입한 섬이 없어
   // 홈으로 보내면 홈이 막힌다.
-  assert.equal(restoredRoute({}, { onboardingComplete: true }), 'chooseIsland');
+  assert.equal(restoredRoute({}, { onboardingComplete: true }), 'sea');
   assert.equal(restoredRoute({}, { onboardingComplete: false }), 'character');
 });
 
@@ -41,5 +41,35 @@ test('서버 세션이 있으면 온보딩 여부는 서버가 정본이다', ()
   assert.equal(
     restoredRoute({ loggedIn: false, onboarded: true }, { onboardingComplete: true }),
     'home',
+  );
+});
+
+// GROMO-2310 — 진행 세션 → 라우트는 sessionRoute 하나로 정한다
+test('restoredRoute — 바다 세션은 항해 화면(sea), 소속이 없어도 그렇다', () => {
+  const account = { onboardingComplete: true };
+  assert.equal(
+    restoredRoute(
+      { loggedIn: true, onboarded: true, session: { status: 'active', kind: 'sea' } },
+      account,
+    ),
+    'sea',
+  );
+  assert.equal(
+    restoredRoute(
+      { loggedIn: true, onboarded: false, session: { status: 'active', kind: 'sea' } },
+      account,
+    ),
+    'sea',
+  );
+  assert.equal(
+    restoredRoute({ loggedIn: true, onboarded: true, session: { status: 'paused' } }, account),
+    'rest',
+  );
+  assert.equal(
+    restoredRoute(
+      { loggedIn: true, onboarded: true, session: { status: 'active', kind: 'island' } },
+      account,
+    ),
+    'focus',
   );
 });

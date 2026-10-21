@@ -3,7 +3,7 @@
  * `IslandNoticeController`·`ScreenController.board`). 무접두 경로이고 성공 봉투·오류 형태는
  * 공통 client 가 벗긴다 — 이 모듈은 정확한 path/body/키만 보증한다.
  *
- * 쓰기 네 종은 호출자가 만든 UUID36 `Idempotency-Key` 를 받는다. 응답 유실·retryable 재시도는
+ * 쓰기 명령은 호출자가 만든 UUID36 `Idempotency-Key` 를 받는다. 응답 유실·retryable 재시도는
  * 같은 path/body/key 로 보내고(서버가 원 결과를 재생한다), 의도가 바뀌면 새 key 다.
  *
  * ⚠️ 현재 공개 PATCH 는 `title`/`body` 만 받는다 — `expectedVersion` 등 다른 필드를 섞으면
@@ -153,4 +153,17 @@ export function createNoticeComment(
     body,
     idempotencyKey: key,
   });
+}
+
+/** 댓글 삭제 — 작성자 본인 또는 방장만, 권한 최종 판정은 서버가 한다. */
+export function deleteNoticeComment(
+  islandId: string,
+  noticeId: string,
+  commentId: string,
+  key: string,
+): Promise<NoticeDeleted> {
+  return request<NoticeDeleted>(
+    `/islands/${enc(islandId)}/notices/${enc(noticeId)}/comments/${enc(commentId)}`,
+    { method: 'DELETE', idempotencyKey: key },
+  );
 }

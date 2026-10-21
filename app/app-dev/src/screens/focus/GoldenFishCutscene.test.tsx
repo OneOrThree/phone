@@ -2,7 +2,8 @@ import React from 'react';
 import assert from 'node:assert/strict';
 import { AppState, StyleSheet, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, render } from '@testing-library/react-native';
-import { GoldenFishCutscene, goldenFishVideoVariant } from '@/screens/focus/GoldenFishCutscene';
+import { cutsceneVideoBox } from '@/components/VideoCutscene';
+import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { componentTokens } from '@/design-system/tokens';
 
 const mockListeners: Record<string, (...args: any[]) => void> = {};
@@ -49,15 +50,7 @@ beforeEach(() => {
   for (const event of Object.keys(mockListeners)) delete mockListeners[event];
 });
 
-test('화면 방향과 최소 너비로 세로·가로 황금 물고기 영상을 고른다', () => {
-  assert.equal(goldenFishVideoVariant(390, 844), 'portrait');
-  assert.equal(goldenFishVideoVariant(844, 390), 'landscape');
-  assert.equal(goldenFishVideoVariant(540, 360), 'portrait');
-  assert.equal(goldenFishVideoVariant(2048, 1400), 'landscape');
-  assert.equal(goldenFishVideoVariant(1024, 1366), 'portrait');
-});
-
-test('서버 신호로 마운트되면 바다 소리를 포함해 1회 재생하고 종료 콜백을 한 번만 보낸다', async () => {
+test('서버 신호로 마운트되면 1회 재생하고 종료 콜백을 한 번만 보낸다', async () => {
   const onFinish = jest.fn();
   const screen = await render(<GoldenFishCutscene onFinish={onFinish} />);
   assert.equal(
@@ -73,10 +66,13 @@ test('서버 신호로 마운트되면 바다 소리를 포함해 1회 재생하
   assert.equal(mockPlayer.timeUpdateEventInterval, 0.5);
   assert.equal(mockPlay.mock.calls.length, 1);
   const videoStyle = StyleSheet.flatten(screen.getByTestId('golden-fish-video').props.style);
-  assert.equal(videoStyle.width, '100%');
-  assert.equal(videoStyle.height, '100%');
-  assert.equal(screen.getByTestId('golden-fish-video').props.contentFit, 'contain');
+  // 영상 상자는 화면 높이(jest 기본 창 750×1334)에 맞춘 9:16 — 위아래는 overlay 에 붙고 폭·왼쪽은 상자가 준다
+  assert.equal(videoStyle.width, cutsceneVideoBox(750, 1334).width);
+  assert.equal(videoStyle.top, 0);
+  assert.equal(videoStyle.bottom, 0);
   const overlayStyle = StyleSheet.flatten(screen.getByTestId('golden-fish-cutscene').props.style);
+  // 세로 폰에서 화면 밖으로 나간 영상 좌우를 자르는 유일한 방어선(웹 가로 스크롤 방지)
+  assert.equal(overlayStyle.overflow, 'hidden');
   assert.equal(overlayStyle.backgroundColor, componentTokens.overlay.cinematicBackground);
   await act(async () => {
     mockListeners.playToEnd();

@@ -56,7 +56,7 @@ MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
 
 > 시스템 구조·배선·용어(i18n/l10n)는 [`docs/prd/fishcat/l10n/high-level-design.md`](../../docs/prd/fishcat/l10n/high-level-design.md)에 있습니다. 이 절은 추가 규칙만 다룹니다.
 
-화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`onboarding`·`app`·`building`·`color`·`track`·`focus`·`focusFlow`·`home`·`settings`·`errors`·`time`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
+화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`onboarding`·`app`·`building`·`color`·`track`·`focus`·`focusFlow`·`home`·`settings`·`errors`·`time`·`magazine`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
 
 - 치환은 `{{var}}`. 복수는 `{ one, other }` 객체 + `vars.count`(숫자)로 고릅니다(Hermes 엔 `Intl.PluralRules` 가 없어 자체 분기). ko 는 단일 문자열로 두는 것이 관례입니다(`t()` 자체는 ko 의 복수 객체도 처리합니다).
 - 없는 키는 `t()` 가 **키 문자열을 그대로** 돌려줍니다 — 화면에 `home.foo.bar` 가 보이면 키 누락입니다. 값을 조립하는 동적 키(`login.continue.<provider>`)는 ko/en 동치 테스트가 못 잡으니, 제공자 등을 추가할 때 두 JSON 에 모두 넣습니다.
@@ -95,7 +95,7 @@ npx expo export --platform all
 
 ## PostHog 제품 분석
 
-릴리스 빌드는 PostHog `CatUs / Default project`(US)의 공개 프로젝트 토큰으로 이벤트를 보냅니다. [활성화와 집중 대시보드](https://us.posthog.com/project/624010/dashboard/2126236)에서 첫 사용·집중 퍼널과 일별 사용량을 봅니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.
+릴리스 빌드는 PostHog `Catus / Catus`(US, 프로젝트 `669473`)로 이벤트를 보냅니다. [이벤트 목록](https://us.posthog.com/project/669473/activity/events)에서 수신을 확인합니다. 로컬 이벤트 큐와 식별자는 프로젝트 토큰별로 분리합니다. 기존 배포 앱은 업데이트 전까지 이전 설정을 사용합니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.
 
 | 이벤트                              | 발생 시점                                           |
 | ----------------------------------- | --------------------------------------------------- |
@@ -105,8 +105,38 @@ npx expo export --platform all
 | `island_join_requested`             | 섬 가입 승인 요청 확정                              |
 | `island_membership_activated`       | 섬 생성·즉시 가입·승인 후 소속 확정 (`method` 속성) |
 | `focus_started` / `focus_completed` | 서버 집중 시작·정산 확정                            |
+| `app_active`                        | 인증된 계정의 앱 시작·계정 변경·포그라운드 복귀     |
+| `social_state_observed`             | 활동 시 서버에서 확인한 섬 소속·수락된 친구 수      |
 
-로그인 세션의 서버 `userId`만 분석 식별자로 쓰고 로그아웃 시 식별자를 초기화합니다. 화면의 입력 내용·섬 이름·집중 주제는 전송하지 않습니다. 세션 리플레이, 터치 자동 수집, 위치 추정은 꺼져 있습니다. 프로젝트 토큰과 수집 호스트는 각각 `EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN`, `EXPO_PUBLIC_POSTHOG_HOST`로 빌드별 재정의할 수 있습니다.
+로그인 세션의 서버 `userId`만 분석 식별자로 쓰고 로그아웃 시 식별자를 초기화합니다. 앱 열기·백그라운드 전환 등 생명주기와 터치를 자동 수집하며, 터치 속성과 요소 이름에는 기존 `testID`를 사용합니다. 화면 글자(`children`), 접근성 라벨, 입력값은 터치 속성으로 보내지 않습니다. 구분이 필요한 버튼에는 사용자 입력을 포함하지 않는 고정 `testID`를 붙이세요. 커스텀 라우터의 화면 전환은 기존 `$screen` 이벤트를 사용합니다. 터치 자동 수집은 조작 위치를 기록하고, 서버 처리 성공·완료 여부는 위 명시적 이벤트로 집계합니다.
+
+iOS·Android [세션 리플레이](https://us.posthog.com/project/669473/replay)는 `@posthog/react-native-plugin`이 포함된 새 네이티브 빌드부터 사용할 수 있습니다. iOS는 `cd ios && pod install`로 Pods를 동기화합니다. Expo Go와 웹에서는 이 네이티브 리플레이를 사용할 수 없습니다. 모든 텍스트·입력값과 이미지, iOS 시스템 선택 화면을 마스킹하며 로그·네트워크 상세 수집과 위치 추정은 끕니다. 녹화 범위·샘플링은 PostHog 프로젝트 설정에서 관리합니다. 실제 기기에서 녹화 수신과 마스킹을 확인한 뒤 배포하세요.
+
+프로젝트 토큰과 수집 호스트는 각각 `EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN`, `EXPO_PUBLIC_POSTHOG_HOST`로 빌드별 재정의할 수 있습니다. 기존 키가 빌드 환경변수에 남아 있으면 기본값보다 우선하므로 교체해야 합니다. 빈 토큰은 수집을 끄며, dev TestFlight는 기존대로 빈 토큰을 강제합니다.
+
+Android CI의 main 릴리스는 AWS Secrets Manager `gromo/prod/android`의 `POSTHOG_PROJECT_TOKEN`과 `POSTHOG_REGION`을 읽어 위 SDK 환경변수에 적용합니다. `POSTHOG_REGION`은 `US`·`US Cloud` 또는 US PostHog 주소(예: `https://us.i.posthog.com`)로 지정할 수 있으며 수집 호스트로 변환됩니다. CLI 프로젝트 ID `669473`과 업로드 인증이 US Catus 프로젝트용이므로 EU 등 다른 리전은 거부합니다. 두 값이 없거나 유효하지 않으면 릴리스 빌드를 중단합니다. 심볼·소스맵 업로드 인증은 별도의 GitHub secret `POSTHOG_CLI_API_KEY`를 사용하며, 이 개인 API 키는 앱에 포함하지 않습니다. CI는 `npm ci`로 설치한 고정 버전 `posthog-cli`를 사용합니다.
+
+### 첫 섬·집중, 섬·친구, 오류 대시보드
+
+[Catus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)은 로그인 → 첫 섬 도착 → 첫 실제 집중 → 다른 날 재집중과 집중 습관·장소별 집중을 보는 9개 지표로 구성합니다. [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)의 6개 지표와 [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)의 4개 지표, [섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)의 6개 지표는 별도 대시보드에서 확인합니다. 성장·경제·장소별 집중 카드 8개는 게시·SQL 검증을 마쳤으며 필요한 이벤트는 아직 미계측입니다. 각 카드에는 집계 대상과 데이터의 의미를 짧게 설명합니다. 저장된 정의·상세 집계 기준·이벤트 구현 상태는 [analytics/README.md](analytics/README.md)에서 연결합니다.
+
+최초 여정 카드 4개는 분석 정의만 준비된 상태이며 신규 `activation_step` 발행은 아직 구현하지 않았습니다. 기존의 일반 섬 가입·집중 이벤트를 최초 여정으로 간주하지 않습니다. 오류 카드 3개는 새 운영 빌드 적용과 수신 확인이 필요합니다. 이 준비 상태는 각 대시보드 상단에 안내합니다. JS 오류·운영 네이티브 크래시 자동 수집과 소스맵/심볼 업로드를 연결했으며 새 네이티브 빌드에 적용됩니다. 인증 파일과 플랫폼별 범위는 [계측 문서](analytics/README.md)를 따릅니다.
+
+제품 이벤트뿐 아니라 JS SDK의 자동 수집·화면·생명주기·오류 이벤트에도 `analytics_environment`를 붙입니다. 개발 실행 또는 `EXPO_PUBLIC_ENV`가 `prod`·`production` 이외의 값인 빌드는 `development`이며, 비개발 실행에서 값이 없거나 운영 환경이면 `production`입니다. 네이티브 직접 전송은 JS 콜백을 거치지 않으므로 운영 환경에서만 크래시를 수집하고, 오류 SQL에서 환경 태그 없는 RN SDK의 fatal 이벤트를 함께 집계합니다. 개발·staging 네이티브 수집을 켤 때는 이 분류 규칙도 바꿔야 합니다.
+
+`social_state_observed`는 친구 화면에 방문하지 않은 활성 계정도 포함하기 위해 앱 시작·계정 변경·복귀 때 `/me/islands`와 `/screens/friends`를 조회합니다. 복귀 시 조회는 5분 간격으로 제한하고 동시에 진행 중인 요청을 중복하지 않습니다. SDK가 꺼져 있거나 인증 세션이 없으면 추가 조회도 하지 않습니다. 계정 변경·로그아웃·구독 해제 뒤 이전 응답은 버립니다. 같은 실행 중의 섬·친구 변경은 다음 관측에 반영됩니다.
+
+| 속성                       | 정의                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `analytics_schema_version` | 두 새 이벤트의 계약 버전 `1`                                                             |
+| `island_status`            | 소속 섬이 하나 이상이면 `member`, 없으면 `drifting`, 조회 실패·불완전 응답이면 `unknown` |
+| `island_count`             | 서버의 소속 섬 개수. 현재 선택 섬이 없어도 소속으로 계산                                 |
+| `friend_count`             | 서버 목록의 중복을 제거한 수락된 친구 수. 요청·핀을 별도 가산하지 않음                   |
+| `friend_bucket`            | `0` / `1` / `2-4` / `5+` / `unknown`                                                     |
+
+조회에 실패한 수치는 필드를 생략하며 0으로 바꾸지 않습니다. 친구 이름·친구 ID·섬 이름·섬 ID 목록은 전송하지 않습니다. 표류에는 가입 대기·온보딩 중인 계정도 포함하고, 인증된 게스트 계정도 활동자로 포함합니다.
+
+대시보드의 친구 평균·중앙값·분포는 최근 28일 관측 사용자별 **최신 관측 한 건**을 사용합니다. 전체 누적 가입자의 통계가 아니며 미확인 값을 제외한 분모를 표시합니다. 재방문 비교는 기간 내 **첫 관측 당시**의 섬·친구 구간을 고정하고 KST 기준 D1·D7 해당 날짜가 완전히 지난 사람만 분모에 넣습니다. 신규 가입 리텐션이나 친구 관계의 인과 효과로 해석하지 않습니다. 현재 집중에는 소속 섬이 필요하므로 표류 유저와 소속 유저의 집중률을 동등한 조건의 비교로 제시하지 않습니다. 새 계측은 앱 업데이트 이후부터 쌓이며 과거 프로젝트 데이터를 소급하지 않습니다.
 
 웹 상호작용 검증은 정적 빌드를 로컬 서버로 띄운 뒤 실행합니다.
 
@@ -117,13 +147,17 @@ npm run review:v2
 npm run review:v2-journeys
 ```
 
+`GROMO_REVIEW_URL`로 다른 로컬 검수 주소를 지정할 수 있습니다. `review:v2`는 화면·이미지·팻말 영역을, `review:v2-journeys`는 이동·구매·건설 등의 상태 변경을 확인합니다. 버튼 단위 검수는 `REVIEW_ROUTES=hall,construction,board,mail,shop,sound npm run review:buttons`처럼 경로를 제한할 수 있습니다. 버튼 클릭 성공만으로 저장·구매 완료를 판정하지는 않습니다. 실패나 실행 오류가 있으면 종료 코드 1을 반환하며 상세 결과는 `.docs/`에 저장합니다.
+
+`?review`에서는 주입한 튜토리얼 진행도와 미완공·공사 상태를 보존합니다. 건물 내부 검수용 상태에는 `tutorial: { step: 99 }`를 지정하고, 튜토리얼 자체를 확인할 때만 `guideStep`을 명시합니다.
+
 ## 현재 연결 범위
 
 로그인·계정, 섬·주민, 집중 세션, 친구·편지 등은 서버 API에 연결되어 있으며, 설정·화면 상태와 스크린타임 측정은 기기에서 처리합니다. 일부 시각 효과와 건설·음원 흐름은 앱 로컬 상태로 동작합니다. 새 API 연결 범위는 `src/services/api/`와 해당 기능 표를 함께 갱신합니다.
 
-앱 버전은 `2.0.0`, iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다.
+iOS 스토어 버전은 `1.0.2`(App Store Connect 에 새로 만든 Cattus 앱의 첫 버전과 맞춤), Android 는 동결된 1.x 패키지를 잇는 업데이트라 `2.0.0` 입니다. expo-updates `runtimeVersion` 은 `2.0.0` 으로 두 플랫폼이 같습니다. `app.config.js` 의 `version` 은 Android 용 `2.0.0` 그대로이고, iOS 값은 `iosStoreVersionConfig.js` 의 `IOS_STORE_VERSION` 이 정본입니다 — prebuild 가 Info.plist 와 pbxproj 를 다시 써도 이 플러그인이 `MARKETING_VERSION` 과 `CFBundleShortVersionString` 을 `1.0.2` 로 되돌립니다. iOS 스토어 버전을 올릴 때는 pbxproj·Info.plist 와 이 상수를 함께 바꾸세요. iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다.
 Kakao는 2.0 전용 Kakao 앱의 native key `1280641e9b639a279b7406f24b059703`을 iOS·Android 공통으로 씁니다. Kakao provider ID는 Kakao 앱마다 따로 발급되므로, 1.x 앱(native key `af3ff0c5…`)으로 가입한 카카오 사용자는 2.0에서 다른 계정으로 로그인됩니다(팀 결정, 2026-09-29). Kakao Developers 콘솔의 이 Kakao 앱에 iOS bundle ID `com.oneorthree.focuscat`, Android package `com.oneorthree.gromo`와 배포 서명 키 해시를 등록해야 합니다. 두 플랫폼 모두 OAuth callback scheme은 `kakao<key>`이고, iOS `Info.plist`와 Android manifest에 `kakao1280641e9b639a279b7406f24b059703` scheme이 들어 있어야 합니다.
-Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://api.oneorthree.world`이 모두 필요합니다. URL이 빠졌거나 dev/다른 주소이면 release artifact를 만들지 않습니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://api.oneorthree.world ./gradlew :app:assembleRelease`입니다. 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
+Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world`이 모두 필요합니다. URL이 빠졌거나 dev/다른 주소이면 release artifact를 만들지 않습니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world ./gradlew :app:assembleRelease`입니다. 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
 
 ### 서버 API 기반 (`src/services/api/`, GROMO-2004)
 
@@ -148,14 +182,14 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
 
-서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://api.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
+서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
 
 ```sh
 cd ios
-EXPO_PUBLIC_API_URL=https://api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
+EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
 ```
 
-스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다.
+스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 현재 `MARKETING_VERSION`(`1.0.2`) 최신 빌드번호 다음 번호로 archive·업로드합니다.
 
 ### dev 서버 빌드
 

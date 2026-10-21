@@ -20,9 +20,11 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
+import { codePointLength } from '@/utils/codePoints';
 import { t } from '@/i18n';
 export { C, art };
 export const k = StyleSheet.create({
+  buttonIcon: { width: 32, height: 32 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stack: { gap: 14 },
   grow: { flex: 1 },
@@ -129,8 +131,13 @@ export function Btn({
   dialog = false,
   disabled = false,
   dynamicHeight = false,
+  icon,
   style,
   id,
+  // 목록 항목마다 같은 제목(지우기·신고)이 되풀이되면 어느 항목인지 덧붙인 읽는 이름을 따로 줄 수 있다. 기본은 title
+  accessibilityLabel,
+  // 제목만으로 안 읽히는 «누르면 일어날 일»을 덧붙인다(예: 흐리게 보이지만 누를 수 있는 버튼이 왜 확인창을 여는지)
+  accessibilityHint,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -148,7 +155,8 @@ export function Btn({
       <Pressable
         testID={id}
         accessibilityRole="button"
-        accessibilityLabel={title}
+        accessibilityLabel={accessibilityLabel || title}
+        accessibilityHint={accessibilityHint}
         // small은 시각 높이 38pt를 유지하되 실제 누름 영역은 최소 44pt로 확장한다.
         hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
@@ -188,7 +196,8 @@ export function Btn({
           paddingVertical: dynamicHeight ? 12 : undefined,
           ...(round ? { width: 88 } : {}),
           borderRadius: 999,
-          paddingHorizontal: round ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
+          paddingHorizontal: round || icon ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
+          ...(icon ? { width: componentTokens.button.height } : {}),
           borderWidth: kind === 'ghost' || kind === 'danger' ? 0 : small ? 1.5 : 2,
           borderColor: kind === 'destructive' ? componentTokens.button.destructiveBorder : C.brown,
           backgroundColor: kind ? 'transparent' : componentTokens.button.background,
@@ -210,25 +219,29 @@ export function Btn({
             : {}),
         }}
       >
-        <Txt
-          style={{
-            fontSize: round || dialog ? 15 : small ? 14 : 16,
-            ...(round ? { lineHeight: 18 } : {}),
-            // v2 홈 집중하기(원형)는 보통 굵기
-            fontWeight: round ? '400' : kind && kind !== 'butter' ? '700' : '800',
-            color:
-              kind === 'danger'
-                ? componentTokens.button.destructiveBorder
-                : kind === 'destructive'
-                  ? componentTokens.button.destructiveForeground
-                  : kind === 'ghost'
-                    ? C.muted
-                    : C.ink,
-            textAlign: 'center',
-          }}
-        >
-          {title}
-        </Txt>
+        {icon ? (
+          <Image source={icon} style={k.buttonIcon} accessible={false} />
+        ) : (
+          <Txt
+            style={{
+              fontSize: round || dialog ? 15 : small ? 14 : 16,
+              ...(round ? { lineHeight: 18 } : {}),
+              // v2 홈 집중하기(원형)는 보통 굵기
+              fontWeight: round ? '400' : kind && kind !== 'butter' ? '700' : '800',
+              color:
+                kind === 'danger'
+                  ? componentTokens.button.destructiveBorder
+                  : kind === 'destructive'
+                    ? componentTokens.button.destructiveForeground
+                    : kind === 'ghost'
+                      ? C.muted
+                      : C.ink,
+              textAlign: 'center',
+            }}
+          >
+            {title}
+          </Txt>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -419,7 +432,9 @@ export function Chips({
           disabled={disabled}
           onPress={() => onChange(x)}
           style={{
-            height: large ? 44 : 36,
+            // 큰 글자에서는 글이 잘리지 않게 칩이 늘어난다(평소 크기는 그대로 44·36)
+            minHeight: large ? 44 : 36,
+            paddingVertical: primitiveTokens.space[1],
             paddingHorizontal: large ? 18 : 14,
             alignItems: 'center',
             justifyContent: 'center',
@@ -447,8 +462,18 @@ export function Chips({
  * 글자 수 제한 칸 아래의 「현재/최대」 표시. 한도에 닿으면 더 쓸 수 없다는 안내로 바꾼다 —
  * maxLength 로 입력이 소리 없이 멈추거나 붙여 넣은 글이 잘려도 사용자가 알 수 있게.
  */
-export function CharCount({ value, max }: { value: string; max: number }) {
-  const full = value.length >= max;
+export function CharCount({
+  value,
+  max,
+  codePoints = false,
+}: {
+  value: string;
+  max: number;
+  /** 서버가 코드포인트로 세는 칸(🐟 = 1, GROMO-2263)이면 켠다. 기본은 기존 UTF-16 길이. */
+  codePoints?: boolean;
+}) {
+  const length = codePoints ? codePointLength(value) : value.length;
+  const full = length >= max;
   return (
     <Txt
       kind="meta"
@@ -461,7 +486,7 @@ export function CharCount({ value, max }: { value: string; max: number }) {
         ...(full ? { color: semanticTokens.color.danger, fontWeight: '700' } : null),
       }}
     >
-      {full ? t('common.characterLimit', { max, count: value.length }) : `${value.length}/${max}`}
+      {full ? t('common.characterLimit', { max, count: length }) : `${length}/${max}`}
     </Txt>
   );
 }
@@ -578,27 +603,34 @@ export function Bar({ value }: any) {
     </View>
   );
 }
-export function Badge({ children, soft = false, small = false }: any) {
+// numberOfLines: 글자를 이 줄 수에서 말줄임으로 자른다(기본은 제한 없음). style: 바깥 알약에 얹는 배치(maxWidth·alignSelf 등).
+export function Badge({
+  children,
+  soft = false,
+  small = false,
+  numberOfLines,
+  ellipsizeMode,
+  style,
+}: any) {
+  const base = {
+    alignSelf: 'flex-start',
+    minHeight: small ? 22 : 28,
+    paddingHorizontal: small ? 7 : 12,
+    paddingVertical: small ? 1 : 3,
+    borderRadius: componentTokens.badge.radius,
+    borderWidth: componentTokens.badge.borderWidth,
+    borderColor: soft ? componentTokens.badge.soft.border : componentTokens.badge.default.border,
+    backgroundColor: soft
+      ? componentTokens.badge.soft.background
+      : componentTokens.badge.default.background,
+    justifyContent: 'center',
+  } as const;
   return (
-    <View
-      style={{
-        alignSelf: 'flex-start',
-        minHeight: small ? 22 : 28,
-        paddingHorizontal: small ? 7 : 12,
-        paddingVertical: small ? 1 : 3,
-        borderRadius: componentTokens.badge.radius,
-        borderWidth: componentTokens.badge.borderWidth,
-        borderColor: soft
-          ? componentTokens.badge.soft.border
-          : componentTokens.badge.default.border,
-        backgroundColor: soft
-          ? componentTokens.badge.soft.background
-          : componentTokens.badge.default.background,
-        justifyContent: 'center',
-      }}
-    >
+    <View style={style ? [base, style] : base}>
       {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
       <Txt
+        numberOfLines={numberOfLines}
+        ellipsizeMode={ellipsizeMode}
         style={{
           fontSize: small ? 12 : 13,
           lineHeight: small ? 17.4 : 18.85,
@@ -766,7 +798,15 @@ export function Page({
     </View>
   );
 }
-export function Overlay({ children, close, sheet = false, background }: any) {
+export function Overlay({
+  children,
+  close,
+  sheet = false,
+  background,
+  maxWidth,
+  contentStyle,
+  frameStyle,
+}: any) {
   const ins = useScreenInsets();
   const layout = useAppLayout();
   const [availableHeight, setAvailableHeight] = useState(layout.height);
@@ -805,11 +845,14 @@ export function Overlay({ children, close, sheet = false, background }: any) {
         />
         <KeyboardAvoidingView
           behavior={undefined}
-          style={{
-            width: centered ? layout.modalWidth : '100%',
-            maxHeight: Math.max(100, availableHeight - ins.top - ins.bottom - 24),
-            flexShrink: 1,
-          }}
+          style={[
+            {
+              width: centered ? Math.min(layout.modalWidth, maxWidth ?? layout.modalWidth) : '100%',
+              maxHeight: Math.max(100, availableHeight - ins.top - ins.bottom - 24),
+              flexShrink: 1,
+            },
+            frameStyle,
+          ]}
         >
           <ScrollView
             keyboardShouldPersistTaps="handled"
@@ -826,14 +869,17 @@ export function Overlay({ children, close, sheet = false, background }: any) {
               borderBottomRightRadius: centered ? componentTokens.modal.radius : 0,
               flexShrink: 1,
             }}
-            contentContainerStyle={{
-              padding: componentTokens.modal.padding,
-              paddingBottom: centered
-                ? componentTokens.modal.paddingBottom
-                : ins.bottom + semanticTokens.spacing.control,
-              gap: componentTokens.modal.gap,
-              boxShadow: sheet ? 'none' : componentTokens.modal.shadow,
-            }}
+            contentContainerStyle={[
+              {
+                padding: componentTokens.modal.padding,
+                paddingBottom: centered
+                  ? componentTokens.modal.paddingBottom
+                  : ins.bottom + semanticTokens.spacing.control,
+                gap: componentTokens.modal.gap,
+                boxShadow: sheet ? 'none' : componentTokens.modal.shadow,
+              },
+              contentStyle,
+            ]}
           >
             {sheet && (
               <View

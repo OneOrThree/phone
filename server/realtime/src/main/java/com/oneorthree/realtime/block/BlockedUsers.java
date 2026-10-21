@@ -3,6 +3,7 @@ package com.oneorthree.realtime.block;
 import com.oneorthree.realtime.block.client.BlockClient;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.common.redis.Sourced;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -14,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -89,6 +91,36 @@ public class BlockedUsers {
     }
 
     /**
+     * {@link #hasBlocked} 와 같은 판정에, 그 판정이 기댄 차단 집합 캐시의 만료를 함께 돌려준다(GROMO-2340). 캐시 hit 이면 집합과
+     * 그 만료를 한 원자 단위({@link Sourced#read})로 읽고 — MGET 한 번을 대신하므로 왕복은 늘지 않는다 — 정본에서 새로 읽었으면 그 적재 수명
+     * (조회 시작 + TTL)이다. 조회가 없으면(꺼짐·발신자 없음·본인) 만료는 {@link Sourced#UNBOUNDED}.
+     *
+     * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 전달하지 않는다
+     */
+    public Sourced<Boolean> hasBlockedSourced(UUID viewerId, UUID senderId) {
+        if (!enabled || senderId == null || senderId.equals(viewerId)) {
+            return new Sourced<>(false, Sourced.UNBOUNDED);
+        }
+        Sourced<Set<UUID>> blocked = load(viewerId, this::readWithExpiry);
+        return new Sourced<>(blocked.value().contains(senderId), blocked.expiresAtNanos());
+    }
+
+    /**
+     * 두 사람 중 <b>어느 한쪽이라도</b> 상대를 차단했는가 — 바다 방 배정의 분리 판정(GROMO-2300).
+     *
+     * <p>{@link #hasBlocked} 와 달리 <b>필터 스위치를 보지 않는다</b>. 스위치는 «전달 직전 필터»를 켜는 것이고,
+     * 배정 분리는 그와 별개의 규칙이라 꺼진 배포에서도 같은 방에 넣지 않는다. 세대 캐시·fail-closed 는 같다.
+     *
+     * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 그 방을 후보에서 뺀다
+     */
+    public boolean eitherBlocked(UUID a, UUID b) {
+        if (a.equals(b)) {
+            return false;
+        }
+        return blockedBy(a).contains(b) || blockedBy(b).contains(a);
+    }
+
+    /**
      * 그 차단자의 세대를 올린다 — 캐시된 집합은 이 순간부터 읽히지 않는다.
      *
      * <p>실패를 삼키지 않는다. 사건 처리 트랜잭션이 롤백돼 수신 기록이 남지 않고 relay 가 다시 보낸다.
@@ -102,23 +134,48 @@ public class BlockedUsers {
     }
 
     private Set<UUID> blockedBy(UUID viewerId) {
+        return load(viewerId, this::readGenerationAndCache).value();
+    }
+
+    /** 세대·캐시 한 번 읽기 — 값이 없으면 {@code null}. */
+    private record Read(String generation, String cached, long expiresAtNanos) {
+    }
+
+    private Read readGenerationAndCache(UUID viewerId) {
+        List<String> values = redis.opsForValue().multiGet(
+                List.of(RedisKeys.blockGeneration(viewerId), RedisKeys.blockCache(viewerId)));
+        if (values == null || values.size() != 2) {
+            throw new IllegalStateException("MGET 응답이 비었다");
+        }
+        return new Read(values.get(0), values.get(1), Sourced.UNBOUNDED);
+    }
+
+    /** 캐시 값·그 만료·세대를 한 원자 단위로 — 값과 만료 사이에 다른 적재가 끼지 못한다. */
+    private Read readWithExpiry(UUID viewerId) {
+        Sourced<List<String>> read = Sourced.read(redis, RedisKeys.blockCache(viewerId),
+                RedisKeys.blockGeneration(viewerId));
+        String cached = read.value().get(0);
+        String generation = read.value().get(1);
+        return new Read(generation.isEmpty() ? null : generation, cached.isEmpty() ? null : cached,
+                read.expiresAtNanos());
+    }
+
+    private Sourced<Set<UUID>> load(UUID viewerId, Function<UUID, Read> reader) {
         String generationKey = RedisKeys.blockGeneration(viewerId);
         String cacheKey = RedisKeys.blockCache(viewerId);
         String generation;
         try {
-            List<String> values = redis.opsForValue().multiGet(List.of(generationKey, cacheKey));
-            if (values == null || values.size() != 2) {
-                throw new IllegalStateException("MGET 응답이 비었다");
-            }
-            generation = values.get(0) == null ? "0" : values.get(0);
-            Set<UUID> hit = values.get(1) == null ? null : parseIfCurrent(values.get(1), generation);
+            Read read = reader.apply(viewerId);
+            generation = read.generation() == null ? "0" : read.generation();
+            Set<UUID> hit = read.cached() == null ? null : parseIfCurrent(read.cached(), generation);
             if (hit != null) {
-                return hit;
+                return new Sourced<>(hit, read.expiresAtNanos());
             }
         } catch (RuntimeException e) {
             log.warn("차단 캐시 조회 실패 — 이 프레임은 보내지 않는다. reason={}", e.getClass().getSimpleName());
             throw new UpstreamUnavailableException();
         }
+        long fetchStart = System.nanoTime();
         Set<UUID> fresh = blockClient.fetchBlockedIds(viewerId);
         // 조회 도중 세대가 올랐으면(차단 커밋 직전에 읽은 옛 목록일 수 있다) 이 결과로 지금 프레임을 판정하지 않는다.
         // 재조회하지 않고 판정 불가로 올린다 — 재조회도 같은 경합을 다시 탈 수 있고, 한 프레임을 버리는 비용이 더 싸다.
@@ -127,7 +184,7 @@ public class BlockedUsers {
             throw new UpstreamUnavailableException();
         }
         store(cacheKey, generation, fresh);
-        return fresh;
+        return new Sourced<>(fresh, fetchStart + cacheTtl.toNanos());
     }
 
     private String currentGeneration(String generationKey) {

@@ -3,6 +3,7 @@ import RNCKakaoUser
 import react_native_line
 import React
 import ReactAppDependencyProvider
+import AirbridgeReactNative
 
 @main
 class AppDelegate: ExpoAppDelegate {
@@ -11,12 +12,23 @@ class AppDelegate: ExpoAppDelegate {
   var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
 
+  // GROMO-2395 Airbridge 앱 이름·SDK 토큰 — 대시보드 「설정 > 토큰 관리」 값. Android 는 MainApplication.kt 의 같은 상수.
+  // 비어 있으면 SDK 를 초기화하지 않는다(토큰 발급 전 빌드가 빈 토큰으로 이벤트를 보내지 않게).
+  private static let airbridgeAppName = ""
+  private static let airbridgeAppToken = ""
+
   public override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
     // 콜드 스타트에서는 이전 차단부터 정리하고, 서버 세션을 확인한 JS가 유효한 집중에 재적용한다.
     ScreenTimeModule().stopFocusShield({ _ in }, rejecter: { _, _, _ in })
+    // Airbridge 는 앱 시작 시점의 설치·세션 이벤트를 잡아야 하므로 React Native 가 뜨기 전에 초기화한다.
+    if !Self.airbridgeAppName.isEmpty && !Self.airbridgeAppToken.isEmpty {
+      AirbridgeReactNative.initializeSDK(name: Self.airbridgeAppName, token: Self.airbridgeAppToken)
+    } else {
+      NSLog("[Airbridge] 앱 이름·SDK 토큰이 비어 있어 초기화를 건너뜁니다 — AppDelegate.swift 의 상수를 채우세요")
+    }
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()

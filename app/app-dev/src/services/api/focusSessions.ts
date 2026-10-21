@@ -63,6 +63,10 @@ export type FocusSessionView = {
    * 기존처럼 seconds 로 뭉뚱그린다). 마지막 구간이 열려 있어도 서버가 serverNow 로 닫아 보낸다.
    */
   activeIntervals?: { startedAt: string; endedAt: string }[];
+  /** 세션 종류(GROMO-2310) — 서버가 NON_NULL 로 싣는다. 없으면 구버전 서버라 섬 집중으로 본다. */
+  kind?: 'island' | 'sea';
+  /** SEA 만 — 목적지 섬 이름(T1). 구버전 서버·섬 행이 없으면 없다. */
+  destinationIslandName?: string | null;
 };
 
 /** finish·pending-result 공용 정산 뷰 — earnedFish·allocation 은 서버 확정값이다. */
@@ -80,6 +84,15 @@ export type FocusFinishView = {
   questProgress: { id: string; myRate: number }[];
   /** ACTIVE 구간 목록(GROMO-2131) — 전부 닫힌 구간. 없으면 구버전 서버. */
   activeIntervals?: { startedAt: string; endedAt: string }[];
+  /** 바다 항해 정산(GROMO-2310 타입만 — 결과창은 GROMO-2311). */
+  kind?: 'island' | 'sea';
+  arrived?: boolean;
+  seaReward?: {
+    grantedProductIds: string[];
+    minutesToNextTier: number | null;
+    /** grantedProductIds 중 처음 받은 것(GROMO-2382 NEW!). 구버전 서버는 없다. */
+    newProductIds?: string[] | null;
+  } | null;
 };
 
 export type FocusSessionStartInput = {
@@ -108,6 +121,34 @@ export function startFocusSession(
     idempotencyKey,
     body: input,
   });
+}
+
+/**
+ * 바다 항해 집중 시작(GROMO-2310) — `POST /focus-sessions/sea`. 본문은 정확히 한 필드
+ * `{destinationIslandId}`(그 밖 필드가 있으면 서버가 INVALID_REQUEST). 목적지가 망원경 목록에 없으면
+ * 409 `SEA_DESTINATION_UNAVAILABLE` — 재시도 판단은 sessionCommands.startSea 가 한다.
+ * 응답의 `islandId` = 목적지, `targetMinutes` = 항해 분, `subject` = `""`.
+ */
+export function startSeaFocusSession(
+  destinationIslandId: string,
+  idempotencyKey: string,
+): Promise<FocusSessionView> {
+  return request<FocusSessionView>('/focus-sessions/sea', {
+    method: 'POST',
+    idempotencyKey,
+    body: { destinationIslandId },
+  });
+}
+
+export type SeaRemarkView = { remark: string | null; changedAt: string; lockedUntil: string };
+
+/**
+ * 바다 한마디(GROMO-2310) — `PUT /me/sea-remark {remark}`. 서버가 strip 뒤 코드포인트 20자 초과면 400,
+ * `""` 은 지움, 고친 뒤 5분 안이면 409 `SEA_REMARK_LOCKED`, 게스트는 403 `SOCIAL_LOGIN_REQUIRED`.
+ * 재시도 없는 단발이다(멱등 키 없음 — 같은 값을 다시 보내면 잠금에 걸릴 뿐 상태가 겹치지 않는다).
+ */
+export function updateSeaRemark(remark: string): Promise<SeaRemarkView> {
+  return request<SeaRemarkView>('/me/sea-remark', { method: 'PUT', body: { remark } });
 }
 
 const versioned = (expectedVersion: number, idempotencyKey: string) => ({

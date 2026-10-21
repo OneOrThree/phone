@@ -1,14 +1,14 @@
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useContext } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
 import { getSession } from '@/services/api/session';
+import { Ticking } from '@/hooks/useNow';
 import { catColor, type IslandPresence } from '@/screens/focus/useIslandPresence';
 import { useAppLayout } from '@/utils/layout';
 import {
   FiButton,
-  FiModal,
   INK,
   ME,
   OUTLINE,
@@ -17,12 +17,21 @@ import {
   fiTitle,
   hms,
 } from '@/screens/focus/FishingIsland';
-import { C } from '@/design-system/primitives';
+import { C, MotionContext } from '@/design-system/primitives';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { CatSprite } from '@/components/CatSprite';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
+import { lookOf } from '@/services/memberAppearance';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
+import {
+  RestCampfireBack,
+  RestCampfireFront,
+  RestCat,
+  restPose,
+  useRestClock,
+} from '@/screens/focus/RestCampfireMotion';
 
 // v2 시안 모닥불 전용 화면(GROMO-1862): 섬 지도가 아닌 모닥불 배경에 의자 없이 식빵 굽는 고양이만 앉힌다.
 // 배경 원본 1024×1024에서 돌 테두리 중심은 (482,600), 자리는 그 바깥 타원(가로 168·세로 125).
@@ -149,28 +158,22 @@ export function RestGroup({
   live,
   resume,
   home,
-  endRest,
   result = false,
   tutorial,
   goldenReeling = false,
   goldenFishCount = 0,
-  ...confirm
 }: {
   state: State;
   // GROMO-2010 — 서버 모드에서 넘어오는 실시간 휴식 멤버. 없으면 기존 로컬 멤버 경로.
   live?: IslandPresence | null;
   resume: () => void;
   home: () => void;
-  endRest?: () => void;
   // 휴식 종료 결과창 뒤 배경으로 쓸 때는 버튼을 숨기고 휴식 시간을 종료 순간에 멈춘다
   result?: boolean;
   tutorial?: { text: string; onSkip: () => void };
   /** 휴식 결과 배경에서 컷신 후 실제 reel sprite를 보여준다. */
   goldenReeling?: boolean;
   goldenFishCount?: number;
-  // 휴식 종료 확인창 열림 상태를 밖(뒤로가기 처리)에서 쥘 때
-  confirming?: boolean;
-  setConfirming?: (open: boolean) => void;
 }) {
   const layout = useAppLayout(),
     wide = layout.width >= 600,
@@ -181,27 +184,27 @@ export function RestGroup({
   const browsing = !result && !pausedSession;
   const restTutorial = pausedSession ? tutorial : undefined;
   const resumeTarget = useSpotlightTarget(!!restTutorial);
-  const [own, setOwn] = useState(false),
-    confirming = confirm.confirming ?? own,
-    setConfirming = confirm.setConfirming ?? setOwn;
-  const [now, setNow] = useState(ended?.at ?? Date.now());
+  // 결과창 배경이면 휴식 시간을 종료 순간에 멈춘다. 흐르는 휴식 시간은 글자만 Ticking 이 다시 그린다(GROMO-2372)
+  const [endedAt] = useState(ended?.at ?? Date.now());
   // 내 휴식 시작: 휴식 중이면 세션, 결과창이면 마지막 집중 구간이 끝난 때
+  // GROMO-2361 휴식 장면 움직임: 동작 줄이기면 정지 1장면. 시계는 연출 전용이라 보상·집중 시간과 무관하다.
+  const still = useContext(MotionContext) || state.settings.reduceMotion;
+  const clock = useRestClock(still);
   const started = useRef(
     state.session?.restStartedAt || ended?.intervals?.at(-1)?.end || Date.now(),
   ).current;
-  useEffect(() => {
-    if (result) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [result]);
+  const restTime = (now: number, restStartedAt?: number) =>
+    hms(Math.max(0, (now - (restStartedAt || started)) / 1000));
   // 서버 모드는 실시간 rest 멤버가 정본 — 휴식 시작 시각은 서버 시계를 단말 시계로 환산한다.
   const others =
     live?.status === 'ready'
       ? live.rest
           .filter((m) => m.userId !== getSession()?.userId)
           .map((m) => ({
+            id: m.userId,
             name: m.name ?? t('focusFlow.common.resident'),
             color: catColor(m.catColor),
+            outfit: lookOf(live.looks, m.userId, m),
             restStartedAt: m.restStartedAt
               ? Date.parse(m.restStartedAt) - live.clockOffset
               : Date.now(),
@@ -216,7 +219,9 @@ export function RestGroup({
           }))
       : live
         ? []
-        : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
+        : currentIsland(state)
+            .members.filter((m) => !m.focusing && m.restStartedAt)
+            .map((m) => ({ ...m, outfit: undefined as Outfit | undefined }));
   // 자리 배정: 나는 뒤 가운데(1번), 주민은 서버 restSeat(있고 겹치지 않으면) 아니면 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
   const taken = new Set<number>(browsing ? [] : [1]);
   const actors = [
@@ -225,8 +230,10 @@ export function RestGroup({
           {
             seat: 1,
             me: true,
+            id: getSession()?.userId ?? 'me',
             name: t('focusFlow.common.me'),
             color: state.color,
+            outfit: outfitOf(state),
             restStartedAt: started,
           },
         ]
@@ -279,12 +286,8 @@ export function RestGroup({
         )
       }
     >
-      {/* 확인창·결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
-      <View
-        pointerEvents="box-none"
-        style={StyleSheet.absoluteFill}
-        {...a11yHidden(confirming || result)}
-      >
+      {/* 결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill} {...a11yHidden(result)}>
         <Image
           source={require('@/assets/backgrounds/campfire/day.jpg')}
           style={{
@@ -295,6 +298,7 @@ export function RestGroup({
             height: 1024 * s,
           }}
         />
+        <RestCampfireBack t={clock} still={still} x0={x0} y0={y0} s={s} />
         {placed.map((a) =>
           a.me && goldenReeling ? (
             <View
@@ -310,6 +314,7 @@ export function RestGroup({
                 size={a.n}
                 left={a.dx > 0}
                 reduce={state.settings.reduceMotion}
+                outfit={a.outfit}
               />
               <Image
                 source={assets['props/fishing/fishing-rod.png']}
@@ -341,22 +346,24 @@ export function RestGroup({
               )}
             </View>
           ) : (
-            <Image
+            // 자리 고양이(testID 는 자세와 무관하게 자리 번호). 자세는 멤버 식별자로 고정한다.
+            <RestCat
               key={a.seat}
               testID={`loaf-${a.seat}`}
-              source={loaf[a.color]}
-              style={{
-                position: 'absolute',
-                left: a.x - a.n / 2,
-                top: a.top,
-                width: a.n,
-                height: a.n,
-                // 오른쪽 자리는 불을 보게 좌우 반전
-                transform: [{ scaleX: a.dx > 0 ? -1 : 1 }],
-              }}
+              t={clock}
+              still={still}
+              pose={restPose(a.id)}
+              color={a.color}
+              loafSource={loaf[a.color]}
+              outfit={a.outfit}
+              x={a.x}
+              top={a.top}
+              n={a.n}
+              flip={a.dx > 0}
             />
           ),
         )}
+        <RestCampfireFront t={clock} still={still} x0={x0} y0={y0} s={s} />
         {placed.map((a) => (
           <React.Fragment key={a.seat}>
             {/* 휴식 시간은 머리 위(반투명 배경), 이름은 발 아래(그림자 글자) */}
@@ -379,7 +386,11 @@ export function RestGroup({
                   color: INK,
                 }}
               >
-                {hms(Math.max(0, (now - (a.restStartedAt || started)) / 1000))}
+                {result ? (
+                  restTime(endedAt, a.restStartedAt)
+                ) : (
+                  <Ticking>{(now) => restTime(now, a.restStartedAt)}</Ticking>
+                )}
               </Text>
             </View>
             <View
@@ -497,9 +508,8 @@ export function RestGroup({
             </View>
           )}
         </View>
-        {/* 확인창이 떠 있는 동안에는 아래 버튼을 숨긴다 */}
       </View>
-      {!result && !confirming && (
+      {!result && (
         <View
           style={{
             position: 'absolute',
@@ -525,38 +535,7 @@ export function RestGroup({
               onPress={pausedSession ? resume : home}
             />
           </View>
-          {pausedSession && (
-            <FiButton
-              style={{ flex: 1 }}
-              id="end-rest"
-              title={t('focusFlow.rest.endButton')}
-              onPress={() => setConfirming(true)}
-            />
-          )}
         </View>
-      )}
-      {/* 휴식 종료는 집중이 통째로 끝나므로 한 번 묻는다. 계속 쉬기는 창만 닫고 휴식 시간은 계속 흐른다 */}
-      {confirming && !!pausedSession && (
-        <FiModal>
-          <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.rest.endConfirmTitle')}</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-            <FiButton
-              title={t('focusFlow.rest.keepResting')}
-              style={{ flex: 1 }}
-              onPress={() => setConfirming(false)}
-            />
-            <FiButton
-              primary
-              id="confirm-end-rest"
-              title={t('focusFlow.common.endFocus')}
-              style={{ flex: 1 }}
-              onPress={() => {
-                setConfirming(false);
-                (endRest || home)();
-              }}
-            />
-          </View>
-        </FiModal>
       )}
     </TutorialScene>
   );

@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -20,8 +21,10 @@ import org.springframework.context.annotation.Configuration;
 public class FilterConfig {
 
     @Bean
-    public FilterRegistrationBean<JwtFilter> jwtFilterRegistration(JwtValidator jwtValidator) {
-        FilterRegistrationBean<JwtFilter> registration = new FilterRegistrationBean<>(new JwtFilter(jwtValidator));
+    public FilterRegistrationBean<JwtFilter> jwtFilterRegistration(JwtValidator jwtValidator,
+            ChatUserFence chatUserFence) {
+        FilterRegistrationBean<JwtFilter> registration =
+                new FilterRegistrationBean<>(new JwtFilter(jwtValidator, chatUserFence));
         registration.addUrlPatterns("/api/*");
         registration.setOrder(1);
         return registration;

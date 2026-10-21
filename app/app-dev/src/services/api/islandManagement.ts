@@ -7,7 +7,8 @@
  *  - `PATCH  /islands/{islandId}`                            정보 수정. `Idempotency-Key` 필수.
  *                                                            부분 수정 — 키 누락은 미변경, 명시 null 은
  *                                                            400. 허용 키는 name/intro/approvalRequired/
- *                                                            maxMembers(정수 1~15, GROMO-1993)뿐이다.
+ *                                                            maxMembers(정수 1~15, GROMO-1993)/
+ *                                                            greeting(≤40 코드포인트, GROMO-2262)뿐이다.
  *  - `GET    /islands/{islandId}/members?cursor&limit`       주민 목록 — 기본 30, 1~100.
  *  - `GET    /islands/{islandId}/join-requests?cursor&limit` 방장 전용 pending 신청 목록.
  *  - `PATCH  /islands/{islandId}/join-requests/{requestId}`  승인·거절. 키 필수, 본문 정확히 {decision}.
@@ -40,6 +41,8 @@ export type IslandManaged = {
 /** 섬 이름·소개 최대 길이 — 서버 생성·수정 계약(`@Size(max = 50)`·`@Size(max = 200)`)과 같다. */
 export const ISLAND_NAME_MAX = 50;
 export const ISLAND_INTRO_MAX = 200;
+/** 인사말 최대 길이 — **코드포인트**(🐟 = 1) 40. 서버(GROMO-2262)가 코드포인트로 세므로 UTF-16 `length` 로 재지 않는다. */
+export const ISLAND_GREETING_MAX = 40;
 
 /** 부분 수정 입력 — 허용 키만. `expectedVersion`·`password` 등 계약 밖 키는 타입이 막는다. */
 export type ManageIslandPatch = {
@@ -50,6 +53,11 @@ export type ManageIslandPatch = {
   approvalRequired?: boolean;
   /** 주민 정원 1~15. 현재 주민 수 아래로는 서버가 거절한다(field=maxMembers). */
   maxMembers?: number;
+  /**
+   * 섬장 인사말(GROMO-2262), 최대 40 코드포인트. 빈 문자열·공백은 기본 문구로 되돌린다 — 지울 때도 null 이
+   * 아니라 빈 문자열을 보낸다(명시 null 은 계약 위반). 구서버는 이 키를 거절하니 바꿀 때만 싣는다.
+   */
+  greeting?: string;
 };
 
 /** 개인 외양 스냅샷 — 공개 `PersonalAppearanceState` 와 같은 모양(GROMO-1783). */
@@ -86,6 +94,8 @@ export type IslandJoinRequestItem = {
   name: string | null;
   /** 신청자 고양이 색(계정 Q03) — 미선택 null. 이 필드를 싣기 전 서버면 없을 수 있다. */
   catColor?: string | null;
+  /** 신청자 착용(GROMO-2389) — 머리·목 id 는 appearanceOutfit 으로 꺼낸다. */
+  appearance?: unknown;
   status: 'pending';
   version: number;
 };
@@ -173,8 +183,15 @@ export function kickIslandMember(
   });
 }
 
-/** 나가기 — 본문 없이 멱등 키만. 성공 뒤 호출부는 `/me/islands` 재조회로 소속 해제를 확정한다. */
-export function leaveIsland(islandId: string, idempotencyKey: string): Promise<{ left: true }> {
+/**
+ * 나가기 — 본문 없이 멱등 키만. 성공 뒤 호출부는 `/me/islands` 재조회로 소속 해제를 확정한다.
+ * `nextLocation`(GROMO-2260)은 나간 뒤 위치다 — `islandId` null 이면 먼바다. 키가 없거나 null 이면 「모름」
+ * (배포 전 receipt 재생)이라 먼바다로 읽지 않는다.
+ */
+export function leaveIsland(
+  islandId: string,
+  idempotencyKey: string,
+): Promise<{ left: true; nextLocation?: { islandId: string | null } | null }> {
   return request(`/islands/${encodeURIComponent(islandId)}/memberships/me`, {
     method: 'DELETE',
     idempotencyKey,

@@ -1,7 +1,7 @@
-# 시드 볼륨 설계 — post-V7 스키마 기준 (진실 원천: `back/src/main/resources/db/migration/V1~V7`)
+# 시드 볼륨 설계 — 현재 마이그레이션 기준 (진실 원천: `server/data-api/src/main/resources/db/migration/`)
 
 > PRD §8-2(작성 시점 post-V2)와 부하테스트-아키텍처.md(v2 설계) 볼륨표의 **최신 교정본**.
-> 이후 V8+ 마이그레이션이 추가되면 이 표부터 갱신한다. `SEED_VERSION=seed-v1`.
+> 이후 V8+ 마이그레이션이 추가되면 이 표부터 갱신한다. `SEED_VERSION=seed-v2`.
 
 ## 볼륨표
 
@@ -25,11 +25,11 @@
 | group_join_codes | 0 | — | V3 신설 — 부하 표적 아님, 시드 생략 |
 | user_blocks | 0 | — | V7 신설 — 부하 표적 아님, 시드 생략 |
 | group_members | ~100만 (그룹×20) | SQL | UNIQUE(user,group)·role OWNER(i=1)/MEMBER·status INACTIVE/CHALLENGE/FOCUS·is_left·**V7 announcement_permission(OWNER=ALLOW)** |
-| group_challenges | 20만 (그룹×4) | SQL | V5: 파라미터 컬럼 없음. type TIME_WINDOW/DURATION·category FOCUS/SCREEN_TIME·status ACTIVE/INACTIVE·created_at NOT NULL |
+| group_challenges | 20만 (그룹×4) | SQL | V5: 파라미터 컬럼 없음. type TIME_WINDOW/DURATION·category FOCUS/SCREEN_TIME·status ACTIVE/ENDED·created_at NOT NULL |
 | group_challenge_durations / _windows | ~10만 / ~10만 | SQL | V5 CTI — type별 1:1 상세(NOT NULL 파라미터) |
-| group_challenge_members | ~200만 (챌린지×10) | SQL | UNIQUE(challenge,user)·progress_minutes·created_at NOT NULL |
-| league_arenas | ~4만 (12주×유저/30/티어) | SQL | V2: started_at·created_at NOT NULL. status ACTIVE(현재주)/ENDED |
-| league_arena_users | ~120만 (arena×30) | SQL | UNIQUE(arena,user)·rank·result PROMOTED/STAY/RELEGATE_WARNING/RELEGATED |
+| group_challenge_members | ~200만 (챌린지×10) | SQL | UNIQUE(challenge,user,usage_date)·progress_minutes·created_at NOT NULL |
+| auth_sessions | 10만 | SQL | 부하 유저당 활성 세션 1개, JWT sid/gen 계약 |
+| league_weekly_results | 120만 | SQL | V12~14 전역 주간 결과(유저×12주), 티어 마스터는 Flyway 유지 |
 | items | 500 | CSV | idx<400 EQUIPPABLE(slot=idx%4)/나머지 DECORATIVE. id=`md5('item-'||idx)` |
 | user_items | ~100만 (유저×10) | SQL | UNIQUE(user,item)·is_used |
 | character_equipment | 40만 (유저×4슬롯) | SQL | UNIQUE(user,slot_type)·슬롯 일치 EQUIPPABLE만 |

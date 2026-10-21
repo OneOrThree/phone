@@ -17,6 +17,12 @@ public final class NotificationExpiry {
     /** 일 목표 마감 크론 시각 — {@code NotificationScheduler#sendChallengeDurationEndNotifications}. */
     private static final LocalTime DURATION_END_CRON = LocalTime.of(9, 0);
 
+    /** 잡지 발행 시각(KST) — {@code MagazineCalendar.OPENS} 와 같아야 한다(GROMO-2307). */
+    private static final LocalTime MAGAZINE_ISSUE_OPENS = LocalTime.of(7, 0);
+
+    /** 잡지 알림 수명의 상한 표지 — 실제 만료는 {@code expiresAt} 이 호 날짜 다음 날 07:00 KST 로 자른다. */
+    private static final Duration MAGAZINE_MAX_VALIDITY = Duration.ofDays(2);
+
     private NotificationExpiry() {
     }
 
@@ -35,6 +41,10 @@ public final class NotificationExpiry {
             case CHALLENGE_ENDED -> NotificationCronReplayJob.CHALLENGE_DURATION_END;
             default -> null;
         };
+        if (kind == NotificationKind.MAGAZINE_PUBLISHED) {
+            // 크론 재생 계약이 아니라 호의 «현재 호» 창이 수명이다 — 실제 만료는 expiresAt 이 호 날짜로 잰다.
+            return MAGAZINE_MAX_VALIDITY;
+        }
         return job == null ? null : job.validity();
     }
 
@@ -50,6 +60,9 @@ public final class NotificationExpiry {
             case LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING,
                  LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE, STREAK_AT_RISK ->
                     date.plusDays(1).atStartOfDay(KST).toInstant();
+            // 발행일(KST)의 호가 «현재 호» 인 마지막 순간(다음 날 07:00) — 지난 호가 「오늘의 고양이 잡지」로 나가지 않는다.
+            // MagazineCalendar.currentUntil 과 같은 경계다: notification(L7)이 magazine(L8)을 못 보므로 값만 맞춘다.
+            case MAGAZINE_PUBLISHED -> date.plusDays(1).atTime(MAGAZINE_ISSUE_OPENS).atZone(KST).toInstant();
             case INACTIVE_RETURN, MISSED_FOCUS_TODAY, CHALLENGE_ENDED ->
                     date.atTime(23, 0).atZone(KST).toInstant();
             default -> expiry;

@@ -2,7 +2,7 @@ package com.oneorthree.realtime.event;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 
-/** 15종 이벤트 이름과 정적 채널. 목적지 문자열을 생산자 payload에서 읽지 않는다. */
+/** 16종 이벤트 이름과 정적 채널. 목적지 문자열을 생산자 payload에서 읽지 않는다. */
 public enum RealtimeEventType {
     FOCUS_MEMBER_UPDATED("focus.member.updated", "focus"),
     REST_MEMBER_UPDATED("rest.member.updated", "rest"),
@@ -19,7 +19,9 @@ public enum RealtimeEventType {
     ISLAND_UPDATED("island.updated", "events"),
     ISLAND_MEMBERS_UPDATED("island.members.updated", "events"),
     NOTICE_UPDATED("notice.updated", "events"),
-    JOIN_REQUEST_UPDATED("join.request.updated", "events");
+    JOIN_REQUEST_UPDATED("join.request.updated", "events"),
+    /** 주민 첫 도착(GROMO-2302) — 「○○님이 도착했어요」 일회성 소식. 현재 소속 주민만 받는다. */
+    ISLAND_MEMBER_ARRIVED("island.member.arrived", "events");
 
     private final String wireName;
     private final String channel;

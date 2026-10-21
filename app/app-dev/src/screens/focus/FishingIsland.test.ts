@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
-import { AppState } from 'react-native';
+import { AppState, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 import { landPath, onLand } from '@/utils/world-grid';
 import { SECONDS_PER_FISH } from '@/services/model';
 import { FishingBoat } from '@/screens/focus/FocusSea';
+import { FishingSceneActive } from '@/screens/focus/FishingSceneMotion';
 import {
   LANDING,
   PEER_SPOTS,
@@ -40,8 +42,21 @@ jest.mock('@/components/CatSprite', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
-    CatSprite: ({ testID, motion, left }: { testID?: string; motion: string; left?: boolean }) =>
-      React.createElement(View, { testID, motion, left }),
+    CatSprite: ({
+      testID,
+      motion,
+      left,
+      keyPoses,
+      replayKey,
+      outfit,
+    }: {
+      testID?: string;
+      motion: string;
+      left?: boolean;
+      keyPoses?: boolean;
+      replayKey?: number;
+      outfit?: object;
+    }) => React.createElement(View, { testID, motion, left, keyPoses, replayKey, outfit }),
   };
 });
 
@@ -745,6 +760,44 @@ test('입장 도중 완료되어 기지개로 전환돼도 좌석에 도착하�
   await screen.unmount();
 });
 
+test('낚시섬 주민은 넘겨받은 머리·목을 입는다 (GROMO-2390)', async () => {
+  const noop = jest.fn();
+  const screen = await render(
+    React.createElement(FishingPeerActorView, {
+      actor: {
+        userId: 'u1',
+        sessionId: 's1',
+        name: '주민',
+        color: 'ginger',
+        subject: '수학',
+        seconds: 0,
+        status: 'active',
+        key: 'u1:s1',
+        slot: 0,
+        spot: PEER_SPOTS[0],
+        position: PEER_SPOTS[0],
+        phase: 'fishing',
+        visible: true,
+        generation: 1,
+      } as any,
+      outfit: { head: 'hat-1', neck: null },
+      size: 640,
+      sizeY: 640 / 1.5,
+      reduce: false,
+      onEntered: noop,
+      onCast: noop,
+      onPausedExit: noop,
+      onStretch: noop,
+      onCompletedExit: noop,
+    }),
+  );
+  assert.deepEqual(screen.getByTestId('fishing-actor-cat').props.outfit, {
+    head: 'hat-1',
+    neck: null,
+  });
+  await screen.unmount();
+});
+
 test('축음기 그림 위·바로 앞은 앉을 수 없다', () => {
   assert.ok(nearGram(GRAM));
   assert.ok(nearGram({ x: GRAM.x, y: GRAM.y - 6 }));
@@ -827,6 +880,7 @@ test('컷신 종료 전에는 섬 황금 물고기를 숨기고 종료 뒤에만
     );
   const screen = await render(wrap());
   assert.equal(screen.queryByTestId('fishing-island-golden-fish'), null);
+  assert.ok(screen.getByTestId('island-ocean', { includeHiddenElements: true }));
   await screen.rerender(wrap(true));
   const fish = screen.getByTestId('fishing-island-golden-fish');
   assert.equal(fish.props.accessibilityLabel, '방금 함께 낚은 황금 물고기');
@@ -1083,6 +1137,60 @@ test('낚시 주민 이동 cleanup은 시작한 Animated composite를 중단한�
   assert.equal(callback.mock.calls.length, 0);
 });
 
+test('낚시 주민은 left/top 대신 transform 을 네이티브 드라이버로 옮겨 걷고 자리에 닿으면 알린다(GROMO-2374)', async () => {
+  jest.useFakeTimers();
+  // 네이티브 드라이버는 Jest 목에서 값이 안 움직인다 — 같은 설정을 JS 드라이버로 돌려 위치를 본다.
+  const jsDriver = observeAnimatedOnJsDriver();
+  const onEntered = jest.fn();
+  try {
+    const screen = await render(
+      React.createElement(FishingPeerActorView, {
+        actor: {
+          ...({
+            userId: 'u1',
+            sessionId: 's1',
+            name: '주민',
+            color: 'ginger',
+            subject: '수학',
+            seconds: 0,
+            status: 'active',
+          } as const),
+          key: 'u1:s1',
+          slot: 0,
+          spot: PEER_SPOTS[0],
+          position: LANDING,
+          phase: 'entering',
+          visible: true,
+          generation: 1,
+        },
+        size: 640,
+        sizeY: 640 / 1.5,
+        reduce: false,
+        onEntered,
+        onCast: jest.fn(),
+        onPausedExit: jest.fn(),
+        onStretch: jest.fn(),
+        onCompletedExit: jest.fn(),
+      }),
+    );
+    const style = () => StyleSheet.flatten(screen.root?.props.style);
+    const start = style();
+    await act(async () => jest.advanceTimersByTime(100));
+    assert.equal(style().left, 0);
+    assert.equal(style().top, 0);
+    assert.notDeepEqual(style().transform, start.transform);
+    const moves = jsDriver.mock.calls.filter(([, config]) => typeof config.toValue === 'number');
+    assert.ok(moves.length >= 2);
+    for (const [, config] of moves) assert.equal(config.useNativeDriver, true);
+    await act(async () => jest.advanceTimersByTime(10000));
+    expect(onEntered).toHaveBeenCalledWith('u1:s1', 1);
+    await screen.unmount();
+  } finally {
+    jsDriver.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
 test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {
   jest.useFakeTimers();
   const props = {
@@ -1206,4 +1314,188 @@ test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨�
     assert.equal(westActor.queryByTestId('fishing-actor-rod'), null);
     await westActor.unmount();
   }
+});
+
+describe('낚아올리기 연출: 재발생·내 고양이 전용·중단 뒤 재개 안 함', () => {
+  const listeners: ((state: string) => void)[] = [];
+  let original: unknown;
+  const emit = (state: string) => act(async () => listeners.forEach((l) => l(state)));
+  const props = {
+    spot: { x: 34.1, y: 55.9, face: 1, bx: 30, by: 60 },
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    me: true,
+    seconds: 0,
+    reduce: false,
+  };
+  const actor = (
+    over: Partial<typeof props> & {
+      motion?: 'cast' | 'reel' | 'focus';
+      goldenFishCount?: number;
+      goldenCatchToken?: string | null;
+    } = {},
+    active = true,
+  ) =>
+    React.createElement(
+      FishingSceneActive.Provider,
+      { value: active },
+      React.createElement(FishingActor, { ...props, ...over }),
+    );
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    listeners.length = 0;
+    // RN jest 목의 currentState 는 함수라 실제 앱처럼 'active' 문자열로 바꿔 둔다.
+    original = AppState.currentState;
+    (AppState as { currentState: unknown }).currentState = 'active';
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+      _type: string,
+      listener: (state: string) => void,
+    ) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as any);
+  });
+  afterEach(() => {
+    (AppState as { currentState: unknown }).currentState = original;
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  test('2초 창 안에서 또 잡으면 replayKey 가 올라 연출을 처음부터 다시 튼다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 1 });
+    expect(screen.getByTestId('fishing-catch-motion')).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(1000));
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH * 2 }));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
+    expect(screen.getByTestId('fishing-catch-motion')).toBeTruthy();
+    // 상태 창은 마지막 사건 기준 2초(기존 타이머 재설정 그대로).
+    await act(async () => jest.advanceTimersByTime(1999));
+    expect(cat().motion).toBe('reel');
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(cat().motion).toBe('focus');
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await screen.unmount();
+  });
+
+  test('다른 주민은 몸 키 포즈만 하고 물보라·물고기는 그리지 않는다', async () => {
+    const screen = await render(actor({ me: false }));
+    await screen.rerender(actor({ me: false, seconds: SECONDS_PER_FISH }));
+    expect(screen.getByTestId('fishing-actor-cat').props).toMatchObject({
+      motion: 'reel',
+      keyPoses: true,
+    });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await screen.unmount();
+  });
+
+  test('덮인 화면에서 끊긴 사건은 돌아와도 키 포즈·물보라를 다시 틀지 않고 기본 reel 로 둔다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }));
+    await act(async () => jest.advanceTimersByTime(500));
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }, false));
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(1500));
+    expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    // 다음 사건은 다시 온전히 재생한다.
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH * 2 }));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
+    expect(screen.getByTestId('fishing-catch-motion')).toBeTruthy();
+    await screen.unmount();
+  });
+
+  test('cast 같은 비낚시 motion 중 count 가 올라도 replayKey 를 넘기지 않아 재시작시키지 않는다', async () => {
+    const screen = await render(actor({ motion: 'cast' }));
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    expect(cat().replayKey).toBeUndefined();
+    await screen.rerender(actor({ motion: 'cast', seconds: SECONDS_PER_FISH }));
+    expect(cat().replayKey).toBeUndefined();
+    await screen.unmount();
+  });
+
+  test('덮인 채 시작한 사건은 첫 렌더부터 키 포즈·물보라 없이 기본 reel 로 둔다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }, false));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await screen.unmount();
+  });
+
+  test('부모가 준 motion=reel 은 사건이 내려가면 끊김 기록을 비워 다음 reel 을 온전히 튼다', async () => {
+    const screen = await render(actor({ motion: 'reel' }, false));
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    await screen.rerender(actor({ motion: 'focus' }));
+    await screen.rerender(actor({ motion: 'reel' }));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true });
+    await screen.unmount();
+  });
+
+  test('백그라운드로 끊긴 사건도 복귀 뒤 남은 창 동안 기본 reel 로 둔다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }));
+    await act(async () => jest.advanceTimersByTime(500));
+    await emit('background');
+    await act(async () => jest.advanceTimersByTime(5000));
+    await emit('active');
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(1500));
+    expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    await screen.unmount();
+  });
+
+  test('일반 reel 창이 남은 채 황금 reel 이 끼었다 끝나면 일반 연출을 처음부터 다시 틀지 않는다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    // 황금 reel(0~2000ms) 도중 800ms 에 일반 한 마리(800~2800ms): 황금이 끝날 때 일반 창이 800ms 남는다.
+    await screen.rerender(actor({ goldenFishCount: 1, goldenCatchToken: 'g1' }));
+    await act(async () => jest.advanceTimersByTime(800));
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    await act(async () => jest.advanceTimersByTime(1200));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(800));
+    expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    // 새 count(새 nonce)는 온전히 재생한다.
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH * 2, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
+    expect(screen.getByTestId('fishing-catch-motion')).toBeTruthy();
+    await screen.unmount();
+  });
+
+  test('일반 reel 도중 황금 reel 이 끼면 그 사건은 끊긴 것으로 두고 황금 뒤 다시 틀지 않는다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }));
+    await act(async () => jest.advanceTimersByTime(800));
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    await act(async () => jest.advanceTimersByTime(1200)); // 일반 창 종료(2000ms)
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(800)); // 황금 종료
+    expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH * 2, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
+    await screen.unmount();
+  });
 });

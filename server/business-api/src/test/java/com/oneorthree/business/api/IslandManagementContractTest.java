@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -117,6 +118,19 @@ class IslandManagementContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 목록
 
     @Test
+    @DisplayName("주민 목록 — 상류가 준 head·neck·shoes 를 외양에 그대로 싣고, 없으면 키를 내리지 않는다 (GROMO-2331)")
+    void membersCarryCustomizationSlots() throws Exception {
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS.replace("\"decor\":null,",
+                "\"decor\":null,\"head\":\"duck\",\"neck\":null,")));
+
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/members")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].appearance.head").value("duck"))
+                .andExpect(jsonPath("$.data.items[0].appearance.neck").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].appearance.shoes").doesNotExist());
+    }
+
+    @Test
     @DisplayName("주민 목록 — 평문 경계는 서명 커서로 감싸고, 다음 요청에서 풀어 상류에 넘긴다. 다른 섬엔 못 쓴다")
     void membersCursorIsSignedAndBoundToTheIsland() throws Exception {
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
@@ -207,20 +221,53 @@ class IslandManagementContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- kick / leave
 
     @Test
-    @DisplayName("강퇴·나가기는 본문 없이 멱등키만 전달하고 최소 결과만 돌려준다 — 나가기는 사용자 축 경로다")
+    @DisplayName("강퇴·나가기는 본문 없이 멱등키만 전달하고 결과와 다음 위치를 돌려준다 — 나가기는 사용자 축 경로다")
     void kickAndLeaveForwardKeysAndReturnMinimalEvidence() throws Exception {
         DATA.on(DATA_KICK, request -> ok("{\"removed\":true}"));
-        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true}"));
+        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"nextLocation\":{\"islandId\":null}}"));
 
-        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET)).header("Idempotency-Key", KEY))
+        // 강퇴 응답은 방장이 받으므로 대상의 다음 위치가 없다 — 정확히 {removed:true} 다 (GROMO-2260).
+        MvcResult kicked = mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET))
+                        .header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.removed").value(true));
+                .andReturn();
+        assertThat(new tools.jackson.databind.ObjectMapper().readTree(kicked.getResponse().getContentAsString())
+                .path("data").toString()).isEqualTo("{\"removed\":true}");
         mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.left").value(true));
+                .andExpect(jsonPath("$.data.left").value(true))
+                .andExpect(jsonPath("$.data.nextLocation").exists())
+                .andExpect(jsonPath("$.data.nextLocation.islandId").value(nullValue()));
 
         assertThat(DATA.receivedFor(DATA_KICK).get(0).header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(DATA.receivedFor(DATA_LEAVE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        // 나가기의 다음 위치는 명시적 opt-in 이다 (GROMO-2260) — 파라미터가 없으면 Data 가 구 Business 용 한 키
+        // 응답을 준다. 강퇴는 다음 위치 자체가 없어 파라미터를 붙이지 않는다.
+        assertThat(DATA.receivedFor(DATA_KICK).get(0).query()).isNull();
+        assertThat(DATA.receivedFor(DATA_LEAVE).get(0).query()).isEqualTo("include=nextLocation");
+    }
+
+    @Test
+    @DisplayName("배포 전 receipt·구버전 Data 의 한 키 나가기 응답도 200 이고 nextLocation 은 null(모름)이다 — 먼바다와 다르다")
+    void legacyLeaveAndKickResponsesPassWithUnknownNextLocation() throws Exception {
+        DATA.on(DATA_KICK, request -> ok("{\"removed\":true}"));
+        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"nextLocation\":null}"));
+
+        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET)).header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.removed").value(true))
+                .andExpect(jsonPath("$.data.nextLocation").doesNotExist());
+        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.left").value(true))
+                .andExpect(jsonPath("$.data", hasKey("nextLocation")))
+                .andExpect(jsonPath("$.data.nextLocation").value(nullValue()));
+
+        // 키가 둘인데 다른 키면 여전히 계약 불일치다.
+        DATA.reset();
+        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"other\":1}"));
+        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     @Test
@@ -283,6 +330,8 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "PATCH_ANSWER,409,JOIN_REQUEST_TERMINAL,409,STATE_CONFLICT",
         "PATCH_ANSWER,409,ROOM_FULL,409,STATE_CONFLICT",
         "PATCH_ANSWER,403,KICKED_CANNOT_REJOIN,409,STATE_CONFLICT",
+        // 신청자의 소속 섬 상한 3 (GROMO-2260) — 전용 코드로 옮긴다.
+        "PATCH_ANSWER,409,GROUP_LIMIT_EXCEEDED,409,ISLAND_LIMIT_EXCEEDED",
         "PATCH_ANSWER,404,JOIN_REQUEST_NOT_FOUND,404,NOT_FOUND",
         "PATCH_ANSWER,410,INVITATION_EXPIRED,410,INVITATION_EXPIRED",
         "PATCH_MANAGE,400,INVALID_REQUEST,400,INVALID_REQUEST",
@@ -401,7 +450,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
             "/islands/{islandId}/join-requests/{requestId}|patch||status memberId version|status version",
             "/islands/{islandId}/members|get||items nextCursor version|",
             "/islands/{islandId}/members|get|items|id name catColor role appearance|id role appearance",
-            "/islands/{islandId}/members|get|items/appearance|clothes decor hull position version|clothes decor hull position version",
+            "/islands/{islandId}/members|get|items/appearance|clothes decor head neck shoes hull position version|clothes decor hull position version",
             "/islands/{islandId}/join-requests|get||items nextCursor|",
             "/islands/{islandId}/join-requests|get|items|id applicantId name catColor status version|id applicantId status version"})
     void publicDocumentationPreservesFieldsAndPresence(String path, String method, String nested,

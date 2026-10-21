@@ -6,7 +6,7 @@ require "shellwords"
 APP_ID = "com.oneorthree.focuscat".freeze
 IOS_DIR = File.expand_path("..", __dir__).freeze
 HERMES_CLI_PATH = File.expand_path("../node_modules/hermes-compiler/hermesc/osx-bin/hermesc", IOS_DIR).freeze
-PRODUCTION_API_URL = "https://api.oneorthree.world".freeze
+PRODUCTION_API_URL = "https://catus-api.oneorthree.world".freeze
 # 팀 dev 서버 — src/services/api/client.ts 의 DEV_API_URL 과 같은 값
 DEV_API_URL = "https://oneorthree.dev.mooo.com".freeze
 # expo-updates(OTA) 설정 — 운영과 같은 채널(production)·runtime(2.0.0)을 쓴다
@@ -99,7 +99,7 @@ platform :ios do
   desc "Fishcat 테스트 빌드 → TestFlight 업로드 (운영 서버)"
   lane :beta do
     require_terms_version!("release/TestFlight")
-    UI.user_error!("iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요.") unless ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"
+    UI.user_error!("iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요.") unless ENV["EXPO_PUBLIC_API_URL"] == "https://catus-api.oneorthree.world"
 
     UI.user_error!(
       "iOS release/TestFlight 차단: Apple 계정 재진입을 위해 서버 dual-audience 배포를 검증한 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요."

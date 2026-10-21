@@ -21,9 +21,12 @@ import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandManageView;
 import com.oneorthree.phone.internal.dto.IslandMemberRemovedView;
 import com.oneorthree.phone.internal.dto.IslandMembersPageView;
+import com.oneorthree.phone.internal.dto.IslandSummaryView;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.JoinIslandResultView;
 import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
 import com.oneorthree.phone.internal.dto.MyIslandsView;
+import com.oneorthree.phone.internal.dto.NextLocationView;
 import com.oneorthree.phone.internal.service.IslandInvitationService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
@@ -294,9 +297,9 @@ class IslandManagementIntegrationTest {
 
         List<IslandMembersPageView.Item> items = management.members(newUser(), f.islandId(), null, null, 30).items();
         assertThat(items.get(0).appearance())
-                .isEqualTo(new PersonalAppearanceView(null, null, "raft", "front", 0));
+                .isEqualTo(new PersonalAppearanceView(null, null, null, null, null, "raft", "front", 0));
         assertThat(items.get(1).appearance())
-                .isEqualTo(new PersonalAppearanceView("scarf", null, "raft", "back", 3));
+                .isEqualTo(new PersonalAppearanceView("scarf", null, null, null, null, "raft", "back", 3));
     }
 
     // ---------------------------------------------------------------- §3.3 requests
@@ -518,7 +521,7 @@ class IslandManagementIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.left").value(true));
         assertThat(active(f.islandId(), f.member())).isFalse();
-        assertThat(management.leave(f.member(), f.islandId(), key)).isEqualTo(new IslandLeftView(true));
+        assertThat(management.leave(f.member(), f.islandId(), key)).isEqualTo(new IslandLeftView(true, new NextLocationView(null)));
         assertThatThrownBy(() -> management.leave(f.member(), f.islandId(), UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
         assertThat(count("select count(*) from event_outbox where subject_id=?"
@@ -690,7 +693,48 @@ class IslandManagementIntegrationTest {
     }
 
     @Test
-    @DisplayName("현재 섬에서 나가도 남은 소속이 있으면 남은 메인 섬으로 옮겨진다")
+    @DisplayName("다른 소속이 남아 있어도 현재 섬에서 강퇴되면 먼바다다 — currentIslandId null, lossReason KICKED (GROMO-2315)")
+    void kickWithOtherMembershipsSendsToTheSea() {
+        UUID target = newUser();
+        UUID home = islands.create(target, new CreateIslandCommandRequest("남는섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID host = newUser();
+        UUID islandId = island("내보낼섬", false, 10, false);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        joins.join(target, islandId, null, UUID.randomUUID());
+        assertThat(currentIsland(target)).isEqualTo(islandId);
+
+        management.kick(host, islandId, target, UUID.randomUUID());
+
+        // 자진 이탈이었으면 남은 섬(가 본 섬)으로 옮겨졌다 — 아래 «나가기» 테스트가 그 반대편이다.
+        assertThat(currentIsland(target)).isNull();
+        assertThat(lossReason(target)).isEqualTo("KICKED");
+        MyIslandsView kicked = islands.myIslands(target);
+        assertThat(kicked.currentIslandId()).isNull();
+        assertThat(kicked.lossReason()).isEqualTo(GroupLeaveReason.KICKED);
+        assertThat(kicked.items()).extracting(IslandSummaryView::id).as("소속은 그대로다").containsExactly(home);
+    }
+
+    @Test
+    @DisplayName("강퇴된 사람의 재신청은 누구나 가입 섬이어도 pending 이고, 섬장이 승인하면 강퇴 행이 되살아난다 (GROMO-2315)")
+    void kickedApplicantGoesPendingAndApprovalRevivesTheRow() {
+        Fixture f = fixture(false);
+        management.kick(f.host(), f.islandId(), f.member(), UUID.randomUUID());
+
+        JoinIslandResultView applied = joins.join(f.member(), f.islandId(), null, UUID.randomUUID());
+        assertThat(applied.status()).isEqualTo("pending");
+        assertThat(active(f.islandId(), f.member())).as("신청은 소속이 아니다").isFalse();
+
+        joins.answer(f.host(), f.islandId(), applied.requestId(), true, UUID.randomUUID());
+
+        assertThat(requestStatus(applied.requestId())).isEqualTo("APPROVED");
+        assertThat(active(f.islandId(), f.member())).isTrue();
+        assertThat(count("select count(*) from group_members where group_id=? and user_id=?"
+                + " and left_reason is null", f.islandId(), f.member())).as("같은 행을 되살린다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("현재 섬에서 나가도 남은 소속 중 가 본 섬이 있으면 최근 머문 섬으로 옮겨진다")
     void leavingTheCurrentIslandMovesToTheRemainingMainIsland() {
         UUID user = newUser();
         UUID home = islands.create(user, new CreateIslandCommandRequest("본섬", null, false, null),
@@ -702,7 +746,7 @@ class IslandManagementIntegrationTest {
 
         management.leave(user, second, UUID.randomUUID());
 
-        assertThat(currentIsland(user)).as("남은 메인 섬으로 이동").isEqualTo(home);
+        assertThat(currentIsland(user)).as("남은 섬 중 최근 머문 섬으로 이동").isEqualTo(home);
         assertThat(lossReason(user)).isNull();
         // 불변식 — 현재 섬이 있으면 사유는 없다(V84 의 user_island_contexts_loss_reason_exclusive).
         MyIslandsView moved = islands.myIslands(user);

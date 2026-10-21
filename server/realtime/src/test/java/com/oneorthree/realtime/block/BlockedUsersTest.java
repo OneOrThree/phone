@@ -166,6 +166,38 @@ class BlockedUsersTest {
                 .isInstanceOf(RedisConnectionFailureException.class);
     }
 
+    @Test
+    @DisplayName("eitherBlocked — 스위치가 꺼져 있어도 양쪽을 조회하고, 어느 한쪽 차단이면 true(바다 방 분리)")
+    void eitherBlockedIgnoresTheSwitchAndChecksBothSides() {
+        BlockedUsers off = new BlockedUsers(client, redis, 120, false);
+        cachedFor(viewer, "0", "0|");
+        cachedFor(blocked, "0", "0|" + viewer);
+
+        assertThat(off.eitherBlocked(viewer, blocked)).as("상대가 나를 차단했다").isTrue();
+        assertThat(off.eitherBlocked(blocked, viewer)).as("방향을 바꿔도 같다").isTrue();
+        assertThat(off.eitherBlocked(viewer, viewer)).isFalse();
+
+        UUID stranger = UUID.randomUUID();
+        cachedFor(stranger, "0", "0|");
+        assertThat(off.eitherBlocked(viewer, stranger)).isFalse();
+    }
+
+    @Test
+    @DisplayName("eitherBlocked — 판정 불가는 예외로 올린다(fail-closed, 호출자가 그 방을 뺀다)")
+    void eitherBlockedIsFailClosed() {
+        BlockedUsers off = new BlockedUsers(client, redis, 120, false);
+        cachedFor(viewer, "0", null);
+        when(client.fetchBlockedIds(viewer)).thenThrow(new UpstreamUnavailableException());
+
+        assertThatThrownBy(() -> off.eitherBlocked(viewer, blocked)).isInstanceOf(UpstreamUnavailableException.class);
+    }
+
+    private void cachedFor(UUID owner, String generation, String value) {
+        when(values.multiGet(List.of(RedisKeys.blockGeneration(owner), RedisKeys.blockCache(owner))))
+                .thenReturn(Arrays.asList(generation, value));
+        when(values.get(RedisKeys.blockGeneration(owner))).thenReturn(generation);
+    }
+
     private void cached(String generation, String value) {
         when(values.multiGet(List.of(RedisKeys.blockGeneration(viewer), RedisKeys.blockCache(viewer))))
                 .thenReturn(Arrays.asList(generation, value));

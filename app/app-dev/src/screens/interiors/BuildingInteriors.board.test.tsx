@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { PixelRatio, Platform, StyleSheet } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -9,6 +10,7 @@ import {
   createNotice as postNotice,
   createNoticeComment as postComment,
   deleteNotice as delNotice,
+  deleteNoticeComment as delComment,
   getBoard,
   getNotice,
   listNotices,
@@ -32,7 +34,7 @@ import {
   startConstruction,
   type ConstructionOptions,
 } from '@/services/api/home';
-import { myIslands } from '@/services/api/islands';
+import { getGuestbook, myIslands } from '@/services/api/islands';
 
 import {
   claimQuest as postClaim,
@@ -49,6 +51,7 @@ jest.mock('@/services/api/notices', () => ({
   createNotice: jest.fn(),
   updateNotice: jest.fn(),
   deleteNotice: jest.fn(),
+  deleteNoticeComment: jest.fn(),
   createNoticeComment: jest.fn(),
 }));
 jest.mock('@/services/api/quests', () => ({
@@ -66,6 +69,7 @@ jest.mock('@/services/api/home', () => ({
 jest.mock('@/services/api/islands', () => ({
   ...jest.requireActual('@/services/api/islands'),
   myIslands: jest.fn(),
+  getGuestbook: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -159,6 +163,7 @@ const postClaimMock = postClaim as jest.Mock;
 const getConstructionOptionsMock = getConstructionOptions as jest.Mock;
 const startConstructionMock = startConstruction as jest.Mock;
 const myIslandsMock = myIslands as jest.Mock;
+const getGuestbookMock = getGuestbook as jest.Mock;
 const constructionOptions = (over: Partial<ConstructionOptions> = {}): ConstructionOptions => ({
   islandVersion: 2,
   costPolicyVersion: 3,
@@ -1243,7 +1248,7 @@ test('874×450 공지 종이는 내비게이션 높이를 반영해 140px 이상
   const noticeScroll = StyleSheet.flatten(screen.getByTestId('board-notice-scroll').props.style);
   const readableHeight = noticeScroll.maxHeight;
 
-  assert.equal(navigation.props.children.length, 2);
+  assert.equal(React.Children.count(navigation.props.children), 1);
   assert.equal(drawer.height, 442);
   assert.equal(drawer.paddingTop, 38);
   assert.equal(drawer.paddingBottom, 28);
@@ -1283,33 +1288,16 @@ test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패�
   await screen.unmount();
 });
 
-test('겹쳐진 가로 게시판 패널에서 44px 조작으로 전환·닫기를 할 수 있다', async () => {
+test('게시판 패널은 전환 화살표 없이 44px 닫기 버튼을 유지한다', async () => {
   const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
     width: 874,
     height: 402,
   });
-  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
-  const switchButton = screen.getByTestId('board-panel-switch');
-  const closeButton = screen.getByTestId('board-panel-close');
-  const switchStyle = StyleSheet.flatten(switchButton.props.style);
-  const closeStyle = StyleSheet.flatten(closeButton.props.style);
-
-  assert.equal(drawer.left, 324);
-  assert.equal(drawer.right, 30);
-  assert.ok(switchStyle.width >= 44 && switchStyle.height >= 44);
-  assert.ok(closeStyle.width >= 44 && closeStyle.height >= 44);
-  assert.equal(switchButton.props.accessibilityLabel, '퀘스트 패널로 전환');
-
-  fireEvent.press(switchButton);
-  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
-  assert.equal(
-    screen.getByTestId('board-panel-switch').props.accessibilityLabel,
-    '공지 패널로 전환',
-  );
-
-  fireEvent.press(screen.getByTestId('board-panel-switch'));
-  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
-  fireEvent.press(screen.getByTestId('board-panel-close'));
+  assert.equal(screen.queryByTestId('board-panel-switch'), null);
+  const close = screen.getByTestId('board-panel-close');
+  const style = StyleSheet.flatten(close.props.style);
+  assert.ok(style.width >= 44 && style.height >= 44);
+  await fireEvent.press(close);
   await waitFor(() =>
     assert.equal(screen.getByTestId('board-scene-scroll').props.scrollEnabled, true),
   );
@@ -1500,7 +1488,7 @@ test('목록 실패 — 오류 문구와 다시 시도, 재시도가 다시 읽�
   await screen.unmount();
 });
 
-test('상세 — getNotice 본문·댓글을 그리고 댓글 삭제 버튼은 없다', async () => {
+test('상세 — getNotice 본문·댓글을 그리고 방장에게 댓글 삭제를 제공한다', async () => {
   getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
   getNoticeMock.mockResolvedValue(
     detail('n1', [
@@ -1514,8 +1502,7 @@ test('상세 — getNotice 본문·댓글을 그리고 댓글 삭제 버튼은 �
   await waitFor(() => assert.ok(screen.getByText('공지 본문')));
   assert.ok(screen.getByText('반가워요'));
   assert.ok(screen.getByText('탈퇴한 댓글'));
-  // 공개 API 에 댓글 삭제가 없다 — 서버 경로에서는 버튼이 나오지 않는다.
-  assert.equal(screen.queryByTestId('board-comment-delete-0'), null);
+  assert.ok(screen.getByTestId('board-comment-delete-0'));
   await screen.unmount();
 });
 
@@ -2314,5 +2301,371 @@ test.each(['success', 'failure', 'stale'] as const)(
       assert.ok(e.dispatch.mock.invocationCallOrder.at(-1) < e.go.mock.invocationCallOrder.at(-1));
     }
     if (outcome === 'failure') assert.ok(screen.getByText('lost'));
+  },
+);
+
+// ─── 방명록(GROMO-2263) — 선반 위 펜꽂이로 여는 네 번째 종이 ───
+const guestbookEntry = (id: string) => ({
+  id,
+  authorId: `u-${id}`,
+  authorName: '수아',
+  content: `${id} 놀러 왔어요`,
+  createdAt: '2026-10-12T01:00:00Z',
+  mine: false,
+});
+
+test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·차단 두 버튼을 본다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host'));
+  getGuestbookMock.mockResolvedValue({
+    boardBuilt: true,
+    items: [guestbookEntry('g1'), guestbookEntry('g2')],
+  });
+  const e = makeE({ tab: '' });
+  // 이 하네스의 back 은 탭을 안 비운다 — 실제 App 처럼 직전 화면(탭 없음)으로 돌아가게 한다
+  e.back = jest.fn(() => {
+    e.tab = '';
+    e._tick();
+  });
+  const screen = await renderBoard(e);
+  assert.equal(getGuestbookMock.mock.calls.length, 0); // 열기 전에는 부르지 않는다
+  await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+  assert.equal(screen.getByTestId('board-guestbook-area').props.accessibilityLabel, '방명록');
+
+  await fireEvent.press(screen.getByTestId('board-guestbook-area'));
+  assert.equal(e.setTab.mock.calls.at(-1)[0], '방명록');
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
+  assert.ok(screen.getByText('g2 놀러 왔어요'));
+  assert.equal(screen.getAllByText('지우기').length, 2);
+  assert.equal(screen.getAllByText('차단').length, 2);
+  assert.equal(screen.queryByText('신고'), null);
+  assert.ok(screen.getByTestId('guestbook-delete-g1'));
+  assert.ok(screen.getByTestId('guestbook-block-g2'));
+  // 방명록도 전환 화살표 없이 닫기만 제공한다.
+  expect(screen.queryByTestId('board-panel-switch')).toBeNull();
+  await fireEvent.press(screen.getByTestId('board-panel-close'));
+  // 요소를 assert.equal 의 실제값으로 두지 않는다 — 실패하면 fiber 트리 전체를 diff 하느라 메모리가 터진다
+  await waitFor(() => expect(screen.queryByText('g1 놀러 왔어요')).toBeNull());
+});
+
+test('일반 주민은 방명록을 읽고 쓸 수 있지만 지우기·차단 버튼은 없다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'member'));
+  getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+  await fireEvent.press(screen.getByTestId('board-guestbook-area'));
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.ok(screen.getByTestId('guestbook-submit'));
+  assert.equal(screen.queryByTestId('guestbook-delete-g1'), null);
+  assert.equal(screen.queryByTestId('guestbook-block-g1'), null);
+  assert.equal(screen.queryByText('지우기'), null);
+  assert.equal(screen.queryByText('신고'), null);
+  assert.equal(screen.queryByText('차단'), null);
+});
+
+// 키보드는 InteriorRoute 가 재는 높이를 줄여서 들어온다(iOS: App 루트 KeyboardAvoidingView padding, 안드로이드: adjustResize).
+// 방명록 종이는 그 줄어든 높이 안에서 위로 붙고, 입력 칸·[남기기]는 그 안의 스크롤에 있어 키보드 위에 남는다. 다만 스크롤 칸이
+// 제목+입력 칸+글자 수+[남기기](23+12+75+12+17+12+52 = 203px)보다 낮으면 [남기기]가 접힌 아래로 밀려 스크롤해야 보이므로,
+// 그럴 땐 종이가 화면 높이를 다 쓴다(sheetCramped).
+// 실기기(iOS 세로) 확인: 입력 칸을 눌러 키보드가 올라와도 입력 칸과 [남기기]가 키보드 위에 스크롤 없이 보인다.
+const GUESTBOOK_COMPOSER_HEIGHT = 203;
+test.each([
+  ['키보드 없음', { width: 402, height: 874 }],
+  ['키보드로 줄어든 높이(402×874)', { width: 402, height: 538, sceneHeight: 874 }],
+  ['키보드로 줄어든 높이(430×932)', { width: 430, height: 586, sceneHeight: 932 }],
+  ['키보드로 줄어든 높이(393×852)', { width: 393, height: 516, sceneHeight: 852 }],
+])(
+  '방명록 종이는 보이는 높이 안에서 입력 칸·[남기기]가 한 번에 보이게 남는다 (%s)',
+  async (_label, size) => {
+    getBoardMock.mockResolvedValue(page([], null, 'member'));
+    getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+    const screen = await renderBoard(makeE({ tab: '' }), {}, size);
+    await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+    expect(screen.queryByTestId('board-panel-switch')).toBeNull();
+    const scroll = await screen.findByTestId('board-guestbook-scroll');
+    await screen.findByTestId('guestbook-submit');
+
+    const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+    const paperBottom =
+      drawer.top !== undefined ? drawer.top + drawer.height : size.height - drawer.bottom;
+    assert.ok(
+      paperBottom <= size.height,
+      `종이 아래 ${paperBottom} 가 보이는 높이 ${size.height} 밖`,
+    );
+    const { maxHeight } = StyleSheet.flatten(scroll.props.style);
+    assert.ok(maxHeight <= drawer.height - drawer.paddingTop - drawer.paddingBottom);
+    assert.ok(
+      maxHeight >= GUESTBOOK_COMPOSER_HEIGHT,
+      `스크롤 칸 ${maxHeight}px 에 [남기기]까지(${GUESTBOOK_COMPOSER_HEIGHT}px)가 안 들어감`,
+    );
+    assert.ok(within(scroll).getByTestId('field-한마디 남기기'));
+    assert.ok(within(scroll).getByTestId('guestbook-submit'));
+    await screen.unmount();
+  },
+);
+
+test('목업·갤러리 게시판(서버 없음)에는 방명록 입구도 API 호출도 없다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
+  assert.equal(screen.queryByTestId('board-guestbook-area'), null);
+  assert.equal(getGuestbookMock.mock.calls.length, 0);
+});
+
+// 글자 배율 1배와 3배(접근성 최대) × 화면 크기. 3배에서는 공지 터치 영역이 커져 고정 위치의 방명록과 겹쳤다.
+test.each(
+  [
+    [402, 874],
+    [375, 667],
+    [320, 480],
+    [290, 400],
+    [874, 402],
+    [1024, 1180],
+  ].flatMap(([width, height]) => [
+    [width, height, 1],
+    [width, height, 3],
+  ]),
+)(
+  '방명록 펜꽂이 터치 영역은 %i×%i · 글자 %i배에서 44px 이상이고 장면 안에서 다른 세 종이와 겹치지 않는다',
+  async (width, height, scale) => {
+    const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(scale);
+    try {
+      getBoardMock.mockResolvedValue(page([], null, 'member'));
+      const screen = await renderBoard(makeE({ tab: '' }), concept({ boardView: 'list' }), {
+        width,
+        height,
+      });
+      await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const labelScale = Math.min(1, scene.width / 402);
+      const box = (id: string) => {
+        const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+        return {
+          left: style.left,
+          top: style.top,
+          right: style.left + style.width,
+          bottom: style.top + style.height,
+          width: style.width,
+          height: style.height,
+        };
+      };
+      const guestbook = box('board-guestbook-area');
+      assert.ok(guestbook.width >= 44 && guestbook.height >= 44);
+      // 공지·퀘스트·청사진 터치 영역은 큰 글자에서 커진다 — 어느 것과도 겹치면 윗 영역의 터치를 가로챈다
+      for (const other of ['board-notice-area', 'board-quest-area', 'board-blueprint-area']) {
+        const o = box(other);
+        const separated =
+          guestbook.right <= o.left ||
+          o.right <= guestbook.left ||
+          guestbook.bottom <= o.top ||
+          o.bottom <= guestbook.top;
+        assert.ok(
+          separated,
+          `${other} 와 방명록 영역이 ${width}×${height} 글자 ${scale}배에서 겹침`,
+        );
+      }
+      // 알약 라벨(글자 13 × 줄 1.3 × 글자 배율 + 위아래 패딩·테두리)이 터치 영역 안에 들어간다
+      assert.ok(
+        guestbook.height >= 13 * 1.3 * scale * labelScale + 2 * (4 + 1.5) - 0.01,
+        `알약이 터치 영역 ${guestbook.height}px 에 안 들어감`,
+      );
+      // 큰 글자에서 영역이 넓어져도 장면 밖으로 나가지 않는다
+      assert.ok(guestbook.left >= -0.01 && guestbook.right <= scene.width + 0.01);
+      assert.ok(guestbook.top >= 0 && guestbook.bottom <= scene.height + 0.01);
+      await screen.unmount();
+    } finally {
+      fontScale.mockRestore();
+    }
+  },
+);
+
+// 아주 작은 창(분할 화면 등)에서는 공지·청사진 아래로 밀면 장면 아래로 넘친다 — 장면 안으로 눌러 두고,
+// 그래서 남는 겹침은 zIndex 로 공지·청사진이 이기게 한다(방명록이 윗 영역의 터치를 가로채지 않는다).
+test.each([
+  [100, 150, 1],
+  [80, 120, 1],
+  [80, 120, 3],
+])(
+  '방명록 터치 영역은 아주 작은 %i×%i · 글자 %i배에서도 장면 안에 있고 공지·청사진이 위에 있다',
+  async (width, height, scale) => {
+    const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(scale);
+    try {
+      getBoardMock.mockResolvedValue(page([], null, 'member'));
+      const screen = await renderBoard(makeE({ tab: '' }), concept({ boardView: 'list' }), {
+        width,
+        height,
+      });
+      await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const style = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
+      const guestbook = style('board-guestbook-area');
+      assert.ok(guestbook.height >= 44 && guestbook.width >= 44);
+      assert.ok(guestbook.top >= 0, `방명록 영역이 장면 위로 나감: ${guestbook.top}`);
+      assert.ok(
+        guestbook.top + guestbook.height <= scene.height + 0.01,
+        `방명록 영역이 장면 아래로 나감: ${guestbook.top + guestbook.height} > ${scene.height}`,
+      );
+      assert.ok(guestbook.left >= -0.01 && guestbook.left + guestbook.width <= scene.width + 0.01);
+      assert.ok(guestbook.zIndex < style('board-notice-area').zIndex);
+      assert.ok(guestbook.zIndex < style('board-blueprint-area').zIndex);
+      await screen.unmount();
+    } finally {
+      fontScale.mockRestore();
+    }
+  },
+);
+
+test('방명록 종이는 게시판 정보를 받는 동안 불러오는 중을 보이고, 받으면 방명록을 연다', async () => {
+  const board = deferred<any>();
+  getBoardMock.mockReturnValue(board.promise);
+  getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+  expect(screen.queryByTestId('board-panel-switch')).toBeNull();
+  assert.ok(screen.getByText('불러오고 있어요.'));
+  assert.equal(getGuestbookMock.mock.calls.length, 0); // 섬을 모르니 방명록은 아직 안 부른다
+
+  await act(async () => board.resolve(page([], null, 'member')));
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
+});
+
+test('방명록 종이는 첫 getBoard 가 실패하면 오류와 다시 시도를 보이고, 재시도가 성공하면 방명록이 열린다', async () => {
+  getBoardMock
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0))
+    .mockResolvedValue(page([], null, 'host'));
+  getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+  expect(screen.queryByTestId('board-panel-switch')).toBeNull();
+
+  // 빈 종이가 아니라 오류와 다시 시도 — 방명록은 섬을 모르니 아직 안 뜬다
+  const retry = await screen.findByTestId('board-guestbook-retry');
+  assert.ok(screen.getByText('방명록을 불러오지 못했어요.'));
+  assert.ok(screen.getByText('다시 시도'));
+  assert.equal(getGuestbookMock.mock.calls.length, 0);
+  assert.equal(getBoardMock.mock.calls.length, 1);
+
+  await fireEvent.press(retry);
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.equal(getBoardMock.mock.calls.length, 2);
+  assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
+  assert.ok(screen.getByTestId('guestbook-delete-g1')); // 재시도한 getBoard 의 섬장 역할
+  expect(screen.queryByTestId('board-guestbook-retry')).toBeNull();
+});
+
+test('방명록 종이의 다시 시도가 또 실패하면 오류를 그대로 두고 다시 누를 수 있다', async () => {
+  getBoardMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+  expect(screen.queryByTestId('board-panel-switch')).toBeNull();
+  await fireEvent.press(await screen.findByTestId('board-guestbook-retry'));
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 2));
+  assert.ok(await screen.findByTestId('board-guestbook-retry'));
+  assert.ok(screen.getByText('방명록을 불러오지 못했어요.'));
+  assert.equal(getGuestbookMock.mock.calls.length, 0);
+});
+
+test('영어에서도 방명록 종이의 오류와 다시 시도를 번역해 보인다', async () => {
+  applyLocalePref('en');
+  try {
+    getBoardMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '연결 실패', 0));
+    const screen = await renderBoard(makeE({ tab: '' }));
+    await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+    expect(screen.queryByTestId('board-panel-switch')).toBeNull();
+    await screen.findByTestId('board-guestbook-retry');
+    assert.ok(screen.getByText('Retry'));
+    expect(screen.queryByText('다시 시도')).toBeNull();
+    expect(screen.queryByText('연결 실패')).toBeNull(); // 서버·클라이언트 한글 문구가 영어 화면에 새지 않는다
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
+test.each(['host', 'member'] as const)(
+  '댓글 삭제 — %s가 본인 댓글을 확인 후 삭제하고 상세에 남는다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(
+      page([{ id: 'n1', title: '공지', commentCount: 1 }], null, role),
+    );
+    const initial = detail('n1', [{ id: 'c1', text: '삭제할 댓글' }]);
+    initial.comments[0].userId = 'u1';
+    getNoticeMock.mockResolvedValue(initial);
+    (delComment as jest.Mock).mockResolvedValue({ deleted: true });
+    const e = makeE({ route: 'notice', detail: 'n1' });
+    const ui = await renderBoard(e);
+    await waitFor(() => assert.ok(ui.getByTestId('board-comment-delete-0')));
+    await fireEvent.press(ui.getByTestId('board-comment-delete-0'));
+    assert.equal((delComment as jest.Mock).mock.calls.length, 0);
+    getNoticeMock.mockResolvedValue(detail('n1'));
+    getBoardMock.mockResolvedValue(
+      page([{ id: 'n1', title: '공지', commentCount: 0 }], null, role),
+    );
+    await fireEvent.press(ui.getByTestId('board-delete-confirm'));
+    await waitFor(() => assert.ok(ui.getByText('첫 댓글을 남겨보세요.')));
+    expect((delComment as jest.Mock).mock.calls[0].slice(0, 3)).toEqual([ISLAND, 'n1', 'c1']);
+    assert.equal(e.back.mock.calls.length, 0);
+    await ui.unmount();
+  },
+);
+
+test('주민은 타인 댓글을 삭제할 수 없고 방장의 삭제 실패는 원문을 보존한다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '공지' }], null, 'member'));
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '남아야 할 댓글' }]));
+  let ui = await renderBoard(makeE({ route: 'notice', detail: 'n1' }));
+  await waitFor(() => assert.ok(ui.getByText('남아야 할 댓글')));
+  assert.equal(ui.queryByTestId('board-comment-delete-0'), null);
+  await ui.unmount();
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '공지' }]));
+  (delComment as jest.Mock).mockRejectedValue(
+    new ApiError('FORBIDDEN', '삭제 권한이 없어요.', 403),
+  );
+  ui = await renderBoard(makeE({ route: 'notice', detail: 'n1' }));
+  await waitFor(() => assert.ok(ui.getByTestId('board-comment-delete-0')));
+  await fireEvent.press(ui.getByTestId('board-comment-delete-0'));
+  await fireEvent.press(ui.getByTestId('board-delete-confirm'));
+  await waitFor(() => assert.ok(ui.getByText('삭제 권한이 없어요.')));
+  assert.ok(ui.getByText('남아야 할 댓글'));
+  await ui.unmount();
+});
+
+test.each(['ios', 'web'])(
+  '주민 게시판 부모 스크롤(%s) 하단에서 방명록 다음 페이지를 불러온다',
+  async (os) => {
+    const restore = os === 'web' ? webMockMode('') : () => {};
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: os });
+    try {
+      getBoardMock.mockResolvedValue(page([], null, 'member'));
+      getGuestbookMock
+        .mockResolvedValueOnce({
+          boardBuilt: true,
+          items: [guestbookEntry('first')],
+          nextCursor: 'next',
+        })
+        .mockResolvedValueOnce({
+          boardBuilt: true,
+          items: [guestbookEntry('last')],
+          nextCursor: null,
+        });
+      const screen = await renderBoard(makeE({ tab: '' }));
+      await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+      await screen.findByText('first 놀러 왔어요');
+      const scroll = screen.getByTestId('board-guestbook-scroll');
+      if (os === 'web')
+        await fireEvent(scroll, 'scroll', {
+          nativeEvent: {},
+          currentTarget: { scrollTop: 600, clientHeight: 400, scrollHeight: 1000 },
+        });
+      else
+        await fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 600 },
+            contentSize: { height: 1000 },
+            layoutMeasurement: { height: 400 },
+          },
+        });
+      await screen.findByText('last 놀러 왔어요');
+      expect(getGuestbookMock).toHaveBeenLastCalledWith(ISLAND, 'next');
+    } finally {
+      restore();
+    }
   },
 );

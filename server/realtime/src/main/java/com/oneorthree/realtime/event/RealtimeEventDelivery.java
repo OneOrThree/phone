@@ -1,6 +1,8 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -53,6 +55,8 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    /** 기동 때 0 으로 등록 — increase() 알림이 첫 장애를 보게 한다. */
+    private final Counter sessionRevokedFanoutFailed;
 
     /**
      * 수신 집합을 들고 있는 시간.
@@ -92,11 +96,13 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
     private final Queue<Expiry> expiries = new ConcurrentLinkedQueue<>();
 
     public RealtimeEventDelivery(SimpMessagingTemplate messagingTemplate, StringRedisTemplate redis,
-            ObjectMapper objectMapper, Clock clock) {
+            ObjectMapper objectMapper, Clock clock, MeterRegistry meterRegistry) {
         this.messagingTemplate = messagingTemplate;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.sessionRevokedFanoutFailed = Counter.builder("realtime.session.revoked.fanout")
+                .tag("result", "failed").register(meterRegistry);
     }
 
     /** 다른 인스턴스가 보낸 것인지 판정하기 위해 구독자가 읽는다. */
@@ -121,10 +127,25 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
 
         try {
             String payload = objectMapper.writeValueAsString(
-                    new RealtimeEventFanoutEvent(instanceId, destination, event, island.recipients()));
+                    RealtimeEventFanoutEvent.island(instanceId, destination, event, island.recipients()));
             redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, payload);
         } catch (RuntimeException e) {
             log.error("섬 사건 팬아웃 발행 실패 — eventId={} type={}", event.eventId(), event.type().wireName(), e);
+        }
+    }
+
+    /**
+     * 세션 폐기 제어 사건(GROMO-2350)을 다른 replica 에 퍼뜨린다 — 같은 채널에 얹은 제어 봉투다. 실패는 삼킨다: 수신 인스턴스는 이미
+     * Redis 내구 펜스를 올렸고(CONNECT·REST 를 막는다), 여기서 던지면 수신 기록이 롤백돼 relay 가 같은 사건을 반복한다.
+     */
+    public void publishSessionRevoked(UUID userId, UUID sessionId, Instant until) {
+        try {
+            redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, objectMapper.writeValueAsString(
+                    RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId, until)));
+        } catch (RuntimeException e) {
+            sessionRevokedFanoutFailed.increment();
+            log.error("세션 폐기 팬아웃 발행 실패 — 다른 replica 의 기존 연결은 AT 만료까지 살 수 있다. reason={}",
+                    e.getClass().getName());
         }
     }
 

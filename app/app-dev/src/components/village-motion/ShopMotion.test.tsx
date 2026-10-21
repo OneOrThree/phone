@@ -1,5 +1,7 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 
 // 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -8,17 +10,22 @@ import { ShopMotion } from './ShopMotion';
 type MotionView = Awaited<ReturnType<typeof render>>;
 
 describe('ShopMotion', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
+  // 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
   const activeFrame = (view: MotionView) =>
-    [0, 1, 2, 3].find((index) => {
-      const style = view.getByTestId(`shop-motion-frame-${index}`).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
-    });
+    [0, 1, 2, 3].find(
+      (index) =>
+        StyleSheet.flatten(view.getByTestId(`shop-motion-frame-${index}`).props.style).opacity ===
+        1,
+    );
 
   it('plays four frames and waits exactly 20 seconds after a run ends', async () => {
     const view = await render(<ShopMotion />);
@@ -76,11 +83,11 @@ describe('ShopMotion', () => {
 
   it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
     const view = await render(<ShopMotion themed />);
-    expect(view.getByTestId('shop-motion-theme-tint').props.source).toBe(
+    expect(view.getByTestId('shop-motion-theme-tint-0').props.source).toBe(
       view.getByTestId('shop-motion-frame-0').props.source,
     );
     await view.rerender(<ShopMotion themed showFrames={false} />);
-    expect(view.queryByTestId('shop-motion-theme-tint')).toBeNull();
+    expect(view.queryByTestId('shop-motion-theme-tint-0')).toBeNull();
     await view.unmount();
   });
 });

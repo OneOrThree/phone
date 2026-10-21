@@ -3,14 +3,20 @@ package com.oneorthree.realtime.config;
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.auth.VerifiedAccessIdentity;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import com.oneorthree.realtime.sea.SeaRooms;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,6 +26,7 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -27,10 +34,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
+import static com.oneorthree.realtime.config.StompTopics.EVENTS_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_INTENT_SEND;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.SEA_EMOTE_SEND;
+import static com.oneorthree.realtime.config.StompTopics.SEA_ENTER_SEND;
+import static com.oneorthree.realtime.config.StompTopics.SEA_LEAVE_SEND;
+import static com.oneorthree.realtime.config.StompTopics.SEA_QUEUE;
+import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.SEA_SYNC_SEND;
 
 /**
  * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
@@ -59,7 +73,7 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * <p>CONNECT는 인증만 담당한다. 집중 중에도 집중/휴식용 연결은 필요하므로,
  * 집중 차단은 채팅 SUBSCRIBE·SEND·REST 및 기존 구독의 아웃바운드 전달에 적용한다.
  *
- * <h2>섬 목적지 셋의 인가가 서로 다르다 (GROMO-1765)</h2>
+ * <h2>섬 목적지의 인가가 서로 다르다 (GROMO-1765·2302)</h2>
  * <ul>
  *   <li>{@code /topic/islands/{id}/focus}·{@code /rest} — <b>인증만</b>. 비소속 관전을 열기로
  *       확정했고(2026-09-19), 같은 목록을 내려 주는 {@code GET /islands/{id}/focus-members} 가
@@ -67,13 +81,19 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  *       본다.</li>
  *   <li>{@code /topic/islands/{id}/emotes} — <b>그 섬의 본인 active 집중 세션</b>. 응원은 관전자가
  *       아니라 같이 집중하는 사람들 사이의 신호다(realtime-events LLD §3.1). 판정은 TTL 캐시가 아니라
- *       Data 정본({@link IslandFocusSessions})이다.</li>
+ *       Data 정본({@link IslandFocusSessions})이다. <b>예외: 비주민(방문자)</b>은 세션 없이 구독한다
+ *       (GROMO-2258) — 방문자 응원의 거절·안내를 받는 자리다. 주민인데 세션이 없으면 그대로 거절한다.
+ *       방문자가 실제로 받는 응원은 없다 — 전달은 사건의 수신 집합(진행 중 주민)으로만 간다.</li>
  *   <li>{@code /app/islands/{id}/focus/emotes}(SEND) — 인증과 <b>시도 창</b>만 본다. 창을 여기서
  *       잡는 이유는 <b>본문 변환보다 앞</b>이어야 하기 때문이다({@code authorizeSend} 참고).
  *       「본인 진행 세션인가」는 {@code FocusEmoteService} 한 곳이고, 두 곳에서 검사하면 언젠가
  *       한쪽만 바뀐다 — 채팅 SEND 가 도메인 규칙을 서비스에 맡기는 것과 같은 규율이다.</li>
+ *   <li>{@code /topic/islands/{id}/events} — <b>현재 소속 주민</b>(GROMO-2302). 구독 1회는 이동 채널과 같은 규칙
+ *       (사용자 축 시도 창 600ms → {@link ChatAccessGuard#requireMember}, 집중 검사 없음)이고, 전달 직전 프레임마다
+ *       {@code ChatOutboundChannelInterceptor} 가 캐시 멤버십을 다시 본다. 지금 이 채널로 나가는 사건은
+ *       {@code island.member.arrived} 하나다.</li>
  * </ul>
- * 나머지 섬 채널({@code events}·{@code playback}·{@code messages})과 {@code /user/queue/events} 는
+ * 나머지 섬 채널({@code playback}·{@code messages})과 {@code /user/queue/events} 는
  * 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫아 둔다.
  *
  * <h2>이동 채널 (GROMO-2247)</h2>
@@ -81,6 +101,12 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * ({@link ChatAccessGuard#requireMember}) 을 세션×섬마다 1회 본다(사용자 축 시도 창 600ms 뒤) — 구독이 곧 방
  * 입장이고, 집중 중에도 걸을 수 있어야 해서 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과
  * 「그 섬 movement 구독 중」만 보고, 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다.
+ *
+ * <h2>바다 방 (GROMO-2300)</h2>
+ * {@code /user/queue/sea} 구독과 {@code /app/sea/leave}·{@code /app/sea/sync} 발신은 인증만(sync 의 방 소속은
+ * 컨트롤러가 본다), {@code /app/sea/enter} 는 인증 + 사용자 축
+ * 시도 창({@code SEA_ENTER_TOO_FREQUENT}), 방 토픽 구독은 Redis 의 방 소속({@code NOT_IN_SEA_ROOM}) — 상류 HTTP 가
+ * 없어 구독 시도 창은 두지 않는다. 방 토픽 UNSUBSCRIBE 는 퇴장이다(구독 기록을 지우기 전에 목적지를 되찾는다).
  */
 @Slf4j
 @Component
@@ -110,6 +136,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern EMOTE_SEND =
             Pattern.compile("^/app/islands/([0-9a-f-]{36})/focus/emotes$");
 
+    private static final String CHANNEL_EVENTS = "events";
+    private static final String CHANNEL_MOVEMENT = "movement";
+
     /**
      * 응원 구독·발신의 프레임 상한. 두 창은 <b>키가 다르고 길이가 같다</b>.
      *
@@ -126,6 +155,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final IslandFocusSessions focusSessions;
     private final StringRedisTemplate redis;
     private final MovementSubscriptionListener movementSubscriptions;
+    private final MembershipService membershipService;
+    private final SeaRooms seaRooms;
+    private final MeterRegistry meterRegistry;
+    private final ChatUserFence chatUserFence;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -137,7 +170,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         switch (accessor.getCommand()) {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
-            case UNSUBSCRIBE -> sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            case UNSUBSCRIBE -> {
+                leaveSeaRoomIfSubscribed(accessor);
+                sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            }
             case SEND -> {
                 if (!authorizeSend(accessor)) {
                     return null; // 조용히 버린다 — 응답·ERROR 없음(authorizeMovementIntent)
@@ -159,10 +195,22 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
         UUID userId = jwtValidator.extractUserId(token)
                 .orElseThrow(() -> new StompAuthException(CommonErrorCode.UNAUTHORIZED));
+        // 폐기된 세션(auth.session.revoked, GROMO-2350)의 AT 는 만료 전이어도 재연결을 받지 않는다. sid 없는 구 토큰은 해당 없음.
+        // JWT 는 한 번만 푼다 — 같은 sid 로 등록 전·후 두 번 검사한다.
+        UUID sid = jwtValidator.extractSessionProof(token).map(VerifiedAccessIdentity::sessionId).orElse(null);
+        if (sid != null && chatUserFence.isRevokedDurable(sid)) {
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
 
         ChatPrincipal principal = new ChatPrincipal(userId, authorization);
         accessor.setUser(principal);
         sessions.register(accessor.getSessionId(), principal);
+        // 등록 «뒤» 재검사 — 폐기 처리는 펜스를 올린 «다음에» 세션 목록을 뜬다. 그래서 어떤 인터리빙이든 이 CONNECT 가 펜스를 보거나
+        // (여기서 거절) 그쪽 스냅샷에 이 등록이 보이거나(그쪽이 닫음) 둘 중 하나가 성립한다. 앞의 검사만으로는 둘 사이 창이 남는다.
+        if (sid != null && chatUserFence.isRevokedDurable(sid)) {
+            sessions.closed(accessor.getSessionId()); // 등록을 되돌린다 — 수립 실패 정리(WebSocketConfig)와 같은 길
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
     }
 
     /**
@@ -197,6 +245,17 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return;
         }
 
+        if (SEA_QUEUE.equals(destination)) {
+            requireSubscribable(accessor, destination);
+            return;
+        }
+
+        Matcher seaRoom = SEA_ROOM_TOPIC.matcher(destination);
+        if (seaRoom.matches()) {
+            authorizeSeaRoomSubscription(accessor, destination, seaRoom.group(1));
+            return;
+        }
+
         Matcher movement = MOVEMENT_TOPIC.matcher(destination);
         if (movement.matches()) {
             authorizeMovementSubscription(accessor, destination, movement);
@@ -204,6 +263,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         Matcher island = ISLAND_TOPIC.matcher(destination);
+        if (island.matches() && EVENTS_CHANNEL.equals(island.group(2))) {
+            authorizeIslandEventsSubscription(accessor, destination, island.group(1));
+            return;
+        }
         if (island.matches()) {
             ChatPrincipal principal = requireSubscribable(accessor, destination);
             UUID islandId = uuidOrReject(island.group(1));
@@ -213,7 +276,19 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
                 }
                 // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
-                focusSessions.requireActiveSession(islandId, principal.userId(), null);
+                // 다만 비주민(방문자)은 세션 없이도 연다(GROMO-2258) — 주민인데 세션이 없으면 그대로 거절.
+                // 멤버십은 캐시가 아니라 상류에 직접 묻는다(갓 가입한 주민의 위장 방지). 세션이 있으면 묻지 않고,
+                // 비용 상한은 위의 구독 시도 창(600ms)이다. «방문자»는 성공한 그룹 조회로 확인된 비주민뿐이다 —
+                // 인가 판정(ChatAccessGuard·엄격 모드 verifier)의 NOT_A_MEMBER 는 세션 철회·세대 불일치로 실제 주민에게도
+                // 나오므로 소속 부재로 읽지 않는다(realtime CLAUDE.md 현재 인가 계약). 조회 거절·형식 불량은 예외로 올라온다.
+                try {
+                    focusSessions.requireActiveSession(islandId, principal.userId(), null);
+                } catch (ChatException e) {
+                    if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING
+                            || membershipService.isMemberUncached(islandId, principal.userId(), principal.bearer())) {
+                        throw e;
+                    }
+                }
             }
             return;
         }
@@ -250,6 +325,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         ChatPrincipal principal = requireSubscribable(accessor, destination);
         UUID islandId = uuidOrReject(movement.group(1));
         if (movementSubscriptions.holdsLiveOutbox(accessor.getSessionId(), islandId)) {
+            countIslandSubscribe(CHANNEL_MOVEMENT, null); // 짝 토픽이 받은 판정을 이어받은 허용
             return;
         }
         long generation = movementSubscriptions.recheckGeneration(islandId); // 판정(캐시일 수 있다)보다 먼저 읽는다
@@ -266,13 +342,110 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             }
         } catch (RuntimeException e) {
             sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            rejectIslandSubscribe(CHANNEL_MOVEMENT, destination, principal.userId(), islandId, e);
             throw e;
         }
+        countIslandSubscribe(CHANNEL_MOVEMENT, null);
         if (staleCache) {
             // 정본이 「멤버」라고 답했고 그 답이 캐시도 덮었다 — 다음 구독은 다시 캐시를 쓴다. 비멤버면 표시를 남긴다.
             movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
         }
         accessor.setHeader(MovementSubscriptionListener.JUDGED, generation);
+    }
+
+    /**
+     * 섬 {@code events} 토픽 구독(GROMO-2302) — 현재 소속 주민만. {@link #authorizeMovementSubscription} 과 같은 규칙이다:
+     * 사용자 축 시도 창(600ms, 초과는 {@code MOVEMENT_TOO_FREQUENT} — 같은 구독 상한 코드를 쓴다) → 멤버십(집중 검사 없음).
+     * 강퇴 사건의 캐시 삭제가 실패한 (섬, 사용자)는 이동과 같은 표시를 보고 정본에 직접 묻는다. 거절은 ERROR + 연결 종료이고,
+     * 레지스트리 자리를 돌려준다 — 남겨 두면 전달 경로가 «판정받은 구독»으로 오인할 자리가 생긴다.
+     *
+     * <p>구독 판정은 한 번이고, 그 뒤의 회수는 전달 직전 프레임마다의 캐시 재검사({@code ChatOutboundChannelInterceptor})가
+     * 맡는다 — 강퇴는 {@code island.members.updated(MEMBER_REMOVED)} 가 캐시를 지우고 TTL 120s 가 상한이다.
+     */
+    private void authorizeIslandEventsSubscription(StompHeaderAccessor accessor, String destination,
+                                                   String islandIdText) {
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID islandId = uuidOrReject(islandIdText);
+        boolean staleCache = movementSubscriptions.membershipCacheStale(islandId, principal.userId());
+        try {
+            // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다.
+            if (!acquireWindow(RedisKeys.islandEventsSubscribeAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+            }
+            if (staleCache) {
+                accessGuard.requireMemberUncached(islandId, principal.userId(), principal.bearer());
+            } else {
+                accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            }
+        } catch (RuntimeException e) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            rejectIslandSubscribe(CHANNEL_EVENTS, destination, principal.userId(), islandId, e);
+            throw e;
+        }
+        countIslandSubscribe(CHANNEL_EVENTS, null);
+        if (staleCache) {
+            movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
+        }
+    }
+
+    /** 섬 구독 인가 결과 카운터(GROMO-2332) — 태그 키 집합을 고정하려고 허용도 {@code code=none} 을 싣는다. */
+    private void countIslandSubscribe(String channel, String code) {
+        meterRegistry.counter("realtime.island.subscribe.total", "channel", channel,
+                "result", code == null ? "allow" : "deny", "code", code == null ? "none" : code).increment();
+    }
+
+    /**
+     * 섬 구독 거절 관측 — 카운터 + INFO 한 줄(허용은 로그 없음), 그리고 ERROR 프레임 {@code channel} 헤더용 표식.
+     * 코드가 도메인 거절이 아니면(상류 장애 등) {@code OTHER} 로 센다.
+     */
+    private void rejectIslandSubscribe(String channel, String destination, UUID userId, UUID islandId,
+                                       RuntimeException e) {
+        String code = e instanceof DomainException d ? d.getErrorCode().name() : "OTHER";
+        countIslandSubscribe(channel, code);
+        String kind = destination.endsWith("/snapshot") ? "movement/snapshot" : channel;
+        log.info("섬 구독 거절 — userId={} islandId={} destination={} code={}", userId, islandId, kind, code);
+        if (e instanceof ChatException chat) {
+            chat.setChannel(channel);
+        }
+    }
+
+    /**
+     * 바다 방 토픽 구독(GROMO-2300) — 사용자 해시의 {@code roomId} 가 이 방이어야 한다. 배정({@code sea.room.assigned})
+     * 전의 구독·나간 방·남의 방은 {@code NOT_IN_SEA_ROOM}, Redis 실패는 판정 불가. 거절된 구독은 레지스트리 자리를
+     * 돌려준다 — 남겨 두면 뒤따르는 UNSUBSCRIBE 가 퇴장으로 읽힌다.
+     */
+    private void authorizeSeaRoomSubscription(StompHeaderAccessor accessor, String destination, String roomId) {
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID room = uuidOrReject(roomId);
+        boolean member;
+        try {
+            member = seaRooms.isMember(principal.userId(), room);
+        } catch (RuntimeException e) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            log.warn("바다 방 소속 조회 실패 — reason={}", e.getClass().getSimpleName());
+            throw new UpstreamUnavailableException();
+        }
+        if (!member) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
+        }
+    }
+
+    /**
+     * 방 토픽 UNSUBSCRIBE = 퇴장(GROMO-2300, N24). 해지 프레임은 id 만 주므로 기록을 지우기 <b>전에</b> 목적지를 되찾는다.
+     * 퇴장 실패는 해지를 막지 않는다 — 떠 있는 채 남으면 10분 정리가 치운다.
+     */
+    private void leaveSeaRoomIfSubscribed(StompHeaderAccessor accessor) {
+        String destination = sessions.destinationOf(accessor.getSessionId(), accessor.getSubscriptionId());
+        Matcher seaRoom = destination == null ? null : SEA_ROOM_TOPIC.matcher(destination);
+        if (seaRoom == null || !seaRoom.matches() || !(accessor.getUser() instanceof ChatPrincipal principal)) {
+            return;
+        }
+        try {
+            seaRooms.leave(principal.userId(), UUID.fromString(seaRoom.group(1)), SeaRooms.LEFT);
+        } catch (RuntimeException e) {
+            log.warn("바다 방 해지 퇴장 실패 — reason={}", e.getClass().getSimpleName());
+        }
     }
 
     /**
@@ -325,6 +498,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         Matcher intent = MOVEMENT_INTENT_SEND.matcher(destination);
         if (intent.matches()) {
             return authorizeMovementIntent(accessor, intent.group(1));
+        }
+        if (authorizeSeaSend(accessor, destination)) {
+            return true;
         }
         Matcher matcher = SEND_DESTINATION.matcher(destination);
         Matcher emote = EMOTE_SEND.matcher(destination);
@@ -379,6 +555,37 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
+     * 바다 발신(GROMO-2300) — 입장은 시도 창(입장마다 Data 조회 3회), 이모트는 시도 창(컨트롤러는 2/2), 퇴장·스냅샷은
+     * 인증만.
+     * 창은 본문 변환보다 앞이어야 해서 여기서 잰다(응원과 같은 이유).
+     *
+     * @return 바다 목적지였으면 true(통과), 아니면 false(다음 검사로)
+     */
+    private boolean authorizeSeaSend(StompHeaderAccessor accessor, String destination) {
+        if (SEA_ENTER_SEND.matcher(destination).matches()) {
+            ChatPrincipal principal = requireAuthenticated(accessor);
+            if (!acquireWindow(RedisKeys.seaEnterAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.SEA_ENTER_TOO_FREQUENT);
+            }
+            return true;
+        }
+        if (SEA_LEAVE_SEND.matcher(destination).matches() || SEA_SYNC_SEND.matcher(destination).matches()) {
+            requireAuthenticated(accessor);
+            return true;
+        }
+        Matcher emote = SEA_EMOTE_SEND.matcher(destination);
+        if (emote.matches()) {
+            uuidOrReject(emote.group(1));
+            ChatPrincipal principal = requireAuthenticated(accessor);
+            if (!acquireWindow(RedisKeys.seaEmoteAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * 프레임 창 하나를 선점한다. Redis 가 답하지 않으면 통과시킨다 — 상한은 «보호»가 아니라 «절약»이고,
      * 인가 자체는 뒤따르는 Data 정본 조회가 fail-closed 로 지킨다.
      */
@@ -420,9 +627,19 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String bearer = principal.bearer();
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
         // 다른 기기가 캐시를 갱신해도 만료된 소켓의 인증 수명이 연장되면 안 된다.
-        jwtValidator.extractUserId(token)
-                .filter(principal.userId()::equals)
-                .orElseThrow(() -> new StompAuthException(CommonErrorCode.UNAUTHORIZED));
+        // JWT 는 한 번만 푼다 — 현행 토큰은 proof 하나로 userId·sid 를 얻고, sid 없는 구 토큰만 extractUserId 로 간다.
+        var proof = jwtValidator.extractSessionProof(token);
+        UUID tokenUser = proof.map(VerifiedAccessIdentity::userId)
+                .or(() -> jwtValidator.extractUserId(token)).orElse(null);
+        if (!principal.userId().equals(tokenUser)) {
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
+        // 폐기된 sid(GROMO-2350) — 종료가 실패해 소켓이 남아 있어도 SEND·SUBSCRIBE 는 서비스에 닿지 않는다. 인메모리 조회라 프레임당
+        // 왕복이 없다. 던지기만 하면 ERROR 프레임만 가고 소켓은 남을 수 있어(만료 AT 의 거절도 같다) 여기서 직접 한 번 더 닫는다.
+        if (proof.isPresent() && chatUserFence.isRevoked(proof.get().sessionId())) {
+            sessions.close(accessor.getSessionId(), CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
         return principal;
     }
 
