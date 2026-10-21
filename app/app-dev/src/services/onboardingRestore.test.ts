@@ -45,3 +45,18 @@ test('응답 직후 앱이 종료돼도 실제 항해 복구로 온보딩을 완
   const ended = reducer(recovered, { type: 'SESSION_SYNC', session: null });
   expect(restoredRoute(ended, { onboardingComplete: true })).toBe('sea');
 });
+
+test.each(['intro', 'scope'] as const)(
+  '다른 기기에서 이미 소속이 생겼으면 오래된 %s 이야기를 재개하지 않는다',
+  (onboardingStory) => {
+    expect(restoredRoute({ onboarded: true, onboardingStory }, { onboardingComplete: true })).toBe(
+      'home',
+    );
+    expect(
+      restoredRoute(
+        { onboarded: true, onboardingStory, session: { kind: 'focus', status: 'active' } },
+        { onboardingComplete: true },
+      ),
+    ).toBe('focus');
+  },
+);

@@ -182,7 +182,8 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
         const restored = await e.focus.recover().catch(() => null);
         if (!live()) return;
         if (restored) {
-          checkpoint('done');
+          // 일반 섬 집중·휴식 복구는 첫 바다 항해의 성공이 아니다.
+          if (restored === 'sea') checkpoint('done');
           latest.current.reset(restored);
           return;
         }

@@ -171,13 +171,16 @@ test('계정 세대가 바뀐 뒤 도착한 출항 응답은 진행도와 화면
   expect(screen.getByTestId('onboarding-depart')).toBeTruthy();
 });
 
-test('다른 기기의 집중 충돌은 기존 세션을 복구하고 중복 출발하지 않는다', async () => {
-  startSea.mockRejectedValue({ code: 'STATE_CONFLICT' });
-  recover.mockResolvedValue('focus');
-  const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
-  await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
-  await pressContinue(screen);
-  expect(reset).toHaveBeenCalledWith('focus');
-  expect(current.onboardingStory).toBe('done');
-});
+test.each(['focus', 'rest', 'sea'])(
+  '다른 기기의 %s 충돌은 기존 세션으로 복구하며 바다 항해만 완료 처리한다',
+  async (route) => {
+    startSea.mockRejectedValue({ code: 'STATE_CONFLICT' });
+    recover.mockResolvedValue(route);
+    const screen = await render(<Harness checkpoint="scope" />);
+    await pressContinue(screen);
+    await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
+    await pressContinue(screen);
+    expect(reset).toHaveBeenCalledWith(route);
+    expect(current.onboardingStory).toBe(route === 'sea' ? 'done' : 'scope');
+  },
+);
