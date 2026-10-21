@@ -163,6 +163,8 @@ import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOv
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
+import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
+import { startSocialAnalytics } from '@/services/socialAnalytics';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -296,9 +298,11 @@ function Bubble({ text, mine }: { text: string; mine: boolean }) {
 }
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <Gromo />
-    </SafeAreaProvider>
+    <PostHogAnalyticsProvider>
+      <SafeAreaProvider>
+        <Gromo />
+      </SafeAreaProvider>
+    </PostHogAnalyticsProvider>
   );
 }
 // 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계, 첫 섬 합류 뒤의 필수 안내(guide).
@@ -1353,10 +1357,15 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded || REVIEW || DEMO) return;
-    return subscribeSession((session) => {
+    const unsubscribe = subscribeSession((session) => {
       if (session) identifyPostHogUser(session.userId);
       else resetPostHogUser();
     });
+    const stopSocialAnalytics = startSocialAnalytics();
+    return () => {
+      stopSocialAnalytics();
+      unsubscribe();
+    };
   }, [loaded]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);

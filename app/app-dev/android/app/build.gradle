@@ -151,6 +151,24 @@ if (focusFirebase != null && focusFirebaseClient == null) {
     throw new GradleException("Firebase 클라이언트 설정의 Android 패키지가 앱과 다릅니다.")
 }
 
+// 인증이 없는 팀원/PR 빌드는 유지하고, 인증된 빌드는 업로드 실패를 숨기지 않는다.
+def posthogLocalDotenv = new File(rootDir, "../.env.posthog")
+def posthogDefaultDotenv = posthogLocalDotenv.exists() ? posthogLocalDotenv :
+    new File(System.getProperty("user.home"), ".config/posthog/catus.env")
+def posthogDotenv = System.getenv("POSTHOG_CLI_DOTENV_FILE") ?: posthogDefaultDotenv.absolutePath
+def posthogUploadEnabled = System.getenv("EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN") != "" &&
+    (System.getenv("POSTHOG_CLI_API_KEY") || new File(posthogDotenv).exists())
+if (posthogUploadEnabled) {
+    extensions.extraProperties.set("posthog.dotenvFile", posthogDotenv)
+    apply plugin: "com.posthog.android"
+    posthog {
+        uploadNativeSymbols.set(true)
+    }
+    apply from: new File(projectRoot, "node_modules/posthog-react-native/tooling/posthog.gradle")
+} else {
+    logger.lifecycle("PostHog: 업로드 인증 없음/수집 꺼짐 — 소스맵·네이티브 심볼 업로드 생략")
+}
+
 android {
   compileOptions { coreLibraryDesugaringEnabled true }
     ndkVersion rootProject.ext.ndkVersion

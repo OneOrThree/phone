@@ -1,0 +1,179 @@
+{
+  "project_id": 669473,
+  "dashboard_id": 2234116,
+  "title": "Catus · 오류와 수집 상태",
+  "description": "오류·크래시를 겪은 사용자와 문제가 발생한 앱 버전, 섬·친구 데이터의 수집 상태를 확인합니다.",
+  "pinned": false,
+  "tiles": [
+    {
+      "type": "text",
+      "tile_id": 13905386,
+      "layouts": {
+        "sm": {
+          "h": 1,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "xs": {
+          "h": 2,
+          "w": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "order": 0,
+      "body": "오류·크래시 3개 지표는 새 운영 빌드 적용 후 수집을 확인해야 합니다. 데이터가 없다고 오류가 없다는 뜻은 아닙니다. 최근 28일·한국 시간 기준이며, 일부 크래시는 다음 앱 실행 때 기록될 수 있습니다.\n\n**다른 대시보드:** [첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995) · [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)"
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905379,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 1
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 2
+        }
+      },
+      "order": 1,
+      "insight_id": 12957830,
+      "title": "오류와 크래시를 겪은 사람",
+      "description": "최근 28일 동안 오류를 겪은 사람과 치명적 오류·크래시를 겪은 사람의 일별 수입니다. 크래시를 겪은 사람은 전체 오류 사용자 수에도 포함됩니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters})\nSELECT\n toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS \"날짜\",\n uniqExact(person_id) AS \"오류 영향 사용자\",\n uniqExactIf(person_id, properties.$exception_level = 'fatal') AS \"fatal 크래시 영향 사용자\"\nFROM filtered_events\nWHERE event = '$exception'\n AND (\n  properties.analytics_environment = 'production'\n  OR (\n   empty(coalesce(toString(properties.analytics_environment), ''))\n   AND properties.$lib = 'posthog-react-native'\n   AND properties.$exception_level = 'fatal'\n  )\n )\n AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n AND timestamp <= now()\nGROUP BY \"날짜\"\nORDER BY \"날짜\"",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsLineGraph",
+        "chartSettings": {
+          "xAxis": {
+            "column": "날짜"
+          },
+          "yAxis": [
+            {
+              "column": "오류 영향 사용자"
+            },
+            {
+              "column": "fatal 크래시 영향 사용자"
+            }
+          ]
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905380,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 6
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 7
+        }
+      },
+      "order": 2,
+      "insight_id": 12957831,
+      "title": "크래시를 겪은 사용자 목록",
+      "description": "최근 28일에 치명적 오류·크래시가 기록된 사용자를 최근 기록 순으로 최대 50명 보여줍니다. 발생 횟수와 마지막 기록 시각, 앱 버전·OS·세션 ID를 함께 확인합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), fatal_by_person AS (\n SELECT person_id, count() AS fatal_count, max(timestamp) AS last_fatal_at,\n  argMax(tuple(toString(properties.$app_version), toString(properties.$os_name), toString(properties.$session_id)), timestamp) AS latest_context\n FROM filtered_events\n WHERE event = '$exception'\n  AND (\n  properties.analytics_environment = 'production'\n  OR (\n   empty(coalesce(toString(properties.analytics_environment), ''))\n   AND properties.$lib = 'posthog-react-native'\n   AND properties.$exception_level = 'fatal'\n  )\n )\n  AND properties.$exception_level = 'fatal'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n)\nSELECT person_id AS \"사용자 UUID\",\n fatal_count AS \"fatal 횟수\",\n toTimeZone(last_fatal_at, 'Asia/Seoul') AS \"마지막 fatal KST\",\n if(isNull(tupleElement(latest_context, 1)) OR tupleElement(latest_context, 1) = '', '미확인', tupleElement(latest_context, 1)) AS \"최신 앱 버전\",\n if(isNull(tupleElement(latest_context, 2)) OR tupleElement(latest_context, 2) = '', '미확인', tupleElement(latest_context, 2)) AS \"최신 OS\",\n if(isNull(tupleElement(latest_context, 3)) OR tupleElement(latest_context, 3) = '', '미확인', tupleElement(latest_context, 3)) AS \"최신 세션 ID\"\nFROM fatal_by_person\nORDER BY last_fatal_at DESC\nLIMIT 50",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905381,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 11
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 12
+        }
+      },
+      "order": 3,
+      "insight_id": 12957832,
+      "title": "앱 버전·OS별 오류",
+      "description": "최근 28일의 앱 버전과 운영체제별 오류 사용자 수, 크래시 사용자 수, 오류 발생 건수입니다. 특정 버전이나 운영체제에 문제가 몰리는지 살펴봅니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), normalized AS (\n SELECT person_id,\n  if(isNull(properties.$app_version) OR toString(properties.$app_version) = '', '미확인', toString(properties.$app_version)) AS app_version,\n  if(isNull(properties.$os_name) OR toString(properties.$os_name) = '', '미확인', toString(properties.$os_name)) AS os_name,\n  properties.$exception_level = 'fatal' AS is_fatal\n FROM filtered_events\n WHERE event = '$exception'\n  AND (\n  properties.analytics_environment = 'production'\n  OR (\n   empty(coalesce(toString(properties.analytics_environment), ''))\n   AND properties.$lib = 'posthog-react-native'\n   AND properties.$exception_level = 'fatal'\n  )\n )\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n)\nSELECT app_version AS \"앱 버전\", os_name AS \"OS\",\n uniqExact(person_id) AS \"오류 영향 사용자\",\n uniqExactIf(person_id, is_fatal) AS \"fatal 영향 사용자\",\n count() AS \"exception 발생 수\"\nFROM normalized\nGROUP BY app_version, os_name\nORDER BY \"오류 영향 사용자\" DESC, \"exception 발생 수\" DESC",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905382,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 17
+        }
+      },
+      "order": 4,
+      "insight_id": 12957039,
+      "title": "섬·친구 데이터 수집 상태",
+      "description": "최근 28일의 앱 이용자 중 섬 상태와 친구 수가 기록된 사람이 얼마나 되는지 보여줍니다. 값이 비어 있을 때 실제 이용자가 없는지, 상태 데이터가 수집되지 않았는지 구분하는 데 씁니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), active_users AS (\n SELECT person_id\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'app_active'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), latest AS (\n SELECT person_id, 1 AS has_snapshot,\n  argMax(tuple(toString(properties.island_status), toFloatOrNull(toString(properties.friend_count))), timestamp) AS snapshot\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'social_state_observed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), active_summary AS (\n SELECT count() AS active_n, countIf(ifNull(l.has_snapshot, 0) = 0) AS active_without_snapshot\n FROM active_users a LEFT JOIN latest l ON a.person_id = l.person_id\n), snapshot_summary AS (\n SELECT count() AS snapshot_n,\n  countIf(tupleElement(snapshot, 1) IN ('member','drifting')) AS island_known_n,\n  countIf(tupleElement(snapshot, 2) >= 0) AS friend_known_n\n FROM latest\n), last_events AS (\n SELECT count() AS event_n, max(timestamp) AS last_event_at\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n)\nSELECT\n if(a.active_n = 0 AND s.snapshot_n = 0, '배포대기 · production 계측 표본 없음', if(s.snapshot_n = 0, '활성 수신 · 상태 스냅샷 미수신', '계측 수신 중')) AS \"계측 상태\",\n nullIf(a.active_n, 0) AS \"활성 사용자\",\n nullIf(s.snapshot_n, 0) AS \"스냅샷 사용자\",\n if(s.snapshot_n = 0, NULL, s.island_known_n) AS \"최신 섬상태 known 사용자\",\n if(s.snapshot_n = 0, NULL, s.friend_known_n) AS \"최신 친구수 known 사용자\",\n if(a.active_n = 0, NULL, a.active_without_snapshot) AS \"활성 중 스냅샷 없는 사용자\",\n if(e.event_n = 0, NULL, toTimeZone(e.last_event_at, 'Asia/Seoul')) AS \"마지막 production 이벤트 KST\"\nFROM active_summary a CROSS JOIN snapshot_summary s CROSS JOIN last_events e",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    }
+  ],
+  "dashboard_url": "https://us.posthog.com/project/669473/dashboard/2234116"
+}
