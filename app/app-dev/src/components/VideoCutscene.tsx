@@ -5,6 +5,11 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { MotionContext } from '@/design-system/primitives';
 import { componentTokens } from '@/design-system/tokens';
 
+/**
+ * 전체 화면 컷신 영상 한 편 — 끝(재생 종료·오류·복구 타이머·동작 줄이기 건너뛰기)을 `onFinish` 로 한 번만 알린다.
+ * 한 인스턴스는 영상 한 편이다: `finished` 가 되살아나지 않으므로 다른 영상을 이어 틀려면 `source` 를 바꾸지 말고
+ * `key` 로 새로 그린다. 호출부는 끝나면 보통 화면을 옮겨 이 컴포넌트를 내린다.
+ */
 type Props = {
   source: number;
   accessibilityLabel: string;

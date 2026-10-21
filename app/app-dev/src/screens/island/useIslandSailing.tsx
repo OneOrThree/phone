@@ -90,9 +90,11 @@ export function useIslandSailing(e: any) {
       source={ARRIVAL}
       accessibilityLabel={t('arrivalCutscene.label', { destination: voyage.to })}
       testID="arrival-cutscene"
-      // 영상 4초 사이 로그아웃·계정 전환이 생기면 이전 세션의 도착 처리를 새 세션 위에서 하지 않는다.
+      // 영상 4초 사이 로그아웃·계정 전환이 생기면 이전 세션의 도착 처리를 새 세션 위에서 하지 않고,
+      // 영상 오버레이·뒤로가기 삼킴(busy)만 거둔다.
       onFinish={() => {
         if (sessionGeneration() === voyage.gen) voyage.land();
+        else setVoyage(null);
       }}
     />
   ) : null;

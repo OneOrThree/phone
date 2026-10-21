@@ -281,7 +281,7 @@ test('망원경 라우트는 자리표시가 아니라 망원경 화면이 가�
   await screen.unmount();
 });
 
-test('집중섬 출발도 공통 세 컷을 마친 뒤 기존 자리 선택 흐름으로 이어진다', async () => {
+test('집중섬 출발도 공통 출항 영상을 마친 뒤 기존 자리 선택 흐름으로 이어진다', async () => {
   const replace = jest.fn();
   const screen = await mount('focusTravel', serverFocusState(), { replace });
   expect(screen.getByTestId('departure-story')).toBeTruthy();

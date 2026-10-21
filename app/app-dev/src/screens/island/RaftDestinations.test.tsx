@@ -534,7 +534,7 @@ test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길
   expect(e.islands.switchCurrent).not.toHaveBeenCalled();
 });
 
-test('바다 출항은 세 컷 완료 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
+test('바다 출항은 출항 영상이 끝나기 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
   const e = env();
   const screen = await render(<RaftDestinations e={e} />);
   await pressSea(screen);

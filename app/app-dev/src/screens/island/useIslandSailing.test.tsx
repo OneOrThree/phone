@@ -11,6 +11,8 @@ jest.mock('expo', () => ({
     mockListeners[event] = listener;
   },
 }));
+let mockGeneration = 0;
+jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockGeneration }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
@@ -20,6 +22,8 @@ describe('useIslandSailing', () => {
   let emit: (s: AppStateStatus) => void;
   beforeEach(() => {
     jest.useFakeTimers();
+    mockGeneration = 0;
+    for (const event of Object.keys(mockListeners)) delete mockListeners[event];
     jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, handler) => {
       emit = handler as (s: AppStateStatus) => void;
       return { remove: jest.fn() } as any;
@@ -60,6 +64,29 @@ describe('useIslandSailing', () => {
     await act(async () => mockListeners.playToEnd());
     expect(e.reset).toHaveBeenCalledTimes(1);
     expect(e.dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('영상 도중 세션 세대가 바뀌면 land 를 부르지 않고 영상·busy 만 거둔다', async () => {
+    const e = {
+      state: initialState(true),
+      dispatch: jest.fn(),
+      reset: jest.fn(),
+      notify: jest.fn(),
+      backOverride: { current: null },
+    };
+    let api!: ReturnType<typeof useIslandSailing>;
+    const Host = () => {
+      api = useIslandSailing(e);
+      return api.sailing;
+    };
+    await render(<Host />);
+    await act(async () => api.sail('섬', async () => () => e.reset('home')));
+    expect(api.busy).toBe(true);
+    mockGeneration = 1;
+    await act(async () => mockListeners.playToEnd());
+    expect(e.reset).not.toHaveBeenCalled();
+    expect(api.sailing).toBeNull();
+    expect(api.busy).toBe(false);
   });
 });
 
