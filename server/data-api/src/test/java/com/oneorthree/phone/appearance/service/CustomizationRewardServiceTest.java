@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,7 +34,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * 꾸미기 보상 지급 (GROMO-2301) — 추첨 계산 실패는 보상만 건너뛰고, 보유 행은 «꽂혔을 때만» 새로 가진 것으로 친다.
- * 후보를 한 줄로 두어 15분 이상이면 언제나 그 아이템이 뽑힌다.
+ * 따로 정하지 않으면 후보를 한 줄로 두어 15분 이상이면 언제나 그 아이템이 뽑힌다. 서버 난수는 목이다(정하지 않으면 0.0).
  */
 @ExtendWith(MockitoExtension.class)
 class CustomizationRewardServiceTest {
@@ -52,6 +53,8 @@ class CustomizationRewardServiceTest {
     private OwnedProductRepository ownedProducts;
     @Mock
     private AppearanceEvents appearanceEvents;
+    @Mock
+    private RandomGenerator random;
     @InjectMocks
     private CustomizationRewardService service;
 
@@ -93,12 +96,32 @@ class CustomizationRewardServiceTest {
         verify(ownedProducts, never()).insertUserProductIfAbsent(any(), any(), any(), any(), any());
     }
 
+    @Test
+    @DisplayName("아이템은 주입한 서버 난수로 고른다 — 세션 id 로 미리 계산할 수 없다")
+    void drawsWithTheServerRandom() {
+        CustomizationRewardItem scarf = CustomizationRewardItem.builder()
+                .revision(2).productId("cust.head.zz-scarf").category("head").rarity("common").sortOrder(1).build();
+        givenPolicy(Map.of("ISLAND", weights(), "SEA", weights()), List.of(HAT, scarf));
+        given(random.nextDouble()).willReturn(0.25, 0.75);
+        given(ownedProducts.insertUserProductIfAbsent(any(UUID.class), eq(USER), anyString(), anyString(), eq(NOW)))
+                .willReturn(0);
+
+        assertThat(service.settle(USER, SESSION, FocusSessionKind.ISLAND, 900, NOW)).map(r -> r.productId())
+                .contains(HAT.getProductId());
+        assertThat(service.settle(USER, SESSION, FocusSessionKind.ISLAND, 900, NOW)).as("같은 세션이어도 난수가 다르면 다르다")
+                .map(r -> r.productId()).contains(scarf.getProductId());
+    }
+
     private void givenPolicy(Map<String, Object> locationWeights) {
+        givenPolicy(locationWeights, List.of(HAT));
+    }
+
+    private void givenPolicy(Map<String, Object> locationWeights, List<CustomizationRewardItem> candidates) {
         given(policies.findTopByOrderByRevisionDesc()).willReturn(Optional.of(CustomizationRewardPolicy.builder()
                 .revision(2).minimumActiveSeconds(900).rareUnlockSeconds(1800).legendaryUnlockSeconds(3600)
                 .timeHalfSeconds(7200).rareMaxBonusPpm(30_000).legendaryMaxBonusPpm(10_000)
                 .locationWeights(locationWeights).categoryWeights(Map.of("head", 1)).build()));
-        given(items.findByRevision(2)).willReturn(List.of(HAT));
+        given(items.findByRevision(2)).willReturn(candidates);
     }
 
     private static Map<String, Integer> weights() {

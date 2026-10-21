@@ -21,7 +21,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +29,7 @@ import static org.assertj.core.api.Assertions.within;
 /**
  * 꾸미기 보상 추첨 산식 (GROMO-2301) — 등록 데이터(reward-catalog-v1.json)의 정책과 엑셀에서 뽑은 정답
  * ({@code server/scripts/customization/probability-fixtures.json})을 그대로 읽어 맞댄다. 파이썬 검증기와 같은 정답이다.
+ * 난수는 서버가 주는 값이라, 여기서는 씨앗을 고정한 {@link Random} 으로 만든다.
  */
 class CustomizationRewardDrawTest {
 
@@ -137,16 +137,16 @@ class CustomizationRewardDrawTest {
     }
 
     @Test
-    @DisplayName("같은 세션은 몇 번을 뽑아도 같은 아이템이고, 15분 미만이면 아무것도 뽑지 않는다")
-    void sameSessionSameItemAndNothingUnderFifteenMinutes() {
+    @DisplayName("같은 난수면 같은 아이템이고(순수 함수), 15분 미만이면 아무것도 뽑지 않는다")
+    void sameRollSameItemAndNothingUnderFifteenMinutes() {
         Random random = new Random(2301);
         for (int i = 0; i < 200; i++) {
-            UUID session = new UUID(random.nextLong(), random.nextLong());
-            CustomizationRewardItem first = pick(catOnly, allItems, FocusSessionKind.ISLAND, 3600, session);
-            assertThat(pick(catOnly, allItems, FocusSessionKind.ISLAND, 3600, session)).isSameAs(first);
-            assertThat(CustomizationRewardDraw.pick(catOnly, allItems, FocusSessionKind.ISLAND, 899, session))
+            double roll = random.nextDouble();
+            CustomizationRewardItem first = pick(catOnly, allItems, FocusSessionKind.ISLAND, 3600, roll);
+            assertThat(pick(catOnly, allItems, FocusSessionKind.ISLAND, 3600, roll)).isSameAs(first);
+            assertThat(CustomizationRewardDraw.pick(catOnly, allItems, FocusSessionKind.ISLAND, 899, roll))
                     .isEmpty();
-            assertThat(CustomizationRewardDraw.pick(catOnly, allItems, FocusSessionKind.ISLAND, 900, session))
+            assertThat(CustomizationRewardDraw.pick(catOnly, allItems, FocusSessionKind.ISLAND, 900, roll))
                     .isPresent();
         }
     }
@@ -160,7 +160,7 @@ class CustomizationRewardDrawTest {
         Random random = new Random(20_260_101L);
         for (int i = 0; i < draws; i++) {
             CustomizationRewardItem item = pick(catOnly, allItems, FocusSessionKind.ISLAND, 3600,
-                    new UUID(random.nextLong(), random.nextLong()));
+                    random.nextDouble());
             rarities.merge(item.getRarity(), 1, Integer::sum);
             categories.merge(item.getCategory(), 1, Integer::sum);
         }
@@ -178,13 +178,13 @@ class CustomizationRewardDrawTest {
         Random random = new Random(7);
         boolean excludedUnderEveryCategory = false;
         for (int i = 0; i < 3000; i++) {
-            UUID session = new UUID(random.nextLong(), random.nextLong());
+            double roll = random.nextDouble();
             for (FocusSessionKind location : LOCATIONS) {
                 for (long seconds : new long[] {900, 2700, 7200}) {
-                    assertThat(pick(catOnly, allItems, location, seconds, session).getCategory())
+                    assertThat(pick(catOnly, allItems, location, seconds, roll).getCategory())
                             .isIn(CAT_CATEGORIES);
                     excludedUnderEveryCategory |= !CAT_CATEGORIES.contains(
-                            pick(everyCategory, allItems, location, seconds, session).getCategory());
+                            pick(everyCategory, allItems, location, seconds, roll).getCategory());
                 }
             }
         }
@@ -200,7 +200,7 @@ class CustomizationRewardDrawTest {
         Random random = new Random(1);
         for (int i = 0; i < 500; i++) {
             assertThat(pick(catOnly, List.of(only), FocusSessionKind.SEA, 900,
-                    new UUID(random.nextLong(), random.nextLong()))).isSameAs(only);
+                    random.nextDouble())).isSameAs(only);
         }
     }
 
@@ -211,7 +211,7 @@ class CustomizationRewardDrawTest {
         zero.replaceAll((category, weight) -> 0);
         CustomizationRewardPolicy broken = policy(policyJson, 3, catOnly.getLocationWeights(), zero);
 
-        assertThat(CustomizationRewardDraw.pick(broken, allItems, FocusSessionKind.ISLAND, 3600, UUID.randomUUID()))
+        assertThat(CustomizationRewardDraw.pick(broken, allItems, FocusSessionKind.ISLAND, 3600, 0.5))
                 .isEmpty();
     }
 
@@ -226,7 +226,7 @@ class CustomizationRewardDrawTest {
         text.put("head", "x");
         Map<String, Object> negative = new HashMap<>(catOnly.getCategoryWeights());
         negative.put("neck", -1);
-        UUID session = UUID.randomUUID();
+        double roll = 0.5;
 
         assertThatThrownBy(() -> CustomizationRewardDraw.probabilities(
                 policy(policyJson, 3, decimal, catOnly.getCategoryWeights()), FocusSessionKind.ISLAND, 900))
@@ -236,10 +236,10 @@ class CustomizationRewardDrawTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("rare");
         assertThatThrownBy(() -> CustomizationRewardDraw.pick(
                 policy(policyJson, 3, catOnly.getLocationWeights(), text), allItems, FocusSessionKind.SEA, 900,
-                session)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("category_weights.head");
+                roll)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("category_weights.head");
         assertThatThrownBy(() -> CustomizationRewardDraw.pick(
                 policy(policyJson, 3, catOnly.getLocationWeights(), negative), allItems, FocusSessionKind.SEA, 900,
-                session)).isInstanceOf(IllegalArgumentException.class);
+                roll)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -260,14 +260,14 @@ class CustomizationRewardDrawTest {
         assertThatThrownBy(() -> CustomizationRewardDraw.probabilities(huge, FocusSessionKind.ISLAND, 3600))
                 .as("일반이 음수가 된다").isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> CustomizationRewardDraw.pick(huge, allItems, FocusSessionKind.ISLAND, 1_000_000_000L,
-                UUID.randomUUID())).as("희귀가 1 을 넘는다").isInstanceOf(IllegalArgumentException.class);
+                0.5)).as("희귀가 1 을 넘는다").isInstanceOf(IllegalArgumentException.class);
         assertThat(CustomizationRewardDraw.probabilities(huge, FocusSessionKind.SEA, 3600).values())
                 .as("같은 정책이라도 범위 안이면 그대로 쓴다").allSatisfy(p -> assertThat(p).isBetween(0.0, 1.0));
     }
 
     private static CustomizationRewardItem pick(CustomizationRewardPolicy policy, List<CustomizationRewardItem> items,
-                                                FocusSessionKind location, long seconds, UUID session) {
-        return CustomizationRewardDraw.pick(policy, items, location, seconds, session).orElseThrow();
+                                                FocusSessionKind location, long seconds, double roll) {
+        return CustomizationRewardDraw.pick(policy, items, location, seconds, roll).orElseThrow();
     }
 
     private static CustomizationRewardPolicy policy(JsonNode source, int revision,

@@ -21,13 +21,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 
 /**
  * 집중 꾸미기 보상 지급 (GROMO-2301) — 섬·바다 집중 한 번이 끝날 때 휴식 제외 집중이 정책의 최소 시간(15분) 이상이면
  * 꾸미기 아이템을 정확히 1개 뽑는다. 세션끼리 시간을 더하지 않고 누적 단계표도 없다.
  *
- * <p>추첨은 {@link CustomizationRewardDraw} 의 순수 함수이고 세션 id 로 고정돼 있다. 이 서비스는 지금 정책(가장 큰
- * revision)과 그 후보를 읽어 넘기고, 뽑힌 상품을 <b>처음 가질 때만</b> 개인 인벤토리({@code owned_products})에 넣는다 —
+ * <p>추첨은 {@link CustomizationRewardDraw} 의 순수 함수이고, 난수는 이 서비스가 서버 난수로 한 번 만든다 — 공개된 세션
+ * id 로 고정하면 사용자가 결과를 미리 계산해 세션을 골라낼 수 있다. 결과는 호출자가 정산 행에 고정하므로 재조회가 다시
+ * 뽑지 않는다. 이 서비스는 지금 정책(가장 큰 revision)과 그 후보를 읽어 넘기고, 뽑힌 상품을 <b>처음 가질 때만</b> 개인 인벤토리({@code owned_products})에 넣는다 —
  * 이미 가진 상품이 뽑혀도 결과는 그 상품이다(중복 획득). 넣기는 {@code ON CONFLICT DO NOTHING}(V64 부분 유일 인덱스)이라
  * 같은 상품을 먼저 넣은 트랜잭션이 있어도 유일 위반으로 정산이 실패하지 않고, 꽂혔을 때만 인벤토리 사건을 적는다.
  *
@@ -45,12 +47,14 @@ public class CustomizationRewardService {
     private final CustomizationRewardItemRepository items;
     private final OwnedProductRepository ownedProducts;
     private final AppearanceEvents appearanceEvents;
+    /** 서버 난수({@code RandomConfig}) — 테스트는 고정 값으로 바꿔 끼운다. */
+    private final RandomGenerator random;
 
     /**
      * 집중 한 번의 꾸미기 보상 — 호출자의 트랜잭션에 합류해야 한다({@code MANDATORY}). 별도 트랜잭션이면 집중 종료가
      * 롤백돼도 상품이 남는다.
      *
-     * @param sessionId     추첨 씨앗이자 지급 근거({@code granted_ref = focus:<세션>})
+     * @param sessionId     지급 근거({@code granted_ref = focus:<세션>}) — 추첨 씨앗이 아니다
      * @param location      섬(ISLAND)·바다(SEA) — 장소별 기본 가중치를 고른다
      * @param activeSeconds 이번 세션의 휴식 제외 집중 초
      * @param now           지급 시각
@@ -72,7 +76,8 @@ public class CustomizationRewardService {
         try {
             // 정책 JSON(장소·등급 키)이 어긋나도 집중 종료 전체를 되돌리지 않는다 — 순수 계산만 감싸고, DB 읽기·쓰기는
             // 밖에 둔다(그쪽 예외는 트랜잭션을 이미 망가뜨려 삼켜 봐야 커밋되지 않는다).
-            won = CustomizationRewardDraw.pick(policy, candidates, location, activeSeconds, sessionId).orElse(null);
+            won = CustomizationRewardDraw.pick(policy, candidates, location, activeSeconds, random.nextDouble())
+                    .orElse(null);
         } catch (RuntimeException e) {
             log.error("꾸미기 보상 추첨 계산이 실패해 보상만 건너뜁니다 — 정책 확인 필요. revision={}, location={}, session={}",
                     policy.getRevision(), location, sessionId, e);

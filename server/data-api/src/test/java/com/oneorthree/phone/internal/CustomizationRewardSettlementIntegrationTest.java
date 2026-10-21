@@ -24,14 +24,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * 집중 꾸미기 보상 정산 (GROMO-2301) — 실제 Flyway(V133~V135) PostgreSQL 에서 finish·휴식 자동 종료가 아이템을
@@ -40,7 +44,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>상품 id 는 박지 않는다 — 등록 데이터(V134)는 재생성될 수 있어 DB 의 정책·후보에서 읽는다. 몇몇 테스트가 후보 한
  * 줄짜리 revision 을 새로 심으므로(지금 정책 = 가장 큰 revision) 단언은 «그 세션의 정산 행이 가리키는 revision» 기준이다
  * — 테스트 순서와 무관하다. 정확한 초가 필요하면 휴식으로 ACTIVE 구간을 닫은 뒤 그 길이를 SQL 로 맞춘다
- * (시계를 고정하지 않는다).
+ * (시계를 고정하지 않는다). 서버 난수({@link RandomGenerator} 빈)는 목으로 바꿔 끼웠다 — 따로 정하지 않으면 0.0 이고,
+ * 특정 아이템이 필요한 테스트만 값을 준다.
  */
 @SpringBootTest
 class CustomizationRewardSettlementIntegrationTest {
@@ -67,6 +72,8 @@ class CustomizationRewardSettlementIntegrationTest {
     JwtProvider jwt;
     @Autowired
     JdbcTemplate jdbc;
+    @MockitoBean
+    RandomGenerator random;
 
     @Test
     @DisplayName("섬 40분 — 머리·목 중 1개가 개인 인벤토리에 들어가고, 섬 통장 적립은 종전 그대로다")
@@ -212,21 +219,26 @@ class CustomizationRewardSettlementIntegrationTest {
         UUID user = newUser();
         FocusSessionView paused = pausedWithActiveSeconds(user, newIsland(user), 2400);
         shiftSession(paused.id(), 2 * 3600);
+        double roll = 0.73;
+        when(random.nextDouble()).thenReturn(roll);
         CustomizationRewardPolicy policy = policies.findTopByOrderByRevisionDesc().orElseThrow();
         String expected = CustomizationRewardDraw.pick(policy, items.findByRevision(policy.getRevision()),
-                FocusSessionKind.ISLAND, 2400, paused.id()).orElseThrow().getProductId();
+                FocusSessionKind.ISLAND, 2400, roll).orElseThrow().getProductId();
 
         assertThat(focus.autoCloseTimedOutRest(paused.id())).isTrue();
 
         FocusFinishView pending = focus.pendingResult(user);
         assertThat(pending.recordId()).isEqualTo(paused.id());
         assertThat(pending.activeSeconds()).isEqualTo(2400);
-        assertThat(onlyReward(pending)).as("세션 id 로 고정된 추첨 그대로").isEqualTo(expected);
+        assertThat(onlyReward(pending)).as("서버 난수로 한 번 뽑아 정산 행에 고정한 값").isEqualTo(expected);
         assertThat(pending.seaReward().newProductIds()).as("처음 가짐 — 다음 접속의 결과창에도 NEW!")
                 .containsExactly(expected);
         assertThat(owned(user)).containsExactly(expected);
+        // 새 키 finish 는 다시 뽑지 않는다 — 난수가 바뀌어도 정산 행의 값 그대로다.
+        when(random.nextDouble()).thenReturn(0.01);
         assertThat(finish(user, paused.id(), paused.version(), UUID.randomUUID()).seaReward())
                 .isEqualTo(pending.seaReward());
+        verify(random).nextDouble();
     }
 
     @Test

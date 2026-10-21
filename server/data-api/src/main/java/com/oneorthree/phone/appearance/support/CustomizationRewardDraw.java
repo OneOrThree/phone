@@ -10,10 +10,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
- * 집중 꾸미기 보상 추첨 (GROMO-2301) — 등급 확률 산식과 세션 하나에 <b>고정된</b> 추첨. 순수 함수다.
+ * 집중 꾸미기 보상 추첨 (GROMO-2301) — 등급 확률 산식과, 호출자가 준 난수 하나로 아이템을 고르는 순수 함수다.
  *
  * <h2>등급 확률</h2>
  * {@code server/scripts/customization/validate_reward_catalog.py} 의 {@code probabilities} 를 연산 순서까지 그대로
@@ -26,10 +25,12 @@ import java.util.UUID;
  * (revision 2 의 신발·뗏목)는 0 이라 뽑히지 않는다. {@code sort_order, product_id} 순 누적합에서 {@code [0,1)} 난수 × 전체
  * 합이 처음 넘는 아이템이다 — 전체 합으로 곱하므로 비어 있는 (카테고리, 등급) 칸이 있어도 남은 후보 안에서 정규화된다.
  *
- * <h2>왜 난수 생성기가 아닌가</h2>
- * 같은 세션은 몇 번을 정산해도 같은 아이템이어야 한다 — 씨앗을 {@code (세션 id, revision)} 으로 고정하고
- * {@code focus/support/GoldenFishDraw} 와 같은 splitmix64 finalizer 로 섞는다. 중복 지급은 이 결정성이 아니라 정산 행
- * PK(세션당 한 번)와 보유 행 유일 인덱스(V64)가 막는다.
+ * <h2>난수는 서버가 준다</h2>
+ * 예전에는 {@code (세션 id, revision)} 을 씨앗으로 섞어 결과를 고정했다. 세션 id 는 start 응답으로 공개되므로 사용자가
+ * 결과를 미리 계산해 마음에 안 드는 세션을 15분 전에 끝내는 식으로 골라낼 수 있었다(GROMO-2301 보안 리뷰). 이제 난수는
+ * 정산 서비스가 서버 난수({@code SecureRandom})로 한 번 만들어 넘기고, 결과는 정산 행에 고정된다 — 재시도·새 키·
+ * {@code pending-result} 는 다시 뽑지 않고 그 행을 읽는다. 중복 지급은 정산 행 PK(세션당 한 번)와 보유 행 유일
+ * 인덱스(V64)가 막는다.
  *
  * <h2>정책 값 검증</h2>
  * 정책의 가중치는 JSON 그대로 들어온다. 0 이상의 정수가 아니거나 등급 키가 빠졌으면 {@link IllegalArgumentException} 이다 —
@@ -45,9 +46,6 @@ public final class CustomizationRewardDraw {
     private static final double PPM = 1_000_000.0;
     /** 등급 확률 합의 허용 오차 — 부동소수 끝자리만 받는다(fixture 일치는 1e-12). */
     private static final double PROBABILITY_SUM_TOLERANCE = 1e-9;
-    private static final long GAMMA = 0x9E3779B97F4A7C15L;
-    private static final long MIX_A = 0xBF58476D1CE4E5B9L;
-    private static final long MIX_B = 0x94D049BB133111EBL;
 
     private CustomizationRewardDraw() {
     }
@@ -103,12 +101,13 @@ public final class CustomizationRewardDraw {
 
     /**
      * @param items 정책 revision 의 후보 전체 — 순서는 여기서 {@code sort_order, product_id} 로 맞춘다
+     * @param roll  {@code [0, 1)} 의 난수 — 서버 난수다. 같은 값이면 같은 아이템이다
      * @return 뽑힌 아이템. 최소 시간 미만이거나 확률이 있는 후보가 없으면(합이 0·NaN) 빈 값
      */
     public static Optional<CustomizationRewardItem> pick(CustomizationRewardPolicy policy,
                                                          List<CustomizationRewardItem> items,
                                                          FocusSessionKind location, long activeSeconds,
-                                                         UUID sessionId) {
+                                                         double roll) {
         Map<String, Double> grades = probabilities(policy, location, activeSeconds);
         Map<String, Integer> categoryWeights = weights(policy.getCategoryWeights(), "category_weights");
         double categoryTotal = categoryWeights.values().stream().mapToInt(Integer::intValue).sum();
@@ -131,7 +130,7 @@ public final class CustomizationRewardDraw {
         if (!(total > 0)) {
             return Optional.empty();
         }
-        double target = roll(sessionId, policy.getRevision()) * total;
+        double target = roll * total;
         double cumulative = 0;
         CustomizationRewardItem last = null;
         for (int i = 0; i < ordered.size(); i++) {
@@ -161,16 +160,5 @@ public final class CustomizationRewardDraw {
             result.put(String.valueOf(key), weight);
         });
         return result;
-    }
-
-    /** {@code (세션, revision)} 에 고정된 {@code [0, 1)} 값 — GoldenFishDraw 와 같은 섞기, 상위 53비트를 쓴다. */
-    private static double roll(UUID sessionId, int revision) {
-        long z = sessionId.getMostSignificantBits() * MIX_A
-                + sessionId.getLeastSignificantBits() * MIX_B
-                + revision * GAMMA;
-        z = (z ^ (z >>> 30)) * MIX_A;
-        z = (z ^ (z >>> 27)) * MIX_B;
-        z ^= z >>> 31;
-        return (z >>> 11) * 0x1.0p-53;
     }
 }
