@@ -47,6 +47,8 @@ import {
 
 /** 화면이 비활성·섬 미확정이라 쓰기를 시작할 수 없다 — 호출부 분기용 클라이언트 코드. */
 export const CLIENT_INACTIVE = 'CLIENT_INACTIVE';
+/** 소속 섬 없이 개인 인벤토리만 다루는 범위(옷장) — 실제 섬 UUID 와 겹치지 않는 값 */
+const PERSONAL_SCOPE = 'personal';
 
 export type ShopCategory = 'personal' | 'island' | 'sound';
 export type OrderScope = 'personal' | 'shared';
@@ -160,7 +162,8 @@ export function useShop({
       sharedInventory?: SharedInventory;
       myInventory?: PersonalInventory;
     }) => {
-      if (islandId) dispatch({ type: 'SHOP_SYNC', islandId, ...patch });
+      // 개인 인벤토리는 섬과 무관하다 — 소속 섬이 없는 옷장(바다 표류 HUD, GROMO-2404)도 로컬 장착 상태를 맞춘다
+      if (islandId || patch.myInventory) dispatch({ type: 'SHOP_SYNC', islandId, ...patch });
     },
     [dispatch, islandId],
   );
@@ -528,6 +531,12 @@ export function useShop({
     if (!cached()) throw stale();
     return island;
   }, [active, cached]);
+  /** 개인 외양 쓰기 — 섬 없이도 된다(소속 섬 없는 옷장, GROMO-2404). 계정·범위 교체 뒤의 옛 캐시는 거절한다. */
+  const writablePersonal = useCallback((): void => {
+    if (!mounted.current || !active)
+      throw new ApiError(CLIENT_INACTIVE, '지금은 상점을 쓸 수 없어요.', 0);
+    if (!cached()) throw stale();
+  }, [active, cached]);
 
   /** 쓰기 뒤 정본 재조회 — stale 이면 성공이 아니라 실패로 던진다(호출부가 토스트를 띄우지 않게). */
   const refreshAll = useCallback(
@@ -623,7 +632,7 @@ export function useShop({
   /** 개인 외양 — 제출한 필드만 보낸다(생략 유지·명시 null 해제). expectedVersion 없음. */
   const equip = useCallback(
     async (patch: MyAppearancePatch): Promise<PersonalAppearance> => {
-      writable();
+      writablePersonal();
       const e = epoch.current;
       const generation = sessionGeneration();
       try {
@@ -643,7 +652,7 @@ export function useShop({
         throw error;
       }
     },
-    [alive, applyMy, loadMy, runWrite, writable],
+    [alive, applyMy, loadMy, runWrite, writablePersonal],
   );
 
   /** 공동 외양 — appearance.version 을 expectedVersion 으로 싣고, 해제는 "default" 다. */
@@ -698,11 +707,14 @@ export function useShop({
 
   // 섬·계정이 바뀌면 모든 캐시·미해결 의도를 버리고 처음부터 다시 읽는다.
   const generation = sessionGeneration();
+  // 데이터 범위 — 섬이 있으면 섬 id. 옷장은 개인 인벤토리·외양만 다루므로 소속 섬이 없어도 연다(바다 표류 HUD 의
+  // 아바타, GROMO-2404). 그 밖의 라우트는 섬이 없으면 아무것도 부르지 않는다.
+  const scope = islandId ?? (route === 'wardrobe' ? PERSONAL_SCOPE : null);
   useEffect(() => {
     epoch.current += 1;
     intents.current.clear();
     titled.current.clear();
-    if (!active || !islandId) {
+    if (!active || !scope) {
       set(EMPTY);
       return;
     }
@@ -710,11 +722,11 @@ export function useShop({
     // 바로 들어가는 길처럼 어떤 목록 로드보다 먼저 읽기·쓰기가 올 수 있게 proven 을 민다.
     proven.current = { epoch: epoch.current, generation: sessionGeneration() };
     set({ ...EMPTY, islandId });
-  }, [active, islandId, generation, set]);
+  }, [active, scope, islandId, generation, set]);
 
   // 라우트·탭이 정하는 데이터를 읽는다 — 읽기는 조용히, 쓰기는 위 액션으로만.
   useEffect(() => {
-    if (!active || !islandId) return;
+    if (!active || !scope) return;
     const e = epoch.current;
     const g = sessionGeneration();
     if (route === 'shop') loadList(e, g, category);
@@ -725,7 +737,7 @@ export function useShop({
     else if (route === 'wardrobe') loadMy(e, g);
   }, [
     active,
-    islandId,
+    scope,
     route,
     category,
     orderScope,

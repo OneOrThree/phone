@@ -2285,6 +2285,21 @@ test.each([
   },
 );
 
+test('설정처럼 섬 없이도 쓰는 화면은 강퇴 복구 신호가 와도 바다로 옮기지 않는다(GROMO-2404)', async () => {
+  mockBootRoute = 'home';
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.state.onboarded).toBe(true));
+  await act(async () => captured.reset('settings'));
+  await act(async () => {
+    captured.dispatch({ type: 'KICKED_FROM_ISLAND', id: captured.state.islandId });
+    captured.dispatch(islandSync(null, 'KICKED'));
+  });
+  await waitFor(() => expect(captured.state.membershipRecovery).toBeUndefined());
+  expect(captured.route).toBe('settings');
+  await app.unmount();
+});
+
 test('계정이 바뀌면 같은 강퇴 상태여도 그 계정의 「봤음」으로 다시 본다(GROMO-2366)', async () => {
   await AsyncStorage.multiRemove(['kickNoticeSeen:kick-e']);
   const app = await kickedApp('kick-d');
