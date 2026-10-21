@@ -1081,7 +1081,7 @@ function Gromo() {
           // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
           ensureCurrent();
           const next = await decideBootRoute({
-            saved: null,
+            saved: previousUserId === result.userId ? stateRef.current : null,
             account,
             rejected: false,
             serverMode: true,

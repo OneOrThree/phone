@@ -100,7 +100,7 @@ test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 �
   const e = env();
   const screen = await render(<SeaVoyageHost e={e} />);
   expect(screen.getByText('별고래섬까지 2분')).toBeTruthy();
-  expect(screen.getByLabelText('항해 그만두기')).toBeTruthy();
+  expect(screen.getByLabelText('집중 마치기')).toBeTruthy();
   expect(screen.queryByLabelText('휴식')).toBeNull();
   await screen.rerender(<SeaVoyageHost e={{ ...e, now: e.now + 101_000 }} />);
   expect(screen.getByText('별고래섬 앞 정박 중')).toBeTruthy();
@@ -111,11 +111,11 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   const e = env();
   e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
   const screen = await render(<SeaVoyageHost e={e} />);
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   expect(screen.getByText('별고래섬 항해를 그만둘까요?')).toBeTruthy();
   expect(screen.getByText('지금까지 28분은 기록에 남아요')).toBeTruthy();
   expect(e.focus.finish).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   expect(e.focus.finish).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId('sailing-from').props.children).toBe('별고래섬');
@@ -271,7 +271,7 @@ test('App 공용 뒤로가기 — 항해 중에는 홈으로 가지 않고 삼�
     handled = e.backOverride.current?.();
   });
   expect(handled).toBe(true);
-  expect(e.notify).toHaveBeenCalledWith('항해 중에는 [항해 그만두기]로 바다를 떠나요');
+  expect(e.notify).toHaveBeenCalledWith('진행 중인 집중은 [집중 마치기]로 마칠 수 있어요');
   expect(e.home).not.toHaveBeenCalled();
   await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
   expect(e.backOverride.current?.()).toBe(false);
@@ -360,8 +360,8 @@ test('종료 재시도가 세션 없음(STATE_CONFLICT)이면 정본을 맞추�
     .mockRejectedValueOnce(new ApiError('UPSTREAM_TIMEOUT', '지연', 504))
     .mockRejectedValueOnce(new ApiError('STATE_CONFLICT', '없어요', 409));
   const screen = await render(<SeaVoyageHost e={e} />);
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.recover).toHaveBeenCalledTimes(1);
@@ -423,8 +423,8 @@ test('종료 유실 뒤 재시도가 409 로 확정 실패하고 새 세션이 �
     .mockRejectedValueOnce(new ApiError('STATE_CONFLICT', '없어요', 409));
   const screen = await render(<SeaVoyageHost e={e} />);
   const stop = async () => {
-    await fireEvent.press(screen.getByLabelText('항해 그만두기'));
-    await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+    await fireEvent.press(screen.getByLabelText('집중 마치기'));
+    await fireEvent.press(screen.getByLabelText('집중 마치기'));
     await act(async () => {});
   };
   await stop(); // 유실 — 대기
@@ -445,8 +445,8 @@ test('종료 유실 대기 중 세션이 다른 id 로 바뀌면 재연결·복�
   const e = env();
   e.focus.finish.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
   const screen = await render(<SeaVoyageHost e={e} />);
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   const renewed = { ...e, state: { ...e.state, session: seaSession({ id: 'sea-2' }) } };
   await screen.rerender(<SeaVoyageHost e={renewed} />);
@@ -620,8 +620,8 @@ test('대기 중인 종료가 «다른» 진행 세션을 가리키게 되면 �
   const e = env();
   e.focus.finish.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
   const screen = await render(<SeaVoyageHost e={e} />);
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
-  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   const other = { ...e, state: { ...e.state, session: seaSession({ id: 'sea-2' }) } };
   await screen.rerender(<SeaVoyageHost e={other} />);

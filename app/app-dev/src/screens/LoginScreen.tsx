@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, View } from 'react-native';
-import { Btn, C, Pic, Txt, k } from '@/design-system/patterns';
+import { Btn, Txt, k } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { AppleLogo, GoogleLogo } from '@/components/ProviderLogo';
@@ -258,39 +258,6 @@ export function LoginScreen({
     );
   };
 
-  const logo = (
-    <>
-      <Txt
-        accessibilityRole="header"
-        style={{
-          color: C.paper,
-          fontSize: 42,
-          lineHeight: 42,
-          fontWeight: '800',
-          letterSpacing: 1,
-          textShadowColor: semanticTokens.color.overlaySheet,
-          textShadowOffset: { width: 0, height: 2 },
-          textShadowRadius: 0,
-        }}
-      >
-        GROMO
-      </Txt>
-      <Txt
-        style={{
-          color: C.paper,
-          fontSize: 15,
-          lineHeight: 22,
-          fontWeight: '700',
-          textShadowColor: semanticTokens.color.overlaySheet,
-          textShadowOffset: { width: 0, height: 2 },
-          textShadowRadius: 0,
-        }}
-      >
-        {t('login.tagline')}
-      </Txt>
-    </>
-  );
-
   const actions = (
     <View style={{ gap: semanticTokens.spacing.control }}>
       <Pressable
@@ -375,103 +342,61 @@ export function LoginScreen({
     </View>
   );
 
-  const copy = (
-    <View style={{ gap: primitiveTokens.space[2] }}>
-      <Txt kind="h" style={{ fontSize: 26, lineHeight: 34, letterSpacing: -0.52 }}>
-        {t('login.heroTitle')}
-      </Txt>
-      <Txt style={{ color: C.muted }}>{t('login.heroSubtitle')}</Txt>
-    </View>
-  );
-
-  if (layout.compact) {
-    return (
-      <View style={{ flex: 1, backgroundColor: C.sky }}>
-        <Pic
-          id="L/welcome"
-          w="100%"
-          h="100%"
-          cover
-          style={{ position: 'absolute', left: 0, top: 0 }}
-        />
-        <View style={{ position: 'absolute', left: Math.max(56, ins.left + 4), top: ins.top + 22 }}>
-          {logo}
-        </View>
-        <Pic
-          id="cat/black/sitting"
-          w={150}
-          style={{ position: 'absolute', left: Math.max(230, ins.left + 178), bottom: 0 }}
-        />
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 380 }}
-          contentContainerStyle={{
-            flexGrow: 1,
-            minHeight: layout.height,
-            gap: semanticTokens.spacing.component,
-            paddingTop: ins.top + primitiveTokens.space[8],
-            paddingLeft: primitiveTokens.space[8],
-            paddingRight: Math.max(56, ins.right + 4),
-            paddingBottom: Math.max(26, ins.bottom + 5),
-            backgroundColor: C.cream,
-            borderLeftWidth: semanticTokens.stroke.strong,
-            borderColor: C.brown,
-          }}
-        >
-          {copy}
-          <View style={{ flex: 1 }} />
-          {actions}
-        </ScrollView>
-      </View>
-    );
-  }
-
   return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: C.cream,
-        flexDirection: layout.landscape ? 'row' : 'column',
+    <ScrollView
+      style={{ flex: 1, backgroundColor: semanticTokens.color.canvas }}
+      contentContainerStyle={{
+        flexGrow: 1,
+        maxWidth: componentTokens.onboarding.maxWidth,
+        width: '100%',
+        alignSelf: 'center',
+        paddingHorizontal: primitiveTokens.space[6],
+        paddingTop: Math.max(ins.top, primitiveTokens.space[12]),
+        paddingBottom: Math.max(ins.bottom, primitiveTokens.space[8]),
+        gap: primitiveTokens.space[6],
       }}
     >
       <View
         style={{
-          height: layout.landscape
-            ? '100%'
-            : layout.tablet
-              ? '42%'
-              : Math.min((layout.width * 978) / 804, layout.height * 0.56),
-          width: layout.landscape ? '48%' : '100%',
-          overflow: 'hidden',
-          borderBottomLeftRadius: layout.landscape ? 0 : primitiveTokens.space[10],
-          borderBottomRightRadius: layout.landscape ? 0 : primitiveTokens.space[10],
+          alignItems: 'center',
+          gap: primitiveTokens.space[2],
+          marginTop: primitiveTokens.space[8],
         }}
       >
-        <Pic id="welcome" w="100%" h="100%" cover />
-        <View style={{ position: 'absolute', left: ins.left + 26, top: ins.top + 12 }}>{logo}</View>
-        <Pic
-          id="cat/black/sitting"
-          w={150}
-          style={{ position: 'absolute', right: primitiveTokens.space[4], bottom: -8 }}
-        />
+        <Txt
+          accessibilityRole="header"
+          style={{
+            fontSize: primitiveTokens.fontSize.display,
+            fontWeight: '800',
+            color: semanticTokens.color.text,
+          }}
+        >
+          {t('onboardingStory.brand')}
+        </Txt>
+        <Txt>{t('onboardingStory.tagline')}</Txt>
       </View>
-      <ScrollView
-        style={{ flex: 1, width: '100%' }}
-        contentContainerStyle={{
-          flexGrow: 1,
-          width: '100%',
-          maxWidth: 580,
-          alignSelf: 'center',
-          justifyContent: 'center',
-          gap: semanticTokens.spacing.section,
-          paddingHorizontal: semanticTokens.spacing.page,
-          paddingTop: semanticTokens.spacing.section,
-          paddingBottom: ins.bottom + semanticTokens.spacing.component,
-        }}
-      >
-        {copy}
-        {actions}
-      </ScrollView>
-    </View>
+      <View style={{ alignItems: 'center', paddingVertical: primitiveTokens.space[6] }}>
+        <View
+          style={{
+            backgroundColor: semanticTokens.color.accent,
+            borderRadius: semanticTokens.radius.full,
+          }}
+        >
+          <Image
+            source={require('@/assets/ota/onboarding/cat-black.png')}
+            resizeMode="contain"
+            style={{
+              width: componentTokens.onboarding.heroCatSize,
+              height: componentTokens.onboarding.heroCatSize,
+            }}
+          />
+        </View>
+      </View>
+      <Txt kind="h" style={{ textAlign: 'center' }}>
+        {t('onboardingStory.hero')}
+      </Txt>
+      <View style={{ flex: 1, minHeight: primitiveTokens.space[4] }} />
+      {actions}
+    </ScrollView>
   );
 }

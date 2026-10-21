@@ -1,0 +1,176 @@
+import React, { useReducer } from 'react';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { MotionContext } from '@/design-system/primitives';
+import { initialState, reducer, type State } from '@/services/model';
+import { updateProfile } from '@/services/api/account';
+import { useTelescope } from '@/screens/island/useTelescope';
+import { OnboardingFlow } from './OnboardingFlow';
+import { applyLocalePref } from '@/i18n';
+
+jest.mock('@/services/api/account', () => ({ updateProfile: jest.fn() }));
+jest.mock('@/screens/island/useTelescope', () => ({ useTelescope: jest.fn() }));
+jest.mock('@/screens/island/sceneKit', () => ({ useGowun: () => 'Gowun' }));
+jest.mock('@/utils/layout', () => ({
+  useAppLayout: () => ({
+    width: 402,
+    height: 874,
+    fontScale: 1,
+    insets: { top: 0, bottom: 0, left: 0, right: 0 },
+  }),
+}));
+let mockGeneration = 1;
+jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockGeneration }));
+jest.mock('./StoryRaft', () => ({
+  StoryRaft: () => null,
+  storyIslandArt: 1,
+  storyCats: { black: 1, ginger: 1, cream: 1, gray: 1, white: 1, calico: 1 },
+}));
+const destination = { islandId: 'island-1', name: '별빛섬', sailingMinutes: 15 };
+const reset = jest.fn(),
+  startSea = jest.fn(),
+  recover = jest.fn();
+let current: State;
+function Harness({
+  checkpoint,
+  savedName = '',
+}: {
+  checkpoint?: State['onboardingStory'];
+  savedName?: string;
+}) {
+  const [state, dispatch] = useReducer(reducer, {
+    ...initialState(),
+    name: savedName,
+    onboardingStory: checkpoint,
+  });
+  current = state;
+  return (
+    <MotionContext.Provider value={true}>
+      <OnboardingFlow
+        e={{
+          state,
+          dispatch,
+          reset,
+          now: Date.now(),
+          back: jest.fn(),
+          islands: {},
+          focus: { startSea, recover },
+        }}
+      />
+    </MotionContext.Provider>
+  );
+}
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockGeneration = 1;
+  applyLocalePref('ko');
+  (useTelescope as jest.Mock).mockReturnValue({
+    items: [destination],
+    status: 'ready',
+    reload: jest.fn(),
+  });
+  (updateProfile as jest.Mock).mockImplementation(async (body) => ({
+    ...body,
+    name: body.name,
+    catColor: body.catColor,
+  }));
+});
+const pressContinue = async (screen: Awaited<ReturnType<typeof render>>) =>
+  fireEvent.press(screen.getByTestId('onboarding-continue'));
+
+test('선택한 색과 이름을 함께 저장하고 건너뛰면 망원경 체크포인트로 이동한다', async () => {
+  const screen = await render(<Harness />);
+  expect(current.onboardingStory).toBe('intro');
+  await fireEvent.press(screen.getByTestId('onboarding-cat-calico'));
+  await fireEvent.press(screen.getByTestId('onboarding-choose-next'));
+  // 첫 바다는 안내·건너뛰기 없이 고양이만 보여 준다.
+  expect(screen.queryByTestId('onboarding-skip')).toBeNull();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+  });
+  await fireEvent.press(screen.getByTestId('onboarding-skip'));
+  expect(screen.getByTestId('onboarding-name')).toBeTruthy();
+  await fireEvent.changeText(screen.getByTestId('onboarding-name'), '  하루  ');
+  await pressContinue(screen);
+  expect(updateProfile).toHaveBeenCalledWith(
+    { name: '하루', catColor: 'calico' },
+    expect.any(String),
+  );
+  expect(current.name).toBe('하루');
+  expect(current.color).toBe('calico');
+  expect(current.onboardingStory).toBe('scope');
+  expect(screen.getByTestId('onboarding-scopeIntro')).toBeTruthy();
+});
+
+test('프로필 저장 실패는 이름 입력을 유지하고 같은 의도 키로 재시도한다', async () => {
+  (updateProfile as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+  const screen = await render(<Harness savedName="하루" />);
+  await fireEvent.press(screen.getByTestId('onboarding-choose-next'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+  });
+  await fireEvent.press(screen.getByTestId('onboarding-skip'));
+  await pressContinue(screen);
+  expect(current.onboardingStory).toBe('intro');
+  await pressContinue(screen);
+  const calls = (updateProfile as jest.Mock).mock.calls;
+  expect(calls[0][1]).toBe(calls[1][1]);
+  expect(current.onboardingStory).toBe('scope');
+});
+
+test('망원경 재진입은 안내부터 시작하며 실제 세션 시작 성공 뒤에만 완료한다', async () => {
+  startSea.mockResolvedValue({ id: 's1', kind: 'sea', islandId: 'island-1' });
+  const screen = await render(<Harness checkpoint="scope" savedName="하루" />);
+  expect(screen.getByTestId('onboarding-scopeIntro')).toBeTruthy();
+  await pressContinue(screen);
+  await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
+  expect(current.onboardingStory).toBe('scope');
+  await pressContinue(screen);
+  expect(startSea).toHaveBeenCalledTimes(1);
+  expect(startSea).toHaveBeenCalledWith('island-1');
+  expect(current.onboardingStory).toBe('done');
+  expect(screen.getByTestId('onboarding-depart')).toBeTruthy();
+  await pressContinue(screen);
+  expect(reset).toHaveBeenCalledWith('sea', '별빛섬');
+});
+
+test('출발 실패 시 완료하지 않고 목적지를 유지한다', async () => {
+  startSea.mockRejectedValue(new Error('offline'));
+  const screen = await render(<Harness checkpoint="scope" />);
+  await pressContinue(screen);
+  await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
+  await pressContinue(screen);
+  expect(current.onboardingStory).toBe('scope');
+  expect(reset).not.toHaveBeenCalled();
+  expect(screen.getByTestId('onboarding-ready')).toBeTruthy();
+});
+
+test('계정 세대가 바뀐 뒤 도착한 출항 응답은 진행도와 화면을 바꾸지 않는다', async () => {
+  let resolve!: (value: unknown) => void;
+  startSea.mockImplementation(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  const screen = await render(<Harness checkpoint="scope" />);
+  await pressContinue(screen);
+  await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
+  const pressing = pressContinue(screen);
+  await new Promise((r) => setTimeout(r, 0));
+  mockGeneration++;
+  resolve({ id: 's1', kind: 'sea', islandId: 'island-1' });
+  await pressing;
+  expect(current.onboardingStory).toBe('scope');
+  expect(reset).not.toHaveBeenCalled();
+});
+
+test('다른 기기의 집중 충돌은 기존 세션을 복구하고 중복 출발하지 않는다', async () => {
+  startSea.mockRejectedValue({ code: 'STATE_CONFLICT' });
+  recover.mockResolvedValue('focus');
+  const screen = await render(<Harness checkpoint="scope" />);
+  await pressContinue(screen);
+  await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
+  await pressContinue(screen);
+  expect(reset).toHaveBeenCalledWith('focus');
+  expect(current.onboardingStory).toBe('done');
+});
