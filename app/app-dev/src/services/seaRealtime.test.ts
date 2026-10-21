@@ -279,7 +279,7 @@ test('close 사유 SESSION_REVOKED — 안내하고 재접속을 멈추며 백�
   const { spy, room } = open();
   client().onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
   expect(client().log.slice(-1)).toEqual(['CLOSE']);
-  expect(spy.errors).toEqual(['다른 곳에서 로그아웃돼 실시간 연결을 끊었어요.']);
+  expect(spy.errors).toEqual(['다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요.']);
   room.reconnect();
   expect(client().connected).toBe(false);
 });

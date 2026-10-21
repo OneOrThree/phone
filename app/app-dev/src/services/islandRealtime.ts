@@ -551,6 +551,8 @@ export const realtimeClientOptions = () => ({
  * 서버는 세션 폐기(1008 `SESSION_REVOKED`)를 ERROR 프레임 없이 close 사유로만 알린다. 폐기된 토큰으로 계속
  * 재접속해 봐야 CONNECT 에서 UNAUTHORIZED 만 나므로, 그때만 재접속을 멈추고 안내한다. 그 외 close(1002·
  * OUTBOUND_QUEUE_FULL·1011 등)는 종전대로 stompjs 재접속에 맡긴다. 섬·바다 클라이언트가 함께 쓴다.
+ * 정책: 폐기 안내는 토스트가 있는 화면(집중섬·바다)에서만 뜨고(지도·재생은 onError 가 비어 조용히 멈춘다),
+ * 로그아웃 전환은 REST 401 경로가 맡는다 — 여기서 인증 상태를 건드리지 않는다.
  */
 export function attachCloseHandling(client: Client, onSessionRevoked: () => void) {
   client.onWebSocketClose = (evt) => {

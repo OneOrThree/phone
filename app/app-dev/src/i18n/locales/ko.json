@@ -965,7 +965,7 @@
   },
   "realtime": {
     "requestRejected": "실시간 요청이 거절됐어요.",
-    "sessionRevoked": "다른 곳에서 로그아웃돼 실시간 연결을 끊었어요."
+    "sessionRevoked": "다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요."
   },
   "openSea": {
     "name": "먼바다",
