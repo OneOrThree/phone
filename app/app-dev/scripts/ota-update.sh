@@ -16,14 +16,23 @@ if [[ $# -ne 1 || -z "${MESSAGE//[[:space:]]/}" ]]; then
   exit 1
 fi
 
-# 커밋 안 된 수정은 리뷰·테스트를 거치지 않은 코드라 운영으로 내보내지 않는다
-if [[ -n "$(git status --porcelain --untracked-files=no -- .)" ]]; then
+# 커밋 안 된 수정은 리뷰·테스트를 거치지 않은 코드라 운영으로 내보내지 않는다.
+# src 아래 새 파일은 커밋된 코드가 import 하면 번들에 들어가므로 같이 본다(그 밖의 새 파일은 번들과 무관).
+if [[ -n "$(git status --porcelain --untracked-files=no -- .)$(git status --porcelain -- src)" ]]; then
   echo "❌ app/app-dev 에 커밋 안 된 변경이 있어요. 커밋하거나 되돌린 뒤 다시 실행하세요." >&2
   exit 1
 fi
 
 if ! "${EAS[@]}" whoami >/dev/null 2>&1; then
   echo "❌ Expo 로그인이 필요해요. npx eas-cli login 으로 로그인하거나 EXPO_TOKEN 을 설정하세요." >&2
+  exit 1
+fi
+
+# --environment production 은 EAS 서버의 production 환경값을 아래 운영값 위에 덮어쓴다(eas-cli 가 셸 env 뒤에 합침).
+# 운영값 정본은 이 스크립트 하나로 두고, 서버에 EXPO_PUBLIC_* 가 생기면 발행을 막는다.
+SERVER_ENV="$("${EAS[@]}" env:list --environment production </dev/null)"
+if grep -q 'EXPO_PUBLIC_' <<<"$SERVER_ENV"; then
+  echo "❌ EAS production 환경에 EXPO_PUBLIC_* 값이 있어요. 이 스크립트의 운영값을 덮어쓰므로 지운 뒤 다시 실행하세요." >&2
   exit 1
 fi
 
