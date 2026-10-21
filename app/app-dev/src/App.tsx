@@ -1022,6 +1022,7 @@ function Gromo() {
       if (!isCurrent()) throw STALE_ADOPTION;
     };
     const changingOwner = previousUserId !== result.userId;
+    let savedStory = stateRef.current.onboardingStory;
     // 채택이 중단되면 gate 는 닫힌 채로 남는다 — 다음 채택 성공이나 부팅이 owner 기록 뒤에 연다.
     // 소유자 확인 전 저장을 막는 보수적 동작이며 의도된 것이다.
     if (changingOwner) setStorageOwnerGate(false);
@@ -1066,6 +1067,7 @@ function Gromo() {
             // 같은 owner 재채택이면 앞선 오프라인 부팅이 보류한 데이터를 복구한다.
             // LOAD를 LOGIN/PROFILE보다 먼저 dispatch해 새 세션의 계정 표기가 덮지 않게 한다.
             dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
+            savedStory = deferred.state.onboardingStory;
             deferredOwnerState.current = null;
           }
           dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
@@ -1081,7 +1083,8 @@ function Gromo() {
           // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
           ensureCurrent();
           const next = await decideBootRoute({
-            saved: previousUserId === result.userId ? stateRef.current : null,
+            // 스토리 진행도만 계승한다. 소속과 집중 세션은 기존 서버 동기화 경로가 결정한다.
+            saved: previousUserId === result.userId ? { onboardingStory: savedStory } : null,
             account,
             rejected: false,
             serverMode: true,

@@ -148,7 +148,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       if (live()) setError(errorTextOr(thrown, 'errors.GENERIC'));
     } finally {
       requestLock.current = false;
-      if (live()) setPending(false);
+      if (mounted.current) setPending(false);
     }
   };
   const start = async () => {
@@ -195,7 +195,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       setError(errorTextOr(thrown, 'telescope.sailFailed'));
     } finally {
       requestLock.current = false;
-      if (live()) setPending(false);
+      if (mounted.current) setPending(false);
     }
   };
   const back = useRef<() => boolean>(() => false);
@@ -377,7 +377,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               {!scopeStep && <View style={styles.tail} />}
             </Pressable>
           )}
-          {!['arrival', 'scopeIntro', 'scope', 'ready', 'depart'].includes(step) && (
+          {!['arrival', 'name', 'scopeIntro', 'scope', 'ready', 'depart'].includes(step) && (
             <View style={{ position: 'absolute', top, right: space[4] }}>
               <Btn
                 id="onboarding-skip"

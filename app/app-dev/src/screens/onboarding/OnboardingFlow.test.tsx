@@ -89,6 +89,7 @@ test('선택한 색과 이름을 함께 저장하고 건너뛰면 망원경 체�
   });
   await fireEvent.press(screen.getByTestId('onboarding-skip'));
   expect(screen.getByTestId('onboarding-name')).toBeTruthy();
+  expect(screen.queryByTestId('onboarding-skip')).toBeNull();
   await fireEvent.changeText(screen.getByTestId('onboarding-name'), '  하루  ');
   await pressContinue(screen);
   expect(updateProfile).toHaveBeenCalledWith(
@@ -163,6 +164,11 @@ test('계정 세대가 바뀐 뒤 도착한 출항 응답은 진행도와 화면
   await pressing;
   expect(current.onboardingStory).toBe('scope');
   expect(reset).not.toHaveBeenCalled();
+  // 같은 사용자 ID로 세대만 바뀌어 화면이 유지돼도 대기 상태가 남지 않는다.
+  startSea.mockResolvedValue({ id: 's2', kind: 'sea', islandId: 'island-1' });
+  await pressContinue(screen);
+  expect(startSea).toHaveBeenCalledTimes(2);
+  expect(screen.getByTestId('onboarding-depart')).toBeTruthy();
 });
 
 test('다른 기기의 집중 충돌은 기존 세션을 복구하고 중복 출발하지 않는다', async () => {
