@@ -6,6 +6,7 @@ import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.common.redis.Sourced;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
+import com.oneorthree.realtime.event.RealtimeEventType;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.Counter;
@@ -251,11 +252,15 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         try {
             // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 채팅과 같은 이유.
-            boolean filter = blockedUsers.enabled();
-            UUID arriver = filter ? senderOf(readPayload(message), "payload", "userId", false) : null;
+            // 외양 사건은 도착자 단위 «차단하면 통째로 버림» 이 아니라 받는 사람별 «가리기» 라 그 판독을 타지 않는다.
+            JsonNode root = readPayload(message);
+            boolean look = root != null && root.get("type") != null && root.get("type").isString()
+                    && RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(root.get("type").stringValue());
+            boolean filter = blockedUsers.enabled() && !look;
+            UUID arriver = filter ? senderOf(root, "payload", "userId", false) : null;
             String scope = filter ? destination + "#" + arriver : destination;
             if (authzCache.allowed(sessionId, principal.userId(), scope)) {
-                return message;
+                return look ? maskIslandLook(message, root, principal.userId()) : message;
             }
             accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
             Sourced<Boolean> blocked = filter ? blockJudgment(principal.userId(), arriver) : NOT_BLOCKED;
@@ -265,7 +270,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             }
             authzCache.allow(sessionId, principal.userId(), scope, stamp,
                     Math.min(membershipNotAfter(islandId, principal.userId()), blocked.expiresAtNanos()));
-            return message;
+            return look ? maskIslandLook(message, root, principal.userId()) : message;
         } catch (UpstreamRejectedCredentialException e) {
             // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.
             sessions.closeUnauthorized(SimpMessageHeaderAccessor.getSessionId(message.getHeaders()));
@@ -274,6 +279,35 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             log.debug("섬 소식 전달 차단 — reason={}", e.getClass().getSimpleName());
             return null;
         }
+    }
+
+    /**
+     * 섬 토픽 {@code member.appearance.updated} 의 받는 사람별 가리기(GROMO-2389) — 바다 방과 같은 규칙이다.
+     * {@code payload.userId} 가 받는 사람이 차단한 사람이면 착용 아이템·자리를 기본값으로 바꾼다(hull·version 유지).
+     * 필터 스위치와 무관하고 판정 불가면 가린다(fail-closed).
+     */
+    private Message<?> maskIslandLook(Message<?> message, JsonNode root, UUID viewerId) {
+        JsonNode payload = root.get("payload");
+        UUID other = payload == null ? null : uuidAt(payload.get("userId"));
+        if (!(payload instanceof ObjectNode body) || !(body.get("appearance") instanceof ObjectNode look)
+                || other == null || other.equals(viewerId)) {
+            return message;
+        }
+        boolean hide;
+        try {
+            hide = blockedUsers.hasBlockedUnfiltered(viewerId, other);
+        } catch (RuntimeException e) {
+            log.warn("섬 외양 프레임 차단 판정 불가 — 외양을 가린다. reason={}", e.getClass().getSimpleName());
+            hide = true;
+        }
+        if (!hide) {
+            return message;
+        }
+        for (String field : new String[] {"clothes", "decor", "head", "neck", "shoes"}) {
+            look.putNull(field);
+        }
+        look.put("position", "front");
+        return MessageBuilder.createMessage(objectMapper.writeValueAsBytes(root), message.getHeaders());
     }
 
     /** 바다 방 프레임 — 세션 인증 + 그 주체가 지금도 그 방 소속인가(fail-closed). */

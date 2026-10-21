@@ -114,7 +114,7 @@ public class InboundEventService {
 
     private static final Set<String> DELIVERED_TYPES = Set.of(
             RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName(),
-            RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName());
+            RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName(), RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName());
 
     /** {@code island.member.arrived} 가 앱으로 내보내는 필드 — 그 밖은 버린다(주민 전용 채널이라도 고른 것만). */
     private static final List<String> ARRIVAL_FIELDS = List.of("islandId", "userId", "name", "catColor", "arrivedAt");
@@ -311,6 +311,12 @@ public class InboundEventService {
             log.debug("앱 사건 수신 — 이 type 의 전달 어댑터가 아직 없다. eventId={} type={}", eventId, type);
             return;
         }
+        JsonNode subject = envelope.get("subjectId");
+        boolean noIsland = subject == null || subject.isNull();
+        if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type) && noIsland) {
+            // 섬이 하나도 없는 사용자의 사용자 축 사건(GROMO-2389) — 섬 토픽으로 보낼 곳이 없다. 바다 방 적용만 한다.
+            return;
+        }
         RealtimeEventEnvelope event;
         try {
             event = RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName().equals(type)
@@ -340,7 +346,9 @@ public class InboundEventService {
      */
     private static RealtimeEventEnvelope memberEvent(String eventId, String type, JsonNode envelope) {
         RealtimeEventType eventType = RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName().equals(type)
-                ? RealtimeEventType.FOCUS_MEMBER_UPDATED : RealtimeEventType.REST_MEMBER_UPDATED;
+                ? RealtimeEventType.FOCUS_MEMBER_UPDATED
+                : RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)
+                ? RealtimeEventType.MEMBER_APPEARANCE_UPDATED : RealtimeEventType.REST_MEMBER_UPDATED;
         JsonNode params = envelope.get("params");
         if (params == null || !params.isObject()) {
             throw new IllegalArgumentException("주민 사건 params 가 객체가 아닙니다.");

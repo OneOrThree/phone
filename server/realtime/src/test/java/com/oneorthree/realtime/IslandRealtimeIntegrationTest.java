@@ -342,6 +342,44 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
+    @DisplayName("member.appearance.updated 는 그 섬 events 의 주민에게 전달된다 — 섬 없는 사용자 축 사건은 섬 토픽으로 가지 않는다 (GROMO-2389)")
+    void memberAppearanceReachesResidentsButUserAxisEventsStayOut() throws Exception {
+        StompSession residentSession = connect(focusing);
+        BlockingQueue<Map<String, Object>> resident = subscribe(residentSession, "events");
+
+        postEvent(appearanceEvent(resting, null, 3));
+        Map<String, Object> received = null;
+        for (int attempt = 0; attempt < 30 && received == null; attempt++) {
+            postEvent(appearanceEvent(resting, island, 4));
+            received = resident.poll(500, TimeUnit.MILLISECONDS);
+        }
+        assertThat(received).as("주민은 외양 변경을 받는다").isNotNull();
+        assertThat(received.get("type")).isEqualTo("member.appearance.updated");
+        assertThat(received.get("islandId")).isEqualTo(island.toString());
+        assertThat(received.get("schemaVersion")).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) received.get("payload");
+        assertThat(payload.get("userId")).isEqualTo(resting.toString());
+        assertThat(payload.get("version")).isEqualTo(4);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> look = (Map<String, Object>) payload.get("appearance");
+        assertThat(look.get("head")).isEqualTo("head-ribbon");
+        // 섬 없는 사건(version 3)이 먼저 갔다면 aggregateVersion 3 이 섞여 들어왔을 것이다
+        assertThat(received.get("aggregateVersion")).isEqualTo(4);
+    }
+
+    /** Data {@code AppearanceEvents#memberChanged} 모양 — island 가 null 이면 섬 없는 사용자 축(subjectId=null). */
+    private String appearanceEvent(UUID owner, UUID subjectIsland, long version) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+                + "\"type\":\"member.appearance.updated\",\"occurredAt\":\"2026-10-18T00:00:00Z\","
+                + "\"scheduledAt\":null,\"userId\":\"" + owner + "\",\"locale\":null,\"subjectId\":"
+                + (subjectIsland == null ? "null" : "\"" + subjectIsland + "\"") + ",\"version\":" + version
+                + ",\"params\":{\"userId\":\"" + owner + "\",\"appearance\":{\"clothes\":null,\"decor\":null,"
+                + "\"head\":\"head-ribbon\",\"neck\":null,\"shoes\":null,\"hull\":\"raft\","
+                + "\"position\":\"front\"},\"version\":" + version + "}}";
+    }
+
+    @Test
     @DisplayName("schema 2 · userId 누락 · 계약 밖 status 인 주민 사건은 200 으로 받되 방송하지 않는다")
     void malformedMemberEventsAreAcceptedButNeverBroadcast() throws Exception {
         // P2-①: 서비스 토큰은 「Data 가 보냈다」만 증명한다 — 내용이 계약을 지킨다는 보증이 아니다.
