@@ -647,6 +647,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             log.info("이동 유령 인스턴스 퇴출 — instance={} actors={}", instance, actors);
         });
         // 위에서 같은 조건으로 그 인스턴스 actor 는 이미 나갔다. 재입장 JOIN 이 applyForwarded 에서 다시 심는다.
+        // relay-in 의 PING put 과 겹쳐도 ConcurrentHashMap 의 removeIf 는 값 비교로 지워 새 값은 남는다.
         lastPinged.entrySet().removeIf(e -> now - e.getValue() > instanceStaleNanos);
     }
 

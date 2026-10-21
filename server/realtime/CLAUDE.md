@@ -271,7 +271,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `routing.failed{stale_room}` 으로 버린다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
   `movement.routing.failed{reason=redis|no_lease|stale_queue|stale_room|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`, `movement.cluster.evict{reason=dead_instance|ghost|missing}`(원격 actor 퇴출 수 — sweep·PING 대조·EVICTED), `movement.cluster.poll`(1초 감시 한 틱 Timer — submit 작업 제외; `enabled=false` 여도 생성자에서 등록돼 0 샘플로 노출(무해). submit 작업은 같은 스레드의 다음 순번이라 poll p95 가 낮아도 스레드가 밀려 있을 수 있다).
-- **배포 전후 확인**: 머지 PR 의 `deployed:dev-realtime` 라벨 → 롤링 중 `movement.cluster.evict{reason=dead_instance}` 일시 상승 뒤 0, `movement.owner.lost{reason=expired}`·`movement.fullstate.retry` 일시 상승 예상, `movement.cluster.poll` p95 는 늘지 않아야 한다. PING 드롭은 `movement.relay.dropped{kind=control}`·`movement.routing.failed{reason=publish}` 에 포함된다.
+- **배포 전후 확인**: 머지 PR 의 `deployed:dev-realtime` 라벨 → 롤링 중 `movement.cluster.evict{reason=dead_instance}` 일시 상승 뒤 0, `movement.owner.lost{reason=expired}`·`movement.fullstate.retry` 일시 상승 예상, `movement.cluster.poll` p95 는 늘지 않아야 한다. PING 드롭은 `movement.relay.dropped{kind=control}`·`movement.routing.failed{reason=publish}` 에 포함된다. 이 기준은 2대(GROMO-2353) 전제다 — 1대에선 소유자가 자기라 PING 이 안 나가 `dead_instance`·`ghost` 는 0 이 정상이고, 혼합 버전 구간(위 「혼합 버전 한계」)에선 `dead_instance` 가 한 번 더 오를 수 있다.
 
 ## Redis keys (A19 namespace table)
 
@@ -307,7 +307,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
-`Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다 — Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈린다 — `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
+`Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
 **ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
 키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는

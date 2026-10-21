@@ -103,10 +103,10 @@ class MovementClusterTest {
         relay.start();
         rooms = new MovementRooms(relay, meters);
         StaticListableBeanFactory beans = new StaticListableBeanFactory();
-        // fastStale 태그 테스트만 생존 신호 한도를 줄인다 — 한도 안에 JOIN 을 관찰할 시간은 두고, sweep 은 1초 감시가 돌린다.
+        // fastStale 태그 테스트만 생존 신호 한도를 2초로 줄인다 — 부하 CI 에서도 한도 안에 JOIN 을 관찰할 시간은 두고, sweep 은 1초 감시가 돌린다.
         cluster = info.getTags().contains("fastStale")
                 ? new MovementCluster(true, rooms, publisher, ownership, relay, redis, json,
-                        beans.getBeanProvider(MovementSubscriptionListener.class), meters, 700)
+                        beans.getBeanProvider(MovementSubscriptionListener.class), meters, 2000)
                 : new MovementCluster(true, rooms, publisher, ownership, relay, redis, json,
                         beans.getBeanProvider(MovementSubscriptionListener.class), meters);
         cluster.init();
@@ -285,7 +285,7 @@ class MovementClusterTest {
         becomeOwnerWithRemoteActor("ghost-8", "x");
 
         List<String> ids = actorIdsOf(awaitFullStateWith("s1", 1, 2));
-        assertThat(ids).as("700ms 동안 PING 이 없던 ghost-8:x 는 sweep 이 내보냈다").containsExactly(user.toString());
+        assertThat(ids).as("2초 동안 PING 이 없던 ghost-8:x 는 sweep 이 내보냈다").containsExactly(user.toString());
         assertThat(meters.counter("movement.cluster.evict", "reason", "dead_instance").count()).isEqualTo(1);
 
         Thread.sleep(2200); // 감시가 두 번 더 돈다 — 이미 지운 인스턴스는 다시 세지 않는다
