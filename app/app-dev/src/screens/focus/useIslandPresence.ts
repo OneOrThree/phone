@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { sessionGeneration } from '@/services/api/session';
 import type { Color } from '@/services/model';
+import { newerLook, type MemberLook } from '@/services/memberAppearance';
 import {
   EMPTY_PRESENCE,
   startIslandRealtime,
@@ -26,10 +27,14 @@ const COLORS: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
 export const catColor = (v: unknown): Color =>
   COLORS.includes(v as Color) ? (v as Color) : 'gray';
 
+const NO_LOOKS: Record<string, MemberLook> = {};
+
 export type IslandPresence = PresenceView & {
   /** STOMP SEND — 즉시 실패(미연결·세션 없음)면 false. 화면 표시는 브로드캐스트가 돌아올 때다. */
   sendEmote: (type: string) => boolean;
   retry: () => void;
+  /** 실시간으로 받은 주민 외양(GROMO-2390) — 스냅숏 appearance 와 version 으로 합쳐 쓴다. */
+  looks: Record<string, MemberLook>;
 };
 
 export function useIslandPresence(
@@ -58,6 +63,10 @@ export function useIslandPresence(
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const [snapshot, setSnapshot] = useState({ scope, view: EMPTY_PRESENCE });
+  const [looksState, setLooksState] = useState<{
+    scope: string;
+    looks: Record<string, MemberLook>;
+  }>({ scope, looks: {} });
   const rt = useRef<IslandRealtime | null>(null);
   const onSendError = useRef(opts.onSendError);
   onSendError.current = opts.onSendError;
@@ -98,6 +107,14 @@ export function useIslandPresence(
       onMemberArrived: (event) => {
         if (alive()) onMemberArrived.current?.(event);
       },
+      onMemberAppearance: (userId, look) => {
+        if (!alive()) return;
+        setLooksState((prev) => {
+          const current = prev.scope === scope ? prev.looks : NO_LOOKS;
+          const next = newerLook(current[userId], look)!;
+          return next === current[userId] ? prev : { scope, looks: { ...current, [userId]: next } };
+        });
+      },
       onSendError: (message) => {
         if (alive()) onSendError.current?.(message);
       },
@@ -127,5 +144,6 @@ export function useIslandPresence(
     ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),
     sendEmote: useCallback((type: string) => rt.current?.sendEmote(type) ?? false, []),
     retry: useCallback(() => setNonce((n) => n + 1), []),
+    looks: looksState.scope === scope ? looksState.looks : NO_LOOKS,
   };
 }

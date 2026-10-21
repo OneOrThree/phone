@@ -45,11 +45,22 @@ jest.mock('@/components/CatSprite', () => {
   const { View } = require('react-native');
   return {
     ...jest.requireActual('@/components/CatSprite'),
-    CatSprite: ({ testID, motion, color }: { testID?: string; motion?: string; color: string }) =>
+    CatSprite: ({
+      testID,
+      motion,
+      color,
+      outfit,
+    }: {
+      testID?: string;
+      motion?: string;
+      color: string;
+      outfit?: object;
+    }) =>
       ReactActual.createElement(View, {
         testID: testID ?? 'mock-cat-sprite',
         testPropMotion: motion,
         testPropColor: color,
+        testPropOutfit: outfit,
       }),
   };
 });
@@ -581,6 +592,38 @@ it('셀 열이 같아도 서버 speed 가 로컬과 다르면 남은 구간을 �
   }
   expect(durations.length).toBeGreaterThan(0);
   for (const d of durations) expect(d).toBeCloseTo(200, 1);
+  await screen.unmount();
+});
+
+it('다른 주민은 응답 appearance 로 머리·목을 입고, member.appearance.updated 는 version 이 큰 것만 바로 반영한다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  const island = nextIsland();
+  const state = serverState(island);
+  const members = (state.serverIslands as any).home.members;
+  members[1].appearance = { head: 'hat-u1', neck: null, version: 3 }; // U1 ginger
+  const screen = await renderHome(island, { state });
+  const headOf = (color: string) =>
+    screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+      .testPropOutfit?.head;
+  // 이동 동기화 전 Wanderer(ginger·white) — 응답에 옷이 있는 주민만 입는다
+  expect(headOf('ginger')).toBe('hat-u1');
+  expect(headOf('white')).toBeUndefined();
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  expect(headOf('ginger')).toBe('hat-u1'); // RemoteResident
+  const appearance = (head: string | null, version: number) => ({
+    eventId: `e${version}`,
+    schemaVersion: 1,
+    type: 'member.appearance.updated',
+    islandId: island,
+    aggregateVersion: version,
+    payload: { userId: U1, appearance: { head, neck: null }, version },
+  });
+  await emit(appearance('hat-new', 4));
+  expect(headOf('ginger')).toBe('hat-new');
+  await emit(appearance('hat-stale', 2)); // 늦게 온 옛 사건
+  expect(headOf('ginger')).toBe('hat-new');
+  await emit(appearance(null, 5)); // 벗었다
+  expect(headOf('ginger')).toBeNull();
   await screen.unmount();
 });
 

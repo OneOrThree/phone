@@ -22,6 +22,7 @@ import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
+import { parseAppearanceEvent, type MemberLook } from '@/services/memberAppearance';
 import {
   focusMembers,
   restMembers,
@@ -383,6 +384,7 @@ export class IslandProjection {
         userId,
         name: prev?.name ?? null,
         catColor: prev?.catColor ?? null,
+        appearance: prev?.appearance ?? null,
         restSeat: num(p?.restSeat) ?? prev?.restSeat ?? null,
         restStartedAt: str(p?.restStartedAt) ?? prev?.restStartedAt ?? null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
@@ -760,6 +762,8 @@ export type IslandRealtimeDeps = {
   onMemberArrived?: (event: MemberArrivedEvent) => void;
   /** 방문자가 보낸 응원을 받았다(주민 화면). eventId 로 중복 제거된 뒤 1번만 불린다. */
   onVisitorEmote?: (emote: LiveEmote) => void;
+  /** 다른 주민이 옷을 갈아입었다(`member.appearance.updated`, GROMO-2390) — 병합은 호출부가 version 으로 한다. */
+  onMemberAppearance?: (userId: string, look: MemberLook) => void;
   onView: (view: PresenceView) => void;
   /** 검증된 포커스/휴식 상태 경계 변화. 새 화면 상태를 발행한 뒤 호출한다. */
   onTransition?: (transition: IslandPresenceTransition) => void;
@@ -1020,6 +1024,11 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       if ((raw as RealtimeEnvelope | null)?.type === 'island.member.arrived') {
         const arrived = arrivalFilter(raw);
         if (arrived) deps.onMemberArrived?.(arrived);
+        return;
+      }
+      if ((raw as RealtimeEnvelope | null)?.type === 'member.appearance.updated') {
+        const changed = parseAppearanceEvent(raw, islandId);
+        if (changed) deps.onMemberAppearance?.(changed.userId, changed.look);
         return;
       }
       const golden = parseGoldenFishEvent(raw, islandId);

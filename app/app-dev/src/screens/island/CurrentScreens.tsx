@@ -64,6 +64,7 @@ import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
+import { lookOf } from '@/services/memberAppearance';
 import {
   isGoldenFishParticipant,
   memberArrivedText,
@@ -1609,6 +1610,11 @@ function FocusVisit({ e, islandId, onBack }: any) {
             <FishingPeerActorView
               key={actor.key}
               actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+              outfit={lookOf(
+                live.looks,
+                actor.userId,
+                live.focus.find((m) => m.userId === actor.userId)?.appearance,
+              )}
               size={size}
               sizeY={sizeY}
               reduce={reduce}
@@ -3152,6 +3158,11 @@ function FocusFlow({ e: environment }: any) {
                   <FishingPeerActorView
                     key={actor.key}
                     actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                    outfit={lookOf(
+                      live.looks,
+                      actor.userId,
+                      live.focus.find((m) => m.userId === actor.userId)?.appearance,
+                    )}
                     size={size}
                     sizeY={sizeY}
                     emote={emoteByUser.get(actor.userId) ?? null}

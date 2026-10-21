@@ -34,7 +34,7 @@ import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
-import { outfitOf } from '@/components/CatOutfitLayers';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
   ConstructionBuildingSprite,
@@ -110,6 +110,12 @@ import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import {
+  lookOf,
+  newerLook,
+  parseAppearanceEvent,
+  type MemberLook,
+} from '@/services/memberAppearance';
 import {
   constructionPhase,
   normalizedConstructionProgress,
@@ -324,8 +330,10 @@ function Wanderer({
   scene,
   assets,
   buildings,
+  outfit,
 }: {
   color: Color;
+  outfit?: Outfit;
   start: Point;
   s: number;
   reduce: boolean;
@@ -416,6 +424,7 @@ function Wanderer({
         motion={walking ? 'walking' : 'blink'}
         left={left}
         reduce={reduce}
+        outfit={outfit}
       />
     </Animated.View>
   );
@@ -430,9 +439,11 @@ function RemoteResident({
   s,
   reduce,
   subscribe,
+  outfit,
 }: {
   userId: string;
   color: Color;
+  outfit?: Outfit;
   start: Point;
   s: number;
   reduce: boolean;
@@ -481,6 +492,7 @@ function RemoteResident({
         motion={walking ? 'walking' : 'blink'}
         left={left}
         reduce={reduce}
+        outfit={outfit}
       />
     </Animated.View>
   );
@@ -1549,6 +1561,8 @@ function FinalIslandScene({
     walkCells = useRef<WorldPoint[]>([]),
     arrival = useRef<Point | null>(null);
   const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
+  // 실시간으로 받은 다른 주민의 외양(GROMO-2390) — 홈 응답의 appearance 와 version 으로 합쳐 그린다
+  const [looks, setLooks] = useState<Record<string, MemberLook>>({});
   const remoteListeners = useRef(new Map<string, RemoteListener>()).current;
   const subscribeRemote = useCallback(
     (userId: string, listener: RemoteListener) => {
@@ -1727,9 +1741,17 @@ function FinalIslandScene({
       // 홈 = 내 소속 섬이라 주민 소식(GROMO-2311) 구독 조건을 늘 만족한다 — 방문(facts=null)에는 이 채널이 열리지 않는다
       events: true,
       onEvent: (body) => {
-        if ((body as { type?: unknown } | null)?.type === 'island.member.arrived') {
+        const type = (body as { type?: unknown } | null)?.type;
+        if (type === 'island.member.arrived') {
           const arrived = arrivals(body);
           if (arrived) notifyRef.current?.(memberArrivedText(arrived));
+        } else if (type === 'member.appearance.updated') {
+          const changed = parseAppearanceEvent(body, syncIslandId);
+          if (changed)
+            setLooks((prev) => {
+              const next = newerLook(prev[changed.userId], changed.look)!;
+              return next === prev[changed.userId] ? prev : { ...prev, [changed.userId]: next };
+            });
         } else controller.onMessage(body);
       },
       onOpen: () => {},
@@ -1752,6 +1774,7 @@ function FinalIslandScene({
       movement.current = null;
       channel?.close();
       setRemoteActors(null);
+      setLooks({});
     };
   }, [syncIslandId, me]);
   // 이동 보기 오버레이(GROMO-2249) — 서버 확정 경로·스냅샷·예측 오차. navDebug 가 꺼져 있으면 아무것도 계산·구독하지 않는다(비용 0).
@@ -1909,20 +1932,24 @@ function FinalIslandScene({
     }
   }, [request]);
 
-  const wanderColors = useMemo(() => {
+  const wanderers = useMemo(() => {
     const myId = getSession()?.userId;
     // 서버 주민 색은 고른 사람만 — catColor null 은 임의 색으로 채우지 않는다
     const others = facts
-      ? facts.members.filter((m) => m.id !== myId && m.catColor).map((m) => catColor(m.catColor))
-      : i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
+      ? facts.members
+          .filter((m) => m.id !== myId && m.catColor)
+          .map((m) => ({ color: catColor(m.catColor), outfit: lookOf(looks, m.id, m.appearance) }))
+      : i.members
+          .filter((m) => m.id !== 'me')
+          .map((m) => ({ color: m.color as Color, outfit: undefined }));
     // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
     const spare = facts
       ? []
-      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
-          (c) => c !== state.color && !others.includes(c),
-        );
+      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[])
+          .filter((c) => c !== state.color && !others.some((o) => o.color === c))
+          .map((color) => ({ color, outfit: undefined }));
     return [...others, ...spare].slice(0, 2);
-  }, [i.members, facts, state.color]);
+  }, [i.members, facts, state.color, looks]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
@@ -2132,10 +2159,11 @@ function FinalIslandScene({
         })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
         {!remoteActors &&
-          wanderColors.map((color, n) => (
+          wanderers.map(({ color, outfit }, n) => (
             <Wanderer
               key={color + n}
               color={color}
+              outfit={outfit}
               start={nearestLand(grid, WANDER_STARTS[n])}
               scene={scene}
               assets={mapAssets}
@@ -2147,12 +2175,14 @@ function FinalIslandScene({
           ))}
         {/* 이동 동기화 중이면 Wanderer 대신 서버가 정한 주민 — 색을 고른 주민만(catColor null·명단 밖은 그리지 않는다) */}
         {remoteActors?.map((a) => {
-          const color = facts?.members.find((m) => m.id === a.userId)?.catColor;
+          const member = facts?.members.find((m) => m.id === a.userId);
+          const color = member?.catColor;
           return color ? (
             <RemoteResident
               key={a.userId}
               userId={a.userId}
               color={catColor(color)}
+              outfit={lookOf(looks, a.userId, member?.appearance)}
               start={worldToImage(a, sizeOf(grid))}
               s={s}
               reduce={state.settings.reduceMotion}

@@ -1065,6 +1065,7 @@ export function FishingActor({
 /** 실시간 주민: 자리 배정 훅의 경로/상태를 스프라이트 모션으로 표현한다. */
 export function FishingPeerActorView({
   actor,
+  outfit,
   size,
   sizeY,
   emote,
@@ -1078,6 +1079,8 @@ export function FishingPeerActorView({
   onCompletedExit,
 }: {
   actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
+  /** 남의 고양이 머리·목(GROMO-2390). */
+  outfit?: Outfit;
   size: number;
   sizeY: number;
   emote?: string | null;
@@ -1267,6 +1270,7 @@ export function FishingPeerActorView({
       size={size}
       sizeY={sizeY}
       color={actor.color}
+      outfit={outfit}
       name={actor.name}
       subject={actor.subject}
       seconds={actor.seconds}

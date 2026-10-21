@@ -130,6 +130,27 @@ test('방 사건 — joined·updated 는 갱신, left 는 멱등 제거, 다른 
   expect(spy.members.some((m) => m.userId === 'z')).toBe(false);
 });
 
+test('남의 뗏목 외양 — appearance 를 outfit 으로 싣고 version 이 작거나 같은 갱신은 무시한다 (GROMO-2390)', () => {
+  const { spy } = open();
+  const look = (head: string | null, version: number) => ({
+    appearance: { head, neck: null, version },
+  });
+  joinRoom([member('me'), member('a', look('hat-1', 5))]);
+  const a = () => spy.members.find((m) => m.userId === 'a');
+  expect(a().outfit).toEqual({ head: 'hat-1', neck: null });
+  roomEvent('sea.member.updated', { member: member('a', look('hat-2', 6)) });
+  expect(a().outfit.head).toBe('hat-2');
+  roomEvent('sea.member.updated', { member: member('a', look('hat-1', 5)) }); // 늦게 온 옛 갱신
+  expect(a().outfit.head).toBe('hat-2');
+  roomEvent('sea.member.updated', { member: member('a', look(null, 7)) }); // 벗었다
+  expect(a().outfit.head).toBeNull();
+  // 옛 서버(appearance 없음)는 outfit 을 싣지 않는다
+  expect(seaMemberFromWire(member('b'), 1)).not.toHaveProperty('outfit');
+  expect(
+    seaParticipantsAt([seaMemberFromWire(member('c', look('h', 1)), 1)!], 1)[0],
+  ).not.toHaveProperty('outfitVersion');
+});
+
 test('45초마다 sync 를 보내고, 오류 큐 NOT_IN_SEA_ROOM 이면 다시 enter 한다', () => {
   open();
   joinRoom();

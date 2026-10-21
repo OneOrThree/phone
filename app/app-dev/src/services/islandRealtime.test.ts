@@ -426,6 +426,7 @@ function start(
     transitions?: IslandPresenceTransition[];
     golden?: GoldenFishEvent[];
     sendError?: string[];
+    looks?: { userId: string; head: string | null; version: number | null }[];
   },
   channel: FakeChannel,
 ) {
@@ -438,6 +439,8 @@ function start(
     onTransition: (transition) => deps.transitions?.push(transition),
     onGoldenFish: (event) => deps.golden?.push(event),
     onSendError: (m) => deps.sendError?.push(m),
+    onMemberAppearance: (userId, look) =>
+      deps.looks?.push({ userId, head: look.head, version: look.version }),
     alive: () => true,
     connect: (opts) => {
       channel.opts = opts;
@@ -483,6 +486,27 @@ describe('startIslandRealtime', () => {
     assert.equal(first.length, 1);
     assert.equal(second.length, 1);
     assert.equal(first[0].eventId, event.eventId);
+  });
+
+  test('member.appearance.updated 는 주민 외양으로 전달하고 다른 섬 사건은 버린다 (GROMO-2390)', () => {
+    const channel = fakeChannel();
+    const looks: { userId: string; head: string | null; version: number | null }[] = [];
+    start({ islandId: 'i1', looks }, channel);
+    const event = (islandId: string, head: string | null, version: number) => ({
+      eventId: `e${version}`,
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId,
+      aggregateVersion: version,
+      payload: { userId: 'u2', appearance: { head, neck: null }, version },
+    });
+    channel.opts?.onEvent(event('i1', 'hat', 4));
+    channel.opts?.onEvent(event('other', 'hat', 5));
+    channel.opts?.onEvent(event('i1', null, 6));
+    assert.deepEqual(looks, [
+      { userId: 'u2', head: 'hat', version: 4 },
+      { userId: 'u2', head: null, version: 6 },
+    ]);
   });
 
   test('응원 세션은 presence 재연결 없이 구독과 발신 자격을 갱신한다', () => {

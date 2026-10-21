@@ -7,6 +7,7 @@ import { clearSession, saveSession } from '@/services/api/session';
 
 let presenceOpts: any;
 let mockFocusMembers: object[] = [];
+let mockLooks: Record<string, object> = {};
 const mockSendEmote = jest.fn(() => true);
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
@@ -24,6 +25,7 @@ jest.mock('@/screens/focus/useIslandPresence', () => ({
       snapshotTransitions: [],
       sendEmote: mockSendEmote,
       retry: jest.fn(),
+      looks: mockLooks,
     };
   },
 }));
@@ -58,7 +60,9 @@ jest.mock('@/screens/focus/FishingIsland', () => {
       <View testID="focus-world">{children(640, 640 / 1.5, 1)}</View>
     ),
     FishingActor: () => <View />,
-    FishingPeerActorView: () => <View />,
+    FishingPeerActorView: ({ actor, outfit }: any) => (
+      <View testID={`peer-${actor.userId}`} testPropOutfit={outfit} />
+    ),
     FishingWalker: () => <View />,
   };
 });
@@ -144,6 +148,7 @@ const mount = async (state: State) => {
 beforeEach(async () => {
   jest.clearAllMocks();
   mockFocusMembers = [];
+  mockLooks = {};
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
@@ -181,4 +186,31 @@ test('집중 중인 주민이 있어도 방문자 화면에는 응원 버튼이 
   ];
   const { screen } = await mount(visitState('none'));
   expectNoEmote(screen);
+});
+
+test('낚시 구경 주민은 focus-members 의 appearance 로, 실시간 외양이 더 새로우면 그것으로 입는다 (GROMO-2390)', async () => {
+  mockFocusMembers = [
+    {
+      userId: 'u1',
+      name: '주민',
+      catColor: 'black',
+      appearance: { head: 'hat-old', neck: 'scarf', version: 2 },
+      sessionId: 's1',
+      subject: '수학',
+      activeSeconds: 60,
+      status: 'active',
+      anchorMs: 0,
+    },
+  ];
+  const { screen, element } = await mount(visitState('none'));
+  expect(screen.getByTestId('peer-u1').props.testPropOutfit).toMatchObject({
+    head: 'hat-old',
+    neck: 'scarf',
+  });
+  mockLooks = { u1: { head: 'hat-new', neck: null, shoes: null, version: 3 } };
+  await screen.rerender(element());
+  expect(screen.getByTestId('peer-u1').props.testPropOutfit).toMatchObject({
+    head: 'hat-new',
+    neck: null,
+  });
 });
