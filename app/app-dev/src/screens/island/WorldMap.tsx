@@ -2407,6 +2407,9 @@ function FinalIslandScene({
     hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
     hudAvailable = Math.max(0, L.width - hudLeft - hudRight),
     hudMax = visiting ? Math.min(L.width / 2, hudAvailable) : hudAvailable,
+    // 구경 중 하단 「다시 바다로」·가입 버튼(GROMO-2405) — 큰 글자(1.3배 이상)면 세로로 쌓고, 가로일 때만 폭을 나눈다
+    stackedActions = (L.fontScale ?? 1) >= 1.3,
+    actionStyle = stackedActions ? undefined : { flex: 1 },
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -2658,15 +2661,16 @@ function FinalIslandScene({
             }}
           >
             {visiting && visitJoin ? (
-              // 두 버튼이 가용 폭을 나눠 쓰고(flex) 글자에 맞춰 높이가 늘며, 큰 글자(1.3배 이상)에서는 세로로 쌓아
-              // 320pt 폭·영문에서도 화면 밖으로 밀리지 않는다. 좌우 여백은 안전 영역(가로 노치)을 더한다
+              // 두 버튼이 가용 폭을 나눠 쓰고(가로일 때만 flex: 1 — 세로에서는 높이가 auto 라 flex 가 공간을 보장하지
+              // 않는다) 글자에 맞춰 높이가 늘며, 큰 글자(1.3배 이상)에서는 세로로 쌓아 320pt 폭·영문에서도 화면 밖으로
+              // 밀리지 않는다. 좌우 여백은 안전 영역(가로 노치)을 더한다
               <View
                 testID="visit-actions"
                 style={{
                   alignSelf: 'stretch',
                   paddingLeft: L.insets.left + primitiveTokens.space[5],
                   paddingRight: L.insets.right + primitiveTokens.space[5],
-                  flexDirection: (L.fontScale ?? 1) >= 1.3 ? 'column' : 'row',
+                  flexDirection: stackedActions ? 'column' : 'row',
                   gap: primitiveTokens.space[3],
                 }}
               >
@@ -2678,7 +2682,7 @@ function FinalIslandScene({
                     id="visit-leave"
                     disabled={visitJoin.leaveDisabled}
                     onPress={visitJoin.onLeave}
-                    style={{ flex: 1 }}
+                    style={actionStyle}
                   />
                 )}
                 <Btn
@@ -2688,7 +2692,7 @@ function FinalIslandScene({
                   id="visit-join"
                   disabled={visitJoin.disabled}
                   onPress={visitJoin.onPress}
-                  style={{ flex: 1 }}
+                  style={actionStyle}
                 />
               </View>
             ) : visiting ? (
