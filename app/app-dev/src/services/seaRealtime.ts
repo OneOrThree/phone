@@ -18,6 +18,7 @@ import { t } from '@/i18n';
 import { colors, type Color } from '@/services/model';
 import { EMOTE_TYPES, friendlyRealtimeErrorMessage, realtimeClientOptions } from './islandRealtime';
 import type { SeaEmote, SeaParticipant } from '@/screens/sea/seaModel';
+import { parseLook } from './memberAppearance';
 
 /** 주기 sync 간격 — 서버 권장 30~60초의 가운데. */
 export const SEA_SYNC_MS = 45_000;
@@ -34,6 +35,8 @@ export type SeaLiveMember = SeaParticipant & {
   anchorMs: number;
   /** 서버 `member.session.sessionId` — 내 항해가 로컬 세션과 같은지 가른다(2303 표시 모델에는 넣지 않는다). */
   sessionId?: string;
+  /** 서버 `member.appearance.version` — 늦게 온 옛 외양이 새 외양을 덮지 않게 단조 병합한다(GROMO-2390). */
+  outfitVersion?: number;
 };
 
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -41,6 +44,7 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : u
 
 /**
  * 서버 `member` → 표시 모델. `name`·`catColor` 는 서버가 싣지만(2330) 보강 전 기록된 옛 해시엔 null 이라 `'???'`·`'gray'` 로 폴백한다.
+ * `appearance{head, neck, version}`(GROMO-2389)은 남의 뗏목 고양이에 입힌다 — 키 없음은 옛 서버라 outfit 을 비운다.
  * `activeSeconds` 는 서버 발행 시각 기준값이라 받은 시각을 기준점으로 삼는다(기기·서버 시계 차이를 타지 않는다).
  */
 export function seaMemberFromWire(raw: unknown, receivedAt: number): SeaLiveMember | null {
@@ -51,6 +55,7 @@ export function seaMemberFromWire(raw: unknown, receivedAt: number): SeaLiveMemb
   const color = colors.includes(m.catColor as Color) ? (m.catColor as Color) : 'gray';
   const remark = str(m.remark);
   const sessionId = str(session?.sessionId);
+  const look = parseLook(m.appearance);
   return {
     userId,
     name: str(m.name) ?? '???',
@@ -60,15 +65,41 @@ export function seaMemberFromWire(raw: unknown, receivedAt: number): SeaLiveMemb
     anchorMs: receivedAt,
     ...(sessionId ? { sessionId } : {}),
     ...(remark ? { message: remark } : {}),
+    ...(look
+      ? {
+          outfit: { head: look.head, neck: look.neck },
+          ...(look.version !== null ? { outfitVersion: look.version } : {}),
+        }
+      : {}),
   };
+}
+
+/**
+ * 외양은 version 이 더 큰 쪽만 — 순서가 뒤바뀐 갱신·스냅숏이 새 옷을 되돌리지 않는다.
+ * appearance 가 없는 갱신(옛 서버·다른 사유)은 갖고 있던 외양을 지우지 않는다. 다른 필드는 건드리지 않는다.
+ */
+function keepNewerOutfit(member: SeaLiveMember, prev: SeaLiveMember | undefined) {
+  if (!prev) return;
+  const stale =
+    prev.outfitVersion !== undefined &&
+    member.outfitVersion !== undefined &&
+    member.outfitVersion <= prev.outfitVersion;
+  if (stale || (member.outfit === undefined && prev.outfit)) {
+    member.outfit = prev.outfit;
+    if (prev.outfitVersion !== undefined) member.outfitVersion = prev.outfitVersion;
+  }
 }
 
 /** 지금 시각의 참가자 목록 — 집중 중이면 받은 뒤 흐른 초를 더한다(표류 중이면 서버가 멈춘 값 그대로). */
 export function seaParticipantsAt(members: readonly SeaLiveMember[], now: number) {
-  return members.map(({ anchorMs, sessionId: _sessionId, ...m }): SeaParticipant =>
-    m.focusing
-      ? { ...m, activeSeconds: m.activeSeconds + Math.max(0, Math.floor((now - anchorMs) / 1000)) }
-      : m,
+  return members.map(
+    ({ anchorMs, sessionId: _sessionId, outfitVersion: _v, ...m }): SeaParticipant =>
+      m.focusing
+        ? {
+            ...m,
+            activeSeconds: m.activeSeconds + Math.max(0, Math.floor((now - anchorMs) / 1000)),
+          }
+        : m,
   );
 }
 
@@ -154,6 +185,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     if (ev.type === 'sea.member.joined' || ev.type === 'sea.member.updated') {
       const member = seaMemberFromWire(p.member, now());
       if (!member) return;
+      keepNewerOutfit(member, members.get(member.userId));
       members.set(member.userId, member);
       emit();
     } else if (ev.type === 'sea.member.left') {
@@ -184,10 +216,14 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     } else if (ev.type === 'sea.room.snapshot') {
       if (str(p.roomId) !== roomId || !Array.isArray(p.members)) return;
       const at = now();
+      const before = members;
       members = new Map();
       for (const raw of p.members) {
         const member = seaMemberFromWire(raw, at);
-        if (member) members.set(member.userId, member);
+        if (!member) continue;
+        // 스냅숏이 정본이지만 외양은 먼저 온 더 새 갱신(version)을 되돌리지 않는다
+        keepNewerOutfit(member, before.get(member.userId));
+        members.set(member.userId, member);
       }
       stompErrors = 0;
       backoffStep = 0;

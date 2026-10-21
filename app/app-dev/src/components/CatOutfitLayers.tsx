@@ -279,9 +279,9 @@ function rasterFit(picture: SkPicture): SkImage | null {
  * 래스터한 프레임을 앱 전체에서 나눠 쓰는 LRU(키 productId|털색|프레임, 꺼낼 때 맨 뒤로). 한 고양이가 머리·목을 다 입으면
  * 걷기6+깜빡임3 = 18장, 집중4+감기4 = 16장이 돈다 — 도는 프레임보다 작으면 동작이 바뀔 때마다 JS 스레드에서 다시 그린다.
  * 같은 키라도 자료(fit)가 바뀌면(카탈로그 재조회) 다시 그린다.
- * ponytail: 최대 48장(512² RGBA ≈ 1MB 씩, 합계 ≈ 48MB)까지 — 남의 고양이를 여럿 입히면(2390) 화면당 장수를 보고 늘리거나 줄인다.
+ * ponytail: 최대 96장(512² RGBA ≈ 1MB 씩, 합계 ≈ 96MB)까지 — 내 고양이 + 남의 고양이 둘이 머리·목을 다 입으면 54장이 돌아(2390) 48장으로는 계속 다시 그렸다. 실기기 메모리를 보고 조정한다.
  */
-export const FRAME_CACHE = 48;
+export const FRAME_CACHE = 96;
 const frames = new Map<string, { fit: CatFit; image: SkImage | null }>();
 export function cachedFrame(key: string, fit: CatFit, make: () => SkImage | null): SkImage | null {
   const hit = frames.get(key);

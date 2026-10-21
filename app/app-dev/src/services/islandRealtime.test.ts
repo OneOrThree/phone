@@ -179,6 +179,43 @@ beforeEach(async () => {
 });
 
 describe('IslandProjection', () => {
+  test('휴식에서 빠졌다가 같은 화면에서 다시 들어와도 이름·털색·외양을 잃지 않는다 (GROMO-2390)', () => {
+    const p = new IslandProjection('i1');
+    const look = { head: 'hat-1', neck: 'scarf-1', version: 2 };
+    p.loadRest(
+      restSnap(
+        [
+          {
+            userId: 'u1',
+            name: '모모',
+            catColor: 'ginger',
+            appearance: look,
+            restSeat: 2,
+            restStartedAt: NOW,
+          },
+        ],
+        [wm('rest.member', 'u1', 1)],
+      ),
+    );
+    p.apply(restEvent('u1', 2, { status: 'active' })); // 휴식 해제 — 목록에서 빠진다
+    assert.equal(p.rest().length, 0);
+    p.apply(restEvent('u1', 3)); // 같은 화면에서 다시 휴식
+    assert.equal(p.rest()[0].name, '모모');
+    assert.equal(p.rest()[0].catColor, 'ginger');
+    assert.deepEqual(p.rest()[0].appearance, look);
+  });
+
+  test('집중 완료 뒤 같은 화면에서 새 집중으로 다시 들어와도 외양을 잃지 않는다', () => {
+    const p = new IslandProjection('i1');
+    const look = { head: 'hat-1', neck: null, version: 4 };
+    p.loadFocus(focusSnap([focusItem('u1', { appearance: look })], [wm('focus.member', 'u1', 1)]));
+    p.apply(focusEvent('u1', 2, { status: 'completed' }));
+    assert.equal(p.focus().length, 0);
+    p.apply(focusEvent('u1', 3));
+    assert.deepEqual(p.focus()[0].appearance, look);
+    assert.equal(p.focus()[0].catColor, 'ginger');
+  });
+
   test('스냅숏이 정본이다 — 목록을 통째로 교체하고 워터마크를 심는다', () => {
     const p = new IslandProjection('i1');
     p.loadFocus(
@@ -426,6 +463,7 @@ function start(
     transitions?: IslandPresenceTransition[];
     golden?: GoldenFishEvent[];
     sendError?: string[];
+    looks?: { userId: string; head: string | null; version: number | null }[];
   },
   channel: FakeChannel,
 ) {
@@ -438,6 +476,8 @@ function start(
     onTransition: (transition) => deps.transitions?.push(transition),
     onGoldenFish: (event) => deps.golden?.push(event),
     onSendError: (m) => deps.sendError?.push(m),
+    onMemberAppearance: (userId, look) =>
+      deps.looks?.push({ userId, head: look.head, version: look.version }),
     alive: () => true,
     connect: (opts) => {
       channel.opts = opts;
@@ -483,6 +523,27 @@ describe('startIslandRealtime', () => {
     assert.equal(first.length, 1);
     assert.equal(second.length, 1);
     assert.equal(first[0].eventId, event.eventId);
+  });
+
+  test('member.appearance.updated 는 주민 외양으로 전달하고 다른 섬 사건은 버린다 (GROMO-2390)', () => {
+    const channel = fakeChannel();
+    const looks: { userId: string; head: string | null; version: number | null }[] = [];
+    start({ islandId: 'i1', looks }, channel);
+    const event = (islandId: string, head: string | null, version: number) => ({
+      eventId: `e${version}`,
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId,
+      aggregateVersion: version,
+      payload: { userId: 'u2', appearance: { head, neck: null }, version },
+    });
+    channel.opts?.onEvent(event('i1', 'hat', 4));
+    channel.opts?.onEvent(event('other', 'hat', 5));
+    channel.opts?.onEvent(event('i1', null, 6));
+    assert.deepEqual(looks, [
+      { userId: 'u2', head: 'hat', version: 4 },
+      { userId: 'u2', head: null, version: 6 },
+    ]);
   });
 
   test('응원 세션은 presence 재연결 없이 구독과 발신 자격을 갱신한다', () => {

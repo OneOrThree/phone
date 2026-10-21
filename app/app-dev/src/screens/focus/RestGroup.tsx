@@ -20,6 +20,8 @@ import { C, MotionContext } from '@/design-system/primitives';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { CatSprite } from '@/components/CatSprite';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
+import { lookOf } from '@/services/memberAppearance';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import {
@@ -203,6 +205,7 @@ export function RestGroup({
             id: m.userId,
             name: m.name ?? t('focusFlow.common.resident'),
             color: catColor(m.catColor),
+            outfit: lookOf(live.looks, m.userId, m),
             restStartedAt: m.restStartedAt
               ? Date.parse(m.restStartedAt) - live.clockOffset
               : Date.now(),
@@ -217,7 +220,9 @@ export function RestGroup({
           }))
       : live
         ? []
-        : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
+        : currentIsland(state)
+            .members.filter((m) => !m.focusing && m.restStartedAt)
+            .map((m) => ({ ...m, outfit: undefined as Outfit | undefined }));
   // 자리 배정: 나는 뒤 가운데(1번), 주민은 서버 restSeat(있고 겹치지 않으면) 아니면 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
   const taken = new Set<number>(browsing ? [] : [1]);
   const actors = [
@@ -229,6 +234,7 @@ export function RestGroup({
             id: getSession()?.userId ?? 'me',
             name: t('focusFlow.common.me'),
             color: state.color,
+            outfit: outfitOf(state),
             restStartedAt: started,
           },
         ]
@@ -309,6 +315,7 @@ export function RestGroup({
                 size={a.n}
                 left={a.dx > 0}
                 reduce={state.settings.reduceMotion}
+                outfit={a.outfit}
               />
               <Image
                 source={assets['props/fishing/fishing-rod.png']}
@@ -349,6 +356,7 @@ export function RestGroup({
               pose={restPose(a.id)}
               color={a.color}
               loafSource={loaf[a.color]}
+              outfit={a.outfit}
               x={a.x}
               top={a.top}
               n={a.n}

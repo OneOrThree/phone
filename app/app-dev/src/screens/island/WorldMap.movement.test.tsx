@@ -45,11 +45,22 @@ jest.mock('@/components/CatSprite', () => {
   const { View } = require('react-native');
   return {
     ...jest.requireActual('@/components/CatSprite'),
-    CatSprite: ({ testID, motion, color }: { testID?: string; motion?: string; color: string }) =>
+    CatSprite: ({
+      testID,
+      motion,
+      color,
+      outfit,
+    }: {
+      testID?: string;
+      motion?: string;
+      color: string;
+      outfit?: object;
+    }) =>
       ReactActual.createElement(View, {
         testID: testID ?? 'mock-cat-sprite',
         testPropMotion: motion,
         testPropColor: color,
+        testPropOutfit: outfit,
       }),
   };
 });
@@ -584,6 +595,76 @@ it('셀 열이 같아도 서버 speed 가 로컬과 다르면 남은 구간을 �
   await screen.unmount();
 });
 
+it('다른 주민은 응답 appearance 로 머리·목을 입고, member.appearance.updated 는 version 이 큰 것만 바로 반영한다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  const island = nextIsland();
+  const state = serverState(island);
+  const members = (state.serverIslands as any).home.members;
+  members[1].appearance = { head: 'hat-u1', neck: null, version: 3 }; // U1 ginger
+  const screen = await renderHome(island, { state });
+  const headOf = (color: string) =>
+    screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+      .testPropOutfit?.head;
+  // 이동 동기화 전 Wanderer(ginger·white) — 응답에 옷이 있는 주민만 입는다
+  expect(headOf('ginger')).toBe('hat-u1');
+  expect(headOf('white')).toBeUndefined();
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  expect(headOf('ginger')).toBe('hat-u1'); // RemoteResident
+  const appearance = (head: string | null, version: number) => ({
+    eventId: `e${version}`,
+    schemaVersion: 1,
+    type: 'member.appearance.updated',
+    islandId: island,
+    aggregateVersion: version,
+    payload: { userId: U1, appearance: { head, neck: null }, version },
+  });
+  await emit(appearance('hat-new', 4));
+  expect(headOf('ginger')).toBe('hat-new');
+  await emit(appearance('hat-stale', 2)); // 늦게 온 옛 사건
+  expect(headOf('ginger')).toBe('hat-new');
+  await emit(appearance(null, 5)); // 벗었다
+  expect(headOf('ginger')).toBeNull();
+  await screen.unmount();
+});
+
+it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 외양은 유지한다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  const listeners: ((state: string) => void)[] = [];
+  const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+  Object.defineProperty(AppState, 'addEventListener', {
+    configurable: true,
+    value: ((_type: string, listener: (state: string) => void) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener,
+  });
+  try {
+    const island = nextIsland();
+    const state = serverState(island);
+    (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
+    const screen = await renderHome(island, { state });
+    const headOf = (color: string) =>
+      screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+        .testPropOutfit?.head;
+    await emit({
+      eventId: 'e4',
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId: island,
+      aggregateVersion: 4,
+      payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
+    });
+    expect(headOf('ginger')).toBe('hat-new');
+    await act(async () => listeners.forEach((listener) => listener('background')));
+    await act(async () => listeners.forEach((listener) => listener('active')));
+    expect(headOf('ginger')).toBe('hat-new');
+    await screen.unmount();
+  } finally {
+    if (originalAddEventListener)
+      Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+  }
+});
+
 it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());
@@ -1077,19 +1158,37 @@ describe('플래그 off·서버 홈 아님', () => {
   };
   afterAll(() => jest.dontMock('react'));
 
-  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 서버 홈이어도 채널을 열지 않고 Wanderer·로컬 걷기 그대로다', async () => {
+  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 이동 채널 없이 Wanderer·로컬 걷기 그대로이고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390)', async () => {
     jest.useFakeTimers();
     const opened = mockChannels.length;
+    const island = nextIsland();
+    const state = serverState(island);
+    (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
     const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
-    const screen = await render(
-      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
-    );
+    const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
     await tapGround(screen, { x: 42.5, y: 45.5 });
-    expect(mockChannels.length).toBe(opened);
+    // 이동 채널은 없고 events 토픽만 여는 채널 하나
+    expect(mockChannels.length).toBe(opened + 1);
+    expect(channel().opts).toMatchObject({ islandId: island, events: true, presence: false });
+    expect(channel().opts.movement).toBeFalsy();
     expect(myMotion(screen)).toBe('walking');
     expect(residents(screen)).toEqual([]);
     expect(otherCats(screen)).toBe(2);
+    const headOf = (color: string) =>
+      screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
+        .testPropOutfit?.head;
+    expect(headOf('ginger')).toBe('hat-old');
+    await emit({
+      eventId: 'e4',
+      schemaVersion: 1,
+      type: 'member.appearance.updated',
+      islandId: island,
+      aggregateVersion: 4,
+      payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
+    });
+    expect(headOf('ginger')).toBe('hat-new');
     await screen.unmount();
+    expect(mockChannels[mockChannels.length - 1].close).toHaveBeenCalled();
   });
 
   it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {

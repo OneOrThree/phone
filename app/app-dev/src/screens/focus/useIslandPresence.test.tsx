@@ -190,3 +190,20 @@ test('섬 전환 직후 이전 주민 목록을 비우고 해제된 채널의 �
   await act(async () => sessions[1].deps.onView({ ...READY, clockOffset: 456 }));
   assert.equal(result.current.clockOffset, 456);
 });
+
+test('주민 외양 사건은 version 이 큰 것만 looks 에 남고 섬이 바뀌면 비운다 (GROMO-2390)', async () => {
+  const { result, rerender } = await mount({ active: true, islandId: 'i1' });
+  const look = (head: string | null, version: number) => ({
+    head,
+    neck: null,
+    shoes: null,
+    version,
+  });
+  await act(async () => sessions[0].deps.onMemberAppearance?.('u2', look('hat-2', 6)));
+  await act(async () => sessions[0].deps.onMemberAppearance?.('u2', look('hat-1', 5)));
+  assert.equal(result.current.looks.u2.head, 'hat-2');
+  await act(async () => sessions[0].deps.onMemberAppearance?.('u2', look(null, 7)));
+  assert.equal(result.current.looks.u2.head, null);
+  await act(async () => rerender({ active: true, islandId: 'i2' }));
+  assert.deepEqual(result.current.looks, {});
+});
