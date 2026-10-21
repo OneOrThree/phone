@@ -7,6 +7,7 @@ import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
@@ -161,7 +162,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
-import { openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { openFeedbackMail, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -1551,6 +1552,8 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
+  if (route === 'character' && !state.onboarded)
+    return <OnboardingFlow key={getSession()?.userId ?? 'preview'} e={e} />;
   if (route === 'character')
     return (
       <Onboard
@@ -6599,6 +6602,21 @@ export function RedesignScreens({ e }: any) {
                   t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
                   () => {},
                 ),
+              );
+            }}
+          />
+          <SheetRow
+            title={t('settings.feedback.title')}
+            sub={t('settings.feedback.sub')}
+            chevron
+            onPress={() => {
+              openFeedbackMail(Application.nativeApplicationVersion ?? appManifest.version).catch(
+                () =>
+                  confirm(
+                    t('settings.feedback.title'),
+                    t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                    () => {},
+                  ),
               );
             }}
           />

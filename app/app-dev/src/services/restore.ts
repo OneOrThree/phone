@@ -10,6 +10,7 @@
 import { sessionRoute, type Route } from '@/services/model';
 
 export interface SavedShape {
+  onboardingStory?: 'intro' | 'scope' | 'done';
   loggedIn?: boolean;
   onboarded?: boolean;
   session?: { status?: string; kind?: string } | null;
@@ -35,6 +36,10 @@ export function restoredRoute(
   if (account && !account.onboardingComplete) return 'character';
   // 바다 항해는 소속과 무관하다 — 항해 중 마지막 소속을 잃었어도 항해 화면으로 돌아간다
   if (saved.session?.kind === 'sea') return 'sea';
+  // 다른 기기에서 이미 가입했다면 오래된 로컬 이야기보다 현재 소속을 우선한다.
+  if (!saved.onboarded && (saved.onboardingStory === 'intro' || saved.onboardingStory === 'scope'))
+    return 'character';
+  if (saved.onboardingStory === 'done' && !saved.onboarded) return 'sea';
   if (!saved.onboarded) return 'chooseIsland';
   if (saved.session) return sessionRoute(saved.session);
   return 'home';

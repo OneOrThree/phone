@@ -9,29 +9,29 @@ name: Android CI
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
 # - version: Play 키로 versionCode 조회. checkout + 표준 라이브러리 스크립트만.
-# - build: AWS 권한 없음. npm ci + Gradle, 일회용 키 서명.
+# - build: AWS·Play·서명 키 없음. npm ci + Gradle, 일회용 키 서명. main만 PostHog 분석 업로드 키 사용.
 # - sign: 업로드 키로 jarsigner 재서명 + 지문 대조. JDK·zip 만.
 # 네이티브 컴파일·XML 검사는 app-android-build.yml 담당.
 #
 # 빌드 대상:
 # - 앱 com.oneorthree.gromo, 서버 dev(https://oneorthree.dev.mooo.com). 운영 아님.
 # - GROMO_ANDROID_AUDIENCE=dev 로 build.gradle 의 dev 가드 탐. 수동 운영 빌드는 이 값 없음 → 기존 가드 그대로.
-# - OTA·PostHog 켠 채 빌드 (팀 결정 2026-10-07).
-#   ⚠️ OTA 채널은 production. 운영 OTA 내보내면 이 빌드도 받음.
+# - OTA 끈 채 빌드. build.gradle 이 GROMO_ANDROID_AUDIENCE=dev 를 보고 매니페스트에서 끔. OTA 채널이 production 이라
+#   켜 두면 운영 OTA 받아 운영 API JS 로 바뀜 (2026-10-07 팀 결정을 GROMO-2368 에서 바꿈). PostHog 는 켠 채.
 
 on:
   pull_request:
     branches: [main]
     paths: &android_release_paths
-      - 'app/app-dev/**'
-      - '!app/app-dev/**/*.md'
-      - '!app/app-dev/ios/**'
+      - "app/app-dev/**"
+      - "!app/app-dev/**/*.md"
+      - "!app/app-dev/ios/**"
       # iOS 폴더 제외. 단 약관 버전·Datadog 공개 설정 정본은 여기 → 다시 포함
-      - 'app/app-dev/ios/release-config.sh'
-      - '.github/workflows/app-android-ci.yml'
-      - '.github/workflows/app-android-cd.yml'
+      - "app/app-dev/ios/release-config.sh"
+      - ".github/workflows/app-android-ci.yml"
+      - ".github/workflows/app-android-cd.yml"
       # Android CI 전용 스크립트. .github/scripts/ 에 두면 satellite-ci 까지 돎
-      - '.github/ci/**'
+      - ".github/ci/**"
   push:
     branches: [main]
     paths: *android_release_paths
@@ -113,7 +113,7 @@ jobs:
     if: ${{ !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # AWS OIDC 권한 없음. 키 못 받음
+    # AWS OIDC 권한 없음. Play·서명 키를 받지 않는다.
     permissions:
       contents: read
     env:
@@ -158,14 +158,14 @@ jobs:
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: app/app-dev/package-lock.json
 
       - name: npm ci
@@ -193,6 +193,10 @@ jobs:
           GROMO_VERSION_CODE: ${{ needs.version.outputs.code || '1' }}
           # JS 번들 production. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package) 빼서 깨짐
           NODE_ENV: production
+          # PR/다른 브랜치에는 업로드 키를 주지 않는다. main 빌드만 심볼을 올린다.
+          POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}
+          POSTHOG_CLI_PROJECT_ID: "669473"
+          POSTHOG_CLI_HOST: https://us.posthog.com
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
       - name: AAB 확인 (일회용 서명)

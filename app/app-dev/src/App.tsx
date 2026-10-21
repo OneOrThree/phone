@@ -163,6 +163,8 @@ import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOv
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
+import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
+import { startSocialAnalytics } from '@/services/socialAnalytics';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -296,9 +298,11 @@ function Bubble({ text, mine }: { text: string; mine: boolean }) {
 }
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <Gromo />
-    </SafeAreaProvider>
+    <PostHogAnalyticsProvider>
+      <SafeAreaProvider>
+        <Gromo />
+      </SafeAreaProvider>
+    </PostHogAnalyticsProvider>
   );
 }
 // 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계, 첫 섬 합류 뒤의 필수 안내(guide).
@@ -631,7 +635,10 @@ function Gromo() {
           reset('login');
         })
         .catch(() => {});
-    } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
+    } else
+      transitionRoute(
+        state.onboarded ? 'home' : state.onboardingStory === 'done' ? 'sea' : 'chooseIsland',
+      );
   };
   const home = () => {
     const finish = () => {
@@ -1022,6 +1029,7 @@ function Gromo() {
       if (!isCurrent()) throw STALE_ADOPTION;
     };
     const changingOwner = previousUserId !== result.userId;
+    let savedStory = stateRef.current.onboardingStory;
     // 채택이 중단되면 gate 는 닫힌 채로 남는다 — 다음 채택 성공이나 부팅이 owner 기록 뒤에 연다.
     // 소유자 확인 전 저장을 막는 보수적 동작이며 의도된 것이다.
     if (changingOwner) setStorageOwnerGate(false);
@@ -1066,6 +1074,7 @@ function Gromo() {
             // 같은 owner 재채택이면 앞선 오프라인 부팅이 보류한 데이터를 복구한다.
             // LOAD를 LOGIN/PROFILE보다 먼저 dispatch해 새 세션의 계정 표기가 덮지 않게 한다.
             dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
+            savedStory = deferred.state.onboardingStory;
             deferredOwnerState.current = null;
           }
           dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
@@ -1081,7 +1090,8 @@ function Gromo() {
           // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
           ensureCurrent();
           const next = await decideBootRoute({
-            saved: null,
+            // 스토리 진행도만 계승한다. 소속과 집중 세션은 기존 서버 동기화 경로가 결정한다.
+            saved: previousUserId === result.userId ? { onboardingStory: savedStory } : null,
             account,
             rejected: false,
             serverMode: true,
@@ -1347,10 +1357,15 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded || REVIEW || DEMO) return;
-    return subscribeSession((session) => {
+    const unsubscribe = subscribeSession((session) => {
       if (session) identifyPostHogUser(session.userId);
       else resetPostHogUser();
     });
+    const stopSocialAnalytics = startSocialAnalytics();
+    return () => {
+      stopSocialAnalytics();
+      unsubscribe();
+    };
   }, [loaded]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
@@ -1614,7 +1629,13 @@ function Gromo() {
       experienceIsland !== state.serverIslands.currentIslandId
     ) {
       setGuideStep(4);
-      reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+      reset(
+        state.serverIslands.currentIslandId
+          ? 'home'
+          : state.onboardingStory === 'done'
+            ? 'sea'
+            : 'chooseIsland',
+      );
       return;
     }
     const restoring = !tutorialBootReconciled.current;
@@ -1914,7 +1935,13 @@ function Gromo() {
         state.serverIslands
       ) {
         dispatch({ type: 'END_VISIT' });
-        reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+        reset(
+          state.serverIslands.currentIslandId
+            ? 'home'
+            : state.onboardingStory === 'done'
+              ? 'sea'
+              : 'chooseIsland',
+        );
         return true;
       }
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다

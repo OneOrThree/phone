@@ -75,13 +75,13 @@ test('Android/iOS release require real terms and the production API URL', () => 
   );
   expect(gradle).toMatch(/termsVersion\s*==\s*null\s*\|\|\s*termsVersion\.trim\(\)\.isEmpty\(\)/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*\(termsVersion/);
-  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/api\.oneorthree\.world"/);
+  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/catus-api\.oneorthree\.world"/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*!devAudience\s*&&\s*apiUrl\s*!=/);
   expect(xcode).toContain('${EXPO_PUBLIC_API_URL:-}');
-  expect(xcode).toContain('https://api.oneorthree.world');
-  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"');
+  expect(xcode).toContain('https://catus-api.oneorthree.world');
+  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://catus-api.oneorthree.world"');
   expect(testflight).toContain('EXPO_PUBLIC_API_URL:-}');
-  expect(testflight).toContain('https://api.oneorthree.world');
+  expect(testflight).toContain('https://catus-api.oneorthree.world');
 });
 
 test('iOS dev TestFlight lane pins the team dev server and keeps the production gate', () => {
@@ -166,7 +166,7 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   );
   expect(deploy).toContain("if: needs.sign.result == 'success'");
   expect(deploy).toContain('app-android-cd.yml');
-  // 의존성 코드(npm·pip·Gradle)는 키 없는 build 잡에서만. 키 잡엔 안 돎
+  // 의존성 코드는 Play·서명 키가 없는 build 잡에서만. 키 잡엔 안 돎
   expect(build).toContain('npm ci');
   expect(build).toContain('./gradlew');
   expect(build).not.toMatch(/id-token|aws-actions|RELEASE_SECRET_ID/);
@@ -196,8 +196,14 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   expect(cd).toContain('deployed:android-play-internal');
   expect(cd).toMatch(/r0adkll\/upload-google-play@[0-9a-f]{40}/);
   expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
-  // 키는 Secrets Manager 에서만. GitHub 시크릿 안 씀
-  expect(ci).not.toMatch(/secrets\./);
+  // Play·서명 키는 Secrets Manager 에서만. 분석 업로드 키 하나만 main 빌드에 허용한다.
+  expect(ci.match(/\bsecrets\.[A-Za-z_][A-Za-z0-9_]*/g)).toEqual(['secrets.POSTHOG_CLI_API_KEY']);
+  expect(build).toContain(
+    "POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}",
+  );
+  for (const keyJob of [version, sign]) {
+    expect(keyJob).not.toMatch(/secrets\./);
+  }
   expect(cd).not.toMatch(/secrets\./);
   expect(ci).toContain('RELEASE_SECRET_ID: gromo/prod/android');
   // draft 는 배포 완료로 표시 안 함
@@ -218,7 +224,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
     fs.readFileSync(path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'), 'utf8'),
     'Check iOS release Apple audience readiness',
   );
-  const prodUrl = 'https://api.oneorthree.world';
+  const prodUrl = 'https://catus-api.oneorthree.world';
   const devUrl = 'https://oneorthree.dev.mooo.com';
   const run = (audience, apiUrl) =>
     spawnSync('/bin/sh', ['-c', script], {

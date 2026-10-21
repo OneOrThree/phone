@@ -270,6 +270,30 @@ PODS:
     - LineSDKSwift/Core (= 5.16.1)
   - LineSDKSwift/Core (5.16.1)
   - OpenTelemetry-Swift-Api (2.5.1)
+  - PostHog (3.88.2)
+  - posthog-react-native-plugin (2.12.6):
+    - hermes-engine
+    - PostHog (~> 3.88.2)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - PromisesObjC (2.4.1)
   - PromisesSwift (2.4.1):
     - PromisesObjC (= 2.4.1)
@@ -2554,6 +2578,7 @@ DEPENDENCIES:
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - "posthog-react-native-plugin (from `../node_modules/@posthog/react-native-plugin`)"
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
   - RCTRequired (from `../node_modules/react-native/Libraries/Required`)
   - RCTSwiftUI (from `../node_modules/react-native/ReactApple/RCTSwiftUI`)
@@ -2663,6 +2688,7 @@ SPEC REPOS:
     - KSCrash
     - LineSDKSwift
     - OpenTelemetry-Swift-Api
+    - PostHog
     - PromisesObjC
     - PromisesSwift
     - ReachabilitySwift
@@ -2736,6 +2762,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v250829098.0.14
+  posthog-react-native-plugin:
+    :path: "../node_modules/@posthog/react-native-plugin"
   RCTDeprecation:
     :path: "../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation"
   RCTRequired:
@@ -2959,6 +2987,8 @@ SPEC CHECKSUMS:
   KSCrash: 8c4464fd5da7de520f2ce4a00fdf63f169a80f18
   LineSDKSwift: 510e2842f86816cb26e4ab227a004320d844cb12
   OpenTelemetry-Swift-Api: 3be9043f6288eb4ac3cbe7548b5bd45fb4ed5849
+  PostHog: b022f9212b67fadbc2ebc52d34451d668c6335a6
+  posthog-react-native-plugin: a9bee70f036afe5b7eba9e38dd0fe97c13aa35bf
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   PromisesSwift: 217dea0fd5d2ad65222a109c48698add13cc1c5b
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b

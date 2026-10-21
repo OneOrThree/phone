@@ -453,8 +453,9 @@
 				A5143E9E19BB29C02AD6BA30 /* [CP] Embed Pods Frameworks */,
 				A19833000000000000000001 /* Embed Foundation Extensions */,
 				36EEE7D751D04F900361AFFA /* Embed Report Extension */,
-				C789FDAFF152AFDBF79149D2 /* [Airbridge] Copy airbridge.json */,
-				EBF532F152706FBBEB231684 /* [Airbridge] Create LibraryInfo.json */,
+				F19640000000000000000001 /* Upload PostHog native symbols */,
+				7382D70F4C2E00CA0B974178 /* [Airbridge] Copy airbridge.json */,
+				DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */,
 			);
 			buildRules = (
 			);
@@ -683,7 +684,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
+			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n/bin/bash \"$PROJECT_ROOT/scripts/posthog-xcode.sh\" bundle `\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
 		};
 		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -731,6 +732,24 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-GROMO/expo-configure-project.sh\"\n";
 		};
+		7382D70F4C2E00CA0B974178 /* [Airbridge] Copy airbridge.json */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "[Airbridge] Copy airbridge.json";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "ENVIRONMENT=$(echo \"${AIRBRIDGE_ENVIRONMENT:-}\" | tr '[:upper:]' '[:lower:]')\nENVIRONMENT=$(echo \"$ENVIRONMENT\" | grep -Eq '^[A-Za-z0-9_-]*$' && echo \"$ENVIRONMENT\" || echo \"\")\nFILENAME=\"${SRCROOT}/../airbridge.json\"\n\nCANDIDATE=\"${SRCROOT}/../airbridge.${ENVIRONMENT}.json\"\nif [ -r \"$CANDIDATE\" ]; then\n    FILENAME=\"$CANDIDATE\"\nfi\n\nif [ -r \"$FILENAME\" ]; then\n    cp \"$FILENAME\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/airbridge.json\"\nfi";
+		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -761,6 +780,8 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashReportingCore.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KakaoSDKCommon/KakaoSDKCommon.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/LineSDKSwift/LineSDK.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PostHog/PostHog.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PostHog/PHPLCrashReporter.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesObjC/FBLPromises_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesSwift/Promises_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
@@ -795,6 +816,8 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashReportingCore.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KakaoSDKCommon.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LineSDK.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PostHog.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PHPLCrashReporter.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FBLPromises_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Promises_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
@@ -845,25 +868,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		C789FDAFF152AFDBF79149D2 /* [Airbridge] Copy airbridge.json */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "[Airbridge] Copy airbridge.json";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "ENVIRONMENT=$(echo \"${AIRBRIDGE_ENVIRONMENT:-}\" | tr '[:upper:]' '[:lower:]')\nENVIRONMENT=$(echo \"$ENVIRONMENT\" | grep -Eq '^[A-Za-z0-9_-]*$' && echo \"$ENVIRONMENT\" || echo \"\")\nFILENAME=\"${SRCROOT}/../airbridge.json\"\n\nCANDIDATE=\"${SRCROOT}/../airbridge.${ENVIRONMENT}.json\"\nif [ -r \"$CANDIDATE\" ]; then\n    FILENAME=\"$CANDIDATE\"\nfi\n\nif [ -r \"$FILENAME\" ]; then\n    cp \"$FILENAME\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/airbridge.json\"\nfi";
-		};
-		EBF532F152706FBBEB231684 /* [Airbridge] Create LibraryInfo.json */ = {
+		DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -892,7 +897,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  case \"$EXPO_PUBLIC_TERMS_VERSION\" in\n    [[:space:]]*|*[[:space:]])\n      echo \"error: iOS release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.\" >&2\n      exit 1\n      ;;\n  esac\n  # dev 청중(GROMO_IOS_AUDIENCE=dev)은 팀 dev 서버만, 그 외는 운영 서버만 허용한다 — 서로 바꿔 넣는 실수를 막는다\n  if [ \"${GROMO_IOS_AUDIENCE:-prod}\" = \"dev\" ]; then\n    if [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://oneorthree.dev.mooo.com\" ]; then\n      echo \"error: iOS dev 빌드 차단: GROMO_IOS_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL 은 팀 dev 서버 https://oneorthree.dev.mooo.com 이어야 합니다.\" >&2\n      exit 1\n    fi\n  elif [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://api.oneorthree.world\" ]; then\n    echo \"error: iOS release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
+			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  case \"$EXPO_PUBLIC_TERMS_VERSION\" in\n    [[:space:]]*|*[[:space:]])\n      echo \"error: iOS release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.\" >&2\n      exit 1\n      ;;\n  esac\n  # dev 청중(GROMO_IOS_AUDIENCE=dev)은 팀 dev 서버만, 그 외는 운영 서버만 허용한다 — 서로 바꿔 넣는 실수를 막는다\n  if [ \"${GROMO_IOS_AUDIENCE:-prod}\" = \"dev\" ]; then\n    if [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://oneorthree.dev.mooo.com\" ]; then\n      echo \"error: iOS dev 빌드 차단: GROMO_IOS_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL 은 팀 dev 서버 https://oneorthree.dev.mooo.com 이어야 합니다.\" >&2\n      exit 1\n    fi\n  elif [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://catus-api.oneorthree.world\" ]; then\n    echo \"error: iOS release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
+		};
+		F19640000000000000000001 /* Upload PostHog native symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Upload PostHog native symbols";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "/bin/bash \"$SRCROOT/../scripts/posthog-xcode.sh\" symbols\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1024,6 +1044,7 @@
 				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				ENABLE_BITCODE = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
@@ -1064,7 +1085,9 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = GROMO/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -1,0 +1,739 @@
+{
+  "project_id": 669473,
+  "dashboard_id": 2220995,
+  "title": "Catus · 첫 섬과 집중",
+  "description": "로그인부터 첫 섬 도착, 첫 집중 완료, 다른 날 재집중까지 이어지는 사용 흐름을 봅니다.",
+  "pinned": true,
+  "tiles": [
+    {
+      "type": "text",
+      "tile_id": 13905384,
+      "layouts": {
+        "sm": {
+          "h": 1,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "xs": {
+          "h": 2,
+          "w": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "order": 0,
+      "body": "출시 전이라 운영 데이터가 비어 있을 수 있습니다. 첫 섬·첫 집중·재집중 4개 지표는 앱 이벤트 추가 후 집계됩니다. 날짜별 집계는 한국 시간 기준이며, 기간은 각 카드 설명을 따릅니다.\n\n**다른 대시보드:** [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114) · [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)"
+    },
+    {
+      "type": "insight",
+      "tile_id": 13740150,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 1
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 2
+        }
+      },
+      "order": 1,
+      "insight_id": 12957826,
+      "title": "첫 섬 도착까지",
+      "description": "첫 로그인 화면을 본 사람이 7일 안에 로그인·프로필 설정·섬 소속 확정을 거쳐 첫 섬 화면까지 도착하는 비율입니다. 어느 단계에서 많이 멈추는지 확인합니다.",
+      "query": {
+        "kind": "InsightVizNode",
+        "source": {
+          "kind": "FunnelsQuery",
+          "series": [
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["login_viewed"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 로그인 화면"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["login_completed"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "인증·세션 채택 완료"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["profile_ready"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "프로필 서버 확인"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["island_membership_ready"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 섬 소속 서버 확정"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["island_arrived"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 섬 화면 도착"
+            }
+          ],
+          "version": 2,
+          "interval": "day",
+          "dateRange": {
+            "date_from": "-28d",
+            "explicitDate": false
+          },
+          "properties": [],
+          "funnelsFilter": {
+            "layout": "horizontal",
+            "exclusions": [],
+            "funnelVizType": "steps",
+            "funnelOrderType": "ordered",
+            "funnelStepReference": "total",
+            "funnelWindowInterval": 7,
+            "breakdownAttributionType": "first_touch",
+            "funnelWindowIntervalUnit": "day"
+          },
+          "breakdownFilter": {
+            "breakdown_type": "event"
+          },
+          "filterTestAccounts": true
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13740151,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 6
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 7
+        }
+      },
+      "order": 2,
+      "insight_id": 12957827,
+      "title": "섬 진입 경로별 도착률",
+      "description": "처음 선택한 섬 진입 경로별로, 7일 안에 실제 섬 화면까지 도착한 사람의 비율을 비교합니다. 가입 승인 대기 중인 사람은 아직 도착한 것으로 세지 않습니다.",
+      "query": {
+        "kind": "InsightVizNode",
+        "source": {
+          "kind": "FunnelsQuery",
+          "series": [
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["island_route_selected"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 섬 경로 선택"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["island_membership_ready"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 섬 소속 서버 확정"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["island_arrived"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 섬 화면 도착"
+            }
+          ],
+          "version": 2,
+          "interval": "day",
+          "dateRange": {
+            "date_from": "-28d",
+            "explicitDate": false
+          },
+          "properties": [],
+          "funnelsFilter": {
+            "layout": "horizontal",
+            "exclusions": [],
+            "funnelVizType": "steps",
+            "funnelOrderType": "ordered",
+            "funnelStepReference": "total",
+            "funnelWindowInterval": 7,
+            "breakdownAttributionType": "first_touch",
+            "funnelWindowIntervalUnit": "day"
+          },
+          "breakdownFilter": {
+            "breakdown": "entry_path",
+            "breakdown_type": "event"
+          },
+          "filterTestAccounts": true
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13740152,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 11
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 12
+        }
+      },
+      "order": 3,
+      "insight_id": 12957828,
+      "title": "첫 집중 시작과 완료",
+      "description": "첫 섬에 도착한 사람이 안내를 마치거나 건너뛴 뒤, 7일 안에 실제 집중을 시작하고 완료하는 비율입니다. 안내 중 체험 집중은 제외합니다.",
+      "query": {
+        "kind": "InsightVizNode",
+        "source": {
+          "kind": "FunnelsQuery",
+          "series": [
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["island_arrived"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 섬 화면 도착"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["tutorial_exited"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "안내 종료"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["first_focus_started"],
+                  "operator": "exact"
+                }
+              ],
+              "custom_name": "첫 실제 집중 시작"
+            },
+            {
+              "kind": "EventsNode",
+              "name": "activation_step",
+              "event": "activation_step",
+              "properties": [
+                {
+                  "key": "analytics_environment",
+                  "type": "event",
+                  "value": ["production"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "journey",
+                  "type": "event",
+                  "value": ["first_island"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "activation_schema_version",
+                  "type": "event",
+                  "value": [1],
+                  "operator": "exact"
+                },
+                {
+                  "key": "stage",
+                  "type": "event",
+                  "value": ["first_focus_completed"],
+                  "operator": "exact"
+                },
+                {
+                  "key": "duration_seconds",
+                  "type": "event",
+                  "value": 0,
+                  "operator": "gt"
+                }
+              ],
+              "custom_name": "첫 실제 집중 정산 완료"
+            }
+          ],
+          "version": 2,
+          "interval": "day",
+          "dateRange": {
+            "date_from": "-28d",
+            "explicitDate": false
+          },
+          "properties": [],
+          "funnelsFilter": {
+            "layout": "horizontal",
+            "exclusions": [],
+            "funnelVizType": "steps",
+            "funnelOrderType": "ordered",
+            "funnelStepReference": "total",
+            "funnelWindowInterval": 7,
+            "breakdownAttributionType": "first_touch",
+            "funnelWindowIntervalUnit": "day"
+          },
+          "breakdownFilter": {
+            "breakdown_type": "event"
+          },
+          "filterTestAccounts": true
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13740153,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 17
+        }
+      },
+      "order": 4,
+      "insight_id": 12957829,
+      "title": "첫 집중 후 다시 집중한 비율",
+      "description": "최근 28일에 첫 실제 집중을 완료한 사람 중 다음 날·7일 뒤·그 사이 다른 날에 다시 집중을 완료한 비율입니다. 해당 날짜가 지난 사람만 비교합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), first_milestone AS (\n SELECT person_id, min(timestamp) AS first_completed_at\n FROM filtered_events\n WHERE event = 'activation_step'\n  AND properties.analytics_environment = 'production'\n  AND properties.activation_schema_version = 1\n  AND properties.journey = 'first_island'\n  AND properties.stage = 'first_focus_completed'\n  AND toFloatOrNull(toString(properties.duration_seconds)) > 0\n GROUP BY person_id\n), cohort AS (\n SELECT person_id, toDate(toTimeZone(first_completed_at, 'Asia/Seoul')) AS cohort_day\n FROM first_milestone\n WHERE toDate(toTimeZone(first_completed_at, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND first_completed_at <= now()\n), return_days AS (\n SELECT person_id, toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS focus_day\n FROM filtered_events\n WHERE event = 'focus_completed'\n  AND properties.analytics_environment = 'production'\n  AND toFloatOrNull(toString(properties.duration_seconds)) > 0\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id, focus_day\n), per_user AS (\n SELECT c.person_id, c.cohort_day,\n  max(if(r.focus_day = c.cohort_day + INTERVAL 1 DAY, 1, 0)) AS returned_d1,\n  max(if(r.focus_day = c.cohort_day + INTERVAL 7 DAY, 1, 0)) AS returned_d7,\n  max(if(r.focus_day > c.cohort_day AND r.focus_day <= c.cohort_day + INTERVAL 7 DAY, 1, 0)) AS returned_d1_d7\n FROM cohort c\n LEFT JOIN return_days r ON c.person_id = r.person_id\n GROUP BY c.person_id, c.cohort_day\n), stats AS (\n SELECT\n  countIf(cohort_day + INTERVAL 1 DAY < toDate(toTimeZone(now(), 'Asia/Seoul'))) AS d1_n,\n  countIf(cohort_day + INTERVAL 1 DAY < toDate(toTimeZone(now(), 'Asia/Seoul')) AND returned_d1 = 1) AS d1_returned,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul'))) AS d7_n,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul')) AND returned_d7 = 1) AS d7_returned,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul')) AND returned_d1_d7 = 1) AS range_returned\n FROM per_user\n)\nSELECT\n nullIf(d1_n, 0) AS \"D1 성숙 분모\",\n if(d1_n = 0, NULL, d1_returned) AS \"D1 재집중 사용자\",\n round(100.0 * d1_returned / nullIf(d1_n, 0), 2) AS \"D1 재집중율 퍼센트\",\n nullIf(d7_n, 0) AS \"D7 성숙 분모\",\n if(d7_n = 0, NULL, d7_returned) AS \"D7 재집중 사용자\",\n round(100.0 * d7_returned / nullIf(d7_n, 0), 2) AS \"D7 재집중율 퍼센트\",\n if(d7_n = 0, NULL, range_returned) AS \"D1~D7 재집중 사용자\",\n round(100.0 * range_returned / nullIf(d7_n, 0), 2) AS \"D1~D7 재집중율 퍼센트\"\nFROM stats",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13739015,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 21
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 22
+        }
+      },
+      "order": 5,
+      "insight_id": 12957028,
+      "title": "최근 7일 이용과 집중 습관",
+      "description": "최근 7일 동안 앱을 이용한 사람, 집중을 완료한 사람, 서로 다른 3일 이상 집중을 완료한 사람의 수입니다. 같은 사람이 여러 번 사용해도 각 항목에서 한 명으로 셉니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), user_days AS (\n SELECT person_id,\n  countIf(event = 'app_active') AS active_events,\n  uniqExactIf(toDate(toTimeZone(timestamp, 'Asia/Seoul')), event = 'focus_completed') AS focus_days\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 6 DAY\n  AND timestamp <= now()\n  AND event IN ('app_active', 'focus_completed')\n GROUP BY person_id\n)\nSELECT\n nullIf(countIf(active_events > 0), 0) AS \"활성 사용자\",\n nullIf(countIf(focus_days > 0), 0) AS \"집중완료 사용자\",\n if(countIf(focus_days > 0) = 0, NULL, countIf(focus_days >= 3)) AS \"3일 이상 집중완료 사용자\"\nFROM user_days",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13739016,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 21
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 27
+        }
+      },
+      "order": 6,
+      "insight_id": 12957029,
+      "title": "매일 이용한 사람과 집중한 사람",
+      "description": "최근 28일의 날짜별 앱 이용자 수와 집중 완료자 수입니다. 같은 날 여러 번 사용한 사람은 한 명으로 세며, 오늘 수치는 하루가 끝날 때까지 늘어납니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters})\nSELECT\n toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS \"날짜\",\n nullIf(uniqExactIf(person_id, event = 'app_active'), 0) AS \"활성 사용자\",\n nullIf(uniqExactIf(person_id, event = 'focus_completed'), 0) AS \"집중완료 사용자\"\nFROM filtered_events\nWHERE properties.analytics_environment = 'production'\n AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n AND timestamp <= now()\n AND event IN ('app_active', 'focus_completed')\nGROUP BY \"날짜\"\nORDER BY \"날짜\"",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsLineGraph",
+        "chartSettings": {
+          "xAxis": {
+            "column": "날짜"
+          },
+          "yAxis": [
+            {
+              "column": "활성 사용자"
+            },
+            {
+              "column": "집중완료 사용자"
+            }
+          ]
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13739024,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 26
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 32
+        }
+      },
+      "order": 7,
+      "insight_id": 12957037,
+      "title": "집중한 사람의 하루 집중시간",
+      "description": "최근 28일 동안 실제 집중을 완료한 사람들의 하루 총 집중시간을 평균과 중앙값으로 보여줍니다. 그날 집중하지 않은 사람은 계산에서 제외합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), valid_events AS (\n SELECT person_id, toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS focus_day,\n  toFloatOrNull(toString(properties.duration_seconds)) AS duration_seconds\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'focus_completed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n), per_user_day AS (\n SELECT person_id, focus_day, sum(duration_seconds) / 60.0 AS focus_minutes\n FROM valid_events\n WHERE duration_seconds > 0\n GROUP BY person_id, focus_day\n)\nSELECT focus_day AS \"날짜\",\n round(avg(focus_minutes), 2) AS \"사용자당 평균 집중분\",\n round((quantileExact(0.5)(focus_minutes) - quantileExact(0.5)(-focus_minutes)) / 2.0, 2) AS \"사용자당 중앙값 집중분\",\n count() AS \"유효 집중완료 사용자\"\nFROM per_user_day\nGROUP BY focus_day\nORDER BY focus_day",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsLineGraph",
+        "chartSettings": {
+          "xAxis": {
+            "column": "날짜"
+          },
+          "yAxis": [
+            {
+              "column": "사용자당 평균 집중분"
+            },
+            {
+              "column": "사용자당 중앙값 집중분"
+            }
+          ]
+        }
+      },
+      "show_description": true
+    }
+  ],
+  "dashboard_url": "https://us.posthog.com/project/669473/dashboard/2220995"
+}

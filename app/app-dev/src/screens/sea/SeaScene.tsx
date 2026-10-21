@@ -246,12 +246,18 @@ export function SeaScene({
         ]}
       >
         {focusing ? (
-          <View style={[styles.bubble, styles.selfSubject]}>
+          <Pressable
+            testID="sea-focus-message"
+            accessibilityRole="button"
+            accessibilityLabel={t('openSea.writeMessage')}
+            onPress={onMessage}
+            style={[styles.bubble, styles.selfSubject, { minHeight: s.size.tapMin }]}
+          >
             <Text numberOfLines={1} style={styles.caption}>
               {self.message || self.subject || t('openSea.focusing')}
             </Text>
             <View style={styles.bubbleTail} accessible={false} />
-          </View>
+          </Pressable>
         ) : (
           <Pressable
             accessibilityRole="button"
