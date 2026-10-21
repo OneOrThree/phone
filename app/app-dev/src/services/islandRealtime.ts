@@ -596,6 +596,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   };
   // 구독 거절 ERROR 는 연결을 끊는다 — emotes 구독 거절이면 다음 접속부터는 빼서 무한 거절 루프를 끊는다.
   let closed = false;
+  let revoked = false; // 세션 폐기 close — reopen(포그라운드 복귀)도 폐기된 토큰으로 되살리지 않는다
   let emoteDenied = false;
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
@@ -720,7 +721,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       emitError(code);
     },
   });
-  attachCloseHandling(client, () => opts.onError(t('realtime.sessionRevoked')));
+  attachCloseHandling(client, () => {
+    revoked = true;
+    opts.onError(t('realtime.sessionRevoked'));
+  });
   client.activate();
   return {
     send: (destination, body) => {
@@ -741,7 +745,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     reopen: () => {
       // deactivate 가 끝나기 전에 close() 가 오면(포그라운드 복귀 직후 화면 이탈) 닫은 클라이언트를 되살리지 않는다
       void client.deactivate().then(() => {
-        if (!closed) client.activate();
+        if (!closed && !revoked) client.activate();
       });
     },
     close: () => {

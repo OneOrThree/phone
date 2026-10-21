@@ -1344,6 +1344,23 @@ describe('stompIslandChannel', () => {
     assert.deepEqual(errors, []);
   });
 
+  test('세션 폐기 뒤에는 reopen(포그라운드 복귀)도 폐기된 토큰으로 되살리지 않는다', async () => {
+    const ch = stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    c.onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+    ch.reopen();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(c.connected, false, 'reopen 이 activate 를 다시 부르지 않는다');
+    assert.equal(c.deactivated, 2);
+  });
+
   describe('realtimeClientOptions 재접속 지터', () => {
     afterEach(() => jest.restoreAllMocks());
     test('재접속 지연은 2.5~7.5 s 안에서 접속마다 새로 뽑는다 — 타이머 없이 reconnectDelay 로', () => {
