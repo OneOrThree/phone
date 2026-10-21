@@ -124,9 +124,9 @@ gradle.taskGraph.whenReady { taskGraph ->
         )
     }
     def apiUrl = System.getenv("EXPO_PUBLIC_API_URL")
-    if (includesReleaseArtifactTask && !devAudience && apiUrl != "https://api.oneorthree.world") {
+    if (includesReleaseArtifactTask && !devAudience && apiUrl != "https://catus-api.oneorthree.world") {
         throw new GradleException(
-            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요."
+            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요."
         )
     }
     // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
