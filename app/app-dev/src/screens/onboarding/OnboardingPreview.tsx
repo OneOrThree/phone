@@ -15,6 +15,7 @@ const items: TelescopeItem[] = ['별빛섬', '작은 무인도', '별고래섬']
   name,
   intro: '',
   memberCount: 1,
+  buildingCount: 1,
   maxMembers: 10,
   approvalRequired: false,
   membershipStatus: 'none',
