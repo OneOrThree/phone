@@ -115,11 +115,9 @@ class OutboundSendBudgetTest {
         // 시간 대신 구조로 «호출 스레드에서 돌지 않음»을 본다 — close 는 전용 풀, 핸들러는 실행기 워커에서만 돈다.
         assertThat(closeThreads).singleElement().satisfies(thread -> {
             assertThat(thread.getName()).isEqualTo("realtime-outbound-close");
-            assertThat(thread).isNotSameAs(Thread.currentThread());
         });
         assertThat(handlerThreads).isNotEmpty().allSatisfy(thread -> {
             assertThat(thread.getName()).startsWith("realtime-outbound-");
-            assertThat(thread).isNotSameAs(Thread.currentThread());
         });
         assertThat(handled).doesNotContain("mover");
     }

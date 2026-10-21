@@ -125,6 +125,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private final Counter routingRedis;
     private final Counter relayStale;
     private final Counter fullStateRetried;
+    private final Counter evictDeadInstance;
+    private final Counter evictGhost;
+    private final Counter evictMissing;
     private final Timer pollTimer;
     /** 내 앞으로 오는 PING 채널 — {@code RedisConfig} 가 구독한다. */
     private final String ownCmdChannel;
@@ -166,6 +169,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                 .description("그 섬에서 본 epoch 보다 작은(옛 소유자) 프레임이라 버린 수").register(meters);
         this.fullStateRetried = Counter.builder("movement.fullstate.retry")
                 .description("세션 한정 FullState 를 2초 넘게 못 받아 다시 요청한 수(codex r1 P1)").register(meters);
+        this.evictDeadInstance = evictCounter(meters, "dead_instance", "내게 PING 이 끊긴 인스턴스라 sweep 이 내보낸 원격 actor 수");
+        this.evictGhost = evictCounter(meters, "ghost", "소유자 PING 목록에 없어 PING 대조가 내보낸 유령 actor 수");
+        this.evictMissing = evictCounter(meters, "missing", "PING 목록엔 있는데 방에 없어 EVICTED 로 알린 세션 수");
         this.ownCmdChannel = RedisKeys.movementCmdChannel(me);
         this.pollTimer = Timer.builder("movement.cluster.poll")
                 .description("movement-cluster 1초 감시 한 틱(poll) 처리 시간 — submit 작업은 포함하지 않는다")
@@ -204,6 +210,11 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private static Counter lostCounter(MeterRegistry meters, String reason) {
         return Counter.builder("movement.owner.lost").tag("reason", reason)
                 .description("이동 방 소유자 리스를 잃은 수 — stolen: 남의 값, expired: 로컬 한도(리스 수명의 9/10) 초과")
+                .register(meters);
+    }
+
+    private static Counter evictCounter(MeterRegistry meters, String reason, String description) {
+        return Counter.builder("movement.cluster.evict").tag("reason", reason).description(description)
                 .register(meters);
     }
 
@@ -619,6 +630,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
      */
     private void sweepDeadInstances() {
         long now = System.nanoTime();
+        Map<String, Integer> evicted = new HashMap<>();
         for (Map.Entry<UUID, Set<String>> entry : remoteSessions.entrySet()) {
             entry.getValue().removeIf(sessionKey -> {
                 Long heard = lastPinged.get(MovementRelay.instanceOf(sessionKey));
@@ -626,9 +638,17 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                     return false;
                 }
                 rooms.leave(entry.getKey(), sessionKey);
+                evicted.merge(MovementRelay.instanceOf(sessionKey), 1, Integer::sum);
                 return true;
             });
         }
+        evicted.forEach((instance, actors) -> {
+            evictDeadInstance.increment(actors);
+            log.info("이동 유령 인스턴스 퇴출 — instance={} actors={}", instance, actors);
+        });
+        // 위에서 같은 조건으로 그 인스턴스 actor 는 이미 나갔다. 재입장 JOIN 이 applyForwarded 에서 다시 심는다.
+        // relay-in 의 PING put 과 겹쳐도 ConcurrentHashMap 의 removeIf 는 값 비교로 지워 새 값은 남는다.
+        lastPinged.entrySet().removeIf(e -> now - e.getValue() > instanceStaleNanos);
     }
 
     // ── movement-relay-in 스레드 ────────────────────────────────────────
@@ -765,6 +785,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                     return false;
                 }
                 rooms.leave(islandId, key);
+                evictGhost.increment();
                 return true;
             });
             String prefix = islandId + "|";
@@ -776,6 +797,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             }
         }
         if (!missing.isEmpty()) {
+            evictMissing.increment(missing.size());
             relay.publishCommand(new Command(me, origin, 0, null, Type.EVICTED, null, null, null, false, missing));
         }
     }
