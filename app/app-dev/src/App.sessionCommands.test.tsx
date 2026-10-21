@@ -2188,6 +2188,12 @@ test('소속 섬이 있어도 바다에서 연 설정의 닫기는 바다로, �
     await tick();
   });
   expect(captured.route).toBe('settings');
+  // 설정에서 이어 연 메인 섬 변경도 닫기는 바다로
+  await act(async () => {
+    captured.go('mainIsland');
+    await tick();
+  });
+  expect(captured.route).toBe('mainIsland');
   await act(async () => {
     captured.home();
     await tick();

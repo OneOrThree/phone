@@ -315,6 +315,7 @@ const SEA_HUD_ROUTES: Route[] = [
   'friendSearch',
   'blockedUsers',
   'settings',
+  'mainIsland',
   'profile',
   'language',
   'permission',
