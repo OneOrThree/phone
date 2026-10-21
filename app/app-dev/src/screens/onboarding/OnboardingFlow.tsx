@@ -32,7 +32,8 @@ import {
   storySteps,
   type StoryStep,
 } from './story';
-import { StoryRaft, storyIslandArt, storyCats } from './StoryRaft';
+import { StoryRaft, storyCats } from './StoryRaft';
+import { ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
 import { useStoryLine } from './useStoryLine';
 
 const ui = componentTokens.onboarding;
@@ -440,7 +441,8 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                       style={styles.island}
                     >
                       <Image
-                        source={storyIslandArt}
+                        testID={`onboarding-island-art-${item.islandId}`}
+                        source={ISLAND_STAGE_ART[islandStage(item.memberCount, item.buildingCount)]}
                         style={{ width: width / 3, height: width / 3 }}
                         resizeMode="contain"
                       />

@@ -19,14 +19,6 @@ export const storyCats: Record<Color, number> = {
   white: require('@/assets/ota/onboarding/cat-white.png'),
   calico: require('@/assets/ota/onboarding/cat-calico.png'),
 };
-export const storyIslands = [
-  require('@/assets/ota/onboarding/island-houses-0.png'),
-  require('@/assets/ota/onboarding/island-houses-1.png'),
-  require('@/assets/ota/onboarding/island-houses-3.png'),
-  require('@/assets/ota/onboarding/island-houses-5.png'),
-];
-// 목록 API는 건물 단계를 주지 않으므로 진행도를 추정하지 않고 승인 v5의 공통 삽화를 사용한다.
-export const storyIslandArt = storyIslands[1];
 const tokens = componentTokens.onboarding;
 export function StoryRaft({
   color,
