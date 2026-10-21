@@ -367,6 +367,7 @@ export function LoginScreen({
           accessibilityRole="header"
           style={{
             fontSize: primitiveTokens.fontSize.display,
+            lineHeight: primitiveTokens.space[10],
             fontWeight: '800',
             color: semanticTokens.color.text,
           }}

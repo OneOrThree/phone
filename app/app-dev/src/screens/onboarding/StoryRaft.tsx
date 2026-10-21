@@ -82,7 +82,12 @@ export function StoryRaft({
       style={{ width, height, transform: [{ translateY: bob }] }}
     >
       {composite ? (
-        <Image source={composite} resizeMode="contain" style={StyleSheet.absoluteFill} />
+        <Image
+          source={composite}
+          resizeMode="contain"
+          // 네이티브 Image는 원본 치수를 기본값으로 넣으므로 absoluteFill만으로는 축소되지 않는다.
+          style={[StyleSheet.absoluteFill, { width, height }]}
+        />
       ) : (
         <>
           <Image
