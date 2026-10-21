@@ -47,7 +47,11 @@ export function openReportCenter(): Promise<void> {
 export function feedbackEmailUrl(appVersion: string): string {
   const body = t('settings.feedback.body', {
     version: appVersion,
-    os: `${Platform.OS} ${Platform.Version}`,
+    // 안드로이드의 Platform.Version 은 API 레벨(36)이라 사용자가 아는 OS 버전(16)을 넣는다.
+    os:
+      Platform.OS === 'android'
+        ? `android ${Platform.constants.Release}`
+        : `${Platform.OS} ${Platform.Version}`,
   });
   return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.feedback.subject'))}&body=${encodeURIComponent(body)}`;
 }
