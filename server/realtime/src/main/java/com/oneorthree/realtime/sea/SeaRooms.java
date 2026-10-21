@@ -482,7 +482,7 @@ public class SeaRooms {
      * 아무것도 하지 않는다 — 구성원 갱신이 섬 수만큼 중복 발행되지 않게 한다.
      *
      * <p>params 는 관대하게 읽는다(형식 불량은 경고 없이 끝낸다 — 앱 전달 경로는 이 사건을 어차피 기록만 한다).
-     * 바다 방에 없는 사용자면 아무것도 하지 않는다. Redis 쓰기 실패만 던진다(수신 기록 롤백 → relay 재전달).
+     * 바다 방에 없는 사용자면 아무것도 하지 않는다. Redis 쓰기 실패와 CAS 재시도 소진은 던진다(수신 기록 롤백 → relay 재전달).
      * 방 사건 발행 실패는 삼킨다.
      */
     public void applyAppearanceUpdated(JsonNode envelope) {
@@ -518,7 +518,9 @@ public class SeaRooms {
             applied = runUpdate(userId, roomId.toString(), transition, current.get(REV)) == 1;
         }
         if (!applied) {
-            return;
+            // 경쟁이 3번 이어졌다 — 조용히 끝내면 수신 기록이 커밋돼 사건이 사라진다(섬 0~1개 사용자는 중복 사건도 없다).
+            // 던져서 수신 기록을 롤백하고 relay 가 다시 전달하게 한다(sea.member.updated 의 Redis 실패와 같은 경로).
+            throw new UpstreamUnavailableException();
         }
         try {
             ObjectNode payload = objectMapper.createObjectNode();

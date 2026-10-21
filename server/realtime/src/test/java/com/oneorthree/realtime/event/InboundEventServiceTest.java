@@ -89,6 +89,9 @@ class InboundEventServiceTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private com.oneorthree.realtime.sea.SeaRooms seaRooms;
+
     @Value("${realtime.internal.data-service-token}")
     private String dataToken;
 
@@ -128,6 +131,29 @@ class InboundEventServiceTest {
 
         http(withdrawn(user, 1));
         verify(chatUserFence, times(1)).withdraw(user, 1L);
+    }
+
+    @Test
+    @DisplayName("[GROMO-2389] 외양 사건 적용이 던지면 수신 기록이 롤백돼 사건이 미처리로 남고, 재전달이 적용한다")
+    void failedAppearanceApplyLeavesTheEventUnprocessed() throws Exception {
+        UUID user = UUID.randomUUID();
+        String eventId = UUID.randomUUID().toString();
+        String envelope = "{\"eventId\":\"" + eventId + "\",\"schemaVersion\":1,"
+                + "\"type\":\"member.appearance.updated\",\"occurredAt\":\"2026-09-19T00:00:00Z\","
+                + "\"scheduledAt\":null,\"userId\":\"" + user + "\",\"locale\":null,\"subjectId\":null,"
+                + "\"version\":2,\"params\":{\"userId\":\"" + user + "\",\"appearance\":{\"head\":\"h\"},"
+                + "\"version\":2}}";
+        org.mockito.Mockito.doThrow(new com.oneorthree.realtime.common.exception.UpstreamUnavailableException())
+                .doCallRealMethod().when(seaRooms).applyAppearanceUpdated(any());
+
+        mockMvc.perform(post("/internal/events").contentType(MediaType.APPLICATION_JSON).content(envelope)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + dataToken)).andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class,
+                eventId)).isZero();
+
+        http(envelope);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class,
+                eventId)).isEqualTo(1L);
     }
 
     @Test

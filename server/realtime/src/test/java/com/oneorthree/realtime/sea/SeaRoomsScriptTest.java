@@ -406,6 +406,37 @@ class SeaRoomsScriptTest {
         assertThat(redis.hasKey(RedisKeys.seaUser(stranger))).isFalse();
     }
 
+    @Test
+    @DisplayName("[GROMO-2389] CAS 경쟁이 재시도 상한(3)까지 이어지면 던진다 — 조용히 끝내 사건을 잃지 않는다")
+    void appearanceCasExhaustionThrows() throws Exception {
+        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+        Fixture f = new Fixture();
+        UUID alice = UUID.randomUUID();
+        org.mockito.BDDMockito.given(f.seaState.fetch(alice)).willReturn(
+                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null));
+        org.mockito.BDDMockito.given(f.friends.fetchFriendIds(alice)).willReturn(java.util.Set.of());
+        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
+        f.seaRooms.enter(alice, "s");
+        // 쓰기 직전마다 다른 쪽이 rev 를 올린다 — 읽은 rev 로 한 CAS 가 매번 진다
+        org.springframework.data.redis.core.StringRedisTemplate racing = org.mockito.Mockito.spy(redis);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            redis.opsForHash().increment(RedisKeys.seaUser(alice), "rev", 1);
+            return invocation.callRealMethod();
+        }).when(racing).execute(org.mockito.ArgumentMatchers.<org.springframework.data.redis.core.script.RedisScript<Long>>any(),
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Object[].class));
+        SeaRooms racingRooms = new SeaRooms(racing, f.seaState, f.friends, f.blockedUsers, f.publisher, f.sessions,
+                new tools.jackson.databind.ObjectMapper(), java.time.Clock.systemUTC());
+        tools.jackson.databind.JsonNode event = new tools.jackson.databind.ObjectMapper().readTree(
+                "{\"params\":{\"userId\":\"" + alice + "\",\"appearance\":{\"head\":\"h\",\"neck\":null},\"version\":2}}");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> racingRooms.applyAppearanceUpdated(event))
+                .isInstanceOf(com.oneorthree.realtime.common.exception.UpstreamUnavailableException.class);
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "head")).isFalse();
+        // 경쟁이 사라지면 같은 사건이 적용된다(relay 재전달)
+        f.seaRooms.applyAppearanceUpdated(event);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("h");
+    }
+
     private static org.springframework.web.socket.messaging.SessionDisconnectEvent disconnect(String sessionId,
             java.security.Principal user) {
         return new org.springframework.web.socket.messaging.SessionDisconnectEvent(new Object(),
