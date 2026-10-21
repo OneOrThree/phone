@@ -18,7 +18,7 @@ fi
 
 # 커밋 안 된 수정·새 파일은 리뷰·테스트를 거치지 않은 코드라 운영으로 내보내지 않는다.
 # 새 파일도 커밋된 코드가 import 하면 번들에 들어가므로 .gitignore 밖은 전부 본다.
-if [[ -n "$(git status --porcelain -- .)" ]]; then
+if [[ -n "$(git status --porcelain --untracked-files=all -- .)" ]]; then
   echo "❌ app/app-dev 에 커밋 안 된 변경이나 새 파일이 있어요. 커밋하거나 지운 뒤 다시 실행하세요." >&2
   exit 1
 fi
