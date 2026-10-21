@@ -16,10 +16,10 @@ if [[ $# -ne 1 || -z "${MESSAGE//[[:space:]]/}" ]]; then
   exit 1
 fi
 
-# 커밋 안 된 수정은 리뷰·테스트를 거치지 않은 코드라 운영으로 내보내지 않는다.
-# src 아래 새 파일은 커밋된 코드가 import 하면 번들에 들어가므로 같이 본다(그 밖의 새 파일은 번들과 무관).
-if [[ -n "$(git status --porcelain --untracked-files=no -- .)$(git status --porcelain -- src)" ]]; then
-  echo "❌ app/app-dev 에 커밋 안 된 변경이 있어요. 커밋하거나 되돌린 뒤 다시 실행하세요." >&2
+# 커밋 안 된 수정·새 파일은 리뷰·테스트를 거치지 않은 코드라 운영으로 내보내지 않는다.
+# 새 파일도 커밋된 코드가 import 하면 번들에 들어가므로 .gitignore 밖은 전부 본다.
+if [[ -n "$(git status --porcelain -- .)" ]]; then
+  echo "❌ app/app-dev 에 커밋 안 된 변경이나 새 파일이 있어요. 커밋하거나 지운 뒤 다시 실행하세요." >&2
   exit 1
 fi
 
