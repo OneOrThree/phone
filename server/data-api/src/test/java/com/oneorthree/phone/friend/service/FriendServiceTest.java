@@ -891,6 +891,26 @@ class FriendServiceTest {
     // ── getRequests ────────────────────────────────────────
 
     @Test
+    @DisplayName("받은 요청 목록 — 상대의 털색과 착용 외양을 배치 포트로 싣는다, 탈퇴한 상대는 null (GROMO-2389)")
+    void getRequests_carriesCounterpartLook() {
+        Friendship req = friendship(target, me, FriendshipStatus.PENDING);
+        MemberLookPort.Appearance look = new MemberLookPort.Appearance(
+                null, null, "head-ribbon", null, null, "raft", "front", 2);
+        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(req));
+        given(memberLookPort.looksByUserId(List.of(targetId)))
+                .willReturn(Map.of(targetId, new MemberLookPort.MemberLook("ginger", look)));
+
+        List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
+
+        assertThat(requests).singleElement().satisfies(r -> {
+            assertThat(r.getCatColor()).isEqualTo("ginger");
+            assertThat(r.getAppearance()).isEqualTo(look);
+        });
+    }
+
+    @Test
     @DisplayName("받은 요청 목록(received) — fromUser를 상대로 매핑")
     void getRequests_received_mapsFromUser() {
         Friendship req = friendship(target, me, FriendshipStatus.PENDING);

@@ -538,10 +538,17 @@ public class FriendService {
         Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(requests.stream()
                 .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
                 .toList());
+        // GROMO-2389: 상대의 털색·착용 외양도 배치 한 번 — 탈퇴한 상대는 맵에 없어 null 이다.
+        Map<UUID, MemberLookPort.MemberLook> looks = memberLookPort.looksByUserId(requests.stream()
+                .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
+                .toList());
         return requests.stream()
                 .map(f -> {
                     User other = received ? f.getFromUser() : f.getToUser();
+                    MemberLookPort.MemberLook look = looks.get(other.getId());
                     return FriendRequestResponse.builder()
+                            .catColor(look == null ? null : look.catColor())
+                            .appearance(look == null ? null : look.appearance())
                             .requestId(f.getId())
                             .userId(other.getId())
                             .nickname(other.getNickname())

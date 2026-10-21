@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.oneorthree.phone.common.port.MemberLookPort;
 import com.oneorthree.phone.letter.repository.domain.LetterKind;
 
 import java.time.Instant;
@@ -20,6 +21,9 @@ import java.util.UUID;
  * @param senderNickname 발신자 닉네임. <b>탈퇴자는 null</b> — {@code erasePersonalData} 가 닉네임만 지우고
  *     유저 행은 남기므로(LLD §3) 조회 시점에 자연히 null 이 된다
  * @param readAt         수신자가 처음 상세를 연 시각. 안 읽었으면 null. 발송 직후는 항상 null 이다
+
+ * @param catColor       발신자 고양이 색(GROMO-2389). 미선택·탈퇴·시스템 편지면 null. 차단한 상대면 null
+ * @param appearance     발신자 착용 외양(GROMO-2389). 탈퇴·시스템 편지면 null. 차단한 상대면 기본 외양
  * @param kind           시스템 편지의 종류. 친구 편지는 null(키 없음)
  * @param islandId       시스템 편지가 가리키는 섬. 친구 편지는 null(키 없음)
  */
@@ -32,5 +36,7 @@ public record LetterView(
         Instant createdAt,
         Instant readAt,
         @JsonInclude(JsonInclude.Include.NON_NULL) LetterKind kind,
-        @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId,
+        String catColor,
+        MemberLookPort.Appearance appearance) {
 }

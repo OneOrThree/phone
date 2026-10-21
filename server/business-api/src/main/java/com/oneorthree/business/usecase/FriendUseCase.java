@@ -158,10 +158,13 @@ public class FriendUseCase {
             @JsonProperty(required = true) UUID userId,
             String nickname,
             Integer tierLevel,
-            @JsonProperty(required = true) String createdAt) {
+            @JsonProperty(required = true) String createdAt,
+            String catColor,
+            MemberAppearanceView appearance) {
         private static RequestView from(FriendRequestItem source) {
             return source == null ? null : new RequestView(source.requestId(), source.userId(), source.nickname(),
-                    source.tierLevel(), source.createdAt());
+                    source.tierLevel(), source.createdAt(), source.catColor(),
+                    MemberAppearanceView.from(source.appearance()));
         }
     }
 

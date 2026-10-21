@@ -376,7 +376,7 @@ class FriendContractTest extends UpstreamTestBase {
             }
             default -> {
                 item = "{\"requestId\":\"" + REQUEST + "\",\"userId\":\"" + TARGET
-                        + "\",\"nickname\":null,\"tierLevel\":null,\"createdAt\":\"2026-09-18T00:00:00.123456+00:00\"}";
+                        + "\",\"nickname\":null,\"tierLevel\":null,\"createdAt\":\"2026-09-18T00:00:00.123456+00:00\"," + LOOK + "}";
                 route = DATA_REQUESTS;
                 request = get("/friends/requests").queryParam("type", kind);
             }
