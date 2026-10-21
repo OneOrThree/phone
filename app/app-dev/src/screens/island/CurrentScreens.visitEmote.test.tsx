@@ -1,6 +1,6 @@
 // 낚시 구경 화면(GROMO-2259) — 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정): FAB 없음, visitor 미전달.
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { act, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -9,6 +9,7 @@ let presenceOpts: any;
 let mockFocusMembers: object[] = [];
 let mockLooks: Record<string, object> = {};
 const mockSendEmote = jest.fn(() => true);
+const mockResync = jest.fn();
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
   catColor: (color: string) => color,
@@ -25,6 +26,7 @@ jest.mock('@/screens/focus/useIslandPresence', () => ({
       snapshotTransitions: [],
       sendEmote: mockSendEmote,
       retry: jest.fn(),
+      resync: mockResync,
       looks: mockLooks,
     };
   },
@@ -213,4 +215,17 @@ test('낚시 구경 주민은 focus-members 의 appearance 로, 실시간 외양
     head: 'hat-new',
     neck: null,
   });
+});
+
+test('다른 섬 방문 구경은 events 를 못 구독하므로 30초마다 스냅숏을 다시 읽고, 내 섬 구경은 읽지 않는다 (GROMO-2390)', async () => {
+  jest.useFakeTimers();
+  try {
+    const visit = await mount(visitState('none'));
+    expect(presenceOpts.events).toBe(false);
+    await act(async () => jest.advanceTimersByTime(61_000));
+    expect(mockResync).toHaveBeenCalledTimes(2);
+    await visit.screen.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
 });

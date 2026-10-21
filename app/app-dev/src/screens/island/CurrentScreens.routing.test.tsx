@@ -47,6 +47,7 @@ jest.mock('@/screens/focus/useIslandPresence', () => ({
     snapshotTransitions: [],
     sendEmote: jest.fn(() => true),
     retry: jest.fn(),
+    resync: jest.fn(),
   }),
 }));
 

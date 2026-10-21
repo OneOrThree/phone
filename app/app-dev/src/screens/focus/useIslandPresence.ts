@@ -33,6 +33,8 @@ export type IslandPresence = PresenceView & {
   /** STOMP SEND — 즉시 실패(미연결·세션 없음)면 false. 화면 표시는 브로드캐스트가 돌아올 때다. */
   sendEmote: (type: string) => boolean;
   retry: () => void;
+  /** 소켓은 그대로 두고 스냅숏만 다시 읽는다 — 이벤트가 안 오는 방문 화면의 주기 갱신용. */
+  resync: () => void;
   /** 실시간으로 받은 주민 외양(GROMO-2390) — 스냅숏 appearance 와 version 으로 합쳐 쓴다. */
   looks: Record<string, MemberLook>;
 };
@@ -144,6 +146,7 @@ export function useIslandPresence(
     ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),
     sendEmote: useCallback((type: string) => rt.current?.sendEmote(type) ?? false, []),
     retry: useCallback(() => setNonce((n) => n + 1), []),
+    resync: useCallback(() => rt.current?.resync('manual'), []),
     looks: looksState.scope === scope ? looksState.looks : NO_LOOKS,
   };
 }

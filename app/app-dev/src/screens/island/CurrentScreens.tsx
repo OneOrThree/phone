@@ -1526,6 +1526,8 @@ function EmoteFab({
     </>
   );
 }
+/** 방문 낚시 구경이 주민 스냅숏(외양 포함)을 다시 읽는 간격. */
+const VISIT_RESYNC_MS = 30_000;
 function FocusVisit({ e, islandId, onBack }: any) {
   const s: State = e.state,
     i = viewIsland(s, islandId ?? s.serverIslands?.currentIslandId ?? s.islandId),
@@ -1553,6 +1555,14 @@ function FocusVisit({ e, islandId, onBack }: any) {
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
+  // 다른 섬 방문은 소속원이 아니라 events 토픽(member.appearance.updated)을 구독할 수 없다(서버: 소속 주민만, 아니면 ERROR+연결 종료).
+  // 그래서 방문 화면은 focus-members 를 주기적으로 다시 읽어 갈아입은 외양을 반영한다.
+  const resyncLive = live.resync;
+  useEffect(() => {
+    if (!visiting || liveIslandId === null) return;
+    const id = setInterval(resyncLive, VISIT_RESYNC_MS);
+    return () => clearInterval(id);
+  }, [visiting, liveIslandId, resyncLive]);
   const myId = getSession()?.userId;
   const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
