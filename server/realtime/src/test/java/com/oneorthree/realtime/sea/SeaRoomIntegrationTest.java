@@ -303,8 +303,9 @@ class SeaRoomIntegrationTest {
                 && bob.toString().equals(memberOf(frame).get("userId")));
         Map<String, Object> forCarol = await(heardByCarol, frame -> "sea.member.updated".equals(frame.get("type"))
                 && bob.toString().equals(memberOf(frame).get("userId")));
-        assertThat(lookOf(forAlice)).containsEntry("head", null).containsEntry("neck", null);
-        assertThat(lookOf(forCarol)).containsEntry("head", "head-new");
+        assertThat(lookOf(forAlice)).containsEntry("head", null).containsEntry("neck", null)
+                .containsEntry("version", 2);
+        assertThat(lookOf(forCarol)).containsEntry("head", "head-new").containsEntry("version", 2);
         // 옛 version(1) 이 뒤늦게 와도 덮지 않는다
         postEvent(appearanceEvent(bob, UUID.randomUUID(), 1, "head-old"));
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(bob), "head")).isEqualTo("head-new");

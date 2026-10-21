@@ -323,7 +323,11 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (!hide) {
             return message;
         }
-        row.putObject("appearance").putNull("head").putNull("neck");
+        // head·neck 만 비운다 — version 은 유지한다(수신 측 단조 병합 기준)
+        JsonNode version = row.path("appearance").get("version");
+        ObjectNode look = row.putObject("appearance");
+        look.putNull("head").putNull("neck");
+        look.set("version", version == null ? look.numberNode(0L) : version);
         byte[] bytes = objectMapper.writeValueAsBytes(root);
         return MessageBuilder.createMessage(bytes, message.getHeaders());
     }

@@ -337,7 +337,7 @@ class SeaRoomsScriptTest {
         for (UUID user : List.of(alice, bob)) {
             org.mockito.BDDMockito.given(f.seaState.fetch(user)).willReturn(
                     new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null, "이름", "ginger",
-                            new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("head-" + user, null)));
+                            new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("head-" + user, null, 7L)));
             org.mockito.BDDMockito.given(f.friends.fetchFriendIds(user)).willReturn(java.util.Set.of());
         }
         org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
@@ -356,6 +356,7 @@ class SeaRoomsScriptTest {
             boolean mine = member.get("userId").asString().equals(alice.toString());
             assertThat(member.get("appearance").get("head").isNull()).isEqualTo(!mine);
             assertThat(member.get("appearance").get("neck").isNull()).isTrue();
+            assertThat(member.get("appearance").get("version").asLong()).as("가려도 version 은 유지").isEqualTo(7L);
             assertThat(member.get("name").asString()).isEqualTo("이름");
         }
         // bob 은 alice 를 차단하지 않았으니 alice 의 외양이 그대로 보인다(한 방향).
@@ -388,9 +389,16 @@ class SeaRoomsScriptTest {
 
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("new-head");
         assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "neck")).isFalse();
+        org.mockito.ArgumentCaptor<tools.jackson.databind.JsonNode> sent =
+                org.mockito.ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
         org.mockito.Mockito.verify(f.publisher, org.mockito.Mockito.times(1)).publish(
                 org.mockito.ArgumentMatchers.eq(room), org.mockito.ArgumentMatchers.eq(SeaRooms.MEMBER_UPDATED),
-                org.mockito.ArgumentMatchers.any());
+                sent.capture());
+        // 발행 payload 는 이 호출이 쓴 모습과 version 을 그대로 싣는다(다시 읽지 않는다)
+        tools.jackson.databind.JsonNode look = sent.getValue().get("member").get("appearance");
+        assertThat(look.get("head").asString()).isEqualTo("new-head");
+        assertThat(look.get("neck").isNull()).isTrue();
+        assertThat(look.get("version").asLong()).isEqualTo(2L);
         // 방에 없는 사용자의 사건은 해시를 만들지 않는다
         UUID stranger = UUID.randomUUID();
         f.seaRooms.applyAppearanceUpdated(new tools.jackson.databind.ObjectMapper().readTree(

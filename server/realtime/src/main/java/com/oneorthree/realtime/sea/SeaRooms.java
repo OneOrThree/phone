@@ -329,7 +329,11 @@ public class SeaRooms {
                 }
             }
             if (unknown || blocked.contains(other)) {
-                row.putObject("appearance").putNull(HEAD).putNull(NECK);
+                // head·neck 만 비운다 — version 은 유지한다(수신 측 단조 병합 기준, 식별 정보가 아니다)
+                JsonNode version = row.path("appearance").get("version");
+                ObjectNode look = row.putObject("appearance");
+                look.putNull(HEAD).putNull(NECK);
+                look.set("version", version == null ? objectMapper.getNodeFactory().numberNode(0L) : version);
             }
         }
         return members;
@@ -518,7 +522,13 @@ public class SeaRooms {
         }
         try {
             ObjectNode payload = objectMapper.createObjectNode();
-            payload.set("member", memberOf(userId));
+            ObjectNode member = memberOf(userId);
+            // 다시 읽은 값이 아니라 이 호출이 CAS 로 쓴 모습·version 을 싣는다 — 늦게 발행돼도 옛 version 이 붙어 수신 측이 버린다.
+            ObjectNode look = member.putObject("appearance");
+            look.put(HEAD, head);
+            look.put(NECK, neck);
+            look.put("version", version);
+            payload.set("member", member);
             publisher.publish(roomId, MEMBER_UPDATED, payload);
         } catch (RuntimeException e) {
             log.warn("바다 구성원 외양 갱신 발행 실패 — reason={}", e.getClass().getSimpleName());
@@ -964,7 +974,7 @@ public class SeaRooms {
     }
 
     /**
-     * {@code member = {userId, state, remark, name, catColor, appearance{head, neck}, session | null}}.
+     * {@code member = {userId, state, remark, name, catColor, appearance{head, neck, version}, session | null}}.
      * {@code activeSeconds} 는 저장값이 아니라 지금 계산한다 —
      * 바다 세션은 일시정지가 없어 경과가 곧 벽시계 차다. 떠 있으면 떠오른 시각에서 멈춘다.
      */
@@ -979,6 +989,7 @@ public class SeaRooms {
         ObjectNode look = member.putObject("appearance"); // 옛 해시(배포 전 입장)는 head·neck 이 null
         look.put(HEAD, hash.get(HEAD));
         look.put(NECK, hash.get(NECK));
+        look.put("version", longOrZero(hash.get(APPEARANCE_VERSION))); // 수신 측이 단조 병합하는 기준
         Instant startedAt = instantOrNull(hash.get(STARTED_AT));
         if (hash.get(SESSION_ID) == null || startedAt == null) {
             member.putNull("session");
