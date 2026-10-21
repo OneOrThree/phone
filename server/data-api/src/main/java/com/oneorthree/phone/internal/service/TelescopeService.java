@@ -79,9 +79,8 @@ import java.util.stream.Stream;
  * 잠근 쓰기 트랜잭션 안에서 이 목록을 부른다. 새 트랜잭션은 커넥션을 하나 더 잡고(풀 고갈), 바깥이 방금 넣은 핀을 보지
  * 못한다. 바깥 트랜잭션에 합류하면 같은 커넥션·같은 스냅샷에서 끝나고, 바깥이 롤백하면 스냅샷도 함께 사라져 다음 요청이
  * 같은 시드로 다시 뽑는다. 단 {@code readOnly} 트랜잭션 안에서 부르면 INSERT 가 실패하므로 그런 호출자를 만들지 않는다.
- * 두 기기의 동시 첫 요청은 {@code ON CONFLICT DO NOTHING} 이 뒤쪽을 앞쪽 커밋까지 기다리게 한 뒤 0행으로 흘리고, 다시
- * 읽기(READ COMMITTED 의 새 문장 스냅샷)가 이긴 행을 준다. 사용자 행은 <b>공유 잠금</b>으로 읽는다 — 탈퇴({@code getCallerForUpdate})와
- * 직렬화해 탈퇴 뒤 스냅샷이 다시 남는 틈을 막는다(codex 사전 리뷰).
+ * 사용자 행은 <b>배타 잠금</b>으로 읽어 동시 첫 요청의 스냅샷·개인 무인도 준비를 직렬화한다. 탈퇴와도
+ * 직렬화해 탈퇴 뒤 스냅샷이나 예약이 다시 남는 틈을 막는다. 스냅샷 INSERT의 {@code ON CONFLICT DO NOTHING}도 유지한다.
  * 그래서 {@code GET /me/telescope} 는 같은 사용자의 {@code FOR UPDATE} 쓰기(핀 넣기·빼기·탈퇴 등)와 서로 기다린다 — 같은
  * 사용자 안의 경합뿐이고 다른 사용자끼리는 막지 않는다.
  *
@@ -113,6 +112,7 @@ public class TelescopeService {
     private final MagazinePinService magazinePins;
     private final IslandPromotionRepository promotions;
     private final Clock clock;
+    private final OnboardingIslandService onboardingIslands;
 
     /**
      * 보여 줄 수 있는 핀 하나 — 핀 행(출처·넣은 시각)과, 후보와 같은 술어를 지금도 통과한 섬 행(주민 수·정원).
@@ -144,9 +144,8 @@ public class TelescopeService {
      */
     @Transactional
     public TelescopeView list(UUID userId, Instant now) {
-        // 공유 잠금 — 탈퇴(getCallerForUpdate 뒤 개인 기록 정리·소프트 삭제)와 직렬화한다. 잠금 없이 읽으면 탈퇴가 그 사이에
-        // 커밋돼도 아래 스냅샷 INSERT 가 들어가 탈퇴자의 개인 기록이 다시 남는다(users 행은 남아 FK 가 막지 않는다).
-        userQueryService.getCallerForShare(userId);
+        // 탈퇴·동시 첫 조회와 직렬화한다. 소속 없는 사용자의 무인도 예약도 이 잠금 안에서 하나만 만든다.
+        userQueryService.getCallerForUpdate(userId);
         Instant bucketStart = now.truncatedTo(ChronoUnit.HOURS);
 
         List<UUID> joinedIds = groupMemberRepository.findActiveGroupIdsByUserId(userId);
@@ -240,6 +239,7 @@ public class TelescopeService {
         }
         int firstRandom = (int) items.stream().takeWhile(view -> !SLOT_RANDOM.equals(view.slot())).count();
         items.addAll(firstRandom, pinnedItems);
+        onboardingIslands.destination(userId, joinedIds, items).ifPresent(item -> items.add(0, item));
         // 60 − 버킷 안에서 지난 «온전한» 분 = ceil((bucketStart + 1h − now) / 1분). 정각엔 60, 59분 59초엔 1.
         int nextRefreshMinutes = 60 - (int) Duration.between(bucketStart, now).toMinutes();
         return new TelescopeView(bucketStart, nextRefreshMinutes, items);

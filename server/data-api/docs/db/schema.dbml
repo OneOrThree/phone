@@ -2261,3 +2261,8 @@ Table construction_guide_recipients [note: '착공 당시 양수 기여 주민. 
   }
 }
 Ref: construction_guide_recipients.(island_id, building_id) > island_facilities.(island_id, building_id) [delete: cascade]
+
+Table onboarding_islands [note: '첫 소속 없는 사용자의 개인 무인도. 도착 전 비공개·주민 0명, 실제 바다 도착 후 방장 소속과 함께 예약 삭제. V137'] {
+  user_id uuid [pk, ref: > users.id]
+  island_id uuid [not null, unique, ref: > groups.id]
+}

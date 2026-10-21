@@ -22,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import com.oneorthree.phone.group.repository.OnboardingIslandRepository;
 import org.mockito.Mock;
 import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -97,6 +98,9 @@ class GroupMemberServiceTest {
     void fixClock() {
         lenient().when(clock.instant()).thenReturn(KICKED_AT);
     }
+
+    @Mock
+    private OnboardingIslandRepository onboardingIslands;
 
     @InjectMocks
     private GroupMemberService groupMemberService;
