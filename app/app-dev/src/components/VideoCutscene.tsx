@@ -73,7 +73,9 @@ function Playing({
   const stallRetries = useRef(0);
   const [started, setStarted] = useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const box = cutsceneVideoBox(windowWidth, windowHeight);
+  // 상자는 overlay 의 실측 크기로 잡는다 — 안드로이드 비 edge-to-edge·웹 폰 프레임에서는 창 크기와 다르다. 첫 그림은 창 크기.
+  const [frame, setFrame] = useState({ width: windowWidth, height: windowHeight });
+  const box = cutsceneVideoBox(frame.width, frame.height);
   const player = useVideoPlayer(source, (video) => {
     video.loop = false;
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.
@@ -181,6 +183,9 @@ function Playing({
       accessibilityViewIsModal
       testID={testID}
       style={styles.overlay}
+      onLayout={({ nativeEvent: { layout } }) =>
+        setFrame({ width: layout.width, height: layout.height })
+      }
     >
       <VideoView
         player={player}
@@ -204,7 +209,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
     // 세로 폰에서 화면 밖으로 나가는 영상 좌우를 자른다(웹에서 가로 스크롤이 생기지 않게).
     overflow: 'hidden',
-    // 좌우 여백이 남는 납작한 화면(태블릿·가로)에서 뒤 UI 를 눌러 영상 경계가 자연스럽게 이어지게 한다.
+    // 좌우 여백이 남는 납작한 화면(태블릿·가로)에서 그 여백을 어둡게 칠해 뒤 UI 를 누른다.
     backgroundColor: componentTokens.overlay.cinematicBackground,
   },
   // 폭·왼쪽은 `cutsceneVideoBox` 가 준다(웹의 replaced <video>는 크기를 명시해야 늘어난다).
