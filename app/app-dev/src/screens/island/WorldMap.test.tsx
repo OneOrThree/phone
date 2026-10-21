@@ -31,11 +31,12 @@ import {
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
 
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -1578,4 +1579,22 @@ test('구경 중 HUD 의 긴 섬 이름은 한 줄로 줄이고 「다시 바다
   expect(onLeave).toHaveBeenCalledTimes(1);
   await fireEvent.press(screen.getByLabelText('이 섬에 가입'));
   expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+test('구경 중 하단 두 버튼은 폭을 나눠 쓰고, 큰 글자에서는 세로로 쌓는다(GROMO-2405)', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  state.visitingIslandId = visited.id;
+  const join = { label: '이 섬에 가입', disabled: false, onPress: jest.fn(), onLeave: jest.fn() };
+  const screen = await render(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
+  );
+  const row = () => Object.assign({}, ...[screen.getByTestId('visit-actions').props.style].flat());
+  expect(row().flexDirection).toBe('row');
+  mockFontScale = 1.3;
+  await screen.rerender(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
+  );
+  expect(row().flexDirection).toBe('column');
+  mockFontScale = 1;
 });
