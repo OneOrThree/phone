@@ -1,4 +1,5 @@
 // 남의 고양이 외양 파서·병합(GROMO-2390)
+import * as blocked from './blockedUsers';
 import { lookOf, newerLook, parseAppearanceEvent, parseLook } from './memberAppearance';
 
 const ev = (over: Record<string, unknown> = {}, payload: Record<string, unknown> = {}) => ({
@@ -51,9 +52,20 @@ test('parseAppearanceEvent — payload.version 을 쓰고 다른 섬·type·모�
 });
 
 test('lookOf — 스냅숏과 실시간 중 version 이 큰 쪽', () => {
-  const snapshot = { head: 'old', version: 2 };
+  const snapshot = { catColor: 'black', appearance: { head: 'old', version: 2 } };
   expect(lookOf({ u: parseLook({ head: 'new', version: 3 })! }, 'u', snapshot)?.head).toBe('new');
   expect(lookOf({ u: parseLook({ head: 'stale', version: 1 })! }, 'u', snapshot)?.head).toBe('old');
   expect(lookOf({}, 'u', snapshot)?.head).toBe('old');
   expect(lookOf({}, 'u', undefined)).toBeUndefined();
+});
+
+test('lookOf — 가려진 주민(catColor null)·내가 차단한 사용자는 실시간 값을 무시한다', () => {
+  const live = { u: parseLook({ head: 'leak', version: 9 })! };
+  const masked = { catColor: null, appearance: { head: null, neck: null, version: 2 } };
+  expect(lookOf(live, 'u', masked)?.head).toBeNull();
+  const shown = { catColor: 'black', appearance: { head: 'old', version: 2 } };
+  expect(lookOf(live, 'u', shown)?.head).toBe('leak');
+  jest.spyOn(blocked, 'isUserBlocked').mockReturnValue(true);
+  expect(lookOf(live, 'u', shown)?.head).toBe('old');
+  jest.restoreAllMocks();
 });

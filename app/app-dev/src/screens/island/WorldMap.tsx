@@ -1938,7 +1938,7 @@ function FinalIslandScene({
     const others = facts
       ? facts.members
           .filter((m) => m.id !== myId && m.catColor)
-          .map((m) => ({ color: catColor(m.catColor), outfit: lookOf(looks, m.id, m.appearance) }))
+          .map((m) => ({ color: catColor(m.catColor), outfit: lookOf(looks, m.id, m) }))
       : i.members
           .filter((m) => m.id !== 'me')
           .map((m) => ({ color: m.color as Color, outfit: undefined }));
@@ -2182,7 +2182,7 @@ function FinalIslandScene({
               key={a.userId}
               userId={a.userId}
               color={catColor(color)}
-              outfit={lookOf(looks, a.userId, member?.appearance)}
+              outfit={lookOf(looks, a.userId, member)}
               start={worldToImage(a, sizeOf(grid))}
               s={s}
               reduce={state.settings.reduceMotion}

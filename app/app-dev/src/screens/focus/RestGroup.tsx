@@ -205,7 +205,7 @@ export function RestGroup({
             id: m.userId,
             name: m.name ?? t('focusFlow.common.resident'),
             color: catColor(m.catColor),
-            outfit: lookOf(live.looks, m.userId, m.appearance),
+            outfit: lookOf(live.looks, m.userId, m),
             restStartedAt: m.restStartedAt
               ? Date.parse(m.restStartedAt) - live.clockOffset
               : Date.now(),

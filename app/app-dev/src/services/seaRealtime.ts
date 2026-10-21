@@ -171,6 +171,11 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       if (!member) return;
       // 외양은 version 이 더 큰 쪽만 — 순서가 뒤바뀐 갱신이 새 옷을 되돌리지 않는다
       const prev = members.get(member.userId);
+      // appearance 가 없는 갱신(옛 서버·다른 사유)은 갖고 있던 외양을 지우지 않는다
+      if (member.outfit === undefined && prev?.outfit) {
+        member.outfit = prev.outfit;
+        if (prev.outfitVersion !== undefined) member.outfitVersion = prev.outfitVersion;
+      }
       if (
         prev?.outfitVersion !== undefined &&
         member.outfitVersion !== undefined &&

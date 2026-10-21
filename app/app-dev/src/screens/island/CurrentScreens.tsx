@@ -1636,7 +1636,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
               outfit={lookOf(
                 live.looks,
                 actor.userId,
-                live.focus.find((m) => m.userId === actor.userId)?.appearance,
+                live.focus.find((m) => m.userId === actor.userId),
               )}
               size={size}
               sizeY={sizeY}
@@ -3184,7 +3184,7 @@ function FocusFlow({ e: environment }: any) {
                     outfit={lookOf(
                       live.looks,
                       actor.userId,
-                      live.focus.find((m) => m.userId === actor.userId)?.appearance,
+                      live.focus.find((m) => m.userId === actor.userId),
                     )}
                     size={size}
                     sizeY={sizeY}

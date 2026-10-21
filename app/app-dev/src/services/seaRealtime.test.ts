@@ -2,7 +2,10 @@
 // stompjs Client 는 목이다(islandRealtime.test 와 같은 FakeClient) — 구독·발행 순서를 그대로 기록한다.
 import { openSeaRoom, seaMemberFromWire, seaParticipantsAt, SEA_SYNC_MS } from './seaRealtime';
 
-jest.mock('@/services/api/session', () => ({ getAccessToken: () => 'AT' }));
+jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
+  getAccessToken: () => 'AT',
+}));
 jest.mock('@stomp/stompjs', () => {
   class FakeClient {
     static instances: FakeClient[] = [];
@@ -144,6 +147,11 @@ test('남의 뗏목 외양 — appearance 를 outfit 으로 싣고 version 이 �
   expect(a().outfit.head).toBe('hat-2');
   roomEvent('sea.member.updated', { member: member('a', look(null, 7)) }); // 벗었다
   expect(a().outfit.head).toBeNull();
+  roomEvent('sea.member.updated', { member: member('a', { remark: '한마디' }) }); // appearance 없는 갱신
+  expect(a().outfit.head).toBeNull();
+  roomEvent('sea.member.updated', { member: member('a', look('hat-3', 8)) });
+  roomEvent('sea.member.updated', { member: member('a', { state: 'adrift' }) });
+  expect(a().outfit.head).toBe('hat-3');
   // 옛 서버(appearance 없음)는 outfit 을 싣지 않는다
   expect(seaMemberFromWire(member('b'), 1)).not.toHaveProperty('outfit');
   expect(

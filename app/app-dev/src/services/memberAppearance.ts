@@ -1,3 +1,5 @@
+import { isUserBlocked } from '@/services/blockedUsers';
+
 /**
  * 남의 고양이 외양(GROMO-2390) — 서버 `appearance` 의 머리·목·신발과 단조 version.
  * 주민 목록·홈 주민·바다 방 응답과 `member.appearance.updated` 사건이 모두 이 모양으로 모인다.
@@ -54,15 +56,20 @@ export function parseAppearanceEvent(
   const userId = id(p?.userId);
   const look = parseLook(p?.appearance);
   if (!userId || !look) return null;
-  return {
-    userId,
-    look: { ...look, version: ver(p?.version) ?? look.version ?? ver(env.aggregateVersion) },
-  };
+  return { userId, look: { ...look, version: ver(p?.version) } };
 }
 
-/** 한 주민의 보일 외양 — 응답(스냅숏)의 appearance 와 실시간으로 받은 외양 중 새 것. */
+/**
+ * 한 주민의 보일 외양 — 응답(스냅숏)의 appearance 와 실시간으로 받은 외양 중 새 것.
+ * 가려진 주민(내가 차단했거나 응답에서 catColor 가 null)은 응답 값만 쓴다 — 섬 사건은 받는 사람별로 가리지 않을 수 있어
+ * 실시간 값이 서버가 가린 응답을 덮으면 차단 상대의 옷이 보인다.
+ */
 export const lookOf = (
   live: Record<string, MemberLook> | undefined,
   userId: string,
-  snapshot: unknown,
-): MemberLook | undefined => newerLook(parseLook(snapshot), live?.[userId] ?? null) ?? undefined;
+  member: { catColor?: unknown; appearance?: unknown } | null | undefined,
+): MemberLook | undefined => {
+  const snapshot = parseLook(member?.appearance);
+  const hidden = isUserBlocked(userId) || (!!member && !member.catColor);
+  return (hidden ? snapshot : newerLook(snapshot, live?.[userId] ?? null)) ?? undefined;
+};
