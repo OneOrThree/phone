@@ -11,8 +11,10 @@ import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.TelescopeService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +58,10 @@ class OnboardingIslandIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     GroupService legacyGroups;
+    @Autowired
+    IslandJoinService joins;
+    @Autowired
+    AccountWithdrawalService withdrawal;
 
     @BeforeEach
     void isolate() {
@@ -125,6 +131,10 @@ class OnboardingIslandIntegrationTest {
                 .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.GROUP_NOT_FOUND.getMessage());
         assertThatThrownBy(() -> legacyGroups.joinGroup(island, user, new JoinGroupRequest(null)))
                 .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.GROUP_NOT_FOUND.getMessage());
+        assertThatThrownBy(() -> joins.join(user, island, null, UUID.randomUUID()))
+                .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.INVITATION_REQUIRED.getMessage());
+        assertThatThrownBy(() -> joins.join(user(), island, null, UUID.randomUUID()))
+                .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.INVITATION_REQUIRED.getMessage());
         var started = focus.startSea(user, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
         var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         assertThat(finished.arrived()).isFalse();
@@ -158,6 +168,18 @@ class OnboardingIslandIntegrationTest {
         assertThat(count("select count(*) from onboarding_islands where user_id=?", user)).isZero();
         assertThat(jdbc.queryForObject("select is_private from groups where id=?", Boolean.class, island)).isFalse();
         assertThat(telescope.list(user).items().get(0).membershipStatus()).isEqualTo("active");
+    }
+
+    @Test
+    @DisplayName("정착 전 계정 탈퇴는 예약을 지우고 주민 없는 개인 섬도 닫는다")
+    void withdrawalClosesPendingDestination() {
+        UUID user = user();
+        UUID island = telescope.list(user).items().get(0).islandId();
+        withdrawal.withdraw(user);
+        assertThat(count("select count(*) from onboarding_islands where user_id=?", user)).isZero();
+        assertThat(jdbc.queryForObject("select status from groups where id=?", String.class, island))
+                .isEqualTo("ENDED");
+        assertThat(count("select count(*) from groups where id=? and deleted_at is null", island)).isZero();
     }
 
     private UUID user() {
