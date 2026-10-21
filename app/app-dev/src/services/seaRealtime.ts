@@ -16,7 +16,12 @@
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { t } from '@/i18n';
 import { colors, type Color } from '@/services/model';
-import { EMOTE_TYPES, friendlyRealtimeErrorMessage, realtimeClientOptions } from './islandRealtime';
+import {
+  attachCloseHandling,
+  EMOTE_TYPES,
+  friendlyRealtimeErrorMessage,
+  realtimeClientOptions,
+} from './islandRealtime';
 import type { SeaEmote, SeaParticipant } from '@/screens/sea/seaModel';
 import { parseLook } from './memberAppearance';
 
@@ -143,13 +148,17 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let limitNotified = false;
   let closed = false;
+  let revoked = false; // 세션 폐기 close — 백오프 재활성도 하지 않는다
   const resume = () => {
     if (retryTimer) clearTimeout(retryTimer);
     retryTimer = null;
-    if (closed || !suspended) return;
+    if (closed || revoked || !suspended) return;
     suspended = false;
-    // stompErrors 는 그대로 둔다 — 다시 붙자마자 또 거절되면 바로 다음(더 긴) 백오프로 쉰다
-    client.activate();
+    // stompErrors 는 그대로 둔다 — 다시 붙자마자 또 거절되면 바로 다음(더 긴) 백오프로 쉰다.
+    // stompjs 는 DEACTIVATING 중의 activate 를 종료 뒤로 예약하므로, 종료가 끝난 뒤 폐기·닫힘을 다시 보고 되살린다
+    void client.deactivate().then(() => {
+      if (!closed && !revoked) client.activate();
+    });
   };
   const seenLeft = new Set<string>();
   const emit = () => opts.onMembers([...members.values()]);
@@ -290,6 +299,9 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     onStompError: (frame: IFrame) => {
       // 서버가 ERROR 뒤 소켓을 닫는다 — stompjs 가 5초 뒤 재접속해 onConnect 가 enter 부터 다시 한다
       const code = str(frame.headers.message) ?? '';
+      // 사람 문장("Session closed." 등)은 Spring 전송 계층 ERROR — close 가 따라오고 stompjs 재접속이 처리한다. 3회 카운트에 넣지 않는다
+      // (close 없이 오는 Spring ERROR 는 조용히 무시된다 — islandRealtime 의 같은 가드 주석 참고)
+      if (!/^[A-Z][A-Z0-9_]*$/.test(code)) return;
       // 이모트 연타 거절은 방 연결의 이상이 아니다 — 백오프 카운트에 넣지 않는다(연타 3번에 방이 30초 쉬지 않게)
       if (code === 'EMOTE_TOO_FREQUENT') return opts.onError(t('openSea.emoteTooFrequent'));
       stompErrors += 1;
@@ -303,11 +315,17 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
         retryTimer = setTimeout(resume, delay);
         if (!limitNotified) {
           limitNotified = true;
-          const text = friendlyRealtimeErrorMessage(code || '실시간 연결이 거절됐어요.');
+          const text = friendlyRealtimeErrorMessage(code);
           if (text) opts.onError(text);
         }
       }
     },
+  });
+  attachCloseHandling(client, () => {
+    revoked = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    opts.onError(t('realtime.sessionRevoked'));
   });
   const timer = setInterval(() => {
     if (!client.connected) return;

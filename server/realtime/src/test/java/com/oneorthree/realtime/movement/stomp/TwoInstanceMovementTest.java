@@ -322,6 +322,8 @@ class TwoInstanceMovementTest {
 
         assertThat(actorIds(awaitFullState(a1Moves, 2))).as("복구 뒤 PING 대조 → EVICTED → a1 재입장")
                 .containsExactlyInAnyOrder(a1.toString(), b1.toString());
+        assertThat(instanceB.getBean(MeterRegistry.class)
+                .counter("movement.cluster.evict", "reason", "dead_instance").count()).isGreaterThanOrEqualTo(1);
         drainUntilQuiet(a1Moves);
         sa1.send(intentDestination(), intent(1, NEAR_X, NEAR_Y));
         Map<String, Object> accepted = awaitType(a1Moves, "PathAccepted", TIMEOUT_MS);
@@ -343,7 +345,7 @@ class TwoInstanceMovementTest {
         relayA.stop(); // A 의 송신을 멈추고 제어 줄을 채운다
         try {
             while (metersA.counter("movement.relay.dropped", "kind", "control").count() == 0) {
-                // 채움용은 아무도 받지 않는 EVICTED — PING 으로 채우면 빈 세션 목록이라 소유자가 A 의 actor 를 유령으로 지운다.
+                // 채움용은 아무도 받지 않는 EVICTED — PING 으로 채우면(수신자 null·B 앞 모두) 빈 세션 목록이라 B 가 A 의 actor 를 유령으로 지운다.
                 relayA.publishCommand(new MovementRelay.Command(ownershipA.instanceId(), "nobody", 0, null,
                         MovementRelay.Type.EVICTED, null, null, null, false));
             }

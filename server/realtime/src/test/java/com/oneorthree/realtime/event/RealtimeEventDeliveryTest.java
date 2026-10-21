@@ -32,7 +32,7 @@ class RealtimeEventDeliveryTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final MovableClock clock = new MovableClock(START);
     private final RealtimeEventDelivery delivery = new RealtimeEventDelivery(
-            mock(SimpMessagingTemplate.class), mock(StringRedisTemplate.class), mapper, clock);
+            mock(SimpMessagingTemplate.class), mock(StringRedisTemplate.class), mapper, clock, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
     @Test
     @DisplayName("만료가 지나면 보관 건수와 무관하게 다음 삽입 한 번으로 전부 걷힌다")

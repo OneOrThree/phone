@@ -1,7 +1,8 @@
-import React, { memo, useContext, useEffect, useRef, useState } from 'react';
-import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
+import React, { memo, useContext, useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { VillageThemeTint } from './VillageThemeTint';
+import { frameSteps, playMotion } from '../catMotion';
+import { MotionFrameImage, VillageThemeTint } from './VillageThemeTint';
 
 export type ShopMotionState = 'normal' | 'new-product' | 'purchasable';
 
@@ -20,7 +21,11 @@ const nightFrames: readonly ImageSourcePropType[] = [
 ];
 
 const frameDurationMs = 230;
+const entryFrameDurationMs = 150;
 const idleIntervalMs = 20_000;
+// 진입은 150ms, 유휴는 230ms 간격으로 문을 열고 마지막 프레임에 머문다.
+const entrySteps = frameSteps([0, 1, 2, 3], entryFrameDurationMs);
+const idleSteps = frameSteps([0, 1, 2, 3], frameDurationMs);
 
 /** 상점 아트 전용 애니메이션. 실제 섬 좌표와 확대 배율은 부모가 전달한다. */
 export const ShopMotion = memo(function ShopMotionView({
@@ -47,54 +52,43 @@ export const ShopMotion = memo(function ShopMotionView({
   testID?: string;
 }) {
   const motionDisabled = useContext(MotionContext) || reduceMotion;
-  const [frame, setFrame] = useState(0);
   const lastTrigger = useRef(trigger);
+  const elapsed = useRef(new Animated.Value(0)).current;
+  const steps = entryActive ? entrySteps : idleSteps;
 
+  // 0번으로 되돌리는 효과를 재생 효과보다 먼저 둔다. 같은 커밋에서 진입 재생이 시작되면 되돌린 뒤 재생한다.
   useEffect(() => {
-    if (motionDisabled || !showFrames || !entryActive || trigger <= lastTrigger.current) return;
-    lastTrigger.current = trigger;
-    const timers = frames
-      .slice(1)
-      .map((_, index) => setTimeout(() => setFrame(index + 1), (index + 1) * 150));
-    return () => timers.forEach(clearTimeout);
-  }, [entryActive, motionDisabled, showFrames, trigger]);
-
-  useEffect(() => {
-    if (!entryActive) setFrame(0);
-  }, [entryActive]);
+    if (!entryActive) elapsed.setValue(0);
+  }, [elapsed, entryActive]);
 
   useEffect(() => {
     if (motionDisabled || !showFrames || entryActive) {
-      setFrame(0);
+      elapsed.setValue(0);
       return;
     }
 
     let timer: ReturnType<typeof setTimeout>;
-    let mounted = true;
+    let animation: Animated.CompositeAnimation | undefined;
+    const openMs = (frames.length - 1) * frameDurationMs;
     const run = () => {
-      if (!mounted) return;
-      setFrame(0);
-      let nextFrame = 1;
-      const advance = () => {
-        if (!mounted) return;
-        setFrame(nextFrame);
-        nextFrame += 1;
-        if (nextFrame < frames.length) {
-          timer = setTimeout(advance, frameDurationMs);
-        } else {
-          // 20초는 애니메이션이 끝난 시점부터 다음 시작까지의 대기 시간이다.
-          timer = setTimeout(run, idleIntervalMs);
-        }
-      };
-      timer = setTimeout(advance, frameDurationMs);
+      animation = playMotion(elapsed, openMs, false);
+      // 20초는 애니메이션이 끝난 시점부터 다음 시작까지의 대기 시간이다.
+      timer = setTimeout(run, openMs + idleIntervalMs);
     };
 
     timer = setTimeout(run, idleIntervalMs);
     return () => {
-      mounted = false;
       clearTimeout(timer);
+      animation?.stop();
     };
-  }, [entryActive, motionDisabled, showFrames]);
+  }, [elapsed, entryActive, motionDisabled, showFrames]);
+
+  useEffect(() => {
+    if (motionDisabled || !showFrames || !entryActive || trigger <= lastTrigger.current) return;
+    lastTrigger.current = trigger;
+    const animation = playMotion(elapsed, (frames.length - 1) * entryFrameDurationMs, false);
+    return () => animation.stop();
+  }, [elapsed, entryActive, motionDisabled, showFrames, trigger]);
 
   const stateLabel =
     state === 'new-product' ? '새 상품' : state === 'purchasable' ? '구매 가능' : null;
@@ -113,17 +107,21 @@ export const ShopMotion = memo(function ShopMotionView({
     >
       {showFrames &&
         (night ? nightFrames : frames).map((source, index) => (
-          <Image
+          <MotionFrameImage
             key={index}
+            elapsed={elapsed}
+            steps={steps}
+            index={index}
             testID={`shop-motion-frame-${index}`}
             source={source}
-            resizeMode="stretch"
-            style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+            style={styles.frame}
           />
         ))}
       {showFrames && themed && (
         <VillageThemeTint
-          source={(night ? nightFrames : frames)[frame]}
+          sources={night ? nightFrames : frames}
+          elapsed={elapsed}
+          steps={steps}
           testID="shop-motion-theme-tint"
         />
       )}
@@ -134,6 +132,4 @@ export const ShopMotion = memo(function ShopMotionView({
 const styles = StyleSheet.create({
   fill: { width: '100%', height: '100%' },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
-  visible: { opacity: 1 },
-  hidden: { opacity: 0 },
 });

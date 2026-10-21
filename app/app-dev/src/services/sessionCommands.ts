@@ -252,6 +252,38 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     // 확정된 최신 세션 — 호출부가 이것의 종류로 화면을 고른다(null = 그사이 끝나 진행 세션이 없다)
     return latest;
   };
+  /**
+   * recover 를 두 단계로 나눈 것 — 조회(current·pending-result)는 지금 시작하고, 반영(SESSION_SYNC·결과)과
+   * 화면 결정은 돌려준 함수가 한다. 부팅이 섬 동기화와 겹쳐 읽되 반영은 그 뒤 원래 순서로 하게 한다
+   * (GROMO-2377). 세대·전이 fence 는 조회를 시작한 시점 기준이다.
+   */
+  const beginRecover = (): (() => Promise<Route | null>) => {
+    const g = generation();
+    const deferred = () => new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
+    // 폴링 응답이 동시에 진행한 재개·종료 명령의 최신 상태를 되돌리지 않게 한다.
+    const revision = transitionRevision;
+    const read = transitioning ? null : Promise.all([api.current(), api.pendingResult()]);
+    // 반영 전에 실패해도 처리되지 않은 거부로 남기지 않는다 — 실패는 반영 함수가 던진다
+    read?.catch(() => {});
+    return async () => {
+      if (!read) throw deferred();
+      const [view, pending] = await read;
+      alive(g);
+      if (transitioning || transitionRevision !== revision) throw deferred();
+      deps.dispatch({ type: 'SESSION_SYNC', session: view ? sessionFromServer(view) : null });
+      // 바다 세션은 휴식이 없다 — 항해 화면으로 돌아간다(GROMO-2310)
+      if (view) return sessionRoute(view);
+      if (pending) {
+        deps.dispatch({
+          type: 'SESSION_RESULT',
+          record: recordFromFinish(pending, pending.recordId),
+          fromRest: true,
+        });
+        return 'focusResult';
+      }
+      return null;
+    };
+  };
   const commands = {
     // 체험 보상에는 current 재조회나 SESSION_SYNC도 필요 없다.
     tutorialExperienceReward: async (islandId: string) => {
@@ -354,29 +386,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
      * 복구할 화면을 돌려준다. 진행 세션이 있으면 미확인 결과는 다음 실행으로 미룬다
      * (ack 전까지 서버가 계속 돌려주므로 잃지 않는다).
      */
-    recover: async (): Promise<Route | null> => {
-      const g = generation();
-      // 폴링 응답이 동시에 진행한 재개·종료 명령의 최신 상태를 되돌리지 않게 한다.
-      if (transitioning)
-        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
-      const revision = transitionRevision;
-      const [view, pending] = await Promise.all([api.current(), api.pendingResult()]);
-      alive(g);
-      if (transitioning || transitionRevision !== revision)
-        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
-      deps.dispatch({ type: 'SESSION_SYNC', session: view ? sessionFromServer(view) : null });
-      // 바다 세션은 휴식이 없다 — 항해 화면으로 돌아간다(GROMO-2310)
-      if (view) return sessionRoute(view);
-      if (pending) {
-        deps.dispatch({
-          type: 'SESSION_RESULT',
-          record: recordFromFinish(pending, pending.recordId),
-          fromRest: true,
-        });
-        return 'focusResult';
-      }
-      return null;
-    },
+    recover: async (): Promise<Route | null> => beginRecover()(),
+    beginRecover,
   };
   return { commands };
 };

@@ -96,7 +96,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.authorization-client.cache-ttl-seconds`(30, 0=끔) 동안 들고 있다 — 거절·오류는 캐시하지 않는다. `island.members.updated`(가입·탈퇴·강퇴)의 `memberUserId`와
   `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
   ⚠️ 사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다(다중 인스턴스에서 즉시성이 필요하면 0). 개별 세션 폐기(로그아웃)는
-  realtime 으로 오는 사건이 없어 TTL 이 상한이다. 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
+  스위치 `AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED` ON 이면 `auth.session.revoked` 가 와서 그 sid 의 소켓을 즉시 닫는다(기본 OFF — 그때는 TTL 이 상한이다). 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
   지표: `realtime.authorization.cache{result=hit|miss|evict}`·`.inflight`·`.limit`·`.capacity.rejected`(세마포어가 찬 거절 전부)·`.rejected{reason=timeout|interrupted}`·`.duration{outcome}`.
   OFF 모드 `GroupClient` 는 `SimpleClientHttpRequestFactory`(connect·read 2s 타임아웃이 소켓 읽기마다 적용 — 본문 정지도 끊긴다, keep-alive 는 JDK 기본)에 동시 상한 `chat.data-api.max-concurrency`(32)를 둔다.
 - **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
@@ -192,6 +192,20 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.outbound.send{destination_kind=chat|movement|events|sea|other}`, 인가 캐시 `realtime.outbound.authz.cache{result=hit|miss|evict}`.
   `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다. heartbeat 프레임도 같은 실행기를 지난다 — 송신 시간은
   `destination_kind=other` 로 재고, 포화로 거부되면 다른 프레임과 같이 `queue_full` 로 세며 그 세션을 닫는다.
+  **포화 종료는 가해 세션을 먼저 닫는다** — 큐는 전역 하나라 넘친 프레임의 세션이 가해자가 아닐 수 있다. 그래서 세션별 대기 프레임 수
+  (실행 중 포함, 실행기 `TaskDecorator` 가 센다 — 인터셉터 쌍은 앞선 인터셉터가 버린 프레임에서 새서 쓰지 않는다)를 두고 선별한다.
+  선별은 **첫 거부**(`isConnected && closing.add`)에서만 한다. 후보는 연결된 세션(종료 예약 제외)이고 넘친 세션을 포함하며, 동률이면
+  넘친 세션이 이긴다(이땐 `overflow` 만 센다). 가해자는 **한 번에 하나**(단일 슬롯 CAS)다 — 소켓 종료 콜백이 슬롯을 풀고, 콜백이
+  안 오면 10 s 뒤 만료된다. 슬롯이 차 있는 동안의 거부는 넘친 세션만 닫는다. 가해자를 먼저, 넘친 세션을 그 다음에 같은
+  `OUTBOUND_QUEUE_FULL` 로 닫는다. 지표 `realtime.outbound.closed{selected=offender|overflow}` — `overflow` 에는 «프레임을 잃은
+  세션»뿐 아니라 «종료 ACK(DISCONNECT_ACK)를 잃은 세션»도 들어간다.
+  **지표 판독**: `realtime.outbound.offender.pending`(가해자를 선점한 순간 그 세션의 대기 프레임 수 분포)이 `queue-capacity` 의 절반
+  이상이면 단일 수신자(느린 소켓 한 명)가 큐를 채운 것이고, 작고 반복되면 전역 포화다 — 그땐 `executor.active == max-threads` 가 지속되는지,
+  `realtime.outbound.send` p99 가 정상인지 함께 본다.
+  **1008 vs 1002**: 원칙은 구분한다 — `OUTBOUND_QUEUE_FULL` 은 1008(`POLICY_VIOLATION`, 큐 포화), heartbeat 무활동은 1002. 다만 포화 중
+  heartbeat 타임아웃의 DISCONNECT_ACK 가 거부되면 그 무활동 종료도 1008 로 닫힌다(가해자 선별 없이 그 세션만, `overflow` 로 집계).
+  **재연결 지터 권고**: 포화로 한꺼번에 닫힌 세션이 같은 순간 다시 붙으면 포화가 되풀이된다 — 클라이언트 재연결은 5 s ± 50 % 같은
+  지터를 둔다. 앱은 GROMO-2384 에서 2.5~7.5 s(5 s ± 50 %) 지터로 바꾼다.
 
 ## 섬 이동 다중 인스턴스 (GROMO-2339, ADR A26)
 
@@ -200,7 +214,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `MovementCluster` 가 `MovementRooms` 를 바로 부르고 Redis 를 전혀 쓰지 않는 단일 인스턴스 현행 경로다(릴레이 컨테이너·스레드도
   없다, `MovementMultiInstanceOffTest` 가 고정). **옵트아웃한 채 2대 이상이면** 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다.
 - **ON 의 고정 비용(1대여도)**: 전용 스레드 3(`movement-cluster`·`movement-relay-in`·`movement-relay-out`), 1초마다 소유 섬별
-  RENEW(EVAL) + PING PUBLISH + 내 세션 섬 MGET 감시, 자기 세션 프레임도 Redis 메아리로 받는다(왕복 1회 지연). 명령은 EVAL·
+  RENEW(EVAL) + PING PUBLISH(소유자별 — 입장해 있는 섬의 소유자마다 1건, 소유자 채널로) + 내 세션 섬 MGET 감시, 자기 세션 프레임도 Redis 메아리로 받는다(왕복 1회 지연). 명령은 EVAL·
   PUBLISH·SUBSCRIBE·GETDEL·MGET·SET 을 쓴다 — realtime Redis 에는 아직 ACL 이 없다(GROMO-1744, dev·prod 모두 ACL 파일 없음)라
   지금은 막히지 않는다. ACL 을 걸 때 아래 「ACL 이 걸리는 날」 목록을 같이 넣어야 이동이 fail-closed 로 멈추지 않는다.
 - **ON — 섬마다 소유자 한 곳.** `MovementOwnership`(Lua ACQUIRE/RENEW/RELEASE) 리스를 든 인스턴스만 `RoomRuntime` 을 돌린다.
@@ -209,7 +223,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   봉투(`MovementRelay.Frame`·`Command`)는 인스턴스 사이 전용이고 `payload` 는 앱 wire JSON 그대로다.
 - **스레드**: `movement-cluster`(1, 라우팅·소유권·1초 감시 — 인바운드 스레드는 넣기만 한다), `movement-relay-in`(1, 전용
   `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, Snapshot·INTENT 줄 4096 +
-  제어 줄 1024(reliable 프레임과 JOIN·LEAVE·FULL_STATE·RECHECK·PING·EVICTED·RESYNC, 먼저 낸다) + 파이프라인 PUBLISH. 차면
+  제어 줄 1024(reliable 프레임과 JOIN·LEAVE·FULL_STATE·RECHECK·PING(소유자별 채널)·EVICTED·RESYNC, 먼저 낸다) + 파이프라인 PUBLISH. 차면
   Snapshot·INTENT 는 `dropped{kind=frame}`, 제어 명령은 `dropped{kind=control}`, reliable 프레임은 아래 RESYNC).
 - **fail-closed**: 리스 상실 → 방 `evict`·발행 중단. 리스는 마지막 성공 갱신을 «보낸 시각»부터 수명의 9/10(2.7초)까지만
   믿는다 — 넘으면 `MovementOwnership.lease()` 가 null 이라 감시 스레드가 밀려도 발행·명령 적용이 즉시 멈추고, 다음 감시가
@@ -225,13 +239,22 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   캐시 삭제 실패 표시 `cacheStale` 동반). 강퇴 사건은 한 노드만 받으므로 RECHECK 를 제어 줄에 못 넣거나 PUBLISH 가 실패하면
   버리지 않고 표시해 두었다가 1초 감시가 성공할 때까지 다시 보낸다(`movement.relay.recheck.retry{reason=dropped|publish}`).
   받는 쪽은 멱등이다(두 번 오면 재판정을 새로 시작할 뿐). PING 대조는 멤버십을 다시 보지 않는다. 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
-  세션을 멈추고 그 세션 intent 를 버린다. PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다.
+  세션을 멈추고 그 세션 intent 를 버린다. 내게 오는 PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다(`lastPinged`).
 - **PUBLISH 성공 ≠ 수신**: 수신 쪽 relay-in 이 끊긴 구간에 간 RECHECK 는 송신 쪽이 알 수 없다 — 상한은 멤버십 캐시 TTL 이다.
 - **PING 대조(제어 명령 유실·생존 신호 복구)**: PING 은 그 인스턴스가 남의 방에 입장해 있다고 믿는 세션 목록(`섬|세션`)을
   싣는다. 소유자는 PING 마다 목록과 자기 방을 맞춘다 — 목록에 없는 그 인스턴스 actor 는 내보내고(LEAVE 유실), 목록에 있는데
   방에 없는 세션은 `EVICTED` 로 알려 그 세션만 resync + JOIN·FULL_STATE 로 다시 입장시킨다(JOIN·첫 FullState 요청 유실,
   생존 신호 단절로 제거된 뒤 복구). 1초마다 되풀이되므로 EVICTED 가 유실돼도 다음 PING 이 다시 보낸다 — 비소유 쪽의
   «내 PING 이 끊겼다 복구됨» 감지는 따로 두지 않았다.
+  **PING 은 소유자별 채널이다**(GROMO-2352): 비소유 인스턴스는 입장해 있는 섬의 소유자마다 그 소유자의 세션만 담은 PING 1건을
+  `chat:movement:cmd:v1:<소유자 instanceId>` 로 보낸다(소유자를 모르는 섬은 빼고 `pendingRejoin` 이 덮는다). 채널 하나에 전원이
+  구독하면 PING 을 나눠도 N 구독자가 전부 받아 바이트가 N×S 그대로라 채널을 나눴다. 각 인스턴스는 자기 이름 채널도 구독한다.
+  수신 쪽 생존은 `lastPinged`(origin → 내게 온 PING 시각, 원격 JOIN 때 한 번 심는다)로 센다 — 남에게 간 PING 이나 FULL_STATE 재시도 같은 다른 명령으로 갱신하면 내게 PING 을 안
+  보내는(그 섬에 세션이 없는) 유령이 안 지워진다. 수신자 null PING(옛 버전·호환)은 전원 채널로 가고 전원이 대조한다.
+  트레이드오프: 게이트가 닫힌(eligible 아님) 세션은 PING 목록에서 빠지므로 origin 이 살아 있어도 소유자가 5초 뒤 그 actor 를
+  내보낼 수 있다 — 게이트가 열려 목록에 다시 들어오면 「목록엔 있고 방엔 없음」으로 EVICTED → 재입장해 복구된다.
+  혼합 버전 한계: 옛 인스턴스는 소유자 채널을 구독하지 않아 새 인스턴스의 PING 을 못 받아 5초 뒤 그 세션 actor 를 내보낸다 —
+  업그레이드 뒤 PING 대조가 복구한다. 비대칭: 옛→새 는 옛 인스턴스의 수신자 null PING 이 호환 경로(전원 채널)라 정상이고, 새→옛 만 끊기며 복구는 마지막 인스턴스가 올라온 뒤다.
 - **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
   있으니 정상으로 본다). 감시가 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 약 2초마다(재요청이 시각을 다시 찍어 실제 2~3초)
   다시 요청한다
@@ -247,7 +270,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
   `routing.failed{stale_room}` 으로 버린다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
-  `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`.
+  `movement.routing.failed{reason=redis|no_lease|stale_queue|stale_room|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`, `movement.cluster.evict{reason=dead_instance|ghost|missing}`(`dead_instance`·`ghost` 는 내보낸 원격 actor 수, `missing` 은 EVICTED 로 알린 세션 수 — 단위가 달라 reason 을 가로질러 합치지 않는다), `movement.cluster.poll`(1초 감시 한 틱 Timer — submit 작업 제외; `enabled=false` 여도 생성자에서 등록돼 0 샘플로 노출(무해). submit 작업은 같은 스레드의 다음 순번이라 poll p95 가 낮아도 스레드가 밀려 있을 수 있다).
+- **배포 전후 확인**: 머지 PR 의 `deployed:dev-realtime` 라벨 → 롤링 중 `movement.cluster.evict{reason=dead_instance}` 일시 상승 뒤 0, `movement.owner.lost{reason=expired}`·`movement.fullstate.retry` 일시 상승 예상, `movement.cluster.poll` p95 는 늘지 않아야 한다. PING 드롭은 `movement.relay.dropped{kind=control}`·`movement.routing.failed{reason=publish}` 에 포함된다. 이 기준은 2대(GROMO-2353) 전제다 — 1대에선 소유자가 자기라 PING 이 안 나가 `dead_instance`·`ghost` 는 0 이 정상이고, 혼합 버전 구간(위 「혼합 버전 한계」)에선 `dead_instance` 가 한 번 더 오를 수 있다.
 
 ## Redis keys (A19 namespace table)
 
@@ -259,6 +283,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
 | `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
+| `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <payload accessTokenExpiresAt + 60 s, 없으면 30일>`. CONNECT·REST(`JwtFilter`)가 읽는다(프레임 검사는 인메모리). 쓰기 실패는 경고만, 읽기 실패는 fail-open. 사건은 `chat:events:v1` 제어 봉투로 전 replica 에 퍼져 각자 인메모리 펜스·세션 종료를 한다 |
 | `chat:fanout` | chat | pub/sub | cross-instance delivery (채팅 전용 wire) |
 | `chat:events:v1` | realtime | pub/sub | cross-instance delivery of **island events**; `{originInstanceId,destination,event}` |
 | `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |
@@ -277,9 +302,12 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `movement:owner:{islandId}` | realtime | read/write (Lua) | 섬 이동 방 소유자 리스 `<instanceId>:<epoch>`, PX 3000, 1초 갱신(GROMO-2339). 플래그 기본 ON — 옵트아웃(false) 하면 만들지 않는다 |
 | `movement:epoch` | realtime | read/write (Lua) | 소유권 세대 카운터 `max(직전+1, TIME ms)`. **TTL 없음** — 지우면 시각으로 다시 시작하지만 같은 ms 안의 +1 몇 개만큼 뒤로 갈 수 있다 |
 | `movement:room:{islandId}:handoff` | realtime | read/write | 종료하는 소유자의 위치 스냅샷 JSON, PX 30000. 새 소유자가 GETDEL |
-| `chat:movement:cmd:v1` | realtime | pub/sub | 비소유 → 소유자 이동 명령, RECHECK·PING 은 전원 |
+| `chat:movement:cmd:v1` | realtime | pub/sub | 비소유 → 소유자 이동 명령, RECHECK 는 전원 |
+| `chat:movement:cmd:v1:{instanceId}` | realtime | pub/sub | 그 인스턴스(소유자) 앞 PING 대조 — 수신자 null PING 은 위 전원 채널 |
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
+
+`Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
 **ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
 키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는
@@ -298,6 +326,22 @@ Data API also keeps `presence:focus:{userId}:closed` in that namespace — a sho
 "this session already ended" marker it uses to order its own writes. Chat never reads it,
 and it is a *different key* from the lease, so the `hasKey` check is unaffected.
 
+### 세션 폐기 운영 신호 (GROMO-2350)
+
+`auth.session.revoked` 는 수신 인스턴스가 Redis 내구 펜스를 쓰고 기존 팬아웃 채널(`chat:events:v1`)로 전 replica 에 퍼뜨려 각자 인메모리 펜스·캐시·세션 종료를 한다.
+
+| 신호 | 의미 | 조치 |
+| --- | --- | --- |
+| warn `폐기 세션 펜스 Redis 쓰기 실패`(`ChatUserFence`) · 지표 `realtime.session.revoked.fence{op=write,result=failed}` | 내구 펜스가 안 섰다 — 인메모리 펜스와 종료는 정상. 이 장애 중 재시작·팬아웃 유실이 겹치면 그 sid 의 CONNECT·REST 가 AT 만료까지 열린다 | Redis 상태 확인. **`increase(realtime_session_revoked_fence_total{result="failed"}[5m]) > 0` 이면 알림** |
+| warn `폐기 세션 펜스 조회 실패`(`ChatUserFence`) · `op=read,result=failed` | **fail-open** — CONNECT·REST 의 폐기 펜스가 꺼진 상태(프레임·SEND 인메모리 펜스는 유효) | Redis 복구. **`increase(realtime_session_revoked_fence_total{result="failed"}[5m]) > 0` 이면 알림** |
+| error `세션 폐기 팬아웃 발행 실패`(`RealtimeEventDelivery`) · 지표 `realtime.session.revoked.fanout{result=failed}` | 다른 replica 의 기존 세션이 AT 만료까지 살 수 있다(재연결·REST 는 Redis 펜스가 막는다) | Redis Pub/Sub 확인, 필요하면 사용자 재로그인 유도. **`increase(realtime_session_revoked_fanout_total{result="failed"}[5m]) > 0` 이면 알림** |
+| 지표 `realtime.session.revoked.close{result=failed}` | 소켓 close 가 두 번 다 실패 — 수신 인스턴스는 500 을 돌려 relay 가 재시도한다(`closed`·`already_gone` 은 정상). 시도 기준이라 재시도가 성공하면 `failed` 1 뒤 `closed` 1 이 또 오른다 | 반복되면 해당 인스턴스 소켓 상태 확인 |
+| warn `세션 폐기 사건에 userId/sessionId 가 없다`(`InboundEventService`) | Data 가 필드 없는 사건을 보냈다 — 200 + skip | Data 봉투 계약 점검 |
+| warn `팬아웃 봉투가 섬 사건도 세션 폐기도 아니다`(`RealtimeEventFanoutSubscriber`) | 반쪽 제어 필드·옛 발행자 봉투를 버렸다(롤링 배포 중 소량은 정상) | 지속되면 발행자 버전 확인 |
+| 소켓 종료 reason `SESSION_REVOKED`(1008) | 정상 — 폐기된 sid 의 연결을 닫았다 | — |
+| realtime 이 `/internal/events` 에 400/500 | 폐기 사건이 거절됐다 | data-api outbox 의 그 사용자 USER 축 행이 백오프 중인지 확인(A18 보류라 폐기하지 않고 재시도 — 그동안 탈퇴 전파가 늦어진다) |
+
+`realtime.session.revoked.{fence,close,fanout}` 계열은 기동 때 0 으로 등록한다 — `increase()` 알림이 첫 장애를 놓치지 않는다.
 ## API surface
 
 The ticket (GROMO-292/293) predates the current conventions, so the endpoints were
@@ -443,7 +487,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
    flag → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
    key restarts at 0 and a number can collide with a live cache written just before expiry (so it also assumes a Redis
-   that does not evict keys). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
+   that does not evict keys — likewise `cache:chat:revoked:*`). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
    turning the Data producer off leaves already-queued events, which are harmless. **Never roll Realtime back to a
    version without `user.blocks.updated` while the Data producer is on** — the old consumer answers 400 and the
    relay marks that blocker's `USER_BLOCKS` axis permanent. Turn the producer off first.
@@ -456,8 +500,8 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 `cache-ttl-seconds`(30, 0=끔) 동안 캐시한다(거절·오류는 캐시하지 않고, ON 실패 시 기존 Redis 캐시 fallback도 없다).
 항목은 사용자·섬 두 축의 무효화 세대를 품고 조회 때 현재 세대와 대조한다. evict 사건 3종: `island.members.updated`
 (`memberUserId` 있으면 사용자 단위, 없으면 섬 단위), `user.withdrawn`. 이동 방 강퇴 재검사는 캐시를 우회하는
-`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는 realtime 으로 오는 사건이 없어
-TTL이 상한이다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
+`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는 스위치(기본 OFF) ON 이면
+`auth.session.revoked` 가 와서 즉시 닫고, OFF 면 TTL이 상한이다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
 실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
 
 현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound
@@ -494,7 +538,8 @@ unknown/duplicate/trailing/빈본문/타입 오류는503이다. 초기값은 con
 켜는 순서: Data(프로필·전용 토큰·feature) → Realtime client 주입 → sid/gen 없는 AT 소진 확인·부하 검증 → Realtime ON.
 Data가 꺼진 채 Realtime만 켜면 404→503으로 그룹 채팅 경계가 전부 막힌다(ON에는 fallback이 없다).
 main의 AT 발급 경로(로그인·게스트·갱신)는 이미 전부 sid/gen을 싣는다. 그래도 그 이전에 받은 AT는 ON에서
-그룹 채팅 경계401이고, dev AT 수명은30일이다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
+그룹 채팅 경계401이고, dev AT 수명은30일이다.
+sid 없는 AT 가 소진되면(prod 발급 뒤 1 h, dev 30 d) `.or(extractUserId)` 폴백 4곳(`JwtFilter:42`·`ChatOutboundChannelInterceptor:457`·`StompAuthChannelInterceptor:630`·CONNECT `:196`)을 제거할 수 있다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
 DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프레임의 회수는 보장하지 않는다.
 신규64개(HTTP35·verifier10·JWT11·config6·전달 가드2)를 포함한 전체 Realtime build는 `norm.sh` exit 0,
 테스트205개(기존141+신규64)·실패0·오류0·skip0이다(2026-09-15).

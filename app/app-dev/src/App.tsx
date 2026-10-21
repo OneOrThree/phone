@@ -102,6 +102,7 @@ import {
   visitRouteHeld,
   sessionRoute,
   noIslandRoute,
+  tickIdle,
 } from '@/services/model';
 import {
   checkSession,
@@ -124,7 +125,7 @@ import {
   CLIENT_TIMEOUT,
   uuid,
 } from '@/services/api/client';
-import { loadHomeSnapshot } from '@/services/homeSnapshot';
+import { type HomeSnapshot, loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getLastSessionUserId,
   isLocalDataOwnerUnknown,
@@ -157,6 +158,8 @@ import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOv
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
+import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
+import { startSocialAnalytics } from '@/services/socialAnalytics';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -183,8 +186,11 @@ const REVIEW_LANG =
     ? new URLSearchParams(window.location.search).get('lang')
     : null;
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
-const TESTFLIGHT_ALL_BUILDINGS = true;
+// 출시 빌드에서는 꺼지고, 개발 빌드나 EXPO_PUBLIC_QA=1 로 띄운 QA 빌드에서만 켠다(GROMO-2381).
+export const TESTFLIGHT_ALL_BUILDINGS = __DEV__ || process.env.EXPO_PUBLIC_QA === '1';
 const STORAGE = 'gromo-r61-user-v2';
+// 앱 state 저장은 바뀔 때마다가 아니라 이만큼 모아 마지막 것만 쓴다(GROMO-2372)
+const SAVE_DELAY_MS = 1000;
 // 채택 도중 세션 세대가 바뀌면(401 정리·다른 로그인) 남은 적용을 버리는 내부 신호. 호출부에는
 // 오류로 드러내지 않는다 — 새 세션의 화면이 이미 자기 흐름을 진행 중이다.
 const STALE_ADOPTION = Symbol('staleAdoption');
@@ -288,9 +294,11 @@ function Bubble({ text, mine }: { text: string; mine: boolean }) {
 }
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <Gromo />
-    </SafeAreaProvider>
+    <PostHogAnalyticsProvider>
+      <SafeAreaProvider>
+        <Gromo />
+      </SafeAreaProvider>
+    </PostHogAnalyticsProvider>
   );
 }
 // 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계, 첫 섬 합류 뒤의 필수 안내(guide).
@@ -345,7 +353,9 @@ function Gromo() {
     [socialError, setSocialError] = useState(''),
     [approval, setApproval] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
-    [now, setNow] = useState(Date.now()),
+    // 화면 시계 — 분이 바뀔 때만 다시 그린다. 초 단위로 흐르는 표시는 각 화면이 useNow·Ticking 으로
+    // 스스로 다시 그린다(GROMO-2372). e.now 는 그릴 때의 시각이다.
+    [, setClockMinute] = useState(() => Math.floor(Date.now() / 60000)),
     [toast, setToast] = useState(''),
     // 편지 쓰기 등 키보드가 떠 있는 화면에서 알림 토스트가 소프트 키보드 밑에 가려지지 않게(GROMO-2169)
     [keyboardHeight, setKeyboardHeight] = useState(0),
@@ -404,9 +414,16 @@ function Gromo() {
   } | null>(null);
   const storageOwnerReadyRef = useRef(storageOwnerReady);
   const userStorageWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  // 아직 쓰지 않은 저장 — SAVE_DELAY_MS 뒤(또는 배경 전환·종료 때) 마지막 state 를 쓴다(GROMO-2372)
+  const pendingSave = useRef<{ state: State; timer: ReturnType<typeof setTimeout> } | null>(null);
   const setStorageOwnerGate = (ready: boolean) => {
     // state render 전에 도착한 저장 effect도 새 gate 값을 보도록 ref를 먼저 바꾼다.
     storageOwnerReadyRef.current = ready;
+    // 닫히면 모아 둔 저장도 버린다 — 다른 계정으로 다시 열린 뒤 이전 계정 state 를 쓰지 않게.
+    if (!ready && pendingSave.current) {
+      clearTimeout(pendingSave.current.timer);
+      pendingSave.current = null;
+    }
     setStorageOwnerReady(ready);
   };
   const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
@@ -614,7 +631,10 @@ function Gromo() {
           reset('login');
         })
         .catch(() => {});
-    } else transitionRoute(state.onboarded ? 'home' : noIslandRoute(state));
+    } else
+      transitionRoute(
+        state.onboarded ? 'home' : state.onboardingStory === 'done' ? 'sea' : noIslandRoute(state),
+      );
   };
   const home = () => {
     const finish = () => {
@@ -753,12 +773,24 @@ function Gromo() {
     onHome,
     refreshKey: homeReload,
   });
+  // 부팅이 섬 동기화와 함께 미리 시작한 홈 스냅샷(GROMO-2377). loaded 뒤 첫 실행이 한 번만 가져가고,
+  // 그때 홈을 그리지 않으면 버린다 — 나중 진입이 오래된 응답을 쓰지 않게.
+  const bootHome = useRef<{ gen: number; date: string; request: Promise<HomeSnapshot> } | null>(
+    null,
+  );
   // 관리 화면도 needsHome이므로 홈 복귀 여부를 별도로 추적해 이름·인원·역할을 다시 읽는다.
   useEffect(() => {
+    const prefetched = bootHome.current;
+    if (loaded) bootHome.current = null;
     if (!loaded || !serverCurrent || !needsHome) return;
     let live = true;
     setHomeError(false);
-    loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
+    const date = dayKey();
+    // 부팅 뒤 세션이 바뀌었거나 날짜가 넘어갔으면 미리 받은 것을 쓰지 않고 새로 읽는다
+    (prefetched?.gen === sessionGeneration() && prefetched.date === date
+      ? prefetched.request
+      : loadHomeSnapshot({ date, timezone: 'Asia/Seoul', isCurrent: () => live })
+    )
       .then((r) => {
         if (!live) return;
         // current 없음(서버 409) 또는 응답이 로컬이 아는 current 와 다른 섬(전환 경합) —
@@ -895,6 +927,9 @@ function Gromo() {
     restRecovery.current = { sessionId, at, promise };
     return promise;
   };
+  // 1초 조회 타이머가 마지막 렌더의 화면 이동 함수로 복구하게 한다
+  const recoverExpiredRestRef = useRef(recoverExpiredRest);
+  recoverExpiredRestRef.current = recoverExpiredRest;
   const recoverExpiredRestConflict = (
     error: unknown,
     session: State['session'],
@@ -990,6 +1025,7 @@ function Gromo() {
       if (!isCurrent()) throw STALE_ADOPTION;
     };
     const changingOwner = previousUserId !== result.userId;
+    let savedStory = stateRef.current.onboardingStory;
     // 채택이 중단되면 gate 는 닫힌 채로 남는다 — 다음 채택 성공이나 부팅이 owner 기록 뒤에 연다.
     // 소유자 확인 전 저장을 막는 보수적 동작이며 의도된 것이다.
     if (changingOwner) setStorageOwnerGate(false);
@@ -1034,6 +1070,7 @@ function Gromo() {
             // 같은 owner 재채택이면 앞선 오프라인 부팅이 보류한 데이터를 복구한다.
             // LOAD를 LOGIN/PROFILE보다 먼저 dispatch해 새 세션의 계정 표기가 덮지 않게 한다.
             dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
+            savedStory = deferred.state.onboardingStory;
             deferredOwnerState.current = null;
           }
           dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
@@ -1049,7 +1086,8 @@ function Gromo() {
           // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
           ensureCurrent();
           const next = await decideBootRoute({
-            saved: null,
+            // 스토리 진행도만 계승한다. 소속과 집중 세션은 기존 서버 동기화 경로가 결정한다.
+            saved: previousUserId === result.userId ? { onboardingStory: savedStory } : null,
             account,
             rejected: false,
             serverMode: true,
@@ -1315,10 +1353,15 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded || REVIEW || DEMO) return;
-    return subscribeSession((session) => {
+    const unsubscribe = subscribeSession((session) => {
       if (session) identifyPostHogUser(session.userId);
       else resetPostHogUser();
     });
+    const stopSocialAnalytics = startSocialAnalytics();
+    return () => {
+      stopSocialAnalytics();
+      unsubscribe();
+    };
   }, [loaded]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
@@ -1416,16 +1459,29 @@ function Gromo() {
         // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
         // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
         const bootGen = sessionGeneration();
+        // GROMO-2377 섬 동기화·집중 복구·홈 스냅샷 조회는 서로의 응답을 쓰지 않는다 — 함께 시작해 부팅이
+        // 가장 느린 하나만큼만 기다리게 한다. 반영 순서는 그대로다: ISLAND_SYNC → owner 전환 → 집중 복구
+        // (ISLAND_SYNC 가 소속 밖 섬의 세션을 지우므로 SESSION_SYNC 가 뒤에 와야 한다) → loaded 뒤 홈 effect.
+        // /me 는 checkSession 이 읽은 계정을 섬 동기화에 넘겨 부팅에서 한 번만 부른다.
+        const serverBoot = !!(account && !mock);
+        const recoverRead = serverBoot ? focusCmds.current!.commands.beginRecover() : null;
+        if (serverBoot) {
+          const date = dayKey();
+          const request = loadHomeSnapshot({ date, timezone: 'Asia/Seoul' });
+          // 홈 effect 가 가져가기 전에 실패해도 처리되지 않은 거부로 남기지 않는다
+          request.catch(() => {});
+          bootHome.current = { gen: bootGen, date, request };
+        }
         let bootSyncSucceeded = false;
         const bootRoute = await decideBootRoute({
           saved: bootSaved,
           account,
           rejected,
-          serverMode: !!(account && !mock),
+          serverMode: serverBoot,
           bootGen,
           generation: sessionGeneration,
           syncIslands: async () => {
-            const result = await syncIslands();
+            const result = await syncIslands(account ?? undefined);
             bootSyncSucceeded = true;
             return result;
           },
@@ -1473,7 +1529,7 @@ function Gromo() {
                 serverMode: true,
                 bootGen: cleanBootGen,
                 generation: sessionGeneration,
-                syncIslands,
+                syncIslands: () => syncIslands(account),
                 onBootError: setIslandBootError,
               });
               // 두 번째 서버 동기화/route 결정도 await 경계다. 세션이 바뀌었다면 route와 owner를
@@ -1501,8 +1557,8 @@ function Gromo() {
         }
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
-        if (account && !mock && sessionGeneration() === bootGen) {
-          const recovered = await focusCmds.current!.commands.recover().catch(() => null);
+        if (recoverRead && sessionGeneration() === bootGen) {
+          const recovered = await recoverRead().catch(() => null);
           if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
         }
       })
@@ -1605,7 +1661,13 @@ function Gromo() {
       experienceIsland !== state.serverIslands.currentIslandId
     ) {
       setGuideStep(4);
-      reset(state.serverIslands.currentIslandId ? 'home' : noIslandRoute(state));
+      reset(
+        state.serverIslands.currentIslandId
+          ? 'home'
+          : state.onboardingStory === 'done'
+            ? 'sea'
+            : noIslandRoute(state),
+      );
       return;
     }
     const restoring = !tutorialBootReconciled.current;
@@ -1628,6 +1690,21 @@ function Gromo() {
     state.lastResult,
     state.serverIslands?.currentIslandId,
   ]);
+  // 모아 둔 저장을 지금 줄에 세운다. 쓰는 순간에도 저장 gate 를 다시 본다(gate 가 닫히면 대기분은 이미 버려졌다).
+  const flushSave = () => {
+    const pending = pendingSave.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingSave.current = null;
+    const snapshot = JSON.stringify(pending.state);
+    const write = userStorageWriteQueue.current.then(async () => {
+      if (!storageOwnerReadyRef.current) return;
+      await AsyncStorage.setItem(STORAGE, snapshot);
+    });
+    userStorageWriteQueue.current = write.catch(() => {
+      notify(t('app.storageCheck'));
+    });
+  };
   useEffect(() => {
     if (
       loaded &&
@@ -1637,21 +1714,29 @@ function Gromo() {
       !REVIEW &&
       !DEMO
     ) {
-      const snapshot = JSON.stringify(state);
-      const write = userStorageWriteQueue.current.then(async () => {
-        if (!storageOwnerReadyRef.current) return;
-        await AsyncStorage.setItem(STORAGE, snapshot);
-      });
-      userStorageWriteQueue.current = write.catch(() => {
-        notify(t('app.storageCheck'));
-      });
+      // 바뀔 때마다 쓰지 않고 SAVE_DELAY_MS 동안 모아 마지막 state 만 쓴다(GROMO-2372)
+      if (pendingSave.current) pendingSave.current.state = state;
+      else pendingSave.current = { state, timer: setTimeout(flushSave, SAVE_DELAY_MS) };
     }
   }, [state, loaded, storageOwnerReady, qaBuildingsReady]);
   useEffect(() => {
+    // 배경으로 가거나 화면이 사라질 때는 기다리지 않고 바로 쓴다 — 앱이 그대로 종료돼도 잃지 않게
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'background' || next === 'inactive') flushSave();
+    });
+    return () => {
+      subscription.remove();
+      flushSave();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave 는 ref·notify 만 읽어 첫 렌더 것으로 충분하다
+  }, []);
+  useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
-      setNow(now);
-      dispatch({ type: 'TICK', now });
+      // 같은 분이면 같은 값이라 다시 그리지 않는다
+      setClockMinute(Math.floor(now / 60000));
+      // 할 일 없는 TICK 은 보내지 않는다 — App 을 매초 다시 그리지 않게(GROMO-2372)
+      if (!tickIdle(stateRef.current, now)) dispatch({ type: 'TICK', now });
     }, 1000);
     return () => clearInterval(id);
   }, []);
@@ -1833,22 +1918,25 @@ function Gromo() {
   useEffect(() => {
     if (!loaded || !hasServerSession || REVIEW || DEMO) return;
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        setNow(Date.now());
-        setHomeReload((value) => value + 1);
-      }
+      if (nextState === 'active') setHomeReload((value) => value + 1);
     });
     return () => subscription.remove();
   }, [loaded, hasServerSession]);
   useEffect(() => {
-    if (!loaded || !hasServerSession || REVIEW || DEMO || AppState.currentState !== 'active')
-      return;
-    const session = stateRef.current.session;
-    if (session && shouldPollExpiredRest(session, now, restRecovery.current)) {
-      // 서버 자동 종료 스케줄러가 다음 분에 실행될 수 있어 만료 후에도 간격을 두고 재조회한다.
-      void recoverExpiredRest(session.id);
-    }
-  }, [loaded, hasServerSession, now]);
+    if (!loaded || !hasServerSession || REVIEW || DEMO) return;
+    // App 이 매초 다시 그리지 않으므로 자기 1초 타이머로 본다(GROMO-2372)
+    const poll = () => {
+      if (AppState.currentState !== 'active') return;
+      const session = stateRef.current.session;
+      if (session && shouldPollExpiredRest(session, Date.now(), restRecovery.current)) {
+        // 서버 자동 종료 스케줄러가 다음 분에 실행될 수 있어 만료 후에도 간격을 두고 재조회한다.
+        void recoverExpiredRestRef.current(session.id);
+      }
+    };
+    poll();
+    const id = setInterval(poll, 1000);
+    return () => clearInterval(id);
+  }, [loaded, hasServerSession]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
@@ -1877,7 +1965,13 @@ function Gromo() {
     // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
     if (['home', 'visitIsland'].includes(route) && state.visitingIslandId && state.serverIslands) {
       dispatch({ type: 'END_VISIT' });
-      reset(state.serverIslands.currentIslandId ? 'home' : noIslandRoute(state));
+      reset(
+        state.serverIslands.currentIslandId
+          ? 'home'
+          : state.onboardingStory === 'done'
+            ? 'sea'
+            : noIslandRoute(state),
+      );
       return true;
     }
     // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
@@ -2100,7 +2194,7 @@ function Gromo() {
           tab,
           setTab,
           detail,
-          now,
+          now: Date.now(),
           terms,
           setTerms,
           loginProviders: TERMS_VERSION ? loginProviders() : [],

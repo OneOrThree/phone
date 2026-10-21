@@ -7,6 +7,7 @@ import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
@@ -91,6 +92,7 @@ import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
 import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
+import { Ticking } from '@/hooks/useNow';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
 import {
@@ -165,7 +167,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
-import { openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { openFeedbackMail, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -1576,6 +1578,8 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
+  if (route === 'character' && !state.onboarded)
+    return <OnboardingFlow key={getSession()?.userId ?? 'preview'} e={e} />;
   if (route === 'character')
     return (
       <Onboard
@@ -2826,7 +2830,8 @@ export function RedesignScreens({ e }: any) {
             textShadowRadius: 6,
           }}
         >
-          {clock(sessionSeconds(state.session, now))}
+          {/* 경과 시간 글자만 매초 다시 그린다(GROMO-2372) */}
+          <Ticking>{(at) => clock(sessionSeconds(state.session, at))}</Ticking>
         </Txt>
       </View>
       {island.buildings.includes('gram') && (
@@ -6628,6 +6633,21 @@ export function RedesignScreens({ e }: any) {
                   t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
                   () => {},
                 ),
+              );
+            }}
+          />
+          <SheetRow
+            title={t('settings.feedback.title')}
+            sub={t('settings.feedback.sub')}
+            chevron
+            onPress={() => {
+              openFeedbackMail(Application.nativeApplicationVersion ?? appManifest.version).catch(
+                () =>
+                  confirm(
+                    t('settings.feedback.title'),
+                    t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                    () => {},
+                  ),
               );
             }}
           />

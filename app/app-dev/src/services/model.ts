@@ -272,6 +272,8 @@ export type Product = {
   building?: Building;
 };
 export type State = {
+  /** 계정 귀속 로컬 연출 체크포인트. 서버 프로필 완료·섬 소속과는 독립이다. */
+  onboardingStory?: 'intro' | 'scope' | 'done';
   // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
   tutorial?: { step: number; sessionId?: string };
   tutorialRevision?: number;
@@ -1548,6 +1550,24 @@ function evaluateQuests(s: State, now: number) {
       q.claimed = q.rounds[today]?.claimed.includes('me') ?? false;
     }
 }
+// TICK 이 이 state 를 그 날(KST)에 훑어 바뀐 게 없음을 확인했으면 그 날을 적어 둔다(GROMO-2372).
+// TICK 이 시각에 따라 바꾸는 것은 ① 공사 완공(endsAt) ② 날짜(오늘 스크린타임 칸·퀘스트 회차) ③ 퀘스트 섬의
+// 진행 중 집중(달성 판정)뿐이라, 같은 state·같은 날이면 ①③만 따로 보면 된다.
+const idleTicks = new WeakMap<State, string>();
+/** 이 TICK 이 아무것도 바꾸지 않음이 확실하면 true — 깊은 복사 없이 같은 state 를 돌려줘도 된다. */
+export function tickIdle(state: State, now: number): boolean {
+  if (idleTicks.get(state) !== dayKey(now)) return false;
+  if (state.islands.some((i) => i.construction && now >= i.construction.endsAt)) return false;
+  const session = state.session;
+  return !(
+    session &&
+    session.kind !== 'sea' &&
+    state.islands.some(
+      (i) =>
+        i.id === session.islandId && i.joined && i.buildings.includes('board') && i.quests.length,
+    )
+  );
+}
 export type Action = { type: string; [key: string]: any };
 export function reducer(state: State, a: Action): State {
   if (a.type === 'RESET') return initialState(!!a.full);
@@ -1685,6 +1705,8 @@ export function reducer(state: State, a: Action): State {
     state.islands.some((island) => isHost(island) && island.members.length > 0)
   )
     return state;
+  // 할 일 없는 TICK(매초)은 깊은 복사·비교 없이 그대로 돌려준다(GROMO-2372)
+  if (a.type === 'TICK' && tickIdle(state, a.now ?? Date.now())) return state;
   const s = JSON.parse(JSON.stringify(state)) as State,
     i = currentIsland(s),
     now = a.now ?? Date.now();
@@ -1730,6 +1752,9 @@ export function reducer(state: State, a: Action): State {
     case 'LOGIN':
       s.loggedIn = true;
       if (Array.isArray(a.linkedProviders)) s.linkedProviders = [...a.linkedProviders];
+      break;
+    case 'ONBOARDING_STORY':
+      if (['intro', 'scope', 'done'].includes(a.checkpoint)) s.onboardingStory = a.checkpoint;
       break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)
@@ -2280,6 +2305,12 @@ export function reducer(state: State, a: Action): State {
         if (next && next.id === s.session?.id && s.session.tutorialFish)
           next = { ...next, tutorialFish: true };
         s.session = next;
+        // 응답 직후 종료돼도 서버의 실제 항해를 복구하면 온보딩을 다시 시작하지 않는다.
+        if (
+          next?.kind === 'sea' &&
+          (s.onboardingStory === 'intro' || s.onboardingStory === 'scope')
+        )
+          s.onboardingStory = 'done';
         if (next) delete s.tutorialExperience;
       }
       break;
@@ -2380,7 +2411,9 @@ export function reducer(state: State, a: Action): State {
         s.screenDays[dayKey(now)] = null;
       }
       evaluateQuests(s, now);
-      return JSON.stringify(s) === JSON.stringify(state) ? state : s;
+      if (JSON.stringify(s) !== JSON.stringify(state)) return s;
+      idleTicks.set(state, dayKey(now));
+      return state;
     }
     case 'CLAIM': {
       const reward = s.rewards?.find(

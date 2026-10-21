@@ -198,3 +198,7 @@ main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Red
 | `survey/ws-movement-300c-1hz.log` | `2d417f8e43edfd5e9dc9570ebe8e44af203b67c9c5462ce100aeabb55c84da93` |
 | `survey/ws-movement-50c-1hz.json` | `f6eeaac176e89f34d139af2428ac1f672be8ea77b54ec2e496a95cb352af049f` |
 | `survey/ws-movement-50c-1hz.log` | `3a6d6cbb9fcc03547be066846d8cd54fc818186f4cd148631f6f7b3c8dcdc42d` |
+
+## ③ 실기기 측정(`device-run/`) — 티켓 2250
+
+실기기(iPhone 16 Pro Max·iOS 27.0.1·Wi-Fi)에서 개발 전용 앱 계기로 봇 5명과 공존해 잰 기록. 서버는 로컬 풀 스택(realtime 2270 jar)이고 **dev 가 아니다**. 방법·수치·함정은 [device-run/README.md](device-run/README.md), 해석은 [validation.md §7-3](../../validation.md).

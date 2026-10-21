@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
-import { AppState } from 'react-native';
+import { AppState, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 import { landPath, onLand } from '@/utils/world-grid';
 import { SECONDS_PER_FISH } from '@/services/model';
 import { FishingBoat } from '@/screens/focus/FocusSea';
@@ -1134,6 +1135,60 @@ test('낚시 주민 이동 cleanup은 시작한 Animated composite를 중단한�
 
   await screen.unmount();
   assert.equal(callback.mock.calls.length, 0);
+});
+
+test('낚시 주민은 left/top 대신 transform 을 네이티브 드라이버로 옮겨 걷고 자리에 닿으면 알린다(GROMO-2374)', async () => {
+  jest.useFakeTimers();
+  // 네이티브 드라이버는 Jest 목에서 값이 안 움직인다 — 같은 설정을 JS 드라이버로 돌려 위치를 본다.
+  const jsDriver = observeAnimatedOnJsDriver();
+  const onEntered = jest.fn();
+  try {
+    const screen = await render(
+      React.createElement(FishingPeerActorView, {
+        actor: {
+          ...({
+            userId: 'u1',
+            sessionId: 's1',
+            name: '주민',
+            color: 'ginger',
+            subject: '수학',
+            seconds: 0,
+            status: 'active',
+          } as const),
+          key: 'u1:s1',
+          slot: 0,
+          spot: PEER_SPOTS[0],
+          position: LANDING,
+          phase: 'entering',
+          visible: true,
+          generation: 1,
+        },
+        size: 640,
+        sizeY: 640 / 1.5,
+        reduce: false,
+        onEntered,
+        onCast: jest.fn(),
+        onPausedExit: jest.fn(),
+        onStretch: jest.fn(),
+        onCompletedExit: jest.fn(),
+      }),
+    );
+    const style = () => StyleSheet.flatten(screen.root?.props.style);
+    const start = style();
+    await act(async () => jest.advanceTimersByTime(100));
+    assert.equal(style().left, 0);
+    assert.equal(style().top, 0);
+    assert.notDeepEqual(style().transform, start.transform);
+    const moves = jsDriver.mock.calls.filter(([, config]) => typeof config.toValue === 'number');
+    assert.ok(moves.length >= 2);
+    for (const [, config] of moves) assert.equal(config.useNativeDriver, true);
+    await act(async () => jest.advanceTimersByTime(10000));
+    expect(onEntered).toHaveBeenCalledWith('u1:s1', 1);
+    await screen.unmount();
+  } finally {
+    jsDriver.mockRestore();
+    jest.useRealTimers();
+  }
 });
 
 test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {

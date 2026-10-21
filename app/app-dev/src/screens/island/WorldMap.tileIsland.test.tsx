@@ -580,6 +580,8 @@ test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되�
     await act(async () => {
       pan.onPanResponderGrant!(pinch(200), {} as any);
       pan.onPanResponderMove!(pinch(distance), {} as any);
+      // 끄는 동안은 transform 만 움직이고 손을 떼야 배치가 커밋된다(GROMO-2373).
+      pan.onPanResponderRelease!(pinch(distance), {} as any);
     });
     const current = StyleSheet.flatten(sign().props.style);
     const ratio = building().width / originalBuilding.width;
@@ -595,4 +597,23 @@ test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되�
   }
   expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);
   await screen.unmount();
+});
+
+test('타일 섬은 끄는 동안 카메라를 바로 커밋해 화면 크기 Skia 캔버스가 다시 그린다(가장자리 빔 방지)', async () => {
+  const createPan = jest.spyOn(PanResponder, 'create');
+  // 앞 테스트가 남긴 호출 기록을 비워 이 렌더의 지도 팬 핸들러를 집는다
+  createPan.mockClear();
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPan.mock.calls[0][0];
+  const touch = (pageX: number) => ({ nativeEvent: { touches: [{ pageX, pageY: 400 }] } }) as any;
+  const before = screen.getByTestId('tile-terrain').props.camera;
+  await act(async () => {
+    pan.onPanResponderGrant!(touch(200), { dx: 0, dy: 0 } as any);
+    pan.onPanResponderMove!(touch(120), { dx: -80, dy: 0 } as any);
+  });
+  // 손을 떼기 전에도 캔버스가 받은 카메라가 움직였다 — 컨테이너 transform 만 옮기면 그대로였다
+  expect(screen.getByTestId('tile-terrain').props.camera.x).not.toBe(before.x);
+  createPan.mockRestore();
 });

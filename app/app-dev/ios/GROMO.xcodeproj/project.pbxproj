@@ -54,6 +54,7 @@
 		A56FBC8C42C4606163A12EBE /* cat-white-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 286FF41589D833FDC4D83EA9 /* cat-white-focus.png */; };
 		21915A7E3DCD38AC8B9DAC86 /* cat-calico-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */; };
 		142C5F836FFCBA47F473452F /* ShieldPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */; };
+		8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -183,6 +184,7 @@
 		286FF41589D833FDC4D83EA9 /* cat-white-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-white-focus.png"; sourceTree = SOURCE_ROOT; };
 		D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-calico-focus.png"; sourceTree = SOURCE_ROOT; };
 		D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldPalette.swift; sourceTree = "<group>"; };
+		1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = file; name = "gowun-dodum.ttf"; path = "../src/assets/fonts/gowun-dodum.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -329,6 +331,7 @@
 				8FC73E13F7E9D0F235BEBFF6 /* Pods */,
 				074669341FFEBF850D25630F /* ExpoModulesProviders */,
 				5947CA12FF8B42FDC5A9310F /* screentimereport */,
+				15CF9E5DA6AC41789D40D714 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -424,6 +427,14 @@
 			path = GROMO/Supporting;
 			sourceTree = "<group>";
 		};
+		15CF9E5DA6AC41789D40D714 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -442,6 +453,7 @@
 				A5143E9E19BB29C02AD6BA30 /* [CP] Embed Pods Frameworks */,
 				A19833000000000000000001 /* Embed Foundation Extensions */,
 				36EEE7D751D04F900361AFFA /* Embed Report Extension */,
+				F19640000000000000000001 /* Upload PostHog native symbols */,
 			);
 			buildRules = (
 			);
@@ -605,6 +617,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */,
+				8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -665,7 +678,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  case \"$EXPO_PUBLIC_TERMS_VERSION\" in\n    [[:space:]]*|*[[:space:]])\n      echo \"error: iOS release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.\" >&2\n      exit 1\n      ;;\n  esac\n  # dev 청중(GROMO_IOS_AUDIENCE=dev)은 팀 dev 서버만, 그 외는 운영 서버만 허용한다 — 서로 바꿔 넣는 실수를 막는다\n  if [ \"${GROMO_IOS_AUDIENCE:-prod}\" = \"dev\" ]; then\n    if [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://oneorthree.dev.mooo.com\" ]; then\n      echo \"error: iOS dev 빌드 차단: GROMO_IOS_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL 은 팀 dev 서버 https://oneorthree.dev.mooo.com 이어야 합니다.\" >&2\n      exit 1\n    fi\n  elif [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://api.oneorthree.world\" ]; then\n    echo \"error: iOS release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
+			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  case \"$EXPO_PUBLIC_TERMS_VERSION\" in\n    [[:space:]]*|*[[:space:]])\n      echo \"error: iOS release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.\" >&2\n      exit 1\n      ;;\n  esac\n  # dev 청중(GROMO_IOS_AUDIENCE=dev)은 팀 dev 서버만, 그 외는 운영 서버만 허용한다 — 서로 바꿔 넣는 실수를 막는다\n  if [ \"${GROMO_IOS_AUDIENCE:-prod}\" = \"dev\" ]; then\n    if [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://oneorthree.dev.mooo.com\" ]; then\n      echo \"error: iOS dev 빌드 차단: GROMO_IOS_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL 은 팀 dev 서버 https://oneorthree.dev.mooo.com 이어야 합니다.\" >&2\n      exit 1\n    fi\n  elif [ \"${EXPO_PUBLIC_API_URL:-}\" != \"https://catus-api.oneorthree.world\" ]; then\n    echo \"error: iOS release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
 		};
 		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -682,7 +695,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
+			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n/bin/bash \"$PROJECT_ROOT/scripts/posthog-xcode.sh\" bundle `\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
 		};
 		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -760,6 +773,8 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashReportingCore.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KakaoSDKCommon/KakaoSDKCommon.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/LineSDKSwift/LineSDK.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PostHog/PostHog.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PostHog/PHPLCrashReporter.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesObjC/FBLPromises_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesSwift/Promises_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
@@ -794,6 +809,8 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashReportingCore.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KakaoSDKCommon.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LineSDK.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PostHog.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PHPLCrashReporter.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FBLPromises_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Promises_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
@@ -841,6 +858,18 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
+		};
+		F19640000000000000000001 /* Upload PostHog native symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Upload PostHog native symbols";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "/bin/bash \"$SRCROOT/../scripts/posthog-xcode.sh\" symbols\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -963,6 +992,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = EBB09C6D644025DE951FA644 /* Pods-GROMO.debug.xcconfig */;
 			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
@@ -1005,6 +1035,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 4D1C0E843797C471FA8A450D /* Pods-GROMO.release.xcconfig */;
 			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;

@@ -1,5 +1,7 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 import { LibraryMotion } from './LibraryMotion';
 import { ShopMotion } from './ShopMotion';
 import { VillageHallMotion } from './VillageHallMotion';
@@ -38,16 +40,21 @@ const nightFrames = {
 type View = Awaited<ReturnType<typeof render>>;
 const sources = (view: View, prefix: string) =>
   [0, 1, 2, 3].map((index) => view.getByTestId(`${prefix}-${index}`).props.source);
+// 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
 const activeFrame = (view: View, prefix: string) =>
-  [0, 1, 2, 3].find((index) =>
-    [view.getByTestId(`${prefix}-${index}`).props.style]
-      .flat(Infinity)
-      .some((entry) => entry?.opacity === 1),
+  [0, 1, 2, 3].find(
+    (index) => StyleSheet.flatten(view.getByTestId(`${prefix}-${index}`).props.style).opacity === 1,
   );
 
 describe('건물 모션 밤 프레임', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('night 이면 네 건물 모두 밤 프레임 네 장을 쓰고, 낮이면 낮 프레임을 쓴다', async () => {
     const cases = [

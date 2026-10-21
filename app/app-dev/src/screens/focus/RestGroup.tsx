@@ -1,9 +1,10 @@
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
-import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
+import React, { useState, useMemo, useRef, useContext } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
 import { getSession } from '@/services/api/session';
+import { Ticking } from '@/hooks/useNow';
 import { catColor, type IslandPresence } from '@/screens/focus/useIslandPresence';
 import { useAppLayout } from '@/utils/layout';
 import {
@@ -183,7 +184,8 @@ export function RestGroup({
   const browsing = !result && !pausedSession;
   const restTutorial = pausedSession ? tutorial : undefined;
   const resumeTarget = useSpotlightTarget(!!restTutorial);
-  const [now, setNow] = useState(ended?.at ?? Date.now());
+  // 결과창 배경이면 휴식 시간을 종료 순간에 멈춘다. 흐르는 휴식 시간은 글자만 Ticking 이 다시 그린다(GROMO-2372)
+  const [endedAt] = useState(ended?.at ?? Date.now());
   // 내 휴식 시작: 휴식 중이면 세션, 결과창이면 마지막 집중 구간이 끝난 때
   // GROMO-2361 휴식 장면 움직임: 동작 줄이기면 정지 1장면. 시계는 연출 전용이라 보상·집중 시간과 무관하다.
   const still = useContext(MotionContext) || state.settings.reduceMotion;
@@ -191,11 +193,8 @@ export function RestGroup({
   const started = useRef(
     state.session?.restStartedAt || ended?.intervals?.at(-1)?.end || Date.now(),
   ).current;
-  useEffect(() => {
-    if (result) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [result]);
+  const restTime = (now: number, restStartedAt?: number) =>
+    hms(Math.max(0, (now - (restStartedAt || started)) / 1000));
   // 서버 모드는 실시간 rest 멤버가 정본 — 휴식 시작 시각은 서버 시계를 단말 시계로 환산한다.
   const others =
     live?.status === 'ready'
@@ -387,7 +386,11 @@ export function RestGroup({
                   color: INK,
                 }}
               >
-                {hms(Math.max(0, (now - (a.restStartedAt || started)) / 1000))}
+                {result ? (
+                  restTime(endedAt, a.restStartedAt)
+                ) : (
+                  <Ticking>{(now) => restTime(now, a.restStartedAt)}</Ticking>
+                )}
               </Text>
             </View>
             <View

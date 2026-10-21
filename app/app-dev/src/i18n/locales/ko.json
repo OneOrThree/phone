@@ -115,6 +115,13 @@
       "body": "신고 내용:\n\n상대 닉네임·섬 이름:\n\n발생 시각:\n\n캡처가 있다면 이 메일에 첨부해 주세요.",
       "openFailed": "메일 앱을 열지 못했어요. 메일 앱을 설정한 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
     },
+    "feedback": {
+      "title": "문의하기",
+      "sub": "오류 제보·기능 제안",
+      "subject": "[catus 문의] 오류 제보·기능 제안",
+      "body": "문의 종류 (오류 / 제안):\n\n내용:\n\n캡처가 있다면 이 메일에 첨부해 주세요.\n\n앱 버전: {{version}}\n기기: {{os}}",
+      "openFailed": "메일 앱을 열지 못했어요. 메일 앱을 설정한 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
+    },
     "generalSection": "기본 설정",
     "privacySection": "개인정보",
     "usageSharing": "사용 시간 공유",
@@ -981,6 +988,10 @@
       "promotionFee": "잡지 홍보"
     }
   },
+  "realtime": {
+    "requestRejected": "실시간 요청이 거절됐어요.",
+    "sessionRevoked": "다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요."
+  },
   "openSea": {
     "abandonCutscene": "{{name}} 항해를 그만두고 바다에 머물러요. 섬이 멀어져요.",
     "name": "먼바다",
@@ -1002,7 +1013,7 @@
     "retry": "연결이 원활하지 않아요. 다시 눌러 시도해 주세요.",
     "processing": "처리 중…",
     "disembark": "섬에 내리기",
-    "stop": "항해 그만두기",
+    "stop": "집중 마치기",
     "telescope": "망원경",
     "destinationReached": "{{name}} 앞 정박 중",
     "checkingArrival": "도착 확인 중…",
@@ -1037,7 +1048,7 @@
     "remarkLocked": "한마디는 고친 뒤 5분 동안 바꿀 수 없어요",
     "remarkFailed": "한마디를 띄우지 못했어요. 바다에서 다시 써 주세요.",
     "emoteTooFrequent": "이모트는 잠시 뒤에 다시 보낼 수 있어요",
-    "backBlocked": "항해 중에는 [항해 그만두기]로 바다를 떠나요",
+    "backBlocked": "진행 중인 집중은 [집중 마치기]로 마칠 수 있어요",
     "finishChecking": "항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.",
     "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요.",
     "someone": "누군가",
@@ -1064,5 +1075,51 @@
   },
   "arrivalCutscene": {
     "label": "{{destination}}에 도착하고 있어요. 뗏목이 부두에 닿아요."
+  },
+  "onboardingStory": {
+    "brand": "집중할고양",
+    "tagline": "오늘의 집중이 자라는 곳",
+    "hero": "조금씩 집중하고,\n함께 자라요.",
+    "choose": "좋아하는 고양이를\n선택해 주세요.",
+    "chooseHint": "앞으로 함께할 친구예요.",
+    "chooseCta": "이 고양이와 함께할게요",
+    "selectedCat": "{{color}} 고양이와 함께할까요?",
+    "silence": "...",
+    "hello": "안녕?",
+    "name": "너는 이름이 뭐야?",
+    "greet": "그래, 반가워.\n{{name}}...",
+    "resolve": "나도 언제까지\n누워 있을 수만은 없겠지.",
+    "settle": "이제 머물 섬을\n찾아보려고.",
+    "promise": "네가 집중하는 동안,\n나는 배를 저을게.",
+    "islandFriends": "거기선 어떤 친구들을 만나게 될까.",
+    "islandLife": "같이 지낼 곳도 만들고…\n해보고 싶은 게 좀 생겼어.",
+    "invite": "어때, 같이 가볼래?",
+    "scopeIntro": "좋아. 먼저 어디로 갈지\n골라보자.",
+    "scope": "저기, 섬들이 보여.\n가고 싶은 섬을 골라봐.",
+    "ready": "그동안 네 할 일에 집중해 줘.\n나는 저쪽으로 가볼게.",
+    "depart": "좋아.\n도착하면 알려줄게.",
+    "skip": "건너뛰기",
+    "next": "화면을 누르면 이야기가 이어져요",
+    "nameLabel": "이름",
+    "namePlaceholder": "이름을 알려줘",
+    "nameCta": "이 이름으로 할게요",
+    "nameEmpty": "이름을 입력해 주세요.",
+    "join": "같이 가요",
+    "scopeCta": "망원경 보기",
+    "start": "집중하고 출발하기",
+    "enterSea": "함께 집중하기",
+    "destination": "{{name}}까지 {{minutes}}분",
+    "duration": "{{minutes}}분 동안 집중해요",
+    "sailing": "{{name}}으로 가는 중",
+    "empty": "아직 갈 수 있는 섬이 없어요.",
+    "retry": "다시 시도",
+    "saving": "저장 중…",
+    "loading": "섬을 찾고 있어요…",
+    "startPending": "출발 준비 중…",
+    "raftA11y": "뗏목 위의 {{color}} 고양이",
+    "preview": "온보딩 미리보기",
+    "previewRestart": "처음부터 보기",
+    "islandLabel": "{{name}} · {{minutes}}분",
+    "back": "뒤로"
   }
 }

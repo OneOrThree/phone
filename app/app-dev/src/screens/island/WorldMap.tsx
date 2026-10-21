@@ -1,4 +1,5 @@
 import { IslandOcean, islandTerrain } from './IslandOcean';
+import { NATIVE, useMapGesture, viewportShift } from './mapGesture';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import { isDemoMode } from '@/services/demoMode';
@@ -54,6 +55,7 @@ import { MotionContext } from '@/design-system/primitives';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
+import { Ticking, useWakeAt } from '@/hooks/useNow';
 import {
   TileTerrainCanvas,
   navDebugText,
@@ -134,6 +136,7 @@ import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import {
   TileFacilityOutline,
   TileFacilitySign,
+  tileFacilityLayerSource,
   tileFacilityOutlineSource,
 } from './TileFacilityDecoration';
 import {
@@ -158,6 +161,9 @@ const MOVEMENT_SYNC = TILE_ISLAND && process.env.EXPO_PUBLIC_MOVEMENT_SYNC === '
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
+// 홈 지도 확대·축소 한계. 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
+const MIN_ZOOM = 0.35,
+  MAX_ZOOM = 2.6;
 /**
  * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
  * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
@@ -193,15 +199,6 @@ export function createWorldProjector(getViewport: () => WorldViewport) {
     };
   };
 }
-const layer: Record<Building, string> = {
-  hall: 'hall',
-  board: 'notice-board',
-  gram: 'gramophone',
-  library: 'library',
-  mail: 'mailbox',
-  tower: 'observatory',
-  shop: 'shop',
-};
 type Door = Point & {
   r: Route;
   label: string;
@@ -320,6 +317,26 @@ const WANDER_STARTS: Point[] = [
   { x: 470, y: 560 },
   { x: 720, y: 520 },
 ];
+// 내 고양이 걸음 곡선 — Animated.timing 기본값(easing 을 안 줄 때)과 같다. 걷는 도중 자리 계산(livePosition)도 이것을 쓴다.
+const WALK_EASE = Easing.inOut(Easing.ease);
+// 고양이 이동(GROMO-2374) — left/top 대신 transform 값을 네이티브 드라이버로 옮겨 걷는 동안 JS 스레드가 프레임마다
+// 레이아웃을 돌리지 않는다. 이 값은 네이티브로 넘어가므로 JS 드라이버 애니메이션·레이아웃 속성에 쓰지 않는다.
+// 길이 0(동작 줄이기)은 네이티브로 보내면 한 프레임 뒤에야 끝나 걷기 사슬이 꼭짓점마다 밀린다 — 예전(JS 드라이버)처럼
+// 그 자리에 바로 놓고 같은 호출 안에서 끝낸다.
+function moveCat(
+  xy: Animated.ValueXY,
+  toValue: Point,
+  duration: number,
+  done?: Animated.EndCallback,
+  easing?: (t: number) => number,
+) {
+  if (duration <= 0) {
+    xy.setValue(toValue);
+    done?.({ finished: true });
+    return;
+  }
+  Animated.timing(xy, { toValue, duration, easing, ...NATIVE }).start(done);
+}
 // 주민 고양이: 내 고양이와 다른 색으로, 근처 땅을 골라 걸어갔다 잠시 쉬기를 되풀이한다 (연출 전용, 상태 없음)
 function Wanderer({
   color,
@@ -387,17 +404,19 @@ function Wanderer({
           return;
         }
         const next = path[idx++];
-        Animated.timing(xy, {
-          toValue: next,
-          duration: reduce ? 0 : 130,
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start(({ finished }) => {
-          if (!finished) return;
-          at.current = next;
-          setDepth(next.y);
-          step();
-        });
+        moveCat(
+          xy,
+          next,
+          reduce ? 0 : 130,
+          ({ finished }) => {
+            if (!finished) return;
+            at.current = next;
+            // 깊이는 layered 미리보기(scene)의 zIndex 에만 쓴다 — 운영에서는 걸음마다 다시 그리지 않는다(GROMO-2371).
+            if (scene) setDepth(next.y);
+            step();
+          },
+          Easing.linear,
+        );
       };
       step();
     };
@@ -413,8 +432,12 @@ function Wanderer({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: Animated.multiply(xy.x, s),
-        top: Animated.multiply(xy.y, s),
+        left: 0,
+        top: 0,
+        transform: [
+          { translateX: Animated.multiply(xy.x, s) },
+          { translateY: Animated.multiply(xy.y, s) },
+        ],
         zIndex: scene ? Math.round(depth) : undefined,
       }}
     >
@@ -463,12 +486,7 @@ function RemoteResident({
       clearTimeout(stop);
       if (moving) stop = setTimeout(() => setWalking(false), 300);
       // durationMs 는 보간에 쓴 두 샘플의 틱 간격 기반 — 저주기 스냅샷도 다음 호출까지 매끄럽게 잇는다.
-      Animated.timing(xy, {
-        toValue: p,
-        duration: reduce ? 0 : durationMs,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }).start();
+      moveCat(xy, p, reduce ? 0 : durationMs, undefined, Easing.linear);
     });
     return () => {
       unsubscribe();
@@ -482,8 +500,12 @@ function RemoteResident({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: Animated.multiply(xy.x, s),
-        top: Animated.multiply(xy.y, s),
+        left: 0,
+        top: 0,
+        transform: [
+          { translateX: Animated.multiply(xy.x, s) },
+          { translateY: Animated.multiply(xy.y, s) },
+        ],
       }}
     >
       <CatSprite
@@ -645,6 +667,10 @@ export function WorldMap({
     onSpot,
   };
   const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
+  const gesture = useMapGesture(camera);
+  // 팬 핸들러는 첫 렌더에 한 번 만들어진다 — 타일 섬 여부는 ref 로 읽는다
+  const tileTerrainRef = useRef(tileTerrain);
+  tileTerrainRef.current = tileTerrain;
   const origin = useRef({ x: 0, y: 0, z: 1, dist: 0, anchorX: 0, anchorY: 0 }),
     frame = useRef({ x: 0, y: 0 }),
     drag = useRef(false),
@@ -653,8 +679,33 @@ export function WorldMap({
     ...c,
     x: Math.max(0, Math.min(grid.w, c.x)),
     y: Math.max(0, Math.min(grid.h, c.y)),
-    z: Math.max(0.35, Math.min(2.6, c.z)),
+    z: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, c.z)),
   });
+  // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
+  const show = (c: typeof camera) => {
+    // 타일 섬의 Skia 캔버스는 화면 크기 표면이라 컨테이너 transform 으로 옮기면 끄는 동안 가장자리가 빈다 —
+    // 그 경로(EXPO_PUBLIC_TILE_ISLAND)만 예전처럼 움직일 때마다 카메라를 커밋해 캔버스가 다시 그리게 한다
+    if (tileTerrainRef.current) {
+      setCamera(c);
+      return;
+    }
+    const v = current.current,
+      s = v.base * c.z;
+    gesture.show(
+      c,
+      viewportShift(
+        v,
+        { left: v.width / 2 - c.x * s, top: v.height / 2 - c.y * s, scale: s },
+        v.width,
+        v.height,
+      ),
+    );
+  };
+  // 손을 떼면 보이는 카메라로 한 번만 다시 배치한다. transform 은 커밋 직후 useMapGesture 가 항등으로 되돌린다.
+  const settle = () => {
+    const c = gesture.release();
+    if (c) setCamera(c);
+  };
   const touches = (e: any) => e.nativeEvent.touches ?? [];
   const dist = (tp: any[]) =>
     tp.length > 1 ? Math.hypot(tp[0].pageX - tp[1].pageX, tp[0].pageY - tp[1].pageY) : 0;
@@ -664,13 +715,14 @@ export function WorldMap({
   });
   const begin = (tp: any[]) => {
     const v = current.current,
-      c = v.camera;
+      c = gesture.visible(),
+      s = v.base * c.z;
     const m = tp.length > 1 ? midpoint(tp) : { x: v.width / 2, y: v.height / 2 };
     origin.current = {
       ...c,
       dist: dist(tp),
-      anchorX: c.x + (m.x - v.width / 2) / v.scale,
-      anchorY: c.y + (m.y - v.height / 2) / v.scale,
+      anchorX: c.x + (m.x - v.width / 2) / s,
+      anchorY: c.y + (m.y - v.height / 2) / s,
     };
   };
   const pan = useRef(
@@ -691,24 +743,28 @@ export function WorldMap({
             begin(tp);
             return;
           }
-          const z = Math.max(0.35, Math.min(2.6, (o.z * dist(tp)) / o.dist)),
+          const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (o.z * dist(tp)) / o.dist)),
             m = midpoint(tp);
-          setCamera(
+          show(
             clamp({
               x: o.anchorX - (m.x - v.width / 2) / (v.base * z),
               y: o.anchorY - (m.y - v.height / 2) / (v.base * z),
               z,
             }),
           );
-        } else if (!o.dist)
-          setCamera(clamp({ x: o.x - g.dx / v.scale, y: o.y - g.dy / v.scale, z: o.z }));
+        } else if (!o.dist) {
+          const s = v.base * o.z;
+          show(clamp({ x: o.x - g.dx / s, y: o.y - g.dy / s, z: o.z }));
+        }
       },
       onPanResponderRelease: () => {
+        settle();
         setTimeout(() => {
           drag.current = false;
         }, 80);
       },
       onPanResponderTerminate: () => {
+        settle();
         drag.current = false;
       },
     }),
@@ -735,14 +791,23 @@ export function WorldMap({
     const o = buildingOffsets?.[b] ?? NO_OFFSET;
     return { left: left + o.x * scale, top: top + o.y * scale };
   };
-  const pressStyle = (id: string, fullLayer = false) => {
-    const r = TILE_FACILITIES[id];
-    return facilityPressStyle(
-      facilityDecorations && pressedFacility === id,
-      reduceFacilityMotion,
-      fullLayer && r ? [(r.x + r.w / 2) * scale, (r.y + r.h) * scale, 0] : undefined,
-    );
+  const pressStyle = (id: string) =>
+    facilityPressStyle(facilityDecorations && pressedFacility === id, reduceFacilityMotion);
+  // 잘린 정적 그림(GROMO-2378)은 원화 rect 자리에 rect 크기로 놓는다 — 1536×1024 레이어와 같은 픽셀 위치.
+  const facilityLayerBox = (b: Building) => {
+    const r = TILE_FACILITIES[b];
+    return {
+      position: 'absolute' as const,
+      left: at(b).left + r.x * scale,
+      top: at(b).top + r.y * scale,
+      width: r.w * scale,
+      height: r.h * scale,
+    };
   };
+  // 끄는 동안에는 바다를 다시 깔지 않으므로, 카메라 한계(섬 안·최소 배율) 안에서 화면에 걸칠 수 있는 바다를 미리 깐다.
+  const reachX = L.width / (2 * base * MIN_ZOOM),
+    reachY = L.height / (2 * base * MIN_ZOOM),
+    oceanCover = { left: -reachX, top: -reachY, right: grid.w + reachX, bottom: grid.h + reachY };
   const renderedActors =
     typeof children === 'function' ? children(scale, projectCurrentWorldPoint, base) : children;
   const actorLayers =
@@ -761,15 +826,14 @@ export function WorldMap({
       testID={fishing ? 'fishing-world' : 'final-island-world'}
       style={{ flex: 1, backgroundColor: '#a9d9d7', overflow: 'hidden' }}
     >
+      {/* 낚시·새 마을 미리보기 바다는 화면에 붙은 무늬라 지도 transform 밖에 둔다. */}
       {fishing ? (
         <Image
           source={require('@/assets/reference-v2/sea-tile.jpg')}
           resizeMode="repeat"
           style={StyleSheet.absoluteFill}
         />
-      ) : !village ? (
-        <IslandOcean left={left} top={top} scale={scale} night={dayNight === 'night'} />
-      ) : (
+      ) : village ? (
         <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
           <Defs>
             <Pattern
@@ -790,22 +854,372 @@ export function WorldMap({
           </Defs>
           <Rect width="100%" height="100%" fill="url(#home-ocean)" />
         </Svg>
-      )}
-      {tileTerrain && (
-        <TileTerrainCanvas
-          width={L.width}
-          height={L.height}
-          camera={camera}
-          base={base}
-          night={dayNight === 'night'}
-          assets={mapAssets}
-          onAssetsFail={onMapAssetsFail}
-          navDebug={navDebug}
-          reduceMotion={reduceFacilityMotion}
-          pressedFacility={pressedFacility}
-          showFacilityOutlines
-        />
-      )}
+      ) : null}
+      {/* 지도 손가락 변환(GROMO-2373): 끄는 동안 이 컨테이너 하나만 움직이고 쉬는 동안은 항등이다. */}
+      <Animated.View
+        pointerEvents="box-none"
+        collapsable={false}
+        style={[
+          StyleSheet.absoluteFill,
+          { width: L.width, height: L.height, transform: gesture.transform },
+        ]}
+      >
+        {!fishing && !village && (
+          <IslandOcean
+            left={left}
+            top={top}
+            scale={scale}
+            night={dayNight === 'night'}
+            cover={oceanCover}
+          />
+        )}
+        {tileTerrain && (
+          <TileTerrainCanvas
+            width={L.width}
+            height={L.height}
+            camera={camera}
+            base={base}
+            night={dayNight === 'night'}
+            assets={mapAssets}
+            onAssetsFail={onMapAssetsFail}
+            navDebug={navDebug}
+            reduceMotion={reduceFacilityMotion}
+            pressedFacility={pressedFacility}
+            showFacilityOutlines
+          />
+        )}
+        <Pressable
+          accessible={false}
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width: grid.w * scale,
+            height: grid.h * scale,
+          }}
+          onPress={(e) => {
+            if (drag.current) return;
+            const event = e.nativeEvent as any;
+            const rect =
+              Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
+            const tap = {
+              locationX: rect ? event.clientX - rect.left : event.locationX,
+              locationY: rect ? event.clientY - rect.top : event.locationY,
+            };
+            if (tileTerrain) {
+              // 탭 → 월드. 출발 영역 보정(resolveTarget)은 walk 안의 navPath 가 맡는다.
+              const size = { scale, imageWidth: grid.w, imageHeight: grid.h };
+              current.current.onSpot?.(worldToImage(tapToWorld(tap, size), size));
+              return;
+            }
+            const p = { x: tap.locationX / scale, y: tap.locationY / scale };
+            if (onLand(grid, p)) current.current.onSpot?.(p);
+          }}
+        >
+          {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
+          {!tileTerrain && (
+            <Image
+              source={
+                fishing
+                  ? require('@/assets/reference-v2/fishing-island.png')
+                  : village
+                    ? villageAssets['terrain.png']
+                    : islandTerrain[dayNight]
+              }
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="stretch"
+            />
+          )}
+        </Pressable>
+        {facilityDecorations && !tileTerrain && (
+          <ImageTerrainFacilities
+            left={left}
+            top={top}
+            scale={scale}
+            baseScale={base}
+            night={night}
+            pressedFacility={pressedFacility}
+            reduceMotion={reduceFacilityMotion}
+          />
+        )}
+        {facilityDecorations &&
+          island.buildings.map((b) => {
+            const pelican = b === 'mail' && mailboxLetters;
+            const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
+            return (
+              rect && (
+                <TileFacilityOutline
+                  key={b}
+                  rect={rect}
+                  source={tileFacilityOutlineSource(pelican ? 'mail-pelican' : b, night)}
+                  left={at(b).left}
+                  top={at(b).top}
+                  scale={scale}
+                  pressed={pressedFacility === b}
+                  reduceMotion={reduceFacilityMotion}
+                />
+              )
+            );
+          })}
+        {!fishing && !village && (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            {island.buildings
+              .filter((b) => !(b === 'mail' && mailboxLetters))
+              .filter((b) => !(b === 'hall' && !village && !fishing))
+              .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
+              .filter((b) => !(b === 'tower' && !village && !fishing))
+              .filter((b) => !(b === 'shop' && !village && !fishing))
+              .filter((b) => !(b === 'library' && !village && !fishing))
+              .map((b) => (
+                <Image
+                  key={b}
+                  testID={`world-static-building-${b}`}
+                  source={tileFacilityLayerSource(b, night)}
+                  style={{ ...facilityLayerBox(b), ...pressStyle(b) }}
+                  resizeMode="stretch"
+                />
+              ))}
+            {mailboxLetters && (
+              <Image
+                testID="mailbox-pelican"
+                source={assets['characters/pelican/npc/on-mailbox.png']}
+                style={{
+                  ...pressStyle('mail'),
+                  position: 'absolute',
+                  left: at('mail').left + TILE_MAILBOX_PELICAN_RECT.x * scale,
+                  top: at('mail').top + TILE_MAILBOX_PELICAN_RECT.y * scale,
+                  width: TILE_MAILBOX_PELICAN_RECT.w * scale,
+                  height: TILE_MAILBOX_PELICAN_RECT.h * scale,
+                }}
+                resizeMode="contain"
+              />
+            )}
+            {mailboxLetters && (
+              <VillageNotificationBadge
+                testID="mailbox-new-indicator"
+                accessibilityLabel={t('home.a11y.mailboxNewLetter')}
+                scale={scale}
+                style={{
+                  ...pressStyle('mail'),
+                  left: at('mail').left + 348 * scale,
+                  top: at('mail').top + 520 * scale,
+                }}
+              />
+            )}
+            {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
+              <VillageNotificationBadge
+                testID="mailbox-magazine-indicator"
+                accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
+                scale={scale}
+                style={{
+                  ...pressStyle('mail'),
+                  left: at('mail').left + 348 * scale,
+                  top: at('mail').top + 520 * scale,
+                }}
+              />
+            )}
+            {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
+            {island.buildings.includes('hall') && (
+              <VillageHallMotion
+                testID="world-hall-motion"
+                night={night}
+                state={hallMotionActive ? 'arrival' : 'normal'}
+                generation={hallMotionGeneration}
+                themed={themed('hall')}
+                style={{
+                  ...pressStyle('hall'),
+                  position: 'absolute',
+                  left: at('hall').left + 949 * scale,
+                  top: at('hall').top + 21 * scale,
+                  width: 242 * scale,
+                  height: 244 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('board') && (
+              <VillageBoardIndicator
+                testID="world-board-indicator"
+                showBoardImage={dayNight === 'day'}
+                hasUnread={boardStatus === 'unread'}
+                hasNewComment={boardStatus === 'new-comment'}
+                indicatorScale={scale}
+                style={{
+                  ...pressStyle('board'),
+                  position: 'absolute',
+                  left: at('board').left + 858 * scale,
+                  top: at('board').top + 158 * scale,
+                  width: 80 * scale,
+                  height: 80 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('tower') && (
+              <VillageObservatoryMotion
+                testID="world-observatory-motion"
+                themed={framesDrawTheme('tower') && themed('tower')}
+                rankState={observatoryRankState}
+                dayNight={dayNight}
+                night={night}
+                generation={towerArrivalActive ? towerArrivalGeneration : 0}
+                reduceMotion={state.settings.reduceMotion}
+                style={{
+                  ...pressStyle('tower'),
+                  position: 'absolute',
+                  left: at('tower').left + 150 * scale,
+                  top: at('tower').top + 24 * scale,
+                  width: 112 * scale,
+                  height: 193 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('shop') && (
+              <ShopMotion
+                testID="world-shop-motion"
+                themed={framesDrawTheme('shop') && themed('shop')}
+                state={shopState}
+                trigger={shopArrivalActive ? shopArrivalGeneration : 0}
+                entryActive={shopArrivalActive}
+                night={night}
+                reduceMotion={state.settings.reduceMotion}
+                style={{
+                  ...pressStyle('shop'),
+                  position: 'absolute',
+                  left: at('shop').left + 456 * scale,
+                  top: at('shop').top + 580 * scale,
+                  width: 262 * scale,
+                  height: 199 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('library') && (
+              <LibraryMotion
+                testID="world-library-motion"
+                themed={framesDrawTheme('library') && themed('library')}
+                state={libraryState}
+                indicatorScale={scale}
+                trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
+                entryActive={libraryArrivalActive}
+                night={night}
+                reduceMotion={state.settings.reduceMotion}
+                style={{
+                  ...pressStyle('library'),
+                  position: 'absolute',
+                  left: at('library').left + 1120 * scale,
+                  top: at('library').top + 288 * scale,
+                  width: 239 * scale,
+                  height: 323 * scale,
+                }}
+              />
+            )}
+            <FireMotion
+              testID="world-fire-motion"
+              mode={dayNight === 'day' ? 'day' : 'evening'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                ...pressStyle('fire'),
+                position: 'absolute',
+                left: left + (dayNight === 'day' ? 402 : 405) * scale,
+                top: top + (dayNight === 'day' ? 425 : 437) * scale,
+                width: (dayNight === 'day' ? 116 : 140) * scale,
+                height: (dayNight === 'day' ? 77 : 93) * scale,
+              }}
+            />
+            <RaftWaterMotion
+              testID="world-raft-water-motion"
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                ...facilityPressStyle(
+                  facilityDecorations && pressedFacility === 'raft',
+                  reduceFacilityMotion,
+                  [
+                    (TILE_FACILITIES.raft.x + TILE_FACILITIES.raft.w / 2 - 185) * scale,
+                    (TILE_FACILITIES.raft.y + TILE_FACILITIES.raft.h - 835) * scale,
+                    0,
+                  ],
+                ),
+                left: left + 185 * scale,
+                top: top + 835 * scale,
+                width: 210 * scale,
+                height: 92 * scale,
+              }}
+            />
+          </View>
+        )}
+        {!fishing && island.theme !== 'default' && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left,
+              top,
+              width: grid.w * scale,
+              height: grid.h * scale,
+              backgroundColor: '#ade1f8',
+              opacity: 0.12,
+            }}
+          />
+        )}
+        {!fishing && !village && (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            {island.buildings
+              .filter(
+                (b) =>
+                  (b !== 'mail' || !mailboxLetters) &&
+                  // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
+                  !framesDrawTheme(b) &&
+                  island.buildingThemes?.[b] &&
+                  island.buildingThemes?.[b] !== 'default',
+              )
+              .map((b) => (
+                <Image
+                  key={b}
+                  testID={`world-building-theme-${b}`}
+                  source={tileFacilityLayerSource(b, night)}
+                  style={{
+                    ...facilityLayerBox(b),
+                    ...pressStyle(b),
+                    tintColor: '#d7829b',
+                    opacity: 0.3,
+                  }}
+                  resizeMode="stretch"
+                />
+              ))}
+          </View>
+        )}
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width: grid.w * scale,
+            height: grid.h * scale,
+          }}
+        >
+          {village && (
+            <VillageScenery
+              scene={village}
+              scale={scale}
+              reduce={state.settings.reduceMotion}
+              mailboxLetters={mailboxLetters}
+              hiddenBuilding={hiddenVillageBuilding}
+              boardStatus={boardStatus}
+              hallMotionActive={hallMotionActive}
+              hallMotionGeneration={hallMotionGeneration}
+              hallThemed={!!island.buildingThemes?.hall && island.buildingThemes.hall !== 'default'}
+            />
+          )}
+          {actorLayers.world}
+        </View>
+        <View
+          testID="facility-sign-overlay"
+          pointerEvents="box-none"
+          collapsable={false}
+          style={StyleSheet.absoluteFill}
+        >
+          {actorLayers.overlay}
+        </View>
+      </Animated.View>
       {tileTerrain && navDebug && (
         <Txt
           testID="nav-debug-text"
@@ -822,354 +1236,6 @@ export function WorldMap({
           {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
         </Txt>
       )}
-      <Pressable
-        accessible={false}
-        style={{
-          position: 'absolute',
-          left,
-          top,
-          width: grid.w * scale,
-          height: grid.h * scale,
-        }}
-        onPress={(e) => {
-          if (drag.current) return;
-          const event = e.nativeEvent as any;
-          const rect =
-            Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
-          const tap = {
-            locationX: rect ? event.clientX - rect.left : event.locationX,
-            locationY: rect ? event.clientY - rect.top : event.locationY,
-          };
-          if (tileTerrain) {
-            // 탭 → 월드. 출발 영역 보정(resolveTarget)은 walk 안의 navPath 가 맡는다.
-            const size = { scale, imageWidth: grid.w, imageHeight: grid.h };
-            current.current.onSpot?.(worldToImage(tapToWorld(tap, size), size));
-            return;
-          }
-          const p = { x: tap.locationX / scale, y: tap.locationY / scale };
-          if (onLand(grid, p)) current.current.onSpot?.(p);
-        }}
-      >
-        {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
-        {!tileTerrain && (
-          <Image
-            source={
-              fishing
-                ? require('@/assets/reference-v2/fishing-island.png')
-                : village
-                  ? villageAssets['terrain.png']
-                  : islandTerrain[dayNight]
-            }
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="stretch"
-          />
-        )}
-      </Pressable>
-      {facilityDecorations && !tileTerrain && (
-        <ImageTerrainFacilities
-          source={islandTerrain[dayNight]}
-          left={left}
-          top={top}
-          scale={scale}
-          baseScale={base}
-          night={night}
-          pressedFacility={pressedFacility}
-          reduceMotion={reduceFacilityMotion}
-        />
-      )}
-      {facilityDecorations &&
-        island.buildings.map((b) => {
-          const pelican = b === 'mail' && mailboxLetters;
-          const croppedSource = tileFacilityOutlineSource(b, night);
-          const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
-          return (
-            rect && (
-              <TileFacilityOutline
-                key={b}
-                rect={rect}
-                source={
-                  pelican
-                    ? assets['characters/pelican/npc/on-mailbox.png']
-                    : (croppedSource ??
-                      assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
-                }
-                left={at(b).left}
-                top={at(b).top}
-                scale={scale}
-                cropped={pelican || !!croppedSource}
-                pressed={pressedFacility === b}
-                reduceMotion={reduceFacilityMotion}
-              />
-            )
-          );
-        })}
-      {!fishing && !village && (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {island.buildings
-            .filter((b) => !(b === 'mail' && mailboxLetters))
-            .filter((b) => !(b === 'hall' && !village && !fishing))
-            .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
-            .filter((b) => !(b === 'tower' && !village && !fishing))
-            .filter((b) => !(b === 'shop' && !village && !fishing))
-            .filter((b) => !(b === 'library' && !village && !fishing))
-            .map((b) => (
-              <Image
-                key={b}
-                testID={`world-static-building-${b}`}
-                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
-                style={{
-                  position: 'absolute',
-                  ...at(b),
-                  ...pressStyle(b, true),
-                  width: grid.w * scale,
-                  height: grid.h * scale,
-                }}
-                resizeMode="stretch"
-              />
-            ))}
-          {mailboxLetters && (
-            <Image
-              testID="mailbox-pelican"
-              source={assets['characters/pelican/npc/on-mailbox.png']}
-              style={{
-                ...pressStyle('mail'),
-                position: 'absolute',
-                left: at('mail').left + TILE_MAILBOX_PELICAN_RECT.x * scale,
-                top: at('mail').top + TILE_MAILBOX_PELICAN_RECT.y * scale,
-                width: TILE_MAILBOX_PELICAN_RECT.w * scale,
-                height: TILE_MAILBOX_PELICAN_RECT.h * scale,
-              }}
-              resizeMode="contain"
-            />
-          )}
-          {mailboxLetters && (
-            <VillageNotificationBadge
-              testID="mailbox-new-indicator"
-              accessibilityLabel={t('home.a11y.mailboxNewLetter')}
-              scale={scale}
-              style={{
-                ...pressStyle('mail'),
-                left: at('mail').left + 348 * scale,
-                top: at('mail').top + 520 * scale,
-              }}
-            />
-          )}
-          {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
-            <VillageNotificationBadge
-              testID="mailbox-magazine-indicator"
-              accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
-              scale={scale}
-              style={{
-                ...pressStyle('mail'),
-                left: at('mail').left + 348 * scale,
-                top: at('mail').top + 520 * scale,
-              }}
-            />
-          )}
-          {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
-          {island.buildings.includes('hall') && (
-            <VillageHallMotion
-              testID="world-hall-motion"
-              night={night}
-              state={hallMotionActive ? 'arrival' : 'normal'}
-              generation={hallMotionGeneration}
-              themed={themed('hall')}
-              style={{
-                ...pressStyle('hall'),
-                position: 'absolute',
-                left: at('hall').left + 949 * scale,
-                top: at('hall').top + 21 * scale,
-                width: 242 * scale,
-                height: 244 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('board') && (
-            <VillageBoardIndicator
-              testID="world-board-indicator"
-              showBoardImage={dayNight === 'day'}
-              hasUnread={boardStatus === 'unread'}
-              hasNewComment={boardStatus === 'new-comment'}
-              indicatorScale={scale}
-              style={{
-                ...pressStyle('board'),
-                position: 'absolute',
-                left: at('board').left + 858 * scale,
-                top: at('board').top + 158 * scale,
-                width: 80 * scale,
-                height: 80 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('tower') && (
-            <VillageObservatoryMotion
-              testID="world-observatory-motion"
-              themed={framesDrawTheme('tower') && themed('tower')}
-              rankState={observatoryRankState}
-              dayNight={dayNight}
-              night={night}
-              generation={towerArrivalActive ? towerArrivalGeneration : 0}
-              reduceMotion={state.settings.reduceMotion}
-              style={{
-                ...pressStyle('tower'),
-                position: 'absolute',
-                left: at('tower').left + 150 * scale,
-                top: at('tower').top + 24 * scale,
-                width: 112 * scale,
-                height: 193 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('shop') && (
-            <ShopMotion
-              testID="world-shop-motion"
-              themed={framesDrawTheme('shop') && themed('shop')}
-              state={shopState}
-              trigger={shopArrivalActive ? shopArrivalGeneration : 0}
-              entryActive={shopArrivalActive}
-              night={night}
-              reduceMotion={state.settings.reduceMotion}
-              style={{
-                ...pressStyle('shop'),
-                position: 'absolute',
-                left: at('shop').left + 456 * scale,
-                top: at('shop').top + 580 * scale,
-                width: 262 * scale,
-                height: 199 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('library') && (
-            <LibraryMotion
-              testID="world-library-motion"
-              themed={framesDrawTheme('library') && themed('library')}
-              state={libraryState}
-              indicatorScale={scale}
-              trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
-              entryActive={libraryArrivalActive}
-              night={night}
-              reduceMotion={state.settings.reduceMotion}
-              style={{
-                ...pressStyle('library'),
-                position: 'absolute',
-                left: at('library').left + 1120 * scale,
-                top: at('library').top + 288 * scale,
-                width: 239 * scale,
-                height: 323 * scale,
-              }}
-            />
-          )}
-          <FireMotion
-            testID="world-fire-motion"
-            mode={dayNight === 'day' ? 'day' : 'evening'}
-            reduceMotion={state.settings.reduceMotion}
-            style={{
-              ...pressStyle('fire'),
-              position: 'absolute',
-              left: left + (dayNight === 'day' ? 402 : 405) * scale,
-              top: top + (dayNight === 'day' ? 425 : 437) * scale,
-              width: (dayNight === 'day' ? 116 : 140) * scale,
-              height: (dayNight === 'day' ? 77 : 93) * scale,
-            }}
-          />
-          <RaftWaterMotion
-            testID="world-raft-water-motion"
-            reduceMotion={state.settings.reduceMotion}
-            style={{
-              ...facilityPressStyle(
-                facilityDecorations && pressedFacility === 'raft',
-                reduceFacilityMotion,
-                [
-                  (TILE_FACILITIES.raft.x + TILE_FACILITIES.raft.w / 2 - 185) * scale,
-                  (TILE_FACILITIES.raft.y + TILE_FACILITIES.raft.h - 835) * scale,
-                  0,
-                ],
-              ),
-              left: left + 185 * scale,
-              top: top + 835 * scale,
-              width: 210 * scale,
-              height: 92 * scale,
-            }}
-          />
-        </View>
-      )}
-      {!fishing && island.theme !== 'default' && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left,
-            top,
-            width: grid.w * scale,
-            height: grid.h * scale,
-            backgroundColor: '#ade1f8',
-            opacity: 0.12,
-          }}
-        />
-      )}
-      {!fishing && !village && (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {island.buildings
-            .filter(
-              (b) =>
-                (b !== 'mail' || !mailboxLetters) &&
-                // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
-                !framesDrawTheme(b) &&
-                island.buildingThemes?.[b] &&
-                island.buildingThemes?.[b] !== 'default',
-            )
-            .map((b) => (
-              <Image
-                key={b}
-                testID={`world-building-theme-${b}`}
-                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
-                style={{
-                  position: 'absolute',
-                  ...at(b),
-                  ...pressStyle(b, true),
-                  width: grid.w * scale,
-                  height: grid.h * scale,
-                  tintColor: '#d7829b',
-                  opacity: 0.3,
-                }}
-                resizeMode="stretch"
-              />
-            ))}
-        </View>
-      )}
-      <View
-        pointerEvents="box-none"
-        style={{
-          position: 'absolute',
-          left,
-          top,
-          width: grid.w * scale,
-          height: grid.h * scale,
-        }}
-      >
-        {village && (
-          <VillageScenery
-            scene={village}
-            scale={scale}
-            reduce={state.settings.reduceMotion}
-            mailboxLetters={mailboxLetters}
-            hiddenBuilding={hiddenVillageBuilding}
-            boardStatus={boardStatus}
-            hallMotionActive={hallMotionActive}
-            hallMotionGeneration={hallMotionGeneration}
-            hallThemed={!!island.buildingThemes?.hall && island.buildingThemes.hall !== 'default'}
-          />
-        )}
-        {actorLayers.world}
-      </View>
-      <View
-        testID="facility-sign-overlay"
-        pointerEvents="box-none"
-        collapsable={false}
-        style={StyleSheet.absoluteFill}
-      >
-        {actorLayers.overlay}
-      </View>
     </View>
   );
 }
@@ -1301,14 +1367,27 @@ function FinalIslandScene({
       ? serverConstruction
       : null
     : (i.construction ?? null);
+  const renderedAt = Date.now();
   const progress = normalizedConstructionProgress(
     trackedConstruction
       ? { startedAt: trackedConstruction.startedAt, completesAt: trackedConstruction.endsAt }
       : null,
-    Date.now(),
+    renderedAt,
   );
   const activeBuilding =
     trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
+  // 공사 그림은 단계 경계(15%·75%·완공)에서만 바뀌므로 그때만 지도를 다시 그린다 — App 은 분마다만 그린다(GROMO-2372)
+  useWakeAt(
+    trackedConstruction && progress < 1
+      ? [0.15, 0.75, 1]
+          .map(
+            (f) =>
+              trackedConstruction.startedAt +
+              f * (trackedConstruction.endsAt - trackedConstruction.startedAt),
+          )
+          .find((at) => at > renderedAt)
+      : null,
+  );
   const sceneBuilding = trackedConstruction?.building;
   const layout = facts?.home?.layout;
   // villageScene 에 넘기는 것과 같은 완공 목록(공사 중인 건물 포함).
@@ -1533,7 +1612,18 @@ function FinalIslandScene({
   }, []);
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
-    location = useRef(pos);
+    location = useRef(pos),
+    // 지금 걷는 구간(출발·도착·시작 시각·길이). 멈춰 있으면 null.
+    segment = useRef<{ from: Point; to: Point; t0: number; ms: number } | null>(null);
+  // 화면에 보이는 고양이 자리(이미지 px, GROMO-2374). xy 는 네이티브 드라이버 값이라 걷는 도중 값을 JS 에서 바로 못
+  // 읽는다(stopAnimation 콜백·리스너는 네이티브 왕복이라 비동기). 지금 구간을 같은 곡선(WALK_EASE)으로 계산하고,
+  // 멈춰 있으면 location 그대로다.
+  const livePosition = () => {
+    const g = segment.current;
+    if (!g) return location.current;
+    const k = WALK_EASE(Math.min(1, (Date.now() - g.t0) / g.ms));
+    return { x: g.from.x + (g.to.x - g.from.x) * k, y: g.from.y + (g.to.y - g.from.y) * k };
+  };
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const facilityDecorations = !scene;
@@ -1582,6 +1672,7 @@ function FinalIslandScene({
   // 멈춘 상태에서 서버 위치로 맞춘다(FullState 채택·보정·도착).
   const place = (p: Point) => {
     xy.setValue(p);
+    segment.current = null;
     location.current = p;
     setPos(p);
     homePositions[positionKey] = p;
@@ -1590,7 +1681,10 @@ function FinalIslandScene({
   // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
   const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
     const run = ++token.current;
+    // 걷는 도중 멈추면 고양이는 구간 중간에 서 있다 — 첫 구간의 보이는 출발점으로 기억한다(livePosition).
+    let from = livePosition();
     xy.stopAnimation();
+    segment.current = null;
     arrival.current = null;
     // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
     walkDone.current = path.length ? done : undefined;
@@ -1623,27 +1717,34 @@ function FinalIslandScene({
         setLeft(p.x < location.current.x);
       }
       const prev = location.current;
-      Animated.timing(xy, {
-        toValue: p,
-        duration: state.settings.reduceMotion
-          ? 0
-          : tileNav
-            ? stepDurationMs(
-                imageToWorld(prev, sizeOf(grid)),
-                imageToWorld(p, sizeOf(grid)),
-                msPerUnit,
-              )
-            : 95,
-        useNativeDriver: false,
-      }).start(({ finished }) => {
-        if (finished) {
-          location.current = p;
-          // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
-          setPos(p);
-          homePositions[positionKey] = p;
-          next();
-        }
-      });
+      const ms = state.settings.reduceMotion
+        ? 0
+        : tileNav
+          ? stepDurationMs(
+              imageToWorld(prev, sizeOf(grid)),
+              imageToWorld(p, sizeOf(grid)),
+              msPerUnit,
+            )
+          : 95;
+      segment.current = { from, to: p, t0: Date.now(), ms };
+      moveCat(
+        xy,
+        p,
+        ms,
+        ({ finished }) => {
+          if (finished) {
+            segment.current = null;
+            from = p;
+            location.current = p;
+            // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
+            // pos state 는 layered 미리보기의 zIndex 에만 쓴다 — 운영에서는 걸음마다 지도 전체를 다시 그리지 않는다(GROMO-2371).
+            if (layeredPreview) setPos(p);
+            homePositions[positionKey] = p;
+            next();
+          }
+        },
+        WALK_EASE,
+      );
     };
     next();
     return true;
@@ -1679,8 +1780,10 @@ function FinalIslandScene({
       if (sameCells(walkCells.current, waypoints) && Math.abs(msPerUnit - MS_PER_UNIT) <= 1e-6)
         return;
       const size = sizeOf(grid);
-      let here = location.current;
-      xy.stopAnimation((value) => (here = value));
+      // 네이티브 드라이버 값은 stopAnimation 콜백이 비동기라 지금 자리는 걷는 구간으로 계산한다(GROMO-2374).
+      const here = livePosition();
+      xy.stopAnimation();
+      segment.current = null;
       location.current = here;
       walkCells.current = waypoints;
       const hereWorld = imageToWorld(here, size);
@@ -1814,18 +1917,11 @@ function FinalIslandScene({
     }
     const controller = movement.current;
     const size = sizeOf(grid);
-    // 걷는 동안 화면에 보이는 고양이 위치를 ref 로 샘플링한다 — location.current 는 구간이 끝나야
-    // 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를 잘못
-    // 보여준다(GROMO-2249 보완7 지적 2). xy 는 location.current 와 같은 1x 이미지 px 공간이라
-    // px→world 변환이 필요 없다(둘 다 image px — worldCoords 의 WorldPoint 가 아니다). 컨트롤러가
-    // 없으면(동기화 off) predicted 자체를 안 그리니(아래 flush) 리스너도 걸지 않는다 — 기존 off 동작
-    // 그대로(MOVEMENT_SYNC 가 꺼지면 controller 는 항상 null).
-    const livePos = { current: location.current };
-    const listenerId = controller
-      ? xy.addListener((v) => {
-          livePos.current = v;
-        })
-      : null;
+    // 걷는 동안 화면에 보이는 고양이 위치는 flush 때 livePosition() 으로 계산한다 — location.current 는
+    // 구간이 끝나야 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를
+    // 잘못 보여준다(GROMO-2249 보완7 지적 2). 둘 다 1x 이미지 px 공간이라 px→world 변환이 필요 없다(worldCoords
+    // 의 WorldPoint 가 아니다). xy 는 네이티브 드라이버 값이라 리스너를 걸면 매 프레임 네이티브→JS 이벤트가
+    // 오므로 걸지 않는다(GROMO-2374).
     // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
     let lastFlush = 0,
       timer: ReturnType<typeof setTimeout> | null = null;
@@ -1864,8 +1960,8 @@ function FinalIslandScene({
             // 경로 비교 1순위(보완4 지적 3) — 서버 경로 식별자. lastPath 가 없으면(아직 PathAccepted 전) null.
             pathId: st.lastPath?.pathId ?? null,
             snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
-            // 걷는 중엔 xy 의 애니메이션 중간값(livePos) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
-            predicted: livePos.current,
+            // 걷는 중엔 구간 중간값(livePosition) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
+            predicted: livePosition(),
             correctedAt: st.lastCorrectionAt,
             // state() 가 수신 시각을 그대로 준다(GROMO-2249 보완) — 틱 지연(now - 이 값)은 readout 이 그릴 때
             // 계산해, 절대 시각이라 메시지가 안 와도 값이 그대로다(아래 shallow 비교가 매번 새 객체를 안 만든다).
@@ -1897,7 +1993,6 @@ function FinalIslandScene({
     // 가 다시 돌며 새로 잡는다(보완9 항목 2).
     const interval = controller ? setInterval(flush, 250) : null;
     return () => {
-      if (listenerId) xy.removeListener(listenerId);
       unsubscribe();
       if (timer) clearTimeout(timer);
       if (interval) clearInterval(interval);
@@ -1928,6 +2023,7 @@ function FinalIslandScene({
     const p = initial();
     location.current = p;
     xy.setValue(p);
+    segment.current = null;
     setPos(p);
     setWalking(false);
     stepping.current = false;
@@ -2217,8 +2313,13 @@ function FinalIslandScene({
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: Animated.subtract(Animated.multiply(xy.x, s), hitSize / 2),
-              top: Animated.subtract(Animated.multiply(xy.y, s), catSize / 2 + hitSize / 2),
+              // 발 기준점 맞춤은 고정 left/top, 걷기는 네이티브 드라이버 transform(GROMO-2374) — 터치 영역도 같이 옮겨진다.
+              left: -hitSize / 2,
+              top: -(catSize / 2 + hitSize / 2),
+              transform: [
+                { translateX: Animated.multiply(xy.x, s) },
+                { translateY: Animated.multiply(xy.y, s) },
+              ],
               width: hitSize,
               height: hitSize,
               zIndex: scene ? Math.round(pos.y) : 25,
@@ -2484,14 +2585,21 @@ function FinalIslandScene({
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  {i.construction
-                    ? t('home.buildMinutesLeft', {
-                        count: Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000)),
-                      })
-                    : t('home.buildProgress', {
-                        current: balance(i),
-                        total: buildingCost(i, next!),
-                      })}
+                  {/* 공사 중 남은 분·진행 막대만 매초 다시 그린다(GROMO-2372) */}
+                  {i.construction ? (
+                    <Ticking>
+                      {(now) =>
+                        t('home.buildMinutesLeft', {
+                          count: Math.max(0, Math.ceil((i.construction!.endsAt - now) / 60000)),
+                        })
+                      }
+                    </Ticking>
+                  ) : (
+                    t('home.buildProgress', {
+                      current: balance(i),
+                      total: buildingCost(i, next!),
+                    })
+                  )}
                 </Txt>
               </View>
               <View
@@ -2502,13 +2610,17 @@ function FinalIslandScene({
                   overflow: 'hidden',
                 }}
               >
-                <View
-                  style={{
-                    height: '100%',
-                    width: `${i.construction ? Math.max(0, Math.min(100, (100 * (Date.now() - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
-                    backgroundColor: '#FFA6BC',
-                  }}
-                />
+                <Ticking ms={i.construction ? 1000 : null}>
+                  {(now) => (
+                    <View
+                      style={{
+                        height: '100%',
+                        width: `${i.construction ? Math.max(0, Math.min(100, (100 * (now - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
+                        backgroundColor: '#FFA6BC',
+                      }}
+                    />
+                  )}
+                </Ticking>
               </View>
               {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
                 <Btn

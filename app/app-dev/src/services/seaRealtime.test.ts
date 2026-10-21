@@ -10,6 +10,7 @@ jest.mock('@stomp/stompjs', () => {
   class FakeClient {
     static instances: FakeClient[] = [];
     connected = false;
+    activations = 0;
     connectHeaders: Record<string, string> = {};
     log: string[] = [];
     subs: { dest: string; cb: (m: { body: string }) => void; live: boolean }[] = [];
@@ -19,6 +20,7 @@ jest.mock('@stomp/stompjs', () => {
       FakeClient.instances.push(this);
     }
     activate() {
+      this.activations += 1;
       this.opts.beforeConnect?.(this);
       this.connected = true;
       this.subs = [];
@@ -51,6 +53,11 @@ const { Client } = jest.requireMock('@stomp/stompjs') as { Client: any };
 let clock = 1_000_000;
 const now = () => clock;
 const client = () => Client.instances[Client.instances.length - 1];
+// resume() 은 deactivate() 가 끝난 뒤(마이크로태스크) 다시 붙는다 — 타이머를 돌린 뒤 한 번 비운다
+const flush = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 const deliver = (dest: string, body: unknown) => {
   for (const sub of client().subs.filter((s: any) => s.dest === dest && s.live))
     sub.cb({ body: JSON.stringify(body) });
@@ -252,7 +259,7 @@ test('close — leave 를 보내고 소켓을 닫고 주기 sync 를 멈춘다',
 const stompError = (code = 'UPSTREAM_UNAVAILABLE') =>
   client().opts.onStompError({ headers: { message: code }, body: '' });
 
-test('ERROR 프레임이 연속 3번이면 쉬었다가 백오프(30초 → 60초)로 다시 붙고, 안내는 한 번만 한다', () => {
+test('ERROR 프레임이 연속 3번이면 쉬었다가 백오프(30초 → 60초)로 다시 붙고, 안내는 한 번만 한다', async () => {
   const { spy } = open();
   for (let i = 0; i < 3; i += 1) stompError();
   expect(client().log.slice(-1)).toEqual(['CLOSE']);
@@ -261,6 +268,7 @@ test('ERROR 프레임이 연속 3번이면 쉬었다가 백오프(30초 → 60�
   jest.advanceTimersByTime(29_999);
   expect(client().connected).toBe(false);
   jest.advanceTimersByTime(1);
+  await flush();
   expect(client().connected).toBe(true); // activate 를 다시 불렀다 — onConnect 가 enter 부터
   expect(client().log.slice(-1)).toEqual(['SEND /app/sea/enter {}']);
   // 다시 붙자마자 또 거절되면 바로 다음(60초) 백오프로 쉰다 — 안내는 다시 하지 않는다
@@ -270,29 +278,71 @@ test('ERROR 프레임이 연속 3번이면 쉬었다가 백오프(30초 → 60�
   jest.advanceTimersByTime(30_000);
   expect(client().connected).toBe(false);
   jest.advanceTimersByTime(30_000);
+  await flush();
   expect(client().connected).toBe(true);
 });
 
-test('백오프는 30초 → 60초 → 120초로 늘고 120초가 상한이다(네 번째도 120초)', () => {
+test('백오프는 30초 → 60초 → 120초로 늘고 120초가 상한이다(네 번째도 120초)', async () => {
   open();
   const reject = () => {
     for (let i = 0; i < 3; i += 1) stompError();
   };
-  const waitsFor = (ms: number) => {
+  const waitsFor = async (ms: number) => {
     expect(client().connected).toBe(false);
     jest.advanceTimersByTime(ms - 1);
     expect(client().connected).toBe(false);
     jest.advanceTimersByTime(1);
+    await flush();
     expect(client().connected).toBe(true);
   };
   reject();
-  waitsFor(30_000);
+  await waitsFor(30_000);
   reject();
-  waitsFor(60_000);
+  await waitsFor(60_000);
   reject();
-  waitsFor(120_000);
+  await waitsFor(120_000);
   reject();
-  waitsFor(120_000);
+  await waitsFor(120_000);
+});
+
+test('비코드 ERROR(Session closed.)는 3번이어도 쉬지 않고 안내도 하지 않는다 — 코드 ERROR 는 종전 백오프', () => {
+  const { spy } = open();
+  for (let i = 0; i < 3; i += 1) stompError('Session closed.');
+  expect(client().connected).toBe(true);
+  expect(spy.errors).toEqual([]);
+  // 비코드가 카운터에 남지 않았다 — 코드 ERROR 3번째에야 쉰다
+  stompError();
+  stompError();
+  expect(client().connected).toBe(true);
+  stompError();
+  expect(client().connected).toBe(false);
+});
+
+test('close 사유 SESSION_REVOKED — 안내하고 재접속을 멈추며 백오프 재활성도 하지 않는다', () => {
+  const { spy, room } = open();
+  client().onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+  expect(client().log.slice(-1)).toEqual(['CLOSE']);
+  expect(spy.errors).toEqual(['다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요.']);
+  room.reconnect();
+  expect(client().connected).toBe(false);
+});
+
+test('쉬는 중에 세션 폐기 close 가 오면 백오프 타이머가 다시 붙이지 않는다', () => {
+  open();
+  for (let i = 0; i < 3; i += 1) stompError();
+  client().onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+  jest.advanceTimersByTime(300_000);
+  expect(client().connected).toBe(false);
+});
+
+test('다른 close(1002·OUTBOUND_QUEUE_FULL)는 아무것도 하지 않는다', () => {
+  const { spy } = open();
+  const before = client().log.length;
+  client().onWebSocketClose({ code: 1002, reason: 'Session closed.' });
+  client().onWebSocketClose({ code: 1008, reason: 'OUTBOUND_QUEUE_FULL' });
+  expect(client().log.length).toBe(before);
+  expect(client().connected).toBe(true);
+  expect(spy.errors).toEqual([]);
 });
 
 test('이모트 연타 ERROR(EMOTE_TOO_FREQUENT)는 안내만 하고 백오프로 세지 않는다', () => {
@@ -306,7 +356,7 @@ test('이모트 연타 ERROR(EMOTE_TOO_FREQUENT)는 안내만 하고 백오프�
   expect(client().connected).toBe(true);
 });
 
-test('reconnect() — 쉬는 중이면 기다리지 않고 바로 다시 붙고, 연결 중이면 아무 일도 없다', () => {
+test('reconnect() — 쉬는 중이면 기다리지 않고 바로 다시 붙고, 연결 중이면 아무 일도 없다', async () => {
   const { room } = open();
   const before = client().log.length;
   room.reconnect();
@@ -314,15 +364,17 @@ test('reconnect() — 쉬는 중이면 기다리지 않고 바로 다시 붙고,
   for (let i = 0; i < 3; i += 1) stompError();
   expect(client().connected).toBe(false);
   room.reconnect();
+  await flush();
   expect(client().connected).toBe(true);
   jest.advanceTimersByTime(120_000); // 지운 백오프 타이머가 또 붙지 않는다
   expect(client().log.filter((l: string) => l === 'SUB /user/queue/sea')).toHaveLength(2);
 });
 
-test('스냅샷을 받으면 오류 카운터·백오프·안내가 처음으로 돌아간다', () => {
+test('스냅샷을 받으면 오류 카운터·백오프·안내가 처음으로 돌아간다', async () => {
   const { spy } = open();
   for (let i = 0; i < 3; i += 1) stompError();
   jest.advanceTimersByTime(30_000);
+  await flush();
   joinRoom(); // 정상화 — 스냅샷
   stompError();
   stompError();
@@ -331,6 +383,7 @@ test('스냅샷을 받으면 오류 카운터·백오프·안내가 처음으로
   expect(client().connected).toBe(false);
   expect(spy.errors).toHaveLength(2); // 안내도 다시 한 번
   jest.advanceTimersByTime(30_000); // 백오프도 30초부터
+  await flush();
   expect(client().connected).toBe(true);
 });
 
@@ -421,4 +474,16 @@ test('onReconnect — 첫 연결에는 부르지 않고 재연결마다 부른�
   client().activate();
   client().activate();
   expect(spy.reconnects).toBe(2);
+});
+
+test('쉬는 중 reconnect() 직후 세션 폐기 close 가 오면 예약된 재접속을 취소한다', async () => {
+  const { room } = open();
+  for (let i = 0; i < 3; i += 1) stompError();
+  const before = client().activations;
+  room.reconnect();
+  client().onWebSocketClose({ code: 1008, reason: 'SESSION_REVOKED' });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(client().activations).toBe(before);
+  expect(client().connected).toBe(false);
 });

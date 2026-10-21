@@ -3,6 +3,7 @@ package com.oneorthree.realtime.config;
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.auth.VerifiedAccessIdentity;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
@@ -12,6 +13,7 @@ import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -24,6 +26,7 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -155,6 +158,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final MembershipService membershipService;
     private final SeaRooms seaRooms;
     private final MeterRegistry meterRegistry;
+    private final ChatUserFence chatUserFence;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -191,10 +195,22 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
         UUID userId = jwtValidator.extractUserId(token)
                 .orElseThrow(() -> new StompAuthException(CommonErrorCode.UNAUTHORIZED));
+        // 폐기된 세션(auth.session.revoked, GROMO-2350)의 AT 는 만료 전이어도 재연결을 받지 않는다. sid 없는 구 토큰은 해당 없음.
+        // JWT 는 한 번만 푼다 — 같은 sid 로 등록 전·후 두 번 검사한다.
+        UUID sid = jwtValidator.extractSessionProof(token).map(VerifiedAccessIdentity::sessionId).orElse(null);
+        if (sid != null && chatUserFence.isRevokedDurable(sid)) {
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
 
         ChatPrincipal principal = new ChatPrincipal(userId, authorization);
         accessor.setUser(principal);
         sessions.register(accessor.getSessionId(), principal);
+        // 등록 «뒤» 재검사 — 폐기 처리는 펜스를 올린 «다음에» 세션 목록을 뜬다. 그래서 어떤 인터리빙이든 이 CONNECT 가 펜스를 보거나
+        // (여기서 거절) 그쪽 스냅샷에 이 등록이 보이거나(그쪽이 닫음) 둘 중 하나가 성립한다. 앞의 검사만으로는 둘 사이 창이 남는다.
+        if (sid != null && chatUserFence.isRevokedDurable(sid)) {
+            sessions.closed(accessor.getSessionId()); // 등록을 되돌린다 — 수립 실패 정리(WebSocketConfig)와 같은 길
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
     }
 
     /**
@@ -611,9 +627,19 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String bearer = principal.bearer();
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
         // 다른 기기가 캐시를 갱신해도 만료된 소켓의 인증 수명이 연장되면 안 된다.
-        jwtValidator.extractUserId(token)
-                .filter(principal.userId()::equals)
-                .orElseThrow(() -> new StompAuthException(CommonErrorCode.UNAUTHORIZED));
+        // JWT 는 한 번만 푼다 — 현행 토큰은 proof 하나로 userId·sid 를 얻고, sid 없는 구 토큰만 extractUserId 로 간다.
+        var proof = jwtValidator.extractSessionProof(token);
+        UUID tokenUser = proof.map(VerifiedAccessIdentity::userId)
+                .or(() -> jwtValidator.extractUserId(token)).orElse(null);
+        if (!principal.userId().equals(tokenUser)) {
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
+        // 폐기된 sid(GROMO-2350) — 종료가 실패해 소켓이 남아 있어도 SEND·SUBSCRIBE 는 서비스에 닿지 않는다. 인메모리 조회라 프레임당
+        // 왕복이 없다. 던지기만 하면 ERROR 프레임만 가고 소켓은 남을 수 있어(만료 AT 의 거절도 같다) 여기서 직접 한 번 더 닫는다.
+        if (proof.isPresent() && chatUserFence.isRevoked(proof.get().sessionId())) {
+            sessions.close(accessor.getSessionId(), CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
         return principal;
     }
 

@@ -14,6 +14,7 @@ import { loadNav } from '@/utils/nav-path';
 // tilePath 를 하나의 탭에서만 가짜로 바꾸는 스파이용 — 네임스페이스로 가져와야 jest.spyOn 대상이 된다.
 import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
+import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -224,9 +225,20 @@ type Screen = Awaited<ReturnType<typeof render>>;
 const channel = () => mockChannels[mockChannels.length - 1];
 const emit = (body: unknown) => act(async () => channel().opts.onEvent(body));
 const flat = (style: unknown) => Object.assign({}, ...[style].flat(3)) as Record<string, number>;
+// 걷는 고양이는 고정 left/top 에 transform 이동을 더해 그린다(GROMO-2374) — 둘을 더한 화면 자리를 읽는다.
+const placed = (style: unknown) => {
+  const st = flat(style);
+  const [{ translateX }, { translateY }] = st.transform as unknown as {
+    translateX: number;
+    translateY: number;
+  }[];
+  st.left += translateX;
+  st.top += translateY;
+  return st;
+};
 // 내 고양이 컨테이너(left = x·s − hit/2, top = y·s − cat/2 − hit/2)에서 월드 좌표를 되돌린다.
 const myCat = (screen: Screen) => {
-  const st = flat(screen.getByTestId('home-cat-container').props.style);
+  const st = placed(screen.getByTestId('home-cat-container').props.style);
   return imageToWorld(
     {
       x: (st.left + st.width / 2) / SCALE,
@@ -237,7 +249,7 @@ const myCat = (screen: Screen) => {
 };
 const myMotion = (screen: Screen) => screen.getByTestId('home-cat-sprite').props.testPropMotion;
 const residentAt = (screen: Screen, userId: string) => {
-  const st = flat(screen.getByTestId(`remote-resident-${userId}`).props.style);
+  const st = placed(screen.getByTestId(`remote-resident-${userId}`).props.style);
   return imageToWorld({ x: st.left / SCALE, y: st.top / SCALE }, SIZE);
 };
 const residentMotion = (screen: Screen, userId: string) =>
@@ -271,6 +283,7 @@ const walkToEnd = async (screen: Screen) => {
   }
   return trail;
 };
+let jsDriver: ReturnType<typeof observeAnimatedOnJsDriver>;
 const renderHome = (islandId: string, props: object = {}) =>
   render(<FinalIsland state={serverState(islandId)} go={jest.fn()} build={jest.fn()} {...props} />);
 
@@ -280,8 +293,11 @@ beforeEach(async () => {
   // 테스트 네이티브 모듈 mock 은 AppState.currentState 기본값이 없다(RN 소스는 null) — appActive 게이트가
   // 막 마운트한 화면에서 채널을 열려면 'active' 로 보이게 한다(RaftWaterMotion.test.tsx 와 같은 패턴, 지적 1).
   (AppState as { currentState: string | null }).currentState = 'active';
+  // 고양이 이동은 네이티브 드라이버라 Jest 목에서는 값이 안 움직인다 — 같은 설정을 JS 드라이버로 돌려 위치를 본다.
+  jsDriver = observeAnimatedOnJsDriver();
 });
 afterEach(() => {
+  jsDriver.mockRestore();
   jest.useRealTimers();
 });
 
@@ -431,6 +447,8 @@ it('로컬 예측과 서버 경로가 멀리 떨어져 있어도 갈아탄 연�
         reset: jest.fn(),
       }) as unknown as Animated.CompositeAnimation,
   );
+  // beforeEach 의 JS 드라이버 스파이를 그대로 돌려받는다 — 앞선 호출 기록을 지운다.
+  timing.mockClear();
   let verts: WorldPoint[] = [SPAWN];
   try {
     // 서버는 지금 자리(SPAWN)에서 4칸 떨어진 아래쪽 줄로 경로를 확정했다 — 직선이면 건너뛴다.
@@ -481,6 +499,8 @@ it('연결 경로(navPath)가 비고 현재 셀이 서버 출발점과 다르면
         reset: jest.fn(),
       }) as unknown as Animated.CompositeAnimation,
   );
+  // beforeEach 의 JS 드라이버 스파이를 그대로 돌려받는다 — 앞선 호출 기록을 지운다.
+  timing.mockClear();
   let durations: number[] = [];
   let toValues: WorldPoint[] = [];
   try {
@@ -572,6 +592,8 @@ it('셀 열이 같아도 서버 speed 가 로컬과 다르면 남은 구간을 �
         reset: jest.fn(),
       }) as unknown as Animated.CompositeAnimation,
   );
+  // beforeEach 의 JS 드라이버 스파이를 그대로 돌려받는다 — 앞선 호출 기록을 지운다.
+  timing.mockClear();
   let durations: number[] = [];
   try {
     // 서버는 로컬과 같은 셀 경로를 확정했지만 속도(1000/5=200ms/unit)는 로컬 기본값(91ms/unit)과 다르다.
@@ -704,6 +726,35 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
   // 300ms 넘게 위치가 안 오면 제자리걸음을 멈춘다.
   await act(async () => jest.advanceTimersByTime(300));
   expect(residentMotion(screen, U1)).toBe('blink');
+  await screen.unmount();
+});
+
+it('걷는 고양이(내 고양이·떠돌이·다른 주민)는 left/top 이 아니라 transform 을 네이티브 드라이버로 옮긴다(GROMO-2374)', async () => {
+  jest.useFakeTimers();
+  // 떠돌이 행선지를 고정해 FullState 전에 한 번 걷게 한다(첫 출발 1.2초 뒤).
+  const random = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+  const screen = await renderHome(nextIsland());
+  await act(async () => jest.advanceTimersByTime(1500));
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  const box = (id: string) => flat(screen.getByTestId(id).props.style);
+  const ids = ['home-cat-container', `remote-resident-${U1}`];
+  const before = ids.map(box);
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  await emit(pathAccepted(U1, 3, 1, { x: 40.5, y: 45.5 }, [{ x: 41.5, y: 45.5 }]));
+  await emit(snapshot(101, [entity(U1, 1, { x: 41, y: 45.5 })]));
+  await act(async () => jest.advanceTimersByTime(150));
+  // 걷는 동안 left/top 은 그대로(레이아웃 없음)이고 transform 만 바뀐다.
+  ids.forEach((id, i) => {
+    const now = box(id);
+    expect(now.left).toBe(before[i].left);
+    expect(now.top).toBe(before[i].top);
+    expect(now.transform).not.toEqual(before[i].transform);
+  });
+  // 고양이 셋(떠돌이·내 고양이·다른 주민)의 이동이 모두 네이티브 드라이버 설정이다 — 테스트만 JS 로 돌린다(jsDriver).
+  const moves = jsDriver.mock.calls.filter(([value]) => value instanceof Animated.ValueXY);
+  expect(new Set(moves.map(([value]) => value)).size).toBe(3);
+  for (const [, config] of moves) expect(config.useNativeDriver).toBe(true);
+  random.mockRestore();
   await screen.unmount();
 });
 

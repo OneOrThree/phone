@@ -2,7 +2,7 @@ import type { ImageSourcePropType } from 'react-native';
 import type { Color } from '@/services/model';
 
 export const seaAssets = {
-  background: require('@/assets/ota/sea/far-sea.png'),
+  background: require('@/assets/ota/sea/far-sea.jpg'),
   gulls: require('@/assets/ota/sea/seagulls.png'),
   destination: require('@/assets/ota/sea/destination-island.png'),
   raftBack: require('@/assets/boats/raft/layers/back-day.png'),

@@ -158,12 +158,12 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 
 | 항목 | 값 | 측정 방법 | 기준 |
 | --- | --- | --- | --- |
-| 앱 10분 이동 배터리 % | 미측정 — 실기기(2250 잔여) | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 10분 동안 탭 이동, 전후 배터리 % | 앱 `e6e9b6920` |
-| 보정 점프 최대 px | 미측정 — 실기기(2250 잔여) | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | 앱 `e6e9b6920` |
-| dev 서버 RTT | 미측정 — 실기기(2250 잔여) | 실기기(Wi-Fi·LTE)에서 dev 서버로 intent → 내 PathAccepted 왕복 | 앱 `e6e9b6920` |
-| MV-D05 체감 | 미측정 — 실기기(2250 잔여) | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | 앱 `e6e9b6920` |
-| 실기기 Snapshot 간격 p99 | 미측정 — 실기기(2250 잔여) | 실기기(Wi-Fi·LTE)에서 Snapshot 수신 간격 p50·p99·100 ms 이상 비율 — 「dev 서버 RTT」 와 같은 세션, 위 서버 측 표와 같은 정의(아키텍처 §7 재검토 조건 ①-a) | 앱 `e6e9b6920` |
-| T10 재접속 횟수·복구 시간 | 미측정 — 실기기(2250 잔여) | 배경 종료·Wi-Fi 전환·동일 계정 다른 기기(T10)에서 재접속 횟수와 FullState 로 수렴까지 걸린 시간(아키텍처 §7 재검토 조건 ③) | 앱 `e6e9b6920` |
+| 이동 배터리 % (약 21분) | 68% → 53% = 15%p / 약 21분 ≈ 0.7%p/분 (화면 상시 켜짐·자동 걷기 포함 — 이동 동기화만의 비용 아님) — §7-3 | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 탭 이동, 전후 배터리 % | 실기기 §7-3 (로컬·Wi-Fi) |
+| 보정 점프 최대 px | 화면 260 px (이미지 324 px × 배율 0.80) — §7-3 | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | 실기기 §7-3 |
+| 실기기 RTT (로컬·Wi-Fi) | p50 64 · p99 202 · 최대 277 ms (452건) — §7-3. **dev 서버·LTE 는 미측정** | 실기기에서 로컬 nginx 로 intent → 내 PathAccepted 왕복(dev 서버·LTE 는 미측정) | 실기기 §7-3 (dev·LTE 남음) |
+| MV-D05 체감 | 꽤 자연스러움 — 가로·세로·대각 이동 체감(오너) — §7-3 | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | 실기기 §7-3 |
+| 실기기 Snapshot 간격 p99 | 로컬·Wi-Fi p50 51 · p99 126 ms · ≥100ms 5.2% (18,000+건, 봇 5명 공존) — §7-3 | Snapshot 수신 간격 p50·p99·100 ms 이상 비율 — 「실기기 RTT」 와 같은 세션(아키텍처 §7 재검토 조건 ①-a) | 실기기 §7-3 (dev·LTE 남음) |
+| T10 재접속 횟수·복구 시간 | 단일 세션·망 전환 없이 재접속 0회·첫 FullState 38 ms. **배경 종료·Wi-Fi 전환·다른 기기(T10) 시나리오는 미수행** — §7-3 | 배경 종료·Wi-Fi 전환·동일 계정 다른 기기(T10)에서 재접속 횟수와 FullState 수렴 시간(아키텍처 §7 재검토 조건 ③) | 실기기 §7-3 (T10 남음) |
 
 ⁽¹⁾ PathAccepted 는 방 전원에게 나가는 메시지라(`RoomRuntime` `Target.ALL`) movement 토픽 구독으로 받는다. 서버가 다음 틱에 처리해 틱 대기(0~50 ms)가 들어 있고, 같은 맥이라 망 지연은 거의 없다. 측정 클라이언트가 같은 맥의 Node 단일 이벤트 루프라 N=15 에선 클라이언트 쪽 지터가 p99 에 섞인다 — 서버 처리 시간만으로 읽지 않는다. 표본이 30·150·450 개라 p99 는 경향으로만 읽는다(N=1 의 p99 는 곧 최대).
 
@@ -202,7 +202,7 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 
 ## 7-2. 2026-10-20 main 재측정
 
-서버 main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Redis 릴레이, 유한 outbound 실행기, heartbeat 10s, 틱 히스토그램)을 10-09·10-18 과 같은 두 하네스로 다시 쟀다. 원본·해시는 [measurements/2026-10-20/](measurements/2026-10-20/README.md). 표의 값은 스크립트 출력이며 손으로 옮기지 않았다. 앱은 띄우지 않았고 **실기기 잔여 표(§7)는 그대로 미측정**이다.
+서버 main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Redis 릴레이, 유한 outbound 실행기, heartbeat 10s, 틱 히스토그램)을 10-09·10-18 과 같은 두 하네스로 다시 쟀다. 원본·해시는 [measurements/2026-10-20/](measurements/2026-10-20/README.md). 표의 값은 스크립트 출력이며 손으로 옮기지 않았다. 앱은 띄우지 않았다(실기기 측정은 §7-3 에서 따로 했다 — §7 잔여 표의 로컬·Wi-Fi·공존 분을 채웠고 dev 서버·LTE·T10 은 남았다).
 
 조건:
 
@@ -272,17 +272,39 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 
 세션당 B/s(3회 중앙값)를 `B/s × 3600 / 1e6` 으로 MB/시간 환산했다. Snapshot 본문 = Snapshot 프레임 − 헤더 몫. 10-09 는 프레임 종류별 바이트를 직접 재지 못해 N=15 값에서 역산했다(위 §7 데이터 예산).
 
-| N | 총 B/s (MB/h) | Snapshot 본문 B/s (MB/h) | Snapshot 헤더 몫 B/s (MB/h) | PathAccepted B/s (MB/h) | Arrived B/s (MB/h) |
-| --- | --- | --- | --- | --- | --- |
-| N=1 | 8,270 (29.8) | 3,752 (13.5) | 3,955 (14.2) | 523.7 (1.9) | 38.7 (0.1) |
-| N=5 | 21,935 (79.0) | 14,817 (53.3) | 4,280 (15.4) | 2,626.8 (9.5) | 210.7 (0.8) |
-| N=15 | 54,572 (196.5) | 41,670 (150.0) | 4,289 (15.4) | 8,032.0 (28.9) | 593.6 (2.1) |
-| 10-09 역산 N=15 | 54,717 (197.0) | ≈ 150 | ≈ 13 | ≈ 33 (PathAccepted + Arrived) | (합산) |
+| N | 총 B/s (MB/h) | Snapshot 본문 B/s (MB/h) | Snapshot 헤더 몫 B/s (MB/h) | PathAccepted B/s (MB/h) | Arrived B/s (MB/h) | movement 프레임 B/s (MB/h) | 기타 B/s | FullState |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| N=1 | 8,270 (29.8) | 3,752 (13.5) | 3,955 (14.2) | 523.7 (1.9) | 38.7 (0.1) | 562 (2.0) | 0 | 창 안 0 |
+| N=5 | 21,935 (79.0) | 14,817 (53.3) | 4,280 (15.4) | 2,626.8 (9.5) | 210.7 (0.8) | 2,837 (10.2) | 0 | 창 안 0 |
+| N=15 | 54,572 (196.5) | 41,670 (150.0) | 4,289 (15.4) | 8,032.0 (28.9) | 593.6 (2.1) | 8,625 (31.0) | 0 | 창 안 0 |
+| 10-09 역산 N=15 | 54,717 (197.0) | ≈ 150 | ≈ 13 | ≈ 33 (PathAccepted + Arrived) | (합산) | (합산) | — | — |
 
+- movement 프레임 = PathAccepted + Arrived(N=1 523.7 + 38.7 ≈ 562). 기타는 STOMP 하트비트로 0.08 B/s 라 0 으로 반올림됐다(`one-island.json` `bytesPerSecByKind.other`). Snapshot 프레임 = 본문 + 헤더 몫(N=15 41,670 + 4,289 ≈ 45,959).
 - 성분 합(≈ 54,585 B/s)이 총량 중앙값(54,572)과 조금 다른 것은 열마다 따로 구한 3회 중앙값이기 때문이다.
 - Snapshot 헤더 몫은 N=1·5·15 에서 3,955 → 4,289 B/s 로 거의 일정하다. 엔티티 수가 아니라 프레임 수(≈ 20/s)에 비례하는 고정비라는 뜻이다.
 - FullState 바이트는 부하 구간에 0 이다(접속 때 한 번뿐, 60초 구간 밖).
 - 10-09 역산(150 / 13 / 33)은 대체로 맞았다. 실측은 헤더 몫이 조금 크고(13 → 15.4) reliable 사건은 조금 작다(33 → PathAccepted 28.9 + Arrived 2.1 = 31.0). 총량은 54,717 → 54,572 B/s 로 같은 급이다.
+
+단위 행(표의 값에서 계산한 단위당 크기 — 출처 열: 측정 = `one-island.md` 셀 그대로, 유도 = 측정값의 나눗셈·차분, 미측정 = 이 측정으로는 못 구함):
+
+| 항목 | N=1 | N=5 | N=15 | 출처 · 산식 |
+| --- | --- | --- | --- | --- |
+| Snapshot 본문 평균 (B/프레임) | 202 | 741 | 2,089 | 측정 |
+| Snapshot 프레임/s (세션당) | 18.57 | 20.00 | 19.95 | 유도 — 본문 B/s ÷ 본문 평균 (3,752/202 · 14,817/741 · 41,670/2,089). N=1 은 정지 구간이 있어 20 에 못 미친다 |
+| STOMP 헤더 (B/프레임) | 213 | 214 | 215 | 유도 — 헤더 몫 ÷ 프레임/s (3,955/18.57 …). 10-09 역산 185 보다 크다 |
+| JSON entity (B) | — | 134.8 | 134.8 | 유도 — (741 − 202)/4 = (2,089 − 202)/14 = 134.8 (N=5 의 entity 5명 − N=1 의 1명 = 4, N=15 − N=1 = 14) |
+| Snapshot 고정 오버헤드 (B/프레임) | 67 | 67 | 67 | 유도 — 202 − 134.8 ≈ 67 (`type`·`serverTick` 등 봉투, entity 0명 기준 외삽) |
+| PathAccepted 건/s (세션당) | 0.5 | 2.5 | 7.5 | 유도 — N × 0.5 (전원 2초마다 intent). `one-island.json` counts(60초 PathAccepted 30건 = 0.5/s)와 N=1 에서 일치 |
+| PathAccepted 프레임 (B/건, STOMP 헤더 포함) | 1,047 | 1,051 | 1,071 | 유도 — PathAccepted B/s ÷ 건/s (523.7/0.5 · 2,626.8/2.5 · 8,032.0/7.5) |
+| PathAccepted 본문 평균 (B) | 843 | 845 | 866 | 측정 |
+| PathAccepted waypoints 평균 (최대) | 30.7 (67) | 30.8 (79) | 31.8 (80) | 측정 |
+| Arrived (B/s) | 38.7 | 210.7 | 593.6 | 측정 (건당 크기는 미측정) |
+| IDLE entity 비율 | 1.3% | 10.8% | 10.7% | 측정 |
+| waypoint 당 B | — | — | — | 미측정. `RoomRuntime.toWaypoints()` 가 셀 중심(0.5 단위)만 내므로 `Point` JSON `{"x":12.5,"y":34.5},` 는 구분 쉼표 포함 ≈ 20 B 로 추정하면 31.8 × 20 ≈ 636 B, 본문 866 − 636 ≈ 230 B 가 waypoints 밖 필드다(추정) |
+
+PathAccepted 프레임(1,071 B) − 본문(866 B) = 205 B 는 STOMP 헤더(Snapshot 의 215 B 와 같은 급)로 보이지만, 헤더 길이를 PathAccepted·Arrived 에서 직접 재지는 않았다.
+
+미측정: Arrived 건당 B · waypoint 당 B · PathAccepted·Arrived 의 STOMP 헤더 B · 5 Hz 모드(서버에 5 Hz 모드 코드가 없다 — `RoomRuntime` 은 MOVING 이 있으면 20 Hz 로 전원 entity 를 보낸다) · 실기기 수신량. 5 Hz 값은 [아키텍처 §7 축소안 비교](architecture.md#7-java--kafka--realtime-선택-검토)에 추정으로만 있다.
 
 관찰:
 
@@ -297,6 +319,33 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 - 원본: [measurements/2026-10-20/](measurements/2026-10-20/README.md) — `survey/`(run2 정본)·`survey-run1/`(오염, 참고)·`survey/repeat-300c/`·`one-island.{json,md,stdout.md,stderr.log}`·`one-island-conditions.txt`·`before-20261018/`(10-18 사본)·파일 해시.
 - ① 조사 하네스(레포 루트, 스택 `loadtest/infra/local/compose.yml`): `node loadtest/survey/realtime.mjs --mode movement --connections <N> --frequency <Hz> --seconds <S> --url ws://localhost:18088/ws/realtime --out <json>`. 300c 발신 분산(`movement-spread-300c`)은 `--spread-sends true` 를 더하고, 두 인스턴스 분산은 `--url ws://localhost:18083/ws/realtime,ws://localhost:18085/ws/realtime` 로 바꾼다(연결을 두 주소에 번갈아 배정). 하네스는 gitignored `loadtest/` 에 있다.
 - ② 한 섬: 위 재현 명령 ① 의 `--users 1,5,15` 에 `--repeat 3 --json <경로>` 를 더하고, data-api 에 `AUTH_GUEST_RATE_LIMIT_MAX=1000000`(게스트 15명 한 번에 발급, 티켓 2271)을 준다. 표는 `--render` 출력이다.
+
+## 7-3. 2026-10-20 실기기 측정 (티켓 2250, 봇 5명 공존)
+
+실기기에서 1단계 이동 동기화를 처음 쟀다. 개발 전용 앱 계기(`movementStats` + 자동 걷기, 브랜치 `afeat/GROMO-2250-movement-device-stats` `325e7214c`)가 앱 안에서 RTT·Snapshot 간격·보정 점프·재접속·FullState 를 세어 1초마다 Metro 로그(`[GROMO-2250]`)로 찍는다. 정의는 §7 서버 측 스크립트와 같다. 방법·수치 사본은 [measurements/2026-10-20/device-run/](measurements/2026-10-20/device-run/README.md).
+
+조건:
+
+- 기기 iPhone 16 Pro Max(iOS 27.0.1)·Wi-Fi. 서버는 **dev 가 아니라** 로컬 풀 스택 `phone-*-local`, realtime 2270 jar.
+- 공존: 측정 스크립트(`measure-movement.mjs --island <폰 홈 섬> --users 5 --duration 720`)로 봇 5명을 폰과 같은 섬에 멤버로 넣어 폰이 그들 이동을 수신했다(방 6명). 앱은 자기 소속(홈) 섬에서만 이동 채널을 연다 — 방문 섬에선 열리지 않아, 공존은 봇을 폰 섬에 넣는 방식이다.
+- 리셋 토글을 안 눌러 **약 21분 누적**이고 봇이 함께 있던 시간은 그중 약 12분이다(배터리·표본은 이 누적 기준). 같은 세션의 WS 연결 직후 혼자 구간(약 1분, 표본 ≈240)에서 Snapshot p99 106 ms·≥100ms 1.8% 였고 봇 공존에서 126 ms·5.2% 로 올랐다. 다만 Snapshot 간격은 「직전에 MOVING entity 가 있을 때」만 세므로 공존에선 집계 구간 자체가 늘고, 서버 측 같은 정의 값은 p99 59.7 ms·≥100ms 0.14% 라 폰 수치 상승분에는 Wi-Fi·기기 JS 스레드 지연 몫이 크다. **공존 시 p99 상승이 관찰되었으나 단일 세션·표본 구성 차이·기기/망 지연이 섞여 인과는 단정하지 않는다.**
+
+| 항목 | 값 |
+| --- | --- |
+| RTT (intent→내 PathAccepted) | p50 64 · p99 202 · 최대 277 ms (452건) |
+| Snapshot 수신 간격 | p50 51 · p99 126 ms · ≥100ms 5.2% (18,000+건) |
+| 보정 점프 최대 | 화면 260 px (이미지 324 px × 배율 0.80) |
+| 재접속 / FullState 첫 수렴 | 0회 / 38 ms |
+| 배터리 | 68% → 53% (15%p, 약 21분) |
+| 이동 체감 (MV-D05) | 꽤 자연스러움 (오너) |
+
+서버 측 교차(같은 섬 봇 5명 — 방 6명, 폰 포함. `measure-movement.mjs --users 5` 결과): 세션당 수신 90.9 MB/시간, Snapshot 간격 p50 50·p99 59.7 ms, 왕복 p50 30·p99 64 ms(1,800건 = 봇 5 × 2초 간격 720초), 실행 유효성 100%.
+
+남은 것(공개 dev 서버 빌드 + 수동 조작 필요): dev 서버 RTT·LTE 망, T10 재접속 시나리오(배경 종료·Wi-Fi 전환·동일 계정 다른 기기). 이번은 로컬 Wi-Fi·단일 세션이라 재접속이 0이었다.
+
+접속 함정(측정 중 해소): 홈 섬에 들어가도 RTT·Snapshot·WebSocket 이 0이었다. 원인은 로컬 realtime 이 옛 IP 허용 목록을 들고 있어 폰 WebSocket 핸드셰이크(`GET /ws/realtime`)를 403 으로 막은 것이다(403 은 nginx 가 아니라 realtime 이 낸다). 환경변수 위치·재기동 명령·확인 방법은 [device-run README 의 접속 함정](measurements/2026-10-20/device-run/README.md#접속-함정-측정-중-해소).
+
+빌드 메모: Xcode 빌드 멈춤은 이날 재현되지 않았고, 첫 빌드만 ReactCodegen 입력 파일 경합(rc 65)이라 `pod install` 재실행으로 코드젠을 다시 깔아 풀었다. 앱 계기 커밋 `325e7214c`(`afeat/GROMO-2250-movement-device-stats`)는 이 PR 에 없다 — 앱 PR 은 별도(미개설).
 
 ## 부록 A. 10/9 타일 전환 체크리스트 (2026-10-08 작성)
 

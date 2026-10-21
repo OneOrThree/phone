@@ -187,7 +187,13 @@ function Harness({
     reducer,
     initial,
     // 신규 계정 기본값은 이름이 비어 있다 — 기존 시나리오는 이름이 있는 사용자로 시작한다.
-    (value) => value ?? { ...initialState(full), name: '수빈', profileNames: ['수빈'] },
+    (value) =>
+      value ?? {
+        ...initialState(full),
+        onboarded: route === 'character' || full,
+        name: '수빈',
+        profileNames: ['수빈'],
+      },
   );
   const actions = useRef<string[]>([]);
   const dispatch = useMemo(() => {
@@ -412,33 +418,26 @@ test('닉네임 키보드 표시 이벤트를 두 번 처리해도 값이 유지
   }
 });
 
-test('GROMO 시작하기 전환 후 100ms에는 터치 차단막이 있고 만료 뒤 CTA가 동작한다', async () => {
+test('로그인 직후 터치 차단막이 끝나야 새 온보딩의 고양이 선택을 진행한다', async () => {
   jest.useFakeTimers();
   try {
     const screen = await render(<Harness route="login" flow />);
     await fireEvent.press(screen.getByRole('checkbox'));
     await fireEvent.press(screen.getByText('GROMO 시작하기'));
-    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+    expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
     expect(
       screen.getByTestId('route-transition-shield', { includeHiddenElements: true }).props
         .pointerEvents,
     ).toBe('box-only');
-    await fireEvent.press(
-      screen.getByTestId('route-transition-shield', { includeHiddenElements: true }),
-    );
-    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
-    expect(screen.queryByText('첫 섬 선택')).toBeNull();
-
     await act(async () => jest.advanceTimersByTime(100));
-    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
-    expect(screen.queryByText('첫 섬 선택')).toBeNull();
-
+    expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-arrival')).toBeNull();
     await act(async () => jest.advanceTimersByTime(250));
     expect(
       screen.queryByTestId('route-transition-shield', { includeHiddenElements: true }),
     ).toBeNull();
-    await fireEvent.press(screen.getByText('내 고양이와 시작'));
-    expect(screen.getByText('첫 섬 선택')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('onboarding-choose-next'));
+    expect(screen.getByTestId('onboarding-arrival')).toBeTruthy();
   } finally {
     await act(async () => jest.runOnlyPendingTimers());
     jest.useRealTimers();
@@ -1877,8 +1876,10 @@ test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
   assert.equal(backMock.mock.calls.length, 1);
 });
 
-test('서버 이름이 없는 신규 계정은 닉네임이 빈 채 placeholder만 보이고 저장되지 않는다', async () => {
-  const s = await render(<Harness route="character" initial={initialState()} api={() => ({})} />);
+test('서버 이름이 없는 기존 프로필 수정은 닉네임이 빈 채 저장되지 않는다', async () => {
+  const s = await render(
+    <Harness route="character" initial={{ ...initialState(), onboarded: true }} api={() => ({})} />,
+  );
   const nickname = s.getByLabelText('닉네임');
 
   assert.equal(nickname.props.value, '');
@@ -2981,6 +2982,21 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   open.mockRestore();
 });
 
+test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  let exposed: any;
+  const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
+  await fireEvent.press(ui.getByText('문의하기'));
+  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus 문의]'));
+  open.mockRejectedValue(new Error('no mail'));
+  await fireEvent.press(ui.getByText('문의하기'));
+  await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
+  assert.equal(exposed.confirm.mock.calls[0][0], '문의하기');
+  assert.ok(exposed.confirm.mock.calls[0][1].includes('nappaegonoljima@gmail.com'));
+  assert.equal(notifyMock.mock.calls.length, 0);
+  open.mockRestore();
+});
+
 test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메일을 연다', async () => {
   applyLocalePref('en');
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
@@ -2991,4 +3007,20 @@ test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메�
   );
   assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('What happened:'));
   open.mockRestore();
+});
+
+test('신규 계정은 여섯 고양이 선택으로 진입하고 출항 완료 표시에도 스토리 화면을 유지한다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="character"
+      initial={initialState()}
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+  expect(screen.getAllByRole('radio')).toHaveLength(6);
+  expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
+  await act(async () => exposed.dispatch({ type: 'ONBOARDING_STORY', checkpoint: 'done' }));
+  expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
+  expect(screen.queryByLabelText('닉네임')).toBeNull();
 });

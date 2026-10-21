@@ -24,6 +24,16 @@ island-management:
 user-blocks:
   realtime-events-enabled: ${USER_BLOCKS_REALTIME_EVENTS_ENABLED:false}
 
+# GROMO-2350 세션 폐기 사건(auth.session.revoked)을 NOTI 에 더해 realtime 에도 보내는 스위치. 기본 OFF — 이 type 을 받는
+# Realtime 이 먼저 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → relay 가 permanent 로 표시하지만 A18 보류라 폐기하지 않고 백오프 재시도를
+# 계속해, 그동안 그 사용자의 USER 축이 막혀 탈퇴 전파가 늦어진다).
+# 켜기: realtime 이 이 type 을 받는 버전으로 배포됐는지 머지 PR 의 deployed:dev-realtime 라벨(Deployments dev-server/realtime)로 확인
+# (deploy-failed:dev-realtime 이면 켜지 않는다) → SM gromo/dev/env 에 =true 등록 → ops-redeploy.dev data-api.
+# 끄기: SM 값을 false 로(또는 삭제) → ops-redeploy.dev data-api. 이미 쌓인 REALTIME 행은 relay 가 계속 보내므로 realtime 이 살아 있으면 무해.
+auth:
+  session-revoked:
+    realtime-events-enabled: ${AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED:false}
+
 # GROMO-2299 바다 방 사건(sea.member.updated → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이 먼저
 # 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 사용자의 USER 축이 permanent 로 막혀 탈퇴 전파까지 멈춘다).
 focus:
@@ -350,6 +360,13 @@ outbox:
       # relay 가 보내지 않는다(permanent) — 새 REALTIME 사건을 만들면 같은 PR 에서 한 줄 늘린다
       # (RealtimeOutboxEndpointsTest 가 잡는다).
       "[user.withdrawn]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-2350 세션 폐기 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 그 sid 의 STOMP 연결을 닫는다.
+      # 생산은 auth.session-revoked.realtime-events-enabled(위)가 켜야 시작된다.
+      "[auth.session.revoked]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST

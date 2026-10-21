@@ -11,6 +11,7 @@ import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,6 +89,7 @@ class StompAuthChannelInterceptorTest {
 
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
+    private ChatUserFence fence;
 
     private UUID userId;
     private UUID groupId;
@@ -95,8 +97,9 @@ class StompAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         registry = new RealtimeSessionRegistry();
+        fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
-                movementSubscriptions, membershipService, seaRooms, meters);
+                movementSubscriptions, membershipService, seaRooms, meters, fence);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -115,6 +118,98 @@ class StompAuthChannelInterceptorTest {
         interceptor.preSend(message(accessor), null);
 
         verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("CONNECT — 폐기된 sid 의 AT 는 만료 전이어도 UNAUTHORIZED, 다른 sid 는 통과한다 (GROMO-2350)")
+    void connectRejectsRevokedSessionOnly() {
+        UUID revokedSid = UUID.randomUUID();
+        UUID otherSid = UUID.randomUUID();
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(600);
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractUserId("other-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractSessionProof("test-token"))
+                .willReturn(Optional.of(new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, revokedSid, 0L, exp)));
+        given(jwtValidator.extractSessionProof("other-token"))
+                .willReturn(Optional.of(new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, otherSid, 0L, exp)));
+        fence.revokeSession(revokedSid, exp);
+
+        StompHeaderAccessor rejected = accessor(StompCommand.CONNECT);
+        rejected.addNativeHeader("Authorization", BEARER);
+        assertThatThrownBy(() -> interceptor.preSend(message(rejected), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+
+        StompHeaderAccessor admitted = accessor(StompCommand.CONNECT);
+        admitted.addNativeHeader("Authorization", "Bearer other-token");
+        interceptor.preSend(message(admitted), null);
+        assertThat(admitted.getUser()).isInstanceOf(ChatPrincipal.class);
+    }
+
+    @Test
+    @DisplayName("CONNECT — 펜스가 «검사 사이»에 올라가도(등록 전 false, 등록 후 true) 거절하고 등록을 남기지 않는다 (GROMO-2350)")
+    void connectRechecksTheFenceAfterRegistering() {
+        UUID sid = UUID.randomUUID();
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractSessionProof("test-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, sid, 0L,
+                        java.time.Instant.now().plusSeconds(600))));
+        ChatUserFence racing = org.mockito.Mockito.mock(ChatUserFence.class);
+        given(racing.isRevokedDurable(sid)).willReturn(false, true);
+        StompAuthChannelInterceptor raced = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry,
+                focusSessions, redis, movementSubscriptions, membershipService, seaRooms, meters, racing);
+        StompHeaderAccessor accessor = accessor(StompCommand.CONNECT);
+        accessor.setSessionId("stomp-race");
+        accessor.addNativeHeader("Authorization", BEARER);
+
+        assertThatThrownBy(() -> raced.preSend(message(accessor), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+        assertThat(registry.find(accessor.getSessionId())).isNull();
+        assertThat(registry.sessionIdsOf(userId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("SEND·SUBSCRIBE — 폐기된 sid 의 기존 세션은 UNAUTHORIZED 로 거절되고 소켓이 SESSION_REVOKED 로 닫힌다, 다른 sid 는 통과 (GROMO-2350)")
+    void revokedSessionCannotSendOrSubscribe() throws Exception {
+        UUID revokedSid = UUID.randomUUID();
+        UUID otherSid = UUID.randomUUID();
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(600);
+        given(jwtValidator.extractSessionProof("test-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, revokedSid, 0L, exp)));
+        given(jwtValidator.extractSessionProof("other-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, otherSid, 0L, exp)));
+        org.springframework.web.socket.WebSocketSession socket =
+                org.mockito.Mockito.mock(org.springframework.web.socket.WebSocketSession.class);
+        given(socket.getId()).willReturn("stomp-1");
+        given(socket.isOpen()).willReturn(true);
+        registry.opened(socket);
+        fence.revokeSession(revokedSid, exp);
+
+        for (StompCommand command : new StompCommand[] {StompCommand.SEND, StompCommand.SUBSCRIBE}) {
+            StompHeaderAccessor accessor = accessor(command);
+            accessor.setSessionId("stomp-1");
+            accessor.setUser(new ChatPrincipal(userId, BEARER));
+            accessor.setDestination(command == StompCommand.SEND ? "/app/groups/" + groupId + "/send"
+                    : "/user/queue/errors");
+            assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                    .describedAs("%s", command)
+                    .isInstanceOf(DomainException.class)
+                    .extracting(e -> ((DomainException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+        }
+        verify(socket, org.mockito.Mockito.times(2)).close(
+                org.springframework.web.socket.CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+        verifyNoInteractions(accessGuard);
+
+        StompHeaderAccessor other = accessor(StompCommand.SUBSCRIBE);
+        other.setSessionId("stomp-2");
+        other.setUser(new ChatPrincipal(userId, "Bearer other-token"));
+        other.setDestination("/user/queue/errors");
+        given(jwtValidator.extractUserId("other-token")).willReturn(Optional.of(userId));
+        assertThatCode(() -> interceptor.preSend(message(other), null)).doesNotThrowAnyException();
     }
 
     @Test

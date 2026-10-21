@@ -447,3 +447,26 @@ test('리스너를 건 뒤 상실 사유가 바뀌어도 하드웨어 뒤로 가
   assert.equal(await back(), true);
   assert.equal(captured.route, 'sea');
 });
+
+test('온보딩을 마친 무소속 사용자는 첫 집중 종료 뒤 뒤로가기로 기존 섬 선택에 빠지지 않는다', async () => {
+  await mount();
+  await act(async () => {
+    captured.dispatch({ type: 'ONBOARDING_STORY', checkpoint: 'done' });
+    captured.dispatch({ type: 'SESSION_SYNC', session: null });
+    captured.reset('sea');
+  });
+  assert.equal(captured.state.onboarded, false);
+  assert.equal(await back(), true);
+  assert.equal(captured.route, 'sea');
+  await act(async () => captured.back());
+  assert.equal(captured.route, 'sea');
+});
+
+test('온보딩을 마친 무소속 사용자는 섬 방문을 끝내도 바다로 돌아온다', async () => {
+  await mount();
+  await act(async () => captured.dispatch({ type: 'ONBOARDING_STORY', checkpoint: 'done' }));
+  await startVisit();
+  assert.equal(await back(), true);
+  assert.equal(captured.state.visitingIslandId, null);
+  assert.equal(captured.route, 'sea');
+});

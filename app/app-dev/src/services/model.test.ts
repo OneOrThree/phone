@@ -161,6 +161,42 @@ test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 �
   assert.ok(currentIsland(s).buildings.includes('board'));
   assert.equal(currentIsland(s).boardCompletedDay, dayKey(boardEndsAt));
 });
+test('할 일 없는 TICK 은 깊은 복사 없이 같은 state 를 돌려주고, 완공 시각·날짜가 오면 다시 처리한다(GROMO-2372)', () => {
+  let s = act(initialState(), 'CREATE_ISLAND', { name: '틱 섬' });
+  s = act(s, 'DEMO_CREDIT', { fish: 300 });
+  s = act(s, 'BUILD', { building: 'hall', now: 1000 });
+  s = act(s, 'TICK', { now: 2000 });
+  // 한 번 훑어 바뀐 게 없으면 같은 참조 — 그 뒤로는 JSON 복사조차 하지 않는다
+  assert.equal(act(s, 'TICK', { now: 3000 }), s);
+  const parse = jest.spyOn(JSON, 'parse');
+  try {
+    assert.equal(act(s, 'TICK', { now: 60999 }), s);
+    assert.equal(parse.mock.calls.length, 0);
+  } finally {
+    parse.mockRestore();
+  }
+  // 완공 시각이 되면 그 초에 완공한다
+  const done = act(s, 'TICK', { now: 61000 });
+  assert.notEqual(done, s);
+  assert.deepEqual(currentIsland(done).buildings, ['hall']);
+  // 날이 바뀌면 같은 state 라도 다시 훑는다(오늘 스크린타임 칸)
+  const nextDay = 1000 + 86400000;
+  assert.equal(dayKey(nextDay) === dayKey(61000), false);
+  assert.equal(act(done, 'TICK', { now: 62000 }), done);
+  assert.notEqual(act(done, 'TICK', { now: nextDay }), done);
+});
+test('퀘스트 섬에서 집중 중이면 TICK 을 건너뛰지 않아 목표에 닿는 그 초에 달성한다(GROMO-2372)', () => {
+  let s = initialState(true);
+  currentIsland(s).members = [];
+  const now = new Date(2026, 8, 15, 12).getTime();
+  s = act(s, 'START', { subject: '집중', now });
+  s = act(s, 'TICK', { now: now + 1000 });
+  assert.equal(act(s, 'TICK', { now: now + 2000 }), s);
+  s = act(s, 'TICK', { now: now + 30 * 60000 - 1000 });
+  assert.ok(!s.rewards?.some((r) => r.questId === 'q-focus'));
+  s = act(s, 'TICK', { now: now + 30 * 60000 });
+  assert.ok(s.rewards?.some((r) => r.questId === 'q-focus' && r.kind === 'personal'));
+});
 test('canBuild — en 로케일에서는 방장 아님 안내가 영문으로 나온다 (GROMO-2235 r6)', () => {
   const s = act(initialState(), 'JOIN', { id: 'strawberry' });
   assert.equal(isHost(currentIsland(s)), false);

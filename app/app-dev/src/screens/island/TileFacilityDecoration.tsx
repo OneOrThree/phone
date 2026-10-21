@@ -1,36 +1,67 @@
-import React, { useId } from 'react';
+import React from 'react';
 import { Image, StyleSheet, Text, View, Platform, type ImageSourcePropType } from 'react-native';
-import Svg, {
-  Defs,
-  Filter,
-  FeMorphology,
-  FeFlood,
-  FeComposite,
-  Image as SvgImage,
-} from 'react-native-svg';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { facilityPressStyle, type FacilityRect } from './tileFacilities';
 import { WebFacilitySignText } from './WebFacilitySignText';
 
 const tokens = componentTokens.tileFacility;
 const sign = require('@/assets/village-world/ui/wooden-name-sign.png');
-// 모션 건물은 이미 잘라 둔 첫 프레임을 재사용해 외곽선마다 1536×1024 레이어를 추가 디코드하지 않는다.
+// 아래 그림은 scripts/build-facility-crops.py 산출물이다(GROMO-2378). 1536×1024 레이어 대신
+// 시설 rect(TILE_FACILITIES) 크기로 잘라 디코드 메모리를 줄인다. [낮, 밤] 순서.
+// 게시판·축음기·우체통 정적 그림. 회관·전망대·상점·도서관은 모션 첫 프레임이 같은 rect 로 그린다.
+const layerSources: Record<string, readonly ImageSourcePropType[]> = {
+  board: [
+    require('@/assets/village-world/facility/board-day.png'),
+    require('@/assets/village-world/facility/board-night.png'),
+  ],
+  gram: [
+    require('@/assets/village-world/facility/gram-day.png'),
+    require('@/assets/village-world/facility/gram-night.png'),
+  ],
+  mail: [
+    require('@/assets/village-world/facility/mail-day.png'),
+    require('@/assets/village-world/facility/mail-night.png'),
+  ],
+};
+export const tileFacilityLayerSource = (id: string, night: boolean) =>
+  layerSources[id]?.[night ? 1 : 0];
+
+/** 외곽선 마스크는 시설 rect 사방으로 이만큼(원화 px) 크다. build-facility-crops.py OUTLINE_MARGIN 과 같다. */
+export const TILE_FACILITY_OUTLINE_MARGIN = 4;
+// 외곽선은 건물 알파를 8방향으로 민 합성을 미리 그린 흰색 마스크 한 장이다. 색은 tintColor 로 입힌다.
 const outlineSources: Record<string, readonly ImageSourcePropType[]> = {
   hall: [
-    require('@/assets/village-world/motion/hall/frame-0.png'),
-    require('@/assets/village-world/motion/hall/night-frame-0.png'),
+    require('@/assets/village-world/facility/outline/hall-day.png'),
+    require('@/assets/village-world/facility/outline/hall-night.png'),
   ],
-  tower: [
-    require('@/assets/village-world/motion/observatory/frame-0.png'),
-    require('@/assets/village-world/motion/observatory/night-frame-0.png'),
+  board: [
+    require('@/assets/village-world/facility/outline/board-day.png'),
+    require('@/assets/village-world/facility/outline/board-night.png'),
   ],
-  shop: [
-    require('@/assets/village-world/motion/shop/frame-0.png'),
-    require('@/assets/village-world/motion/shop/night-frame-0.png'),
+  gram: [
+    require('@/assets/village-world/facility/outline/gram-day.png'),
+    require('@/assets/village-world/facility/outline/gram-night.png'),
   ],
   library: [
-    require('@/assets/village-world/motion/library/frame-0.png'),
-    require('@/assets/village-world/motion/library/night-frame-0.png'),
+    require('@/assets/village-world/facility/outline/library-day.png'),
+    require('@/assets/village-world/facility/outline/library-night.png'),
+  ],
+  mail: [
+    require('@/assets/village-world/facility/outline/mail-day.png'),
+    require('@/assets/village-world/facility/outline/mail-night.png'),
+  ],
+  tower: [
+    require('@/assets/village-world/facility/outline/tower-day.png'),
+    require('@/assets/village-world/facility/outline/tower-night.png'),
+  ],
+  shop: [
+    require('@/assets/village-world/facility/outline/shop-day.png'),
+    require('@/assets/village-world/facility/outline/shop-night.png'),
+  ],
+  // 새 편지가 있을 때 우체통 자리를 대신하는 펠리컨(TILE_MAILBOX_PELICAN_RECT). 낮·밤 같은 그림이다.
+  'mail-pelican': [
+    require('@/assets/village-world/facility/outline/mail-pelican.png'),
+    require('@/assets/village-world/facility/outline/mail-pelican.png'),
   ],
 };
 export const tileFacilityOutlineSource = (id: string, night: boolean) =>
@@ -46,18 +77,11 @@ type OutlineProps = {
   baseScale?: number;
   pressed: boolean;
   reduceMotion: boolean;
-  cropped?: boolean;
 };
 
-export function TileFacilityOutline(props: OutlineProps) {
-  return Platform.OS === 'web' ? (
-    <WebFacilityOutline {...props} />
-  ) : (
-    <NativeFacilityOutline {...props} />
-  );
-}
-
-function NativeFacilityOutline({
+// ponytail: 외곽선 두께는 원화 px 로 고정(기준 화면 402×874 에서 outlineWidth pt)이라 기본 배율을 따라
+// 기기마다 조금 달라진다(건물 대비 비율은 같다). 기기별로 pt 를 맞춰야 하면 두께별 마스크를 더 만든다.
+export function TileFacilityOutline({
   source,
   rect,
   left,
@@ -66,13 +90,11 @@ function NativeFacilityOutline({
   baseScale = 1,
   pressed,
   reduceMotion,
-  cropped = false,
 }: OutlineProps) {
   const zoom = scale / baseScale;
   const pad = tokens.outlineWidth * 2;
+  const margin = TILE_FACILITY_OUTLINE_MARGIN * baseScale;
   // 건물과 같은 RN 이미지 레이아웃으로 그린다. 별도 Skia surface의 크기 갱신을 기다리지 않는다.
-  const width = (cropped ? rect.w : 1536) * baseScale;
-  const height = (cropped ? rect.h : 1024) * baseScale;
   return (
     <View
       testID="native-facility-outline"
@@ -96,109 +118,24 @@ function NativeFacilityOutline({
           top: -pad,
           width: rect.w * baseScale + pad * 2,
           height: rect.h * baseScale + pad * 2,
-          overflow: 'hidden',
           ...facilityPressStyle(pressed, reduceMotion),
         }}
       >
-        {OUTLINE_OFFSETS.map(([dx, dy], index) => (
-          <Image
-            key={index}
-            source={source}
-            accessible={false}
-            fadeDuration={0}
-            resizeMode="stretch"
-            style={{
-              position: 'absolute',
-              left: pad - (cropped ? 0 : rect.x * baseScale) + dx * tokens.outlineWidth,
-              top: pad - (cropped ? 0 : rect.y * baseScale) + dy * tokens.outlineWidth,
-              width,
-              height,
-              tintColor: tokens.outline,
-            }}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-const OUTLINE_OFFSETS = [
-  [-1, -1],
-  [0, -1],
-  [1, -1],
-  [-1, 0],
-  [1, 0],
-  [-1, 1],
-  [0, 1],
-  [1, 1],
-] as const;
-
-function WebFacilityOutline({
-  source,
-  rect,
-  left,
-  top,
-  scale,
-  baseScale = 1,
-  pressed,
-  reduceMotion,
-  cropped = false,
-}: OutlineProps) {
-  const uid = useId().replace(/:/g, '');
-  const zoom = scale / baseScale;
-  const pad = tokens.outlineWidth * 2;
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left: left + rect.x * scale,
-        top: top + rect.y * scale,
-        width: rect.w * baseScale,
-        height: rect.h * baseScale,
-        transformOrigin: [0, 0, 0],
-        transform: [{ scale: zoom }],
-      }}
-    >
-      <Svg
-        width={rect.w * baseScale + pad * 2}
-        height={rect.h * baseScale + pad * 2}
-        style={{
-          position: 'absolute',
-          left: -pad,
-          top: -pad,
-          ...facilityPressStyle(pressed, reduceMotion),
-        }}
-      >
-        <Defs>
-          <Filter
-            id={uid}
-            x={0}
-            y={0}
-            width={rect.w * baseScale + pad * 2}
-            height={rect.h * baseScale + pad * 2}
-            filterUnits="userSpaceOnUse"
-          >
-            <FeMorphology
-              in="SourceAlpha"
-              operator="dilate"
-              radius={tokens.outlineWidth}
-              result="edge"
-            />
-            <FeFlood floodColor={tokens.outline} result="color" />
-            <FeComposite in="color" in2="edge" operator="in" />
-          </Filter>
-        </Defs>
-        <SvgImage
-          href={source}
-          filter={`url(#${uid})`}
-          x={pad - (cropped ? 0 : rect.x * baseScale)}
-          y={pad - (cropped ? 0 : rect.y * baseScale)}
-          width={(cropped ? rect.w : 1536) * baseScale}
-          height={(cropped ? rect.h : 1024) * baseScale}
-          preserveAspectRatio="none"
+        <Image
+          source={source}
+          accessible={false}
+          fadeDuration={0}
+          resizeMode="stretch"
+          style={{
+            position: 'absolute',
+            left: pad - margin,
+            top: pad - margin,
+            width: rect.w * baseScale + margin * 2,
+            height: rect.h * baseScale + margin * 2,
+            tintColor: tokens.outline,
+          }}
         />
-      </Svg>
+      </View>
     </View>
   );
 }

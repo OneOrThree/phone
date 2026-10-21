@@ -10,7 +10,7 @@ import {
   CLIENT_TIMEOUT,
   uuid,
 } from '@/services/api/client';
-import { me as apiMe } from '@/services/api/auth';
+import { type Account, me as apiMe } from '@/services/api/auth';
 import { updateProfile as apiUpdateProfile } from '@/services/api/account';
 import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
 import { readAccountGuides } from '@/services/accountGuides';
@@ -165,14 +165,15 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   // null current+소속은 유효하다(첫 pending 승인이 소속을 만들어도 current는 안 옮긴다).
   // /me 의 mainIslandId 도 함께 싣는다 — 소속 목록이 바뀌는 자리마다(가입·생성·승인·이탈 복구)
   // 서버 도출값(가장 최근 가입)과 프로필 선택값이 갈리지 않게 같은 액션으로 갈아 끼운다.
-  const syncIslandSnapshot = async () => {
+  // 부팅은 checkSession 이 방금 읽은 /me 계정을 넘겨 같은 요청을 두 번 보내지 않는다(GROMO-2377).
+  const syncIslandSnapshot = async (bootAccount?: Account) => {
     const g = generation();
     const revision = ++syncRevision;
     const ownerId = getSession()?.userId;
     const [my, requests, account, guides] = await Promise.all([
       api.myIslands(),
       allJoinRequests(g),
-      api.me(),
+      bootAccount ?? api.me(),
       guidesForSync(ownerId),
     ]);
     alive(g);
@@ -187,7 +188,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     });
     return { my, requests };
   };
-  const syncIslands = async () => (await syncIslandSnapshot()).my;
+  const syncIslands = async (bootAccount?: Account) => (await syncIslandSnapshot(bootAccount)).my;
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
   // 쓰기 명령(write)은 결과 불명 오류에서도 재조회한다 — 서버가 이미 커밋했을 수 있다(GROMO-2118).
   // 조회는 아무것도 불명으로 만들지 않으므로 제외한다(승인 대기 폴링이 실패마다 재조회를 부르지 않게).
