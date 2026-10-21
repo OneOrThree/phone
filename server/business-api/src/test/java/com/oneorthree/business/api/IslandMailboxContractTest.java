@@ -41,6 +41,11 @@ class IslandMailboxContractTest extends UpstreamTestBase {
     private static final String RT_HISTORY = "GET " + RT_MESSAGES;
     private static final String RT_STORE = "POST " + RT_MESSAGES;
 
+    /** 작성자의 털색·착용 외양(GROMO-2389) — 주민 목록과 같은 모양이다. */
+    private static final String LOOK = "\"catColor\":\"ginger\",\"appearance\":{\"clothes\":null,"
+            + "\"decor\":null,\"head\":\"head-ribbon\",\"neck\":\"neck-bell\",\"hull\":\"raft\","
+            + "\"position\":\"front\",\"version\":2}";
+
     private static String rtMessage(UUID id, UUID sender, String content, UUID key) {
         return "{\"messageId\":\"" + id + "\",\"groupId\":\"" + ISLAND + "\",\"senderId\":\"" + sender
                 + "\",\"content\":\"" + content + "\",\"sentAt\":\"2026-09-18T09:10:00Z\",\"clientMessageId\":\""
@@ -48,9 +53,9 @@ class IslandMailboxContractTest extends UpstreamTestBase {
     }
 
     private void stubHappyPath() {
-        DATA.on(DATA_ACCESS, request -> ok("{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}"));
-        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"},"
-                + "{\"userId\":\"" + OTHER + "\",\"name\":null}]}"));
+        DATA.on(DATA_ACCESS, request -> ok("{\"userId\":\"" + USER + "\",\"name\":\"수빈\"," + LOOK + "}"));
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"," + LOOK
+                + "},{\"userId\":\"" + OTHER + "\",\"name\":null,\"catColor\":null,\"appearance\":null}]}"));
         // 실시간은 최신 → 과거로 준다(M2 가 최신). nextCursor = 이 페이지의 가장 오래된 id.
         REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(M2, USER, "두 번째", KEY) + ","
                 + rtMessage(M1, OTHER, "첫 번째", UUID.randomUUID()) + "],\"nextCursor\":\"" + M1 + "\",\"hasMore\":true}"));
@@ -73,7 +78,11 @@ class IslandMailboxContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[1].name").value("수빈"))
                 .andExpect(jsonPath("$.data.items[1].clientMessageId").value(KEY.toString()))
                 .andExpect(jsonPath("$.data.items[1].createdAt").value("2026-09-18T09:10:00Z"))
-                .andExpect(jsonPath("$.data.items[1].catColor").doesNotExist())
+                .andExpect(jsonPath("$.data.items[1].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.items[1].appearance.head").value("head-ribbon"))
+                .andExpect(jsonPath("$.data.items[1].appearance.neck").value("neck-bell"))
+                .andExpect(jsonPath("$.data.items[0].catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].appearance").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[1].senderId").doesNotExist())
                 .andExpect(jsonPath("$.data.nextCursor").isString())
                 .andReturn();
@@ -186,7 +195,8 @@ class IslandMailboxContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.name").value("수빈"))
                 .andExpect(jsonPath("$.data.text").value("오늘도 같이 집중하자"))
                 .andExpect(jsonPath("$.data.createdAt").value("2026-09-18T09:10:00Z"))
-                .andExpect(jsonPath("$.data.catColor").doesNotExist());
+                .andExpect(jsonPath("$.data.catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.appearance.head").value("head-ribbon"));
 
         assertThat(DATA.hits(DATA_ACCESS)).isEqualTo(1);
         var stored = REALTIME.receivedFor(RT_STORE).get(0);

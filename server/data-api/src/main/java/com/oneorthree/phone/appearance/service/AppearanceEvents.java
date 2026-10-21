@@ -68,6 +68,12 @@ public class AppearanceEvents {
         params.put("version", appearance.getVersion());
 
         List<EventEnvelope> envelopes = new ArrayList<>();
+        if (islandIds.isEmpty()) {
+            // 섬이 하나도 없어도 바다에는 나갈 수 있다(GROMO-2389) — 바다 방의 머리·목 표시를 고치는 realtime 이 이 사건을
+            // 받도록 섬 범위 없는 사용자 축 한 건을 적는다(subjectId=null, 규약 §2.9 — inventoryChanged 와 같다).
+            envelopes.add(append(EVENT_MEMBER_APPEARANCE, userId, null,
+                    new AggregateRef(AGGREGATE_USER_APPEARANCE, userId.toString()), appearance.getVersion(), params));
+        }
         for (UUID islandId : islandIds) {
             envelopes.add(append(EVENT_MEMBER_APPEARANCE, userId, islandId,
                     new AggregateRef(AGGREGATE_USER_APPEARANCE, userId + ":" + islandId),
@@ -121,11 +127,11 @@ public class AppearanceEvents {
 
     // ---------------------------------------------------------------- 공통
 
-    /** subjectId 는 전달 범위인 섬이다(규약 §2.9) — 개인 외양도 표시 대상 섬마다 따로 적는다. */
+    /** subjectId 는 전달 범위인 섬이다(규약 §2.9) — 개인 외양도 표시 대상 섬마다 따로 적는다. 섬이 없으면 null. */
     private EventEnvelope append(String type, UUID actorId, UUID islandId, AggregateRef aggregate, long version,
                                  Map<String, Object> params) {
         return outbox.append(new OutboxAppendCommand(UUID.randomUUID().toString(), SCHEMA_VERSION, type, actorId,
-                null, islandId.toString(), aggregate, null, params,
+                null, islandId == null ? null : islandId.toString(), aggregate, null, params,
                 List.of(OutboxDeliveryRequest.toRealtime(type, null))), version);
     }
 

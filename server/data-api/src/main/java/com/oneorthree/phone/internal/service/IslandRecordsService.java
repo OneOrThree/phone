@@ -2,6 +2,8 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
+import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
@@ -107,6 +109,7 @@ public class IslandRecordsService {
     private static final Comparator<UUID> UUID_ORDER = Comparator.comparing(UUID::toString);
 
     private final UserQueryService users;
+    private final AppearanceService appearances;
     private final GroupQueryService groups;
     private final GroupMemberRepository members;
     private final IslandFacilityQueryService facilities;
@@ -228,9 +231,11 @@ public class IslandRecordsService {
                     ignored -> new TreeMap<>());
             contribution.byDate().forEach((date, seconds) -> series.merge(date, seconds.longValue(), Long::sum));
         }
+        Map<UUID, PersonalAppearanceView> looks = appearances.equippedOf(residents.stream().map(User::getId).toList());
         List<FocusMember> result = residents.stream().map(user -> {
             TreeMap<LocalDate, Long> series = byUser.getOrDefault(user.getId(), new TreeMap<>());
-            return new FocusMember(user.getId(), user.getNickname(), user.getCatColor(), sum(series), days(series));
+            return new FocusMember(user.getId(), user.getNickname(), user.getCatColor(), sum(series), days(series),
+                    looks.get(user.getId()));
         }).toList();
         return new FocusStatistics(SCOPE_ISLAND, null, null, null, result, asOf, null, null);
     }
@@ -319,10 +324,12 @@ public class IslandRecordsService {
                     .findByUserIdInAndMeasuredDateBetweenAndTimezone(
                             residents.stream().map(User::getId).toList(), from, to, timezone).stream()
                     .collect(Collectors.groupingBy(ScreenTimeObservation::getUserId));
+            Map<UUID, PersonalAppearanceView> looks = appearances.equippedOf(
+                    residents.stream().map(User::getId).toList());
             return new ScreenTimeStatistics(SCOPE_ISLAND, null, null, null, null, residents.stream().map(user -> {
                 Summary summary = summarize(byUser.getOrDefault(user.getId(), List.of()), from, to, today);
                 return new ScreenMember(user.getId(), user.getNickname(), user.getCatColor(), summary.total(),
-                        summary.status(), summary.series(), summary.updatedAt());
+                        summary.status(), summary.series(), summary.updatedAt(), looks.get(user.getId()));
             }).toList());
         }
         requireMe(scope);

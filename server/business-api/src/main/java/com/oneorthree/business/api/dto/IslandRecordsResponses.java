@@ -50,7 +50,8 @@ public final class IslandRecordsResponses {
             String name,
             String catColor,
             long totalSeconds,
-            List<RecordDaySeconds> series) {
+            List<RecordDaySeconds> series,
+            MemberAppearanceView appearance) {
         public static IslandFocusMember from(IslandRecordViews.FocusMember value) {
             if (value == null) {
                 return null;
@@ -60,7 +61,8 @@ public final class IslandRecordsResponses {
                     value.name(),
                     value.catColor(),
                     value.totalSeconds(),
-                    value.series() == null ? null : value.series().stream().map(RecordDaySeconds::from).toList());
+                    value.series() == null ? null : value.series().stream().map(RecordDaySeconds::from).toList(),
+                    MemberAppearanceView.from(value.appearance()));
         }
     }
 
@@ -89,7 +91,8 @@ public final class IslandRecordsResponses {
             Integer minutes,
             String measurementStatus,
             List<ScreenDayView> series,
-            String updatedAt) {
+            String updatedAt,
+            MemberAppearanceView appearance) {
         public static ScreenMemberView from(IslandRecordViews.ScreenMember value) {
             if (value == null) {
                 return null;
@@ -101,7 +104,8 @@ public final class IslandRecordsResponses {
                     value.minutes(),
                     value.measurementStatus(),
                     value.series() == null ? null : value.series().stream().map(ScreenDayView::from).toList(),
-                    value.updatedAt());
+                    value.updatedAt(),
+                    MemberAppearanceView.from(value.appearance()));
         }
     }
 

@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.api.dto.MailboxMessageResponse;
 import com.oneorthree.business.api.dto.MailboxPageResponse;
+import com.oneorthree.business.api.dto.MemberAppearanceView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -150,7 +151,7 @@ public class IslandMailboxUseCase {
     private MailboxPageResponse present(AccessTokenClaims claims, UUID islandId, CursorScope scope,
             RealtimeHistory page, int limit, Deadline deadline) {
         List<RealtimeMessage> kept = new ArrayList<>(Math.min(page.messages().size(), limit));
-        Map<UUID, String> names = new HashMap<>();
+        Map<UUID, MailboxViewer> names = new HashMap<>();
         RealtimeHistory current = page;
         UUID next;
         for (int round = 1; ; round++) {
@@ -237,7 +238,7 @@ public class IslandMailboxUseCase {
         if (stored.freshlyInserted()) {
             recordMessageCreated(islandId, claims.userId(), stored.message(), deadline);
         }
-        return publicMessage(stored.message(), viewer.name());
+        return publicMessage(stored.message(), viewer);
     }
 
     private void recordMessageCreated(UUID islandId, UUID authorId, RealtimeMessage message, Deadline deadline) {
@@ -271,7 +272,7 @@ public class IslandMailboxUseCase {
         for (RealtimeMessage message : messages) {
             senders.add(message.senderId());
         }
-        Map<UUID, String> names = new HashMap<>();
+        Map<UUID, MailboxViewer> names = new HashMap<>();
         if (senders.isEmpty()) {
             return new AuthorView(names, Set.of());
         }
@@ -281,18 +282,21 @@ public class IslandMailboxUseCase {
             throw new UpstreamContractMismatchException("Data 작성자 표시 응답 봉투가 없습니다");
         }
         for (MailboxViewer author : authors.authors()) {
-            names.put(author.userId(), author.name());
+            names.put(author.userId(), author);
         }
         Set<UUID> hidden = authors.hiddenUserIds() == null ? Set.of() : new HashSet<>(authors.hiddenUserIds());
         return new AuthorView(names, hidden);
     }
 
-    /** 한 쪽의 작성자 표시(이름)와 요청자가 차단한 sender 집합. */
-    private record AuthorView(Map<UUID, String> names, Set<UUID> hidden) {
+    /** 한 쪽의 작성자 표시(이름·털색·외양)와 요청자가 차단한 sender 집합. */
+    private record AuthorView(Map<UUID, MailboxViewer> names, Set<UUID> hidden) {
     }
 
-    private static MailboxMessageResponse publicMessage(RealtimeMessage message, String name) {
-        return new MailboxMessageResponse(message.messageId(), message.clientMessageId(), message.senderId(), name,
+    /** {@code author} 가 null 이면 계정이 없는 작성자다 — 이름·털색·외양을 모두 null 로 그린다. */
+    private static MailboxMessageResponse publicMessage(RealtimeMessage message, MailboxViewer author) {
+        return new MailboxMessageResponse(message.messageId(), message.clientMessageId(), message.senderId(),
+                author == null ? null : author.name(), author == null ? null : author.catColor(),
+                author == null ? null : MemberAppearanceView.from(author.appearance()),
                 message.content(), message.sentAt());
     }
 

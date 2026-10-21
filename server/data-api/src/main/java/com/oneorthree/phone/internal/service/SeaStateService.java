@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.SeaRemarkRepository;
 import com.oneorthree.phone.focus.repository.domain.SeaRemark;
@@ -29,6 +30,7 @@ public class SeaStateService {
     private final SeaRemarkRepository remarks;
     private final FriendshipRepository friendships;
     private final UserQueryService userQueryService;
+    private final AppearanceService appearances;
 
     public SeaStateView state(UUID userId) {
         FocusSessionView view = lifecycle.current(userId);
@@ -39,7 +41,8 @@ public class SeaStateService {
         String shown = remark == null || remark.getRemark().isEmpty() ? null : remark.getRemark();
         User user = userQueryService.findActive(userId).orElse(null);
         return new SeaStateView(shown, remark == null ? null : remark.getChangedAt(), session,
-                user == null ? null : user.getNickname(), user == null ? null : user.getCatColor());
+                user == null ? null : user.getNickname(), user == null ? null : user.getCatColor(),
+                appearances.equippedOf(List.of(userId)).get(userId));
     }
 
     @Transactional(readOnly = true)

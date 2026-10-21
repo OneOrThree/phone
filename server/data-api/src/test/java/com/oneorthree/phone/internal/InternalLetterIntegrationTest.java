@@ -126,6 +126,9 @@ class InternalLetterIntegrationTest {
                 .andExpect(jsonPath("$.receiverId").value(b.toString()))
                 .andExpect(jsonPath("$.content").value("안녕"))   // strip 된 본문이 저장된다
                 .andExpect(jsonPath("$.readAt").value(nullValue()))
+                // 발신자의 털색 키와 착용 외양(GROMO-2389) — 외양 행이 없으면 기본 외양
+                .andExpect(jsonPath("$.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.appearance.hull").value("raft"))
                 // createdAt 은 @CreationTimestamp 라 flush 전에는 null 이다 — saveAndFlush 로 채워야
                 // Business 필수 필드 검증(400 UPSTREAM_CONTRACT_ERROR)에 걸리지 않는다(GROMO-2174).
                 .andExpect(jsonPath("$.createdAt").value(notNullValue()));
@@ -305,6 +308,7 @@ class InternalLetterIntegrationTest {
                 .andExpect(jsonPath("$.size").value(2))
                 .andExpect(jsonPath("$.hasNext").value(true))
                 .andExpect(jsonPath("$.content[0].id").value(newest))
+                .andExpect(jsonPath("$.content[0].appearance.hull").value("raft"))
                 .andExpect(jsonPath("$.content[1].id").value(middle))
                 .andReturn().getResponse().getContentAsString();
         String cursor = JsonPath.read(page1, "$.nextCursor");

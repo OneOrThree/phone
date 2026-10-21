@@ -56,9 +56,11 @@ class IslandQuestContractTest extends UpstreamTestBase {
     private static final String CURRENT_BODY = "{\"items\":[{" + HEADER + "}]}";
     private static final String PROGRESS_BODY = "{" + HEADER + ",\"members\":[{\"userId\":\"" + USER
             + "\",\"name\":\"수빈\",\"rate\":60,\"measurementStatus\":\"authorized\",\"achieved\":false,"
-            + "\"claimed\":false},{\"userId\":\"" + OTHER
+            + "\"claimed\":false,\"catColor\":\"ginger\",\"appearance\":{\"clothes\":null,\"decor\":null,"
+            + "\"head\":\"head-ribbon\",\"neck\":\"neck-bell\",\"hull\":\"raft\",\"position\":\"front\","
+            + "\"version\":2}},{\"userId\":\"" + OTHER
             + "\",\"name\":null,\"rate\":null,\"measurementStatus\":\"unavailable\",\"achieved\":false,"
-            + "\"claimed\":false}],\"nextCursor\":null}";
+            + "\"claimed\":false,\"catColor\":null,\"appearance\":null}],\"nextCursor\":null}";
     private static final String CREATED_BODY = "{\"id\":\"" + QUEST + "\",\"title\":\"저녁 30분 집중\"}";
     private static final String UPDATED_BODY = "{\"id\":\"" + QUEST + "\",\"title\":\"저녁 40분 집중\",\"targetMinutes\":40}";
     private static final String CLAIMED_BODY = "{\"claimId\":\"" + OTHER + "\",\"occurrenceId\":\"" + OCCURRENCE
@@ -116,6 +118,12 @@ class IslandQuestContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.occurrenceId").value(OCCURRENCE.toString()))
                 .andExpect(jsonPath("$.data.members[0].measurementStatus").value("authorized"))
+                // 참여자의 털색·착용 외양(GROMO-2389) — 탈퇴 계정은 둘 다 null
+                .andExpect(jsonPath("$.data.members[0].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.members[0].appearance.head").value("head-ribbon"))
+                .andExpect(jsonPath("$.data.members[0].appearance.neck").value("neck-bell"))
+                .andExpect(jsonPath("$.data.members[1].catColor").value((Object) null))
+                .andExpect(jsonPath("$.data.members[1].appearance").value((Object) null))
                 .andExpect(jsonPath("$.data.members[1].measurementStatus").value("unavailable"))
                 .andExpect(jsonPath("$.data.members.length()").value(2));
         assertThat(DATA.receivedFor(DATA_PROGRESS).get(0).query()).isEqualTo("occurrenceId=" + OCCURRENCE);
@@ -388,7 +396,7 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "/islands/{islandId}/quests/current|get|200|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
             "/islands/{islandId}/quests/current|get|200|items/reward|currency amount|currency amount",
             "/islands/{islandId}/quests/{questId}/progress|get|200||id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version members nextCursor|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version members nextCursor",
-            "/islands/{islandId}/quests/{questId}/progress|get|200|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
+            "/islands/{islandId}/quests/{questId}/progress|get|200|members|userId name rate measurementStatus achieved claimed catColor appearance|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/quests|post|200||id title|id title",
             "/islands/{islandId}/quests/{questId}|patch|200||id title targetMinutes|id title targetMinutes",
             "/islands/{islandId}/quests/{questId}/claims|post|200||claimId occurrenceId villagePointsAdded bonusAdded claimed|claimId occurrenceId villagePointsAdded bonusAdded claimed"})

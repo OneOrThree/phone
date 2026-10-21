@@ -276,6 +276,9 @@ class IslandRecordsIntegrationTest {
         // 고양이 색은 users.cat_color 그대로, 미선택은 null (GROMO-1945)
         assertThat(member(island, a).catColor()).isEqualTo("calico");
         assertThat(member(island, b).catColor()).isNull();
+        // 착용 외양도 실린다(GROMO-2389) — 외양 행이 없으면 기본 외양
+        assertThat(member(island, a).appearance().hull()).isEqualTo("raft");
+        assertThat(member(island, a).appearance().position()).isEqualTo("front");
         assertThat(member(island, x.owner).totalSeconds()).isZero();
         assertThat(member(island, x.owner).series()).isEmpty();
     }
