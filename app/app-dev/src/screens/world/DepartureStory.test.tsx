@@ -49,10 +49,11 @@ test('동작 줄이기에서는 영상 없이 바로 끝난다', async () => {
   expect(done).toHaveBeenCalledTimes(1);
 });
 
-test('세션 세대가 바뀌면 onComplete 를 부르지 않는다', async () => {
+test('세션 세대가 바뀌면 onComplete 를 부르지 않고 끝난 영상만 내린다', async () => {
   const done = jest.fn();
   const screen = await render(<DepartureStory destination="먼바다" onComplete={done} />);
   mockGeneration = 1;
   await act(async () => fireEvent.press(screen.getByTestId('departure-story')));
   expect(done).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('departure-story')).toBeNull();
 });
