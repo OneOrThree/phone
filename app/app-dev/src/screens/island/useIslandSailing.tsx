@@ -24,7 +24,11 @@ type Landing = () => void;
  */
 export function useIslandSailing(e: any) {
   const s: State = e.state;
-  const [voyage, setVoyage] = useState<{ to: string; land: Landing } | null>(null);
+  const [voyage, setVoyage] = useState<{
+    to: string;
+    land: Landing;
+    gen: ReturnType<typeof sessionGeneration>;
+  } | null>(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const mounted = useRef(true);
@@ -57,7 +61,7 @@ export function useIslandSailing(e: any) {
     setPending(true);
     try {
       const land = await prepare();
-      if (alive()) setVoyage({ to, land });
+      if (alive()) setVoyage({ to, land, gen });
     } catch (thrown) {
       const message = islandErrorMessage(thrown);
       if (message && alive()) e.notify(message);
@@ -86,7 +90,10 @@ export function useIslandSailing(e: any) {
       source={ARRIVAL}
       accessibilityLabel={t('arrivalCutscene.label', { destination: voyage.to })}
       testID="arrival-cutscene"
-      onFinish={voyage.land}
+      // 영상 4초 사이 로그아웃·계정 전환이 생기면 이전 세션의 도착 처리를 새 세션 위에서 하지 않는다.
+      onFinish={() => {
+        if (sessionGeneration() === voyage.gen) voyage.land();
+      }}
     />
   ) : null;
 

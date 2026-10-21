@@ -915,6 +915,7 @@
     "delivery": {
       "mailbox": "A cat magazine arrived in your mailbox!",
       "noMailbox": "Your cat magazine is here!",
+      "seaCutscene": "A pelican flies to the raft carrying your cat magazine.",
       "later": "Later",
       "readLater": "Read later",
       "openMailbox": "Open mailbox",

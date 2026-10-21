@@ -17,38 +17,42 @@ type Props = {
 
 /** 동작 줄이기에서는 영상을 건너뛰고 바로 끝낸다. */
 export function VideoCutscene(props: Props) {
-  return useContext(MotionContext) ? <Skipped onFinish={props.onFinish} /> : <Playing {...props} />;
+  const finished = useRef(false);
+  const onFinishRef = useRef(props.onFinish);
+  onFinishRef.current = props.onFinish;
+  // 어느 경로(재생 종료·오류·복구 타이머·동작 줄이기 건너뛰기)로 끝나든, 재생 중 동작 줄이기가
+  // 바뀌어 분기가 갈려도 호출부에는 한 번만 알린다 — 호출부는 화면 전환이라 두 번 불리면 안 된다.
+  const finish = useCallback(() => {
+    if (finished.current) return;
+    finished.current = true;
+    onFinishRef.current();
+  }, []);
+  return useContext(MotionContext) ? (
+    <Skipped finish={finish} />
+  ) : (
+    <Playing {...props} finish={finish} />
+  );
 }
 
-function Skipped({ onFinish }: { onFinish: () => void }) {
-  const ref = useRef(onFinish);
-  ref.current = onFinish;
+function Skipped({ finish }: { finish: () => void }) {
   useEffect(() => {
-    ref.current();
-  }, []);
+    finish();
+  }, [finish]);
   return null;
 }
 
 function Playing({
   source,
   accessibilityLabel,
-  onFinish,
+  finish,
   muted = false,
   volume = 1,
   testID = 'video-cutscene',
   videoTestID = 'video-cutscene-video',
-}: Props) {
-  const finished = useRef(false);
-  const onFinishRef = useRef(onFinish);
-  onFinishRef.current = onFinish;
+}: Omit<Props, 'onFinish'> & { finish: () => void }) {
   const lastProgress = useRef({ at: Date.now(), time: 0 });
   const stallRetries = useRef(0);
   const [started, setStarted] = useState(false);
-  const finish = useCallback(() => {
-    if (finished.current) return;
-    finished.current = true;
-    onFinishRef.current();
-  }, []);
   const player = useVideoPlayer(source, (video) => {
     video.loop = false;
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.

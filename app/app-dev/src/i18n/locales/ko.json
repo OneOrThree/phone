@@ -885,6 +885,7 @@
     "delivery": {
       "mailbox": "우체통에 고양이 잡지가 왔어요!",
       "noMailbox": "고양이 잡지 왔어요!",
+      "seaCutscene": "펠리컨이 고양이 잡지를 들고 뗏목으로 날아와요",
       "later": "나중에",
       "readLater": "나중에 읽기",
       "openMailbox": "우체통 열어보기",
