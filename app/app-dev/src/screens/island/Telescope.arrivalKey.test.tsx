@@ -6,10 +6,14 @@ import { startSeaFocusSession, updateSeaRemark } from '@/services/api/focusSessi
 import { clearSession, saveSession, getSession } from '@/services/api/session';
 import { initialState, intentKeyPool, reducer } from '@/services/model';
 
-jest.mock('@/screens/world/WorldViews', () => ({
-  Sailing: ({ destination }: any) => {
-    const { Text } = require('react-native');
-    return <Text testID="sailing">{destination}</Text>;
+jest.mock('@/components/VideoCutscene', () => ({
+  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
+    const { Pressable, Text } = require('react-native');
+    return (
+      <Pressable testID="sailing" onPress={onFinish}>
+        <Text testID="sailing-label">{accessibilityLabel}</Text>
+      </Pressable>
+    );
   },
 }));
 jest.mock('@/utils/layout', () => ({

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { errorTextOr, t } from '@/i18n';
-import { Sailing } from '@/screens/world/WorldViews';
+import { VideoCutscene } from '@/components/VideoCutscene';
 import type { FocusFinishView } from '@/services/api/focusSessions';
 import { ApiError, uuid } from '@/services/api/client';
 import { getMyInventory } from '@/services/api/shop';
@@ -29,8 +29,8 @@ import { SeaScreen } from './SeaScreen';
 import type { SeaArrival, SeaEmote, SeaParticipant, SeaVoyage } from './seaModel';
 import { saveSeaRemark, seaRemarkCooldownSeconds } from './seaRemark';
 
-/** 항해를 그만두면 섬이 멀어지는 연출 — 섬 사이 항해(`useIslandSailing`)와 같은 길이. */
-const DEPART_MS = 1900;
+/** 항해를 그만두면 섬이 멀어지는 영상(3초). */
+const ABANDON = require('@/assets/ota/cutscenes/abandon.mp4');
 /** 도착 뒤 인벤토리 재조회를 기다리는 최대 시간. */
 const INVENTORY_WAIT_MS = 3000;
 /** 이모트 표시 수명 — 섬 응원과 같은 3초. */
@@ -342,12 +342,11 @@ export function SeaVoyageHost({ e }: { e: any }) {
 
   if (departFrom)
     return (
-      <Sailing
-        state={s}
-        from={departFrom}
-        destination={t('openSea.name')}
-        duration={DEPART_MS}
-        onArrive={() => setDepartFrom(null)}
+      <VideoCutscene
+        source={ABANDON}
+        accessibilityLabel={t('openSea.abandonCutscene', { name: departFrom })}
+        testID="abandon-cutscene"
+        onFinish={() => setDepartFrom(null)}
       />
     );
 

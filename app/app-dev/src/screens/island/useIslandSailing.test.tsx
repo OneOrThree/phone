@@ -4,11 +4,18 @@ import { act, render } from '@testing-library/react-native';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { initialState } from '@/services/model';
 
+// 실제 VideoCutscene 을 그리되 영상 종료 이벤트만 직접 보낸다.
+const mockListeners: Record<string, () => void> = {};
+jest.mock('expo', () => ({
+  useEventListener: (_player: unknown, event: string, listener: () => void) => {
+    mockListeners[event] = listener;
+  },
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
-// 훅이 돌려주는 실제 Sailing 을 그린다 — 도착(land)이 AppState 왕복에도 한 번만 불리는지 훅 수준에서 본다.
+// 훅이 돌려주는 실제 도착 영상을 그린다 — 도착(land)이 AppState 왕복에도 한 번만 불리는지 훅 수준에서 본다.
 describe('useIslandSailing', () => {
   let emit: (s: AppStateStatus) => void;
   beforeEach(() => {
@@ -23,7 +30,7 @@ describe('useIslandSailing', () => {
     jest.useRealTimers();
   });
 
-  it('도착 land 는 한 번만 — Sailing 이 마운트된 채 background→active 를 거쳐도 END_VISIT·reset 이 1회', async () => {
+  it('도착 land 는 한 번만 — 영상이 마운트된 채 background→active 를 거쳐도 END_VISIT·reset 이 1회', async () => {
     const e = {
       state: initialState(true),
       dispatch: jest.fn(),
@@ -43,14 +50,14 @@ describe('useIslandSailing', () => {
         e.reset('home');
       }),
     );
-    await act(async () => jest.advanceTimersByTime(2100));
+    await act(async () => mockListeners.playToEnd());
     expect(e.reset).toHaveBeenCalledTimes(1);
     expect(e.reset).toHaveBeenCalledWith('home');
     expect(e.dispatch).toHaveBeenCalledTimes(1);
     expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
     await act(async () => emit('background'));
     await act(async () => emit('active'));
-    await act(async () => jest.advanceTimersByTime(2100));
+    await act(async () => mockListeners.playToEnd());
     expect(e.reset).toHaveBeenCalledTimes(1);
     expect(e.dispatch).toHaveBeenCalledTimes(1);
   });

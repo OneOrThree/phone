@@ -1,24 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { VideoCutscene } from '@/components/VideoCutscene';
 import { t } from '@/i18n';
-import { Sailing } from '@/screens/world/WorldViews';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
-import {
-  canSwitchIsland,
-  currentIsland,
-  noIslandRoute,
-  viewIsland,
-  type State,
-} from '@/services/model';
+import { canSwitchIsland, noIslandRoute, type State } from '@/services/model';
 
-/** 항해 연출 길이 — 기존 `Travel` 과 같다. */
-const SAILING_MS = 1900;
+const ARRIVAL = require('@/assets/ota/cutscenes/arrival.mp4');
 
 /** 연출이 끝나면 할 화면 전환. 서버 요청이 끝난 뒤에 정해진다. */
 type Landing = () => void;
 
 /**
- * 섬 사이 항해(GROMO-2261 뗏목 행선지 · GROMO-2266 망원경) — 서버 요청 → 짧은 `Sailing` 연출 → 도착 처리.
+ * 섬 사이 항해(GROMO-2261 뗏목 행선지 · GROMO-2266 망원경) — 서버 요청 → 4초 도착 영상 → 도착 처리.
  * 뗏목 행선지와 망원경이 같이 쓴다. 요청을 연출보다 먼저 끝내므로 실패는 연출 없이 바로 알리고,
  * 연출이 끝나면 화면 전환만 한다.
  *
@@ -31,7 +24,7 @@ type Landing = () => void;
  */
 export function useIslandSailing(e: any) {
   const s: State = e.state;
-  const [voyage, setVoyage] = useState<{ from: string; to: string; land: Landing } | null>(null);
+  const [voyage, setVoyage] = useState<{ to: string; land: Landing } | null>(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const mounted = useRef(true);
@@ -56,25 +49,15 @@ export function useIslandSailing(e: any) {
     };
   }, [busy, e.backOverride]);
 
-  // 출발지 = 방문 중이면 방문 섬, 아니면 현재 섬 이름(이름을 못 얻으면 「우리 섬」).
-  // 누른 시점에 한 번 읽어 둔다 — 요청이 끝나 소속 동기화가 현재 섬을 바꾼 뒤에 읽으면 출발지가 목적지가 된다.
-  const originName = () =>
-    (s.visitingIslandId
-      ? (s.serverIslands?.visit?.island.name ?? viewIsland(s, s.visitingIslandId)?.name)
-      : e.islands
-        ? s.serverIslands?.memberships.find((m) => m.id === s.serverIslands?.currentIslandId)?.name
-        : currentIsland(s).name) ?? t('home.raft.from');
-
   const sail = async (to: string, prepare: () => Promise<Landing>) => {
     if (pendingRef.current) return;
-    const from = originName();
     const gen = sessionGeneration();
     const alive = () => mounted.current && sessionGeneration() === gen;
     pendingRef.current = true;
     setPending(true);
     try {
       const land = await prepare();
-      if (alive()) setVoyage({ from, to, land });
+      if (alive()) setVoyage({ to, land });
     } catch (thrown) {
       const message = islandErrorMessage(thrown);
       if (message && alive()) e.notify(message);
@@ -99,12 +82,11 @@ export function useIslandSailing(e: any) {
   };
 
   const sailing = voyage ? (
-    <Sailing
-      state={s}
-      from={voyage.from}
-      destination={voyage.to}
-      duration={SAILING_MS}
-      onArrive={voyage.land}
+    <VideoCutscene
+      source={ARRIVAL}
+      accessibilityLabel={t('arrivalCutscene.label', { destination: voyage.to })}
+      testID="arrival-cutscene"
+      onFinish={voyage.land}
     />
   ) : null;
 
