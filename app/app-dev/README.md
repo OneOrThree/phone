@@ -114,7 +114,7 @@ iOS·Android [세션 리플레이](https://us.posthog.com/project/669473/replay)
 
 프로젝트 토큰과 수집 호스트는 각각 `EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN`, `EXPO_PUBLIC_POSTHOG_HOST`로 빌드별 재정의할 수 있습니다. 기존 키가 빌드 환경변수에 남아 있으면 기본값보다 우선하므로 교체해야 합니다. 빈 토큰은 수집을 끄며, dev TestFlight는 기존대로 빈 토큰을 강제합니다.
 
-Android CI의 main 릴리스는 AWS Secrets Manager `gromo/prod/android`의 `POSTHOG_PROJECT_TOKEN`과 `POSTHOG_REGION`을 읽어 위 SDK 환경변수에 적용합니다. `POSTHOG_REGION`은 `US Cloud`·`EU Cloud` 또는 해당 PostHog 주소(예: `https://us.i.posthog.com`)로 지정할 수 있으며 수집 호스트로 변환됩니다. 두 값이 없거나 유효하지 않으면 릴리스 빌드를 중단합니다. 심볼·소스맵 업로드 인증은 별도의 GitHub secret `POSTHOG_CLI_API_KEY`를 사용하며, 이 개인 API 키는 앱에 포함하지 않습니다. CI는 `npm ci`로 설치한 고정 버전 `posthog-cli`를 사용합니다.
+Android CI의 main 릴리스는 AWS Secrets Manager `gromo/prod/android`의 `POSTHOG_PROJECT_TOKEN`과 `POSTHOG_REGION`을 읽어 위 SDK 환경변수에 적용합니다. `POSTHOG_REGION`은 `US`·`US Cloud` 또는 US PostHog 주소(예: `https://us.i.posthog.com`)로 지정할 수 있으며 수집 호스트로 변환됩니다. CLI 프로젝트 ID `669473`과 업로드 인증이 US Catus 프로젝트용이므로 EU 등 다른 리전은 거부합니다. 두 값이 없거나 유효하지 않으면 릴리스 빌드를 중단합니다. 심볼·소스맵 업로드 인증은 별도의 GitHub secret `POSTHOG_CLI_API_KEY`를 사용하며, 이 개인 API 키는 앱에 포함하지 않습니다. CI는 `npm ci`로 설치한 고정 버전 `posthog-cli`를 사용합니다.
 
 ### 첫 섬·집중, 섬·친구, 오류 대시보드
 

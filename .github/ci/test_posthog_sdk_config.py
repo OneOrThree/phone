@@ -34,18 +34,25 @@ class PostHogSdkConfigTest(unittest.TestCase):
             "posthog-cli-host=https://us.posthog.com",
         ])
 
-    def test_cloud_names_and_urls_resolve_to_matching_hosts(self):
+    def test_us_cloud_names_and_urls_resolve_to_matching_hosts(self):
         for region, cloud in [
             ("US", "us"), ("US Cloud", "us"),
-            ("EU", "eu"), ("EU Cloud", "eu"),
-            ("https://eu.i.posthog.com/", "eu"),
-            ("https://eu.posthog.com", "eu"),
+            ("https://us.i.posthog.com/", "us"),
+            ("https://us.posthog.com", "us"),
         ]:
             with self.subTest(region=region):
                 result = self.run_config(POSTHOG_REGION=region)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f"posthog-host=https://{cloud}.i.posthog.com\n", result.stdout)
                 self.assertIn(f"posthog-cli-host=https://{cloud}.posthog.com\n", result.stdout)
+
+    def test_eu_is_rejected_before_us_project_symbol_upload(self):
+        for region in ["EU", "EU Cloud", "https://eu.i.posthog.com/", "https://eu.posthog.com"]:
+            with self.subTest(region=region):
+                result = self.run_config(POSTHOG_REGION=region)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("POSTHOG_REGION", result.stderr)
 
     def test_missing_or_invalid_token_fails_without_partial_output(self):
         for token in [None, "", " ", 123, "phx_personal", "phc_test\nINJECT=value"]:

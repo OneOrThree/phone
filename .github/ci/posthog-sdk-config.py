@@ -15,24 +15,20 @@ def sdk_outputs(secret):
 
     region = secret.get("POSTHOG_REGION")
     if not isinstance(region, str):
-        raise ValueError("POSTHOG_REGION에 US/EU Cloud 또는 PostHog 주소가 필요합니다")
+        raise ValueError("POSTHOG_REGION에 US Cloud 또는 US PostHog 주소가 필요합니다")
     region = region.strip().lower().rstrip("/")
-    clouds = {
-        alias: cloud
-        for cloud in ("us", "eu")
-        for alias in (
-            cloud, f"{cloud} cloud", f"https://{cloud}.i.posthog.com",
-            f"https://{cloud}.posthog.com",
-        )
+    # CI의 CLI 프로젝트 ID와 개인 API 키는 US Catus 프로젝트용이다.
+    # 다른 리전은 프로젝트 ID·인증까지 함께 전환하기 전에는 허용하지 않는다.
+    us_regions = {
+        "us", "us cloud", "https://us.i.posthog.com", "https://us.posthog.com",
     }
-    if region not in clouds:
-        raise ValueError("POSTHOG_REGION은 US/EU Cloud 또는 해당 PostHog 주소여야 합니다")
-    cloud = clouds[region]
+    if region not in us_regions:
+        raise ValueError("POSTHOG_REGION은 US Cloud만 지원합니다: CLI 프로젝트 ID와 인증이 US 전용입니다")
     # 프로젝트 토큰은 앱에 포함되는 공개값이다. 개인 API 키·Play 키는 전달하지 않는다.
     return {
         "posthog-project-token": token,
-        "posthog-host": f"https://{cloud}.i.posthog.com",
-        "posthog-cli-host": f"https://{cloud}.posthog.com",
+        "posthog-host": "https://us.i.posthog.com",
+        "posthog-cli-host": "https://us.posthog.com",
     }
 
 
