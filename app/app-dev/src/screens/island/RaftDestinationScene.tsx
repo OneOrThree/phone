@@ -1,11 +1,11 @@
 import React from 'react';
-import { useFonts } from 'expo-font';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
+import { useGowun } from './sceneKit';
 
 const c = componentTokens.raftDestinations;
 
@@ -53,8 +53,8 @@ export function RaftDestinationScene({
 }) {
   const L = useAppLayout();
   const reflow = L.fontScale > c.largeTextThreshold;
-  const [fontLoaded] = useFonts({ RaftGowun: require('@/assets/fonts/gowun-dodum.ttf') });
-  const font = fontLoaded ? { fontFamily: 'RaftGowun' } : undefined;
+  // 앱에 넣어 둔 고운돋움(sceneKit 의 GOWUN) — 글꼴 파일을 따로 불러오면 네이티브 번들에 한 번 더 들어간다
+  const font = { fontFamily: useGowun() };
   const imageSize = L.landscape ? c.landscape : c;
   const source = L.landscape
     ? require('@/assets/ota/raft/destinations-landscape.png')
