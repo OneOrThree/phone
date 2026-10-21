@@ -462,7 +462,6 @@
     },
     "raft": {
       "title": "뗏목",
-      "from": "우리 섬",
       "fishingIsland": "앞바다 낚시섬",
       "toIsland": "{{name}}섬으로",
       "telescope": "망원경",
@@ -887,6 +886,7 @@
     "delivery": {
       "mailbox": "우체통에 고양이 잡지가 왔어요!",
       "noMailbox": "고양이 잡지 왔어요!",
+      "seaCutscene": "펠리컨이 고양이 잡지를 들고 뗏목으로 날아와요",
       "later": "나중에",
       "readLater": "나중에 읽기",
       "openMailbox": "우체통 열어보기",
@@ -982,6 +982,7 @@
     }
   },
   "openSea": {
+    "abandonCutscene": "{{name}} 항해를 그만두고 바다에 머물러요. 섬이 멀어져요.",
     "name": "먼바다",
     "skip": "건너뛰기",
     "duration": "{{minutes}}분 {{seconds}}초",
@@ -1059,6 +1060,9 @@
     "failed": "처리하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
   },
   "departureStory": {
-    "label": "출항 준비: {{destination}}. 짐을 싣고 밧줄을 풀어 바다로 떠나요."
+    "label": "출항 준비: {{destination}}. 뗏목에 올라 밧줄을 풀고 바다로 떠나요."
+  },
+  "arrivalCutscene": {
+    "label": "{{destination}}에 도착하고 있어요. 뗏목이 부두에 닿아요."
   }
 }

@@ -98,7 +98,6 @@ export function RaftDestinations({ e }: { e: any }) {
   if (departing)
     return (
       <SeaDeparture
-        state={s}
         onComplete={() => {
           if (visiting) e.dispatch({ type: 'END_VISIT' });
           e.reset('sea');

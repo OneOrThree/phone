@@ -2536,7 +2536,6 @@ function FocusFlow({ e: environment }: any) {
   if (r === 'focusTravel')
     return (
       <DepartureStory
-        state={s}
         destination={t('focusFlow.common.fishingIsland')}
         onComplete={() => e.replace('fishingArrival')}
       />

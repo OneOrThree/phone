@@ -16,9 +16,9 @@
 - 결과 `1335:1346`: 섬 이름·정산된 이번 항해 시간·대표 개인 꾸미기 하나. 여러 보상을 받으면 나머지 이름도 함께 표시한다. 사용자 수정대로
   `낚은 아이템`(섬 결과창과 같은 `common.caughtItem`, GROMO-2382), 분류 부제 없음, `섬 둘러보기`를 사용한다.
   처음 받은 아이템(`seaReward.newProductIds`)에는 `NEW!` 배지를 붙이고 옷장의 안 본 새 꾸미기에 넣는다.
-- G2 `1207:1326`: 2026-10-20 승인한 `DepartureStory`의 출항 준비 세 컷으로 교체했다.
-  `SeaDeparture`와 집중섬 `focusTravel`이 같은 배경·6색 고양이를 쓰며 약 4.2초 뒤 각 목적지로 이어진다.
-  첫 출항 구분·건너뛰기는 없고, 복귀·휴식·소속 섬 이동에는 기존 Sailing을 유지한다.
+- G2 `1207:1326`: 2026-10-20 승인한 `DepartureStory`의 출항 준비 영상(`ota/cutscenes/departure.mp4`)으로 교체했다.
+  `SeaDeparture`와 집중섬 `focusTravel`이 같은 4초 영상을 쓰고 끝나면 각 목적지로 이어진다.
+  첫 출항 구분·건너뛰기는 없고, 복귀·휴식에는 기존 Sailing을 유지하며 소속 섬 사이 이동은 도착 영상(`arrival.mp4`)을 쓴다.
 
 최종 Figma 인계 보드:
 https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
@@ -38,7 +38,7 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 ## 고양이 잡지 (2314)
 
 - `CurrentScreens` 가 `sea` 라우트에서도 오늘 호(`useMagazineToday`)를 읽어 `e.magazineToday` 로 넘긴다. `SeaVoyageHost` 는 표류(`sea` · 세션 없음 · 출항 연출 아님) 중에만 `SeaScreen.magazine` 을 준다.
-- 펠리컨 배달 B1(`SeaMagazineDelivery`): 아직 받지 않은 오늘 호면 한 번 띄운다. 받음 `{place: SEA}` 와 `markDelivered` 는 실제로 뜬 순간(`onShown`)에만 — `SeaScreen` 이 다른 창(유저 카드·한마디·이모트·결과창) 때문에 미루는 동안은 적지 않는다. 그 사이 항해가 시작되거나 다른 곳에서 받았으면 띄울 차례를 거둔다. 「나중에 읽기」·안드로이드 뒤로가기(SeaScreen BackHandler, App 이 먼저 부르면 호스트 `backOverride`)는 `{place: SEA, deferred: true}`. 띄운 동안 장면을 모달로 숨기고 문구를 스크린리더에 한 번 알린다.
+- 펠리컨 배달 B1(`SeaMagazineDelivery`): 아직 받지 않은 오늘 호면 한 번 띄운다. 받음 `{place: SEA}` 와 `markDelivered` 는 실제로 뜬 순간(`onShown`)에만 — `SeaScreen` 이 다른 창(유저 카드·한마디·이모트·결과창) 때문에 미루는 동안은 적지 않는다. 그 사이 항해가 시작되거나 다른 곳에서 받았으면 띄울 차례를 거둔다. 「나중에 읽기」·안드로이드 뒤로가기(SeaScreen BackHandler, App 이 먼저 부르면 호스트 `backOverride`)는 `{place: SEA, deferred: true}`. 먼저 펠리컨 배달 영상(`pelican-mail.mp4`)을 보여 주고 끝나면 말풍선을 띄운다. 띄운 동안 장면을 모달로 숨기고 문구를 스크린리더에 한 번 알린다.
 - 뗏목 위 잡지 B3: 받은 호가 있으면 `SeaScene` 이 내 뗏목 오른쪽에 표지 물건(안 읽음 빨간 점)을 둔다. 가로 compact 에서는 뗏목 크기에 비례해 줄여 뗏목 옆에 나란히 둔다(누르는 자리 44 이상, 뗏목과 겹치지 않음). 꽂이·길게 누르기는 없다(`GET /me/magazine/issues` 를 부르지 않는다).
 - 펼치기는 라우트 `seaMagazine`(`seaRouteHeld` 에 포함 — 소속 섬 가드를 타지 않는다) → `MagazineReader place="SEA"`. 망원경 동그라미는 `pinToTelescope(id, 'magazine', promotionId)` 뒤 `e.replace('telescope')` 라 망원경 뒤로가기가 바다로 간다. 요청 중 잡지를 닫으면 이동하지 않고, 빠진 섬 토스트만 알린다.
 - 알려진 한계(범위 밖): 소속 섬이 없는 표류 유저가 망원경(바다 [망원경] · 잡지 동그라미 모두)으로 가면 App 의 소속 가드가 `telescope` 를 지키지 않아 섬 선택으로 보낸다. 기존 바다 [망원경] 버튼과 같은 동작이다.
@@ -78,7 +78,7 @@ GROMO-2310(2026-10-18)이 1·2·3·6을 `SeaVoyageHost`(라우트 `sea`·`seaArr
 5. **2311 에서 연결** — `SeaVoyageHost.onExplore`(도착 기록·환영·인벤토리 재조회·방문/주민 라우트), 주민 소식 토스트는 `islandRealtime` events. 이전 메모: `onExplore(result)`: 결과 확인 처리·인벤토리 재조회·기존 방문자/주민 라우트 이동.
    첫 주민 환영/2302 주민 소식도 이 어댑터에서 기존 흐름과 연결한다.
 6. **2310 에서 연결(망원경 쪽)** — 망원경 [항해하기] → `SeaVoyagePreparation` → 바다 항해 집중 시작
-   → `SeaScreen`. 그만두기는 같은 finish 뒤 `Sailing`(1.9초)으로 멀어지고 표류 상태로 남는다.
+   → `SeaScreen`. 그만두기는 같은 finish 뒤 항해 중단 영상(`abandon.mp4`, 3초)으로 멀어지고 표류 상태로 남는다.
    G1/G3 뗏목 목적지 화면은 티켓 2363, 먼바다·집중섬 공통 출항 세 컷은 티켓 2364에서 연결했다.
    한마디는 바다 세션에 과목이 없어 집중 중에도 말풍선에 뜬다(`SeaScene`).
 

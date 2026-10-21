@@ -31,13 +31,12 @@ beforeEach(() => {
   mockGeneration = 0;
 });
 
-jest.mock('@/screens/world/WorldViews', () => ({
-  Sailing: ({ destination, from, onArrive }: any) => {
+jest.mock('@/components/VideoCutscene', () => ({
+  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
-      <Pressable testID="sailing" onPress={onArrive}>
-        <Text>{destination}</Text>
-        <Text testID="sailing-from">{from}</Text>
+      <Pressable testID="sailing" onPress={onFinish}>
+        <Text testID="sailing-label">{accessibilityLabel}</Text>
       </Pressable>
     );
   },
@@ -424,31 +423,6 @@ test('소속 섬 창의 구분선과 뒤로가기는 목록 안에서 처리한�
   expect(screen.getByLabelText('바다로 출항')).toBeTruthy();
 });
 
-test('방문 중 항해 출발지는 방문 섬 이름이다', async () => {
-  const e = env('b');
-  const screen = await renderMembers(e);
-  await fireEvent.press(screen.getByText('하나섬으로'));
-  expect((await screen.findByTestId('sailing-from')).props.children).toBe('둘');
-});
-
-test('항해 출발지는 누른 시점의 섬 이름이다 — 이동 응답의 소속 동기화가 현재 섬을 바꿔도 목적지로 바뀌지 않는다', async () => {
-  const e = env();
-  e.islands.switchCurrent.mockImplementation(async () => {
-    e.state = reducer(e.state, {
-      type: 'ISLAND_SYNC',
-      memberships: {
-        ...e.state.serverIslands!,
-        currentIslandId: 'b',
-        items: e.state.serverIslands!.memberships,
-      },
-    });
-  });
-  const screen = await renderMembers(e);
-  await fireEvent.press(screen.getByText('둘섬으로'));
-  expect(e.state.serverIslands!.currentIslandId).toBe('b');
-  expect((await screen.findByTestId('sailing-from')).props.children).toBe('하나');
-});
-
 test('요청이 끝나도 그 사이 다른 곳이 갈아 끼운 뒤로가기 처리는 지우지 않는다', async () => {
   const e = env('b');
   let fail!: (error: Error) => void;
@@ -560,7 +534,7 @@ test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길
   expect(e.islands.switchCurrent).not.toHaveBeenCalled();
 });
 
-test('바다 출항은 세 컷 완료 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
+test('바다 출항은 출항 영상이 끝나기 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
   const e = env();
   const screen = await render(<RaftDestinations e={e} />);
   await pressSea(screen);

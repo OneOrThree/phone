@@ -1,5 +1,5 @@
 // 망원경 화면(GROMO-2266 · 2273) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운·핀 표시(찜 리본·잡지 칸 미리보기·빼기).
-// API(getTelescope·arriveAtIsland)와 항해 연출(Sailing)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
+// API(getTelescope·arriveAtIsland)와 도착 영상(VideoCutscene)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
 // 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
@@ -41,13 +41,12 @@ jest.mock('@/screens/island/useTelescope', () => {
     },
   };
 });
-jest.mock('@/screens/world/WorldViews', () => ({
-  Sailing: ({ destination, from, onArrive }: any) => {
+jest.mock('@/components/VideoCutscene', () => ({
+  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
-      <Pressable testID="sailing" onPress={onArrive}>
-        <Text testID="sailing-to">{destination}</Text>
-        <Text testID="sailing-from">{from}</Text>
+      <Pressable testID="sailing" onPress={onFinish}>
+        <Text testID="sailing-label">{accessibilityLabel}</Text>
       </Pressable>
     );
   },
@@ -725,7 +724,7 @@ describe('돌아가기', () => {
     await press(screen, 'j2');
     await fireEvent.press(screen.getByLabelText('돌아가기'));
     expect(e.islands!.switchCurrent).toHaveBeenCalledWith('j2');
-    expect((await screen.findByTestId('sailing-to')).props.children).toBe('섬 j2');
+    expect((await screen.findByTestId('sailing-label')).props.children).toContain('섬 j2');
     expect(mockArrive).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByTestId('sailing'));
     expect(e.reset).toHaveBeenCalledWith('home');
@@ -750,25 +749,6 @@ describe('돌아가기', () => {
     await act(async () => {});
     expect(e.notify).toHaveBeenCalledWith('아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.');
     expect(screen.queryByTestId('sailing')).toBeNull();
-  });
-
-  test('연출의 출발지는 누른 시점의 섬이다 — 이동 응답이 현재 섬을 바꿔도 목적지로 바뀌지 않는다', async () => {
-    const e = env();
-    e.islands!.switchCurrent.mockImplementation(async () => {
-      e.state = reducer(e.state, {
-        type: 'ISLAND_SYNC',
-        memberships: {
-          items: [isl('j1', '섬 j1'), isl('j2', '섬 j2'), isl('j3', '섬 j3')],
-          currentIslandId: 'j2',
-          nextCursor: null,
-          lossReason: null,
-        },
-      });
-    });
-    const { screen } = await open([mine('j2', { arrivedBefore: true })], e);
-    await press(screen, 'j2');
-    await fireEvent.press(screen.getByLabelText('돌아가기'));
-    expect((await screen.findByTestId('sailing-from')).props.children).toBe('섬 j1');
   });
 });
 

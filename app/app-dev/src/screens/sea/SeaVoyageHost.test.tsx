@@ -60,13 +60,12 @@ jest.mock('@/services/seaRealtime', () => ({
     return mockRoom;
   }),
 }));
-jest.mock('@/screens/world/WorldViews', () => ({
-  Sailing: ({ destination, from, onArrive }: any) => {
+jest.mock('@/components/VideoCutscene', () => ({
+  VideoCutscene: ({ accessibilityLabel, testID, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
-      <Pressable testID="sailing" onPress={onArrive}>
-        <Text testID="sailing-from">{from}</Text>
-        <Text>{destination}</Text>
+      <Pressable testID={testID} onPress={onFinish}>
+        <Text testID={`${testID}-label`}>{accessibilityLabel}</Text>
       </Pressable>
     );
   },
@@ -207,13 +206,13 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   await fireEvent.press(screen.getByLabelText('항해 그만두기'));
   await act(async () => {});
   expect(e.focus.finish).toHaveBeenCalledTimes(1);
-  expect(screen.getByTestId('sailing-from').props.children).toBe('별고래섬');
+  expect(screen.getByTestId('abandon-cutscene-label').props.children).toContain('별고래섬');
   // 연출 중 뒤로가기는 삼킨다
   expect(e.backOverride.current?.()).toBe(true);
   // 실제 앱에서는 finish 가 세션을 닫는다
   const ended = { ...e, state: { ...e.state, session: null } };
   await screen.rerender(<SeaVoyageHost e={ended} />);
-  await fireEvent.press(screen.getByTestId('sailing'));
+  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
   await fireEvent.press(screen.getByLabelText('망원경'));
   expect(e.go).toHaveBeenCalledWith('telescope');
   expect(e.replace).not.toHaveBeenCalled();
@@ -750,6 +749,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
     const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
     expect(screen.getByText('고양이 잡지 왔어요!')).toBeTruthy();
     expect(putReceipt).toHaveBeenCalledTimes(1);
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
@@ -773,6 +773,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   test('「나중에 읽기」는 나중에(SEA)를 적고 닫는다 — 받은 호는 뗏목 옆 물건(빨간 점)으로 남고 다시 알리지 않는다', async () => {
     const e = drift({ issue, receipt: null });
     const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
     await fireEvent.press(screen.getByLabelText('나중에 읽기'));
     expect(putReceipt).toHaveBeenLastCalledWith('iss-20', { place: 'SEA', deferred: true });
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
@@ -815,6 +816,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   test('[잡지 펼치기]는 오늘 호로 바다 잡지(seaMagazine)를 연다', async () => {
     const e = drift({ issue, receipt: null });
     const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
     await fireEvent.press(screen.getByLabelText('잡지 펼치기'));
     expect(e.go).toHaveBeenCalledWith('seaMagazine', 'iss-20');
   });
@@ -887,12 +889,21 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     const ended = { ...e, state: { ...e.state, session: null } };
     await screen.rerender(<SeaVoyageHost e={ended} />);
     // 멀어지는 연출 중에는 아직이다
-    expect(screen.getByTestId('sailing')).toBeTruthy();
+    expect(screen.getByTestId('abandon-cutscene')).toBeTruthy();
     expect(putReceipt).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByTestId('sailing'));
+    await fireEvent.press(screen.getByTestId('abandon-cutscene'));
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     expect(putReceipt).toHaveBeenCalledTimes(1);
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
+  });
+
+  test('펠리컨 배달은 영상이 끝난 뒤에야 말풍선과 버튼을 보여 준다', async () => {
+    const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);
+    expect(screen.getByTestId('sea-magazine-cutscene')).toBeTruthy();
+    expect(screen.queryByTestId('sea-magazine-open')).toBeNull();
+    await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
+    expect(screen.queryByTestId('sea-magazine-cutscene')).toBeNull();
+    expect(screen.getByTestId('sea-magazine-open')).toBeTruthy();
   });
 
   test('지난 호뿐이면(오늘 호 발행 전) 펠리컨·물건 모두 없다', async () => {
