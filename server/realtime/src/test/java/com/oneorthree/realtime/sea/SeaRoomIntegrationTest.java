@@ -325,6 +325,10 @@ class SeaRoomIntegrationTest {
         postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"version\":2}}", "\"version\":99}}"));
         postEvent(appearanceEvent(alice, null, 2, "head-new")
                 .replace("\"userId\":\"" + alice + "\",\"appearance\"", "\"userId\":\"nope\",\"appearance\""));
+        // 외양은 전체 스냅샷이다 — 빈 객체·슬롯 키 누락·숫자 hull 은 거부한다
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replaceAll("\"appearance\":\\{[^}]*\\}", "\"appearance\":{}"));
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"neck\":null,", ""));
+        postEvent(appearanceEvent(alice, null, 2, "head-new").replace("\"hull\":\"raft\"", "\"hull\":7"));
 
         assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "head")).isFalse();
         assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "appearanceVersion")).isFalse();

@@ -503,21 +503,11 @@ public class SeaRooms {
         long version = versionNode.longValue();
         String head = text(appearance, HEAD);
         String neck = text(appearance, NECK);
-        boolean applied = false;
-        // 섬마다 한 건씩 오고 순서가 뒤바뀔 수 있다 — version 이 저장값보다 클 때만, 읽은 rev 로 CAS 해 적용한다(경쟁이면 다시 읽는다).
-        for (int attempt = 0; attempt < APPEARANCE_CAS_RETRIES && !applied; attempt++) {
-            Map<String, String> current = stringMap(redis.opsForHash().entries(RedisKeys.seaUser(userId)));
-            long stored = longOrZero(current.get(APPEARANCE_VERSION));
-            if (version <= stored || current.get(REV) == null) {
-                return; // 이미 같거나 더 새 값이 적용됐다 / 그사이 나갔다
-            }
-            Transition transition = new Transition(new HashMap<>(), new ArrayList<>(), "", "0");
-            putOrDelete(transition.set(), transition.delete(), HEAD, head);
-            putOrDelete(transition.set(), transition.delete(), NECK, neck);
-            transition.set().put(APPEARANCE_VERSION, Long.toString(version));
-            applied = runUpdate(userId, roomId.toString(), transition, current.get(REV)) == 1;
+        AppearanceCas outcome = casAppearance(userId, roomId, head, neck, version);
+        if (outcome == AppearanceCas.STALE) {
+            return; // 이미 같거나 더 새 값이 적용됐다 / 그사이 나갔다
         }
-        if (!applied) {
+        if (outcome == AppearanceCas.EXHAUSTED) {
             // 경쟁이 3번 이어졌다 — 조용히 끝내면 수신 기록이 커밋돼 사건이 사라진다(섬 0~1개 사용자는 중복 사건도 없다).
             // 던져서 수신 기록을 롤백하고 relay 가 다시 전달하게 한다(sea.member.updated 의 Redis 실패와 같은 경로).
             throw new UpstreamUnavailableException();
@@ -535,6 +525,32 @@ public class SeaRooms {
         } catch (RuntimeException e) {
             log.warn("바다 구성원 외양 갱신 발행 실패 — reason={}", e.getClass().getSimpleName());
         }
+    }
+
+    private enum AppearanceCas { APPLIED, STALE, EXHAUSTED }
+
+    /**
+     * 외양(head·neck·appearanceVersion)만 저장된 version 보다 클 때 읽은 rev 로 CAS 해 쓴다 — 경쟁이면 최신 해시를 다시 읽어
+     * 재시도한다. 입장 보정과 외양 사건이 같은 규칙을 쓴다. 세션·한마디 전이의 CAS 와는 별개의 재시도다(GROMO-2389).
+     *
+     * @return {@code APPLIED} 썼다 · {@code STALE} 이미 같거나 더 새 값이 있거나 그사이 나갔다 · {@code EXHAUSTED} 경쟁이
+     *         재시도 상한까지 이어졌다
+     */
+    private AppearanceCas casAppearance(UUID userId, UUID roomId, String head, String neck, long version) {
+        for (int attempt = 0; attempt < APPEARANCE_CAS_RETRIES; attempt++) {
+            Map<String, String> current = stringMap(redis.opsForHash().entries(RedisKeys.seaUser(userId)));
+            if (version <= longOrZero(current.get(APPEARANCE_VERSION)) || current.get(REV) == null) {
+                return AppearanceCas.STALE;
+            }
+            Transition transition = new Transition(new HashMap<>(), new ArrayList<>(), "", "0");
+            putOrDelete(transition.set(), transition.delete(), HEAD, head);
+            putOrDelete(transition.set(), transition.delete(), NECK, neck);
+            transition.set().put(APPEARANCE_VERSION, Long.toString(version));
+            if (runUpdate(userId, roomId.toString(), transition, current.get(REV)) == 1) {
+                return AppearanceCas.APPLIED;
+            }
+        }
+        return AppearanceCas.EXHAUSTED;
     }
 
     /**
@@ -658,9 +674,15 @@ public class SeaRooms {
         boolean remarkChanged = !Objects.equals(first.remark(), second.remark())
                 || !Objects.equals(first.remarkChangedAt(), second.remarkChangedAt());
         boolean profileChanged = !Objects.equals(first.name(), second.name())
-                || !Objects.equals(first.catColor(), second.catColor())
-                || !Objects.equals(first.head(), second.head()) || !Objects.equals(first.neck(), second.neck())
+                || !Objects.equals(first.catColor(), second.catColor());
+        boolean appearanceChanged = !Objects.equals(first.head(), second.head())
+                || !Objects.equals(first.neck(), second.neck())
                 || first.appearanceVersion() != second.appearanceVersion();
+        if (appearanceChanged) {
+            // 외양은 세션·한마디 전이의 단일 CAS 와 분리한다(GROMO-2389) — 거기서 지면 외양 보정까지 버려진다.
+            // 저장된 appearanceVersion 기준의 자체 재시도라 경쟁에도 최신 값만 남는다.
+            casAppearance(userId, roomId, second.head(), second.neck(), second.appearanceVersion());
+        }
         if (!sessionChanged && !remarkChanged && !profileChanged) {
             return;
         }
@@ -679,9 +701,6 @@ public class SeaRooms {
         if (profileChanged) {
             putOrDelete(transition.set(), transition.delete(), NAME, second.name());
             putOrDelete(transition.set(), transition.delete(), CAT_COLOR, second.catColor());
-            putOrDelete(transition.set(), transition.delete(), HEAD, second.head());
-            putOrDelete(transition.set(), transition.delete(), NECK, second.neck());
-            transition.set().put(APPEARANCE_VERSION, Long.toString(second.appearanceVersion()));
         }
         if (runUpdate(userId, roomId.toString(), transition, rev) != 1) {
             log.debug("입장 보정 건너뜀 — 그사이 Data 사건이 먼저 적용됐거나 나갔다");

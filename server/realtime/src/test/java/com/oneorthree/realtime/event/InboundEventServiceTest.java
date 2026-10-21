@@ -141,7 +141,8 @@ class InboundEventServiceTest {
         String envelope = "{\"eventId\":\"" + eventId + "\",\"schemaVersion\":1,"
                 + "\"type\":\"member.appearance.updated\",\"occurredAt\":\"2026-09-19T00:00:00Z\","
                 + "\"scheduledAt\":null,\"userId\":\"" + user + "\",\"locale\":null,\"subjectId\":null,"
-                + "\"version\":2,\"params\":{\"userId\":\"" + user + "\",\"appearance\":{\"head\":\"h\"},"
+                + "\"version\":2,\"params\":{\"userId\":\"" + user + "\",\"appearance\":{\"clothes\":null,\"decor\":null,\"head\":\"h\",\"neck\":null,"
+                + "\"shoes\":null,\"hull\":\"raft\",\"position\":\"front\"},"
                 + "\"version\":2}}";
         org.mockito.Mockito.doThrow(new com.oneorthree.realtime.common.exception.UpstreamUnavailableException())
                 .doCallRealMethod().when(seaRooms).applyAppearanceUpdated(any());

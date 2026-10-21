@@ -437,6 +437,40 @@ class SeaRoomsScriptTest {
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("h");
     }
 
+    @Test
+    @DisplayName("[GROMO-2389] 입장 보정의 외양은 한마디·세션 전이의 CAS 와 분리돼, 그 CAS 가 져도 외양 보정은 남는다")
+    void reconcileAppearanceSurvivesALostMainCas() {
+        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+        Fixture f = new Fixture();
+        UUID alice = UUID.randomUUID();
+        org.mockito.BDDMockito.given(f.seaState.fetch(alice)).willReturn(
+                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null, "이름", null,
+                        new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("old-head", null, 1L)),
+                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState("새말", java.time.Instant.now(), null,
+                        "이름", null,
+                        new com.oneorthree.realtime.sea.client.SeaStateClient.Appearance("new-head", null, 2L)));
+        org.mockito.BDDMockito.given(f.friends.fetchFriendIds(alice)).willReturn(java.util.Set.of());
+        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
+        // 보정의 두 번째 UPDATE(한마디 전이)만 직전에 rev 가 올라 져 버린다 — 첫 UPDATE 는 외양이다
+        org.springframework.data.redis.core.StringRedisTemplate racing = org.mockito.Mockito.spy(redis);
+        java.util.concurrent.atomic.AtomicInteger updates = new java.util.concurrent.atomic.AtomicInteger();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            if (invocation.getArgument(0) == SeaRooms.UPDATE && updates.incrementAndGet() == 2) {
+                redis.opsForHash().increment(RedisKeys.seaUser(alice), "rev", 1);
+            }
+            return invocation.callRealMethod();
+        }).when(racing).execute(org.mockito.ArgumentMatchers.<org.springframework.data.redis.core.script.RedisScript<Long>>any(),
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Object[].class));
+        SeaRooms rooms = new SeaRooms(racing, f.seaState, f.friends, f.blockedUsers, f.publisher, f.sessions,
+                new tools.jackson.databind.ObjectMapper(), java.time.Clock.systemUTC());
+
+        rooms.enter(alice, "s");
+
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "head")).isEqualTo("new-head");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "appearanceVersion")).isEqualTo("2");
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "remark")).as("한마디 전이는 졌다").isFalse();
+    }
+
     private static org.springframework.web.socket.messaging.SessionDisconnectEvent disconnect(String sessionId,
             java.security.Principal user) {
         return new org.springframework.web.socket.messaging.SessionDisconnectEvent(new Object(),
