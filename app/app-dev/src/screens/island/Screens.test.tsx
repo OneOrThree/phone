@@ -2954,6 +2954,21 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   open.mockRestore();
 });
 
+test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  let exposed: any;
+  const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
+  await fireEvent.press(ui.getByText('문의하기'));
+  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus 문의]'));
+  open.mockRejectedValue(new Error('no mail'));
+  await fireEvent.press(ui.getByText('문의하기'));
+  await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
+  assert.equal(exposed.confirm.mock.calls[0][0], '문의하기');
+  assert.ok(exposed.confirm.mock.calls[0][1].includes('nappaegonoljima@gmail.com'));
+  assert.equal(notifyMock.mock.calls.length, 0);
+  open.mockRestore();
+});
+
 test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메일을 연다', async () => {
   applyLocalePref('en');
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);

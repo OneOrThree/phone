@@ -1,5 +1,5 @@
 import { request } from './client';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { t } from '@/i18n';
 
 export type BlockedUser = { id: string; name: string };
@@ -41,4 +41,24 @@ export function reportEmailUrl(): string {
 export function openReportCenter(): Promise<void> {
   // 사전 조회를 기다리지 않고 탭한 순간 연다. 웹 팝업의 사용자 활성화도 유지한다.
   return Linking.openURL(reportEmailUrl());
+}
+
+/** 설정의 문의 메일 — 앱 오류 제보·기능 제안. 신고와 같은 주소이고 제목 말머리로 구분한다. */
+export function feedbackEmailUrl(appVersion: string): string {
+  const body = t('settings.feedback.body', {
+    version: appVersion,
+    // 안드로이드의 Platform.Version 은 API 레벨(36)이라 사용자가 아는 OS 버전(16)을 넣는다.
+    // 웹에는 Platform.Version 이 없어 브라우저 user agent 를 넣는다.
+    os:
+      Platform.OS === 'android'
+        ? `android ${Platform.constants.Release}`
+        : Platform.OS === 'web'
+          ? `web ${navigator.userAgent}`
+          : `${Platform.OS} ${Platform.Version}`,
+  });
+  return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.feedback.subject'))}&body=${encodeURIComponent(body)}`;
+}
+
+export function openFeedbackMail(appVersion: string): Promise<void> {
+  return Linking.openURL(feedbackEmailUrl(appVersion));
 }
