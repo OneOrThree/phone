@@ -522,24 +522,45 @@ export function realtimeWsUrl(apiUrl: string = API_URL): string {
 export function friendlyRealtimeErrorMessage(raw: string): string | null {
   if (raw === 'NOT_FOCUSING') return null;
   if (raw === 'NO_ONE_FOCUSING') return t('focusFlow.hud.emoteNoOneFocusing');
-  if (/^[A-Z][A-Z0-9_]*$/.test(raw)) return '실시간 요청이 거절됐어요.';
+  if (/^[A-Z][A-Z0-9_]*$/.test(raw)) return t('realtime.requestRejected');
   return raw;
 }
+
+/** 재접속 지연 2.5~7.5 s(5 s ± 50 %) — 서버 재시작·포화로 한꺼번에 끊긴 클라이언트가 같은 시각에 몰리지 않게 한다. */
+export const reconnectJitterMs = () => 2500 + Math.random() * 5000;
 
 /** 실시간 STOMP 클라이언트 공용 설정(재접속·하트비트·인증) — 바다 방(seaRealtime, GROMO-2310)도 같은 값으로 연다. */
 export const realtimeClientOptions = () => ({
   brokerURL: realtimeWsUrl(),
-  reconnectDelay: 5000,
+  // CONNECTED 전에 실패한 재시도는 이 값, 그 뒤는 접속마다 beforeConnect 가 새로 뽑는다 — stompjs 는 CONNECTED 때
+  // reconnectDelay 를 다음 재접속 지연으로 복사하므로 타이머 없이 지터가 걸린다.
+  reconnectDelay: reconnectJitterMs(),
   heartbeatIncoming: 10_000,
   heartbeatOutgoing: 10_000,
   // [진단] React Native WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다.
   forceBinaryWSFrames: true,
   appendMissingNULLonIncoming: true,
   beforeConnect: (c: Client) => {
+    c.reconnectDelay = reconnectJitterMs();
     const token = getAccessToken();
     if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
   },
 });
+
+/**
+ * 서버는 세션 폐기(1008 `SESSION_REVOKED`)를 ERROR 프레임 없이 close 사유로만 알린다. 폐기된 토큰으로 계속
+ * 재접속해 봐야 CONNECT 에서 UNAUTHORIZED 만 나므로, 그때만 재접속을 멈추고 안내한다. 그 외 close(1002·
+ * OUTBOUND_QUEUE_FULL·1011 등)는 종전대로 stompjs 재접속에 맡긴다. 섬·바다 클라이언트가 함께 쓴다.
+ * 정책: 폐기 안내는 토스트가 있는 화면(집중섬·바다)에서만 뜨고(지도·재생은 onError 가 비어 조용히 멈춘다),
+ * 로그아웃 전환은 REST 401 경로가 맡는다 — 여기서 인증 상태를 건드리지 않는다.
+ */
+export function attachCloseHandling(client: Client, onSessionRevoked: () => void) {
+  client.onWebSocketClose = (evt) => {
+    if (evt?.reason !== 'SESSION_REVOKED') return;
+    void client.deactivate();
+    onSessionRevoked();
+  };
+}
 
 /**
  * 이동 채널 STOMP ERROR 코드 중 영구 차단 대상 — 그 외(일시 상류 장애·시도 창 초과 등)는 재접속에서 다시 구독한다.
@@ -577,6 +598,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   };
   // 구독 거절 ERROR 는 연결을 끊는다 — emotes 구독 거절이면 다음 접속부터는 빼서 무한 거절 루프를 끊는다.
   let closed = false;
+  let revoked = false; // 세션 폐기 close — reopen(포그라운드 복귀)도 폐기된 토큰으로 되살리지 않는다
   let emoteDenied = false;
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
@@ -629,7 +651,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         eventsHealthyTimer = setTimeout(() => eventsStrikes.clear(), EVENTS_HEALTHY_MS);
       }
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
-        let text = '실시간 요청이 거절됐어요.';
+        let text = t('realtime.requestRejected');
         try {
           const b = JSON.parse(msg.body) as { code?: unknown; message?: unknown };
           if (typeof b?.message === 'string' && b.message) text = b.message;
@@ -659,21 +681,31 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           // 본문도 JSON 이 아니면 빈 코드로 둔다.
         }
       }
+      // 서버 ChatStompErrorHandler 는 message 헤더에 항상 enum 이름(대문자 코드)을 싣는다. 사람 문장("Session closed." 등)은
+      // Spring 전송 계층 ERROR 라 close 가 따라오고 재접속이 처리한다 — 거절 상태·strike 에 넣거나 토스트하지 않는다.
+      // (프레임 파싱 실패처럼 close 없이 오는 Spring ERROR 는 조용히 무시되고 연결이 산다 — stompjs 가 만드는 프레임이라 드물고, 허용한 트레이드오프)
+      if (!/^[A-Z][A-Z0-9_]*$/.test(code)) return;
+      // 섬 구독 거절 ERROR 는 어느 채널 탓인지 `channel` 네이티브 헤더로 알려 준다(없으면 아래 종전 분류).
+      const channel = str(frame.headers.channel);
       stopEventsHealthyTimer();
       // 구독이 둘 이상인 접속(이동·응원 + 주민 소식)의 ERROR 가 events 탓인지 가른다.
       //  - events 에서 나올 수 없는 코드(응원·바다 전용)는 events 와 무관 — events 도 다른 채널 처리도 평소대로.
       //  - events 와 겹치는 코드(NOT_A_MEMBER·MOVEMENT_TOO_FREQUENT 등)는 어느 구독 탓인지 모른다 — 접속당 1번만 events 탓으로
       //    치고(strike) 재접속에서 /events 를 다시 구독한다. 같은 코드가 2번 쌓이면 그때 events 를 끈다(화면 재진입까지).
       //    이 ERROR 는 다른 채널의 거절 상태(emoteDenied·movementDenied·일시 오류 카운트)에 반영하지 않는다.
-      const eventsFault = !!opts.events && !eventsDenied && !NOT_FROM_EVENTS.has(code);
+      const eventsFault =
+        !!opts.events &&
+        !eventsDenied &&
+        (channel ? channel === 'events' : !NOT_FROM_EVENTS.has(code));
       if (eventsFault && !eventsStruckSinceConnect) {
         eventsStruckSinceConnect = true;
         const strikes = (eventsStrikes.get(code) ?? 0) + 1;
         eventsStrikes.set(code, strikes);
         if (strikes >= EVENTS_STRIKE_LIMIT) eventsDenied = true;
       }
-      if (emoteEnabled && !eventsFault) emoteDenied = true;
-      if (opts.movement && !eventsFault) {
+      // channel 헤더로 events·movement 탓이 분명한 ERROR 는 응원 구독에 반영하지 않는다(헤더 없는 ERROR 만 종전 규칙)
+      if (emoteEnabled && !eventsFault && !channel) emoteDenied = true;
+      if (opts.movement && (channel ? channel === 'movement' : !eventsFault)) {
         // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
         // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
         // 두되 상한(3)에 닿으면 그때 차단해 무한 재접속·재거절 루프를 막는다.
@@ -690,8 +722,12 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           }
         }
       }
-      emitError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
+      emitError(code);
     },
+  });
+  attachCloseHandling(client, () => {
+    revoked = true;
+    opts.onError(t('realtime.sessionRevoked'));
   });
   client.activate();
   return {
@@ -713,7 +749,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     reopen: () => {
       // deactivate 가 끝나기 전에 close() 가 오면(포그라운드 복귀 직후 화면 이탈) 닫은 클라이언트를 되살리지 않는다
       void client.deactivate().then(() => {
-        if (!closed) client.activate();
+        if (!closed && !revoked) client.activate();
       });
     },
     close: () => {
