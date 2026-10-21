@@ -51,15 +51,7 @@ for (const [route, tab] of [
   ['orders', '섬 공동 구매'],
 ])
   scenarios.push({ route, tab });
-for (const detail of [
-  'scarf',
-  'flag',
-  'sailboat',
-  'cabinboat',
-  'soda-theme',
-  'strawberry-roof',
-  'rain',
-]) {
+for (const detail of ['flag', 'sailboat', 'cabinboat', 'soda-theme', 'strawberry-roof', 'rain']) {
   scenarios.push({ route: 'product', detail });
   scenarios.push({ route: 'product', detail, owned: true });
 }
@@ -95,8 +87,7 @@ let cursor = 0;
         s.settings.reduceMotion = true;
         s.tutorial = { step: c.route === 'guide' ? 0 : 99 };
         s.focusGuideDone = c.route !== 'guide';
-        s.owned =
-          c.owned || c.route !== 'product' ? ['scarf', 'flag', 'sailboat', 'cabinboat'] : [];
+        s.owned = c.owned || c.route !== 'product' ? ['flag', 'sailboat', 'cabinboat'] : [];
         s.records = [
           {
             id: 'r',
@@ -114,14 +105,6 @@ let cursor = 0;
         if (c.stage) i.buildings = c.stage;
         if (c.owned) i.sharedOwned.push('soda-theme', 'strawberry-roof', 'rain');
         s.orders = [
-          {
-            id: 'o1',
-            product: 'scarf',
-            islandId: s.islandId,
-            price: 20,
-            currency: 'fish',
-            at: Date.now(),
-          },
           {
             id: 'o2',
             product: 'soda-theme',
@@ -143,7 +126,9 @@ let cursor = 0;
           };
         let detail =
           c.detail ||
-          { quest: 'q-focus', notice: 'welcome', visit: 'strawberry', product: 'scarf' }[c.route] ||
+          { quest: 'q-focus', notice: 'welcome', visit: 'strawberry', product: 'soda-theme' }[
+            c.route
+          ] ||
           '';
         r.open(c.route, {
           state: s,

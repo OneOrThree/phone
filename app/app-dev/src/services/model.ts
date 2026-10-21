@@ -522,23 +522,6 @@ export const trackNames: Record<string, string> = {
 };
 export const products: Product[] = [
   {
-    id: 'scarf',
-    title: '바다 스카프',
-    kind: 'clothes',
-    price: 100,
-    currency: 'fish',
-    description: '고양이의 목에 두르는 가벼운 스카프',
-  },
-  // v2 시안 상점(내 꾸미기)의 두 번째 장신구. 가격은 스카프와 같은 5배 환산(시안 15마리)
-  {
-    id: 'straw-hat',
-    title: '밀짚모자',
-    kind: 'clothes',
-    price: 75,
-    currency: 'fish',
-    description: '햇볕을 가려 주는 챙 넓은 밀짚모자',
-  },
-  {
     id: 'soda-theme',
     title: '소다 섬 테마',
     kind: 'island',
@@ -1574,7 +1557,7 @@ export function reducer(state: State, a: Action): State {
     delete loaded.visitingIslandId;
     delete loaded.visitLeaveAsked;
     delete loaded.visitGreeted;
-    const retired = ['flag', 'sailboat', 'cabinboat'];
+    const retired = ['flag', 'sailboat', 'cabinboat', 'scarf', 'straw-hat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
@@ -1642,6 +1625,7 @@ export function reducer(state: State, a: Action): State {
       },
       equipped: {
         ...loaded.equipped,
+        clothes: 'default',
         hull: 'raft',
         decor: 'none',
         position: 'front',
@@ -2562,8 +2546,7 @@ export function reducer(state: State, a: Action): State {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
       i.fish = balance(i) - p.price;
-      if (p.kind === 'clothes') s.owned.push(p.id);
-      else i.sharedOwned.push(p.id);
+      i.sharedOwned.push(p.id);
       log(`${p.title} 구매 −${p.price}마리`);
       s.orders.unshift({
         id: uuid(),
@@ -2574,13 +2557,6 @@ export function reducer(state: State, a: Action): State {
         at: now,
         buyer: s.name,
       });
-      break;
-    }
-    case 'EQUIP': {
-      if (a.key !== 'clothes') return state;
-      const value = a.value;
-      if (!['default', 'none', 'raft'].includes(value) && !s.owned.includes(value)) return state;
-      s.equipped[a.key as keyof State['equipped']] = value;
       break;
     }
     case 'DECOR_POSITION':

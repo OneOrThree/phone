@@ -1214,15 +1214,6 @@ export function IslandThumb({ warm = false }: { warm?: boolean }) {
   );
 }
 
-// 밀짚모자 그림(.hatart). 시안도 그림 파일 없이 CSS 도형(타원 챙 + 둥근 모자 + 분홍 띠)으로 그린다.
-// w = 줄어든 상자 폭(꾸미기 썸네일은 칸이 좁아 72로 줄어든 뒤 scale 0.7), 높이는 56 고정
-export function HatArt({ scale = 1, w = 88 }: { scale?: number; w?: number }) {
-  return (
-    <Svg width={w * scale} height={56 * scale} viewBox={`0 0 ${w} 56`}>
-      <HatShapes w={w} />
-    </Svg>
-  );
-}
 function HatShapes({ w }: { w: number }) {
   // CSS처럼 모서리 반지름(위 22 · 아래 6)이 몸통 폭을 넘으면 같은 비율로 줄인다
   const f = Math.min(1, (w - 46) / 44);
@@ -1313,22 +1304,6 @@ export function RaftCatArt({
         </G>
       )}
     </Svg>
-  );
-}
-
-// 고양이 그림 위에 겹쳐 쓰는 밀짚모자. 그림과 같은 상자·같은 비율(viewBox, contain)로 겹치고
-// 모자 위치(x, y, 폭)는 그 그림의 원본 픽셀 좌표로 준다
-export function HatOn({ image, style }: { image: 'raft' | 'cat'; style: StyleProp<ViewStyle> }) {
-  // 뗏목 합성 그림 440×317의 머리 · 고양이 idle 512×512의 머리
-  const [vw, vh, x, y, w] = image === 'raft' ? [440, 317, 157, 20, 110] : [512, 512, 175, 23, 230];
-  return (
-    <View pointerEvents="none" style={[{ position: 'absolute' }, style]}>
-      <Svg width="100%" height="100%" viewBox={`0 0 ${vw} ${vh}`}>
-        <G transform={`translate(${x} ${y}) scale(${w / 88})`}>
-          <HatShapes w={88} />
-        </G>
-      </Svg>
-    </View>
   );
 }
 
