@@ -21,6 +21,9 @@ export type LetterItem = {
   id: string;
   counterpartUserId: string;
   counterpartNickname: string | null;
+  /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
+  catColor?: string | null;
+  appearance?: unknown;
   content: string;
   isRead: boolean;
   createdAt: string;
@@ -37,6 +40,9 @@ export type LetterView = {
   id: string;
   senderId: string;
   senderNickname: string | null;
+  /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
+  catColor?: string | null;
+  appearance?: unknown;
   receiverId: string;
   content: string;
   createdAt: string;
@@ -48,6 +54,9 @@ export type MailboxMessage = {
   clientMessageId: string;
   userId: string;
   name: string | null;
+  /** 작성자 털색·착용(GROMO-2389) — 탈퇴·옛 서버는 null/없음. */
+  catColor?: string | null;
+  appearance?: unknown;
   text: string;
   createdAt: string;
 };
@@ -58,6 +67,9 @@ export type MailboxFriend = {
   mainIslandName: string | null;
   myFavorite: boolean;
   theirFavorite: boolean;
+  /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
+  catColor?: string | null;
+  appearance?: unknown;
 };
 
 export type MailboxScreen = {

@@ -8,6 +8,7 @@ import {
 } from '@/constants/cat-idle-atlases';
 import metrics from '@/constants/motion-metrics.json';
 import { Color } from '@/services/model';
+import { CatOutfitLayers, type Outfit } from './CatOutfitLayers';
 import {
   CatFrameMotion,
   CatIdleBehavior,
@@ -229,6 +230,7 @@ export function CatSprite({
   keyPoses = false,
   replayKey,
   poseTransform,
+  outfit,
   testID,
 }: {
   color: Color;
@@ -246,6 +248,8 @@ export function CatSprite({
   replayKey?: number;
   /** 발 기준점에서 몸 전체에 거는 추가 변환(호흡·기울기). 좌우 반전 안쪽에 적용돼 방향을 따라간다. */
   poseTransform?: CatPoseTransform;
+  /** 장착한 머리·목(GROMO-2382) — 지금 자세·프레임에 맞춰 그린다. 검증 안 된 자세에서는 CatOutfitLayers 가 숨긴다. */
+  outfit?: Outfit;
   testID?: string;
 }) {
   const [appState, setAppState] = useState(AppState.currentState);
@@ -378,6 +382,12 @@ export function CatSprite({
           source={source}
           style={imageStyle}
           resizeMode="stretch"
+        />
+      )}
+      {outfit && (
+        <CatOutfitLayers
+          outfit={outfit}
+          pose={{ color, motion: effectiveMotion, frame: displayedFrame, size: extent }}
         />
       )}
       {isTilting && (

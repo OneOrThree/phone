@@ -40,7 +40,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("GET /customization/catalog 는 배열 항목의 공개 필드와 required 를 문서화한다 (GROMO-2331)")
+    @DisplayName("GET /customization/catalog 는 배열 항목의 공개 필드와 required 를 문서화한다 (GROMO-2331·2382)")
     void customizationCatalogIsDocumented() throws Exception {
         var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
         var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
@@ -50,10 +50,28 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
         schema = document.at(schema.path("$ref").asText().substring(1));
         String[] fields = {"productId", "kind", "slot", "title", "imageUrl", "width", "height", "anchorX",
                 "anchorY", "sortOrder", "retiredAt"};
-        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields);
+        // renderData(GROMO-2382)는 집중 보상 행에만 실려 선택 필드다
+        assertThat(schema.path("properties").propertyNames()).contains(fields).contains("renderData")
+                .hasSize(fields.length + 1);
         var required = new java.util.ArrayList<String>();
         schema.path("required").forEach(value -> required.add(value.asText()));
         assertThat(required).containsExactlyInAnyOrder(fields);
+    }
+
+    @Test
+    @DisplayName("집중 종료의 seaReward 는 grantedProductIds·minutesToNextTier·newProductIds 를 싣고 목록 둘이 필수다 (GROMO-2301)")
+    void finishSeaRewardIsDocumented() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/focus-sessions/{sessionId}/finish").path("post")
+                .path("responses").path("200").path("content");
+        var finish = document.at(content.iterator().next().path("schema").path("$ref").asText().substring(1));
+        var seaReward = document.at(finish.path("properties").path("seaReward").path("$ref").asText().substring(1));
+        assertThat(seaReward.path("properties").propertyNames())
+                .containsExactlyInAnyOrder("grantedProductIds", "minutesToNextTier", "newProductIds");
+        var required = new java.util.ArrayList<String>();
+        seaReward.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder("grantedProductIds", "newProductIds");
     }
 
     @Test

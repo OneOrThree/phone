@@ -222,9 +222,9 @@ public class FocusSessionUseCase {
     /**
      * 공개 정산 계약. 중첩 객체도 내부 DTO와 분리한다.
      *
-     * @param seaReward 바다 집중을 방금 정산한 응답에서만 값이 있다. {@code null} 은 «받은 것 없음» 이 아니라 «모름» 이다 —
-     *                  섬 세션이거나, 바다 세션이라도 정산 직후 응답이 아닌 경우(새 키 재종료·pending-result·휴식 자동
-     *                  종료 뒤 조회). 지급 여부의 정본은 인벤토리다
+     * @param seaReward 집중 꾸미기 보상(GROMO-2301) — 섬·바다 세션 모두 객체이고 15분 미만이면 빈 목록이다. 방금 정산·새 키
+     *                  재종료·pending-result 가 같은 값이다. {@code null} 은 «받은 것 없음» 이 아니라 «모름» 이다 — 정산 행에
+     *                  결과를 남기기 전의 구버전 Data 만 보낸다
      */
     public record FinishView(
             @JsonProperty(required = true) UUID recordId,
@@ -257,16 +257,18 @@ public class FocusSessionUseCase {
     }
 
     /**
-     * 바다 집중 보상 (GROMO-2274) — {@link FinishView#seaReward()} 로만 나간다. 바다 세션을 방금 정산한 응답은
-     * 아무것도 못 받았어도 이 객체다. 그 필드의 {@code null}(키는 있다)은 «없음» 이 아니라 «모름» 이다(자세히는
-     * {@link FinishView}).
+     * 집중 꾸미기 보상 (모양은 GROMO-2274, 의미는 GROMO-2301) — {@link FinishView#seaReward()} 로만 나간다. 아무것도
+     * 못 받았어도 이 객체다. 그 필드의 {@code null}(키는 있다)은 «없음» 이 아니라 «모름» 이다(자세히는
+     * {@link FinishView}). {@code newProductIds} 는 {@code grantedProductIds} 중 이번에 처음 가진 것(결과창 NEW!)이고,
+     * 이미 가진 상품이거나 구버전 Data 면 빈 목록이다.
      */
     public record SeaRewardView(
             @JsonProperty(required = true) List<String> grantedProductIds,
-            Integer minutesToNextTier) {
+            Integer minutesToNextTier,
+            @JsonProperty(required = true) List<String> newProductIds) {
         private static SeaRewardView from(FocusFinish.SeaReward source) {
             return source == null ? null
-                    : new SeaRewardView(source.grantedProductIds(), source.minutesToNextTier());
+                    : new SeaRewardView(source.grantedProductIds(), source.minutesToNextTier(), source.newProductIds());
         }
     }
 

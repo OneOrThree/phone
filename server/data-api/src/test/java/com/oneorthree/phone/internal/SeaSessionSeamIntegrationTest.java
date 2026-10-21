@@ -19,7 +19,6 @@ import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.TelescopePinService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>GROMO-2299 부터 판정은 {@code focus_session_details.kind} 이고, 이 클래스는 스파이 없이 <b>실제 바다 세션</b>
  * ({@code startSea}, 목적지는 핀으로 망원경에 넣은 섬)으로 같은 단언을 건다. 섬 세션을 같은 시나리오로 돌린 쪽은
- * «섬 통장 적립 그대로, seaReward 는 null» 을 고정한다.
+ * «섬 통장 적립 그대로» 를 고정한다. 꾸미기 보상(GROMO-2301)은 두 종류 모두 같은 경로로 1개다.
  *
  * <p>분당 적립 크론({@code focus.reward.accrual-enabled})은 기본값(꺼짐)으로 둔다 — 지급 경로를 finish 의
  * 마지막 확정 하나로 좁혀, 통장 잔액 단언이 크론 시각에 흔들리지 않게 한다. 크론·황금 물고기 스케줄러가 부르는
@@ -80,21 +79,11 @@ class SeaSessionSeamIntegrationTest {
     @Autowired
     JdbcTemplate jdbc;
 
-    /** 단계표(전역 {@code base} 세트)는 테스트 사이에 새지 않게 비운다 — 이 컨텍스트의 DB 는 이 클래스만 쓴다. */
-    @BeforeEach
-    void emptyTiers() {
-        jdbc.update("delete from sea_reward_tiers");
-    }
-
     @Test
-    @DisplayName("바다 판정이면 섬 통장은 잔액도 원장도 그대로이고, 누적·단계표 보상이 정산돼 seaReward 가 채워진다")
-    void seaSessionSettlesThroughTheEngineAndLeavesTheIslandWalletAlone() {
+    @DisplayName("바다 판정이면 섬 통장은 잔액도 원장도 그대로이고, 꾸미기 보상 1개가 지급돼 seaReward 가 채워진다")
+    void seaSessionSettlesTheRewardAndLeavesTheIslandWalletAlone() {
         UUID island = newIsland(newUser(), "바다판정섬");
         UUID user = newUser();
-        String scarf = product("clothes");
-        String hat = product("decor");
-        tier("base", 30, scarf);
-        tier("base", 90, hat);
         long balanceBefore = islandBalance(island);
         long ledgerBefore = ledgerRows(island);
 
@@ -104,9 +93,9 @@ class SeaSessionSeamIntegrationTest {
         FocusFinishView finished = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), key);
 
-        assertThat(finished.seaReward()).as("바다 세션은 아무것도 못 받아도 객체다").isNotNull();
-        assertThat(finished.seaReward().grantedProductIds()).as("40분 → 30분 단계를 넘었다").containsExactly(scarf);
-        assertThat(finished.seaReward().minutesToNextTier()).as("90분 단계까지 50분").isEqualTo(50);
+        assertThat(finished.seaReward().grantedProductIds()).as("15분 이상 → 정확히 1개").hasSize(1);
+        assertThat(finished.seaReward().minutesToNextTier()).as("단계표가 없다").isNull();
+        String won = finished.seaReward().grantedProductIds().get(0);
         assertThat(finished.activeSeconds()).isBetween(2400L, 2460L);
 
         assertThat(islandBalance(island)).as("village_points 잔액 불변").isEqualTo(balanceBefore);
@@ -117,58 +106,52 @@ class SeaSessionSeamIntegrationTest {
         assertThat(finished.allocation().personalFishAdded()).isZero();
         assertThat(finished.allocation().constructionFishAdded()).isZero();
 
-        assertThat(jdbc.queryForMap("select lifetime_seconds, month_seconds from sea_focus_totals where user_id=?",
-                user)).containsEntry("lifetime_seconds", finished.activeSeconds())
-                .containsEntry("month_seconds", finished.activeSeconds());
         assertThat(jdbc.queryForList("select product_id from owned_products where user_id=?", String.class, user))
-                .containsExactly(scarf);
+                .containsExactly(won);
+        assertThat(count("select count(*) from sea_focus_totals where user_id=?", user))
+                .as("옛 누적 엔진은 없다").isZero();
         // 일 집계·정산 행·세션 종결은 섬 세션과 같게 간다 — 통장만 건드리지 않는다.
         assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?", user))
                 .isEqualTo(finished.activeSeconds());
         assertThat(jdbc.queryForObject("select lifecycle from focus_session_details where session_id=?",
                 String.class, started.id())).isEqualTo("COMPLETED");
-        assertThat(count("select count(*) from focus_settlements where session_id=? and earned_fish=0",
-                started.id())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select customization_reward_product_id from focus_settlements "
+                + "where session_id=? and earned_fish=0", String.class, started.id())).isEqualTo(won);
 
-        // 같은 키의 재시도는 receipt 가 원 응답(seaReward 포함)을 그대로 돌려주고 누적을 다시 더하지 않는다.
+        // 같은 키의 재시도는 receipt 가 원 응답을 그대로 돌려준다. 새 키로 다시 끝내도 정산 행에 남긴 결과라 같은
+        // seaReward 이고, 다시 뽑거나 지급하지 않는다.
         FocusFinishView replayed = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), key);
         assertThat(replayed).isEqualTo(finished);
-        // 새 키로 다시 끝내면 정산 행에서 응답을 다시 만들 뿐이다 — 받은 상품은 저장하지 않아 seaReward 는 null 이고
-        // (E1-1 이 자동 종료 결과에도 상품을 보여 주려면 저장 자리를 정해야 한다), 누적은 역시 다시 더하지 않는다.
         FocusFinishView again = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
-        assertThat(again.seaReward()).isNull();
+        assertThat(again.seaReward()).isEqualTo(finished.seaReward());
         assertThat(again.activeSeconds()).isEqualTo(finished.activeSeconds());
-        assertThat(jdbc.queryForObject("select lifetime_seconds from sea_focus_totals where user_id=?", Long.class,
-                user)).isEqualTo(finished.activeSeconds());
         assertThat(jdbc.queryForList("select product_id from owned_products where user_id=?", String.class, user))
-                .containsExactly(scarf);
+                .containsExactly(won);
     }
 
     @Test
-    @DisplayName("바다 판정이 false 면(운영 그대로) seaReward 는 null 이고 섬 통장 적립·누적 없음이 종전 그대로다")
-    void islandSessionKeepsTheExistingAccrualAndHasNoSeaReward() {
+    @DisplayName("섬 세션은 섬 통장 적립이 종전 그대로이고, 꾸미기 보상도 같은 경로로 1개 받는다")
+    void islandSessionKeepsTheExistingAccrualAndAlsoGetsTheReward() {
         UUID user = newUser();
         UUID island = newIsland(user, "섬세션섬");
-        String scarf = product("clothes");
-        tier("base", 30, scarf);
 
         FocusSessionView started = start(user, island);
         backdate(started.id(), 40 * 60);
         FocusFinishView finished = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
 
-        assertThat(finished.seaReward()).as("섬 세션은 null").isNull();
+        assertThat(finished.seaReward().grantedProductIds()).as("섬도 15분 이상이면 1개").hasSize(1);
         assertThat(finished.earnedFish()).as("40분 → 40마리").isEqualTo(40);
         assertThat(finished.allocation().constructionFishAdded()).isEqualTo(40);
         assertThat(islandBalance(island)).as("섬 통장 적립 그대로").isEqualTo(40);
         assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals where session_id=?",
                 started.id())).isEqualTo(40);
         assertThat(count("select count(*) from sea_focus_totals where user_id=?", user))
-                .as("누적 행을 만들지 않는다").isZero();
-        assertThat(count("select count(*) from owned_products where user_id=?", user))
-                .as("단계표 상품을 주지 않는다").isZero();
+                .as("옛 누적 행을 만들지 않는다").isZero();
+        assertThat(jdbc.queryForList("select product_id from owned_products where user_id=?", String.class, user))
+                .containsExactlyElementsOf(finished.seaReward().grantedProductIds());
     }
 
     @Test
@@ -269,18 +252,6 @@ class SeaSessionSeamIntegrationTest {
 
     private UUID newIsland(UUID owner, String name) {
         return islands.create(owner, new CreateIslandCommandRequest(name, null, false, null), UUID.randomUUID()).id();
-    }
-
-    private String product(String kind) {
-        String productId = kind + "-" + UUID.randomUUID().toString().substring(0, 8);
-        jdbc.update("insert into catalog_assets (product_id, title, kind, owner_type, created_at) "
-                + "values (?, ?, ?, 'user', now())", productId, productId, kind);
-        return productId;
-    }
-
-    private void tier(String setKey, int minutes, String productId) {
-        jdbc.update("insert into sea_reward_tiers (set_key, threshold_minutes, product_id) values (?, ?, ?)",
-                setKey, minutes, productId);
     }
 
     /** 방금 시작한 세션을 {@code seconds} 전에 시작한 것으로 옮긴다 — 실제 시계를 기다리지 않고 정산 값을 본다. */

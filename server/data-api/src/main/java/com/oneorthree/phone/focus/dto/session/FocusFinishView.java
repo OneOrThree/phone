@@ -19,11 +19,9 @@ import java.util.UUID;
  * @param completedAt    정산을 확정한 서버 시각
  * @param questProgress  이 세션이 기여한 퀘스트 진행률(1772/1773 계약). 퀘스트 계약이 아직 없어 늘 빈 목록이다
  * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131, LLD §1) — finish 시점엔 전부 닫혀 있다. 없으면 빈 목록
- * @param seaReward      바다 집중을 방금 정산한 응답에서만 값이 있다(GROMO-2274) — 이번에 받은 상품과 다음 단계까지 남은
- *                       분. 바다 세션은 아무것도 못 받았어도 객체다(키는 늘 있다). <b>{@code null} 은 «받은 것 없음» 이
- *                       아니라 «모름»</b> 이다: 섬 세션이거나, 바다 세션이라도 이 응답이 정산 직후가 아닌 경우(새 키로
- *                       다시 끝낸 요청·{@code pending-result}·휴식 자동 종료 뒤 조회 — 정산 행에서 응답을 다시 만들 뿐
- *                       받은 상품은 저장하지 않는다). 지급 여부의 정본은 인벤토리({@code owned_products})다
+ * @param seaReward      집중 꾸미기 보상(GROMO-2301) — 섬·바다 모두 늘 객체다. 이름은 GROMO-2274 계약 그대로 둔다.
+ *                       값은 정산 행({@code focus_settlements})에 남긴 추첨 결과라 방금 정산한 응답·새 키로 다시 끝낸
+ *                       요청·{@code pending-result}(휴식 자동 종료)가 같은 값이다. 15분 미만이면 빈 목록이다
  * @param kind           {@code "island"} 또는 {@code "sea"}(GROMO-2299)
  * @param arrived        바다 세션의 도착 여부({@code activeSeconds >= 항해 분*60}). 섬 세션은 null
  */
@@ -52,11 +50,14 @@ public record FocusFinishView(
     }
 
     /**
-     * 바다 집중 보상 (GROMO-2274).
+     * 집중 꾸미기 보상 (GROMO-2274 모양, GROMO-2301 의미).
      *
-     * @param grantedProductIds 이번에 새로 개인 인벤토리에 들어간 상품 id. 없으면 빈 목록
-     * @param minutesToNextTier 다음 단계(상시·이번 달 시즌 중 가장 가까운 것)까지 남은 분. 더 받을 단계가 없으면 null
+     * @param grantedProductIds 이 세션이 뽑은 상품 id — 0~1개. 이미 가진 상품이어도 들어간다(중복 획득 — 보유 행은
+     *                          처음 한 번만 생긴다). 휴식 제외 집중 15분 미만이면 빈 목록
+     * @param minutesToNextTier 옛 누적 단계표의 남은 분 — 단계표가 없어져 늘 null 이다(앱·business-api 계약이라 키는 남긴다)
+     * @param newProductIds     {@code grantedProductIds} 중 이번 지급으로 처음 가진 것(결과창 NEW!) — 이미 가진 상품을 또
+     *                          뽑았으면 빈 목록. 정산 행에 남긴 값이라 재시도·새 키·{@code pending-result} 도 같다
      */
-    public record SeaReward(List<String> grantedProductIds, Integer minutesToNextTier) {
+    public record SeaReward(List<String> grantedProductIds, Integer minutesToNextTier, List<String> newProductIds) {
     }
 }

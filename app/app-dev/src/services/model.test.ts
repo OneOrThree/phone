@@ -378,17 +378,17 @@ test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 �
   assert.equal(currentIsland(next).track, null);
   assert.equal(currentIsland(next).playing, false);
 });
-test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
+test('상품은 섬 잔액으로 구매하고 중복 결제를 막으며, 탈퇴해도 개인 보유품은 남긴다', () => {
   let s = initialState(true);
-  s = act(s, 'EQUIP', { key: 'clothes', value: 'scarf' });
-  assert.equal(s.equipped.clothes, 'default');
-  s = act(s, 'BUY', { id: 'scarf' });
-  assert.equal(balance(currentIsland(s)), 1100);
-  assert.ok(s.owned.includes('scarf'));
-  assert.deepEqual(act(s, 'BUY', { id: 'scarf' }), s);
+  assert.ok(products.every((p) => p.kind !== 'clothes'));
+  s = act(s, 'BUY', { id: 'soda-theme' });
+  assert.equal(balance(currentIsland(s)), 200);
+  assert.ok(currentIsland(s).sharedOwned.includes('soda-theme'));
+  assert.deepEqual(act(s, 'BUY', { id: 'soda-theme' }), s);
+  s.owned = ['flag'];
   currentIsland(s).members = [];
   s = act(s, 'LEAVE');
-  assert.ok(s.owned.includes('scarf'));
+  assert.ok(s.owned.includes('flag'));
   // 방장 혼자인 섬을 떠나면 섬을 삭제하므로 공동 잔액도 지운다 (정책-결정-2026-09-14, GROMO-1843)
   assert.equal(s.islands[0].fish, 0);
   assert.deepEqual(act(s, 'BUY', { id: 'sailboat' }), s);
@@ -1122,12 +1122,17 @@ test('건물 외양은 구매한 시설별로 독립 적용', () => {
 
 test('이전 목업의 선체·장식을 복원해도 기본 뗏목만 유지', () => {
   const legacy = initialState(true);
-  legacy.equipped = { ...legacy.equipped, hull: 'cabinboat', decor: 'flag' };
-  legacy.owned = ['scarf', 'flag', 'sailboat', 'cabinboat'];
+  legacy.equipped = { ...legacy.equipped, clothes: 'straw-hat', hull: 'cabinboat', decor: 'flag' };
+  legacy.owned = ['scarf', 'straw-hat', 'flag', 'sailboat', 'cabinboat'];
+  legacy.orders = [
+    { id: 'o1', product: 'scarf', islandId: legacy.islandId, currency: 'fish', price: 100, at: 1 },
+  ];
   const restored = reducer(initialState(), { type: 'LOAD', state: legacy });
   assert.equal(restored.equipped.hull, 'raft');
   assert.equal(restored.equipped.decor, 'none');
-  assert.deepEqual(restored.owned, ['scarf']);
+  assert.equal(restored.equipped.clothes, 'default');
+  assert.deepEqual(restored.owned, []);
+  assert.deepEqual(restored.orders, []);
   assert.equal(restored.fish, legacy.fish);
   assert.ok(products.every((p) => !['flag', 'sailboat', 'cabinboat'].includes(p.id)));
 });
@@ -1652,7 +1657,7 @@ test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 �
     ['START', { subject: '집중' }],
     ['COMMENT', { id: 'welcome', text: '댓글' }],
     ['MESSAGE', { text: '메시지' }],
-    ['BUY', { id: 'scarf' }],
+    ['BUY', { id: 'soda-theme' }],
   ] as const)
     assert.deepEqual(act(s, type, data), s);
 });
@@ -2070,7 +2075,6 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
   old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
   saved.orders = [
-    { id: 'mine', product: 'scarf', islandId: old.id, currency: 'fish', price: 100, at: 1 },
     { id: 'theme', product: 'soda-theme', islandId: old.id, currency: 'fish', price: 1000, at: 1 },
     { id: 'open', product: 'rain', islandId: 'soda', currency: 'fish', price: 150, at: 1 },
   ];
@@ -2096,7 +2100,7 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   assert.equal(once.rewards?.length, 0);
   assert.deepEqual(
     once.orders.map((o) => o.id),
-    ['mine', 'open'],
+    ['open'],
   );
   // 열린 섬은 그대로
   assert.equal(balance(currentIsland(once)), balance(currentIsland(saved)));

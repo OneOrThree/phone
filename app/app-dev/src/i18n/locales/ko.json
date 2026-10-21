@@ -8,7 +8,9 @@
     "save": "저장",
     "later": "나중에",
     "manageIsland": "섬 관리",
-    "readyStampA11y": "준비 완료 도장"
+    "readyStampA11y": "준비 완료 도장",
+    "caughtItem": "낚은 아이템",
+    "newBadge": "NEW!"
   },
   "errors": {
     "GENERIC": "연결을 확인한 뒤 다시 시도해 주세요.",
@@ -479,7 +481,6 @@
     "default": "기본",
     "defaultFor": "{{slot}} 기본",
     "section": {
-      "clothes": "옷",
       "decor": "장식",
       "head": "머리",
       "neck": "목",
@@ -994,7 +995,6 @@
     "next": "다음 참여자 보기",
     "arrived": "무사히 도착했어요!",
     "voyageTime": "항해한 시간",
-    "rewardTitle": "항해 중 건진 것",
     "additionalRewards": "{{names}}도 함께 받았어요",
     "noReward": "이번 항해에서 건진 아이템은 없어요",
     "entering": "섬으로 이동 중…",

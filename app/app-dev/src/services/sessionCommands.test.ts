@@ -397,6 +397,33 @@ test('sessionFromServer/recordFromFinish — activeIntervals 를 ms {start,end} 
   ]);
 });
 
+// GROMO-2382 — 낚시섬 결과창이 받은 꾸미기 아이템을 보이도록 기록에 싣는다. 없거나 비면 키째 없다.
+test('recordFromFinish — seaReward.grantedProductIds 를 rewards 로 옮긴다', () => {
+  const granted = { grantedProductIds: ['cust.head.mandarin'], minutesToNextTier: null };
+  assert.deepEqual(recordFromFinish(finish({ seaReward: granted })).rewards, [
+    'cust.head.mandarin',
+  ]);
+  const none = { grantedProductIds: [], minutesToNextTier: null };
+  assert.equal('rewards' in recordFromFinish(finish({ seaReward: none })), false);
+  assert.equal('rewards' in recordFromFinish(finish({ seaReward: null })), false);
+});
+
+test('recordFromFinish — newProductIds 중 받은 것만 newRewards 로, 없거나 null 이면 키가 없다', () => {
+  const reward = (newProductIds?: string[] | null) => ({
+    grantedProductIds: ['cust.head.mandarin'],
+    minutesToNextTier: null,
+    ...(newProductIds !== undefined ? { newProductIds } : {}),
+  });
+  assert.deepEqual(
+    recordFromFinish(finish({ seaReward: reward(['cust.head.mandarin', 'cust.neck.bell']) }))
+      .newRewards,
+    ['cust.head.mandarin'],
+  );
+  assert.equal('newRewards' in recordFromFinish(finish({ seaReward: reward([]) })), false);
+  assert.equal('newRewards' in recordFromFinish(finish({ seaReward: reward(null) })), false);
+  assert.equal('newRewards' in recordFromFinish(finish({ seaReward: reward() })), false);
+});
+
 // 구버전 서버는 activeIntervals 자체를 안 보낸다 — []가 아니라 undefined 로 남아야 기존
 // 폴백(seconds 를 at 직전으로 뭉뚱그리는 합성 구간)이 그대로 작동한다. 회귀 방지.
 test('activeIntervals 가 없으면 intervals 는 undefined 다 (빈 배열이면 당일 집중이 사라진다)', () => {

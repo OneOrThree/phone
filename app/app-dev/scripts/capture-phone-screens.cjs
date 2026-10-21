@@ -77,8 +77,6 @@ add('06 · 조금 더 멀리, 함께', 'mail', '편지 작성과 보내기', {
   text: '오늘 한 시간 집중했어! 다들 수고했어.',
 });
 add('07 · 상점에 모인 취향', 'shop', '내 꾸미기 상품');
-add('07 · 상점에 모인 취향', 'product', '개인 상품 미리보기', { detail: 'scarf' });
-add('07 · 상점에 모인 취향', 'product', '물고기로 구매 확인', { detail: 'scarf', confirm: '구매' });
 add('07 · 상점에 모인 취향', 'product', '뗏목에서 돛단배로', { detail: 'sailboat' });
 add('07 · 상점에 모인 취향', 'product', '선실 있는 배 업그레이드', {
   detail: 'cabinboat',
@@ -160,18 +158,10 @@ configs.splice(3, 0, {
         ];
       }
       if (c.owned) {
-        s.owned = ['scarf', 'flag', 'sailboat'];
-        s.equipped = { clothes: 'scarf', decor: 'flag', hull: 'sailboat', position: 'front' };
+        s.owned = ['flag', 'sailboat'];
+        s.equipped = { clothes: 'default', decor: 'flag', hull: 'sailboat', position: 'front' };
         is.sharedOwned.push('soda-theme', 'strawberry-roof');
         s.orders = [
-          {
-            id: 'o1',
-            product: 'scarf',
-            islandId: s.islandId,
-            currency: 'fish',
-            price: 20,
-            at: Date.now(),
-          },
           {
             id: 'o2',
             product: 'soda-theme',

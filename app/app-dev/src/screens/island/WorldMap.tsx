@@ -34,6 +34,7 @@ import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
+import { outfitOf } from '@/components/CatOutfitLayers';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
   ConstructionBuildingSprite,
@@ -2202,6 +2203,7 @@ function FinalIslandScene({
                   reduce={state.settings.reduceMotion}
                   onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
                   generation={motionGen}
+                  outfit={outfitOf(state)}
                 />
               </View>
             </Pressable>
@@ -2320,6 +2322,7 @@ function FinalIslandScene({
               name={i.name}
               clock={todayClock}
               color={state.color}
+              outfit={outfitOf(state)}
               requests={
                 friendRequestCount ??
                 (state.friends ?? []).filter((f) => f.status === 'received').length

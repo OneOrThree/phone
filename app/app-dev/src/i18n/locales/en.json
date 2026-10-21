@@ -8,7 +8,9 @@
     "save": "Save",
     "later": "Later",
     "manageIsland": "Manage island",
-    "readyStampA11y": "Ready stamp"
+    "readyStampA11y": "Ready stamp",
+    "caughtItem": "Caught item",
+    "newBadge": "NEW!"
   },
   "errors": {
     "GENERIC": "Please check your connection and try again.",
@@ -506,7 +508,6 @@
     "default": "Default",
     "defaultFor": "{{slot}}: default",
     "section": {
-      "clothes": "Clothes",
       "decor": "Decor",
       "head": "Head",
       "neck": "Neck",
@@ -1024,7 +1025,6 @@
     "next": "Next participants",
     "arrived": "You arrived safely!",
     "voyageTime": "Voyage time",
-    "rewardTitle": "Found along the way",
     "additionalRewards": "Also received: {{names}}",
     "noReward": "No item found on this voyage",
     "entering": "Entering the island…",
