@@ -1573,8 +1573,9 @@ test('구경 중 HUD 의 긴 섬 이름은 한 줄로 줄이고 「다시 바다
       visitJoin={{ label: '이 섬에 가입', disabled: false, onPress, onLeave }}
     />,
   );
-  const name = screen.getByLabelText(`${visited.name} 구경 중`);
+  const name = screen.getByText(`${visited.name} 구경 중`);
   expect(name.props.numberOfLines).toBe(1);
+  expect(name.props.ellipsizeMode).toBe('middle');
   await fireEvent.press(screen.getByLabelText('다시 바다로'));
   expect(onLeave).toHaveBeenCalledTimes(1);
   await fireEvent.press(screen.getByLabelText('이 섬에 가입'));
@@ -1585,12 +1586,21 @@ test('구경 중 하단 두 버튼은 폭을 나눠 쓰고, 큰 글자에서는 
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id !== state.islandId)!;
   state.visitingIslandId = visited.id;
-  const join = { label: '이 섬에 가입', disabled: false, onPress: jest.fn(), onLeave: jest.fn() };
+  const join = {
+    label: '이 섬에 가입',
+    disabled: false,
+    onPress: jest.fn(),
+    onLeave: jest.fn(),
+    leaveDisabled: true,
+  };
   const screen = await render(
     <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
   );
   const row = () => Object.assign({}, ...[screen.getByTestId('visit-actions').props.style].flat());
   expect(row().flexDirection).toBe('row');
+  // 가입 요청 진행 중에는 「다시 바다로」를 누를 수 없다
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(join.onLeave).not.toHaveBeenCalled();
   mockFontScale = 1.3;
   await screen.rerender(
     <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,

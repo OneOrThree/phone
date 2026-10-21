@@ -1335,9 +1335,17 @@ function FinalIslandScene({
   onReturnFromVisit?: () => void;
   /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
   visitHud?: { focusCount: number | null; onFocusPress: () => void; todayMinutes?: number };
-  /** 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. */
-  /** 방문 지도 하단 가입 버튼. `onLeave` 가 있으면 왼쪽에 「다시 바다로」(GROMO-2405)를 나란히 둔다 */
-  visitJoin?: { label: string; disabled: boolean; onPress: () => void; onLeave?: () => void };
+  /**
+   * 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. `onLeave` 가 있으면 왼쪽에
+   * 「다시 바다로」(GROMO-2405)를 나란히 두고, `leaveDisabled` 면(가입 요청 진행 중) 그 버튼을 막는다.
+   */
+  visitJoin?: {
+    label: string;
+    disabled: boolean;
+    onPress: () => void;
+    onLeave?: () => void;
+    leaveDisabled?: boolean;
+  };
   mapAssets?: MapAssetSource;
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
@@ -2493,13 +2501,11 @@ function FinalIslandScene({
                 maxWidth: hudMax,
               }}
             >
-              {/* 긴 섬 이름은 한 줄로 가운데를 줄여 「구경 중」을 남기고, 읽는 이름은 전체(GROMO-2405) */}
+              {/* 긴 섬 이름은 한 줄로 가운데를 줄여 「구경 중」을 남긴다(GROMO-2405). 스크린리더는 잘려도 전체 글자를 읽는다 */}
               <Txt
                 kind="meta"
                 numberOfLines={1}
                 ellipsizeMode="middle"
-                accessible
-                accessibilityLabel={t('home.hud.visiting', { name: i.name })}
                 style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
               >
                 {t('home.hud.visiting', { name: i.name })}
@@ -2669,6 +2675,7 @@ function FinalIslandScene({
                     dynamicHeight
                     title={t('islandVisit.backToSea')}
                     id="visit-leave"
+                    disabled={visitJoin.leaveDisabled}
                     onPress={visitJoin.onLeave}
                     style={{ flex: 1 }}
                   />

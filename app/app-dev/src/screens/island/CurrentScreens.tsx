@@ -1476,6 +1476,8 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
                       e.dispatch({ type: 'END_VISIT' });
                       e.reset('sea');
                     }),
+                  // 가입 요청이 진행 중이면 떠나지 못하게 — 늦게 성공한 가입이 바다로 간 사용자를 홈으로 끌어오지 않게
+                  leaveDisabled: join.busy,
                 }
               : undefined
           }
