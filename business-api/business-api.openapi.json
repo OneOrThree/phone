@@ -12,6 +12,36 @@
     }
   ],
   "paths": {
+    "/me/sea-remark": {
+      "put": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "updateSeaRemark",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeaRemarkView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/screen-time/{date}": {
       "put": {
         "tags": [
@@ -52,6 +82,46 @@
         }
       }
     },
+    "/me/magazine/issues/{issueId}/receipt": {
+      "put": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "receipt",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineReceipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/current-island": {
       "put": {
         "tags": [
@@ -75,6 +145,54 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/CurrentIslandView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/{promotionId}": {
+      "put": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionUpdated"
                 }
               }
             }
@@ -279,6 +397,36 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/telescope/pins": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "pinTelescope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopePinView"
+                }
+              }
+            }
           }
         }
       }
@@ -595,6 +743,94 @@
         }
       }
     },
+    "/islands/{islandId}/promotions": {
+      "post": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "promote",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/{promotionId}/reports": {
+      "post": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "report",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionReported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/notices": {
       "get": {
         "tags": [
@@ -888,6 +1124,74 @@
         }
       }
     },
+    "/islands/{islandId}/guestbook": {
+      "get": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "list_2",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandGuestbook"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "write",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandGuestbookItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/constructions": {
       "post": {
         "tags": [
@@ -921,6 +1225,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/ConstructionResultView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/arrivals": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "arrive",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
                 }
               }
             }
@@ -1270,6 +1604,38 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/focus-sessions/sea": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "summary": "바다 집중 시작",
+        "description": "목적지는 지금 망원경 목록에 있는 섬이어야 한다. 망원경 목록은 정시마다 다시 계산되므로 앱이 본 목록과 어긋날 수 있다 — 409 SEA_DESTINATION_UNAVAILABLE 이면 GET /me/telescope 를 다시 불러 같은 섬이 있으면 재시도하고, 없으면 선택 화면으로 돌아간다. 항해 분은 서버가 그 항목 값으로 고정한다.",
+        "operationId": "startSea",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
           }
         }
       }
@@ -1835,7 +2201,7 @@
         "tags": [
           "island-quest-controller"
         ],
-        "operationId": "update",
+        "operationId": "update_1",
         "parameters": [
           {
             "name": "islandId",
@@ -2023,7 +2389,7 @@
         "tags": [
           "island-notice-controller"
         ],
-        "operationId": "update_1",
+        "operationId": "update_2",
         "parameters": [
           {
             "name": "islandId",
@@ -2471,6 +2837,116 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandRankings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/telescope": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "telescope",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/today": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "today",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineToday"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "issues",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineIssues"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues/{issueId}": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "issue",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineIssuePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/assets": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "assets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineAssets"
                 }
               }
             }
@@ -2983,6 +3459,66 @@
         }
       }
     },
+    "/islands/{islandId}/promotions/editor": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "editor",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionEditor"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/news": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "news",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandNewsPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/members": {
       "get": {
         "tags": [
@@ -3239,6 +3775,29 @@
         }
       }
     },
+    "/customization/catalog": {
+      "get": {
+        "tags": [
+          "customization-catalog-controller"
+        ],
+        "operationId": "catalog",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/link-previews/{id}/thumbnail": {
       "get": {
         "tags": [
@@ -3361,6 +3920,36 @@
         }
       }
     },
+    "/me/telescope/pins/{islandId}": {
+      "delete": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "unpinTelescope",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/notices/{noticeId}/comments/{commentId}": {
       "delete": {
         "tags": [
@@ -3468,6 +4057,44 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/guestbook/{entryId}": {
+      "delete": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "delete_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
                 }
               }
             }
@@ -3633,6 +4260,24 @@
           }
         }
       },
+      "SeaRemarkView": {
+        "type": "object",
+        "properties": {
+          "remark": {
+            "type": "string"
+          },
+          "changedAt": {
+            "type": "string"
+          },
+          "lockedUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "changedAt",
+          "lockedUntil"
+        ]
+      },
       "ScreenTimeDayView": {
         "type": "object",
         "properties": {
@@ -3648,6 +4293,32 @@
           }
         }
       },
+      "MagazineReceipt": {
+        "type": "object",
+        "properties": {
+          "place": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deferredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "deferredAt",
+          "openedAt",
+          "place",
+          "receivedAt"
+        ]
+      },
       "CurrentIslandView": {
         "type": "object",
         "properties": {
@@ -3658,6 +4329,36 @@
         },
         "required": [
           "currentIslandId"
+        ]
+      },
+      "IslandPromotionUpdated": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId",
+          "updatedAt"
         ]
       },
       "ConstructionTargetView": {
@@ -3744,6 +4445,168 @@
           }
         }
       },
+      "EvictedPinView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "islandId",
+          "name"
+        ]
+      },
+      "MagazineCell": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "relation": {
+            "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "body",
+          "buildingCount",
+          "islandId",
+          "layout",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "promotionId",
+          "relation"
+        ]
+      },
+      "TelescopeItemView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "sailingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "pinnedFrom": {
+            "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "magazineCell": {
+            "$ref": "#/components/schemas/MagazineCell"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "완공 건물 수. 키가 없으면 0 으로 읽는다(옛 Data 호환 — 롤링 배포 중에만 빠지고 null 은 보내지 않는다). 단계 그림은 앱 islandStage(memberCount, buildingCount)"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "arrivedBefore",
+          "full",
+          "intro",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "membershipStatus",
+          "name",
+          "sailingMinutes",
+          "slot"
+        ]
+      },
+      "TelescopePinView": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/TelescopeItemView"
+          },
+          "evicted": {
+            "$ref": "#/components/schemas/EvictedPinView"
+          }
+        },
+        "required": [
+          "item"
+        ]
+      },
       "LetterDetailView": {
         "type": "object",
         "properties": {
@@ -3770,14 +4633,20 @@
           },
           "readAt": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
           "content",
           "createdAt",
           "id",
-          "receiverId",
-          "senderId"
+          "receiverId"
         ]
       },
       "InviteMatchRequest": {
@@ -3938,6 +4807,48 @@
           "villagePointsAdded"
         ]
       },
+      "IslandPromotion": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balanceAfter": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newsId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "balanceAfter",
+          "feeFish",
+          "issueDate",
+          "newsId",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionReported": {
+        "type": "object",
+        "properties": {
+          "reported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reported"
+        ]
+      },
       "NoticeView": {
         "type": "object",
         "properties": {
@@ -4068,6 +4979,39 @@
           }
         }
       },
+      "IslandGuestbookItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mine": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authorId",
+          "content",
+          "createdAt",
+          "id",
+          "mine"
+        ]
+      },
       "ConstructionResultView": {
         "type": "object",
         "properties": {
@@ -4126,6 +5070,53 @@
           "currency"
         ]
       },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "arrivedBefore",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
+      "InvitationArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrived": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arrived",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
       "InvitationResolvedView": {
         "type": "object",
         "properties": {
@@ -4134,6 +5125,9 @@
           },
           "invitationToken": {
             "type": "string"
+          },
+          "arrival": {
+            "$ref": "#/components/schemas/InvitationArrivalView"
           }
         },
         "required": [
@@ -4180,6 +5174,15 @@
           },
           "themeId": {
             "type": "string"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "greeting": {
+            "type": "string"
+          },
+          "greetingIsDefault": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4252,6 +5255,13 @@
             "items": {
               "$ref": "#/components/schemas/ActiveIntervalView"
             }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "destinationIslandName": {
+            "type": "string",
+            "description": "바다 세션의 목적지 섬 이름. 키가 없으면 섬 세션이거나 섬 행이 없는 것이다(옛 Data 호환 — null 은 보내지 않는다)"
           }
         },
         "required": [
@@ -4340,6 +5350,15 @@
             "items": {
               "$ref": "#/components/schemas/ActiveIntervalView"
             }
+          },
+          "seaReward": {
+            "$ref": "#/components/schemas/SeaRewardView"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "arrived": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4368,6 +5387,31 @@
         "required": [
           "id",
           "myRate"
+        ]
+      },
+      "SeaRewardView": {
+        "type": "object",
+        "properties": {
+          "grantedProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minutesToNextTier": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "grantedProductIds",
+          "newProductIds"
         ]
       },
       "AuthSessionResult": {
@@ -4545,6 +5589,15 @@
           "decor": {
             "type": "string"
           },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
+            "type": "string"
+          },
           "hull": {
             "type": "string"
           },
@@ -4559,8 +5612,11 @@
         "required": [
           "clothes",
           "decor",
+          "head",
           "hull",
+          "neck",
           "position",
+          "shoes",
           "version"
         ]
       },
@@ -4782,6 +5838,353 @@
           "onboardingComplete"
         ]
       },
+      "TelescopeView": {
+        "type": "object",
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRefreshMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelescopeItemView"
+            }
+          }
+        },
+        "required": [
+          "bucketStart",
+          "items",
+          "nextRefreshMinutes"
+        ]
+      },
+      "MagazineIssue": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "current",
+          "issueDate",
+          "issueId",
+          "issueNo",
+          "publishedAt"
+        ]
+      },
+      "MagazineToday": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/MagazineIssue"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/MagazineReceipt"
+          }
+        },
+        "required": [
+          "issue",
+          "receipt"
+        ]
+      },
+      "MagazineIssueSummary": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issueDate",
+          "issueId",
+          "issueNo",
+          "opened",
+          "publishedAt"
+        ]
+      },
+      "MagazineIssues": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineIssueSummary"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "MagazineEditorial": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineRankedIsland"
+            }
+          },
+          "newIslands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineIslandCard"
+            }
+          },
+          "note": {
+            "$ref": "#/components/schemas/MagazineNote"
+          }
+        },
+        "required": [
+          "newIslands",
+          "note",
+          "ranking"
+        ]
+      },
+      "MagazineIslandCard": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "buildingCount",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "relation"
+        ]
+      },
+      "MagazineIssuePage": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/MagazineIssue"
+          },
+          "editorial": {
+            "$ref": "#/components/schemas/MagazineEditorial"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineCell"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cells",
+          "editorial",
+          "issue",
+          "nextCursor"
+        ]
+      },
+      "MagazineNote": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tipNo": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "body",
+          "tipNo",
+          "type"
+        ]
+      },
+      "MagazineRankedIsland": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "buildingCount",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "rank",
+          "relation"
+        ]
+      },
+      "MagazineAsset": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assetId",
+          "bundle",
+          "owned"
+        ]
+      },
+      "MagazineAssets": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineAsset"
+            }
+          },
+          "stickers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineSticker"
+            }
+          },
+          "tapes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineAsset"
+            }
+          }
+        },
+        "required": [
+          "frames",
+          "stickers",
+          "tapes"
+        ]
+      },
+      "MagazineSticker": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "tab": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assetId",
+          "bundle",
+          "owned",
+          "tab"
+        ]
+      },
       "MyJoinRequestView": {
         "type": "object",
         "properties": {
@@ -4902,6 +6305,24 @@
               "type": "string"
             }
           },
+          "head": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "neck": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shoes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "hulls": {
             "type": "array",
             "items": {
@@ -4920,8 +6341,11 @@
           "clothes",
           "decor",
           "equipped",
+          "head",
           "hulls",
-          "inventoryVersion"
+          "inventoryVersion",
+          "neck",
+          "shoes"
         ]
       },
       "SummaryView": {
@@ -4976,11 +6400,20 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "readAt": {
+            "type": "string"
           }
         },
         "required": [
           "content",
-          "counterpartUserId",
           "createdAt",
           "id",
           "isRead"
@@ -5636,6 +7069,123 @@
           "windowStart"
         ]
       },
+      "IslandPromotionEditor": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "$ref": "#/components/schemas/IslandPromotionWindow"
+          },
+          "next": {
+            "$ref": "#/components/schemas/IslandPromotionNext"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/IslandPromotionLatest"
+          },
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balance": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "privateIsland": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "balance",
+          "feeFish",
+          "latest",
+          "next",
+          "privateIsland",
+          "window"
+        ]
+      },
+      "IslandPromotionLatest": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionNext": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "appliedAt",
+          "body",
+          "editable",
+          "issueDate",
+          "layout",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionWindow": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "boolean"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "closesAt",
+          "issueDate",
+          "open",
+          "opensAt"
+        ]
+      },
       "IslandNoticeItem": {
         "type": "object",
         "properties": {
@@ -5717,6 +7267,45 @@
           }
         }
       },
+      "IslandNewsItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "body",
+          "createdAt",
+          "id",
+          "kind"
+        ]
+      },
+      "IslandNewsPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandNewsItem"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
       "MailboxPageResponse": {
         "type": "object",
         "properties": {
@@ -5764,6 +7353,15 @@
             "type": "string"
           },
           "decor": {
+            "type": "string"
+          },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
             "type": "string"
           },
           "hull": {
@@ -5899,6 +7497,27 @@
           "buildingThemes",
           "inventoryVersion",
           "islandThemes"
+        ]
+      },
+      "IslandGuestbook": {
+        "type": "object",
+        "properties": {
+          "boardBuilt": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandGuestbookItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardBuilt",
+          "items"
         ]
       },
       "FocusMemberView": {
@@ -6046,6 +7665,12 @@
           },
           "activeConstruction": {
             "$ref": "#/components/schemas/ActiveConstruction"
+          },
+          "contributedCompletions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -6205,6 +7830,65 @@
           "userId"
         ]
       },
+      "ItemView": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "anchorX": {
+            "type": "number"
+          },
+          "anchorY": {
+            "type": "number"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retiredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "renderData": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "anchorX",
+          "anchorY",
+          "height",
+          "imageUrl",
+          "kind",
+          "productId",
+          "retiredAt",
+          "slot",
+          "sortOrder",
+          "title",
+          "width"
+        ]
+      },
       "BlockedUserView": {
         "type": "object",
         "properties": {
@@ -6249,6 +7933,17 @@
           }
         }
       },
+      "NoticeDeletedView": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
       "JoinRequestCancelView": {
         "type": "object",
         "properties": {
@@ -6265,22 +7960,26 @@
           "status"
         ]
       },
-      "NoticeDeletedView": {
-        "type": "object",
-        "properties": {
-          "deleted": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deleted"
-        ]
-      },
       "Left": {
         "type": "object",
         "properties": {
           "left": {
             "type": "boolean"
+          },
+          "nextLocation": {
+            "$ref": "#/components/schemas/NextLocation"
+          }
+        },
+        "required": [
+          "nextLocation"
+        ]
+      },
+      "NextLocation": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
