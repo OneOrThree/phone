@@ -98,7 +98,7 @@ import {
   DEFAULT_FREE_AUDIO_TRACK_IDS,
   hasBundledAudio,
 } from '@/constants/audio';
-import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
+import { Flag } from '@/screens/cosmetics/Cosmetics';
 import {
   CatOutfitLayers,
   OutfitItemArt,
@@ -147,8 +147,6 @@ import {
   Avatar,
   Preview,
   IslandThumb,
-  HatArt,
-  HatOn,
   RaftCatArt,
   Cta,
   SearchField,
@@ -252,7 +250,7 @@ function MainIslandRadio({ selected }: { selected: boolean }) {
     </View>
   );
 }
-function Boat({ state, h = 260, scarf }: any) {
+function Boat({ state, h = 260 }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
       <Pic id="boat/raft" w={h * 0.86} />
@@ -277,22 +275,6 @@ function Boat({ state, h = 260, scarf }: any) {
           pose={{ color: state.color, still: 'idle', size: h * 0.42 }}
         />
       </View>
-      {scarf && (
-        <View
-          style={{
-            position: 'absolute',
-            left: '44%',
-            top: '41%',
-            width: 44,
-            height: 16,
-            borderRadius: 8,
-            backgroundColor: C.pink,
-            borderWidth: 1.5,
-            borderColor: C.brown,
-            transform: [{ rotate: '-8deg' }],
-          }}
-        />
-      )}
     </View>
   );
 }
@@ -305,7 +287,7 @@ export const raftArtSize = (width: number, height: number) => {
   return { width: w, height: (w * 317) / 440 };
 };
 /** 검정 고양이 뗏목 합성 그림과 그 위 꾸미기를 실제 그림 상자 하나에 겹친다 — 부모(Preview) 안쪽을 재서 맞춘다. */
-function BlackRaftCat({ id, hat, outfit }: { id: string; hat: boolean; outfit: Outfit }) {
+function BlackRaftCat({ id, outfit }: { id: string; outfit: Outfit }) {
   const [art, setArt] = useState<{ width: number; height: number } | null>(null);
   return (
     <View
@@ -317,7 +299,6 @@ function BlackRaftCat({ id, hat, outfit }: { id: string; hat: boolean; outfit: O
       {art && (
         <View testID="raft-cat-art" style={art}>
           <Pic id={id} w="100%" h="100%" />
-          {hat && <HatOn image="raft" style={StyleSheet.absoluteFill} />}
           {/* 합성 그림 안 고양이(idle) 상자 = 왼쪽 25.0%·위 9.1%·폭 43.0% — 그림 실측(GROMO-2382) */}
           <View
             style={{
@@ -5128,33 +5109,13 @@ export function RedesignScreens({ e }: any) {
       </IslandSheet>
     );
   // 뗏목 위 고양이 그림. 합성 그림은 검정 고양이만 있어서 다른 털색은 뗏목 + 고양이를 겹쳐 그린다
-  const worn = state.equipped.clothes;
-  // 스카프는 합성 그림, 밀짚모자는 그림 위에 도형을 겹친다(모자 쓴 고양이 그림이 없어서)
-  const raftCat = (h: number, scarf = worn === 'scarf', hat = worn === 'straw-hat') =>
+  const raftCat = (h: number) =>
     state.color === 'black' ? (
       <Preview h={h}>
-        <BlackRaftCat
-          id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'}
-          hat={hat}
-          outfit={outfitOf(state)}
-        />
+        <BlackRaftCat id="boat/raft/cat" outfit={outfitOf(state)} />
       </Preview>
     ) : (
-      <View>
-        <Boat state={state} h={layout.compact ? 150 : h} scarf={scarf} />
-        {hat && (
-          // Boat 안 고양이 자리(left 0.36h · top 0.12h · 폭 0.42h) + 테두리 2
-          <HatOn
-            image="cat"
-            style={{
-              left: 2 + (layout.compact ? 150 : h) * 0.36,
-              top: 2 + (layout.compact ? 150 : h) * 0.12,
-              width: (layout.compact ? 150 : h) * 0.42,
-              height: (layout.compact ? 150 : h) * 0.42,
-            }}
-          />
-        )}
-      </View>
+      <Boat state={state} h={layout.compact ? 150 : h} />
     );
   // island(currentIsland(state))는 로컬 목업 섬(state.islandId, 기본값 소다 섬)을 가리켜
   // 서버 모드에서도 항상 「소다 섬」으로 보였다. 서버 모드는 snap.memberships 의 현재 섬 이름이 정본이다.
@@ -5209,9 +5170,7 @@ export function RedesignScreens({ e }: any) {
             overflow: 'hidden',
           }}
         >
-          {p.id === 'straw-hat' ? (
-            <HatArt />
-          ) : p.kind === 'island' ? (
+          {p.kind === 'island' ? (
             <Pic id="island/whole" w="100%" h="100%" cover />
           ) : (
             <Pic
@@ -5479,7 +5438,7 @@ export function RedesignScreens({ e }: any) {
         toast={sheetToast}
       >
         {clothes ? (
-          raftCat(260, p.id === 'scarf', p.id === 'straw-hat')
+          raftCat(260)
         ) : audio ? (
           <Preview h={220} bg={C.soft}>
             <Pic id="bld/gramophone" w={170} />
@@ -5926,8 +5885,8 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'wardrobe') {
-    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
-    type WardrobeSlot = 'clothes' | 'decor' | 'head' | 'neck' | 'shoes';
+    // 가진 장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
+    type WardrobeSlot = 'decor' | 'head' | 'neck' | 'shoes';
     const slotWorn = (slot: WardrobeSlot): string | null => {
       const v = state.equipped[slot];
       return v == null || v === 'default' || v === 'none' ? null : v;
@@ -5955,9 +5914,7 @@ export function RedesignScreens({ e }: any) {
                 const m = serverErrorText(thrown);
                 if (m) notify(m);
               });
-              return;
             }
-            act('EQUIP', { key: 'clothes', value: value ?? 'default' });
           }}
           style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
@@ -6000,20 +5957,13 @@ export function RedesignScreens({ e }: any) {
       );
     };
     const slotIds = (slot: WardrobeSlot): string[] =>
-      server
-        ? ((shopApi.my?.[slot] as string[] | undefined) ?? [])
-        : slot === 'clothes'
-          ? products
-              .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-              .map((p) => p.id)
-          : [];
+      server ? ((shopApi.my?.[slot] as string[] | undefined) ?? []) : [];
 
     const picture = (slot: WardrobeSlot, id: string) => {
       const entry = catalog[id];
       // 집중 보상 목은 원본 전체가 아니라 앞 장식만 잘라 보인다(GROMO-2382)
       if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
-      if (slot === 'clothes' && id === 'straw-hat') return <HatArt w={72} scale={0.7} />;
-      return slot === 'clothes' || slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
+      return slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
     };
     return (
       <IslandSheet
@@ -6026,11 +5976,11 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        {(['clothes', 'decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
+        {(['decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
           const worn = slotWorn(slot);
           // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
           const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
-          if (slot !== 'clothes' && ids.length === 0 && !worn) return null;
+          if (ids.length === 0 && !worn) return null;
           return (
             <View key={slot} style={{ gap: 10 }}>
               <Txt kind="section" style={st.sec}>
@@ -6041,8 +5991,8 @@ export function RedesignScreens({ e }: any) {
                   slot,
                   null,
                   t('wardrobe.default'),
-                  slot === 'clothes' ? <Pic id={'cat/' + state.color} w={60.5} /> : null,
-                  // 슬롯마다 같은 「기본」이 다섯 번 읽히지 않게 슬롯 이름을 붙인다
+                  null,
+                  // 슬롯마다 같은 「기본」이 네 번 읽히지 않게 슬롯 이름을 붙인다
                   t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
                 )}
                 {ids.map((id) =>
