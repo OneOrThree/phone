@@ -467,6 +467,40 @@ test('저장한 세션은 그대로 복구된다', async () => {
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
+test('로그인 제공자는 세션과 함께 복구되고 갱신 뒤에도 유지된다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1', provider: 'apple' });
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'AT',
+    refreshToken: 'RT',
+    userId: 'u1',
+    provider: 'apple',
+  });
+  await saveRefreshedSession('AT2', null, sessionGeneration(), 'AT', 'RT');
+  assert.equal((await restoreSession())?.provider, 'apple');
+});
+
+test('제공자 없는 세션(게스트·이전 저장본)은 provider 가 없고, 이전 계정의 provider 가 새어 오지 않는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1', provider: 'apple' });
+  await saveSession({ accessToken: 'GAT', refreshToken: 'GRT', userId: 'guest' });
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'GAT',
+    refreshToken: 'GRT',
+    userId: 'guest',
+  });
+  // 슬롯을 한 바퀴 돌아 같은 슬롯에 다시 써도 옛 provider 는 태그가 달라 읽히지 않는다.
+  await saveSession({ accessToken: 'AT3', refreshToken: 'RT3', userId: 'u3' });
+  assert.equal((await restoreSession())?.provider, undefined);
+});
+
+test('세션을 지우면 제공자도 함께 사라진다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1', provider: 'apple' });
+  await clearSession();
+  assert.equal(getSession(), null);
+  assert.equal(await restoreSession(), null);
+  assert.equal(await realRead('gromo.sessionSlotA.provider'), null);
+  assert.equal(await realRead('gromo.sessionSlotB.provider'), null);
+});
+
 test('이전 fixed-key marker 세션은 복구되고 첫 갱신부터 슬롯 포맷으로 전환된다', async () => {
   await realWrite('gromo.accessToken', 'old-bundle.OLD_AT');
   await realWrite('gromo.refreshToken', 'old-bundle.OLD_RT');
@@ -765,9 +799,11 @@ test('던지는 구독자는 clearSession의 durable 삭제나 다른 구독자�
       'gromo.sessionSlot.A.accessToken',
       'gromo.sessionSlot.A.refreshToken',
       'gromo.sessionSlot.A.userId',
+      'gromo.sessionSlot.A.provider',
       'gromo.sessionSlot.B.accessToken',
       'gromo.sessionSlot.B.refreshToken',
       'gromo.sessionSlot.B.userId',
+      'gromo.sessionSlot.B.provider',
     ]),
   );
   stopBroken();

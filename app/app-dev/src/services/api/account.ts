@@ -35,10 +35,20 @@ export function updateProfile(
 
 export type AccountWithdrawal = { deleted: boolean };
 
-export function withdrawAccount(idempotencyKey: string = uuid()): Promise<AccountWithdrawal> {
+/**
+ * `appleAuthorizationCode` 는 Apple 로그인 계정이 탈퇴 직전에 재인증으로 받은 일회용 코드다(5.1.1(v)).
+ * 서버는 탈퇴 성공 뒤 이 코드로 Apple 토큰을 폐기한다. 빈 값·명시 null 은 400 이라 없으면 키를 생략한다.
+ */
+export function withdrawAccount(
+  idempotencyKey: string = uuid(),
+  appleAuthorizationCode?: string,
+): Promise<AccountWithdrawal> {
   return request<AccountWithdrawal>('/me', {
     method: 'DELETE',
-    body: { confirmation: 'DELETE' },
+    body: {
+      confirmation: 'DELETE',
+      ...(appleAuthorizationCode ? { appleAuthorizationCode } : {}),
+    },
     idempotencyKey,
   });
 }

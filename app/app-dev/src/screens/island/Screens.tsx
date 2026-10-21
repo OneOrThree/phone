@@ -86,6 +86,7 @@ import {
   type LocalePref,
 } from '@/i18n';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
+import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
 import type { IslandSummary } from '@/services/api/islands';
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
@@ -6516,11 +6517,24 @@ export function RedesignScreens({ e }: any) {
                         // 호출 전에 대상 계정과 멱등 키를 기기에 남긴다(기록 실패면 요청하지 않는다).
                         // 같은 계정의 재시도면 저장된 키를 재사용해 서버가 첫 결과를 재생한다.
                         const userId = getSession()?.userId ?? null;
+                        // Apple 로그인 계정은 탈퇴 직전에 재인증해 일회용 코드를 받는다(App Store 5.1.1(v) —
+                        // 서버가 탈퇴 뒤 Apple 토큰을 폐기). 코드는 한 번만 쓰이고 수명이 짧아 시도마다 새로
+                        // 받는다. 의도 기록 전에 받으므로 취소·실패해도 기기엔 아무것도 남지 않는다.
+                        let appleCode: string | undefined;
+                        if (Platform.OS === 'ios' && getSession()?.provider === 'apple') {
+                          try {
+                            appleCode = await appleAuthorizationCode();
+                          } catch (thrown) {
+                            // 시트를 닫은 것은 조용히 중단한다. 그 밖의 실패는 run 의 일반 오류 문구로 간다.
+                            if (isSocialLoginCancellation(thrown)) return;
+                            throw thrown;
+                          }
+                        }
                         withdrawIntent.current = userId
                           ? await beginWithdrawal(userId)
                           : { userId: '', key: uuid() };
                         try {
-                          await withdrawAccount(withdrawIntent.current.key);
+                          await withdrawAccount(withdrawIntent.current.key, appleCode);
                         } catch (thrown) {
                           // 서버가 DELETE /me 를 커밋했는데 응답만 잃었으면 재시도는 404
                           // USER_NOT_FOUND 다 — 계정은 이미 없으니 탈퇴 완료로 보고 로컬 정리를 이어 간다.

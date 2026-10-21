@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { isSocialLoginCancellation, socialCredential } from './socialLogin';
+import { appleAuthorizationCode, isSocialLoginCancellation, socialCredential } from './socialLogin';
 
 const mockKakaoLogin = jest.fn();
 const mockAppleSignIn = jest.fn();
@@ -107,6 +107,25 @@ test('Apple과 Google 토큰이 비어 있으면 명시적 오류를 반환한�
   await expect(socialCredential('google', loaders)).rejects.toMatchObject({
     code: 'CLIENT_PROVIDER_UNAVAILABLE',
   });
+});
+
+test('탈퇴용 Apple 코드는 범위 없이 재인증해 authorizationCode 를 돌려준다', async () => {
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
+  mockAppleSignIn.mockResolvedValue({ authorizationCode: 'auth-code', identityToken: 'x' });
+  await expect(appleAuthorizationCode(loaders)).resolves.toBe('auth-code');
+  expect(mockAppleSignIn).toHaveBeenLastCalledWith({ requestedScopes: [] });
+
+  mockAppleSignIn.mockResolvedValue({ authorizationCode: null });
+  await expect(appleAuthorizationCode(loaders)).rejects.toMatchObject({
+    code: 'CLIENT_PROVIDER_UNAVAILABLE',
+  });
+
+  // 시트 취소는 원래 오류 그대로 던져져 호출부가 취소로 판별한다.
+  mockAppleSignIn.mockRejectedValue(
+    Object.assign(new Error('c'), { code: 'ERR_REQUEST_CANCELED' }),
+  );
+  const canceled = await appleAuthorizationCode(loaders).catch((error: unknown) => error);
+  expect(isSocialLoginCancellation(canceled)).toBe(true);
 });
 
 test.each([

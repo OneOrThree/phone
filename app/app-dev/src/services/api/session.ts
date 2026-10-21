@@ -16,11 +16,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import type { Provider } from './auth';
 
 export interface Session {
   accessToken: string;
   refreshToken: string;
   userId: string;
+  /**
+   * 소셜 로그인 제공자(GROMO-2401 — 탈퇴 때 Apple 토큰 폐기 여부 판단). 게스트와, 이 필드가 생기기
+   * 전에 저장된 세션에는 없다 — 없으면 «알 수 없음»으로 보고 재인증하지 않는다. 세션과 같은 슬롯에
+   * 같은 커밋 태그로 저장되므로 세션이 지워질 때 함께 사라진다.
+   */
+  provider?: Provider;
 }
 
 const KEY_ACCESS = 'gromo.accessToken';
@@ -45,6 +52,7 @@ const KEY_OWNER_ADOPTION_PENDING = 'gromo.ownerAdoptionPending';
 const KEY_BUNDLE = 'gromo.sessionBundle';
 const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
 const SESSION_SLOTS = ['A', 'B'] as const;
+const PROVIDERS: readonly string[] = ['apple', 'google', 'kakao', 'line'] satisfies Provider[];
 const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
 const KEY_LEGACY_PENDING_PROMOTION = 'gromo.legacySessionPendingPromotion';
 // 키 이름은 Android 한정이던 때의 것을 유지한다 — 이미 기록된 표식을 계속 읽어야 한다.
@@ -423,6 +431,7 @@ async function finishInterruptedLogout(): Promise<boolean> {
         removeItem(`${prefix}.accessToken`).catch(swallow),
         removeItem(`${prefix}.refreshToken`).catch(swallow),
         removeItem(`${prefix}.userId`).catch(swallow),
+        removeItem(`${prefix}.provider`).catch(swallow),
       ];
     }),
     ...(Platform.OS === 'android'
@@ -490,12 +499,20 @@ async function readBundledSession(bundle: string): Promise<Session | null> {
     return unbundled(bundle, accessToken, refreshToken, userId);
   }
   const prefix = `${SESSION_SLOT_PREFIX}.${marker.slot}`;
-  const [accessToken, refreshToken, userId] = await Promise.all([
+  const [accessToken, refreshToken, userId, rawProvider] = await Promise.all([
     readItem(`${prefix}.accessToken`),
     readItem(`${prefix}.refreshToken`),
     readItem(`${prefix}.userId`),
+    // 제공자는 보조 정보다 — 읽지 못하거나 태그가 어긋나면 «알 수 없음»이고 세션 복구는 막지 않는다.
+    readItem(`${prefix}.provider`).catch(() => null),
   ]);
-  return unbundled(marker.id, accessToken, refreshToken, userId);
+  const session = unbundled(marker.id, accessToken, refreshToken, userId);
+  const provider = rawProvider?.startsWith(`${marker.id}.`)
+    ? rawProvider.slice(marker.id.length + 1)
+    : null;
+  return session && provider && PROVIDERS.includes(provider)
+    ? { ...session, provider: provider as Provider }
+    : session;
 }
 
 /**
@@ -520,6 +537,10 @@ async function commit(session: Session): Promise<void> {
     writeItem(`${prefix}.accessToken`, `${bundleId}.${session.accessToken}`),
     writeItem(`${prefix}.refreshToken`, `${bundleId}.${session.refreshToken}`),
     writeItem(`${prefix}.userId`, `${bundleId}.${session.userId}`),
+    // 제공자 없는 세션(게스트)은 쓰지 않는다 — 비활성 슬롯의 옛 값은 bundleId 태그가 달라 읽히지 않는다.
+    ...(session.provider
+      ? [writeItem(`${prefix}.provider`, `${bundleId}.${session.provider}`)]
+      : []),
   ]);
   const failure = writes.find((w): w is PromiseRejectedResult => w.status === 'rejected');
   if (failure) throw failure.reason;
@@ -689,6 +710,7 @@ export function clearSession(
           removeItem(`${prefix}.accessToken`).catch(swallow),
           removeItem(`${prefix}.refreshToken`).catch(swallow),
           removeItem(`${prefix}.userId`).catch(swallow),
+          removeItem(`${prefix}.provider`).catch(swallow),
         ];
       }),
     ]);

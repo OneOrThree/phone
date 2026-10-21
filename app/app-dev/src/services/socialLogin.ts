@@ -91,6 +91,20 @@ export async function socialCredential(
   }
 }
 
+/**
+ * 탈퇴 직전 Apple 토큰 폐기용 일회용 코드(GROMO-2401). 범위 없이 재인증만 하고 `authorizationCode` 를
+ * 돌려준다. 사용자가 시트를 닫으면 {@link isSocialLoginCancellation} 이 참인 오류가 던져진다.
+ */
+export async function appleAuthorizationCode(
+  loaders: SocialModuleLoaders = defaultLoaders,
+): Promise<string> {
+  if (Platform.OS !== 'ios') unavailable(t('login.error.appleIosOnly'));
+  const AppleAuthentication = await loaders.apple();
+  const credential = await AppleAuthentication.signInAsync({ requestedScopes: [] });
+  if (!credential.authorizationCode) unavailable(t('login.error.appleNoCredential'));
+  return credential.authorizationCode;
+}
+
 export function isSocialLoginCancellation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const code = 'code' in error ? String(error.code) : '';

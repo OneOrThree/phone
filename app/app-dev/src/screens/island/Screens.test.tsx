@@ -50,6 +50,12 @@ jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
   withdrawAccount: jest.fn(),
 }));
+// 탈퇴 직전 Apple 재인증만 가로챈다 — 취소 판정(isSocialLoginCancellation)은 실제 구현을 쓴다.
+const mockAppleAuthorizationCode = jest.fn();
+jest.mock('@/services/socialLogin', () => ({
+  ...jest.requireActual('@/services/socialLogin'),
+  appleAuthorizationCode: () => mockAppleAuthorizationCode(),
+}));
 // 홈 위젯 비우기만 관찰한다 — 스냅샷 계산·전송(WorldMap)은 실제 구현(안드로이드 외 no-op)을 쓴다.
 const mockClearStudyWidget = jest.fn().mockResolvedValue(false);
 jest.mock('@/services/studyWidget', () => ({
@@ -90,6 +96,7 @@ beforeEach(() => {
   mockPin.mockReset();
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
+  mockAppleAuthorizationCode.mockReset();
   mockClearStudyWidget.mockClear();
   mockShopBuy.mockReset();
   Object.assign(mockShopState, {
@@ -2025,6 +2032,92 @@ test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로�
   await clearLocalDataOwner();
   await clearSession();
   assert.equal(getLastSessionUserId(), null);
+});
+
+test('Apple 로그인 계정의 탈퇴는 재인증으로 받은 코드를 DELETE 에 실어 보낸다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  mockAppleAuthorizationCode.mockResolvedValue('apple-code-1');
+  await saveSession({
+    accessToken: 'AT',
+    refreshToken: 'RT',
+    userId: 'apple-user',
+    provider: 'apple',
+  });
+  await rememberLocalDataOwner('apple-user');
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  assert.equal(mockAppleAuthorizationCode.mock.calls.length, 1);
+  assert.equal(mockWithdrawAccount.mock.calls[0][1], 'apple-code-1');
+  await waitFor(() => assert.equal(exposed.reset.mock.calls[0]?.[0], 'login'));
+  await clearLocalDataOwner();
+  await clearSession();
+});
+
+test('Apple 재인증을 취소하면 조용히 중단하고 DELETE 도 의도 기록도 하지 않는다', async () => {
+  mockAppleAuthorizationCode.mockRejectedValue(
+    Object.assign(new Error('canceled'), { code: 'ERR_REQUEST_CANCELED' }),
+  );
+  await saveSession({
+    accessToken: 'AT',
+    refreshToken: 'RT',
+    userId: 'apple-user',
+    provider: 'apple',
+  });
+  const s = await render(<Harness route="profile" api={() => ({})} expose={() => {}} />);
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockAppleAuthorizationCode.mock.calls.length, 1));
+  await waitFor(() => assert.ok(s.getByText('회원 탈퇴')));
+  assert.equal(mockWithdrawAccount.mock.calls.length, 0);
+  // run 은 시작할 때 notify('') 로 이전 오류를 비운다 — 문구가 있는 알림만 센다.
+  assert.equal(notifyMock.mock.calls.filter((c: unknown[]) => c[0]).length, 0);
+  assert.equal(await AsyncStorage.getItem('gromo.withdrawalIntent'), null);
+  // 버튼이 다시 눌린다 — 다음 시도는 코드를 새로 받는다.
+  mockAppleAuthorizationCode.mockResolvedValue('apple-code-2');
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  assert.equal(mockWithdrawAccount.mock.calls[0][1], 'apple-code-2');
+  await clearLocalDataOwner();
+  await clearSession();
+});
+
+test('Apple 코드를 받지 못하면(취소 아님) 탈퇴 요청 없이 일반 오류를 알린다', async () => {
+  mockAppleAuthorizationCode.mockRejectedValue(new Error('boom'));
+  await saveSession({
+    accessToken: 'AT',
+    refreshToken: 'RT',
+    userId: 'apple-user',
+    provider: 'apple',
+  });
+  const s = await render(<Harness route="profile" api={() => ({})} expose={() => {}} />);
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.ok(notifyMock.mock.calls.some((c: unknown[]) => c[0])));
+  assert.equal(mockWithdrawAccount.mock.calls.length, 0);
+  await clearSession();
+});
+
+test('Apple 이 아닌 계정과 알 수 없는 제공자의 탈퇴는 Apple 재인증 없이 코드 없이 보낸다', async () => {
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  await saveSession({
+    accessToken: 'AT',
+    refreshToken: 'RT',
+    userId: 'g-user',
+    provider: 'google',
+  });
+  const s = await render(<Harness route="profile" api={() => ({})} expose={() => {}} />);
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  assert.equal(mockAppleAuthorizationCode.mock.calls.length, 0);
+  assert.equal(mockWithdrawAccount.mock.calls[0][1], undefined);
+  await clearLocalDataOwner();
+  await clearSession();
 });
 
 test('탈퇴 뒤 로컬 소유자 정리를 확정하지 못하면 완료로 넘어가지 않고 로컬 정리만 재시도한다', async () => {

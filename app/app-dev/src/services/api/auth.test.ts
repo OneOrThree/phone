@@ -219,10 +219,12 @@ test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 
     termsVersion: '2026-09',
   });
 
-  assert.deepEqual(getSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  // 제공자도 세션과 함께 저장된다(탈퇴 때 Apple 토큰 폐기 판단용, GROMO-2401).
+  const saved = { accessToken: 'AT', refreshToken: 'RT', userId: 'u1', provider: 'apple' };
+  assert.deepEqual(getSession(), saved);
   // 인증 세션이 «교체»됐으므로 세대가 오른다.
   assert.equal(sessionGeneration(), before + 1);
-  assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  assert.deepEqual(await restoreSession(), saved);
 });
 
 test('login — 약관 버전이 비어 있으면 서버 요청을 보내지 않는다', async () => {
@@ -317,7 +319,12 @@ test('계정 전환 — 새 세션을 커밋한 «뒤에» 이전 세션 RT 를 
   await login('google', 'google-jwt', '2026-09', { attachCurrentSession: true });
 
   // 새 세션이 먼저 확정된다 — 폐기 결과가 이 저장을 되돌리지 않는다.
-  assert.deepEqual(getSession(), { accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+  assert.deepEqual(getSession(), {
+    accessToken: 'B_AT',
+    refreshToken: 'B_RT',
+    userId: 'u2',
+    provider: 'google',
+  });
   assert.equal(calls[1].init.method, 'DELETE');
   assert.equal(calls[1].url.endsWith('/auth/sessions/current'), true);
   // 폐기 대상은 **이전** 세션이다. 새 RT 를 보내면 방금 채택한 세션이 끊긴다.
@@ -357,7 +364,12 @@ test('이전 세션 폐기가 실패해도 새 세션은 그대로다 (전역 �
 
   await login('kakao', 'kakao-token', '2026-09', { attachCurrentSession: true });
 
-  assert.deepEqual(getSession(), { accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+  assert.deepEqual(getSession(), {
+    accessToken: 'B_AT',
+    refreshToken: 'B_RT',
+    userId: 'u2',
+    provider: 'kakao',
+  });
 });
 
 test('응답 «뒤» 저장 전에 로그아웃이 끝나면 늦은 저장이 세션을 되살리지 않는다', async () => {
@@ -761,7 +773,11 @@ test('checkSession — 확인 «중» 새 로그인이 끝나면 옛 세션의 4
 
   // A 의 「탈퇴했다」 판정은 B 에 대한 판정이 아니다 — 지우면 방금 전환한 계정이 끊긴다.
   assert.equal((await checkSession()).status, 'unreachable');
-  assert.deepEqual(getSession(), { accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+  assert.deepEqual(getSession(), {
+    accessToken: 'B_AT',
+    refreshToken: 'B_RT',
+    userId: 'u2',
+  });
 });
 
 test('checkSession — 키체인 삭제가 실패해도 판정은 「거절」이다', async () => {
