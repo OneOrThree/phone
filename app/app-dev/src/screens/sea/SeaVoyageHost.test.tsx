@@ -883,8 +883,8 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     const e = env({ magazineToday: { issue, receipt: null } });
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
     const screen = await render(<SeaVoyageHost e={e} />);
-    await fireEvent.press(screen.getByLabelText('항해 그만두기'));
-    await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+    await fireEvent.press(screen.getByLabelText('집중 마치기'));
+    await fireEvent.press(screen.getByLabelText('집중 마치기'));
     await act(async () => {});
     const ended = { ...e, state: { ...e.state, session: null } };
     await screen.rerender(<SeaVoyageHost e={ended} />);
