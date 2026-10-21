@@ -2,8 +2,8 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.appearance.dto.SeaRewardResult;
-import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
+import com.oneorthree.phone.appearance.dto.CustomizationRewardResult;
+import com.oneorthree.phone.appearance.service.CustomizationRewardService;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.ActiveInterval;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
@@ -74,6 +74,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -169,13 +170,10 @@ public class FocusSessionLifecycleService {
      * 있고 이 서비스는 결과 합만 정산 행에 옮긴다.
      */
     private final FocusRewardAccrualService rewardAccruals;
-    /**
-     * 바다 집중 판정 seam (GROMO-2274, 결정 N3) — 지금은 늘 {@code false} 라 {@link #settle} 은 종전 섬 세션 경로
-     * 그대로다. E1-1(바다 세션)이 판정을 채운다.
-     */
+    /** 바다 집중 판정 seam (GROMO-2274, 결정 N3) — {@code kind=SEA} 면 도착 판정과 바다 방 사건으로 간다. */
     private final SeaSessionPredicate seaSessions;
-    /** 바다 집중이면 섬 통장 대신 정산하는 누적·단계표 보상 엔진 — 인벤토리 지급은 외양 도메인 소유다. */
-    private final SeaFocusRewardService seaFocusRewards;
+    /** 섬·바다 공통 꾸미기 보상 추첨(GROMO-2301) — 인벤토리 지급은 외양 도메인 소유다. */
+    private final CustomizationRewardService customizationRewards;
     /** 바다 세션 start 의 목적지 검증 — 지금 망원경 목록(GROMO-2299). */
     private final TelescopeService telescopeService;
     /** 바다 방 사건 {@code sea.member.updated} — 스위치가 꺼져 있으면 적지 않는다. */
@@ -549,7 +547,7 @@ public class FocusSessionLifecycleService {
                                 focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(sessionId),
                                 settled.getCompletedAt());
                         return new PublicCommandResult(200,
-                                tree(finishView(detail, settled, activeIntervals, null)), tree(List.of()));
+                                tree(finishView(detail, settled, activeIntervals)), tree(List.of()));
                     }
                     requireProgressing(detail);
                     requireVersion(detail, expectedVersion);
@@ -651,7 +649,7 @@ public class FocusSessionLifecycleService {
                     List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(
                             focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(settlement.getSessionId()),
                             settlement.getCompletedAt());
-                    return finishView(detail, settlement, activeIntervals, null);
+                    return finishView(detail, settlement, activeIntervals);
                 })
                 .orElse(null);
     }
@@ -684,12 +682,13 @@ public class FocusSessionLifecycleService {
     /**
      * finish·자동 종료의 공통 정산 — 호출측이 사용자·섬·멤버십·상세를 잠갔다.
      *
-     * <p><b>바다 집중(GROMO-2274).</b> {@link SeaSessionPredicate} 가 참이면 {@link SeaFocusRewardService#settle} 이
-     * 누적 가산·단계표 지급을 하고, 섬 통장 적립은 하지 않는다 — 그 판정은 {@code accrue} 안에 있다(매분 크론도 같은
-     * 메서드를 지나므로 한 곳). 응답의 {@code seaReward} 는 이 분기에서만 채워진다. 자동 종료도 같은 경로라 지급은 되지만
-     * 받은 상품은 정산 행에 저장하지 않으므로, 그 결과를 다시 보여 주는 경로({@link #pendingResult}·이미 끝난 세션의
-     * finish)는 {@code seaReward} 가 {@code null} 이다 — 바다 세션을 여는 E1-1 이 자동 종료 결과에도 상품을 보여 주려면
-     * 저장 자리를 정해야 한다.
+     * <p><b>꾸미기 보상(GROMO-2301).</b> 섬·바다 모두 {@link CustomizationRewardService#settle} 이 휴식 제외 집중
+     * 15분 이상이면 아이템 1개를 뽑고, 뽑힌 상품을 정산 행에 남긴다. 응답의 {@code seaReward} 는 언제나 그 정산 행에서
+     * 만들므로({@link #finishView}) 방금 정산한 응답·이미 끝난 세션의 finish·{@link #pendingResult} 가 같은 값이다.
+     * 휴식 자동 종료도 이 메서드를 지난다.
+     *
+     * <p><b>바다 집중(GROMO-2274).</b> {@link SeaSessionPredicate} 가 참이면 섬 통장 적립을 하지 않는다 — 그 판정은
+     * {@code accrue} 안에 있다(매분 크론도 같은 메서드를 지나므로 한 곳). 도착 판정과 바다 방 사건만 여기서 갈린다.
      *
      * @param autoClosed 서버가 끝냈는가(GROMO-1998). 정산 행의 표지 하나만 갈리고 나머지는 전부 같다 —
      *                   정책이 「정상 종료와 같게」라고 정했기 때문이다
@@ -707,9 +706,8 @@ public class FocusSessionLifecycleService {
         FocusSession marker = focusSessionRepository.findByIdAndUserForUpdate(sessionId, user)
                 .orElseThrow(() -> new IllegalStateException("상세는 있는데 기본 마커가 없습니다 — session=" + sessionId));
 
-        // 바다 집중이면 보상은 아래 누적·단계표 엔진이 정한다(GROMO-2274). 판정은 seam 이고 지금은 늘 false 라 이 분기는
-        // 종전 경로 그대로다. «섬 통장에 적립하지 않는다» 는 accrue 가 같은 판정으로 스스로 지킨다 — 크론과 이 호출이 같은
-        // 한 곳을 지나므로 여기서 따로 가르지 않는다(가르면 판정이 두 곳이 된다).
+        // 바다 집중이면 도착 판정과 바다 방 사건으로 간다(GROMO-2299). «섬 통장에 적립하지 않는다» 는 accrue 가 같은
+        // 판정으로 스스로 지킨다 — 크론과 이 호출이 같은 한 곳을 지나므로 여기서 따로 가르지 않는다(가르면 판정이 두 곳이 된다).
         boolean sea = seaSessions.isSea(detail);
         // 마지막 틱 이후에 «찬» 분을 여기서 확정한다 — 구간을 닫은 뒤라 activeSeconds 와 같은 값을 본다.
         // 「종료 시 추가 지급 없음」은 자투리(1분이 안 찬 초)를 주지 않는다는 뜻이지, 이미 찬 분을 버린다는
@@ -735,6 +733,10 @@ public class FocusSessionLifecycleService {
                     islandId, activeSeconds, detail.getArrived());
         }
 
+        // 꾸미기 보상(GROMO-2301) — 섬·바다 모두 휴식 제외 15분 이상이면 1개. 처음 가지면 보유 행·인벤토리 사건을 남기고,
+        // 뽑힌 상품은 아래 정산 행에 적어 재조회가 다시 뽑지 않는다. 사건은 아래 projection 보다 앞이다(잠금 순서의 꼬리).
+        Optional<CustomizationRewardResult> reward = customizationRewards.settle(userId, sessionId, detail.getKind(),
+                activeSeconds, t);
         FocusSettlement settlement = focusSettlementRepository.save(FocusSettlement.builder()
                 .sessionId(sessionId)
                 .policyRevision(policy.getRevision())
@@ -747,10 +749,10 @@ public class FocusSessionLifecycleService {
                 .completedAt(t)
                 // 서버가 끝낸 정산만 「아직 안 보여 준 결과」가 된다 — finish 는 응답으로 이미 돌려줬다.
                 .autoClosed(autoClosed)
+                .customizationRewardRevision(reward.map(CustomizationRewardResult::revision).orElse(null))
+                .customizationRewardProductId(reward.map(CustomizationRewardResult::productId).orElse(null))
+                .customizationRewardNew(reward.map(CustomizationRewardResult::newlyOwned).orElse(null))
                 .build());
-        // 바다 집중이면 누적을 늘리고 넘은 단계의 상품을 개인 인벤토리에 넣는다(GROMO-2274). 일 집계·정산 행·프레즌스는
-        // 섬 세션과 같게 가고, 통장만 건드리지 않는다. 사건은 아래 projection 보다 앞에 적는다(잠금 순서의 꼬리).
-        SeaRewardResult seaResult = sea ? seaFocusRewards.settle(userId, activeSeconds, t) : null;
         // 사건(projection 버전)은 잠금 순서의 맨 끝이다(LLD §3). 지갑 사건은 적립 틱이 그때그때 냈으므로
         // 여기서는 내지 않는다 — finish 는 잔액을 바꾸지 않는다.
         // 바다 세션은 섬 사건 대신 바다 방 사건(sea.member.updated ended)을 적고, 채팅 게이트 리스는 섬 세션과 같게
@@ -764,12 +766,8 @@ public class FocusSessionLifecycleService {
             events = new ArrayList<>(focusPresenceProjection.ended(userId, islandId, sessionId, detail.getSubject(),
                     activeSeconds, t, detail.getVersion(), marker.getPresenceOrder()));
         }
-        FocusFinishView.SeaReward seaReward = null;
-        if (seaResult != null) {
-            // 지급마다 적은 인벤토리 사건도 receipt 에 싣는다(outbox-events.md §2.5 — append 가 돌려준 봉투를 그대로).
-            events.addAll(seaResult.events());
-            seaReward = new FocusFinishView.SeaReward(seaResult.grantedProductIds(), seaResult.minutesToNextTier());
-        }
+        // 지급하며 적은 인벤토리 사건도 receipt 에 싣는다(outbox-events.md §2.5 — append 가 돌려준 봉투를 그대로).
+        reward.ifPresent(result -> events.addAll(result.events()));
         // 주간 섬 랭킹 분자(GROMO-2343) — 원본 집계와 같은 모수(COMPLETED · kind ISLAND · 닫힌 ACTIVE 구간)만 더한다.
         // 바다 세션의 island_id 는 «목적지» 라 섬 기여가 아니다(GROMO-2299).
         // IslandWeeklyFocusRepository.fill 술어(COMPLETED · ISLAND · 닫힌 ACTIVE)와 한 쌍이다 — 한쪽을 바꾸면 다른 쪽도.
@@ -778,8 +776,7 @@ public class FocusSessionLifecycleService {
         }
         // 위에서 열린 구간을 이미 닫아 뒀다 — 같은 intervals·anchor 를 재사용해 별도 쿼리를 내지 않는다.
         List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, t);
-        return new PublicCommandResult(200, tree(finishView(detail, settlement, activeIntervals, seaReward)),
-                tree(events));
+        return new PublicCommandResult(200, tree(finishView(detail, settlement, activeIntervals)), tree(events));
     }
 
     /**
@@ -813,12 +810,17 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * @param seaReward 바다 집중을 방금 정산했을 때만 값이 있다. 이미 끝난 세션을 다시 보여 주는 경로(finish 재조회·
-     *                  자동 종료 결과)는 정산 행에서 응답을 다시 만들 뿐 받은 상품을 저장하지 않아 {@code null} 이다
+     * 정산 행에서 finish 응답을 만든다 — 방금 정산·이미 끝난 세션의 finish·자동 종료 결과가 모두 여기를 지나 같은 값이다.
+     * {@code seaReward} 는 섬·바다 모두 객체이고, 뽑힌 상품이 없으면(15분 미만) 빈 목록이다. 단계표가 없어
+     * {@code minutesToNextTier} 는 늘 {@code null} 이다(GROMO-2301). {@code newProductIds} 는 그 상품을 이번에 처음
+     * 가졌을 때만 같은 id 를 담는다(결과창 NEW!).
      */
     private static FocusFinishView finishView(FocusSessionDetail detail, FocusSettlement settlement,
-                                              List<ActiveInterval> activeIntervals,
-                                              FocusFinishView.SeaReward seaReward) {
+                                              List<ActiveInterval> activeIntervals) {
+        String rewardProductId = settlement.getCustomizationRewardProductId();
+        List<String> granted = rewardProductId == null ? List.of() : List.of(rewardProductId);
+        FocusFinishView.SeaReward seaReward = new FocusFinishView.SeaReward(granted, null,
+                Boolean.TRUE.equals(settlement.getCustomizationRewardNew()) ? granted : List.of());
         // 퀘스트 진행률은 1772/1773 계약이 아직 없어 이 세션이 기여한 퀘스트가 없다 — 빈 목록이 사실이다.
         return new FocusFinishView(detail.getSessionId(), detail.getIslandId(), detail.getSubject(),
                 detail.getTargetMinutes(), settlement.getActiveSeconds(), settlement.isGoalAchieved(),

@@ -21,6 +21,8 @@ import java.util.UUID;
  * <p>보존식 {@code earnedFish = personalFishAdded + constructionFishAdded}(E=P+C, LLD §3). 이름의
  * {@code construction} 은 V58 의 열 이름이고 실제로는 섬 통장 몫이다(D1).
  *
+ * <p>꾸미기 보상(GROMO-2301)은 뽑힌 상품을 이 행에 남긴다 — 응답의 {@code seaReward} 는 언제나 이 행에서 만든다.
+ *
  * <p>{@code quest_progress}·{@code events} 열은 매핑하지 않는다 — 퀘스트 계약(1772/1773)이 아직 없어 쓸
  * 값이 없고, 사건은 outbox 가 정본이다.
  */
@@ -78,6 +80,25 @@ public class FocusSettlement {
      */
     @Column(name = "acknowledged_at")
     private Instant acknowledgedAt;
+
+    /**
+     * 이 세션이 뽑은 꾸미기 보상의 정책 revision (V135, GROMO-2301). 상품 id 와 함께 둘 다 있거나 둘 다 없다(CHECK) —
+     * 15분 미만이거나 정책이 없어 뽑지 않았으면 {@code null}. 재조회(새 키 finish·pending-result)는 다시 뽑지 않고 이 값을
+     * 읽는다. {@code (revision, product_id)} 가 {@code customization_reward_items} 를 가리킨다(복합 FK).
+     */
+    @Column(name = "customization_reward_revision")
+    private Integer customizationRewardRevision;
+
+    /** 뽑힌 상품 — 이미 가진 상품이어도 남는다(중복 획득). {@link #customizationRewardRevision} 과 한 쌍이다. */
+    @Column(name = "customization_reward_product_id", length = 80)
+    private String customizationRewardProductId;
+
+    /**
+     * 이번 지급으로 보유 행이 새로 생겼는가 (V135) — 결과창 NEW! 표시({@code seaReward.newProductIds})의 정본. 이미 가진
+     * 상품을 또 뽑았으면 {@code false}, 뽑지 않았으면 {@code null}({@link #customizationRewardRevision} 과 함께 — CHECK).
+     */
+    @Column(name = "customization_reward_new")
+    private Boolean customizationRewardNew;
 
     @CreationTimestamp
     @Column(name = "created_at", columnDefinition = "timestamptz not null default now()")

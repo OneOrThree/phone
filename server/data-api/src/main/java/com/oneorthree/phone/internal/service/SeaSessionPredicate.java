@@ -8,9 +8,9 @@ import org.springframework.stereotype.Component;
  * 「이 세션이 바다 집중인가」를 판정하는 <b>seam</b> (GROMO-2274, 결정 N3) — GROMO-2299 부터
  * {@code focus_session_details.kind} 를 읽는다.
  *
- * <p>집중 종료({@code FocusSessionLifecycleService.settle})는 이 판정이 {@code true} 면 섬 통장 적립 대신
- * 바다 누적 엔진({@code SeaFocusRewardService})으로 정산하고, 응답({@code FocusFinishView})의 {@code seaReward}
- * 를 채운다. {@code false} 면 종전 섬 세션 경로가 그대로 돈다.
+ * <p>집중 종료({@code FocusSessionLifecycleService.settle})는 이 판정이 {@code true} 면 도착 여부를 정하고 섬 사건
+ * 대신 바다 방 사건을 적는다. 꾸미기 보상({@code CustomizationRewardService}, GROMO-2301)은 섬·바다 모두 같은 경로로
+ * 뽑고 장소는 가중치만 가른다 — 이 판정과 무관하다.
  *
  * <p>이 판정을 따르는 자리는 셋이다 — 위의 집중 종료, 매분 적립({@code FocusRewardAccrualService.accrue} — 스케줄러와
  * 종료 직전 확정이 모두 이 한 곳을 지난다), 황금 물고기 추첨({@code GoldenFishService.drawAndCredit} 의 참여자 확정).

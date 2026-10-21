@@ -1,5 +1,9 @@
 // V133·V134 — 집중 꾸미기 확률 보상 정책·90종 등록 데이터 (GROMO-2313).
-Table customization_reward_policies [note: '추첨 엔진 2301의 입력. 등록만으로 지급·장착이 활성화되지 않는다'] {
+// V135 — 꾸미기 보상 추첨·지급 (GROMO-2301): focus_settlements.customization_reward_revision·product_id·new(셋이 함께 CHECK,
+//        (revision, product_id) → customization_reward_items 복합 FK) · 정책 revision 2(신발·뗏목 6분류를 뺀 머리·목 20종,
+//        확률 값은 revision 1 그대로). 세션 종료 정산이 가장 큰 revision 으로 1개를 뽑는다. CHECK 둘·복합 FK 는 NOT VALID 다 —
+//        기존 행은 새 칸이 전부 NULL 이라 위반이 없고 새 행에는 강제된다(전체 스캔을 피했다. VALIDATE 는 하지 않았다).
+Table customization_reward_policies [note: '꾸미기 보상 추첨(GROMO-2301 CustomizationRewardService)의 입력. 정산은 가장 큰 revision 을 쓴다 — revision 2(V135)는 신발·뗏목을 뺀 머리·목만'] {
   revision integer [pk, note: '> 0']
   minimum_active_seconds integer [not null, note: '> 0, 1회 세션 기준']
   rare_unlock_seconds integer [not null, note: 'minimum_active_seconds 이상']
@@ -10,12 +14,12 @@ Table customization_reward_policies [note: '추첨 엔진 2301의 입력. 등록
   rewards_per_eligible_session integer [not null, note: 'CHECK = 1']
   duplicates_allowed boolean [not null, note: 'CHECK true']
   location_weights jsonb [not null, note: 'ISLAND·SEA 각각 common/uncommon/rare/legendary 가중치']
-  category_weights jsonb [not null, note: '꾸미기 9분류의 양수 가중치']
+  category_weights jsonb [not null, note: '카테고리 → 양수 가중치. 여기 없는 카테고리의 아이템은 뽑히지 않는다(revision 1 = 9분류, revision 2 = head·neck)']
   source_workbook_sha256 char(64) [not null]
   created_at timestamptz [not null, default: `now()`]
 }
 
-Table customization_reward_items [note: 'revision별 90종. 뗏목은 kind=decor, category로 6분류 보존. 원본 시트를 기존 정적 오버레이 API에 넣지 않는다'] {
+Table customization_reward_items [note: 'revision별 후보(revision 1 = 90종, revision 2 = 머리·목 20종 — 신발·뗏목은 등록만 되고 지급되지 않는다). 뗏목은 kind=decor, category로 6분류 보존. 원본 시트를 기존 정적 오버레이 API에 넣지 않는다'] {
   revision integer [not null, ref: > customization_reward_policies.revision]
   product_id varchar(80) [not null, ref: > catalog_assets.product_id]
   source_asset_id varchar(80) [not null]
@@ -854,6 +858,9 @@ Table focus_settlements [note: 'GROMO-1764: v0.3 세션당 정산 결과(다른 
   auto_closed               boolean [not null, default: false, note: 'V88 — 휴식 1시간 초과로 «서버가» 끝낸 정산(GROMO-1998). finish 로 끝난 정산은 false 다. 소속 상실 종결은 정산 행 자체를 만들지 않는다']
   acknowledged_at           timestamptz [note: 'V88 — 자동 종료 결과창을 보여 준 시각(GROMO-1998). auto_closed AND acknowledged_at IS NULL 이 「다음 접속에 한 번 보여줄 결과」이고, IS NULL 조건부 UPDATE 가 최초 1회만 성공한다']
   created_at                timestamptz [not null, default: `now()`]
+  customization_reward_revision   integer     [note: 'V135 — 이 세션이 뽑은 꾸미기 보상의 정책 revision(GROMO-2301). 15분 미만·정책 없음이면 NULL. CHECK focus_settlements_customization_reward_pair(NOT VALID — 새 행에만 강제): product_id 와 둘 다 NULL 이거나 둘 다 NOT NULL']
+  customization_reward_product_id varchar(80) [note: 'V135 — 뽑힌 상품. 이미 가진 상품이어도 남는다(중복 획득 — owned_products 행은 처음 한 번). finish 응답 seaReward.grantedProductIds 의 정본 — 재조회(새 키 finish·pending-result)는 다시 뽑지 않고 이 값을 읽는다']
+  customization_reward_new        boolean     [note: 'V135 — 이번 지급으로 owned_products 행이 새로 생겼는가(결과창 NEW!, seaReward.newProductIds 의 정본). 이미 가진 상품을 또 뽑았으면 false. CHECK focus_settlements_customization_reward_new_pair(NOT VALID — 새 행에만 강제): revision 과 둘 다 NULL 이거나 둘 다 NOT NULL']
 
   indexes {
     (completed_at) [name: 'focus_settlements_completed_at_idx', note: 'V67']
@@ -1114,15 +1121,15 @@ Table magazine_editorial_notes [note: '편집부 소식 — 운영이 SQL 로 �
   created_at timestamptz [not null, default: `now()`]
 }
 
-Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 정산 달이 month_key 보다 늦어질 때만 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음. 앞으로만 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더한다). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V117'] {
-  user_id          uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 익명화만 되고 삭제되지 않아 사실상 발동하지 않는다. 탈퇴 TX 가 SeaFocusRewardService.eraseWithdrawnUser 로 먼저 지운다(개인 이력)']
+Table sea_focus_totals [note: '⚠️ GROMO-2301 부터 쓰지 않는다 — 누적·단계표 엔진을 지웠고 표 DROP 은 별도다. 남은 행은 계정 탈퇴가 AppearanceService.eraseWithdrawnUser 로 지운다. 이하 옛 설명: 바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 정산 달이 month_key 보다 늦어질 때만 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음. 앞으로만 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더한다). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V117'] {
+  user_id          uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 익명화만 되고 삭제되지 않아 사실상 발동하지 않는다. 탈퇴 TX 가 AppearanceService.eraseWithdrawnUser 로 먼저 지운다(개인 이력)']
   lifetime_seconds bigint      [not null, default: 0, note: '평생 누적 순수 집중 초 — 단계표 set_key=base 의 기준']
   month_key        character   [not null, note: 'char(7) — 월 누적이 쌓이는 달(지금까지 정산 달 중 가장 늦은 것), 정산 시각을 KST 로 본 YYYY-MM. 다음 가산의 정산 달이 이 값보다 늦을 때만 month_seconds 를 0 으로 되돌린 뒤 더한다. 같거나 이른 달이면 되돌리지 않고 이 달에 더한다']
   month_seconds    bigint      [not null, default: 0, note: 'month_key 달의 누적 순수 집중 초 — 단계표 set_key=YYYY-MM(시즌) 의 기준']
   updated_at       timestamptz [not null, default: `now()`, note: '마지막 가산 시각']
 }
 
-Table sea_reward_tiers [note: '바다 보상 단계표 — 「set_key 세트의 누적이 threshold_minutes 분을 넘으면 product_id 를 개인 인벤토리에 준다」. 운영이 SQL 로 행을 넣고 바꾸는 데이터라 마이그레이션에 시드가 없다(바다 전용 상품이 아직 없다). 다음 달 시즌은 set_key=YYYY-MM 행을 넣으면 코드 배포 없이 열린다. 운영 카탈로그라 계정 탈퇴 정리 대상이 아니다. GROMO-2274, V117'] {
+Table sea_reward_tiers [note: '⚠️ GROMO-2301 부터 서버가 읽지 않는다 — 행을 넣어도 지급되지 않는다. 표 DROP 은 별도. 이하 옛 설명: 바다 보상 단계표 — 「set_key 세트의 누적이 threshold_minutes 분을 넘으면 product_id 를 개인 인벤토리에 준다」. 운영이 SQL 로 행을 넣고 바꾸는 데이터라 마이그레이션에 시드가 없다(바다 전용 상품이 아직 없다). 다음 달 시즌은 set_key=YYYY-MM 행을 넣으면 코드 배포 없이 열린다. 운영 카탈로그라 계정 탈퇴 정리 대상이 아니다. GROMO-2274, V117'] {
   id                bigint      [pk, increment]
   set_key           varchar(20) [not null, note: 'base(평생 누적 기준 상시 세트) 또는 YYYY-MM(그 달 누적 기준 시즌 세트, 월 01~12). CHECK: base 이거나 정규식 ^[0-9]{4}-(0[1-9]|1[0-2])$ 와 맞아야 한다 — 철자가 틀린 키(2026-1·2026/11)는 조용히 평가되지 않는 대신 insert 에서 거부된다']
   threshold_minutes integer     [not null, note: 'CHECK > 0. 누적이 이 분 «이상»이 되는 정산에서 한 번 넘는다(이전 < 기준 ≤ 이후) — 이미 지나간 단계는 행이 나중에 생겨도 소급 지급하지 않는다']
@@ -2127,6 +2134,7 @@ Ref: telescope_buckets.user_id > users.id [delete: cascade]  // GROMO-2306 V125 
 Ref: island_news.island_id > groups.id [delete: cascade]
 Ref: sea_focus_totals.user_id - users.id [delete: cascade]
 Ref: sea_reward_tiers.product_id > catalog_assets.product_id
+Ref: focus_settlements.(customization_reward_revision, customization_reward_product_id) > customization_reward_items.(revision, product_id)  // GROMO-2301 V135 — 복합 FK, ON DELETE RESTRICT, NOT VALID(새 행에만 강제)
 Ref: magazine_asset_meta.(product_id, kind) - catalog_assets.(product_id, kind)  // GROMO-2289 V118 — 복합 FK, ON DELETE RESTRICT
 Ref: island_promotions.island_id > groups.id [delete: cascade]  // GROMO-2289 V119 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
 Ref: island_promotions.applied_by > users.id  // GROMO-2289 V119 — 사용자 행은 익명화만 되고 지워지지 않는다

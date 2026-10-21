@@ -57,6 +57,22 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("집중 종료의 seaReward 는 grantedProductIds·minutesToNextTier·newProductIds 를 싣고 목록 둘이 필수다 (GROMO-2301)")
+    void finishSeaRewardIsDocumented() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/focus-sessions/{sessionId}/finish").path("post")
+                .path("responses").path("200").path("content");
+        var finish = document.at(content.iterator().next().path("schema").path("$ref").asText().substring(1));
+        var seaReward = document.at(finish.path("properties").path("seaReward").path("$ref").asText().substring(1));
+        assertThat(seaReward.path("properties").propertyNames())
+                .containsExactlyInAnyOrder("grantedProductIds", "minutesToNextTier", "newProductIds");
+        var required = new java.util.ArrayList<String>();
+        seaReward.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder("grantedProductIds", "newProductIds");
+    }
+
+    @Test
     @DisplayName("기본 /v0/api-docs 는 열지 않는다 — 허용은 public 그룹 경로 하나다")
     void defaultDocsPathStaysClosed() throws Exception {
         mockMvc.perform(get("/v0/api-docs"))

@@ -249,22 +249,18 @@ SELECT bucket_start, count(*) FROM telescope_buckets GROUP BY 1 ORDER BY 1 DESC 
 
 지금 에셋 64종(틀 11 · 스티커 45 · 테이프 8)은 모두 무료(`free`)이고 V118 이 시드했다. 아래는 앞으로 새로 그리는 시즌 재료를 다룰 때 쓴다. 앱이 그림을 가진 id 만 넣는다 — id 는 `mag.` + 그림 id 다.
 
-### 6-1. 시즌 재료 추가와 바다 보상 단계
+### 6-1. 시즌 재료 추가
 
-시즌 재료(`season`)는 바다 집중 누적 보상으로만 생긴다. 지급은 바다 세션이 생긴 뒤부터 돈다. 스티커는 서랍 탭이 반드시 있어야 하고(`cat`·`sea`·`friends`·`deco`), 틀·테이프는 탭이 없다 — DB CHECK 가 막는다. 바다 보상은 스티커·틀만 준다(테이프는 주지 않는다).
+시즌 재료(`season`)는 지금 **지급 경로가 없다**. 바다 집중 누적 단계표(`sea_reward_tiers`, GROMO-2274)로 주던 엔진은 GROMO-2301 이 세션 단위 꾸미기 보상(`customization_reward_*`, 머리·목만)으로 바꾸며 지웠다 — `sea_reward_tiers` 에 행을 넣어도 아무도 받지 않는다(표 DROP 은 별도). 시즌 재료를 다시 주려면 지급 경로를 새로 정해야 한다. 등록만 해 두려면 스티커는 서랍 탭이 반드시 있어야 하고(`cat`·`sea`·`friends`·`deco`), 틀·테이프는 탭이 없다 — DB CHECK 가 막는다.
 
 ```sql
 \set product_id 'mag.<그림 id>'
 \set title '<이름>'
-\set set_key '<YYYY-MM>'
 BEGIN;
 INSERT INTO catalog_assets (product_id, title, kind, owner_type)
 VALUES (:'product_id', :'title', 'ad_sticker', 'user');
 INSERT INTO magazine_asset_meta (product_id, kind, bundle, drawer_tab, sort_order)
 VALUES (:'product_id', 'ad_sticker', 'season', 'sea', 100);
--- 그 달 바다 집중 누적 120분을 넘으면 준다.
-INSERT INTO sea_reward_tiers (set_key, threshold_minutes, product_id)
-VALUES (:'set_key', 120, :'product_id');
 COMMIT;
 ```
 

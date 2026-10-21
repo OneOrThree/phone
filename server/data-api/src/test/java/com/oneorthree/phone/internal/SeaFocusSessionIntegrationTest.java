@@ -248,7 +248,7 @@ class SeaFocusSessionIntegrationTest {
     }
 
     @Test
-    @DisplayName("섬 세션(기존)은 kind=island, arrived=null 이고 응답 모양이 변하지 않는다")
+    @DisplayName("섬 세션(기존)은 kind=island, arrived=null 이고 15분 미만이면 seaReward 가 빈 목록이다")
     void islandSessionsAreUnchanged() throws Exception {
         UUID owner = newUser();
         UUID island = islands.create(owner, new CreateIslandCommandRequest("섬세션섬", null, false, null),
@@ -271,7 +271,9 @@ class SeaFocusSessionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("island"))
                 .andExpect(jsonPath("$.arrived").doesNotExist())
-                .andExpect(jsonPath("$.seaReward").doesNotExist());
+                // 꾸미기 보상(GROMO-2301)은 섬에도 객체로 온다 — 15분 미만이라 빈 목록이다.
+                .andExpect(jsonPath("$.seaReward.grantedProductIds").isEmpty())
+                .andExpect(jsonPath("$.seaReward.newProductIds").isEmpty());
 
         assertThat(detail(sessionId, "kind")).isEqualTo("ISLAND");
         assertThat(detail(sessionId, "arrived")).isNull();
