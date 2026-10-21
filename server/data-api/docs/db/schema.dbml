@@ -989,7 +989,7 @@ Table groups [note: '스터디/챌린지 그룹'] {
 Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1:1) — 논리 모델 UserIslandContext. GROMO-1907, island-membership LLD §4'] {
   user_id            uuid   [pk, note: 'FK → users.id (1:1)']
   current_island_id  uuid   [note: 'FK → groups.id. NULL 이면 지금 접속한 섬이 없다 — "한 번도 없음"인지 "잃었음"인지는 loss_reason 이 가른다(GROMO-1995, V84)']
-  loss_reason        varchar(20) [note: '현재 섬을 잃은 이유 — LEFT|KICKED. current_island_id 가 NULL 일 때만 값이 있다(CHECK 로 강제). 값 집합은 group_members.left_reason 과 같다. 마지막 소속 섬 이탈이 온보딩 04 화면으로 돌아가는 근거이고, NULL 이면 첫 소속 탐색 대상이다. V84 백필은 배포 전에 이미 죽어 있던 현재 섬을 같은 규칙으로 회수하되, 사유를 알 수 없는 행(멤버십 행이 없거나 left_reason 이 NULL)은 지어내지 않고 NULL 로 둔다. GROMO-1995, V84']
+  loss_reason        varchar(20) [note: '현재 섬을 잃은 이유 — LEFT|KICKED. current_island_id 가 NULL 일 때만 값이 있다(CHECK 로 강제). 값 집합은 group_members.left_reason 과 같다. LEFT 는 마지막 소속 섬 이탈, KICKED 는 현재 섬에서의 강퇴다 — 강퇴는 다른 소속이 남아 있어도 먼바다로 비운다(GROMO-2315). 앱이 상실 안내를 고르는 근거이고, NULL 이면 첫 소속 탐색 대상이다. V84 백필은 배포 전에 이미 죽어 있던 현재 섬을 같은 규칙으로 회수하되, 사유를 알 수 없는 행(멤버십 행이 없거나 left_reason 이 NULL)은 지어내지 않고 NULL 로 둔다. GROMO-1995, V84']
   context_version    bigint [not null, default: 0, note: 'JPA @Version 낙관락 — groups.version 과 같은 방식. outbox 순서용 aggregate_versions(USER, userId) 축과는 별개 값(컨텍스트 전이는 outbox 사건이 아님)']
 
   created_at  timestamptz [not null, default: `now()`]
@@ -1027,7 +1027,7 @@ Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루
 
 Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬». 한 사람의 만료 안 된 핀은 보이는 것 기준 최대 4개이고 5번째를 넣으면 pinned_at 이 가장 오래된 핀이 같은 트랜잭션에서 빠진다(서비스 몫 — 표는 개수를 제한하지 않는다). 만료는 읽을 때 거른다(expires_at > now, 정리 잡 없음 — 같은 사람이 핀을 넣을 때 그 사람의 만료 행만 함께 지운다). 목록 조립(TelescopeService)이 핀을 nearby 다음·random 앞 slot=pinned 로 끼운다. GROMO-2268, V115, 섬 외부 계약 §6'] {
   user_id    uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopePinRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords) — 개인 목록이라 남길 이유가 없다']
-  island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다. 핀 섬이 그사이 비공개·종료·강퇴·내 소속이 되면 행은 남고 목록에서만 빠진다']
+  island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다. 핀 섬이 그사이 비공개·종료·내 소속이 되면 행은 남고 목록에서만 빠진다(강퇴된 섬은 GROMO-2315 부터 빠지지 않는다)']
   source     varchar(20) [not null, note: "CHECK IN ('magazine','observatory') — 잡지(찜 리본·잡지 칸) / 전망대 검색·랭킹"]
   promotion_id uuid      [note: "잡지 홍보 칸에서 넣었으면 그 홍보 (FK → island_promotions.id, ON DELETE SET NULL). 넣을 때 그 섬의 현재 호에 보이는 칸으로 확인된 값만 들어간다(PIN 집계와 같은 판정). 편집부 무료 칸·전망대 핀은 NULL — CHECK (promotion_id IS NULL OR source = 'magazine'). 망원경 말풍선 미리보기(magazineCell)는 이 칸만 싣는다. 이미 있는 핀을 다시 넣어도 바꾸지 않는다. GROMO-2289, V122"]
   pinned_at  timestamptz [not null, note: '넣은 시각 — 5번째를 넣을 때 가장 오래된 핀을 고르는 축. 이미 있는 핀을 다시 넣어도 갱신하지 않는다(멱등)']
@@ -1039,7 +1039,7 @@ Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대�
   }
 }
 
-Table telescope_buckets [note: '망원경 1시간 목록 스냅샷 — 사람마다 버킷마다 한 행. 그 버킷의 첫 목록 요청이 새 섬 후보(가까운 섬 1 + 무작위 4)를 버킷 시드로 뽑아 넣고(INSERT … ON CONFLICT DO NOTHING 뒤 다시 읽기 — 두 기기 동시 첫 요청은 한쪽 행이 이긴다), 같은 버킷 요청은 이 행을 읽는다. 정원·가입·강퇴·비공개 변동은 표시(full·membershipStatus·칸 빠짐)만 바꾸고 빠진 칸은 새로 뽑지 않는다. 정리 잡 없음 — 새 버킷 행을 넣을 때 그 사람의 옛 버킷 행을 지운다. GROMO-2306, V125'] {
+Table telescope_buckets [note: '망원경 1시간 목록 스냅샷 — 사람마다 버킷마다 한 행. 그 버킷의 첫 목록 요청이 새 섬 후보(가까운 섬 1 + 무작위 4)를 버킷 시드로 뽑아 넣고(INSERT … ON CONFLICT DO NOTHING 뒤 다시 읽기 — 두 기기 동시 첫 요청은 한쪽 행이 이긴다), 같은 버킷 요청은 이 행을 읽는다. 정원·가입·비공개 변동은 표시(full·membershipStatus·칸 빠짐)만 바꾸고 빠진 칸은 새로 뽑지 않는다. 정리 잡 없음 — 새 버킷 행을 넣을 때 그 사람의 옛 버킷 행을 지운다. GROMO-2306, V125'] {
   user_id      uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopeBucketRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords)']
   bucket_start timestamptz [not null, note: '1시간 버킷 시작(UTC 정시)']
   island_ids   "uuid[]"    [not null, note: '뽑은 새 섬 후보, 표시 순서 그대로(최대 5). FK 가 아니다 — 섬이 지워지거나 보여 줄 수 없게 되면 읽을 때 거른다. 핀 섬은 뽑을 때 빼고, 나중에 넣은 핀은 표시에서 감춘다']
@@ -1167,7 +1167,7 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   membership_epoch     bigint            [not null, default: 1, note: '멤버십 세대 (V52, A22 ⓚ·ⓑ″·㋑) — 탈퇴·강퇴·재가입에만 오른다. 일반 낙관락 version 과 «분리»된 값이다: 낙관락이면 첫 수신자의 가입이 초대자 행 version 을 올려 재사용 링크의 이후 수신자가 전부 실패한다']
   transition_seq       bigint            [not null, default: 0, note: '(groupId, inviterId) 축의 커밋 순서 (V52, A22 ㋥) — 같은 outbox 라도 HTTP 적용 순서는 보장되지 않고, V51 직렬화는 userId 단위인데 claim 사용자와 발급자는 서로 다른 유저다']
   snapshot_version     bigint            [not null, default: 0, note: '표시정보(그룹명·발급자 닉네임) 스냅샷 버전 (V52, A22 ㋡) — 현행 resolveLanding 이 열 때마다 현재 이름을 조회하므로, 분리 후 갱신 경로가 없으면 공유된 slug 가 만료까지 옛 이름을 노출한다. 늦게 온 갱신이 최신 이름을 덮지 않게 대조에 쓴다']
-  left_reason          varchar(10)       [null, note: 'A-0(V25) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴, 재가입 차단). CHECK IN (LEFT,KICKED)']
+  left_reason          varchar(10)       [null, note: 'A-0(V25) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴 — 재가입은 승인 대기 신청, 승인되면 rejoin 이 null 로 되돌린다. GROMO-2315 전에는 재가입 차단). CHECK IN (LEFT,KICKED)']
 
   left_at              timestamptz       [null, note: '이탈 시각 (V97, GROMO-2050) — 자진 탈퇴·강퇴·계정 탈퇴가 모두 찍는다(GroupMember.leave/kick, 주입 Clock). is_left=false 면 항상 null(rejoin 이 비운다). V97 이전 이탈 행은 근거가 없어 null — updated_at 은 @UpdateTimestamp 라 알림 토글에도 갱신돼 이탈의 증거가 아니다']
   rejoined_at          timestamptz       [null, note: '재가입으로 멤버십이 다시 시작된 시각 (V97, GROMO-2050). null 이면 최초 가입 그대로. created_at 을 덮지 않는 이유는 그 값이 주민 목록 keyset 정렬·메인 섬 도출(GROMO-1971)의 계약이기 때문 — 과거 시점 소속의 시작 축은 COALESCE(rejoined_at, created_at)']
@@ -1176,8 +1176,8 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   updated_at           timestamptz
   indexes {
     // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
-    (user_id, group_id) [unique, note: '멤버십 1행 보장. 자진 탈퇴자 재가입=행 되살리기, 강퇴자=거절']
-    (group_id, user_id) [name: 'group_members_active_group_user_idx', note: 'V129 GROMO-2287: 부분 인덱스 WHERE is_left = false — 섬 → 활성 주민 접근(망원경 후보의 «주민 수» 상관 서브쿼리 — Index Only Scan 은 visibility map 의존이라 autovacuum 지연 시 Heap Fetches 증가. «내 소속/강퇴» NOT EXISTS 는 KICKED 가 is_left=true 라 이 인덱스를 못 쓰고 위 unique 를 탄다). 선두 열이 달라 위 unique 와 중복이 아니다']
+    (user_id, group_id) [unique, note: '멤버십 1행 보장. 자진 탈퇴자 재가입=행 되살리기, 강퇴자=승인 후 행 되살리기(GROMO-2315)']
+    (group_id, user_id) [name: 'group_members_active_group_user_idx', note: 'V129 GROMO-2287: 부분 인덱스 WHERE is_left = false — 섬 → 활성 주민 접근(망원경 후보의 «주민 수» 상관 서브쿼리 — Index Only Scan 은 visibility map 의존이라 autovacuum 지연 시 Heap Fetches 증가. «내 소속» NOT EXISTS 는 위 unique 를 탄다 — GROMO-2315 전에는 KICKED(is_left=true)도 함께 봤다). 선두 열이 달라 위 unique 와 중복이 아니다']
   }
 }
 

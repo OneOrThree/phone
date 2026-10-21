@@ -349,8 +349,8 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("강퇴된 섬(누구나 가입·승인제 둘 다) — 도착만 남기고 reason=KICKED, 다시 들어가지도 신청하지도 않는다")
-    void kickedUserArrivesWithReason() {
+    @DisplayName("강퇴된 섬(누구나 가입·승인제 둘 다) — 도착만 남기고 reason=KICKED, 신청은 도착 뒤 직접 해서 pending 이 된다")
+    void kickedUserArrivesWithReasonAndThenApplies() {
         UUID host = newUser();
         UUID user = newUser();
         for (boolean approvalRequired : List.of(false, true)) {
@@ -366,11 +366,24 @@ class IslandInvitationArrivalIntegrationTest {
 
             assertThat(resolved.arrival().membershipStatus()).isEqualTo("none");
             assertThat(resolved.arrival().reason()).isEqualTo("KICKED");
+            // 누구나 가입 섬이어도 강퇴자에게는 승인제로 보인다 — 가입이 신청이 되기 때문이다.
+            assertThat(resolved.island().approvalRequired()).isTrue();
             assertThat(arrived(user, islandId)).isTrue();
             assertThat(activeMemberships(user, islandId)).isZero();
             assertThat(islandEvents(islandId)).isEqualTo(islandEvents);
+            // 해석은 신청을 만들지 않는다 — 승인제 섬처럼 방문자가 직접 신청한다.
+            assertThat(count("select count(*) from island_join_requests where applicant_id=? and island_id=?",
+                    user, islandId)).isZero();
+
+            // 도착 뒤 신청은 403 이 아니라 승인 대기다(GROMO-2315). 다시 해석하면 그 신청을 그대로 보여 준다.
+            JoinIslandResultView applied = joins.join(user, islandId, new JoinIslandCommandRequest(code),
+                    UUID.randomUUID());
+            assertThat(applied.status()).isEqualTo("pending");
+            InvitationResolvedView again = resolve(user, code);
+            assertThat(again.arrival().membershipStatus()).isEqualTo("pending");
+            assertThat(again.arrival().reason()).isNull();
+            assertThat(activeMemberships(user, islandId)).isZero();
         }
-        assertThat(count("select count(*) from island_join_requests where applicant_id=?", user)).isZero();
         assertThat(currentIsland(user)).isNull();
     }
 

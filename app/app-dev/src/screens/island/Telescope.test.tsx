@@ -4,8 +4,10 @@
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Telescope } from '@/screens/island/Telescope';
+import { raftTelescope } from '@/screens/sea/seaAssets';
 import { applyLocalePref } from '@/i18n';
 import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
@@ -107,6 +109,7 @@ const item = (id: string, over: Partial<TelescopeItem> = {}): TelescopeItem => (
   averageFocusMinutesPerDay: 83,
   full: false,
   arrivedBefore: false,
+  buildingCount: 2,
   ...over,
 });
 const mine = (id: string, over: Partial<TelescopeItem> = {}) =>
@@ -205,12 +208,117 @@ test('섬 8개가 응답 순서대로 파노라마에 뜨고 소속 섬(joined)�
   expect(screen.queryByTestId('telescope-flag-p1', { includeHiddenElements: true })).toBeNull();
 });
 
+describe('섬 그림·이름 알약·뗏목 (GROMO-2317 v5)', () => {
+  test.each([
+    ['무인도(주민 0명)는 건물이 있어도 집 0채', { memberCount: 0, buildingCount: 7 }, 'houses0'],
+    ['건물 0개(키가 없던 옛 서버 = 0)는 집 1채', { buildingCount: 0 }, 'houses1'],
+    ['건물 2개는 집 1채', { buildingCount: 2 }, 'houses1'],
+    ['건물 3~4개는 집 3채', { buildingCount: 4 }, 'houses3'],
+    ['건물 5개 이상은 집 5채', { buildingCount: 9 }, 'houses5'],
+  ] as const)('%s', async (_name, over, art) => {
+    const { screen } = await open([item('r1', over)]);
+    expect(screen.getByTestId('telescope-art-r1').props.source).toBe(ISLAND_STAGE_ART[art]);
+  });
+
+  test('이름 알약 — 소속 섬은 이름만, 그 밖의 섬은 「이름 · 항해 시간」', async () => {
+    const { screen } = await open([
+      mine('j1', { arrivedBefore: true }),
+      item('n1', { slot: 'nearby', sailingMinutes: 15 }),
+      item('r1', { sailingMinutes: 60 }),
+      item('p1', { slot: 'pinned', pinnedFrom: 'magazine', sailingMinutes: 90 }),
+    ]);
+    const pill = (id: string) =>
+      within(screen.getByTestId(`telescope-island-${id}`)).getByText(/^섬 /).props.children;
+    expect(pill('j1')).toBe('섬 j1');
+    expect(pill('n1')).toBe('섬 n1 · 15분');
+    expect(pill('r1')).toBe('섬 r1 · 1시간');
+    expect(pill('p1')).toBe('섬 p1 · 1시간 30분');
+  });
+
+  test('영어 — 알약의 항해 시간도 번역된다', async () => {
+    applyLocalePref('en');
+    const { screen } = await open([item('r1', { name: 'Maple', sailingMinutes: 90 })]);
+    screen.getByText('Maple · 1h 30m');
+  });
+
+  test('홀수 번째 섬은 한 칸 낮게 어긋난다', async () => {
+    const { screen } = await open([item('r1'), item('r2'), item('r3')]);
+    const top = (id: string) =>
+      StyleSheet.flatten(screen.getByTestId(`telescope-island-${id}`).props.style).marginTop;
+    expect(top('r1')).toBeUndefined();
+    expect(top('r2')).toBe(componentTokens.telescope.stagger);
+    expect(top('r3')).toBeUndefined();
+  });
+
+  test('망원경 든 뗏목 고양이는 내 털색이고, 안전 영역 안쪽 오른쪽 아래에 깔린 장식이다', async () => {
+    mockInsets = { top: 0, bottom: 21, left: 47, right: 59 };
+    const { screen, e } = await open([item('r1')]);
+    const raft = screen.getByTestId('telescope-raft', { includeHiddenElements: true });
+    expect(raft.props.accessibilityElementsHidden).toBe(true);
+    expect(raft.props.pointerEvents).toBe('none');
+    const { right, bottom } = StyleSheet.flatten(raft.props.style);
+    expect(right).toBe(59 + componentTokens.telescope.raft.right);
+    expect(bottom).toBe(21 + componentTokens.telescope.raft.bottom);
+    expect((raft.children[0] as any).props.source).toBe(raftTelescope[e.state.color]);
+  });
+
+  test('가로 화면에서는 뗏목 고양이가 섬 띠 뒤에 깔리지 않게 빠진다', async () => {
+    const { screen } = await open([item('r1')]);
+    await fireEvent(screen.getByTestId('telescope'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 874, height: 402 } },
+    });
+    expect(screen.queryByTestId('telescope-raft', { includeHiddenElements: true })).toBeNull();
+  });
+
+  describe('섬 띠는 바다 그림의 수평선 18pt 위에 섬 칸 위쪽을 맞춘다', () => {
+    const bandTop = (screen: any) =>
+      StyleSheet.flatten(screen.getByTestId('telescope-band').props.style).marginTop;
+    const flagRoom = (screen: any) =>
+      StyleSheet.flatten(screen.getByTestId('telescope-panorama').props.contentContainerStyle)
+        .paddingTop;
+    const layout = (screen: any, testID: string, width: number, height: number) =>
+      fireEvent(screen.getByTestId(testID), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width, height } },
+      });
+
+    test('onLayout 전에도 창 크기·보통 위 막대 높이로 제자리에 그린다(첫 화면이 튀지 않는다)', async () => {
+      const { screen } = await open([item('r1')]);
+      // 창 402×874 → 수평선 310pt. 위 막대 = 안전 영역 52 + 여백 8 + 작은 버튼 터치 44 = 104
+      expect(104 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(292, 0);
+    });
+
+    test('세로 폰 402×874 — 시안 T1 처럼 섬 칸 위쪽 292 = 수평선 310 − 18', async () => {
+      const { screen } = await open([item('r1')]);
+      await layout(screen, 'telescope', 402, 874);
+      await layout(screen, 'telescope-top-bar', 402, 98);
+      expect(98 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(292, 0);
+    });
+
+    test('세로 태블릿 1024×1366 — 그림이 위아래로 85pt 씩 잘려 수평선은 460pt', async () => {
+      const { screen } = await open([item('r1')]);
+      await layout(screen, 'telescope', 1024, 1366);
+      await layout(screen, 'telescope-top-bar', 1024, 98);
+      expect(98 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(460 - 18, 0);
+    });
+
+    test('큰 글자로 위 막대가 수평선 아래까지 길어지면 겹치지 않게 기본 여백만 둔다', async () => {
+      const { screen } = await open([item('r1')]);
+      await layout(screen, 'telescope', 402, 874);
+      await layout(screen, 'telescope-top-bar', 402, 400);
+      expect(bandTop(screen)).toBe(40);
+    });
+  });
+});
+
 test('소속 섬 접근성 라벨은 소속임을 말하고, 깃발 장식은 스크린리더에서 숨는다', async () => {
   const { screen } = await open(EIGHT());
   expect(screen.getByTestId('telescope-island-j1').props.accessibilityLabel).toBe(
     '섬 j1, 내가 사는 섬',
   );
-  expect(screen.getByTestId('telescope-island-r1').props.accessibilityLabel).toBe('섬 r1');
+  // 소속이 아닌 섬은 알약처럼 항해 시간도 읽는다
+  expect(screen.getByTestId('telescope-island-r1').props.accessibilityLabel).toBe(
+    '섬 r1, 항해 30분',
+  );
   expect(
     screen.getByTestId('telescope-flag-j1', { includeHiddenElements: true }).props
       .accessibilityElementsHidden,
@@ -749,7 +857,8 @@ describe('로딩·빈 목록·오류', () => {
     screen.getByText('섬을 찾고 있어요');
     expect(screen.queryByText(/새 섬까지/)).toBeNull();
     await act(async () => resolve(wire([], 12)));
-    screen.getByText('지금은 보이는 섬이 없어요');
+    // 빈 목록 안내는 섬이 놓일 띠(수평선) 자리에 한 줄이다
+    within(screen.getByTestId('telescope-band')).getByText('지금은 보이는 섬이 없어요');
     screen.getByText('새 섬까지 12분');
     expect(screen.queryByText('섬을 찾고 있어요')).toBeNull();
   });
@@ -894,14 +1003,20 @@ describe('큰 글자·배치', () => {
       mockFontScale = scale;
       const name = '아주아주아주 긴 이름을 가진 섬이에요 정말로';
       const { screen } = await open([item('r1', { name })]);
-      const text = screen.getByText(name);
+      const text = screen.getByText(`${name} · 30분`);
       expect(text.props.numberOfLines).toBe(lines);
-      // 공용 Badge soft 의 토큰 모양에, 섬 칸 안 가운데 · 칸 폭을 넘지 않는 배치만 얹는다
+      // 넘치면 가운데를 줄여 끝의 「 · 30분」이 남는다(끝 말줄임이면 항해 시간이 잘린다)
+      expect(text.props.ellipsizeMode).toBe('middle');
+      // 공용 Badge soft 의 토큰 모양에, 섬 그림 아래 가운데 · 최대 폭 배치만 얹는다
       const pill = flat(text.parent);
       expect(pill.backgroundColor).toBe(componentTokens.badge.soft.background);
       expect(pill.borderColor).toBe(componentTokens.badge.soft.border);
       expect(pill.alignSelf).toBe('center');
-      expect(pill.maxWidth).toBe(flat(screen.getByTestId('telescope-island-r1')).width);
+      expect(pill.maxWidth).toBe(componentTokens.telescope.pillMaxWidth);
+      // 칸 폭은 고정이 아니라 최소 폭이다 — 알약이 더 길면 칸이 늘어 옆 섬 알약과 겹치지 않는다
+      const cell = flat(screen.getByTestId('telescope-island-r1'));
+      expect(cell.width).toBeUndefined();
+      expect(cell.minWidth).toBe(componentTokens.telescope.islandBox);
     },
   );
 
@@ -984,11 +1099,11 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
     expect(ribbonStyle.position).toBe('absolute');
     expect(ribbonStyle.transform).toContainEqual({ rotate: componentTokens.telescope.ribbonTilt });
     expect(screen.getByTestId('telescope-island-p1').props.accessibilityLabel).toBe(
-      '섬 p1, 잡지에서 찜한 섬',
+      '섬 p1, 잡지에서 찜한 섬, 항해 30분',
     );
     for (const id of ['p2', 'n1', 'r1', 'r2'])
       expect(screen.getByTestId(`telescope-island-${id}`).props.accessibilityLabel).toBe(
-        `섬 ${id}`,
+        `섬 ${id}, 항해 ${id === 'n1' ? 15 : 30}분`,
       );
     // 소속 섬은 깃발만이다
     expect(screen.getByTestId('telescope-island-j1').props.accessibilityLabel).toBe(
@@ -1390,7 +1505,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       { includeHiddenElements: true },
     );
     expect(screen.getByTestId('telescope-island-p1').props.accessibilityLabel).toBe(
-      '섬 p1, saved from the magazine',
+      '섬 p1, saved from the magazine, sailing 30m',
     );
     await press(screen, 'p1');
     // 칸이 없는 자리표시에는 글이 없다

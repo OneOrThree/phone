@@ -30,6 +30,7 @@ const fixturePeople: SeaParticipant[] = [
   focusing: index !== 0 && index % 3 !== 1,
   activeSeconds: index * 613,
   subject: index % 3 === 1 ? undefined : ['영어 단어', '논문 읽기', '코딩 테스트'][index % 3],
+  message: index === 1 ? '오늘도 내 속도로 한 걸음씩 가보자!' : undefined,
 }));
 const fixtureVoyage = (): SeaVoyage => ({
   sessionId: 'preview-voyage',
@@ -67,6 +68,10 @@ export function SeaPreview() {
   const [cooldown, setCooldown] = useState(0);
   const [emoteTTL, setEmoteTTL] = useState(0);
   const [landscape, setLandscape] = useState(false);
+  // 바다 잡지(GROMO-2314) — `stage=magazine` 이면 펠리컨 배달부터, 나중에·펼치기 뒤에는 뗏목 위 물건
+  const [magazine, setMagazine] = useState<'delivery' | 'unread' | 'read' | null>(() =>
+    query.get('stage') === 'magazine' ? 'delivery' : null,
+  );
   useEffect(() => {
     const timer = setInterval(() => {
       setVoyage((current) =>
@@ -252,7 +257,22 @@ export function SeaPreview() {
                   messageCooldownSeconds={cooldown}
                   rewardCatalog={fixtureCatalog}
                   onTelescope={() => setPreparing(true)}
+                  magazine={
+                    magazine && {
+                      issueNo: 20,
+                      delivery: magazine === 'delivery',
+                      received: magazine !== 'delivery',
+                      unread: magazine !== 'read',
+                      onShown: () => {},
+                      onOpen: () => setMagazine('read'),
+                      onLater: () => setMagazine('unread'),
+                    }
+                  }
                   onSignIn={() => setGuest(false)}
+                  onFriendRequest={async () => {
+                    await check();
+                    return true;
+                  }}
                   onFinish={async (_sessionId, intent) => {
                     await check();
                     if (!voyage) return;

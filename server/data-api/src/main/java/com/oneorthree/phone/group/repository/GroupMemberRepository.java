@@ -424,8 +424,8 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
                                         @Param("membershipId") UUID membershipId);
 
     /**
-     * 이 유저가 강퇴돼 지금 나가 있는 섬 id — 고양이 잡지가 칸마다 「강퇴된 섬」 을 표시할 때 한 번에 읽는다(GROMO-2289).
-     * {@link GroupMember#isKicked()} 와 같은 판정(이탈 마킹 + 사유 KICKED)이다.
+     * 이 유저가 강퇴돼 지금 나가 있는 섬 id — 섬 요약·망원경 칸의 가입 방식을 보는 사람 기준으로 고칠 때 한 번에 읽는다
+     * (GROMO-2315, {@code IslandSummaries#approvalRequiredFor}). {@link GroupMember#isKicked()} 와 같은 판정이다.
      */
     @Query("SELECT gm.group.id FROM GroupMember gm WHERE gm.user.id = :userId AND gm.isLeft = true "
             + "AND gm.leftReason = com.oneorthree.phone.group.repository.domain.GroupLeaveReason.KICKED")

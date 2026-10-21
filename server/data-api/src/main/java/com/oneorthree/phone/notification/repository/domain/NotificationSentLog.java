@@ -149,6 +149,13 @@ public class NotificationSentLog {
     public static final String TYPE_MAIN_ISLAND_TRANSFERRED = "MAIN_ISLAND_TRANSFERRED";
 
     /**
+     * 발송 종류 — 섬에서 강퇴됐다(GROMO-2315). 용법은 {@link #TYPE_MAIN_ISLAND_TRANSFERRED} 와 같다 —
+     * {@code target_user_id} 에 <b>강퇴된 섬 id</b>, {@code subject_id} 는 비운다(같은 섬 재가입 후 재강퇴의 기록이
+     * 선점 유니크 축에 걸리지 않게).
+     */
+    public static final String TYPE_ISLAND_KICKED = "ISLAND_KICKED";
+
+    /**
      * 발송 종류 — 오늘의 고양이 잡지 호 발행(GROMO-2307). {@code subject_id} = <b>호 id</b> 라 선점 유니크
      * {@code (user_id, kind, subject_id)} 가 계정당 호당 한 번을 접는다(구 경로의 유일한 중복 방지).
      */

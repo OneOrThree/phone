@@ -78,6 +78,15 @@ test('저장본을 못 읽으면 덮어쓰지 않는다 — 쓰기 전에 다시
   expect(result.current.has('cust.head.frog')).toBe(true);
 });
 
+test('손상된 저장본은 읽기 실패가 아니라 빈 것으로 보고, 다음 쓰기가 덮어써 복구한다', async () => {
+  for (const broken of ['{not json', 'null', '7']) {
+    resetUnseenOutfitsForTest();
+    await AsyncStorage.setItem('gromo.unseenOutfits.u1', broken);
+    await addUnseenOutfits('rec-1', ['cust.head.mandarin']);
+    expect(await saved('u1')).toEqual({ ids: ['cust.head.mandarin'], records: ['rec-1'] });
+  }
+});
+
 test('저장에 실패해도 이번 실행 동안은 메모리로 동작하고, 로그인 전에는 아무것도 하지 않는다', async () => {
   setItem.mockRejectedValueOnce(new Error('disk'));
   await addUnseenOutfits('rec-1', ['cust.head.mandarin']);

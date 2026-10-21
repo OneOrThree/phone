@@ -75,7 +75,7 @@ Query `{cursor?,limit?}` 기본30/상한100을 원본 빈 query에 **유한 목�
 
 입력 `{decision:approve|reject}`. 성공200 승인 `{data:{status:"approved",memberId,version}}`, 거절 `{data:{status:"rejected",memberId:null,version}}`. memberId는 사용자 ID다. 원본에 없는 거절 예시의 memberId는 null로 명시한다. version은 해당 요청 버전이다.
 
-공통으로 현재 host 권한과 request.islandId 일치, pending 상태를 검사한다. 신청자 계정 활성, 과거 KICKED/기존 membership/소속 상한/정원 검사는 **approve에만** 적용한다. reject는 가입 자격이나 남은 자리와 무관하게 pending 요청을 정리할 수 있다. approve는 요청 approved 전이와 membership 생성 또는 재활성화, 주민 version/outbox를 한 TX에서 커밋한다. 요청만 먼저 approved로 만들지 않는다. 신청자가 다른 섬에서 집중 중에 원격 승인을 받아도 **currentIslandId는 바꾸지 않는다**. 현재 섬으로 이동하는 시점에 별도 switch 가드를 사용한다.
+공통으로 현재 host 권한과 request.islandId 일치, pending 상태를 검사한다. 신청자 계정 활성, 기존 membership/소속 상한/정원 검사는 **approve에만** 적용한다. ~~과거 KICKED~~ 는 2026-10-16(GROMO-2315)부터 막지 않는다 — 강퇴자의 신청은 언제나 pending 이고 승인이 곧 섬장의 재가입 허락이며, 강퇴 행을 되살린다. reject는 가입 자격이나 남은 자리와 무관하게 pending 요청을 정리할 수 있다. approve는 요청 approved 전이와 membership 생성 또는 재활성화, 주민 version/outbox를 한 TX에서 커밋한다. 요청만 먼저 approved로 만들지 않는다. 신청자가 다른 섬에서 집중 중에 원격 승인을 받아도 **currentIslandId는 바꾸지 않는다**. 현재 섬으로 이동하는 시점에 별도 switch 가드를 사용한다.
 
 초대 기반 pending 승인은 [소속 LLD의 초대 증거/커밋 규칙](../island-membership/low-level-design.md#초대-기반-pending과-실제-가입-커밋)을 추가로 적용한다. 저장된 invitationEvidenceRef의 원 서명·그룹·발급자 활성 membership·현재 epoch·폐기/만료를 membership TX에서 재검증한다. 승인 유지/우회 선택(IM-D03)은 아직 미정이며 이 증거 검증을 생략할 근거가 아니다. 유효 초대 승인에는 같은 TX의 link.joined, 실제 pending claim이 있으면 Data 확정 레코드와 link.claimConfirmed outbox가 필요하다.
 
@@ -93,7 +93,7 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 
 본문 없음. 성공200 `{data:{removed:true}}`. 현재 host, 같은 섬 active 대상, 자기 자신이 아님을 검사한다. 자기 강퇴409, 권한 없음403이다. 동일 성공 키는 결과를 재생한다. 별도 새 키의 대상 부재는404이며 아무 대상이나 지워졌다고 성공 처리하지 않는다.
 
-이탈 마킹 isLeft/KICKED, epoch 증가, 주민 version, 링크 폐기/outbox, Realtime 권한 철회 제어, 현재 context 상실 처리를 한 명령 경계로 묶는다. DB 상태와 내구 제어자료를 원자 저장하고 실제 외부 철회 전달은 커밋 후 수행한다. 소속 상실 시 개인 자산·완료 기록은 삭제하지 않는다. 기존 내기 판돈 유지 규칙은 보존한다.
+이탈 마킹 isLeft/KICKED, epoch 증가, 주민 version, 링크 폐기/outbox, Realtime 권한 철회 제어, 현재 context 상실 처리를 한 명령 경계로 묶는다. 강퇴된 사람의 현재 섬이 이 섬이었으면 **다른 소속이 남아 있어도 먼바다**(`currentIslandId=null`, `lossReason=KICKED`)로 둔다 — 자진 이탈만 최근 머문 남은 섬으로 옮긴다(2026-10-16, GROMO-2315). 같은 TX 에서 강퇴 편지(「○○섬에서 더 이상 함께할 수 없게 되었어요」, GROMO-2260)와 **앱 알림 1건**(`ISLAND_KICKED` — 딥링크 `gromo://home`, data.type `ISLAND_KICKED`)을 남긴다. 메인 섬에서 강퇴돼 메인 섬이 옮겨져도 `MAIN_ISLAND_TRANSFERRED` 알림은 내지 않는다(2026-10-20). DB 상태와 내구 제어자료를 원자 저장하고 실제 외부 철회 전달은 커밋 후 수행한다. 소속 상실 시 개인 자산·완료 기록은 삭제하지 않는다. 기존 내기 판돈 유지 규칙은 보존한다.
 
 **대상의 진행 집중/휴식·새 미수령 보상 분기는 §5의 결정 전에는 미완료**다. 사용자 질문 없이 강퇴를 모든 경우409로 영구 정책화하거나 자동 완료 보상을 발명하지 않는다.
 

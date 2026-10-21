@@ -47,6 +47,18 @@ test('자료에 있는 털색·자세·프레임·정지 그림만 프레임 id 
   expect(catFitFrameId(mandarin, { color: 'black', motion: 'cast', frame: 0 })).toBeNull();
   expect(catFitFrameId(mandarin, { color: 'black', still: 'sleep' })).toBeNull();
   expect(catFitFrameId(mandarin, { color: 'calico', motion: 'walk', frame: 0 })).toBeNull();
+  // 독서는 머리만 — 목은 rig 에 프레임이 있어도 그리지 않는다
+  const neck: CatFit = {
+    ...mandarin,
+    head: undefined,
+    neck: {
+      style: 'pendant',
+      front: [406, 406, 839, 913],
+      commonBand: { url: 'https://x/band.png', box: [82, 392, 1693, 493] },
+    },
+  };
+  expect(catFitFrameId(neck, { color: 'black', motion: 'read', frame: 0 })).toBeNull();
+  expect(catFitFrameId(neck, { color: 'black', motion: 'walk', frame: 0 })).toBe('walk-0');
   // 옛 자료(validatedColors 없음)는 검정만 — 파서가 colors 를 ['black'] 으로 채운다
   expect(
     catFitFrameId(

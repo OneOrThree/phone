@@ -174,8 +174,8 @@ public final class IslandMembershipResponses {
      * 승인제 섬은 도착만이다 — 승인 전까지 방문자이고 가입 신청은 방문자가 직접 한다.
      *
      * @param membershipStatus {@code active|pending|none} — 해석 뒤 본인 기준. {@code pending} 은 이미 열려 있던 신청이다
-     * @param reason 이 섬에 가입·신청을 할 수 없는 사유 {@code ISLAND_LIMIT}(소속 섬 3개)·{@code KICKED}(강퇴된 섬). 없으면 키가
-     *     없다
+     * @param reason 바로 가입하지 않은 사유 {@code ISLAND_LIMIT}(소속 섬 3개 — 가입·신청 불가)·{@code KICKED}(강퇴된 섬 —
+     *     도착만 하고, 가입 신청은 승인 대기로 할 수 있다. GROMO-2315). 없으면 키가 없다
      */
     public record InvitationArrivalView(
             @JsonProperty(required = true) UUID islandId,
