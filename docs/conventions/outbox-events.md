@@ -209,8 +209,8 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 
 | 호출 지점 | 사건 `type` | 대상 | 순서 축 | eventId |
 | --- | --- | --- | --- | --- |
-| `auth/service/AuthSessionService.java:302` | `auth.generation.bumped` | NOTI | USER | `<type>:<userId>:<generation>` |
-| `auth/service/AuthSessionService.java:369` | `auth.session.revoked` | NOTI·REALTIME(`auth.session-revoked.realtime-events-enabled` ON 일 때만) | USER | `<type>:<sessionId>` |
+| `auth/service/AuthSessionService.java:317` | `auth.generation.bumped` | NOTI | USER | `<type>:<userId>:<generation>` |
+| `auth/service/AuthSessionService.java:386` | `auth.session.revoked` | NOTI·REALTIME(`auth.session-revoked.realtime-events-enabled` ON 일 때만) | USER | `<type>:<sessionId>` — params `accessTokenExpiresAt`(ISO-8601) = revokedAt + `jwt.access-expiration`, realtime 폐기 펜스 TTL 의 근거 |
 | `user/service/UserSatelliteCommandService.java:282` | `notification.deviceToken.deleted` · `notification.legacyDeviceToken.deleted` · `notification.settings.changed` | NOTI | USER | UUID |
 | `user/service/UserOnboardingEvents.java:43`(호출: `UserService` 의 setup·update·공개 PATCH 공통 전이 경계) | `user.onboarded` | SCORE | USER | `<type>:<userId>` |
 | `withdrawal/service/WithdrawalSatelliteCommandService.java:54` | `user.withdrawn` | KAFKA·LINK·REALTIME·SCORE | USER | `<type>:<userId>` |

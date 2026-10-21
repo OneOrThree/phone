@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.auth.dto.req.LogoutRequest;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
+import com.oneorthree.phone.auth.repository.AuthSessionRepository;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.outbox.repository.EventOutboxDeliveryRepository;
@@ -17,11 +18,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * GROMO-2350 — 스위치 {@code auth.session-revoked.realtime-events-enabled} ON 이면 세션 폐기 사건이 NOTI 에 더해
@@ -41,6 +44,8 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
     @Autowired
     JwtProvider jwtProvider;
     @Autowired
+    AuthSessionRepository authSessionRepository;
+    @Autowired
     EventOutboxRepository eventOutboxRepository;
     @Autowired
     EventOutboxDeliveryRepository eventOutboxDeliveryRepository;
@@ -57,6 +62,11 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
                 .filter(row -> row.getUserId().equals(userId) && row.getType().equals("auth.session.revoked"))
                 .toList();
         assertThat(revoked).hasSize(1);
+        // GROMO-2386 — realtime 펜스 TTL 의 근거: 폐기 시각 + AT 수명(ci 3600 s)
+        Instant revokedAt = authSessionRepository.findById(login.sessionId()).orElseThrow().getRevokedAt();
+        assertThat(Instant.parse((String) revoked.get(0).getParams().get("accessTokenExpiresAt")))
+                // payload 는 메모리 시각(ns), DB 는 µs 반올림이라 동등 비교하지 않는다
+                .isCloseTo(revokedAt.plusSeconds(3600), within(1, java.time.temporal.ChronoUnit.MICROS));
         List<EventOutboxDelivery> deliveries = eventOutboxDeliveryRepository.findByOutboxId(revoked.get(0).getId());
         assertThat(deliveries)
                 .extracting(EventOutboxDelivery::getTarget, EventOutboxDelivery::getEndpointKey)

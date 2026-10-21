@@ -73,15 +73,19 @@ public class AuthSessionService {
     private final Clock clock;
     /** GROMO-2350 — true 면 폐기 사건을 Realtime 에도 보내 그 세션의 STOMP 연결을 닫게 한다. 기본 OFF. */
     private final boolean realtimeEventsEnabled;
+    /** AT 수명(초) — 폐기 시각에 더하면 그 세션이 발급한 모든 AT 의 만료 상한이다. */
+    private final long accessExpirationSeconds;
 
     public AuthSessionService(AuthSessionRepository authSessionRepository,
             LoginAttemptRepository loginAttemptRepository, OutboxCommandPort outboxCommandPort, Clock clock,
-            @Value("${auth.session-revoked.realtime-events-enabled:false}") boolean realtimeEventsEnabled) {
+            @Value("${auth.session-revoked.realtime-events-enabled:false}") boolean realtimeEventsEnabled,
+            @Value("${jwt.access-expiration}") long accessExpirationSeconds) {
         this.authSessionRepository = authSessionRepository;
         this.loginAttemptRepository = loginAttemptRepository;
         this.outboxCommandPort = outboxCommandPort;
         this.clock = clock;
         this.realtimeEventsEnabled = realtimeEventsEnabled;
+        this.accessExpirationSeconds = accessExpirationSeconds;
     }
 
     /**
@@ -377,6 +381,8 @@ public class AuthSessionService {
         //    있으면 그게 곧 「소유권 이전 자격」의 유출이다. 해시는 대조에만 쓰인다.
         params.put("bootstrapNonceHash", session.getBootstrapNonceHash());
         params.put("reason", session.getRevokeReason());
+        // GROMO-2386 — 이 sid 로 발급된 AT 의 만료 상한(ISO-8601). realtime 폐기 펜스 TTL 의 근거다.
+        params.put("accessTokenExpiresAt", session.getRevokedAt().plusSeconds(accessExpirationSeconds).toString());
         outboxCommandPort.append(new OutboxAppendCommand(
                 EVENT_SESSION_REVOKED + ":" + session.getId(),
                 SCHEMA_VERSION,

@@ -12,6 +12,8 @@ import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import com.oneorthree.realtime.sea.SeaRooms;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -124,12 +126,14 @@ public class InboundEventService {
     static final String AUTH_SESSION_REVOKED = "auth.session.revoked";
 
     /**
-     * 폐기 펜스 수명 — 폐기 sid 로 이미 발급된 AT 의 최대 수명. realtime 은 AT 수명 설정을 갖지 않고, 소켓의 bearer 는 앱이 재발급한
-     * 더 늦은 AT 보다 일찍 만료할 수 있어(세션이 없을 때는 알 수도 없다) 그 exp 를 믿을 수 없다. Data 의 가장 긴 값(dev
-     * {@code jwt.access-expiration} 2592000s = 30일, prod 3600s)을 쓴다.
-     * ponytail: prod 에는 과하다(폐기 건수 × 30일치 항목, 건당 ~100 B). 커지면 AT 수명을 설정으로 받아 줄인다.
+     * 폐기 펜스 수명의 폴백 — payload 에 {@code accessTokenExpiresAt} 가 없을 때(옛 Data)만 쓴다. realtime 은 AT 수명 설정을
+     * 갖지 않아 Data 의 가장 긴 값(dev {@code jwt.access-expiration} 2592000s = 30일)을 잡는다. 정상 경로는 payload 의
+     * 폐기 시각 + AT 수명에 {@link #FENCE_GRACE} 를 더한 값이다(GROMO-2386).
      */
     private static final Duration MAX_ACCESS_TOKEN_LIFETIME = Duration.ofDays(30);
+
+    /** payload 만료에 더하는 여유 — Data·realtime 시계 차이와 relay 지연을 흡수한다. */
+    private static final Duration FENCE_GRACE = Duration.ofSeconds(60);
 
     private static final Set<String> APP_EVENT_TYPES = Arrays.stream(RealtimeEventType.values())
             .map(RealtimeEventType::wireName)
@@ -161,6 +165,15 @@ public class InboundEventService {
     private final JwtValidator jwtValidator;
     private final Clock clock;
     private final RealtimeEventDelivery eventDelivery;
+    private final MeterRegistry meterRegistry;
+
+    /** close 계수 3종을 기동 때 0 으로 등록 — increase() 알림이 첫 장애를 보게 한다. */
+    @PostConstruct
+    void registerMeters() {
+        for (String result : List.of("closed", "already_gone", "failed")) {
+            meterRegistry.counter("realtime.session.revoked.close", "result", result);
+        }
+    }
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -349,18 +362,35 @@ public class InboundEventService {
         // 순서: 펜스(+Redis 내구) → 전 replica 팬아웃 → (세션 목록 스냅샷) → 캐시 → 종료. 펜스가 목록보다 먼저여야 그 사이에 CONNECT·등록을
         // 끝낸 같은 sid 가 «목록에도 없고 펜스에도 안 걸리는» 일이 없다 — CONNECT 는 등록 뒤에도 펜스를 다시 본다.
         // Redis SET 은 한 번(여기)이면 되고 전파를 받은 replica 는 인메모리만 올린다.
-        // 의도 — relay 재시도마다 만료가 now+30일로 다시 잡혀 재시도 간격(상한 2^16 s)만큼 늘어나지만 무시할 수준이다.
-        chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
-        eventDelivery.publishSessionRevoked(userId, sid);
+        // 만료는 payload 의 폐기 시각 + AT 수명이라 relay 재시도에도 변하지 않는다. 없으면(옛 Data) 30일 폴백.
+        Instant until = fenceUntil(eventId, params);
+        chatUserFence.revokeSession(sid, until);
+        eventDelivery.publishSessionRevoked(userId, sid, until);
         closeLocalSessions(userId, sid);
+    }
+
+    /** {@code params.accessTokenExpiresAt}(ISO-8601) + {@link #FENCE_GRACE}. 없거나 읽을 수 없으면 now + 30일. */
+    private Instant fenceUntil(String eventId, JsonNode params) {
+        JsonNode exp = params.get("accessTokenExpiresAt");
+        if (exp == null || !exp.isTextual()) {
+            log.debug("accessTokenExpiresAt 가 {} — 30일 폴백. eventId={}", exp == null ? "없다(옛 Data)" : "문자열이 아니다",
+                    eventId);
+            return clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME);
+        }
+        try {
+            return Instant.parse(exp.asText()).plus(FENCE_GRACE);
+        } catch (java.time.format.DateTimeParseException e) {
+            log.debug("accessTokenExpiresAt 를 읽을 수 없다 — 30일 폴백. eventId={}", eventId);
+            return clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME);
+        }
     }
 
     /**
      * 팬아웃으로 전파받은 세션 폐기 — 이 replica 의 인메모리 펜스·캐시·세션만 정리한다(GROMO-2350). 멱등이다.
      * 전파받은 replica 에서 close 가 실패하면 재시도는 없다(롤백할 트랜잭션이 없다) — 인메모리 펜스가 프레임·SEND·SUBSCRIBE 를 막는다.
      */
-    public void applySessionRevocation(UUID userId, UUID sid) {
-        chatUserFence.markRevokedLocally(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
+    public void applySessionRevocation(UUID userId, UUID sid, Instant until) {
+        chatUserFence.markRevokedLocally(sid, until != null ? until : clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
         closeLocalSessions(userId, sid);
     }
 
@@ -384,8 +414,13 @@ public class InboundEventService {
         for (String stompId : revoked) {
             outboundAuthzCache.evictSession(stompId);
             // 두 번 시도하고도 소켓이 열려 있으면 실패다. 이미 끊긴 세션(close 가 false 여도 isConnected false)은 성공으로 본다.
+            boolean wasConnected = sessions.isConnected(stompId);
             boolean closed = sessions.close(stompId, status) || sessions.close(stompId, status);
-            failed |= !closed && sessions.isConnected(stompId);
+            boolean failedNow = !closed && sessions.isConnected(stompId);
+            // realtime.session.revoked.close — 같은 이름·태그는 registerMeters 가 만든 Counter 를 돌려준다
+            meterRegistry.counter("realtime.session.revoked.close", "result",
+                    failedNow ? "failed" : wasConnected ? "closed" : "already_gone").increment();
+            failed |= failedNow;
         }
         if (failed) {
             throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
