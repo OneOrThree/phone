@@ -95,3 +95,7 @@ android/app/src/main/java/inline/
 
 # Kotlin 컴파일 세션 캐시
 android/.kotlin/
+
+# Airbridge SDK 의 gradle 스크립트가 빌드마다 src 트리에 떨구는 산출물 (GROMO-2395)
+android/app/src/main/assets/airbridge.json
+android/app/src/main/assets/libraryInfo.json
