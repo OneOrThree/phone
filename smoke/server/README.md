@@ -4,6 +4,28 @@
 
 ## 실행
 
+dev 자동 스모크는 CD 완료·게스트 생성 제한 창 대기 후 `dev-vm-deploy` 잠금 안에서 실행한다.
+먼저 오래된 미사용 이미지를 정리하고, Data·Business·Realtime·Notification이 모두 healthy인지 확인한다.
+이후 **300초 대기한 뒤** 전체 검사를 시작한다.
+이 대기는 초기 지연의 완화책이며, 요청으로 예열되지 않은 경로까지 준비됐음을 보장하지 않는다.
+실제 unhealthy 판정이나 HTTP 제한은 완화하지 않는다. prod 워크플로에는 적용하지 않는다.
+
+스모크 전 `.github/scripts/dev-image-retention.py --apply`가 기존 성공 이력으로 로컬 이미지를 정리한다.
+이번 실행 이미지·서비스별 서로 다른 최근 스모크 성공 이미지 두 개·모든 컨테이너(중지 상태 포함)의 참조 이미지를 보존한다.
+새 이미지는 아직 성공으로 기록하지 않으며, 전체 검사가 통과한 뒤에만 `--record-success`로 이력을 갱신한다.
+삭제 대상은 dev GAR의 네 앱 저장소에만 속하고 생성 후 7일 지난 미사용 이미지다.
+성공 이력은 `${runner.tool_cache}/phone-dev-images/successful-images.json`에 저장하며 비밀을 포함하지 않는다.
+최초 실행이나 이력 초기화 후 성공 이미지가 두 개 쌓이지 않은 서비스는 삭제를 건너뛴다.
+손상된 이력·보존 이미지 누락·서비스 변경은 정리를 중단한다. 정리 실패는 경고로 남기고 스모크 검증은 진행한다.
+강제 삭제·컨테이너/볼륨/registry 정리는 하지 않는다. 여러 태그 때문에 ID 삭제가 거부된 이미지도 보존한다.
+
+dev 러너에서 삭제 없이 후보만 보려면 아래처럼 실행한다. `--apply` 없이 실행하면 성공 이력도 갱신하지 않는다.
+
+```bash
+DEPLOY_ENV=dev DEV_IMAGE_HISTORY="$RUNNER_TOOL_CACHE/phone-dev-images/successful-images.json" \
+  python3 .github/scripts/dev-image-retention.py
+```
+
 필수 도구는 Bash·curl·jq·Node ≥22·Python 3다. 내부 검사는 Docker 접근 권한도 필요하다. 앱 코드나 DB 스키마를 바꾸지 않고 현재 배포된 dev 환경을 검사한다.
 
 ```bash
