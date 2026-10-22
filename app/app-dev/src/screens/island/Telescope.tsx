@@ -545,6 +545,13 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
   );
   const [panoramaW, setPanoramaW] = useState(0);
   const sea = telescopeSeaTiles(sceneW, sceneH, panoramaW);
+  // 파노라마가 사라지면(빈 목록·로딩·오류 카드) 바다를 처음 자리로 돌린다 — 다시 생긴 파노라마는 스크롤 0 에서 시작하는데
+  // 바다만 옛 오프셋에 남으면 섬과 어긋나고 첫 드래그에 튄다. 사라질 때의 정리에서 맞추므로 새 ScrollView 가 붙기 전이다
+  const panoramaShown = list.status === 'ready' && items.length > 0;
+  useEffect(() => {
+    if (!panoramaShown) return;
+    return () => scrollX.setValue(0);
+  }, [panoramaShown, scrollX]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;

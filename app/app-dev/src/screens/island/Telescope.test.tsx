@@ -501,6 +501,46 @@ describe('파노라마 바다(GROMO-2414) — 섬을 밀면 바다도 같이 밀
     }
   });
 
+  test('목록 → 빈 목록 → 목록이 되면 다시 생긴 파노라마와 함께 바다도 스크롤 0 자리에서 시작한다', async () => {
+    jest.useFakeTimers();
+    // 위 테스트처럼 같은 매핑을 JS 드라이버로 돌린다
+    const real = Animated.event;
+    const event = jest
+      .spyOn(Animated, 'event')
+      .mockImplementation((mapping, config) =>
+        real(mapping, { ...config, useNativeDriver: false }),
+      );
+    try {
+      mockGet
+        .mockResolvedValueOnce(wire([item('r1'), item('r2'), item('r3'), item('r4')], 1))
+        .mockResolvedValueOnce(wire([], 1))
+        .mockResolvedValueOnce(wire([item('r5'), item('r6'), item('r7')], 30));
+      const screen = await render(<Telescope e={env()} />);
+      await screen.findByTestId('telescope-island-r1');
+      const seaX = () =>
+        flat(screen.getByTestId('telescope-sea', { includeHiddenElements: true })).transform[0]
+          .translateX;
+      await fireEvent.scroll(screen.getByTestId('telescope-panorama'), {
+        nativeEvent: { contentOffset: { x: 240, y: 0 } },
+      });
+      expect(seaX()).toBe(-240);
+      // 1분 뒤 다시 읽은 목록이 비어 파노라마가 사라진다
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+      await screen.findByText('지금은 보이는 섬이 없어요');
+      expect(seaX()).toBeCloseTo(0, 6);
+      // 다시 섬이 생기면 새 파노라마(스크롤 0)와 바다가 같은 자리다 — 옛 오프셋 −240 에 남지 않는다
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+      await screen.findByTestId('telescope-island-r5');
+      expect(seaX()).toBeCloseTo(0, 6);
+    } finally {
+      event.mockRestore();
+    }
+  });
+
   test.each([
     [402, 874, 1228],
     [874, 402, 874],
