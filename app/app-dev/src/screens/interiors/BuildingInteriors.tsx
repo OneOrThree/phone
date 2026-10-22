@@ -826,8 +826,7 @@ export function InteriorScreen({
         };
   const boardScrollOffset = boardScrollScene ? Math.max(0, bg.height - height) * 0.38 : 0;
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
-  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
-    chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
+  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52);
   const sceneBackBlocked = building.id === 'board' && (boardModalOpen || higherModalOpen);
   const navScale = React.useContext(NavScale);
 
@@ -915,12 +914,14 @@ export function InteriorScreen({
         {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
         label="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
-        // 원(34)이 예전 자리(왼쪽 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다
+        // 원(34)이 예전 자리(왼쪽 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
+        // 장면을 키워 그리는 우체통(navScale = 1/k)도 왼쪽 위 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
         style={{
           position: 'absolute',
           zIndex: 12,
-          left: 9 + chromeLeft,
-          top: 31 + chromeTop,
+          left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+          top: navScale * (31 + Math.max(0, (insets?.top ?? 0) / navScale - 52)),
+          transformOrigin: 'left top',
           transform: [{ scale: navScale }],
         }}
       />
