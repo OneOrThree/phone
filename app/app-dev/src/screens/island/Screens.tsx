@@ -2871,7 +2871,10 @@ export function RedesignScreens({ e }: any) {
                   </View>
                 </View>
                 <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
-                  <View testID="sound-current-track" style={{ minHeight: 36, flexShrink: 0 }}>
+                  <View
+                    testID="sound-current-track"
+                    style={{ minHeight: gramophone.currentTrackMinHeight, flexShrink: 0 }}
+                  >
                     <Txt
                       tabletScale={1}
                       style={{ color: gramophone.foreground, ...gramophone.titleText }}

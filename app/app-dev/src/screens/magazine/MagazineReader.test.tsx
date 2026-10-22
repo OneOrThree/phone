@@ -156,6 +156,9 @@ test('다음 장부터 3칸씩 — 섬에서 펼친 잡지는 망원경 동그�
   for (const id of ['magazine-prev', 'magazine-next']) {
     const arrow = StyleSheet.flatten(screen.getByTestId(id).props.style);
     expect(Math.min(arrow.width, arrow.height)).toBeGreaterThanOrEqual(44);
+    // 세로 hitSlop 은 없다 — 줄 밖 지면 칸 하단 터치를 가로채지 않게
+    const slop = screen.getByTestId(id).props.hitSlop ?? {};
+    expect([slop.top ?? 0, slop.bottom ?? 0]).toEqual([0, 0]);
     expect(
       StyleSheet.flatten(screen.getByTestId(id).parent!.props.style).height,
     ).toBeGreaterThanOrEqual(44);

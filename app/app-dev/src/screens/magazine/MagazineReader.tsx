@@ -42,6 +42,8 @@ const PER_PAGE = 3;
 const EDITORIAL_MIN_SCALE = 0.7;
 const NAV_H = R.navHeight;
 const TAP = semanticTokens.size.tapMin;
+/** 쪽 넘김 줄 버튼은 가로로만 넓힌다 — 줄이 이미 44 라 세로로 넓히면 줄 밖 지면 칸 하단 터치를 가로챈다 */
+const NAV_SLOP = { left: 8, right: 8 };
 const COVER_H = R.coverHeight;
 const TIP_COUNT = 14;
 
@@ -585,7 +587,7 @@ export function MagazineReader({
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={() => go(index + dir)}
-        hitSlop={8}
+        hitSlop={NAV_SLOP}
         style={{
           width: TAP,
           height: TAP,
@@ -728,7 +730,7 @@ export function MagazineReader({
             )}
           </View>
           {status === 'ready' && (total > 1 || moreFailed) && (
-            // 쪽 넘김 줄은 그림 자리(NAV_H)의 가운데를 지킨 채 누르는 높이만 44로 늘린다 — 부모 밖 hitSlop 은 잡히지 않는다.
+            // 쪽 넘김 줄은 그림 자리(NAV_H)의 가운데를 지킨 채 누르는 높이만 44로 늘린다 — 줄이 30 이면 그 안의 버튼도 30 까지만 눌렸다.
             // 위로 늘어나는 만큼(7)은 지면과의 틈(cellGap 8) 안이라 칸과 겹치지 않고, 빈 곳은 아래 지면으로 터치를 넘긴다
             <View
               pointerEvents="box-none"
@@ -749,7 +751,7 @@ export function MagazineReader({
                   testID="magazine-more-retry"
                   accessibilityRole="button"
                   onPress={() => setFailedAt(null)}
-                  hitSlop={8}
+                  hitSlop={NAV_SLOP}
                   style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}
                 >
                   <T

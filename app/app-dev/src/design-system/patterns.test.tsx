@@ -2,7 +2,7 @@ import React from 'react';
 import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Btn, CharCount, Field, Wheel, Seg } from './patterns';
+import { Page, Badge, Btn, CharCount, Field, Wheel, Seg, Txt } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -36,6 +36,12 @@ beforeEach(() => {
 afterEach(() => {
   rafSpy.mockRestore();
   applyLocalePref('system');
+});
+
+// App.tsx 의 NativeText 도 이 Txt 의 별칭이다 — 공용 Text 를 거쳐 한국어 단어 단위 줄바꿈 기본값을 받는다(GROMO-2413)
+test('Txt 는 공용 Text 를 거쳐 hangul-word 줄바꿈 기본값을 받는다', async () => {
+  const s = await render(<Txt testID="txt">계정을 바꾸면 지금 기기에 남은 기록이 사라져요</Txt>);
+  expect(s.getByTestId('txt').props.lineBreakStrategyIOS).toBe('hangul-word');
 });
 
 test('inset 탭은 테두리와 패딩을 제외해도 터치 높이 44pt를 유지한다', async () => {
