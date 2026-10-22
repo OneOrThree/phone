@@ -5646,6 +5646,10 @@ export function RedesignScreens({ e }: any) {
     const slots = (['decor', 'head', 'neck', 'shoes'] as const).filter(
       (slot) => shelf(slot).length > 0 || slotWorn(slot),
     );
+    // 옷장에 칸을 그리지 않는 옷(clothes)도 가졌거나 입고 있으면 «없음»이 아니다.
+    // hulls 는 보유가 아니라 모두에게 같은 상수(["raft"])라 세지 않는다
+    const hasClothes =
+      !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
     return (
       <IslandSheet
         bg="dock"
@@ -5658,7 +5662,7 @@ export function RedesignScreens({ e }: any) {
       >
         {raftCat(260)}
         {/* 서버는 보유품을 받은 뒤에만 «없음»을 말한다 */}
-        {!slots.length && (!server || shopApi.my) && (
+        {!slots.length && !hasClothes && (!server || shopApi.my) && (
           <EmptyState
             testID="wardrobe-empty"
             art={seaLoaf[state.color]}
