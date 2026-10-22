@@ -136,7 +136,7 @@ app 을 호스트에서 `bootRun` 으로 띄우면, `server/observability/promet
 - 메모리: JVM heap/상한, 할당 속도, GC 정지 시간, 컨테이너 working set.
 - 호스트·컨테이너: CPU, iowait/steal, 디스크 I/O, 네트워크, CPU throttling, swap·major page fault.
 - Redis·Kafka: 연결·메모리·퇴출, consumer lag, 메시지 유입, DLT offset, 복제 부족 파티션.
-- Outbox: 대상별 미전달·재시도·최고 대기 시간. 미구현 `SCORE` 대상은 정상 전송 적체와 분리합니다.
+- Outbox: 대상별 미전달·재시도·최고 대기 시간. 미구현 `SCORE`·relay 대상에서 뺀 `LINK` 는 정상 전송 적체와 분리합니다.
 - 내부 호출: Business 상류별 HTTP 풀의 leased/available/pending/max와 화면 조합 executor 큐.
 - Realtime: WebSocket/STOMP 연결·구독, 비동기 executor 활성 스레드·대기열, 이동 tick/경로 탐색 지연, 전송 실패·큐 초과.
 
