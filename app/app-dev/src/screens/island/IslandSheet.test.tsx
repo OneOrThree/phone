@@ -156,3 +156,87 @@ test('fit 시트는 내용 높이 측정이 끝내 안 와도 잠깐 뒤 tall �
     mockLayout = before;
   }
 });
+
+describe('fit 시트 측정 주기(GROMO-2412)', () => {
+  const sheet = (body: string, footer?: string) => (
+    <IslandSheet
+      bg="shop"
+      sign="dog"
+      title="상품 상세"
+      fit
+      onClose={() => {}}
+      footer={footer ? <Text>{footer}</Text> : undefined}
+    >
+      <Text>{body}</Text>
+    </IslandSheet>
+  );
+  let before = mockLayout;
+  let setSpy: jest.SpyInstance;
+  let clearSpy: jest.SpyInstance;
+  // 안전장치(FIT_REVEAL_FALLBACK_MS) 타이머가 걸렸고 모두 clearTimeout 으로 꺼졌는가
+  const fallbackCleared = () => {
+    const ids = setSpy.mock.calls.flatMap((call, i) =>
+      call[1] === FIT_REVEAL_FALLBACK_MS ? [setSpy.mock.results[i].value] : [],
+    );
+    return ids.length > 0 && ids.every((id) => clearSpy.mock.calls.some((c) => c[0] === id));
+  };
+  beforeEach(() => {
+    before = mockLayout;
+    mockLayout = { ...mockLayout, width: 402, height: 874, compact: false, tablet: false };
+    jest.useFakeTimers();
+    setSpy = jest.spyOn(global, 'setTimeout');
+    clearSpy = jest.spyOn(global, 'clearTimeout');
+  });
+  afterEach(() => {
+    setSpy.mockRestore();
+    clearSpy.mockRestore();
+    jest.useRealTimers();
+    mockLayout = before;
+  });
+
+  test('다 재면 안전장치 타이머를 끈다 — 300ms 가 지나도 잰 자리 그대로다', async () => {
+    const screen = await render(sheet('불러오는 중…'));
+    const box = () => StyleSheet.flatten(screen.getByTestId('island-sheet-box').props.style);
+    await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 70);
+    expect(box()).toMatchObject({ top: 874 - (72 + 2 + 70), opacity: 1 });
+    expect(fallbackCleared()).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(FIT_REVEAL_FALLBACK_MS * 2);
+    });
+    expect(box()).toMatchObject({ top: 874 - (72 + 2 + 70), opacity: 1 });
+  });
+
+  test('상세가 300ms 뒤 늦게 와도 tall 로 번쩍이거나 숨지 않고 로딩 자리에서 새 높이로만 옮긴다', async () => {
+    const screen = await render(sheet('불러오는 중…'));
+    const box = () => StyleSheet.flatten(screen.getByTestId('island-sheet-box').props.style);
+    await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 70);
+    const loadingTop = 874 - (72 + 2 + 70);
+    await act(async () => {
+      jest.advanceTimersByTime(FIT_REVEAL_FALLBACK_MS + 200);
+    });
+    // 상세 + 구매 버튼 줄이 붙은 첫 렌더 — 버튼 줄을 아직 못 쟀다
+    await screen.rerender(sheet('상품 설명', '구매'));
+    expect(box()).toMatchObject({ top: loadingTop, opacity: 1 });
+    await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 450);
+    await fireEvent(screen.getByTestId('island-sheet-footer'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 130 } },
+    });
+    expect(box()).toMatchObject({ top: 874 - (72 + 2 + 450 + 130), opacity: 1 });
+    expect(fallbackCleared()).toBe(true);
+  });
+
+  test('다시 재는 주기에도 안전장치가 걸린다 — 버튼 줄을 300ms 안에 못 재면 tall 높이로 보인다', async () => {
+    const screen = await render(sheet('불러오는 중…'));
+    const box = () => StyleSheet.flatten(screen.getByTestId('island-sheet-box').props.style);
+    await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 70);
+    await screen.rerender(sheet('상품 설명', '구매'));
+    await act(async () => {
+      jest.advanceTimersByTime(FIT_REVEAL_FALLBACK_MS - 1);
+    });
+    expect(box().top).toBe(874 - (72 + 2 + 70));
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(box()).toMatchObject({ top: 100, opacity: 1 });
+  });
+});

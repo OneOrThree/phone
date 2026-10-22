@@ -184,15 +184,35 @@ export function IslandSheet({
   // 알림(.toast)은 아래 버튼 줄 바로 위에 뜬다(세로 48 · 가로 14 간격)
   const [footH, setFootH] = useState(0);
   const [contentH, setContentH] = useState(0);
-  // fit 은 내용·버튼 줄 높이를 잰 뒤에 자리를 잡는다 — 재기 전에는 숨겨 높은 시트가 번쩍이지 않게 한다
-  const fitReady = fit && contentH > 0 && (!footer || footH > 0);
-  // 측정이 끝내 안 오면(내용 높이 0 등) 숨긴 채 남지 않게 잠깐 뒤 tall 높이로 보인다
+  const hasFooter = !!footer;
+  // 버튼 줄이 빠지면 잰 높이도 버린다 — 다시 붙으면(로딩 → 상품 상세) 새로 잴 때까지 «아직 못 잼»이다
+  useEffect(() => {
+    if (!hasFooter) setFootH(0);
+  }, [hasFooter]);
+  // fit: 내용·버튼 줄 높이를 다 잰 동안만 그 높이로 자리를 잡는다(위 여백 + 위 테두리 2 + 내용 + 버튼 줄)
+  const fitTop =
+    fit && contentH > 0 && (!hasFooter || footH > 0)
+      ? Math.max(100, L.height - (g.body + 2 + contentH + (hasFooter ? footH : 0)))
+      : null;
+  // 마지막으로 보인 자리 — 한 번 보인 뒤 다시 재는 동안은 숨기지 않고 이 자리에 둔 채 다 재면 높이만 바꾼다
+  const [shownTop, setShownTop] = useState<number | null>(null);
+  useEffect(() => {
+    if (fitTop != null) setShownTop(fitTop);
+  }, [fitTop]);
+  // 재는 주기마다 안전장치 — FIT_REVEAL_FALLBACK_MS 안에 못 재면 tall 높이로 보인다. 다 재면 타이머를 끄고 초기화한다
+  const fitMeasuring = fit && fitTop == null;
   const [fitGaveUp, setFitGaveUp] = useState(false);
   useEffect(() => {
-    if (!fit) return;
+    if (!fitMeasuring) {
+      setFitGaveUp(false);
+      return;
+    }
     const timer = setTimeout(() => setFitGaveUp(true), FIT_REVEAL_FALLBACK_MS);
     return () => clearTimeout(timer);
-  }, [fit]);
+  }, [fitMeasuring]);
+  // 처음 다 재기 전에는 숨긴다(높은 시트가 번쩍였다 줄어들지 않게)
+  const sheetTop = fit ? (fitTop ?? (fitGaveUp ? 100 : (shownTop ?? 100))) : tall ? 100 : 210;
+  const sheetHidden = fit && fitTop == null && shownTop == null && !fitGaveUp;
   const endPad = panel ? Math.max(22, ins.bottom) : L.tablet ? 18 : ins.bottom + 12;
   const cardH = Math.min(
     L.height * (tall || fit ? 0.9 : 0.76),
@@ -226,13 +246,8 @@ export function IslandSheet({
           left: 0,
           right: 0,
           bottom: 0,
-          top: fitReady
-            ? // 위 여백 + 위 테두리 2 + 내용 + 버튼 줄
-              Math.max(100, L.height - (g.body + 2 + contentH + (footer ? footH : 0)))
-            : tall || fit
-              ? 100
-              : 210,
-          opacity: fit && !fitReady && !fitGaveUp ? 0 : 1,
+          top: sheetTop,
+          opacity: sheetHidden ? 0 : 1,
           borderTopWidth: 2,
           borderTopLeftRadius: 30,
           borderTopRightRadius: 30,
