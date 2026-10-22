@@ -503,7 +503,13 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   };
 
   return (
-    <Book title={title} font={font} onBack={back}>
+    <Book
+      title={title}
+      font={font}
+      onBack={back}
+      // 이웃 상세의 ‹ 는 목적지(이웃 목록)가 정해져 있어 그것을 읽고, 그 밖은 들어온 화면으로 가는 「뒤로」다
+      backLabel={neighbors && memberId ? '이웃들의 일기장으로 돌아가기' : '뒤로'}
+    >
       {!neighbors && (
         <View style={styles.controls}>
           <Seg
@@ -565,11 +571,13 @@ function Book({
   title,
   font,
   onBack,
+  backLabel,
   children,
 }: React.PropsWithChildren<{
   title: string;
   font?: string;
   onBack: () => void;
+  backLabel: string;
 }>) {
   const L = useAppLayout();
   const width = Math.min(D.maxWidth, L.width - L.insets.left - L.insets.right);
@@ -601,7 +609,7 @@ function Book({
         style={[styles.header, { left: left + D.headerInset, right: left + D.headerInset, top }]}
       >
         {/* 뒤로 하나만 둔다(DESIGN §7.14) — 이웃 상세에서는 목록으로, 그 밖에는 도서관으로 */}
-        <NavBtn label="뒤로" onPress={onBack} />
+        <NavBtn label={backLabel} onPress={onBack} />
         <T numberOfLines={1} style={[styles.headerTitle, { fontFamily: font }]}>
           {title}
         </T>

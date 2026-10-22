@@ -437,9 +437,10 @@ export function Hall({ e }: any) {
       )}
     </>
   );
-  const back = (onPress: () => void) => (
+  // 목적지가 정해진 ‹ 는 목적지를 읽고(책상 → 섬), 이전 화면으로 가는 ‹ 는 「뒤로」다(DESIGN §7.14)
+  const back = (onPress: () => void, label = '뒤로') => (
     <NavBtn
-      label="뒤로"
+      label={label}
       testID="hall-back"
       onPress={onPress}
       style={{
@@ -571,7 +572,7 @@ export function Hall({ e }: any) {
       </View>
     </>
   );
-  const shell = (children: React.ReactNode, backPress?: () => void) => (
+  const shell = (children: React.ReactNode, backPress?: () => void, backLabel?: string) => (
     <View style={{ flex: 1 }}>
       {/* 확인창이 열린 동안 뒤 장면은 보조기기에서 숨긴다 */}
       <View
@@ -581,7 +582,7 @@ export function Hall({ e }: any) {
         importantForAccessibility={dialog ? 'no-hide-descendants' : 'auto'}
       >
         {scene}
-        {backPress && back(backPress)}
+        {backPress && back(backPress, backLabel)}
         {children}
       </View>
       {dialogView}
@@ -704,6 +705,7 @@ export function Hall({ e }: any) {
         ))}
       </>,
       e.home,
+      '섬으로 돌아가기',
     );
   }
 
@@ -1925,6 +1927,7 @@ export function Hall({ e }: any) {
         {planView}
       </>,
       plan ? () => setPlan(null) : e.back,
+      plan ? '건물 목록으로 돌아가기' : undefined,
     );
   }
 

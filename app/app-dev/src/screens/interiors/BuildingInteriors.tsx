@@ -5056,7 +5056,11 @@ export function Board({
       return (
         <View>
           {detailHead(
-            <NavBtn testID="board-notice-back" label="목록" onPress={nav.backToNotices} />,
+            <NavBtn
+              testID="board-notice-back"
+              label="공지 목록으로 돌아가기"
+              onPress={nav.backToNotices}
+            />,
           )}
           <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
             {apiMessage(board.detailError, '불러오지 못했어요.')}
@@ -5072,7 +5076,11 @@ export function Board({
       return (
         <View>
           {detailHead(
-            <NavBtn testID="board-notice-back" label="목록" onPress={nav.backToNotices} />,
+            <NavBtn
+              testID="board-notice-back"
+              label="공지 목록으로 돌아가기"
+              onPress={nav.backToNotices}
+            />,
           )}
           {/* 요청을 냈고 로딩도 끝났는데 detail 이 없으면 종결 — 삭제로 비워진 공지다. */}
           <Text style={muted({ marginTop: 4 })}>
@@ -5086,7 +5094,13 @@ export function Board({
     const comments = notice.comments.map((comment, i) => [comment, i] as const);
     return (
       <View>
-        {detailHead(<NavBtn testID="board-notice-back" label="목록" onPress={nav.backToNotices} />)}
+        {detailHead(
+          <NavBtn
+            testID="board-notice-back"
+            label="공지 목록으로 돌아가기"
+            onPress={nav.backToNotices}
+          />,
+        )}
         <Text
           style={[
             boardFont(23, 1.2, '700', INK),
@@ -5264,7 +5278,7 @@ export function Board({
         {detailHead(
           <NavBtn
             testID="board-notice-cancel"
-            label={s.editing ? '공지' : '목록'}
+            label={s.editing ? '공지로 돌아가기' : '공지 목록으로 돌아가기'}
             onPress={nav.cancelEditor}
           />,
         )}
@@ -5348,7 +5362,7 @@ export function Board({
   const questBack = detailHead(
     <NavBtn
       testID="board-quest-back"
-      label={s.editing ? '퀘스트' : '퀘스트 목록'}
+      label={s.editing ? '퀘스트로 돌아가기' : '퀘스트 목록으로 돌아가기'}
       onPress={nav.backToQuests}
     />,
   );
@@ -5375,7 +5389,13 @@ export function Board({
         : null;
       return (
         <>
-          {detailHead(<NavBtn testID="board-quest-back" label="목록" onPress={nav.backToQuests} />)}
+          {detailHead(
+            <NavBtn
+              testID="board-quest-back"
+              label="퀘스트 목록으로 돌아가기"
+              onPress={nav.backToQuests}
+            />,
+          )}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 4 }]}>
             {progress?.title ?? quest.title}
           </Text>

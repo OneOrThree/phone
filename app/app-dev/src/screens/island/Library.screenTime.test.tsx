@@ -85,8 +85,11 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
   await fireEvent.press(screen.getByTestId('diary-member-minji'));
   scrollTo.mockClear();
 
-  await fireEvent.press(screen.getByLabelText('뒤로'));
+  // 이웃 상세의 ‹ 는 목적지(이웃 목록)를 읽는다
+  await fireEvent.press(screen.getByLabelText('이웃들의 일기장으로 돌아가기'));
   expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
+  // 목록으로 돌아오면 다시 들어온 화면으로 가는 「뒤로」다
+  expect(screen.getByLabelText('뒤로')).toBeTruthy();
   expect(screen.getByTestId('diary-member-minji')).toBeTruthy();
   scrollTo.mockRestore();
 });

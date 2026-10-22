@@ -1695,8 +1695,12 @@ function FocusVisit({ e, islandId, onBack }: any) {
           left: Math.max(18, safe.left + 8),
         }}
       >
-        {/* 건물 안과 같은 ‹ 동그라미(DESIGN §7.14). 읽는 이름은 그대로 — 구경이면 「돌아가기」, 내 낚시섬이면 「닫기」 */}
-        <NavBtn testID="close-focus-visit" label={visiting ? '돌아가기' : '닫기'} onPress={close} />
+        {/* 건물 안과 같은 ‹ 동그라미(DESIGN §7.14). 내 낚시섬은 홈(e.home), 구경은 그 섬 지도(visitMap)로 — 둘 다 섬으로 돌아간다 */}
+        <NavBtn
+          testID="close-focus-visit"
+          label={t('focusFlow.common.backToIsland')}
+          onPress={close}
+        />
       </View>
       {liveIslandId && live.status === 'loading' ? (
         <View
