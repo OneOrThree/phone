@@ -479,36 +479,6 @@
         }
       }
     },
-    "/l/match": {
-      "post": {
-        "tags": [
-          "link-match-compat-controller"
-        ],
-        "operationId": "match",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InviteMatchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteMatchResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/islands": {
       "get": {
         "tags": [
@@ -1754,88 +1724,6 @@
         }
       }
     },
-    "/api/v1/me/challenge-results/{sessionId}/claim": {
-      "post": {
-        "tags": [
-          "challenge-result-ack-controller"
-        ],
-        "operationId": "claimDisplay",
-        "parameters": [
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChallengeResultClaimRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChallengeResultClaimResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/me/challenge-results/{sessionId}/ack": {
-      "post": {
-        "tags": [
-          "challenge-result-ack-controller"
-        ],
-        "operationId": "acknowledge_1",
-        "parameters": [
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChallengeResultAckRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/link-previews": {
       "post": {
         "tags": [
@@ -1895,78 +1783,6 @@
                   "items": {
                     "$ref": "#/components/schemas/Preview"
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/invite-links/claim": {
-      "post": {
-        "tags": [
-          "invite-link-controller"
-        ],
-        "operationId": "claim_1",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClaimInviteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/groups/{groupId}/invite-link": {
-      "post": {
-        "tags": [
-          "invite-link-controller"
-        ],
-        "operationId": "issueInviteLink",
-        "parameters": [
-          {
-            "name": "groupId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/IssueInviteLinkResponse"
                 }
               }
             }
@@ -4649,45 +4465,6 @@
           "receiverId"
         ]
       },
-      "InviteMatchRequest": {
-        "type": "object",
-        "properties": {
-          "os": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "ios|android|other"
-          },
-          "deviceId": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 0
-          },
-          "appInstanceId": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 0
-          }
-        },
-        "required": [
-          "deviceId",
-          "os"
-        ]
-      },
-      "InviteMatchResponse": {
-        "type": "object",
-        "properties": {
-          "matched": {
-            "type": "boolean"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "groupId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
       "IslandCreatedView": {
         "type": "object",
         "properties": {
@@ -5443,35 +5220,6 @@
           }
         }
       },
-      "ChallengeResultClaimRequest": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "ChallengeResultClaimResponse": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "claimToken"
-        ]
-      },
-      "ChallengeResultAckRequest": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
       "BatchRequest": {
         "type": "object",
         "properties": {
@@ -5519,30 +5267,6 @@
             "type": "string"
           },
           "errorCode": {
-            "type": "string"
-          }
-        }
-      },
-      "ClaimInviteRequest": {
-        "type": "object",
-        "properties": {
-          "slug": {
-            "type": "string",
-            "maxLength": 12,
-            "minLength": 0
-          }
-        },
-        "required": [
-          "slug"
-        ]
-      },
-      "IssueInviteLinkResponse": {
-        "type": "object",
-        "properties": {
-          "slug": {
-            "type": "string"
-          },
-          "url": {
             "type": "string"
           }
         }
@@ -7741,16 +7465,6 @@
           "nickname": {
             "type": "string"
           },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
-            "type": "string"
-          },
-          "isPinned": {
-            "type": "boolean"
-          },
           "isFocusing": {
             "type": "boolean"
           },
@@ -7771,7 +7485,6 @@
         "required": [
           "focusTimeMinutes",
           "isFocusing",
-          "isPinned",
           "userId"
         ]
       },
@@ -7783,13 +7496,6 @@
             "format": "uuid"
           },
           "nickname": {
-            "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
             "type": "string"
           },
           "relation": {
@@ -7815,10 +7521,6 @@
           },
           "nickname": {
             "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
           },
           "createdAt": {
             "type": "string"
