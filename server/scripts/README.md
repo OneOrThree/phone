@@ -222,23 +222,16 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 실행 전 대상 DB를 확인하고 서비스 환경변수 분리 절차와 함께 적용합니다.
 
-### 링크·클릭 이관
+### Catus V0 전환과 Data·Realtime 동시 교체
 
-[`migrate-link.py`](migrate-link.py)는 Data의 정지 스냅샷을 별도 Link 서비스로 이관합니다.
+기존 dev와 Catus prod DB는 [Data V0 전환 절차](../data-api/docs/db/README.md)의 읽기 전용 계획·백업·writer 중지·검증을 거쳐 전환합니다. 독립 Link 서비스의 정지 스냅샷 이관 경로와 실행 도구는 폐기했습니다. 현행 섬 초대 링크는 Data 내부 API가 관리합니다.
 
-```mermaid
-flowchart LR
-  drain["구 경로 정지·진행 중 요청 소진"] --> freeze["freeze"]
-  freeze --> importStep["import · 청크 반입"]
-  importStep --> verify["verify · 건수·체크섬 대조"]
-  verify --> close["close · 이관 종료"]
-```
+**Data와 Realtime은 같은 중단 창에서 교체해야 합니다.** 새 Data는 `/api/v1/groups`를 제공하지 않으며, 새 Realtime은 서비스 토큰으로 `GET /internal/users/{userId}/islands`를 호출합니다. 구 Realtime과 새 Data를 함께 서비스하면 섬 멤버십 조회가 실패합니다.
 
-```bash
-python3 server/scripts/migrate-link.py --help
-```
-
-단계마다 `--data-url`, `--link-url`, `--migration-id`를 지정합니다. 자격은 `BATCH_ADMIN_KEY`, `LINK_MIGRATION_TOKEN` 환경변수로 전달합니다. `freeze`에는 실제 구 경로 정지·요청 소진 후 `--source-drained`를 명시합니다. 실패 시 같은 migration ID로 재개합니다.
+1. 배포 전에 두 이미지와 runtime 설정을 준비합니다. Data는 `<환경>,satellites,realtime-authorization` 프로파일과 `SVC_TOKEN_REALTIME_TO_DATA`가 필요하며, Realtime에도 같은 토큰을 주입합니다. Data를 호출할 주소와 서비스 토큰이 배포 설정에 반영되어 있어야 합니다.
+2. Catus prod는 Infra의 `prod/catus/runtime`에 `SPRING_PROFILES_ACTIVE=prod,satellites,realtime-authorization` 및 양쪽 서비스 토큰을 **재시작 전에** 반영합니다. 이 저장소의 옛 Gromo 1.x `docker-compose.prod.yml`이나 env writer 검증만으로 외부 Catus runtime이 바뀌지 않습니다.
+3. 트래픽과 Data·Realtime 및 DB writer를 중지하고 진행 중 요청을 소진한 뒤 V0 전환을 수행합니다. 전환 검증이 성공하면 같은 창에서 새 Data와 새 Realtime을 기동합니다.
+4. Data 내부 섬 목록 인증·응답과 Realtime의 섬 입장·채팅 연결을 확인한 뒤 트래픽을 재개합니다. 스키마 전환 뒤 복구는 V0 문서의 백업·검증 절차를 따릅니다.
 
 ## 10. 로그 S3 적재본 수명 주기
 

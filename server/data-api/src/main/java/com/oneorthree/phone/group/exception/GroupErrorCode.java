@@ -68,8 +68,6 @@ public enum GroupErrorCode implements ErrorCode {
     // (대상 멤버 없음은 기존 NOT_FOUND 재사용 — transferOwner 와 동일 패턴)
     KICKED_CANNOT_REJOIN(HttpStatus.FORBIDDEN, "강퇴된 그룹에는 다시 참여할 수 없어요"),
     CANNOT_KICK_SELF(HttpStatus.BAD_REQUEST, "자기 자신은 내보낼 수 없어요"),
-    // deprecated — 발급 경로 없음(챌린지 생성 중복은 CHALLENGE_DUPLICATE). 하루형만 카테고리당 1개라는
-    // 새 규칙(GROMO-1422)에 맞춰 카피만 정정해 잔존시킨다(코드 문자열 호환 관례).
     // 앱이 응답의 code 문자열(GROUP_LIMIT_EXCEEDED)로 분기한다 — 이름 변경 금지.
     // 문구는 소속 섬 상한 3 (GROMO-2260) 기준이다.
     GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요"),
