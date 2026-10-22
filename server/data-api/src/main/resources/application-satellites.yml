@@ -303,6 +303,8 @@ outbox:
       # link.* 7종은 relay 대상에서 뺐다 — ${LINK_BASE_URL}/internal/events 를 받는 서버가 없어 영구 실패만 쌓였다(GROMO-2407).
       # LINK 전달 행은 producer 가 계속 쓰지만 SCORE 처럼 relay 가 집지 않는다(대상에 endpoint 가 하나도 없으면 transport 가 없다).
       # 생산 정리는 링크 구현 PR 몫이다 — docs/prd/fishcat/link-attribution/low-level-design.md §9.2.
+      # 받는 서버가 생겨 되살릴 때는 7종을 함께 넣는다 — 하나만 넣으면 LINK transport 가 생겨 나머지 키의 행이
+      # 「허용목록에 없는 엔드포인트」 영구 실패로 돈다.
       "[noti.deviceTokenDeleted]":
         target: NOTI
         url: ${NOTIFICATION_BASE_URL}/internal/events
