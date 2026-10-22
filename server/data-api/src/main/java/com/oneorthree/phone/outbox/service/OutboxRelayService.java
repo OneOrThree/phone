@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -47,7 +48,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * {@code eventId} 멱등이라 안전하다 — 반대로 낡은 표시를 받아 주면 <b>유실</b>이고 복구할 수 없다.
  *
  * <h2>A18 보류</h2>
- * 고갈 처리가 없다. 임계값을 넘으면 경고만 남기고 최대 백오프로 계속 재시도한다 — 행을 지우거나
+ * 고갈 처리가 없다. 시도가 임계값에 닿으면 경고를 한 번 남기고 최대 백오프로 계속 재시도한다 — 행을 지우거나
  * 다른 대상으로 우회(HTTP 폴백)하지 않는다.
  *
  * <h2>지표 (GROMO-2337)</h2>
@@ -318,23 +319,31 @@ public class OutboxRelayService {
      *
      * <p>백오프는 시도 횟수에 대한 지수 증가이고 {@code maxBackoff} 에서 멈춘다. <b>멈추는 것은
      * 증가뿐</b>이다 — 재시도 자체는 계속된다(A18 보류).
+     *
+     * <p>ERROR 로그는 같은 행에서 반복하지 않는다 — 영구 실패는 사유가 바뀔 때만, 임계값 경고는 시도 수가 임계값에 닿는
+     * 한 번만 남긴다. 재시도마다 세는 것은 {@code outbox.relay.failed} 카운터다.
      */
     private void recordFailure(EventOutboxDelivery delivery, UUID token, String error, boolean retryable) {
-        if (!retryable) {
-            log.error("재시도로 풀리지 않는 전달 실패 — deliveryId={} target={} 사유={} (행은 남긴다)",
-                    delivery.getId(), delivery.getTarget(), error);
-        }
+        String reason = truncate(error);
         Instant nextAt = clock.instant().plus(backoffFor(delivery.getAttemptCount()));
-        if (store.markFailed(delivery.getId(), token, nextAt, truncate(error)) == 0) {
+        if (store.markFailed(delivery.getId(), token, nextAt, reason) == 0) {
             log.warn("낡은 리스의 실패 표시를 거부했다 — deliveryId={}", delivery.getId());
             return;
         }
         meterRegistry.counter("outbox.relay.failed",
                 "target", delivery.getTarget().name(), "retryable", String.valueOf(retryable)).increment();
+        // lastError 는 선점 시점 값 = 직전에 기록된 실패 사유라서 같은 영구 실패를 다시 적지 않는다.
+        if (!retryable && !Objects.equals(reason, delivery.getLastError())) {
+            log.error("재시도로 풀리지 않는 전달 실패 — deliveryId={} target={} 사유={} (행은 남긴다)",
+                    delivery.getId(), delivery.getTarget(), error);
+        }
         Integer threshold = properties.getRetry().getMaxAttempts();
-        if (threshold != null && delivery.getAttemptCount() >= threshold) {
+        // 시도 수는 선점이 올리고 실패 기록 뒤에는 줄지 않아 행마다 임계값에 한 번만 닿는다.
+        // ponytail: 임계 번째 시도가 실패 기록 없이 끝나면(리스 상실·재배포·표시 실패) 이 경고는 뜨지 않는다 —
+        // outbox.relay.failed 카운터가 매 재시도를 센다. 놓치면 안 되면 마지막 경고 시도 수를 행에 저장한다.
+        if (threshold != null && delivery.getAttemptCount() == threshold) {
             // 경고 임계값일 뿐이다. 폐기·DLQ 이동은 A18 이 정할 몫이라 여기서 하지 않는다.
-            log.error("전달 시도가 임계값을 넘었다 — deliveryId={} target={} attempts={} 사유={}",
+            log.error("전달 시도가 임계값에 닿았다 — deliveryId={} target={} attempts={} 사유={}",
                     delivery.getId(), delivery.getTarget(), delivery.getAttemptCount(), error);
         }
     }
