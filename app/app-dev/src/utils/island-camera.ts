@@ -4,6 +4,16 @@ export type XY = { x: number; y: number };
 // remains a transform; rendering a phone-width world at iPad width wastes pixels.
 export const islandBaseScale = (width: number, height: number) =>
   Math.min(width / 1024, height / 1700);
+/**
+ * 가운데가 x 인 폭 w 의 이름표·말풍선을 보이는 가로 범위 [lo, hi] 기준으로 옮긴 새 가운데.
+ * 주인(x)이 화면 안이면 이름표 전체를 화면 안으로, 화면 밖이면 전체를 화면 밖으로 민다 — 가장자리에 반쯤 잘린 이름표를 남기지 않는다.
+ */
+export const keepLabelInView = (x: number, w: number, lo: number, hi: number) =>
+  x < lo
+    ? Math.min(x, lo - w / 2)
+    : x > hi
+      ? Math.max(x, hi + w / 2)
+      : Math.max(lo + w / 2, Math.min(hi - w / 2, x));
 export class IslandCamera {
   width = 402;
   height = 874;

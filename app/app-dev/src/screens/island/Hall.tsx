@@ -782,7 +782,9 @@ export function Hall({ e }: any) {
           onPress={() => ledger.setTab(key)}
           style={[
             {
-              width: 72.3,
+              // 시안 폭 72.3까지만 커지고, 제목표 옆에 남는 폭이 모자라면 셋이 똑같이 줄어든다
+              flex: 1,
+              maxWidth: 72.3,
               height: 51.6,
               alignItems: 'center',
               justifyContent: 'center',
@@ -793,14 +795,21 @@ export function Hall({ e }: any) {
             on && web({ filter: 'brightness(1.04)' }),
           ]}
         >
-          {/* 아래가 제비꼬리로 파인 책갈피. 테두리는 위·양옆만 */}
-          <Svg width={72.3} height={51.6} style={{ position: 'absolute', left: 0, top: 0 }}>
+          {/* 아래가 제비꼬리로 파인 책갈피. 테두리는 위·양옆만. 폭이 줄면 모양만 가로로 눌리고 선 굵기는 그대로 */}
+          <Svg
+            width="100%"
+            height={51.6}
+            viewBox="0 0 72.3 51.6"
+            preserveAspectRatio="none"
+            style={{ position: 'absolute', left: 0, top: 0 }}
+          >
             <Path d="M0 0H72.3V51.6L36.15 41.28L0 51.6Z" fill={color} />
             <Path
               d="M0.95 51.6V6.15Q0.95 0.95 6.15 0.95H66.15Q71.35 0.95 71.35 6.15V51.6"
               fill="none"
               stroke="#775846"
               strokeWidth={1.9}
+              vectorEffect="non-scaling-stroke"
             />
           </Svg>
           <T style={g(15.5, 19.375, { fontWeight: '800' })}>{label}</T>
@@ -1172,56 +1181,67 @@ export function Hall({ e }: any) {
             </ScrollView>
           )}
         </View>
+        {/* 제목표와 책갈피를 한 줄에 둔다 — 따로 절대 배치하면 좁은 화면·큰 글자에서 책갈피가 제목을 덮는다 */}
         <View
-          style={[
-            {
-              position: 'absolute',
-              zIndex: 4,
-              left: 12.9,
-              top: -43.9,
-              minWidth: 133,
-              paddingTop: 7.7,
-              paddingHorizontal: 19.4,
-              paddingBottom: 9,
-              borderWidth: 1.9,
-              borderColor: '#68482f',
-              borderTopLeftRadius: 7.7,
-              borderTopRightRadius: 7.7,
-              borderBottomLeftRadius: 11.6,
-              borderBottomRightRadius: 11.6,
-              backgroundColor: '#c78e58',
-              boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
-              transform: [{ rotate: '-1deg' }],
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
-            }),
-          ]}
-        >
-          <T
-            style={g(19.4, 23.28, {
-              color: '#fff8e8',
-              textAlign: 'center',
-              textShadowColor: 'rgb(102, 68, 46)',
-              textShadowOffset: { width: 0, height: 1.3 },
-              textShadowRadius: 0,
-            })}
-          >
-            공동 가계부
-          </T>
-        </View>
-        <View
+          testID="ledger-heading"
           style={{
             position: 'absolute',
             zIndex: 5,
+            left: 12.9,
             right: 19.4,
-            top: -22,
+            top: -43.9,
             flexDirection: 'row',
-            gap: 3.9,
+            alignItems: 'flex-start',
+            gap: semanticTokens.spacing.control,
           }}
         >
-          {(['잔액', '적립', '지출'] as const).map(bookmark)}
+          <View
+            style={[
+              {
+                minWidth: 133,
+                paddingTop: 7.7,
+                paddingHorizontal: 19.4,
+                paddingBottom: 9,
+                borderWidth: 1.9,
+                borderColor: '#68482f',
+                borderTopLeftRadius: 7.7,
+                borderTopRightRadius: 7.7,
+                borderBottomLeftRadius: 11.6,
+                borderBottomRightRadius: 11.6,
+                backgroundColor: '#c78e58',
+                boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
+                transform: [{ rotate: '-1deg' }],
+              },
+              web({
+                backgroundImage:
+                  'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
+              }),
+            ]}
+          >
+            <T
+              style={g(19.4, 23.28, {
+                color: '#fff8e8',
+                textAlign: 'center',
+                textShadowColor: 'rgb(102, 68, 46)',
+                textShadowOffset: { width: 0, height: 1.3 },
+                textShadowRadius: 0,
+              })}
+            >
+              공동 가계부
+            </T>
+          </View>
+          {/* 책갈피 윗변은 시안대로 책 위 22(제목표 윗변보다 43.9 − 22 아래) */}
+          <View
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              gap: 3.9,
+              marginTop: 43.9 - 22,
+            }}
+          >
+            {(['잔액', '적립', '지출'] as const).map(bookmark)}
+          </View>
         </View>
       </View>,
       e.back,

@@ -1136,6 +1136,9 @@ export function SheetGroup({
   flat?: boolean;
   children?: React.ReactNode;
 }) {
+  const rows = React.Children.toArray(children).filter(React.isValidElement);
+  // 행이 하나도 없으면 테두리·그림자만 남아 빈 안내 아래 갈색 막대가 된다 — 묶음 자체를 그리지 않는다
+  if (!rows.length) return null;
   return (
     <View
       style={{
@@ -1147,9 +1150,7 @@ export function SheetGroup({
         boxShadow: flat ? 'none' : `0px 4px 0px ${C.brown}`,
       }}
     >
-      {React.Children.toArray(children)
-        .filter(React.isValidElement)
-        .map((c: any, i) => React.cloneElement(c, { divider: i > 0 }))}
+      {rows.map((c: any, i) => React.cloneElement(c, { divider: i > 0 }))}
     </View>
   );
 }

@@ -825,6 +825,47 @@ test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 
   );
 });
 
+test('준비 완료 도장은 예상 모습 그림 위에 찍혀 가격 숫자를 가리지 않는다(GROMO-2409)', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });
+  options.items[0] = { ...options.items[0], buildable: true, blockedReason: null };
+  getConstructionOptionsMock.mockResolvedValue(options);
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+  await waitFor(() => assert.ok(screen.getByLabelText('준비 완료 도장')));
+
+  // 도장은 가격·시간이 적힌 글자 칸 밖(청사진 두 열 위)에 있다
+  const copy = screen.getByTestId('board-blueprint-copy');
+  assert.ok(within(copy).getByText('총 37마리'));
+  expect(within(copy).queryByLabelText('준비 완료 도장')).toBeNull();
+  assert.ok(within(screen.getByTestId('board-blueprint-grid')).getByLabelText('준비 완료 도장'));
+});
+
+test.each([
+  ['공지 상세', { boardPanel: 'notice', boardView: 'detail' }],
+  ['공지 쓰기', { boardPanel: 'notice', boardView: 'write' }],
+  ['퀘스트 상세', { boardPanel: 'quest', boardView: 'detail-focus' }],
+] as const)(
+  '%s 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 날짜·댓글 줄이 삐져나오지 않는다(GROMO-2409)',
+  async (_name, over) => {
+    const screen = await renderBoard(null, concept(over));
+    // 상세가 떠 있으면 목록 종이는 스크린리더에서도 숨겨져 있다
+    const drawer = StyleSheet.flatten(
+      screen.getByTestId('board-drawer', { includeHiddenElements: true }).props.style,
+    );
+    assert.equal(drawer.opacity, 0);
+    await screen.unmount();
+
+    // 목록만 볼 때는 그대로 보인다
+    const list = await renderBoard(
+      null,
+      concept({ boardPanel: over.boardPanel, boardView: 'list' }),
+    );
+    const listDrawer = StyleSheet.flatten(list.getByTestId('board-drawer').props.style);
+    assert.notEqual(listDrawer.opacity, 0);
+    await list.unmount();
+  },
+);
+
 test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시도로 복구한다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   getConstructionOptionsMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오류', 0));

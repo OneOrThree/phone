@@ -5905,7 +5905,10 @@ export function Board({
                 예상 모습
               </Text>
             </View>
-            <View style={{ position: 'relative', flex: 1, minWidth: 0, alignSelf: 'center' }}>
+            <View
+              testID="board-blueprint-copy"
+              style={{ flex: 1, minWidth: 0, alignSelf: 'center' }}
+            >
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
                 {bp.name}
               </Text>
@@ -5920,22 +5923,23 @@ export function Board({
               >
                 {bp.detail}
               </Text>
-              {stamp && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    zIndex: 2,
-                    left: '50%',
-                    top: '50%',
-                    marginLeft: -63,
-                    marginTop: -63,
-                  }}
-                >
-                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
-                </View>
-              )}
             </View>
+            {/* 도장은 예상 모습 그림(왼쪽 36% 칸) 가운데에 찍는다 — 글자 칸 가운데면 가격·공사 시간 숫자를 가린다 */}
+            {stamp && (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  zIndex: 2,
+                  left: '18%',
+                  top: '50%',
+                  marginLeft: -63,
+                  marginTop: -63,
+                }}
+              >
+                <BlueprintReadyStamp reduceMotion={reduceMotion} />
+              </View>
+            )}
           </View>
         </View>
         {showResidentProgress && (
@@ -6579,6 +6583,9 @@ export function Board({
             backgroundColor: 'transparent',
             boxShadow: 'none',
           },
+          // 공지 상세·쓰기·퀘스트 상세 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 상세 종이보다 넓고 길어
+          // 아래·옆으로 날짜·댓글 줄이 삐져나온다. 닫으면 스크롤 위치 그대로 다시 보인다
+          boardOverlayOpen && { opacity: 0 },
         ]}
       >
         {paperPanel && (
@@ -8095,12 +8102,18 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 {t('magazine.mail.open', { no: magazineIssue.issueNo })}
               </Text>
               {magazineUnreadDot && (
+                // 알약 오른쪽 위 둥근 끝 안쪽에 둔다 — 점 중심이 모서리 원 중심 바로 위라 테두리에 닿지 않는다
                 <View
                   testID="mail-home-magazine-dot"
                   style={{
                     position: 'absolute',
-                    top: -componentTokens.mailboxAction.dotSize / 3,
-                    right: componentTokens.mailboxAction.dotSize / 2,
+                    top:
+                      (componentTokens.mailboxAction.pillRadius -
+                        componentTokens.mailboxAction.dotSize) /
+                      2,
+                    right:
+                      componentTokens.mailboxAction.pillRadius -
+                      componentTokens.mailboxAction.dotSize / 2,
                     width: componentTokens.mailboxAction.dotSize,
                     height: componentTokens.mailboxAction.dotSize,
                     borderRadius: componentTokens.mailboxAction.dotSize / 2,
@@ -8118,7 +8131,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             accessibilityLabel={t('magazine.rack.open')}
             onPress={() => setMagazineRack(true)}
             style={{
-              flex: magazineIssue ? 0 : 1,
+              // 잡지 보기 옆에서는 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 은 웹에서 기준 폭 0 이라 한 글자씩 세로로 접힌다
+              flexGrow: magazineIssue ? 0 : 1,
+              flexShrink: 0,
               minHeight: semanticTokens.size.tapMin,
               paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
               justifyContent: 'center',

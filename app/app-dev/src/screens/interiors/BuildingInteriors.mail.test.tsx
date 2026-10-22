@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -533,6 +533,13 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
       '고양이 잡지 보기 19호, 아직 안 읽음',
     );
     assert.ok(ui.getByTestId('mail-home-magazine-dot'));
+    // 빨간 점은 알약 테두리에 걸치지 않고 안쪽에 있다(GROMO-2409)
+    const dot = StyleSheet.flatten(ui.getByTestId('mail-home-magazine-dot').props.style);
+    assert.ok(dot.top >= 0 && dot.right >= 0);
+    // 잡지 꽂이는 잡지 보기 옆에서 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 이면 웹에서 세로로 접힌다
+    const rack = StyleSheet.flatten(ui.getByTestId('mail-home-rack').props.style);
+    assert.equal(rack.flexShrink, 0);
+    assert.equal(rack.flex, undefined);
     await fireEvent.press(ui.getByTestId('mail-home-rack'));
     await waitFor(() => assert.ok(ui.getByTestId('magazine-rack-13')));
     await fireEvent.press(ui.getByTestId('magazine-rack-17'));

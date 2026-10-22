@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { Platform } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Platform, StyleSheet } from 'react-native';
+import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { initialState, dayKey } from '@/services/model';
 import type { LedgerPage, TownHallScreen } from '@/services/api/townHall';
@@ -104,6 +104,25 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
   assert.equal(screen.queryByText(/41마리/), null);
   assert.equal(townHallMock.mock.calls.length, 1);
   assert.equal(ledgerMock.mock.calls.length, 0);
+});
+
+test('「공동 가계부」 제목표와 책갈피는 한 줄에 놓여 책갈피가 제목을 덮지 않는다(GROMO-2409)', async () => {
+  townHallMock.mockResolvedValue(screenBody({}));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+
+  // 제목표와 책갈피가 같은 줄(flex row) 안에 있다 — 따로 절대 배치하면 좁은 화면에서 겹친다
+  const heading = screen.getByTestId('ledger-heading');
+  assert.equal(StyleSheet.flatten(heading.props.style).flexDirection, 'row');
+  assert.ok(within(heading).getByText('공동 가계부'));
+  for (const label of ['잔액', '적립', '지출']) {
+    assert.ok(within(heading).getByTestId(`ledger-tab-${label}`));
+    // 고정 폭이 아니라 시안 폭까지만 커지고 남는 폭만큼 줄어든다
+    const tab = StyleSheet.flatten(screen.getByTestId(`ledger-tab-${label}`).props.style);
+    assert.equal(tab.width, undefined);
+    assert.equal(tab.flex, 1);
+    assert.equal(tab.maxWidth, 72.3);
+  }
 });
 
 test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨·묶음 표시를 단다', async () => {
