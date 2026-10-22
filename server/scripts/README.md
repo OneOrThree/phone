@@ -188,6 +188,10 @@ docker compose -p phone --env-file "$RUNTIME_ENV_FILE"   -f server/scripts/docke
 
 Compose가 DB·Redis 및 `realtime-db-init` 의존성을 함께 처리합니다. 기존 `chat` 이름의 서비스는 자동으로 중지되지 않으므로 인스턴스 전환 절차에서 확인합니다.
 
+dev 앱 네 서비스(Data·Business·Realtime·Notification)는 시작 유예 120초, 검사 간격 10초, 검사 제한 5초, 연속 실패 6회로 통일합니다. 유예 중에도 준비 상태 검사가 성공하면 즉시 healthy가 됩니다. 유예가 끝나도 계속 실패하면 6회 실패 후 unhealthy가 되므로, 120초는 전체 기동 제한이 아닙니다. 검사 소요 시간에 따라 실패 확정 시점은 달라집니다. 공용 위성 Compose는 dev 보간 입력의 `APP_HEALTH_START_PERIOD=120s`, `APP_HEALTH_RETRIES=6`을 사용하며, 운영 입력의 기존 기본값(30초·30회)은 유지합니다. `.github/scripts/wait-healthy.sh`의 프로세스 종료·재시작 즉시 실패와 최대 900초 대기 한도는 유지합니다. 이 준비 확인은 스모크 전 300초 안정화 대기보다 앞 단계입니다.
+
+Realtime 기동 로그는 dev VM에서 `docker logs --timestamps phone-realtime`로 조회합니다. Docker `json-file` 드라이버가 50MB 파일 최대 4개로 회전하며, 컨테이너 삭제 시 함께 유실될 수 있습니다. Datadog 로그 수집 라벨은 설정되어 있지만 실제 수집 성공·보존 기간은 별도 확인이 필요합니다. Data 전용 S3 아카이브를 Realtime 로그 보관 경로로 간주하지 않습니다.
+
 ## 8. 위성 배포 준비
 
 [`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, Business Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다.

@@ -266,6 +266,9 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
     require(secret, LEGACY_REQUIRED_KEYS)
 
     values: list[tuple[str, Any]] = [("APP_IMAGE", app_image)]
+    # 공용 위성 Compose의 운영 기본값은 유지하고 dev 배포 입력에서만 기동 정책을 통일한다.
+    if environment == "dev":
+        values.extend((("APP_HEALTH_START_PERIOD", "120s"), ("APP_HEALTH_RETRIES", "6")))
     values.extend((key, secret[key]) for key in LEGACY_REQUIRED_KEYS)
     values.extend(
         (

@@ -158,10 +158,12 @@ services:
     healthcheck:
       # 관리 포트는 컨테이너 안에서만 보인다 — 헬스체크는 컨테이너 안에서 돌므로 닿는다.
       test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health/readiness || exit 1"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 60s
+      retries: 6
+      # dev 앱 공통 정책: 시작 유예 120초, 이후 10초 간격·6회 실패 허용.
+      # 유예 중에도 readiness가 성공하면 즉시 healthy가 된다.
+      start_period: 120s
 
 networks:
   app-network:

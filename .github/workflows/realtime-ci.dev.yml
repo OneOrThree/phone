@@ -21,6 +21,7 @@ on:
       - '.github/scripts/dev-env.sh'
       - '.github/scripts/write-compose-env.py'
       - '.github/scripts/wait-healthy.sh'
+      - '.github/scripts/test_realtime_startup.py'
       - '.github/scripts/mark-deploy.sh'
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
@@ -45,6 +46,7 @@ on:
       - '.github/scripts/dev-env.sh'
       - '.github/scripts/write-compose-env.py'
       - '.github/scripts/wait-healthy.sh'
+      - '.github/scripts/test_realtime_startup.py'
       - '.github/scripts/mark-deploy.sh'
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
@@ -71,6 +73,20 @@ env:
   REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime
 
 jobs:
+  startup-contract:
+    name: Realtime 기동 판정 회귀 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_realtime_startup.py' -v
+
   # 배포 전 SM 점검 (GROMO-2224). main push 에서만 SM 을 읽고 PR 에선 아무것도 안 함 — 공개 레포라 PR 에 AWS 자격 금지.
   # 필수 키가 빠졌으면 이미지 빌드 전에 멈춤. legacy + 전 서비스를 한 번에 봄.
   secrets-check:
@@ -129,7 +145,7 @@ jobs:
     # 다시 보니 그 인증이 PR 에서 필요한 이유는 «레지스트리 캐시» 하나뿐이었다. 이미지를
     # 올리는 것은 main push 뿐이다(아래 `push:`). 그래서 GROMO-1918 에서 PR 경로의 캐시를
     # type=gha 로 바꾸고 PR 은 GitHub-hosted 로 옮긴다 — push 만 self-hosted 에 남는다.
-    needs: [build, secrets-check]
+    needs: [build, secrets-check, startup-contract]
     runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 25
     permissions:

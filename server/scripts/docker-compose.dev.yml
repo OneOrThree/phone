@@ -75,8 +75,8 @@ services:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 30s
+      retries: 6
+      start_period: 120s
 
   db:
     logging: *infra-logging
