@@ -8008,6 +8008,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     const routes: MailRoute[] = ['island', 'inbox', 'friend-select'];
     const colors = ['#dce8c1', '#bddde0', '#efbcc4'];
     const [title, note] = homeItems[i];
+    // 칸 위쪽 그림 자리(첫 칸은 줄 종이, 나머지는 봉투 덮개). 글자는 가운데 정렬이라 「새 편지 N통」 줄이 붙으면 위로 올라온다 —
+    // 글자 시작(paddingTop)을 그림 바닥 + 5(첫 칸과 같은 틈)로 둬 덮개가 제목을 가리지 않게 한다
+    const art = first ? { top: 17, height: 66 } : { top: 8, height: 25 };
     return (
       <Pressable
         key={title}
@@ -8018,7 +8021,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         style={[
           {
             minHeight: first ? 151 : 72,
-            paddingTop: first ? 88 : 29,
+            paddingTop: art.top + art.height + 5,
             paddingHorizontal: 7,
             paddingBottom: 9,
             justifyContent: 'center',
@@ -8041,13 +8044,14 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           </Text>
         ) : null}
         <View
+          testID={`mail-home-${i}-art`}
           style={[
             {
               position: 'absolute',
               left: 8,
               right: 8,
-              top: first ? 17 : 8,
-              height: first ? 66 : 25,
+              top: art.top,
+              height: art.height,
             },
             first
               ? [
@@ -8062,7 +8066,24 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 ),
             webOnly({ filter: 'drop-shadow(0 2px 1px #65402a33)' }),
           ]}
-        />
+        >
+          {/* 네이티브는 repeating-linear-gradient 를 못 그려 흰 사각형만 남는다 — 웹과 같은 12px 간격 줄을 긋는다 */}
+          {first &&
+            Platform.OS !== 'web' &&
+            Array.from({ length: Math.floor(art.height / 12) }, (_, n) => (
+              <View
+                key={n}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: 11 + n * 12,
+                  height: 1,
+                  backgroundColor: '#d7c5a3',
+                }}
+              />
+            ))}
+        </View>
       </Pressable>
     );
   };
