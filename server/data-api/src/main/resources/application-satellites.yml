@@ -300,41 +300,9 @@ outbox:
     # realtime-events 토픽으로 보낸다(realtime 의 REALTIME_EVENTS_KAFKA_ENABLED 를 먼저 켠다).
     realtime-kafka-enabled: ${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}
     endpoints:
-      "[link.revoked]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
-      "[link.claimConfirmed]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
-      "[link.joined]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
-      "[link.groupClosed]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
-      "[link.groupRenamed]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
-      "[link.displayNameChanged]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
-      "[link.userWithdrawn]":
-        target: LINK
-        url: ${LINK_BASE_URL}/internal/events
-        method: POST
-        token: ${SVC_TOKEN_DATA_TO_LINK}
+      # link.* 7종은 relay 대상에서 뺐다 — ${LINK_BASE_URL}/internal/events 를 받는 서버가 없어 영구 실패만 쌓였다(GROMO-2407).
+      # LINK 전달 행은 producer 가 계속 쓰지만 SCORE 처럼 relay 가 집지 않는다(대상에 endpoint 가 하나도 없으면 transport 가 없다).
+      # 생산 정리는 링크 구현 PR 몫이다 — docs/prd/fishcat/link-attribution/low-level-design.md §9.2.
       "[noti.deviceTokenDeleted]":
         target: NOTI
         url: ${NOTIFICATION_BASE_URL}/internal/events
