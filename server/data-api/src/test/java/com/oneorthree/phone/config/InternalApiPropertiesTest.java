@@ -62,7 +62,7 @@ class InternalApiPropertiesTest {
         InternalApiProperties properties = new InternalApiProperties();
         properties.setEnabled(true);
         properties.getCallers().put("business", caller("same", "GET /internal/users/*/activation"));
-        properties.getCallers().put("notification", caller("same", "GET /internal/users/*/result-ack"));
+        properties.getCallers().put("notification", caller("same", "GET /internal/users/notification-snapshot"));
 
         assertThatThrownBy(properties::validateWhenEnabled)
                 .isInstanceOf(IllegalStateException.class)
@@ -76,7 +76,7 @@ class InternalApiPropertiesTest {
         InternalApiProperties properties = new InternalApiProperties();
         properties.setEnabled(true);
         properties.getCallers().put("business", caller("same", "GET /internal/users/*/activation"));
-        properties.getCallers().put("notification", caller(padded, "GET /internal/users/*/result-ack"));
+        properties.getCallers().put("notification", caller(padded, "GET /internal/users/notification-snapshot"));
 
         assertThatThrownBy(properties::validateWhenEnabled)
                 .isInstanceOf(IllegalStateException.class)
@@ -115,7 +115,7 @@ class InternalApiPropertiesTest {
                 "POST /internal/auth/device-sessions/verify",
                 "POST /internal/outbox-commands/*/delivered",
                 "GET /internal/migrations/*/invite-link-clicks/candidates"));
-        properties.getCallers().put("notification", caller("noti", "GET /internal/users/*/result-ack"));
+        properties.getCallers().put("notification", caller("noti", "GET /internal/users/notification-snapshot"));
 
         assertThatCode(properties::validateWhenEnabled).doesNotThrowAnyException();
     }

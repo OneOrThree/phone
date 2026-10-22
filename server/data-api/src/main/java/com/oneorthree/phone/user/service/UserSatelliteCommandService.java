@@ -38,15 +38,8 @@ import java.util.UUID;
  * 지운다({@code App.tsx:528}). 그러면 사용자는 껐다고 보는데 정본은 계속 켜져 있고, 이전 계정 푸시가
  * 그 기기로 계속 간다.
  *
- * <h2>전환 기간에는 Data 의 «현행» 상태도 같이 바꾼다</h2>
- * 두 정본은 결국 {@code gromo_notification} 으로 넘어가지만, 컷오버 전까지는 기존 {@code /api} 경로와
- * Data 잔류 발송 잡이 <b>여기 있는 행</b>을 읽는다. outbox 만 적고 현행 행을 그대로 두면 「껐는데 Data
- * 잔류 잡이 계속 보낸다」가 남는다. 그래서 같은 트랜잭션에서 둘 다 쓴다.
- *
- * <h2>왜 {@code user} 도메인에 있는가</h2>
- * 두 명령을 부르는 자리가 둘이기 때문이다 — 내부 표면({@code /internal/*})과 <b>로그아웃</b>이다.
- * 로그아웃은 {@code auth} 도메인이고 내부 표면은 그보다 위라, 공통 조상인 {@code user}(모두가 참조할
- * 수 있는 바닥) 말고는 둘 다 닿을 수 있는 자리가 없다.
+ * <p>알림 설정은 Data의 사용자 설정 행과 outbox를 같은 트랜잭션에서 갱신한다.
+ * 기기 토큰은 알림 서버가 소유하며 Data는 삭제 명령을 내구 기록한다.
  *
  * <h2>봉투 변환만 한다 — 트랜잭션은 부르는 쪽 것이다</h2>
  * {@code record*}·{@code patch*} 는 전부 {@code MANDATORY} 다(GROMO-1953). 로그아웃·탈퇴는 자기 트랜잭션 안에서
@@ -66,9 +59,6 @@ public class UserSatelliteCommandService {
     /** 사건 종류 — 기기 토큰 삭제 명령. */
     public static final String EVENT_DEVICE_TOKEN_DELETED = "notification.deviceToken.deleted";
 
-    /** 새 세션에 연결되지 않은 이관 기기만 삭제한다. 구 소비자는 이 종류를 거절하고 재시도한다. */
-    public static final String EVENT_LEGACY_DEVICE_TOKEN_DELETED = "notification.legacyDeviceToken.deleted";
-
     /** 사건 종류 — 알림 설정 전체 교체. */
     public static final String EVENT_SETTINGS_CHANGED = "notification.settings.changed";
 
@@ -80,8 +70,8 @@ public class UserSatelliteCommandService {
 
     private static final int SCHEMA_VERSION = 1;
 
-    private final UserRepository userRepository;
     private final UserQueryService userQueryService;
+    private final UserRepository userRepository;
     private final OutboxCommandPort outboxCommandPort;
 
     /**
@@ -103,7 +93,7 @@ public class UserSatelliteCommandService {
     }
 
     /**
-     * 기기 토큰 삭제를 <b>내구 기록</b>하고 Data 의 현행 토큰도 지운다 (㊲ · ㊿ · ㊨ · ㊪).
+     * 기기 토큰 삭제를 <b>내구 기록</b>한다 (㊲ · ㊿ · ㊨ · ㊪).
      *
      * <p>호출자는 이 기록이 끝난 <b>뒤에</b> 알림 서버 직접 삭제를 시도한다. 순서를 뒤집으면(실패 후에야
      * 기록) 그 사이 프로세스가 죽을 때 직접 삭제도 outbox 도 남지 않는다.
@@ -149,9 +139,6 @@ public class UserSatelliteCommandService {
                                 request.sessionId()),
                 EventEnvelope.class,
                 () -> {
-                    if (request.deviceToken() != null && !request.deviceToken().isBlank()) {
-                        userRepository.clearDeviceTokenIncludingWithdrawn(userId, request.deviceToken());
-                    }
                     Map<String, Object> params = new LinkedHashMap<>();
                     params.put("deviceToken", request.deviceToken());
                     params.put("ownershipToken", request.ownershipToken());
@@ -164,26 +151,6 @@ public class UserSatelliteCommandService {
                         params.put("bootstrapNonceHash", bootstrapNonceHash);
                     }
                     return append(EVENT_DEVICE_TOKEN_DELETED, userId, params,
-                            OutboxDeliveryRequest.toNotification(ENDPOINT_DEVICE_TOKEN_DELETED, null));
-                }).value();
-    }
-
-    /** 구 RT에 연결된 이관 기기만 삭제한다. 새 세션·bootstrap으로 다시 등록된 행은 대상이 아니다. */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public EventEnvelope recordLegacyLogoutDeviceTokenDeletion(UUID userId, String deviceToken, String key) {
-        if (deviceToken == null || deviceToken.isBlank()) {
-            throw new IllegalArgumentException("구 로그아웃의 대상 기기 토큰이 필요합니다.");
-        }
-        return outboxCommandPort.runIdempotent(
-                InternalCommands.idempotency(key, userId, "legacy-logout-device-token-deletion", deviceToken),
-                EventEnvelope.class,
-                () -> {
-                    userRepository.clearDeviceTokenIncludingWithdrawn(userId, deviceToken);
-                    Map<String, Object> params = new LinkedHashMap<>();
-                    params.put("deviceToken", deviceToken);
-                    params.put("ownershipToken", null);
-                    params.put("authGeneration", null);
-                    return append(EVENT_LEGACY_DEVICE_TOKEN_DELETED, userId, params,
                             OutboxDeliveryRequest.toNotification(ENDPOINT_DEVICE_TOKEN_DELETED, null));
                 }).value();
     }
@@ -230,7 +197,7 @@ public class UserSatelliteCommandService {
                     settings.setNightStartTime(parseTime(request.getNightStartTime()));
                     settings.setNightEndTime(parseTime(request.getNightEndTime()));
 
-                    // legacy 전체 요청은 그대로 보존한다. 소비자는 이 모양을 mask 5개로 처리해
+                    // 전체 설정 요청은 소비자가 mask 5개로 처리해
                     // 신규 부분 변경과 같은 필드별 버전 경계에서 병합한다.
                     Map<String, Object> params = new LinkedHashMap<>();
                     params.put("notificationEnabled", request.getNotificationEnabled());

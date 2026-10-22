@@ -37,8 +37,8 @@ class MailboxScreenContractTest extends ScreenContractTestBase {
     private static final String LETTERS = "{\"content\":[{\"id\":\"" + LETTER + "\",\"counterpartUserId\":\"" + PEER
             + "\",\"counterpartNickname\":\"짝꿍\",\"content\":\"안녕\",\"isRead\":false,"
             + "\"createdAt\":\"2026-09-18T01:00:00Z\"}],\"size\":20,\"hasNext\":false,\"nextCursor\":null}";
-    private static final String FRIENDS = "[{\"userId\":\"" + PEER + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
-            + "\"occupation\":null,\"isPinned\":false,\"isFocusing\":false,\"focusTimeMinutes\":0,"
+    private static final String FRIENDS = "[{\"userId\":\"" + PEER + "\",\"nickname\":\"짝꿍\","
+            + "\"isFocusing\":false,\"focusTimeMinutes\":0,"
             + "\"focusStartedAt\":null,\"focusTagName\":null}]";
 
     private static String rtMessage(UUID id, UUID sender, String content) {

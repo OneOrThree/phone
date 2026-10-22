@@ -103,7 +103,7 @@ class OutboxCommandIntegrationTest {
                 eventId, 1, "user.withdrawn", userId, "ko", null,
                 AggregateRef.ofUser(userId), null, Map.of("reason", "SELF"),
                 List.of(OutboxDeliveryRequest.toKafka(),
-                        OutboxDeliveryRequest.toLink("LINK_USER_WITHDRAW", null),
+                        OutboxDeliveryRequest.toRealtime("HTTP_USER_EVENT", null),
                         OutboxDeliveryRequest.toNotification("NOTI_USER_WITHDRAW",
                                 Map.of("userId", userId.toString()))))));
 
@@ -144,15 +144,15 @@ class OutboxCommandIntegrationTest {
                 command(userId, "evt-v1-" + UUID.randomUUID())).version());
         long second = tx().execute(status -> outboxCommandPort.append(
                 command(userId, "evt-v2-" + UUID.randomUUID())).version());
-        long linkFirst = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
-                "evt-link-" + UUID.randomUUID(), 1, "link.revoked", userId, null, groupId.toString(),
-                AggregateRef.ofLinkMembership(groupId, userId), null, Map.of(),
-                List.of(OutboxDeliveryRequest.toLink("LINK_REVOKE", null)))).version());
+        long islandFirst = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
+                "evt-island-" + UUID.randomUUID(), 1, "island.updated", userId, null, groupId.toString(),
+                new AggregateRef("ISLAND", groupId.toString()), null, Map.of(),
+                List.of(OutboxDeliveryRequest.toRealtime("HTTP_MEMBER_EVENT", null)))).version());
 
         assertThat(first).isEqualTo(1L);
         assertThat(second).isEqualTo(2L);
-        assertThat(linkFirst)
-                .as("링크 멤버십 전이는 유저와 다른 축이다 — 유저 번호를 물려받으면 ㋥ 의 전이 순서가 깨진다")
+        assertThat(islandFirst)
+                .as("섬 사건은 유저 사건과 다른 축이므로 독립적인 첫 버전을 받는다")
                 .isEqualTo(1L);
     }
 
@@ -335,7 +335,7 @@ class OutboxCommandIntegrationTest {
 
     private static OutboxAppendCommand command(UUID userId, String eventId) {
         return new OutboxAppendCommand(
-                eventId, 1, "challenge.created", userId, "ko", null,
+                eventId, 1, "notification.requested", userId, "ko", null,
                 AggregateRef.ofUser(userId), null, Map.of(),
                 List.of(OutboxDeliveryRequest.toKafka()));
     }

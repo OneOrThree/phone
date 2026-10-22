@@ -63,3 +63,6 @@ docs/db/*.sh
 !docs/db/verify-schema-dbml.sh
 docs/db/*_backup.json
 docs/db/.DS_Store
+# 구 전체 삭제 명령의 재사용을 막는 안내 스크립트는 공유한다.
+!docs/db/reset-db.sh
+!docs/db/setup-dev-db.sh

@@ -2,11 +2,6 @@
 spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
-link:
-  capability-key: ${LINK_CAPABILITY_KEY}
-notification:
-  dispatch:
-    mode: ${NOTIFICATION_DISPATCH_MODE:LEGACY}
 
 # 명령 기반만 구현했다. 기본은 OFF — prod 개방은 별도 결정이다. dev 는 2026-09-29 relay ON 뒤 강퇴 직후 채팅
 # 차단(GROMO-2140)까지 검증하고 env 로 켰다(GROMO-2156).
@@ -101,16 +96,6 @@ internal:
           - 'PATCH /internal/users/*/notification-settings-commands'
           - 'POST /internal/users/*/notification-settings-snapshot'
           - 'POST /internal/outbox-commands/*/delivered'
-          - 'GET /internal/groups/*/invite-issue-context'
-          - 'POST /internal/invite-links/claim-intents'
-          - 'GET /internal/invite-links/claim-intents'
-          - 'POST /internal/invite-links/claim-intents/*/lease'
-          - 'POST /internal/invite-links/claim-intents/*/completed'
-          - 'POST /internal/invite-links/claim-intents/*/abandoned'
-          - 'POST /internal/invite-links/claim-confirmations'
-          - 'GET /internal/migrations/*/invite-link-clicks/candidates'
-          - 'POST /internal/users/*/challenge-results/*/claim'
-          - 'POST /internal/users/*/challenge-results/*/ack'
           # GROMO-1764 집중 세션 수명주기 6종. AntPathMatcher 의 `*` 는 «세그먼트 하나»라
           # 세그먼트 수를 정확히 맞춘다 — `/focus-sessions/*/pause` 는 sessionId 자리 하나만 받는다.
           - 'POST /internal/users/*/focus-sessions'
@@ -278,7 +263,6 @@ internal:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:
           - 'GET /internal/users/notification-snapshot'
-          - 'GET /internal/users/*/result-ack'
           - 'POST /internal/notifications/eligibility'
 outbox:
   relay:
@@ -300,11 +284,6 @@ outbox:
     # realtime-events 토픽으로 보낸다(realtime 의 REALTIME_EVENTS_KAFKA_ENABLED 를 먼저 켠다).
     realtime-kafka-enabled: ${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}
     endpoints:
-      # link.* 7종은 relay 대상에서 뺐다 — ${LINK_BASE_URL}/internal/events 를 받는 서버가 없어 영구 실패만 쌓였다(GROMO-2407).
-      # LINK 전달 행은 producer 가 계속 쓰지만 SCORE 처럼 relay 가 집지 않는다(대상에 endpoint 가 하나도 없으면 transport 가 없다).
-      # 생산 정리는 링크 구현 PR 몫이다 — docs/prd/fishcat/link-attribution/low-level-design.md §9.2.
-      # 받는 서버가 생겨 되살릴 때는 7종을 함께 넣는다 — 하나만 넣으면 LINK transport 가 생겨 나머지 키의 행이
-      # 「허용목록에 없는 엔드포인트」 영구 실패로 돈다.
       "[noti.deviceTokenDeleted]":
         target: NOTI
         url: ${NOTIFICATION_BASE_URL}/internal/events

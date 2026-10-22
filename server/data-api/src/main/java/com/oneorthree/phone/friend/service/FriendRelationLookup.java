@@ -16,10 +16,6 @@ import java.util.stream.Collectors;
 /**
  * 나와 다른 유저들의 친구 관계(NONE|PENDING|FRIEND)를 도출하는 공유 조회 컴포넌트 (GROMO-1631).
  *
- * <p>친구 검색({@code FriendService.search})과 공개 프로필({@code ProfileService})이 공유한다.
- * {@code UserTierLookup}(GROMO-710)·{@code FocusLiveInfoLookup}(GROMO-822)과 같은
- * 도메인 간 공유 조회 컴포넌트 패턴이다.</p>
- *
  * <p>판정은 내 관계 전량 로드(collect*) 후 Set 대조 — 관계는 소수(수십~수백)라 단건 조회 대상이
  * 하나여도 이 경로로 충분하다. {@code findPair} 는 쓰지 않는다(deletedAt 필터 없음·REJECTED 포함).
  * PENDING 은 방향 무구분(내가 보냈든 받았든 PENDING) — 방향 구분은 후속 티켓 (결정 장부 N02).</p>
@@ -29,18 +25,6 @@ import java.util.stream.Collectors;
 public class FriendRelationLookup {
 
     private final FriendshipRepository friendshipRepository;
-
-    /**
-     * 나와 대상 유저 한 명의 관계를 도출한다 — 프로필 단건 조회용.
-     * 내부적으로 {@link #collectFriendIds}·{@link #collectPendingIds} 전량 로드 후 대조한다.
-     *
-     * @param me           호출자 유저 (영속 엔티티 또는 참조)
-     * @param targetUserId 대상 유저 ID
-     * @return FRIEND(ACCEPTED·미삭제) > PENDING(방향 무구분) > NONE
-     */
-    public FriendRelation relationOf(User me, UUID targetUserId) {
-        return resolveRelation(targetUserId, collectFriendIds(me), collectPendingIds(me));
-    }
 
     /**
      * 내 친구(ACCEPTED·미삭제) 상대 유저 ID 집합 — soft delete 된 관계는 쿼리 단계에서 제외된다.

@@ -109,12 +109,12 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     compose = (fixture.output / "compose.env").read_text()
                     self.assertIn(f"DEPLOY_ENV='{deployment}'", compose)
-                    self.assertIn(f"DATA_API_PROFILES='{deployment},satellites'", compose)
+                    self.assertIn(f"DATA_API_PROFILES='{deployment},satellites,realtime-authorization'", compose)
                     for credential in secret().values():
                         self.assertNotIn(credential, compose + result.stdout + result.stderr)
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
-            profiles = "prod,satellites,foo"
+            profiles = "prod,satellites,realtime-authorization,foo"
             payload = {**secret(), "SPRING_PROFILES_ACTIVE": "prod,satellites",
                        "DATA_API_PROFILES": profiles, "DEPLOY_ENV": "prod"}
             result = run(fixture, "--environment", "prod", "--project-name", "public-config",
@@ -240,36 +240,27 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
             self.assertIn(str(fixture.output.resolve() / "data-api.env"), values)
             self.assertIn(str(fixture.output.resolve() / "business-api.env"), values)
 
-    def test_nginx_호환과_최종전환_설정이_실제로_파싱된다(self) -> None:
+    def test_nginx_현재_설정이_실제로_파싱된다(self) -> None:
         headers = (ROOT / "server/scripts/nginx-satellites-proxy-headers.conf.example").read_text()
-        for phase in ("compat", "final"):
-            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
-                source = NGINX_EXAMPLE.read_text()
-                if phase == "final":
-                    start = source.index("location = /l/match {")
-                    end = source.index("# §7.2 5단계:", start)
-                    source = source[:start] + source[end:]
-                    source = "\n".join(
-                        line[2:] if line.startswith(("# location ", "#     ")) or line == "# }" else line
-                        for line in source.splitlines())
-                source = source.replace("__BUSINESS_UPSTREAM__", "127.0.0.1:18080")
-                source = source.replace("__NOTIFICATION_UPSTREAM__", "127.0.0.1:18082")
-                source = source.replace("__REALTIME_UPSTREAM__", "127.0.0.1:18084")
-                source = source.replace("__LINK_HOST__", "localhost")
-                source = source.replace("__LINK_PROXY_SECRET__", "synthetic-probe-secret")
-                path = Path(directory)
-                (path / "nginx.conf").write_text(
-                    "events {}\nhttp { server { listen 8080;\n" + source + "\n} }\n")
-                (path / "headers.conf").write_text(
-                    headers.replace("__LINK_PROXY_SECRET__", "synthetic-probe-secret"))
-                result = subprocess.run([
-                    "docker", "run", "--rm", "--network", "none", "--entrypoint", "nginx",
-                    "-v", str(path / "nginx.conf") + ":/etc/nginx/nginx.conf:ro",
-                    "-v", str(path / "headers.conf")
-                    + ":/etc/nginx/snippets/gromo-satellites-proxy-headers.conf:ro",
-                    "nginx:1.28-alpine", "-t",
-                ], capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            source = NGINX_EXAMPLE.read_text()
+            source = source.replace("__BUSINESS_UPSTREAM__", "127.0.0.1:18080")
+            source = source.replace("__NOTIFICATION_UPSTREAM__", "127.0.0.1:18082")
+            source = source.replace("__REALTIME_UPSTREAM__", "127.0.0.1:18084")
+            source = source.replace("__LINK_PROXY_SECRET__", "synthetic-probe-secret")
+            path = Path(directory)
+            (path / "nginx.conf").write_text(
+                "events {}\nhttp { server { listen 8080;\n" + source + "\n} }\n")
+            (path / "headers.conf").write_text(
+                headers.replace("__LINK_PROXY_SECRET__", "synthetic-probe-secret"))
+            result = subprocess.run([
+                "docker", "run", "--rm", "--network", "none", "--entrypoint", "nginx",
+                "-v", str(path / "nginx.conf") + ":/etc/nginx/nginx.conf:ro",
+                "-v", str(path / "headers.conf")
+                + ":/etc/nginx/snippets/gromo-satellites-proxy-headers.conf:ro",
+                "nginx:1.28-alpine", "-t",
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_실제_dev_prod_compose에서_Data_자격과_이미지가_전량교체된다(self) -> None:
         for environment in ("dev", "prod"):
@@ -314,7 +305,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 self.assertEqual(values["API_DB_USERNAME"], secret()["API_DB_USERNAME"])
                 self.assertEqual(values["API_DB_PASSWORD"], secret()["API_DB_PASSWORD"])
                 self.assertEqual(values["JWT_SECRET"], secret()["JWT_SECRET"])
-                self.assertEqual(values["SPRING_PROFILES_ACTIVE"], f"{environment},satellites")
+                self.assertEqual(values["SPRING_PROFILES_ACTIVE"], f"{environment},satellites,realtime-authorization")
                 self.assertNotIn("DD_API_KEY", values)
                 self.assertNotIn("NOTI_DB_PASSWORD", values)
                 self.assertNotIn("POSTGRES_PASSWORD", values)
@@ -418,13 +409,13 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
     def test_prod_는_프로젝트명을_요구한다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
-            result = run(fixture, "--environment", "prod", "--data-profiles", "prod,satellites")
+            result = run(fixture, "--environment", "prod", "--data-profiles", "prod,satellites,realtime-authorization")
             self.assertEqual(result.returncode, 1)
             self.assertIn("--project-name", result.stderr)
             # 이름을 주면 통과한다 — 요구 자체가 목적이 아니라 고아 스택을 막는 것이 목적이다.
             self.assertEqual(
                 run(fixture, "--environment", "prod", "--project-name", "gromo-prod",
-                    "--data-profiles", "prod,satellites").returncode, 0)
+                    "--data-profiles", "prod,satellites,realtime-authorization").returncode, 0)
 
     def test_satellites_프로파일이_빠진_Data_는_실패한다(self) -> None:
         for profiles in ("dev", "dev,not-satellites", "dev,satellites-extra", "dev,SATELLITES", "", "  "):
@@ -435,10 +426,30 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 self.assertIn("satellites", result.stderr)
                 self.assertFalse((fixture.output / "data-api.env").exists())
 
+    def test_realtime_내부_API_프로파일이_빠진_override는_실패한다(self) -> None:
+        for profiles in ("dev,satellites", "dev,satellites,realtime-authorization-extra",
+                         "dev,satellites,REALTIME-AUTHORIZATION"):
+            with self.subTest(profiles=profiles), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                result = run(fixture, "--data-profiles", profiles)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("realtime-authorization", result.stderr)
+                self.assertFalse((fixture.output / "data-api.env").exists())
+
+    def test_Data_내부_API_서비스_토큰_누락은_산출물을_만들지_않는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            payload = secret()
+            del payload["SVC_TOKEN_REALTIME_TO_DATA"]
+            result = run(fixture, payload=payload)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("SVC_TOKEN_REALTIME_TO_DATA", result.stderr)
+            self.assertFalse((fixture.output / "data-api.env").exists())
+
     def test_선택_Data_프로파일이_env와_실제_compose에_같이_전달된다(self) -> None:
         environment = dict(os.environ)
         environment.pop("DATA_API_PROFILES", None)
-        for profiles in ("prod,satellites,foo", "prod, satellites ,foo"):
+        for profiles in ("prod,satellites,realtime-authorization,foo", "prod, satellites , realtime-authorization ,foo"):
             with self.subTest(profiles=profiles), tempfile.TemporaryDirectory() as directory:
                 fixture = Fixture(directory)
                 result = run(fixture, "--environment", "prod", "--project-name", "profile-proof",
@@ -461,12 +472,12 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
     def test_다른_쉘_Data_프로파일은_선택값을_조용히_덮어쓸_수_없다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = Fixture(directory)
-            result = run(fixture, environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,override"})
+            result = run(fixture, environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,realtime-authorization,override"})
             self.assertEqual(result.returncode, 1)
             self.assertIn("DATA_API_PROFILES", result.stderr)
             self.assertFalse((fixture.output / "data-api.env").exists())
-            matched = run(fixture, "--data-profiles", "dev,satellites,override",
-                          environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,override"})
+            matched = run(fixture, "--data-profiles", "dev,satellites,realtime-authorization,override",
+                          environment={**os.environ, "DATA_API_PROFILES": "dev,satellites,realtime-authorization,override"})
             self.assertEqual(matched.returncode, 0, matched.stderr)
 
     def test_Data를_준비하지_않으면_선택_Data_프로파일은_다른_서비스로_가지_않는다(self) -> None:
@@ -547,22 +558,23 @@ class SatelliteRoutingExampleTest(unittest.TestCase):
             self.assertNotIn("9091", stripped)
         self.assertNotIn(":9091", self.example.replace("management(9091)", ""))
 
-    def test_전용_IP_헤더_계약이_링크_서버와_같은_이름이다(self) -> None:
-        # link/src/lib/auth.ts 의 clientIp() 가 읽는 헤더와 «같은 이름»이어야 한다.
+    def test_게스트_로그인의_신뢰_프록시_헤더를_유지한다(self) -> None:
+        # GuestSessionController의 ClientIpResolver가 사용하는 헤더다.
         self.assertIn("X-Link-Client-IP", self.example)
         self.assertIn("X-Link-Proxy-Secret", self.example)
         self.assertNotIn("proxy_set_header X-Forwarded-For $", self.example)
 
     def test_실제_호스트나_비밀값이_박혀_있지_않다(self) -> None:
         self.assertIn("__BUSINESS_UPSTREAM__", self.example)
-        self.assertIn("__LINK_PROXY_SECRET__", self.example)
+        headers = (ROOT / "server/scripts/nginx-satellites-proxy-headers.conf.example").read_text()
+        self.assertIn("__LINK_PROXY_SECRET__", headers)
         for pattern in (r"\d{1,3}(?:\.\d{1,3}){3}", r"[a-z0-9-]+\.(?:com|net|io|dev|app)\b"):
             found = [m for m in re.findall(pattern, self.example) if m not in ("1.1",)]
             self.assertEqual(found, [], f"예시에 실제 주소처럼 보이는 값이 있다: {found}")
 
-    def test_호환_경로가_한시적임을_명시한다(self) -> None:
-        self.assertIn("/l/match", self.example)
-        self.assertIn("COMPAT_MATCH_HANDLER_ENABLED", self.example)
+    def test_폐기한_링크와_결과확인_라우팅이_없다(self) -> None:
+        for retired in ("/l/match", "COMPAT_MATCH_HANDLER_ENABLED", "invite-link", "challenge-results"):
+            self.assertNotIn(retired, self.example)
 
 
 if __name__ == "__main__":

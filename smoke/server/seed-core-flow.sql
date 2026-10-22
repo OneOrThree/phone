@@ -14,7 +14,7 @@ BEGIN
       AND s.revoked_at IS NULL AND u.created_at > now()-interval '30 minutes') THEN
     RAISE EXCEPTION '신규 게스트 / 로그인 세션 대조 실패';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM groups g JOIN group_members m ON m.group_id=g.id
+  IF NOT EXISTS (SELECT 1 FROM islands g JOIN group_members m ON m.group_id=g.id
       WHERE g.id=f.island_id AND g.name=f.fixture_name AND g.name LIKE 'smoke-core-%'
       AND g.deleted_at IS NULL AND m.user_id=f.user_id AND m.role='OWNER' AND NOT m.is_left)
       OR (SELECT count(*) FROM group_members WHERE group_id=f.island_id AND NOT is_left)<>1 THEN

@@ -1,12 +1,24 @@
 package com.oneorthree.phone.withdrawal.service;
 
-import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.appearance.service.AppearanceService;
+import com.oneorthree.phone.auth.service.AuthSessionService;
+import com.oneorthree.phone.currency.repository.UserFishWalletRepository;
+import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.repository.FocusStatisticsSnapshotRepository;
+import com.oneorthree.phone.focus.service.FocusPresenceProjection;
+import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
+import com.oneorthree.phone.outbox.service.PublicCommandService;
+import com.oneorthree.phone.quest.service.IslandQuestService;
+import com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository;
+import com.oneorthree.phone.user.service.UserSatelliteCommandService;
+
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupMemberService;
-import com.oneorthree.phone.screentime.service.ScreenTimeService;
-import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -33,40 +45,18 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-/**
- * 탈퇴 절차의 <b>순서</b>를 못박는다 (GROMO-1656).
- *
- * <p><b>왜 순서만 보는가.</b> 각 단계가 무엇을 하는지는 그 도메인의 테스트가 지킨다
- * ({@code GroupMemberServiceTest} · {@code FriendServiceTest} · {@code UserServiceTest}), 그리고
- * 여섯 단계가 실제 DB 에서 함께 성립하는지는 {@code UserWithdrawGroupCleanupIntegrationTest} 가
- * 본다. 이 클래스가 유일하게 지키는 것은 <b>부르는 차례</b>다 — 종전엔 한 메서드 안의 줄 순서라
- * 눈에 보였지만, 호출로 흩어진 지금은 누구든 한 줄을 위아래로 옮길 수 있고 <b>그래도 전부 초록</b>이다.
- *
- * <p>순서가 깨지면 나는 일:
- * <ul>
- *   <li>지갑 삭제가 그룹 정리보다 앞서면 → 내기 해제 환불이 {@code NOT_FOUND} 로 터진다</li>
- *   <li>익명화가 그룹 정리보다 앞서면 → 판정 근거 박제가 이미 사라진 통계를 읽는다</li>
- *   <li>PII 파기·소셜 삭제가 마지막이 아니면 → 그 뒤 단계의 엔티티 변경이 <b>조용히 유실</b>된다
- *       (소셜 벌크 DELETE 가 영속성 컨텍스트를 비운다). 예외도 실패도 없이 커밋만 안 된다</li>
- * </ul>
- */
+/** 탈퇴 잠금·관계 정리·개인정보 파기의 순서를 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class AccountWithdrawalServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
-    @Mock
-    private com.oneorthree.phone.group.service.GroupMembershipMutationLocks membershipLocks;
 
-    @Mock
-    private com.oneorthree.phone.group.service.IslandMembershipEvents membershipEvents;
 
     @Mock
     private UserQueryService userQueryService;
     @Mock
     private GroupMemberService groupMemberService;
-    @Mock
-    private FocusService focusService;
     /** v0.3 집중 세션(GROMO-1764) 상세·구간 — 레거시와 달리 자유 입력 subject 까지 남는다. */
     @Mock
     private com.oneorthree.phone.focus.repository.FocusSessionDetailRepository focusSessionDetailRepository;
@@ -76,10 +66,6 @@ class AccountWithdrawalServiceTest {
     private com.oneorthree.phone.focus.repository.FocusStatisticsSnapshotRepository focusStatisticsSnapshotRepository;
     @Mock
     private com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository screenTimeObservationRepository;
-    @Mock
-    private StatsService statsService;
-    @Mock
-    private ScreenTimeService screenTimeService;
     @Mock
     private UserService userService;
     @Mock
@@ -91,21 +77,13 @@ class AccountWithdrawalServiceTest {
     /** 기기 토큰 삭제 명령 (A22 ㊲·㊨) — 토큰을 지우기 «전에» 적어야 한다. */
     @Mock
     private com.oneorthree.phone.user.service.UserSatelliteCommandService userSatelliteCommandService;
-    /** 탈퇴 사건 전달 (A22 ⓐ) — 알림은 Kafka, 링크는 HTTP. */
+    /** 탈퇴 사건을 알림 위성에 전달한다. */
     @Mock
     private WithdrawalSatelliteCommandService withdrawalSatelliteCommandService;
     /** 이미 박힌 초대 귀속 익명화 (A22 ⓐ) + 발급자 연결 파기 (GROMO-1801). */
     @Mock
-    private com.oneorthree.phone.invitelink.service.InviteLinkMatchService inviteLinkMatchService;
+    private com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository groupInviteLinks;
     /** 계정 LLD §4 파생 개인 이력 파기 (GROMO-1801). */
-    @Mock
-    private com.oneorthree.phone.notification.service.RankOvertakeNotificationService rankOvertakeNotificationService;
-    @Mock
-    private com.oneorthree.phone.league.service.LeagueService leagueService;
-    @Mock
-    private com.oneorthree.phone.character.service.CharacterGenerationService characterGenerationService;
-    @Mock
-    private com.oneorthree.phone.item.service.EquipmentService equipmentService;
     @Mock
     private com.oneorthree.phone.outbox.service.PublicCommandService publicCommandService;
     /** 섬 개인 외양·보유품과 퀘스트 cohort·정산 수령자 파기 (GROMO-1950). */
@@ -120,6 +98,16 @@ class AccountWithdrawalServiceTest {
     @Mock
     private com.oneorthree.phone.quest.service.IslandQuestService islandQuestService;
 
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionRepository focusSessions;
+    @Mock
+    private com.oneorthree.phone.focus.repository.DailyFocusStatRepository dailyFocusStats;
+    @Mock
+    private com.oneorthree.phone.focus.service.FocusPresenceProjection focusPresence;
+
+    @Mock
+    private com.oneorthree.phone.currency.repository.UserFishWalletRepository fishWallets;
+
     @InjectMocks
     private AccountWithdrawalService accountWithdrawalService;
 
@@ -130,53 +118,30 @@ class AccountWithdrawalServiceTest {
     }
 
     @Test
-    @DisplayName("여섯 단계가 정해진 차례로 불린다 — 한 줄만 옮겨도 이 단언이 깨져야 한다")
-    void callsEveryStepInTheContractedOrder() {
+    void closesMembershipAndSessionBeforeErasingPersonalData() {
         User user = givenLoadedForUpdate();
-
         accountWithdrawalService.withdraw(USER_ID);
-
-        InOrder order = inOrder(userQueryService, groupMemberService, authSessionService, focusService,
-                focusSessionIntervalRepository, focusSessionDetailRepository, statsService,
-                screenTimeService, userService, friendService, inviteLinkMatchService,
-                rankOvertakeNotificationService, leagueService, characterGenerationService, equipmentService,
-                appearanceService, magazineReceiptRepository, seaRemarkService,
-                islandQuestService, publicCommandService);
-        // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
+        InOrder order = inOrder(userQueryService, groupMemberService, authSessionService,
+                focusSessions, dailyFocusStats, focusSessionIntervalRepository, focusSessionDetailRepository,
+                appearanceService, magazineReceiptRepository, seaRemarkService, islandQuestService,
+                userService, friendService, publicCommandService);
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
         order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
-        // 정산과 같은 순서(회차 행 → USER)를 지키려면 탈퇴자가 참가한 OPEN 회차도 USER 보다 먼저 잠근다.
-        order.verify(groupMemberService).lockOpenBetSessionsForAccountWithdrawal(user);
-        // USER aggregate를 쓰는 세션 폐기·세대 사건도 그룹 선점보다 뒤여야 한다.
         order.verify(authSessionService).revokeAll(USER_ID, "WITHDRAW");
-        order.verify(authSessionService).publishGenerationBumped(USER_ID, user.getAuthGeneration(), "WITHDRAW");
-        // 폐기 사건을 적은 뒤에야 자격 해시를 지운다 — 앞서면 전달할 증명이 사라진다
-        order.verify(authSessionService).eraseWithdrawnCredentials(USER_ID);
-        order.verify(inviteLinkMatchService).eraseWithdrawnUser(USER_ID);
-        // 그룹(해제 환불·근거 박제)이 지갑 삭제와 익명화보다 앞
         order.verify(groupMemberService).detachWithdrawnUser(user);
-        // 창형 원본·열람 lease 파기는 증거 동결 «뒤»
         order.verify(groupMemberService).eraseWithdrawnUserRecords(user);
-        order.verify(focusService).anonymizeWithdrawnUser(USER_ID);
-        order.verify(focusService).eraseWithdrawnUserRecords(USER_ID);
-        // v0.3 상세·구간: 구간 닫기 → 상세 종결 → user_id·subject 파기. 마지막이 앞서면 나머지가 대상을 잃는다.
+        order.verify(focusSessions).nullifyUser(USER_ID);
+        order.verify(dailyFocusStats).nullifyUser(USER_ID);
         order.verify(focusSessionIntervalRepository).closeOpenIntervalsOfUser(eq(USER_ID), any(Instant.class));
         order.verify(focusSessionDetailRepository).abandonProgressingOfUser(eq(USER_ID), any(Instant.class));
         order.verify(focusSessionDetailRepository).anonymizeWithdrawnUser(USER_ID);
-        order.verify(statsService).anonymizeWithdrawnUser(USER_ID);
-        order.verify(screenTimeService).anonymizeWithdrawnUser(USER_ID);
-        order.verify(rankOvertakeNotificationService).eraseWithdrawnUserLogs(USER_ID);
-        order.verify(leagueService).eraseWithdrawnUser(USER_ID);
-        order.verify(characterGenerationService).eraseWithdrawnUser(USER_ID);
-        order.verify(equipmentService).eraseWithdrawnUser(USER_ID);
         order.verify(appearanceService).eraseWithdrawnUser(USER_ID);
         order.verify(magazineReceiptRepository).deleteAllOfUser(USER_ID);
         order.verify(seaRemarkService).eraseWithdrawnUser(USER_ID);
         order.verify(islandQuestService).eraseWithdrawnUser(USER_ID);
-        order.verify(userService).deleteWalletAndSettings(USER_ID);
+        order.verify(userService).deleteSettings(USER_ID);
         order.verify(friendService).detachWithdrawnUser(USER_ID);
         order.verify(publicCommandService).forgetReceiptsOf(USER_ID);
-        // PII 파기·소셜 삭제는 반드시 맨 끝 — 뒤에 무엇이 오든 커밋되지 않는다
         order.verify(userService).erasePersonalData(user);
     }
 
@@ -204,11 +169,8 @@ class AccountWithdrawalServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
 
-        verify(focusService, never()).anonymizeWithdrawnUser(any());
         verify(focusSessionDetailRepository, never()).anonymizeWithdrawnUser(any());
-        verify(statsService, never()).anonymizeWithdrawnUser(any());
-        verify(screenTimeService, never()).anonymizeWithdrawnUser(any());
-        verify(userService, never()).deleteWalletAndSettings(any());
+        verify(userService, never()).deleteSettings(any());
         verify(friendService, never()).detachWithdrawnUser(any());
         verify(groupMemberService, never()).eraseWithdrawnUserRecords(any());
         verify(userService, never()).erasePersonalData(any());

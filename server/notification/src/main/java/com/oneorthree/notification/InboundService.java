@@ -12,18 +12,16 @@ import java.util.UUID;
 @Service
 class InboundService {
 
-    private static final Set<String> PROJECTIONS = Set.of("user.updated", "challenge.updated", "bet.updated",
-            "participation.updated", "friend.request.resolved", "user.displayNameChanged");
+    private static final Set<String> PROJECTIONS = Set.of(
+            "user.updated", "friend.request.resolved", "user.displayNameChanged");
     private final Store store;
     private final DeviceService devices;
     private final SettingsService settings;
-    private final ResultBundleCompletion resultBundles;
 
-    InboundService(Store store, DeviceService devices, SettingsService settings, ResultBundleCompletion resultBundles) {
+    InboundService(Store store, DeviceService devices, SettingsService settings) {
         this.store = store;
         this.devices = devices;
         this.settings = settings;
-        this.resultBundles = resultBundles;
     }
 
     @Transactional
@@ -51,9 +49,6 @@ class InboundService {
                     deletionToken(params), rawOwnership(params),
                     Json.nullableNumber(params, "authGeneration"), Json.nullableText(params, "sessionId"),
                     Json.nullableText(params, "bootstrapNonceHash"));
-            case "notification.legacyDeviceToken.deleted" -> devices.deleteLocked(event.userId(),
-                    deletionToken(params), rawOwnership(params),
-                    Json.nullableNumber(params, "authGeneration"), null, null, true);
             case "notification.settings.changed" -> settings.applyLocked(event.userId(), params, event.version());
             case "auth.session.revoked" -> devices.revokeSession(event.userId(), params);
             case "auth.generation.bumped" -> devices.generation(event.userId(),
@@ -61,7 +56,6 @@ class InboundService {
             case "user.withdrawn" -> devices.generation(event.userId(),
                     Json.number(params, "authGeneration"), true);
             case "notification.requested" -> enqueue(event);
-            case "notification.resultBundle.closed" -> resultBundles.accept(event);
             default -> {
                 if (!PROJECTIONS.contains(event.type())) {
                     throw new NotificationFailure(422, "UNSUPPORTED_EVENT_TYPE");

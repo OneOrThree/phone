@@ -18,7 +18,7 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow['on']['push']['branches'], ['main'])
         self.assertNotIn('schedule', workflow['on'])
         self.assertNotIn('workflow_call', workflow['on'])
-        for filename in ('data-api-cd.dev.yml', 'realtime-cd.dev.yml', 'satellite-cd.dev.yml'):
+        for filename in ('data-api-cd.dev.yml', 'satellite-cd.dev.yml'):
             self.assertNotIn('uses: ./.github/workflows/ops-smoke.dev.yml', (ROOT / '.github/workflows' / filename).read_text())
         self.assertNotEqual(workflow['concurrency']['group'], 'dev-vm-deploy')
         self.assertEqual(workflow['jobs']['execute']['concurrency']['group'], 'dev-vm-deploy')

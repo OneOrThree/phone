@@ -190,7 +190,7 @@ public class OutboxRelayConfig {
             transports.add(new KafkaOutboxTransport(
                     OutboxTarget.REALTIME, properties.getKafka().getRealtimeTopic(), outboxKafkaTemplate, properties));
         }
-        for (OutboxTarget target : List.of(OutboxTarget.LINK, OutboxTarget.NOTI, OutboxTarget.REALTIME)) {
+        for (OutboxTarget target : List.of(OutboxTarget.NOTI, OutboxTarget.REALTIME)) {
             boolean configured = properties.getEndpoints().values().stream()
                     .anyMatch(endpoint -> endpoint.getTarget() == target);
             boolean viaKafka = target == OutboxTarget.REALTIME && properties.isRealtimeKafkaEnabled();

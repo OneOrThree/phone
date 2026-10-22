@@ -1,6 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
+import com.oneorthree.phone.auth.service.AuthService.LoginSessionResult;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
@@ -99,7 +99,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("prepareSwitch — live 게스트 AT + 기존 회원 연동이면 VERIFIED 증거 여섯 개를 박는다")
     void prepareStoresVerifiedEvidence() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID sourceUserId = jwt.extractUserId(guest.accessToken());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
@@ -112,7 +112,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         assertThat(attempt.getSwitchPhase()).isEqualTo(LoginAttemptSwitchPhase.VERIFIED);
         assertThat(attempt.isAccountSwitchConfirmed()).isTrue();
         assertThat(attempt.getSwitchSourceUserId()).isEqualTo(sourceUserId);
-        assertThat(attempt.getSwitchSourceSessionId()).isEqualTo(guest.sessionId());
+        assertThat(attempt.getSwitchSourceSessionId()).isEqualTo(jwt.extractSessionId(guest.accessToken()));
         assertThat(attempt.getSwitchSourceAuthGeneration()).isEqualTo(0);
         assertThat(attempt.getSwitchTargetUserId()).isEqualTo(target.userId());
         assertThat(attempt.getSwitchTargetSocialAccountId()).isEqualTo(target.socialAccountId());
@@ -122,7 +122,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("prepareSwitch — 위조·구형(sid/gen 없음)·비게스트 source AT 는 거절하고 증거를 남기지 않는다")
     void prepareRejectsBadSourceTokens() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID sourceUserId = jwt.extractUserId(guest.accessToken());
         String providerId = providerId();
         memberLinked(Provider.APPLE, providerId);
@@ -131,7 +131,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         // 다른 키로 서명된 위조 AT.
         String forged = new JwtProvider("other-secret-key-that-is-at-least-256-bits-long-xxx",
                 3600, 2_592_000, 7_776_000)
-                .generateAccessToken(sourceUserId, true, 0, guest.sessionId());
+                .generateAccessToken(sourceUserId, true, 0, jwt.extractSessionId(guest.accessToken()));
         assertThatThrownBy(() -> loginAttemptService.prepareSwitch(request(attemptId, forged), providerId))
                 .isInstanceOf(AuthException.class);
         // sid/gen 없는 구형 AT — 서명은 진짜지만 세션 결합을 증명할 수 없다.
@@ -152,7 +152,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("discardGuestAndCheckpoint — 게스트 비활성·전 세션 폐기·GUEST_WITHDRAWN 이 같은 커밋에 담긴다")
     void discardWithdrawsGuestAndMarksPhase() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID sourceUserId = jwt.extractUserId(guest.accessToken());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
@@ -166,7 +166,8 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         assertThat(withdrawn.isDeleted()).isTrue();
         assertThat(withdrawn.getAuthGeneration()).isGreaterThan(0);
         boolean sessionActive = Boolean.TRUE.equals(tx().execute(status -> authSessionService
-                .verifySession(sourceUserId, guest.sessionId()).map(AuthSession::isActive).orElse(false)));
+                .verifySession(sourceUserId, jwt.extractSessionId(guest.accessToken()))
+                .map(AuthSession::isActive).orElse(false)));
         assertThat(sessionActive).isFalse();
         // 체크포인트 — phase 만 전이되고 증거는 그대로다.
         LoginAttempt attempt = loginAttemptRepository.findById(attemptId).orElseThrow();
@@ -182,7 +183,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("discardGuestAndCheckpoint — phase UPDATE 0 이면 게스트·세션·증거가 통째로 롤백된다")
     void discardRollsBackWhenCheckpointFails() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID sourceUserId = jwt.extractUserId(guest.accessToken());
         String providerId = providerId();
         memberLinked(Provider.APPLE, providerId);
@@ -200,7 +201,8 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         assertThat(source.isDeleted()).isFalse();
         assertThat(source.getAuthGeneration()).isZero();
         boolean sessionActive = Boolean.TRUE.equals(tx().execute(status -> authSessionService
-                .verifySession(sourceUserId, guest.sessionId()).map(AuthSession::isActive).orElse(false)));
+                .verifySession(sourceUserId, jwt.extractSessionId(guest.accessToken()))
+                .map(AuthSession::isActive).orElse(false)));
         assertThat(sessionActive).isTrue();
         LoginAttempt attempt = loginAttemptRepository.findById(attemptId).orElseThrow();
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.PENDING);
@@ -211,7 +213,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("completeTargetSwitch — 대상 세션 + COMPLETED 가 같은 커밋이고 재호출은 같은 결과를 재생한다")
     void completeCreatesTargetSessionAndReplays() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
         UUID attemptId = claimSwitchable();
@@ -241,7 +243,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("completeTargetSwitch — 확정 실패 주입이면 대상 세션·RT·attempt 완료가 통째로 롤백되고 재시도는 세션 1개를 연다")
     void completeRollsBackWhenCompletionFails() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
         UUID attemptId = claimSwitchable();
@@ -255,11 +257,8 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
                 () -> loginAttemptService.completeTargetSwitch(request(attemptId, guest.accessToken())))
                 .isInstanceOf(IllegalStateException.class);
 
-        // 롤백 증명은 커밋 상태로만 — 대상 세션 없음, RT 해시 미변경, attempt 는 GUEST_WITHDRAWN.
+        // 롤백 증명은 커밋 상태로만 — 대상 세션 없음, attempt 는 GUEST_WITHDRAWN.
         assertThat(activeSessions(target.userId())).isZero();
-        String rtHash = tx().execute(status ->
-                userQueryService.getAny(target.userId()).getRefreshTokenHash());
-        assertThat(rtHash).isNull();
         LoginAttempt attempt = loginAttemptRepository.findById(attemptId).orElseThrow();
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.PENDING);
         assertThat(attempt.getSwitchPhase()).isEqualTo(LoginAttemptSwitchPhase.GUEST_WITHDRAWN);
@@ -277,7 +276,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — 완료 TX 실패 뒤 GUEST_WITHDRAWN 재개는 IdP·죽은 source gate 없이 세션 하나만 만든다")
     void executeResumesGuestWithdrawnWithoutAnotherProviderCall() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
         UUID attemptId = UUID.randomUUID();
@@ -315,7 +314,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — 만료 VERIFIED lease의 동시 재개는 세션 하나와 replay 또는 IN_PROGRESS만 남긴다")
     void concurrentVerifiedExecuteCreatesOneSessionWithoutProviderRetry() throws Exception {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
         UUID attemptId = claimSwitchable();
@@ -364,7 +363,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — GUEST_WITHDRAWN 재개는 다른 source·만료/refresh AT·다른 의도를 실제 PG에서 거절한다")
     void executeRejectsTamperedSourceAndIntent() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID sourceUserId = jwt.extractUserId(guest.accessToken());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
@@ -375,7 +374,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
 
         String otherSid = jwt.generateAccessToken(sourceUserId, true, 0, UUID.randomUUID());
         String expired = new JwtProvider("test-secret-key-that-is-at-least-256-bits-long-for-hmac-sha256",
-                -1, 2_592_000, 7_776_000).generateAccessToken(sourceUserId, true, 0, guest.sessionId());
+                -1, 2_592_000, 7_776_000).generateAccessToken(sourceUserId, true, 0, jwt.extractSessionId(guest.accessToken()));
         String refresh = jwt.generateRefreshToken(sourceUserId, true);
         assertUnusable(new LoginAttemptExecuteRequest(attemptId, "key-id", "digest", Provider.APPLE,
                 "id_token", "credential", "2026-09", otherSid, true));
@@ -391,18 +390,18 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — GUEST_WITHDRAWN 재개는 다른 source user/gen·위조/구형 AT·provider/kind/confirmed 변경을 거절한다")
     void executeRejectsRemainingSourceAndIntentTampering() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID sourceUserId = jwt.extractUserId(guest.accessToken());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
         UUID attemptId = withdrawnAttempt(guest, providerId);
         expireLease(attemptId);
 
-        String otherUser = jwt.generateAccessToken(UUID.randomUUID(), true, 0, guest.sessionId());
-        String otherGeneration = jwt.generateAccessToken(sourceUserId, true, 1, guest.sessionId());
+        String otherUser = jwt.generateAccessToken(UUID.randomUUID(), true, 0, jwt.extractSessionId(guest.accessToken()));
+        String otherGeneration = jwt.generateAccessToken(sourceUserId, true, 1, jwt.extractSessionId(guest.accessToken()));
         String forged = new JwtProvider("other-secret-key-that-is-at-least-256-bits-long-xxx",
                 3600, 2_592_000, 7_776_000)
-                .generateAccessToken(sourceUserId, true, 0, guest.sessionId());
+                .generateAccessToken(sourceUserId, true, 0, jwt.extractSessionId(guest.accessToken()));
         String legacy = jwt.generateAccessToken(sourceUserId, true);
         assertUnusable(request(attemptId, otherUser));
         assertUnusable(request(attemptId, otherGeneration));
@@ -421,7 +420,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — VERIFIED·GUEST_WITHDRAWN 모두 target owner soft-delete면 fail-closed다")
     void executeRejectsSoftDeletedTargetOwnerInBothPhases() {
-        GuestLoginResponse verifiedGuest = auth.guestLogin();
+        LoginSessionResult verifiedGuest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String verifiedProviderId = providerId();
         Target verifiedTarget = memberLinked(Provider.APPLE, verifiedProviderId);
         UUID verifiedAttempt = claimSwitchable();
@@ -431,7 +430,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         assertRejected(request(verifiedAttempt, verifiedGuest.accessToken()));
         assertThat(activeSessions(verifiedTarget.userId())).isZero();
 
-        GuestLoginResponse withdrawnGuest = auth.guestLogin();
+        LoginSessionResult withdrawnGuest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String withdrawnProviderId = providerId();
         Target withdrawnTarget = memberLinked(Provider.APPLE, withdrawnProviderId);
         UUID withdrawnAttempt = withdrawnAttempt(withdrawnGuest, withdrawnProviderId);
@@ -463,7 +462,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — guest confirmed no-conflict는 탈퇴 없이 기존 guest를 promotion한다")
     void executeGuestConfirmedWithoutConflictPromotes() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID guestUserId = jwt.extractUserId(guest.accessToken());
         UUID attemptId = UUID.randomUUID();
         String providerId = providerId();
@@ -504,7 +503,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — guest unconfirmed conflict는 409이고 guest 탈퇴·target 세션 생성이 없다")
     void executeGuestUnconfirmedConflictKeepsBothAccounts() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID guestUserId = jwt.extractUserId(guest.accessToken());
         String targetProviderId = providerId();
         SocialLoginResponse target = auth.loginOrRegister(
@@ -527,7 +526,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
     @Test
     @DisplayName("execute — 저장 target social row의 삭제·owner 재결합은 GUEST_WITHDRAWN 재개를 막는다")
     void executeRejectsDeletedOrReboundTarget() {
-        GuestLoginResponse guest = auth.guestLogin();
+        LoginSessionResult guest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String providerId = providerId();
         Target target = memberLinked(Provider.APPLE, providerId);
         UUID deletedAttempt = withdrawnAttempt(guest, providerId);
@@ -537,7 +536,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         assertUnusable(request(deletedAttempt, guest.accessToken()));
         assertThat(activeSessions(target.userId())).isZero();
 
-        GuestLoginResponse secondGuest = auth.guestLogin();
+        LoginSessionResult secondGuest = auth.guestSession(java.util.UUID.randomUUID().toString());
         String reboundProviderId = providerId();
         Target reboundTarget = memberLinked(Provider.APPLE, reboundProviderId);
         UUID reboundAttempt = withdrawnAttempt(secondGuest, reboundProviderId);
@@ -567,7 +566,7 @@ class LoginAttemptSwitchCheckpointIntegrationTest {
         return attemptId;
     }
 
-    private UUID withdrawnAttempt(GuestLoginResponse guest, String providerId) {
+    private UUID withdrawnAttempt(LoginSessionResult guest, String providerId) {
         UUID attemptId = claimSwitchable();
         loginAttemptService.prepareSwitch(request(attemptId, guest.accessToken()), providerId);
         loginAttemptService.discardGuestAndCheckpoint(request(attemptId, guest.accessToken()));

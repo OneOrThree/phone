@@ -229,15 +229,15 @@ class OutboxRelayRunIntegrationTest {
         tx().executeWithoutResult(status -> commands.append(new OutboxAppendCommand(
                 "run-test-" + UUID.randomUUID(), 1, "user.withdrawn", user, "ko", null,
                 AggregateRef.ofUser(user), null, Map.of(),
-                List.of(OutboxDeliveryRequest.toKafka(), OutboxDeliveryRequest.toLink("LINK_TEST", null)))));
+                List.of(OutboxDeliveryRequest.toKafka(), OutboxDeliveryRequest.toRealtime("REALTIME_TEST", null)))));
         Recording kafka = new Recording(row -> OutboxTransportResult.success());
-        Recording link = new Recording(OutboxTarget.LINK, row -> OutboxTransportResult.success());
+        Recording realtime = new Recording(OutboxTarget.REALTIME, row -> OutboxTransportResult.success());
         PROPERTIES.setTickBudget(Duration.ZERO);
         OutboxRelayService relay = new OutboxRelayService(new Faulty(store, OutboxTarget.KAFKA), outbox, PROPERTIES,
-                CLOCK, List.of(kafka, link), new SimpleMeterRegistry(), Runnable::run);
+                CLOCK, List.of(kafka, realtime), new SimpleMeterRegistry(), Runnable::run);
 
-        assertThat(relay.relayOnce()).as("KAFKA 선점이 던져도 LINK 는 나간다").isEqualTo(1);
-        assertThat(link.sent).hasSize(1);
+        assertThat(relay.relayOnce()).as("KAFKA 선점이 던져도 REALTIME 은 나간다").isEqualTo(1);
+        assertThat(realtime.sent).hasSize(1);
         assertThat(kafka.sent).isEmpty();
     }
 

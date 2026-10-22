@@ -18,7 +18,7 @@ import java.util.UUID;
  * 두고 다툰다.
  *
  * <p><b>여기서는 {@code create-drop} 을 쓰지 않는다.</b> 엔티티에서 스키마를 만들면 검증되는 것이
- * 「엔티티끼리 일관된가」뿐이고, 정작 운영이 쓰는 {@code V51} 의 제약·부분 인덱스·CHECK 는 한 번도
+ * 「엔티티끼리 일관된가」뿐이고, 정작 운영이 쓰는 {@code V0} 의 제약·부분 인덱스·CHECK 는 한 번도
  * 실행되지 않는다 — 그 드리프트는 dev 부팅에서만 터진다. 그래서 Flyway 를 켜고
  * {@code ddl-auto=validate} 로 <b>엔티티 ↔ 마이그레이션</b>을 맞댄다.
  *
@@ -26,7 +26,7 @@ import java.util.UUID;
  * {@code outbox_db} 하나를 나눠 써서, 캐시에 살아 있는 다른 컨텍스트가 남긴 행이 「전역 count」 단정을
  * 흔들었다. 이제 JVM 시작 때 {@code outbox_db} 를 운영 마이그레이션으로 한 번 올려 <b>템플릿</b>으로만 두고,
  * 컨텍스트가 뜰 때마다 {@code CREATE DATABASE ... TEMPLATE outbox_db} 로 복사본을 받는다 — 파일 복사라
- * V1 부터 다시 도는 것보다 훨씬 싸다. 컨텍스트의 Flyway 는 그대로 켜 두어 이력·체크섬 검증은 매번 탄다.
+ * V0 부터 다시 도는 것보다 훨씬 싸다. 컨텍스트의 Flyway 는 그대로 켜 두어 이력·체크섬 검증은 매번 탄다.
  * 템플릿에는 아무도 접속하지 않는다 — 접속이 하나라도 있으면 PostgreSQL 이 복사를 거부한다.
  */
 public final class OutboxTestPostgres {
@@ -44,7 +44,7 @@ public final class OutboxTestPostgres {
         INSTANCE.start();
         Flyway.configure()
                 .dataSource(INSTANCE.getJdbcUrl(), INSTANCE.getUsername(), INSTANCE.getPassword())
-                .locations("classpath:db/migration")
+                .locations("classpath:db/v0")
                 .load()
                 .migrate();
     }
@@ -113,8 +113,8 @@ public final class OutboxTestPostgres {
         registry.add("spring.datasource.hikari.minimum-idle", () -> 0);
         registry.add("spring.datasource.hikari.idle-timeout", () -> 10000);
         registry.add("spring.flyway.enabled", () -> true);
-        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
-        // 이력 없는 DB 는 V1 부터 전부 실행한다 — 「이미 있는 스키마를 baseline 으로 넘긴다」가 아니다.
+        registry.add("spring.flyway.locations", () -> "classpath:db/v0");
+        // 이력 없는 DB 는 V0 부터 전부 실행한다 — 「이미 있는 스키마를 baseline 으로 넘긴다」가 아니다.
         registry.add("spring.flyway.baseline-on-migrate", () -> false);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
     }

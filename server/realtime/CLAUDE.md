@@ -7,7 +7,7 @@ the root `CLAUDE.md`. Run all commands from inside `server/realtime/`.
 
 ## 서비스의 두 규칙
 
-1. 채팅은 한 섬 안에서만 이루어진다. 섬은 Data API의 `groups`이며 활성 주민만 채팅을 조회·구독·발신한다.
+1. 채팅은 한 섬 안에서만 이루어진다. 섬은 Data API의 `islands`이며 활성 주민만 채팅을 조회·구독·발신한다.
 2. 집중 중 채팅을 차단한다. CONNECT는 JWT 인증만 담당하고 집중 여부는 채팅 SUBSCRIBE·SEND·REST와
    기존 구독의 메시지 전달 직전에 검사한다. `/ws/realtime`으로 바뀌어도 채팅 제한은 유지한다.
 
@@ -431,9 +431,12 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 
 기존 두 계약과 선택적인 현재 인가 HTTP 계약이다. 모두 서비스 경계를 넘는 명시적인 읽기이며 DB를 공유하지 않는다:
 
-1. `GET /api/v1/groups` with the requester's own access token → their island ids.
-   `membership/client/GroupClient`가 기존 소속 캐시·방 목록에 사용한다. 새 옵션 ON의 특정 그룹
-   채팅 검사는 아래3번을 쓰지만 방 목록까지 내부 현재 인가로 전환한 것은 아니다.
+1. `GET /internal/users/{userId}/islands` → `items[].id`의 현재 소속 섬 목록.
+   `membership/client/GroupClient`가 소속 캐시·방 목록·방문자 응원 판정에 사용한다.
+   요청자 AT는 로컬에서 검증하고 상류에는 `SVC_TOKEN_REALTIME_TO_DATA`와 검증된
+   `X-User-Id`를 보낸다. Data의 `realtime-authorization` 프로필과 전용 토큰은 기본 배포에
+   필수다. 내부 401/403은 서비스 배선 오류(503), `USER_NOT_FOUND` 404는 사용자 인증 거절이다.
+   아래 3번의 세션·세대까지 확인하는 옵션과는 별도 계약이다.
 2. `presence:focus:{userId}` in shared Redis — Data API writes, chat reads.
    Data API's side is `common/port/FocusPresencePort` and is **best-effort**: if the lease
    write fails, focus still starts and chat stays open for that person.

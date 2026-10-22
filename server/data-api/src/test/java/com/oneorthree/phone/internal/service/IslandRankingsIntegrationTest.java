@@ -92,7 +92,7 @@ class IslandRankingsIntegrationTest {
     @Autowired
     UserRepository users;
     @Autowired
-    GroupRepository groups;
+    GroupRepository islands;
     @Autowired
     GroupMemberRepository members;
     @Autowired
@@ -139,7 +139,7 @@ class IslandRankingsIntegrationTest {
 
         Island ended = island("종료될 섬", true);
         ended.group.close();
-        groups.save(ended.group);
+        islands.save(ended.group);
         assertGroupError(() -> service.islands(ended.owner.getId(), week, null), GroupErrorCode.GROUP_NOT_FOUND);
     }
 
@@ -244,7 +244,7 @@ class IslandRankingsIntegrationTest {
         focus(home, 60);
         Island hidden = island("비공개 일등섬", true);
         focus(hidden, 60000);
-        jdbc.update("update groups set is_private = true where id in (?, ?)", home.id, hidden.id);
+        jdbc.update("update islands set is_private = true where id in (?, ?)", home.id, hidden.id);
         freeze(week);
 
         IslandRankingPage page = service.islands(home.owner.getId(), week, null);
@@ -495,7 +495,7 @@ class IslandRankingsIntegrationTest {
 
     private Island island(String name, boolean withObservatory) {
         User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
-        Group group = groups.save(Group.builder().name(name).maxMembers(15).build());
+        Group group = islands.save(Group.builder().name(name).maxMembers(15).build());
         members.save(GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build());
         contexts.save(UserIslandContext.builder().userId(owner.getId()).currentIslandId(group.getId()).build());
         if (withObservatory) {

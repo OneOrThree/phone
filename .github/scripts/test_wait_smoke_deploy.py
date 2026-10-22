@@ -91,5 +91,44 @@ class WaitTests(unittest.TestCase):
         self.assertGreaterEqual(now[0], 120)
 
 
+class SatelliteGateTests(unittest.TestCase):
+    def test_path_filters_honor_exclusion_and_nested_files(self):
+        patterns = ['server/data-api/**', '!server/data-api/docs/**', '!server/data-api/**/*.md', '.github/scripts/**']
+        self.assertTrue(wait.matches_paths(['server/data-api/src/main/Foo.java'], patterns))
+        self.assertFalse(wait.matches_paths(['server/data-api/README.md', 'server/data-api/docs/db/tool.py'], patterns))
+        self.assertTrue(wait.matches_paths(['.github/scripts/dev-env.sh'], patterns))
+        self.assertFalse(wait.path_matches('server/a/b/c.yml', 'server/*.yml'))
+
+    def test_expected_but_delayed_workflow_never_skips(self):
+        now = [0]
+        with patch.dict(os.environ, {'GITHUB_SHA': SHA, 'DEPLOY_WAIT_SATELLITES_ONLY': 'true',
+             'SMOKE_DEPLOY_WAIT_SECONDS': '180', 'SMOKE_DEPLOY_DISCOVERY_SECONDS': '30'}), \
+             patch.object(wait, 'satellite_expected', return_value=True), patch.object(wait, 'api', return_value={'id': 77}), \
+             patch.object(wait, 'pages', return_value=[]), patch.object(wait.time, 'monotonic', lambda: now[0]), \
+             patch.object(wait.time, 'sleep', lambda n: now.__setitem__(0, now[0] + n)):
+            self.assertEqual(wait.main(), 1)
+            self.assertGreaterEqual(now[0], 180)
+
+    def test_unrelated_change_skips_without_querying_workflows(self):
+        with patch.dict(os.environ, {'GITHUB_SHA': SHA, 'DEPLOY_WAIT_SATELLITES_ONLY': 'true'}), \
+             patch.object(wait, 'satellite_expected', return_value=False), patch.object(wait, 'api') as api:
+            self.assertEqual(wait.main(), 0)
+            api.assert_not_called()
+
+    def test_gate_waits_only_verified_satellite_workflow_and_matching_attempt(self):
+        now = [0]
+        def pages(path, key=None):
+            if '/statuses' in path:
+                return [{'context': wait.SATELLITE_CONTEXT, 'state': 'success', 'description': 'Satellite CI 5/2: success'}]
+            return [run('data-api-ci.dev.yml', status='in_progress'),
+                    run('satellite-ci.dev.yml', workflow_id=88 if now[0] < 60 else 77)]
+        with patch.dict(os.environ, {'GITHUB_SHA': SHA, 'DEPLOY_WAIT_SATELLITES_ONLY': 'true', 'SMOKE_DEPLOY_DISCOVERY_SECONDS': '0'}), \
+             patch.object(wait, 'satellite_expected', return_value=True), patch.object(wait, 'api', return_value={'id': 77}), \
+             patch.object(wait, 'pages', pages), patch.object(wait.time, 'monotonic', lambda: now[0]), \
+             patch.object(wait.time, 'sleep', lambda n: now.__setitem__(0, now[0] + n)):
+            self.assertEqual(wait.main(), 0)
+            self.assertGreaterEqual(now[0], 60)
+
+
 if __name__ == '__main__':
     unittest.main()

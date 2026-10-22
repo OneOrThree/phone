@@ -35,10 +35,6 @@ final class DataPaths {
         return noticePath(template, islandId, noticeId).replace("{commentId}", commentId.toString());
     }
 
-    static String resultPath(String template, UUID userId, UUID sessionId) {
-        return userPath(template, userId).replace("{sessionId}", sessionId.toString());
-    }
-
     /** 서명된 AT 의 {@code sid}·{@code gen} 을 헤더로 싣는 사용자 축 호출의 공통 골격 (B26). */
     static InternalCall.Builder sessionScoped(HttpMethod method, String path, UUID userId, UUID sessionId,
             long generation) {

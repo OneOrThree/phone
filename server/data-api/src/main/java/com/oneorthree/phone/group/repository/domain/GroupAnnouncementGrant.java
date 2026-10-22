@@ -1,8 +1,6 @@
 package com.oneorthree.phone.group.repository.domain;
 
-/**
- * GROMO-676: 멤버 단위 공지 작성 권한 (dbml enum group_announcement_grant) — 방장은 컬럼과 무관하게 항상 가능
- */
+/** 과거 주민별 공지 권한 저장값. 현재 공지 작성 인가에서는 사용하지 않는다. */
 public enum GroupAnnouncementGrant {
     /** 공지 작성 불가 — 참여·재참여 시의 기본값. 방장에게는 이 값이어도 영향이 없다. */
     DISALLOW,

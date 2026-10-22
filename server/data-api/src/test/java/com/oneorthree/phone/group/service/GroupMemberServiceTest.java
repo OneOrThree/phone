@@ -1,5 +1,13 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.focus.service.FocusMembershipLossService;
+import com.oneorthree.phone.group.repository.GroupAnnouncementCommentRepository;
+import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
+import com.oneorthree.phone.user.service.UserService;
+
+import org.mockito.InOrder;
+import static org.mockito.Mockito.inOrder;
+
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.IslandPurgePort;
 import com.oneorthree.phone.group.event.IslandKickedEvent;
@@ -24,7 +32,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import com.oneorthree.phone.group.repository.OnboardingIslandRepository;
 import org.mockito.Mock;
-import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
@@ -38,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -54,10 +60,7 @@ import static org.mockito.Mockito.verify;
 @ExtendWith(MockitoExtension.class)
 class GroupMemberServiceTest {
 
-    /**
-     * 링크 대상 내구 명령 (GROMO-1660 · A22 ⓑ·ⓑ′·㋢·㋡) — 이 클래스의 단언은 코어 상태라
-     * 봉투 기록은 목으로 둔다. 「실제로 적히는가」는 실물 DB 위의 통합 테스트가 본다.
-     */
+    /** 멤버십 변경 잠금은 목으로 두고, 실제 경합은 DB 통합 테스트가 검증한다. */
     @Mock
     private GroupMembershipMutationLocks membershipLocks;
 
@@ -65,7 +68,7 @@ class GroupMemberServiceTest {
     private IslandMembershipEvents membershipEvents;
 
     @Mock
-    private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
+    private com.oneorthree.phone.group.service.IslandMembershipTransitions membershipTransitions;
 
     @Mock
     private com.oneorthree.phone.group.repository.IslandJoinRequestRepository joinRequestRepository;
@@ -119,9 +122,6 @@ class GroupMemberServiceTest {
 
     @Mock
     private UserQueryService userQueryService;
-
-    @Mock
-    private GroupBetService groupBetService;
 
     /** 섬이 닫힐 때 공동 데이터를 지우는 포트 (GROMO-1995) — 이 단위 테스트는 호출만 확인한다. */
     @Mock
@@ -319,6 +319,7 @@ class GroupMemberServiceTest {
         assertThat(targetMember.getLeftAt()).isEqualTo(KICKED_AT);
         verify(groupMemberRepository, never()).delete(any());
         // 강퇴된 본인에게 알림 사건 1건 (GROMO-2315) — 시각은 이탈 시각과 같다.
+        verify(membershipTransitions).recordMembershipRevoked(targetMember);
         verify(events).publishEvent(new IslandKickedEvent(TARGET_ID, GROUP_ID, group.getName(), KICKED_AT));
         // 요청자·대상 모두 공유 락 로드여야 한다 (GROMO-1227) — 락 없는 findById 면 대상의 계정
         // 탈퇴와 직렬화되지 않아, kick() 의 full-row UPDATE 가 탈퇴의 leave 를 되덮는다(lost update).
@@ -467,8 +468,6 @@ class GroupMemberServiceTest {
         assertThat(member.isLeft()).isTrue();
         assertThat(member.getLeftReason()).isEqualTo(GroupLeaveReason.LEFT);
         assertThat(group.getStatus()).isEqualTo(GroupStatus.ENDED);
-        verify(groupBetService).releaseFromOpenBets(user, group);
-        verify(linkMembershipEventService).recordGroupClosed(group, List.of(member));
     }
 
     @Test
@@ -497,7 +496,6 @@ class GroupMemberServiceTest {
         // 자진 탈퇴도 이탈 시각을 남긴다 (GROMO-2050) — 강퇴와 같은 자리다.
         assertThat(member.getLeftAt()).isEqualTo(KICKED_AT);
         assertThat(group.getStatus()).isNotEqualTo(GroupStatus.ENDED);
-        verify(groupBetService).releaseFromOpenBets(user, group);
         // 요청자는 공유 락 로드여야 한다 (GROMO-1227) — releaseFromOpenBets(환불·돈 경로)에
         // 들어가는 User 가 락 없는 stale 스냅샷이면 계정 탈퇴의 내기 정리(#503)를 옆문으로 우회한다.
         verify(userQueryService).getCallerForShare(OWNER_ID);
@@ -516,7 +514,6 @@ class GroupMemberServiceTest {
                 .isInstanceOf(UserException.class)
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.USER_NOT_FOUND);
-        verify(groupBetService, never()).releaseFromOpenBets(any(), any());
     }
 
     @Test
@@ -575,7 +572,6 @@ class GroupMemberServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
         verify(groupMemberRepository, never()).delete(member);
-        verify(groupBetService, never()).releaseFromOpenBets(user, group);
     }
     // ── detachWithdrawnUser (계정 탈퇴자 분리, GROMO-1656 이전) ─────────────
 
@@ -601,8 +597,6 @@ class GroupMemberServiceTest {
         assertThat(ownerMembership.isLeft()).isTrue();
         // 자동 종료된 그룹이라도 OPEN 내기 판돈이 묶이면 안 된다 — 유저 스코프 일괄 해제는
         // 멤버십·그룹 상태와 무관하게 반드시 불린다
-        verify(groupBetService).releaseFromAllOpenBets(user);
-        verify(linkMembershipEventService).recordGroupClosed(soloGroup, List.of(ownerMembership));
     }
 
     @Test
@@ -634,19 +628,6 @@ class GroupMemberServiceTest {
     }
 
     @Test
-    @DisplayName("내기 해제 → 판정 근거 박제 순서다 — 뒤집으면 이미 해제된 행까지 박제한다")
-    void detachFreezesEvidenceAfterReleasing() {
-        User user = User.builder().id(WITHDRAWER_ID).build();
-        given(groupRepository.existsGroupOwnedBy(WITHDRAWER_ID)).willReturn(false);
-
-        groupMemberService.detachWithdrawnUser(user);
-
-        InOrder order = inOrder(groupBetService);
-        order.verify(groupBetService).releaseFromAllOpenBets(user);
-        order.verify(groupBetService).freezeEvidenceForAccountErasure(user);
-    }
-
-    @Test
     @DisplayName("위임 안 한 방장 그룹이 남으면 HOST_WITHDRAW — 돈이 움직이기 전에 막는다")
     void detachRejectsUndelegatedHostBeforeAnyMoneyMoves() {
         User user = User.builder().id(WITHDRAWER_ID).build();
@@ -658,8 +639,6 @@ class GroupMemberServiceTest {
                 .isEqualTo(GroupErrorCode.HOST_WITHDRAW);
 
         // 판정이 해제·박제·이탈보다 앞이라 아무것도 시작되지 않는다
-        verify(groupBetService, never()).releaseFromAllOpenBets(any());
-        verify(groupBetService, never()).freezeEvidenceForAccountErasure(any());
         verify(groupMemberRepository, never()).findByUser(any());
     }
 }

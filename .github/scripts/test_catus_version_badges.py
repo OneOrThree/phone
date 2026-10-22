@@ -417,13 +417,19 @@ else:
             for conclusion in ['failure', 'cancelled']:
                 with self.subTest(path=path, conclusion=conclusion):
                     records = self.run_badge(path, [('deployment-status-dev-1', [record(service)])], conclusion)
-                    self.assertEqual([(r['service'], r['result']) for r in records], [(service, 'failure')])
+                    self.assertEqual({(r['service'], r['result']) for r in records},
+                                     {(name, 'failure') for name in badge.RULES[path][2]})
 
     def test_현재시도_성공결과는_같은실행의_이전산출물과_구분한다(self):
         current = {**record(), 'revision': 'b' * 40}
         records = self.run_badge('.github/workflows/data-api-ci.dev.yml', [
             ('deployment-status-dev-2', [current]), ('deployment-status-dev-1', [record(result='failure')])], 'success')
         self.assertEqual(records, [current])
+
+    def test_Data공동CD의_두서비스_성공산출물을_함께_게시한다(self):
+        records = [{**record(service), 'revision': 'b' * 40} for service in ('data-api', 'realtime')]
+        self.assertEqual(self.run_badge('.github/workflows/data-api-ci.dev.yml', [
+            ('deployment-status-dev-2', records)], 'success'), records)
 
     def test_Satellite_CD는_실패전에_기록한_선택대상과_원본SHA만_실패로_남긴다(self):
         for service in ['business-api', 'notification']:
@@ -456,7 +462,7 @@ else:
             ('deployment-status-prod-1', [previous])]), [])
 
     def test_모든배포_workflow는_시도별_배지산출물을_작성한다(self):
-        for filename in ['data-api-cd.dev.yml', 'realtime-cd.dev.yml', 'satellite-cd.dev.yml', 'prod-cd.yml']:
+        for filename in ['data-api-cd.dev.yml', 'satellite-cd.dev.yml', 'prod-cd.yml']:
             uploads = [step['with']['name'] for job in workflow(filename)['jobs'].values()
                        for step in job.get('steps', []) if step.get('uses') == 'actions/upload-artifact@v4'
                        and step['with']['name'].startswith('deployment-status-')]
@@ -646,7 +652,7 @@ else:
 
     def test_workflow의_모든_인라인Python은_실행가능한_구문이다(self):
         for filename in ['prod-ci.yml', 'prod-cd.yml', 'data-api-cd.dev.yml',
-                         'realtime-cd.dev.yml', 'satellite-cd.dev.yml']:
+                         'satellite-cd.dev.yml']:
             for job in workflow(filename)['jobs'].values():
                 for step in job.get('steps', []):
                     script = step.get('run', '')

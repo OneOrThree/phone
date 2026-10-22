@@ -27,7 +27,6 @@ public abstract class UpstreamTestBase {
 
     protected static final MockUpstream DATA = MockUpstream.start();
     protected static final MockUpstream NOTI = MockUpstream.start();
-    protected static final MockUpstream LINK = MockUpstream.start();
     protected static final MockUpstream REALTIME = MockUpstream.start();
 
     @Autowired
@@ -37,7 +36,6 @@ public abstract class UpstreamTestBase {
     static void upstreams(DynamicPropertyRegistry registry) {
         registry.add("business.upstream.data.base-url", DATA::baseUrl);
         registry.add("business.upstream.notification.base-url", NOTI::baseUrl);
-        registry.add("business.upstream.link.base-url", LINK::baseUrl);
         registry.add("business.upstream.realtime.base-url", REALTIME::baseUrl);
     }
 
@@ -45,7 +43,6 @@ public abstract class UpstreamTestBase {
     void resetUpstreams() {
         DATA.reset();
         NOTI.reset();
-        LINK.reset();
         REALTIME.reset();
     }
 

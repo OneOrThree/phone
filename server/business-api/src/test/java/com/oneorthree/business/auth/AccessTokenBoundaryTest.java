@@ -170,7 +170,6 @@ class AccessTokenBoundaryTest extends UpstreamTestBase {
             assertThat(request.header("Authorization")).isEqualTo("Bearer ci-token-noti");
         }
         // 링크는 이 유스케이스에 끼지 않으므로 링크 토큰이 어디에도 나가지 않았다.
-        assertThat(LINK.received()).isEmpty();
     }
 
     @Test

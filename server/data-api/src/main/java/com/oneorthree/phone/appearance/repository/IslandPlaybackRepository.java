@@ -26,7 +26,7 @@ public interface IslandPlaybackRepository extends JpaRepository<IslandPlayback, 
      */
     @Modifying
     @Query(value = "INSERT INTO island_playbacks (island_id, effective_at) "
-            + "SELECT g.id, COALESCE(g.created_at, CAST('epoch' AS timestamptz)) FROM groups g WHERE g.id = :islandId "
+            + "SELECT g.id, COALESCE(g.created_at, CAST('epoch' AS timestamptz)) FROM islands g WHERE g.id = :islandId "
             + "ON CONFLICT (island_id) DO NOTHING", nativeQuery = true)
     int insertIfAbsent(@Param("islandId") UUID islandId);
 }

@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
-import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -13,7 +12,6 @@ import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
@@ -79,8 +77,6 @@ class IslandNoticeIntegrationTest {
     @Autowired
     IslandNoticeService notices;
     @Autowired
-    GroupAnnouncementService legacy;
-    @Autowired
     GroupMemberService memberService;
     @Autowired
     GroupRepository groups;
@@ -134,9 +130,6 @@ class IslandNoticeIntegrationTest {
                 .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
         assertThatThrownBy(() -> notices.delete(is.id, noticeId, allowed, key()))
                 .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
-        // legacy /api/v1 경로는 그대로 ALLOW 주민을 허용한다 — 이 새 API 만 방장 전용으로 바뀌었다.
-        legacy.updateAnnouncement(is.id, noticeId, allowed, new CreateAnnouncementRequest("ALLOW 주민이 고침", "본문"));
-        assertThat(notices.detail(is.id, noticeId, is.owner, null, null, 30).title()).isEqualTo("ALLOW 주민이 고침");
     }
 
     @Test
@@ -215,7 +208,7 @@ class IslandNoticeIntegrationTest {
                 .extracting("errorCode").isEqualTo(GroupErrorCode.BOARD_LOCKED);
 
         Island ended = boardIsland();
-        jdbc.update("update groups set status='ENDED' where id=?", ended.id);
+        jdbc.update("update islands set status='ENDED' where id=?", ended.id);
         assertThatThrownBy(() -> notices.list(ended.id, visitor, null, null, 30))
                 .extracting("errorCode").isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
@@ -513,29 +506,6 @@ class IslandNoticeIntegrationTest {
     }
 
     // ---------------------------------------------------------------- legacy writer (B08)
-
-    @Test
-    @DisplayName("legacy /api/v1 공지 생성·수정·삭제도 같은 공지 version 축을 올린다")
-    void legacyWritersBumpTheSameNoticeVersion() {
-        Island is = boardIsland();
-
-        legacy.createAnnouncement(is.id, is.owner, new CreateAnnouncementRequest("legacy 공지", "본문"));
-        UUID noticeId = jdbc.queryForObject("select id from group_announcements where group_id=?", UUID.class,
-                is.id);
-        assertThat(events(noticeId)).containsExactly(1L);
-
-        legacy.updateAnnouncement(is.id, noticeId, is.owner, new CreateAnnouncementRequest("고친 제목", "본문"));
-        // 새 경로 댓글이 legacy 수정 다음 번호를 잇는다 — 같은 축이다.
-        UUID commentId = notices.comment(is.id, noticeId, is.owner, "댓글", key()).id();
-        IslandNoticeViews.Detail detail = notices.detail(is.id, noticeId, is.owner, null, null, 30);
-        assertThat(detail.title()).isEqualTo("고친 제목");
-        assertThat(detail.version()).isEqualTo(3);
-
-        legacy.deleteAnnouncement(is.id, noticeId, is.owner);
-        assertThat(events(noticeId)).containsExactly(1L, 2L, 3L, 4L);
-        // 댓글도 DB ON DELETE CASCADE(V103)로 함께 지워진다 — legacy 삭제도 마찬가지다(2026-09-25 결정 GROMO-2136).
-        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isZero();
-    }
 
     @Test
     @DisplayName("공지 삭제는 댓글도 함께 지운다 — DB ON DELETE CASCADE(V103, 2026-09-25 결정 GROMO-2136)")

@@ -3,9 +3,7 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -109,8 +107,6 @@ class IslandManagementIntegrationTest {
     IslandInvitationService invitations;
     @Autowired
     GroupMemberService memberService;
-    @Autowired
-    FocusService legacyFocus;
     @Autowired
     AccountWithdrawalService withdrawal;
     @Autowired
@@ -536,7 +532,8 @@ class IslandManagementIntegrationTest {
     @DisplayName("나가기 — 진행 중 집중은 409, 다인 방장은 위임 선행(HOST_WITHDRAW), 방문자는 403")
     void leaveGuardsLiveSessionHostAndVisitor() {
         Fixture f = fixture(false);
-        legacyFocus.startFocusSession(f.member(), new FocusSessionStartRequest(null, null));
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
+                UUID.randomUUID(), f.member());
 
         assertThatThrownBy(() -> management.leave(f.member(), f.islandId(), UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_IN_PROGRESS);
@@ -648,7 +645,7 @@ class IslandManagementIntegrationTest {
         management.leave(host, islandId, UUID.randomUUID());
 
         assertThat(groups.findById(islandId).orElseThrow().getStatus()).isEqualTo(GroupStatus.ENDED);
-        assertThat(count("select count(*) from groups where id=? and deleted_at is not null", islandId))
+        assertThat(count("select count(*) from islands where id=? and deleted_at is not null", islandId))
                 .as("삭제 묘비").isEqualTo(1);
         assertThat(count("select count(*) from island_wallets where island_id=?", islandId))
                 .as("공동 잔액").isZero();
@@ -814,7 +811,7 @@ class IslandManagementIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID publicIsland(String name) {

@@ -48,7 +48,7 @@ class FocusLiveActivityIntegrationTest {
     void migratedRegistrationFollowsCommittedPauseAndFinish(String environment) {
         when(push.enabled()).thenReturn(true);
         when(push.send(any(), any(), any())).thenReturn(LiveActivityPushClient.Result.SENT);
-        UUID user = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID user = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         UUID island = islands.create(user, new CreateIslandCommandRequest("라이브섬", null, false, null),
                 UUID.randomUUID()).id();
         var session = focus.start(user, new FocusSessionStartCommandRequest(island, "수학", 25),

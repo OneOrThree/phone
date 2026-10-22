@@ -155,18 +155,17 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   **exception** — business-api's PDF-preview tests need `poppler-utils`, installed by the `test`
   stage of its Dockerfile, so that matrix keeps its own container-based build; don't "simplify" it
   into a caller without removing that dependency first.
-- **Realtime**: `realtime-ci.dev.yml` — calls `be-gradle.yml` with `service: realtime` (one
-  `./gradlew build` covers Checkstyle + SpotBugs + Testcontainers tests + bootJar), plus a
-  no-push Docker build, path-filtered to `server/realtime/**`.
-- **Backend PR gate + dev deploy**: `data-api-ci.dev.yml` calls `be-gradle.yml` three times
-  (Checkstyle / SpotBugs / tests) on `server/data-api/**`.
-  On PRs it also build-verifies the Docker image (no push); on `main` push the same
-  run pushes `data-api/data-api:<sha>` to GAR (one repository per server — `data-api` · `realtime` ·
-  `business-api` · `notification`; build cache stays in `ci-cache`) and calls the reusable `data-api-cd.dev.yml` with the image
-  digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-standard-2 — 2 vCPU · 8 GB,
-  asia-northeast3-a; see `docs/architecture/decisions.md` A25) on the
-  self-hosted `dev` runner — AWS is touched only for OIDC → Secrets Manager
-  (`data-api-cd.dev.yml` has no trigger of its own).
+- **Realtime 검사**: `realtime-ci.dev.yml`은 PR 검사와 Data CI의 `workflow_call`을 받는다.
+  `be-gradle.yml`의 `service: realtime`으로 Checkstyle·SpotBugs·Testcontainers·bootJar를
+  검사하고, 호출받은 main 실행에서 공동 배포용 이미지 digest를 반환한다.
+- **Data·Realtime dev 공동 배포**: `data-api-ci.dev.yml`이 main의 두 서비스 변경을 받아
+  같은 SHA의 두 이미지를 GAR에 발행한다. 필요한 같은 SHA 위성 배포 완료 후
+  `data-api-cd.dev.yml`이 `dev-vm-deploy` 잠금 안에서 DB 전환과 두 서비스 교체를 수행한다.
+  PR에서는 검사와 이미지 빌드만 수행한다. DB 도구도 Data 이미지의 입력이므로
+  `docs/db/`의 실행 코드·SQL·manifest 변경을 빌드 경로에서 제외하지 않는다.
+  배포 흐름·실패 복구·영구 상태 경로는 `server/scripts/README.md`와
+  `server/data-api/docs/db/README.md`를 따른다. dev VM은 `gromo-dev-app`이고 AWS는
+  OIDC → Secrets Manager 조회에 사용한다.
 - **dev runtime secrets / deploy result (GROMO-2224)**: the single source is Secrets Manager `gromo/dev/env`
   (read via `.github/scripts/dev-env.sh secrets`). Each container gets only its own keys because
   `write-compose-env.py` filters by a per-service allowlist and fails on missing/blank required keys — **the
@@ -185,9 +184,10 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   `.github/scripts/wait-healthy.sh` (container state: exited/restart/unhealthy fail at once, start time
   logged), and `.github/scripts/mark-deploy.sh` labels the merged PR `deployed:dev-<service>` or
   `deploy-failed:dev-<service>` (latest result only) and comments. GitHub Deployments shows one environment per
-  server: `dev-server/data-api`, `dev-server/realtime`, `dev-server/<business-api|notification|business-api+notification>`. `ops-redeploy.dev.yml` (manual) re-runs a server's last successful deploy job to reload
-  secrets without a new image.
-- **Prod**: Catus 2.0은 `prod-ci.yml`(release의 변경 서비스 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 운영 실행 구성은 Infra 저장소에 두고 구성 SHA를 고정한다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
+  deployment: `dev-server/data-api`(Data·Realtime 공동), `dev-server/<business-api|notification|business-api+notification>`.
+  `ops-redeploy.dev.yml`에서 Data 또는 Realtime을 선택하면 마지막 성공한 공동 배포 job을
+  다시 실행해 두 서비스의 시크릿을 함께 갱신한다. 두 서비스의 결과 배지는 각각 기록한다.
+- **Prod**: Catus 2.0은 `prod-ci.yml`(release 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 최초 V0 전환은 전체 이미지를 발행하고 운영 호스트에서 앱을 중지한 상태로 DB를 먼저 준비한 뒤 기존 승인 CD를 실행한다. 이후 Data·Realtime 변경은 두 이미지를 같은 SHA로 빌드한다. 운영 실행 구성은 게시된 Infra SHA로 고정하며, DB 자동 전환용 Infra 변경을 요구하지 않는다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
   실행 순서·운영 선행 조건·배지 초기화는 `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다. 워크플로 추가 자체가 운영 적용 완료를 뜻하지 않는다.
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`
@@ -207,6 +207,6 @@ iOS builds/deploys are **not in CI** — they run manually via fastlane
 
 - `docs/prd/<product>/<feature>/` — team-shared per-feature docs (PRD / policy / IA / high-level / low-level design / diagrams); `product` is `gromo` or `fishcat`. Structure in `docs/README.md`.
 - `docs/conventions/` — team-wide rules: `git-pr-conventions.md` (branch · title · body · assignee/label · review · merge), `jira-conventions.md` (4-axis classification + field ids), `jira-ticket-template.md` (ticket body + creation gate), `date-axis.md`, `error-contract.md`, `backend-layering.md`.
-- `server/data-api/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `server/data-api/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). Schema deltas are applied by **Flyway** migrations in `server/data-api/src/main/resources/db/migration/` (`V1__baseline.sql` onward); the `run-migration-v*.sh` scripts next to it are a legacy archive.
+- `server/data-api/docs/db/schema.dbml` — canonical DB schema (DBML, **tracked** — the `docs/db/` whitelist in `server/data-api/.gitignore`, GROMO-735; keep it in sync and commit it with its migration). 현행 스키마 변경은 **Flyway** `server/data-api/src/main/resources/db/v0/`에 추가한다(`V0__baseline.sql` 이후 V1부터). `db/migration/V1`~`V117`은 과거 이행 검증용 불변 자료다. 기존 DB 전환·복구 시 `server/data-api/docs/db/README.md`를 먼저 읽고 검증·백업·명시적 V0 전환 절차를 따른다.
 - `loadtest/README.md` — load-testing harness guide. `server/observability/README.md` — dev observability stack guide.
 - `server/data-api/HELP.md` — Spring Boot reference notes.

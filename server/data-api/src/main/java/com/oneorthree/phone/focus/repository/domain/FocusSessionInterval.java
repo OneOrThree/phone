@@ -18,7 +18,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * v0.3 세션의 ACTIVE/REST 실제 서버 시간 구간 하나 (GROMO-1764, LLD §3·§4).
+ * 세션의 ACTIVE/REST 실제 서버 시간 구간 하나 (GROMO-1764, LLD §3·§4).
  *
  * <p>구간은 {@code [startedAt, endedAt)} 반열림이고 paused는 REST 구간이다. {@code ordinal}은
  * 세션 안에서 유일하고, 열린 구간({@code endedAt == null})은 세션당 최대 1개다(V58 부분 UNIQUE) —

@@ -141,11 +141,13 @@ class HttpExecutionIntegrationTest {
         }
     }
 
+    record PrimitiveReceipt(String commandId, boolean completed) { }
+
     @Test
     void missingPrimitiveInClaimReceiptIsAContractFailureWithoutRetry() throws Exception {
         try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 3, 2)) {
             var receiptType = new ParameterizedTypeReference<
-                    com.oneorthree.business.upstream.data.dto.ClaimIntentAck>() { };
+                    PrimitiveReceipt>() { };
             assertThatThrownBy(() -> client.exchange(call("/missing-completed"), context(1000), receiptType))
                     .isInstanceOf(UpstreamContractMismatchException.class);
             assertThat(server.count("/missing-completed")).isEqualTo(1);

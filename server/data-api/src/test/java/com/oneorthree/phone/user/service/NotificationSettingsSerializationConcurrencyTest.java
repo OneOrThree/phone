@@ -64,8 +64,6 @@ class NotificationSettingsSerializationConcurrencyTest {
     @Autowired
     UserSatelliteCommandService userSatelliteCommandService;
     @Autowired
-    UserService userService;
-    @Autowired
     EventOutboxRepository eventOutboxRepository;
     @Autowired
     PlatformTransactionManager transactionManager;
@@ -130,63 +128,6 @@ class NotificationSettingsSerializationConcurrencyTest {
             // 가장 높은 version 의 봉투가 곧 알림 서버의 최종 상태다. 행이 그것과 같아야 한다.
             assertThat(latestSettingsEnvelope(userId).getParams().get("notificationEnabled")).isEqualTo(true);
             assertThat(rowEnabled).isTrue();
-        } finally {
-            pool.shutdownNow();
-        }
-    }
-
-    @Test
-    @DisplayName("위성 명령 «도중» 들어온 공개 설정 저장은 커밋 뒤의 상태를 읽는다 — 두 번째 쓰기 주체")
-    void legacyPublicSaveRacingTheSatelliteCommandReadsTheCommittedState() throws Exception {
-        UUID userId = newUser();
-
-        ExecutorService pool = Executors.newSingleThreadExecutor();
-        AtomicReference<Future<?>> saveRef = new AtomicReference<>();
-        AtomicInteger savePid = new AtomicInteger();
-        CountDownLatch saveStarted = new CountDownLatch(1);
-        try {
-            tx().executeWithoutResult(status -> {
-                int commandPid = backendPid();
-                userSatelliteCommandService.recordNotificationSettings(userId, settings(false), "legacy-race");
-
-                // 공개 PUT /users/me/notification-settings 도 같은 내구 명령에 위임한다. 잠금 없이
-                // 읽으면 위성 커밋 뒤에 옛 스냅샷으로 전 컬럼 UPDATE 를 내 행과 봉투가 갈라진다.
-                // PID 는 위와 같은 이유로 «일하는 트랜잭션 안»에서 잡는다.
-                Future<?> save = pool.submit(() -> tx().execute(inner -> {
-                    savePid.set(backendPid());
-                    saveStarted.countDown();
-                    userService.updateNotificationSettings(userId, settings(true));
-                    return null;
-                }));
-                saveRef.set(save);
-
-                try {
-                    assertThat(saveStarted.await(10, TimeUnit.SECONDS)).isTrue();
-                    awaitBlockedBy(savePid.get(), commandPid);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException(e);
-                } catch (SQLException e) {
-                    throw new IllegalStateException(e);
-                }
-                assertThatThrownBy(() -> save.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
-            });
-
-            saveRef.get().get(30, TimeUnit.SECONDS);
-
-            // 나중에 커밋한 쪽이 이긴다 — 「경합이면 전부 막는다」가 아니다. 중요한 건 그 값이
-            // «읽은 상태 → 새 상태» 판정을 거친 결과라는 것이다.
-            UserNotificationSettings after = tx().execute(status ->
-                    userNotificationSettingsRepository.findById(userId).orElseThrow());
-            assertThat(after.isNotificationEnabled()).isTrue();
-            // 두 writer 모두 같은 내구 명령을 사용하므로 공개 저장도 새 버전의 봉투를 남긴다.
-            List<EventOutbox> envelopes = settingsEnvelopes(userId);
-            assertThat(envelopes).hasSize(2);
-            EventOutbox latest = latestSettingsEnvelope(userId);
-            assertThat(latest.getVersion()).isGreaterThan(envelopes.stream()
-                    .mapToLong(EventOutbox::getVersion).min().orElseThrow());
-            assertThat(latest.getParams().get("notificationEnabled"))
-                    .isEqualTo(after.isNotificationEnabled());
         } finally {
             pool.shutdownNow();
         }

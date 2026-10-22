@@ -8,7 +8,6 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.service.FocusPresenceProjection;
-import com.oneorthree.phone.focus.service.FocusService;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,52 +34,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 기동 시 <b>DB 정본에서 집중 프레즌스 리스를 재구축</b>한다 (GROMO-292).
+ * DB의 진행 중 세션을 기준으로 누락된 집중 프레즌스 리스를 복구한다.
  *
- * <h2>없으면 무슨 일이 나는가</h2>
- * 리스는 {@code startFocusSession} 이 지날 때만 놓인다. 그래서 <b>그 순간에 이미 진행 중이던 집중</b>은
- * 리스가 없다:
- * <ul>
- *   <li>{@code focus.presence.enabled} 를 처음 켤 때 — 켜기 전에 시작한 사람들은 세션이 끝날 때까지
- *       <b>집중 중인데 채팅에 들어가고 발신할 수 있다.</b> 롤아웃 창 전체가 규칙 밖이 된다</li>
- *   <li>Redis 를 비웠거나 데이터가 날아갔을 때 — 같은 이유로 그 시점의 모든 진행 중 집중이 규칙 밖이 된다</li>
- * </ul>
+ * <p>기동 시에는 전용 실행기로 넘겨 애플리케이션 시작을 지연시키지 않는다. 이후 5분마다
+ * ShedLock 아래 재실행해 Redis 장애나 데이터 유실 후에도 복구한다.
  *
- * <h2>왜 이게 «해도 되는 일»이 아니라 «해야 하는 일»인가</h2>
- * 목표 아키텍처 A19 가 공유 저장소에 못 박은 규칙이 그것이다 — <b>Redis 는 사본이라 소유자가 DB
- * 정본에서 재구축할 수 있어야 한다.</b> 이 클래스가 프레즌스 쪽의 그 재구축 경로다.
- *
- * <h2>기동을 «절대» 막지 않는다 — 세 겹으로</h2>
- * 재구축은 부가 작업이라, 실패하든 느리든 코어 API 의 기동을 붙잡으면 안 된다. 그런데 그 규율은
- * 순진하게 짜면 세 곳에서 깨진다:
- * <ol>
- *   <li><b>동기 실행</b> — Redis 가 연결을 드롭하면 진행 중 유저 수만큼 타임아웃을 차례로 기다린다.
- *       N 명이면 기동이 N 배 늦어져 readiness 와 배포를 수십 초~수 분 막는다.
- *       → 별도 스레드로 넘긴다(리스너는 즉시 반환한다).</li>
- *   <li><b>메서드에 붙인 {@code @Transactional}</b> — 조회가 영속성 예외를 내면 트랜잭션이
- *       rollback-only 로 표시되고, 메서드가 반환된 «뒤» 인터셉터가 {@code UnexpectedRollbackException}
- *       을 던진다. 그건 메서드 안의 catch 밖이라 <b>삼켜지지 않는다.</b>
- *       → {@code TransactionOperations} 로 경계를 안으로 넣고 실패를 그 «바깥»에서 처리한다.</li>
- *   <li><b>트랜잭션 안에서 쓰기</b> — 리스 쓰기가 커밋 콜백으로 밀려 한 트랜잭션의 커밋 시점에
- *       전부 몰린다. 조회 트랜잭션을 닫고 «밖에서» 써야 각 쓰기가 곧바로 실행된다.</li>
- * </ol>
- *
- * <h2>기동 «한 번»으로는 모자란다 — 그래서 주기적으로도 돈다</h2>
- * 기동 시점의 한 번은 그 순간 Redis 가 흔들리고 있으면 그대로 끝난다. 쓰기 실패는 계약상 삼켜지므로
- * (부가 기능이 집중을 막으면 안 된다) <b>아무도 알아채지 못한 채</b> 그날 진행 중이던 사람들은 세션이
- * 끝날 때까지 집중 중에도 채팅이 열린다. Redis 가 몇 분 뒤 정상으로 돌아와도 마찬가지다 — 다시
- * 시도하는 주체가 없기 때문이다. 운영 중 Redis 가 비워지는 경우(플러시·축출)도 같은 구멍이다.
- *
- * <p>그래서 주기 실행을 둔다. <b>재시도 로직을 따로 짜지 않는 것이 핵심</b>이다 — 실패를 감지해
- * 백오프로 되돌아오는 코드는 「몇 번까지·얼마나 오래」를 정해야 하고 그 답은 항상 틀린다. 주기 실행은
- * 실패를 감지할 필요가 없다: 다음 회차가 정본을 다시 읽어 어긋난 것만 채운다.
- *
- * <p>주기 실행이 안전한 이유는 재구축 쓰기가 <b>「비어 있을 때만 채운다」</b>이기 때문이다
- * ({@code FocusPresencePort#restoreLeaseIfMissing}). 있는 리스의 TTL 을 밀지 않으므로 매 회차가
- * 무해하고, 그 사이 끝난 세션은 «끝났다» 표식에 걸려 되살아나지 않는다.
- *
- * <p>여러 인스턴스에서 중복으로 돌 이유는 없어 다른 크론과 같이 ShedLock 으로 묶는다. 한 대가
- * 실패해도 다음 회차에 다른 대가 락을 잡으므로 「그 한 대가 죽으면 아무도 안 한다」가 아니다.
+ * <p>DB 조회에는 읽기 전용 트랜잭션과 시간 상한을 적용하고, 리스는 그 트랜잭션 밖에서 쓴다.
+ * 기존 리스는 갱신하지 않으며 복구 직후 DB를 다시 읽어 그 사이 종료된 세션의 리스를 해제한다.
  */
 @Slf4j
 @Component
@@ -128,16 +88,7 @@ public class FocusPresenceReconciler {
     /**
      * 재구축 전용 스레드를 <b>스스로</b> 만든다.
      *
-     * <p>공용 실행기에 얹고 싶었지만 이 애플리케이션에는 그런 게 없다 — {@code ga4Executor}·
-     * {@code pushExecutor} 가 {@code Executor} 빈으로 있어서 Boot 의 {@code applicationTaskExecutor}
-     * 자동 구성이 통째로 물러나 있다 — 그 자동 구성은 {@code Executor} 빈이 하나라도 있으면 켜지지 않는다
-     * ({@code config/AsyncConfig} 의 주석이 그 사실을 이미 적어 두고 있다).
-     * 그래서 타입으로 받든 이름으로 받든 «주입할 빈이 없어» 기동이 깨진다 — 실제로 이 자리에서 한 번
-     * 깨졌고, {@code FocusPresenceWiringIntegrationTest} 가 그걸 잡은 테스트다.
-     *
-     * <p>남은 후보는 스케줄러 풀뿐인데 거긴 얹으면 안 된다 — 이 한 번짜리 작업이 Redis 타임아웃으로
-     * 늘어지면 같은 풀의 정각 잡(고아 스윕 등)이 그만큼 밀린다. 그래서 전용 스레드 하나가 답이다.
-     * 기동 때 한 번 쓰고 끝나므로 풀을 유지할 이유도 없다.
+     * <p>기동 복구는 전용 실행기로 격리해 정각 크론과 요청 처리를 지연시키지 않는다.
      *
      * <p>생성자가 둘이라 {@code @Autowired} 로 어느 쪽을 쓸지 못 박아야 한다 — 없으면 Spring 이
      * 기본 생성자를 찾다 실패한다.
@@ -214,20 +165,10 @@ public class FocusPresenceReconciler {
     }
 
     /**
-     * 진행 중(미종료) 마커에 리스를 다시 놓는다.
+     * 12시간 이내에 시작한 미종료 세션의 누락된 리스를 복구한다.
      *
-     * <p><b>모수는 「아직 orphan 이 아닌」 것뿐이다.</b> 「미종료 전부」로 잡으면 이미 12시간을 넘겨
-     * 스윕을 기다리는 세션까지 딸려 오고, 그 리스를 다시 놓으면 TTL 이 <b>지금부터</b> 13시간으로
-     * 재설정된다 — 실제로는 끝난 집중 때문에 다음 스윕까지(스윕이 또 실패하면 더 오래) 채팅이 막힌다.
-     *
-     * <p>유저당 열린 마커가 1개라 이 조회는 <b>동시 집중 인원</b> 규모다.
-     *
-     * <p>이미 끝난 집중을 되살릴 걱정은 없다 — 조회 조건이 {@code endedAt IS NULL} 이고, 조회와
-     * 쓰기 사이에 끝난 세션은 그 종료가 남긴 표식에 걸려 쓰기가 거부된다.
-     *
-     * <p>쓰기가 <b>「비어 있을 때만」</b>이라 몇 번을 돌려도 무해하다 — 이 성질이 주기 실행을
-     * 가능하게 하는 전부다. 「있으면 갱신」이었다면 매 회차가 TTL 을 밀어, 고아 스윕이 멈춘 동안
-     * 끝난 집중이 채팅을 막는 창이 13시간에서 25시간으로 늘어난다.
+     * <p>기존 리스와 종료 표식은 그대로 유지한다. 조회와 복구 사이 종료된 세션은 되묻기로 확인하고,
+     * 해제하지 못한 리스는 다음 회차에 다시 처리한다.
      */
     void reconcile() {
         List<FocusSession> alive;
@@ -254,8 +195,13 @@ public class FocusPresenceReconciler {
         List<UUID> restored = new ArrayList<>();
         for (FocusSession session : targets) {
             FocusSessionControlState control = controls.get(session.getId());
+            if (control == null || (control.lifecycle() != FocusSessionLifecycle.ACTIVE
+                    && control.lifecycle() != FocusSessionLifecycle.PAUSED)) {
+                focusPresenceProjection.releaseLeaseNow(session.getUser().getId(), session.getPresenceOrder());
+                continue;
+            }
             if (!focusPresenceProjection.restoreLeaseIfMissing(session.getUser().getId(),
-                    session.getPresenceOrder(), controlVersionOf(control), stateOf(control),
+                    session.getPresenceOrder(), control.version(), stateOf(control),
                     session.getStartedAt())) {
                 // 저장소가 흔들린다. 남은 건을 이어 가면 «각각» 타임아웃을 기다려, 부가 기능의 장애가
                 // 스케줄러 슬롯을 인원수배로 점유한다 — 같은 풀의 다른 크론이 그만큼 밀린다.
@@ -365,19 +311,10 @@ public class FocusPresenceReconciler {
     }
 
     /**
-     * 유저당 <b>가장 최근에 시작한</b> 마커 하나만 남긴다.
+     * 사용자별로 가장 최근에 시작한 기본 세션 하나를 선택한다.
      *
-     * <p><b>유저당 열린 마커가 하나라는 보장이 없다.</b> 마이그레이션 이전 스냅샷과 ci 스키마에는
-     * 여럿이 남아 있을 수 있다({@code V47__focus_sessions_single_live_marker.sql} 주석). 그대로
-     * 전부 놓으면 리스 키를 <b>먼저 도착한 행</b>이 차지한다 — 조회에 정렬이 없으니 그게 «오래된»
-     * 마커일 수 있고, 쓰기는 「비어 있을 때만」이라 뒤에 오는 최신 마커는 아무것도 못 한다.
-     *
-     * <p>그러면 그 오래된 마커가 종료될 때 리스가 지워지는데 <b>최신 마커는 아직 살아 있다</b> —
-     * 그 사람은 집중 중인데 다음 회차(5분)까지 채팅이 열린다.
-     *
-     * <p>기준을 {@code startedAt} 내림차순으로 잡은 것은 <b>{@code FocusService} 가 「라이브 마커」로
-     * 보는 기준과 같게</b> 하기 위해서다({@code findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc}).
-     * 그래야 그 마커의 종료가 «자기가 놓은» 리스를 알아본다. 동률이면 더 큰 id(= 나중에 발급)를 쓴다.
+     * <p>이전 데이터나 테스트 스키마에 열린 세션이 여러 개 있어도 선택 기준을 일정하게 유지한다.
+     * 시작 시각이 같으면 더 큰 id를 선택한다.
      */
     private static List<FocusSession> newestPerUser(List<FocusSession> markers) {
         Map<UUID, FocusSession> newest = new LinkedHashMap<>();
@@ -398,10 +335,9 @@ public class FocusPresenceReconciler {
     }
 
     /**
-     * 진행 중 마커들의 v0.3 상세 상태를 한 번에 읽는다 — 레거시 마커는 결과에 없다.
+     * 진행 중 기본 세션의 상세 상태와 전이 번호를 한 번에 읽는다.
      *
-     * <p>읽기 트랜잭션을 한 번 더 여는 것은 {@link #readAliveMarkers} 와 같은 이유다: 쓰기는 트랜잭션이
-     * 닫힌 뒤에 해야 커밋 콜백으로 밀리지 않는데, 두 조회를 한 트랜잭션에 묶으면 그 경계가 흐려진다.
+     * <p>상세가 없는 이전 기록은 결과에서 제외된다. 리스 쓰기는 조회 트랜잭션이 닫힌 뒤 수행한다.
      */
     private Map<UUID, FocusSessionControlState> readControlStates(List<FocusSession> markers) {
         if (markers.isEmpty()) {
@@ -417,19 +353,14 @@ public class FocusPresenceReconciler {
         return byId;
     }
 
-    /** 상세가 없으면(레거시 마커) 전이 번호가 없다 — 0 이다. */
-    private static long controlVersionOf(FocusSessionControlState control) {
-        return control == null ? 0L : control.version();
-    }
-
-    /** 상세가 없으면 휴식이라는 개념 자체가 없다 — 레거시 마커는 언제나 집중 중이다. */
+    /** 활성 상세의 집중·휴식 상태를 그대로 투영한다. */
     private static FocusPresenceState stateOf(FocusSessionControlState control) {
-        return control != null && control.lifecycle() == FocusSessionLifecycle.PAUSED
+        return control.lifecycle() == FocusSessionLifecycle.PAUSED
                 ? FocusPresenceState.PAUSED : FocusPresenceState.ACTIVE;
     }
 
     private List<FocusSession> readAliveMarkers() {
-        Instant threshold = clock.instant().minus(FocusService.ORPHAN_TIMEOUT);
+        Instant threshold = clock.instant().minus(java.time.Duration.ofHours(12));
         return transactionOperations.execute(status ->
                 focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(threshold));
     }

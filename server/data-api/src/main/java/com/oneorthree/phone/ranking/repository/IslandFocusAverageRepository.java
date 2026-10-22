@@ -30,7 +30,7 @@ public interface IslandFocusAverageRepository
      * 섬을 닫고 {@code IslandPurgeService} 가 이 표의 그 섬 행을 지운 <b>뒤에</b> 이 INSERT 가 커밋되면 닫힌 섬의
      * 행이 되살아나 영영 치워지지 않는다 — 섬은 묘비만 남겨 FK {@code ON DELETE CASCADE} 가 돌지 않고, 다음 배치는
      * 죽은 섬을 건너뛴다. 그래서 {@code alive} CTE 가 넘겨받은 섬 중 <b>지금도</b> 미삭제·미종료인 섬의
-     * {@code groups} 행을 id 오름차순으로 {@code FOR SHARE} 잠그고, 그 행에만 INSERT 를 건다. 삭제는 섬 행 잠금
+     * {@code islands} 행을 id 오름차순으로 {@code FOR SHARE} 잠그고, 그 행에만 INSERT 를 건다. 삭제는 섬 행 잠금
      * (JPA {@code PESSIMISTIC_WRITE} — PostgreSQL 에선 {@code FOR NO KEY UPDATE})을 쥔 채 지우므로
      * ({@code IslandPurgePort} 계약) 둘이 이 잠금에서 직렬화된다. INSERT 의 FK 검사가 쥐는 {@code FOR KEY SHARE} 는
      * 그 잠금과 <b>충돌하지 않아</b> INSERT 만으로는 직렬화되지 않는다 — {@code FOR SHARE} 를 걷어내면 이 보호가 사라진다.
@@ -55,7 +55,7 @@ public interface IslandFocusAverageRepository
      */
     @Modifying
     @Query(value = "WITH alive AS MATERIALIZED ("
-            + "SELECT g.id FROM groups g "
+            + "SELECT g.id FROM islands g "
             + "WHERE g.id = ANY(CAST(:islandIds AS uuid[])) "
             + "AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
             + "ORDER BY g.id FOR SHARE) "

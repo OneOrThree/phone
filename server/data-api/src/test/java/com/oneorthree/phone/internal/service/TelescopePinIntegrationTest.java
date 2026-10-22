@@ -140,7 +140,7 @@ class TelescopePinIntegrationTest {
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         when(clock.withZone(any())).thenAnswer(invocation -> Clock.fixed(NOW.get(), invocation.getArgument(0)));
         NOW.set(BASE);
-        jdbc.update("update groups set deleted_at = now() where deleted_at is null");
+        jdbc.update("update islands set deleted_at = now() where deleted_at is null");
     }
 
     // ---------------------------------------------------------------- ① 넣기 4개
@@ -586,7 +586,7 @@ class TelescopePinIntegrationTest {
         UUID viewer = newUser();
         UUID ended = groups.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build()).getId();
         UUID deleted = islandIds(1).get(0);
-        jdbc.update("update groups set deleted_at = now() where id = ?", deleted);
+        jdbc.update("update islands set deleted_at = now() where id = ?", deleted);
         UUID hidden = groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build()).getId();
         // 비공개 섬을 «떠난» 옛 주민도 새로 알려 줄 게 없다 — 강퇴가 아니면 같은 404 다.
         Group privateHome = groups.save(Group.builder().name("옛비공개섬").maxMembers(10).isPrivate(true).build());
@@ -691,9 +691,9 @@ class TelescopePinIntegrationTest {
                 .containsExactly("nearby", "pinned", "pinned", "random", "random");
 
         switch (change) {
-            case "private" -> jdbc.update("update groups set is_private = true where id = ?", changing);
-            case "ended" -> jdbc.update("update groups set status = 'ENDED' where id = ?", changing);
-            case "deleted" -> jdbc.update("update groups set deleted_at = now() where id = ?", changing);
+            case "private" -> jdbc.update("update islands set is_private = true where id = ?", changing);
+            case "ended" -> jdbc.update("update islands set status = 'ENDED' where id = ?", changing);
+            case "deleted" -> jdbc.update("update islands set deleted_at = now() where id = ?", changing);
             case "joined" -> join(viewer, groups.findById(changing).orElseThrow());
             default -> throw new IllegalArgumentException(change);
         }
@@ -893,7 +893,7 @@ class TelescopePinIntegrationTest {
         // 채우는 random 폴백으로 나온다.
         List<Group> islands = truncatedOldestPin(viewer);
         UUID truncated = islands.get(0).getId();
-        jdbc.update("update groups set max_members = 1 where id = ?", truncated);
+        jdbc.update("update islands set max_members = 1 where id = ?", truncated);
         join(newUser(), islands.get(0));
         assertThat(telescope.visiblePins(viewer, NOW.get())).as("잘린 0번도 «보이는 핀» 이고 정원이 찼다")
                 .anySatisfy(entry -> {
@@ -957,7 +957,7 @@ class TelescopePinIntegrationTest {
 
         management.leave(host, closing, UUID.randomUUID());
 
-        assertThat(count("select count(*) from groups where id=? and deleted_at is not null", closing))
+        assertThat(count("select count(*) from islands where id=? and deleted_at is not null", closing))
                 .as("삭제 묘비 — 하드 삭제가 아니라 CASCADE 가 돌지 않는다").isEqualTo(1);
         assertThat(count("select count(*) from telescope_pins where island_id=?", closing)).isZero();
         assertThat(count("select count(*) from telescope_pins where island_id=?", staying))
@@ -985,7 +985,7 @@ class TelescopePinIntegrationTest {
 
     /** 사람은 전부 게스트다 — 망원경과 핀은 게스트도 쓴다. */
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private Group island(String name, int maxMembers) {

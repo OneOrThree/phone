@@ -43,30 +43,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     @Query("SELECT gm FROM GroupMember gm WHERE gm.group = :group AND gm.isLeft = false")
     List<GroupMember> findByGroup(@Param("group") Group group);
 
-    /**
-     * 챌린지 종료 푸시(B4·GROMO-1088) — 종료된 챌린지들의 그룹원을 한 번에 로드한다. 종료가 몰리는
-     * 틱(같은 시각에 창이 끝나는 그룹들)과 일 마감 배치(활성 일 목표 챌린지 전건)에서 그룹마다
-     * findByGroup 을 부르면 그룹 수만큼 쿼리가 나간다. 필터 기준(is_left=false)은 findByGroup 과 같다.
-     * group 까지 fetch 하는 이유: 호출측이 멤버를 그룹별로 접어야 해서 gm.group.id 를 읽는데,
-     * LAZY 프록시 초기화에 기대면 그룹 수만큼 SELECT 가 다시 나갈 수 있다.
-     *
-     * @param groupIds 그룹원을 모을 그룹 id 들. 빈 컬렉션이면 빈 결과다
-     * @return 여러 그룹의 활성 멤버가 <b>한 리스트에 섞여</b> 온다(유저·그룹 함께 로드) — 호출측이
-     *     {@code gm.group.id} 로 접어 쓴다. 그룹 순서는 보장되지 않고, 멤버가 없는 그룹은 아예 빠진다
-     */
-    @EntityGraph(attributePaths = {"user", "group"})
-    @Query("SELECT gm FROM GroupMember gm WHERE gm.group.id IN :groupIds AND gm.isLeft = false")
-    List<GroupMember> findByGroupIdIn(@Param("groupIds") Collection<UUID> groupIds);
-
-    /**
-     * getMyGroups 가 멤버마다 group.getName()/getMaxMembers()/getStatus()/isPrivate() 를 읽는다.
-     * GroupMember.group 은 LAZY 라 fetch 하지 않으면 그룹 수 N 만큼 SELECT 가 더 나간다 — 멤버 수
-     * 집계를 IN 1회로 줄여도 전체 쿼리는 여전히 N 에 비례했다. 그룹을 함께 로드해 2회로 고정한다.
-     *
-     * @param user 내 그룹 목록을 볼 유저
-     * @return 이 유저가 현재 속한 멤버십 전량(그룹 함께 로드). 상한이 있어 길어지지 않는다.
-     *     <b>그룹의 종료·삭제 여부를 보지 않으므로</b> 끝났거나 지워진 방의 멤버십도 실린다
-     */
+    /** 유저의 활성 멤버십과 소속 섬을 함께 조회한다. 섬의 종료·삭제 여부는 별도로 확인한다. */
     @EntityGraph(attributePaths = "group")
     @Query("SELECT gm FROM GroupMember gm WHERE gm.user = :user AND gm.isLeft = false")
     List<GroupMember> findByUser(@Param("user") User user);
@@ -207,20 +184,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     @Query("SELECT gm FROM GroupMember gm WHERE gm.user = :user AND gm.group = :group")
     Optional<GroupMember> findAnyByUserAndGroup(@Param("user") User user, @Param("group") Group group);
 
-    /**
-     * 표시정보 갱신(A22 ㋡) 대상 — <b>엔티티가 아니라 유저 PK 만</b> 돌려준다.
-     *
-     * <p>엔티티를 로드하지 않는 것이 이 조회의 존재 이유다. {@link #findByGroup} 으로 멤버를 읽어
-     * 두면 그 스냅샷은 <b>잠금 없이</b> 뜬 값인데, 이름 변경 트랜잭션은 그 뒤에 링크 멤버십
-     * aggregate 잠금을 기다린다 — 그 대기 중에 커밋된 탈퇴·강퇴는 이미 로드된 엔티티에 반영되지
-     * 않는다. 변경 컬럼만 저장해도 이 활성 판정은 새로 해야 한다. PK로 행을 잠근 뒤 조건부
-     * UPDATE의 {@code is_left=false}와 갱신 행 수로 실제 갱신 대상을 확인한다.
-     *
-     * <p>{@code id} 오름차순은 동시 이름 변경끼리 같은 순서로 행을 잠그게 해 교착을 막는다.
-     *
-     * @param groupId 표시정보가 바뀐 그룹
-     * @return 활성 멤버의 유저 PK — 이 값으로 {@link #advanceSnapshotVersion} 을 건다
-     */
+    /** 섬의 현재 주민 PK를 멤버십 행 순서로 조회한다. */
     @Query("SELECT gm.user.id FROM GroupMember gm "
             + "WHERE gm.group.id = :groupId AND gm.isLeft = false ORDER BY gm.id")
     List<UUID> findActiveMemberUserIdsByGroupId(@Param("groupId") UUID groupId);
@@ -244,49 +208,15 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     List<UUID> findActiveMemberUserIdsJoinedBy(@Param("groupId") UUID groupId,
             @Param("selectedAt") Instant selectedAt);
 
-    /**
-     * 닉네임 변경(A22 ㋡) 대상 — 그 유저가 활성 멤버인 그룹 PK 만. 근거는
-     * {@link #findActiveMemberUserIdsByGroupId} 와 같다(엔티티를 로드하지 않는다).
-     *
-     * @param userId 닉네임이 바뀐 유저
-     * @return 활성 멤버십의 그룹 PK
-     */
+    /** 유저가 현재 소속된 섬 PK를 조회한다. */
     @Query("SELECT gm.group.id FROM GroupMember gm "
             + "WHERE gm.user.id = :userId AND gm.isLeft = false ORDER BY gm.id")
     List<UUID> findActiveGroupIdsByUserId(@Param("userId") UUID userId);
 
-    /**
-     * 표시 변경도 탈퇴·강퇴와 같이 멤버 행을 먼저 잠근 뒤 aggregate를 잠근다.
-     * 엔티티는 로드하지 않으며 기다리는 동안 이탈한 행은 제외한다.
-     *
-     * @param groupId 그룹
-     * @param userId 멤버
-     * @return 잠근 활성 멤버 PK
-     */
+    /** 멤버십을 변경하기 전에 활성 멤버 행을 잠근다. */
     @Query(value = "SELECT id FROM group_members WHERE group_id = :groupId AND user_id = :userId "
             + "AND is_left = false FOR UPDATE", nativeQuery = true)
     Optional<UUID> lockActiveMembershipId(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
-
-    /**
-     * 표시정보 스냅샷 버전만 전진시킨다 (A22 ㋡) — <b>컬럼 하나짜리 UPDATE</b> 다.
-     *
-     * <p>동적 더티 갱신과 별개로, 활성 조건과 갱신 행 수를 같은 SQL에서 판정하기 위해 명시적인
-     * 컬럼 UPDATE를 유지한다. 표시 축은 멤버십 축을 변경하지 않는다.
-     *
-     * <p>{@code is_left = false} 조건이 곧 경합 판정이다. 링크 멤버십 aggregate 잠금 아래에서 돌기
-     * 때문에, 먼저 커밋된 탈퇴·강퇴가 있으면 여기서 0행이 되고 호출측은 명령 자체를 적지 않는다 —
-     * 그 링크는 이미 폐기됐으니 표시정보를 갱신할 대상이 아니다.
-     *
-     * @param groupId         대상 그룹
-     * @param userId          대상 멤버
-     * @param snapshotVersion aggregate 잠금 아래 발급받은 단조값
-     * @return 갱신된 행 수 — <b>0 이면 그 사이 이탈</b>이다
-     */
-    @Modifying(flushAutomatically = true)
-    @Query("UPDATE GroupMember gm SET gm.snapshotVersion = :snapshotVersion "
-            + "WHERE gm.group.id = :groupId AND gm.user.id = :userId AND gm.isLeft = false")
-    int advanceSnapshotVersion(@Param("groupId") UUID groupId, @Param("userId") UUID userId,
-            @Param("snapshotVersion") long snapshotVersion);
 
     /**
      * A-2: 계정 탈퇴 시 방장으로 남은 그룹 정리용 — 유저가 현재 방장(활성)인 멤버십과 그 그룹.
@@ -311,18 +241,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     @Query("SELECT COUNT(gm) FROM GroupMember gm WHERE gm.user = :user AND gm.isLeft = false")
     long countByUser(@Param("user") User user);
 
-    /**
-     * 그룹별 멤버 수 일괄 집계 — 목록/검색이 그룹마다 findByGroup(group).size() 로 엔티티를 통째로
-     * 로드하던 N+1 을 IN 집계 1회로 대체한다. 멤버가 0인 그룹은 행 자체가 없으므로 호출측이 0으로 채운다.
-     * 탈퇴 유저(is_deleted)도 세지 않는다(GROMO-1220) — 상세 멤버 목록·정원 판정(GroupService.
-     * activeMembersOf)과 같은 기준이어야 "목록 N명 · 카운트 N+1명" 불일치가 안 생긴다. 집계라
-     * 서비스 스트림 필터를 태울 수 없어 이 쿼리만 예외적으로 유저 조인 필터를 건다(소비처는
-     * getMyGroups·searchGroups 뿐 — 정산·환불 경로와 무관).
-     *
-     * @param groupIds 인원수를 붙일 그룹 id 들. 빈 컬렉션이면 빈 결과다
-     * @return 그룹당 1행 — <b>멤버가 0인 그룹은 행 자체가 없으므로</b> 호출측이 0으로 채워야 한다
-     *     (결손을 "조회 실패"로 다루면 안 된다). 순서는 보장되지 않는다
-     */
+    /** 섬별 현재 주민 수. 이탈 멤버와 탈퇴 계정을 제외하며 주민이 없는 섬은 결과에 없다. */
     @Query("SELECT gm.group.id AS groupId, COUNT(gm) AS memberCount FROM GroupMember gm"
             + " WHERE gm.group.id IN :groupIds AND gm.isLeft = false AND gm.user.isDeleted = false"
             + " GROUP BY gm.group.id")

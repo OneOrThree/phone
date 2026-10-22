@@ -60,7 +60,7 @@ import java.util.regex.Pattern;
 /**
  * 섬 퀘스트 5계약의 Data 측 구현 (GROMO-1773, island-quests LLD §1~§6).
  *
- * <p><b>잠금 순서</b>(LLD §5): 사용자(users 배타) → receipt 선점({@link PublicCommandService}) → 섬(groups
+ * <p><b>잠금 순서</b>(LLD §5): 사용자(users 배타) → receipt 선점({@link PublicCommandService}) → 섬(islands
  * 배타) → 회차 → 섬 통장 → outbox version. 건설 명령(… 섬 → 건설 상태 → 지갑)과 집중 finish(… 섬 → 상세 →
  * 건설 상태 → 지갑)도 «섬 먼저, 지갑 마지막»이라 서로를 거꾸로 기다리지 않는다. 회차 행은 이 서비스만 잠근다.
  *

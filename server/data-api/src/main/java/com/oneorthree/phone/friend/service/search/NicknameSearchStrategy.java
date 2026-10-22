@@ -1,13 +1,11 @@
 package com.oneorthree.phone.friend.service.search;
 
-import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -29,7 +27,6 @@ import java.util.UUID;
 public class NicknameSearchStrategy implements FriendSearchStrategy {
 
     private final UserRepository userRepository;
-    private final UserTierLookup userTierLookup;
 
     @Override
     public SearchType type() {
@@ -47,14 +44,9 @@ public class NicknameSearchStrategy implements FriendSearchStrategy {
         if (matched == null) {
             return List.of();
         }
-        // 결과가 한 건뿐이라 배치의 실익은 사라졌지만, 티어 도출을 league_arena_users 한 곳으로 모아 둔
-        // 계약(GROMO-671·710)은 유지한다 — User.tierLevel 을 직접 읽으면 그 단일 출처가 다시 갈라진다.
-        Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(List.of(matched.getId()));
         return List.of(FriendSearchResult.builder()
                 .userId(matched.getId())
                 .nickname(matched.getNickname())
-                .occupation(matched.getOccupation() != null ? matched.getOccupation().name() : null)
-                .tierLevel(tierLevels.get(matched.getId()))
                 .build());
     }
 }

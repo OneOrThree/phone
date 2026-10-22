@@ -58,7 +58,6 @@ class SatelliteCiPlanTest(unittest.TestCase):
         """빌드가 바뀌었으면 그 빌드가 실제로 도는지 증명해야 한다."""
         self.assert_plan(['.github/workflows/satellite-check.yml'], True, True)
         self.assert_plan(['.github/scripts/satellite-ci-plan.py'], True, True)
-        self.assert_plan(['.github/scripts/check-migration-checksum.py'], True, True)
         self.assert_plan(['.github/actions/ci-jar/action.yml'], True, True)
         # 위성 배포가 실행하는 공용 스크립트·CD 도 배포 대상 (GROMO-2224)
         for path in ('.github/scripts/dev-env.sh', '.github/scripts/write-compose-env.py',

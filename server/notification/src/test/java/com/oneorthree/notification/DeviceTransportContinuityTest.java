@@ -83,11 +83,11 @@ class DeviceTransportContinuityTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
-                + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true,active_migration_id=NULL");
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_WON','BYPASS')");
+                + "user_fences,settings,projections,templates,deeplinks,kinds CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('FRIEND_ACCEPTED','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
-                + " VALUES('BET_WON.ko','BET_WON','ko','내기','결과가 나왔어요')");
+                + " VALUES('FRIEND_ACCEPTED.ko','FRIEND_ACCEPTED','ko','내기','결과가 나왔어요')");
         reset(transport, data, clock);
         when(clock.instant()).thenReturn(DAY);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
@@ -512,7 +512,7 @@ class DeviceTransportContinuityTest {
         event.put("locale", "ko");
         event.put("occurredAt", DAY.toString());
         event.put("scheduledAt", DAY.toString());
-        event.put("params", Map.of("kind", "BET_WON"));
+        event.put("params", Map.of("kind", "FRIEND_ACCEPTED"));
         inbound.accept(event);
         return (UUID) store.one("SELECT id FROM deliveries WHERE event_id=?", eventId).get("id");
     }

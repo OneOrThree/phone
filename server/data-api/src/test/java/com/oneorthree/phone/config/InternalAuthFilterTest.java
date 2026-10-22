@@ -46,7 +46,7 @@ class InternalAuthFilterTest {
         properties.getCallers().put("business", business);
         InternalApiProperties.Caller notification = new InternalApiProperties.Caller();
         notification.setToken(NOTI_TOKEN);
-        notification.setAllow(List.of("GET /internal/users/*/result-ack"));
+        notification.setAllow(List.of("GET /internal/users/notification-snapshot"));
         properties.getCallers().put("notification", notification);
         return properties;
     }

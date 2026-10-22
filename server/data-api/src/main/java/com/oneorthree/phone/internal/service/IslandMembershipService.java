@@ -70,13 +70,12 @@ import java.util.stream.Collectors;
 /**
  * 섬 생성·조회·탐색·현재 섬 이동 (GROMO-1759) — 섬 소속 LLD §3.1~§3.6 의 6종.
  *
- * <p>「섬」은 저장 계층의 {@code groups} 다. 별도 테이블을 만들지 않는다(PRD 목적과 범위).
+ * <p>「섬」은 저장 계층의 {@code islands} 다. 별도 테이블을 만들지 않는다(PRD 목적과 범위).
  *
  * <p><b>잠금 순서</b> 는 {@code UserIslandContextLockService} 가 고정한 {@code users/context →
- * groups → memberships} 다(LLD §4). 쓰기 경로는 먼저 {@code getCallerForUpdate} 로 users 행을 배타로
+ * islands → memberships} 다(LLD §4). 쓰기 경로는 먼저 {@code getCallerForUpdate} 로 users 행을 배타로
  * 잡고 그 위에서 context 를 잠근다 — 컨텍스트 잠금 계약이 {@code User} 파라미터로 그 선행 조건을
- * 표현한다. 기존 {@code GroupService.joinGroup} 의 {@code users → group → memberships} 와 같은
- * 방향이라 역순 교착이 생기지 않는다.
+ * 표현한다. 가입·탈퇴도 같은 잠금 순서를 사용한다.
  *
  * <p><b>이 티켓이 배선하는 구멍</b>: GROMO-1907 이 {@code user_island_contexts} 와 잠금만 만들고
  * 이동을 되돌려 놨고, GROMO-1764 의 집중 시작은 현재 섬이 맞지 않으면 거절한다. 즉 지금까지
@@ -139,8 +138,7 @@ public class IslandMembershipService {
                     movementGuards.requireNoLiveFocusSession(user);
                     movementGuards.requireDepartureUnlocked(context);
                     movementGuards.requireJoinedIslandLimit(user);
-                    // 섬 이름·소개는 섬에 들어온 모든 사람이 본다 (GROMO-1986). 레거시 POST /api/v1/groups
-                    // 도 같은 groups 행을 만들므로 GroupService.createGroup 에 같은 판정이 있다.
+                    // 섬 이름·소개는 섬에 들어온 모든 사람이 보므로 같은 금칙어 규칙을 적용한다.
                     bannedWords.requireClean(request.name(), intro);
 
                     Group island = groupRepository.save(Group.builder()
@@ -181,7 +179,7 @@ public class IslandMembershipService {
      *
      * <p>상태확인이라도 <b>멤버십은 다시 본다</b> — 강퇴된 뒤 같은 섬으로 PUT 하면 200 이 아니라 403 이다
      * (저장된 현재 섬은 강퇴로 비워지지 않는다, {@link #liveCurrentIsland}). 그래서 «같은 섬» 판정을 그룹
-     * 잠금과 활성 membership 확인 <b>뒤</b> 에 둔다 — 잠금 순서(users/context → groups → memberships)도
+     * 잠금과 활성 membership 확인 <b>뒤</b> 에 둔다 — 잠금 순서(users/context → islands → memberships)도
      * 그 자리라야 지켜진다.
      */
     @Transactional

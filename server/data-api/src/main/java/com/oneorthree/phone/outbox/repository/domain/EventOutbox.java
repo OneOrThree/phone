@@ -85,7 +85,7 @@ public class EventOutbox {
      * version</b> 으로 막는다(A21) — 유저 단위 최대값 하나로 뭉치면 지연 도착한 다른 subject 의
      * 사건이 「오래된 것」으로 폐기된다.
      *
-     * <p>uuid 가 아니라 문자열인 이유: 링크 멤버십 전이처럼 복합 키를 정규 문자열로 싣는 자리가 있다.
+     * <p>uuid 가 아니라 문자열인 이유: 사건 종류마다 UUID 또는 복합 키를 정규 문자열로 싣는 자리가 있다.
      */
     @Column(name = "subject_id", length = 200)
     private String subjectId;
@@ -94,7 +94,7 @@ public class EventOutbox {
     @Column(name = "aggregate_type", nullable = false, length = 60)
     private String aggregateType;
 
-    /** 순서 축의 식별자 — 유저 축은 userId, 링크 멤버십 전이는 {@code "<groupId>:<inviterId>"}. */
+    /** 순서 축의 식별자 — 유저 축은 userId, 섬 축은 islandId. */
     @Column(name = "aggregate_id", nullable = false, length = 200)
     private String aggregateId;
 

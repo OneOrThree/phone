@@ -5,7 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
-/** 전체 사용자 조회가 발송·ack 회차를 붙들지 않도록 실행 스레드와 주기를 분리한다. */
+/** 전체 사용자 조회가 발송 회차를 붙들지 않도록 실행 스레드와 주기를 분리한다. */
 @Configuration
 @ConditionalOnProperty(name = "notification.scheduling-enabled", havingValue = "true")
 class JobSchedulerConfiguration {
