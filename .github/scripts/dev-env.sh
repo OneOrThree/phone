@@ -17,7 +17,7 @@ set -euo pipefail
 DATA_API_PROFILES=${DATA_API_PROFILES:-dev,satellites,realtime-authorization}
 
 # 실패한 DB 전환을 다른 ops·위성 배포가 우회하여 다시 열 수 없다.
-# 공동 CD만 동일 SHA의 journal을 읽고 복구한다. check는 읽기 전용 CI 검사다.
+# 공동 CD만 journal과 실제 DB를 검증하여 복구한다. check는 읽기 전용 CI 검사다.
 if [ "${1:-}" != check ] && [ "${CATUS_PAIRED_DEPLOY:-0}" != 1 ]; then
   python3 "$(dirname "$0")/deploy-core-dev.py" --assert-idle
 fi

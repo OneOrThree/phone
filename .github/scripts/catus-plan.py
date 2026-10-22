@@ -9,8 +9,6 @@ import subprocess
 from pathlib import Path
 
 SERVICES = {'data-api', 'realtime', 'business-api', 'notification'}
-DATA_SCHEMA_GENERATION = 'catus-v0'
-CUTOVER_CONTRACT = 'data-v0-realtime-internal-v1'
 COUPLED_SERVICES = {'data-api', 'realtime'}
 DATA_DEPLOY_INPUTS = ('server/data-api/docs/db/deploy-v0.py',
                       'server/data-api/docs/db/rebase-v0.py',
@@ -52,17 +50,14 @@ def plan(source, migrations, previous, revision, infra_revision, force=False):
         for service, image in previous['images'].items():
             match = IMAGE.fullmatch(image)
             if not match or match.group(1) != service: raise ValueError('기준 이미지 오류')
-    first_cutover = not previous or previous.get('cutover_contract') != CUTOVER_CONTRACT or (
-        previous.get('data_schema_generation') != DATA_SCHEMA_GENERATION)
-    build = {service for service in SERVICES if force or first_cutover or
+    build = {service for service in SERVICES if force or not previous or
              previous.get('source_fingerprints', {}).get(service) != source[service]}
     # 두 서비스의 API 계약은 같은 소스 SHA의 이미지 쌍으로 교체한다.
     if build & COUPLED_SERVICES:
         build |= COUPLED_SERVICES
     build = sorted(build)
-    deploy = sorted(SERVICES) if first_cutover or previous.get('infra_revision') != infra_revision else build
+    deploy = sorted(SERVICES) if not previous or previous.get('infra_revision') != infra_revision else build
     return {'source_revision': revision, 'infra_revision': infra_revision, 'build_services': build,
-            'data_schema_generation': DATA_SCHEMA_GENERATION, 'cutover_contract': CUTOVER_CONTRACT,
             'deploy_services': deploy, 'base_release_id': previous['release_id'] if previous else None,
             'source_fingerprints': source, 'migration_fingerprints': migrations, 'previous': previous}
 

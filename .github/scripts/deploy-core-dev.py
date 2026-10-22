@@ -53,7 +53,32 @@ def durable_json(path, value):
 def require_idle(directory=STATE_ROOT):
     path = directory / 'deployment.json'
     if path.exists() and json.loads(path.read_text()).get('phase') != 'complete':
-        raise DeployError('Data·Realtime 공동 전환이 미완료입니다. 같은 공동 배포를 재실행하세요.')
+        raise DeployError('Data·Realtime 공동 전환이 미완료입니다. 같은 배포를 재실행하거나 current DB에서 수동 복구를 실행하세요.')
+
+
+def verify_recovery_builds(repository, revision, run=command):
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository or '') or not re.fullmatch(r'[0-9a-f]{40}', revision or ''):
+        raise DeployError('복구 검증에는 GitHub 저장소와 40자리 main SHA가 필요합니다.')
+
+    def pages(route, key):
+        response = run(['gh', 'api', '--paginate', '--slurp', f'repos/{repository}/{route}'])
+        return [item for page in json.loads(response.stdout) for item in page[key]]
+
+    runs = pages('actions/workflows/data-api-ci.dev.yml/runs?event=push&branch=main&head_sha=' + revision + '&per_page=100', 'workflow_runs')
+    matching = [item for item in runs if item['event'] == 'push' and item['head_branch'] == 'main'
+                and item['head_sha'] == revision and item['path'] == '.github/workflows/data-api-ci.dev.yml'
+                and item['head_repository']['full_name'].lower() == repository.lower()]
+    if not matching:
+        raise DeployError('같은 main SHA의 Data CI 실행이 없습니다.')
+    source = max(matching, key=lambda item: item['id'])
+    jobs = pages(f'actions/runs/{source["id"]}/jobs?filter=all&per_page=100', 'jobs')
+    # 위성 배포 실패는 전체 CI를 실패시킨다. 두 이미지 발행의 최신 실행 결과만 검사한다.
+    for name in ('Dev 이미지 build · GAR push', 'Realtime 공동 이미지 / 채팅 이미지 build · GAR push'):
+        attempts = [job for job in jobs if job['name'] == name and job['head_sha'] == revision]
+        latest = max(attempts, key=lambda item: item['id']) if attempts else {}
+        if latest.get('status') != 'completed' or latest.get('conclusion') != 'success':
+            raise DeployError('같은 main SHA의 이미지 검사·발행 성공을 확인하지 못했습니다: ' + name)
+    return source['id']
 
 
 def inspect_containers(run):
@@ -139,14 +164,24 @@ class Deployment:
         for image in (args.data_image, args.realtime_image):
             if not re.fullmatch(r'[^\s]+@sha256:[0-9a-f]{64}', image):
                 raise DeployError('두 이미지 모두 불변 digest로 지정해야 합니다.')
-        if self.state and self.state.get('phase') != 'complete':
-            if any(self.state.get(key) != getattr(args, key) for key in ('revision', 'data_image', 'realtime_image')):
-                raise DeployError('미완료 배포가 있습니다. 동일 SHA·digest의 공동 배포를 먼저 재실행하세요.')
-        self.image_ids = {name: self.image(getattr(args, name.replace('-', '_') + '_image'))
-                          for name in ('data', 'realtime')}
+        resume = self.state and self.state.get('phase') != 'complete'
+        recovery = getattr(args, 'recovery_only', False)
+        if recovery and not resume:
+            raise DeployError('수동 복구는 미완료 공동 배포에서만 실행할 수 있습니다.')
+        replacement = resume and any(self.state.get(key) != getattr(args, key)
+                                     for key in ('revision', 'data_image', 'realtime_image'))
         containers = inspect_containers(self.run)
         running = selected_containers(containers)
-        resume = self.state and self.state.get('phase') != 'complete'
+        if replacement or recovery:
+            # 실패한 앱을 새 이미지로 고칠 때도 이전 중단 경계를 먼저 확인한다.
+            if running or any(c['Name'].lstrip('/') in self.state['running']
+                              and any(c['State'].get(flag) for flag in ('Running', 'Restarting', 'Paused'))
+                              for c in containers):
+                raise DeployError('새 이미지로 재개하려면 이전 배포의 모든 writer가 중지되어 있어야 합니다.')
+            if self.run(['systemctl', 'show', '--property=ActiveState', '--value', 'nginx']).stdout.strip() != 'inactive':
+                raise DeployError('새 이미지로 재개하려면 nginx가 완전히 중지되어 있어야 합니다.')
+        self.image_ids = {name: self.image(getattr(args, name.replace('-', '_') + '_image'))
+                          for name in ('data', 'realtime')}
         original = self.state['running'] if resume else running
         overlays = self.state['overlays'] if resume else [
             name for name, container in [('datadog', 'gromo-datadog-agent'), ('kafka', 'phone-kafka')]
@@ -184,7 +219,14 @@ class Deployment:
             self.run(['docker', 'rm', container], check=False)
         if not (self.package / 'docs/db/deploy-v0.py').is_file():
             raise DeployError('Data 이미지에 DB 전환 패키지가 없습니다.')
-        self.runner('preflight')
+        report = self.runner('preflight')
+        if replacement or recovery:
+            if report['state'] != 'current' or report.get('other_connections') != 0:
+                raise DeployError('새 이미지·수동 복구는 다른 DB 연결이 없는 current DB에서만 가능합니다. 동일 배포를 재실행하세요.')
+        if replacement:
+            # 모든 검증 뒤에만 새 이미지 쌍을 채택하고 최초 중지 전의 복원 목록은 보존한다.
+            self.state = dict(self.state, revision=args.revision, data_image=args.data_image,
+                              realtime_image=args.realtime_image)
         if not resume:
             self.state = dict(revision=args.revision, data_image=args.data_image, realtime_image=args.realtime_image,
                               running=original, overlays=overlays, nginx_active=nginx_active)
@@ -265,7 +307,7 @@ class Deployment:
             self.save('complete')
             print(json.dumps({'phase': 'complete', 'revision': self.args.revision}))
         except BaseException:
-            # DB 전환 후 옛 이미지 자동 복귀는 허용하지 않는다. 재개는 동일 공동 배포만 수행한다.
+            # DB 전환 후 옛 이미지로 자동 복귀하지 않는다. 다음 시도도 실제 DB를 검증한다.
             try:
                 self.stop()
             except Exception:
@@ -277,6 +319,8 @@ class Deployment:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--assert-idle', action='store_true')
+    parser.add_argument('--verify-recovery-builds', action='store_true')
+    parser.add_argument('--recovery-only', action='store_true')
     parser.add_argument('--state-dir', type=Path, default=STATE_ROOT)
     parser.add_argument('--data-image')
     parser.add_argument('--realtime-image')
@@ -286,11 +330,15 @@ def main():
     parser.add_argument('--health-timeout', type=int, default=900)
     args = parser.parse_args()
     def interrupted(signum, frame):
-        raise DeployError('배포 실행이 중단되었습니다. 동일 공동 배포를 재실행하세요.')
+        raise DeployError('배포 실행이 중단되었습니다. 같은 배포를 재실행하거나 current DB에서 수동 복구를 실행하세요.')
     signal.signal(signal.SIGTERM, interrupted)
     try:
         if args.assert_idle:
             require_idle(args.state_dir)
+            return 0
+        if args.verify_recovery_builds:
+            source = verify_recovery_builds(os.environ.get('GITHUB_REPOSITORY'), args.revision)
+            print(f'동일 main SHA의 Data·Realtime 이미지 검사·발행 확인: CI run {source}')
             return 0
         if not all((args.data_image, args.realtime_image, args.revision, args.runtime_env_file, args.data_env_file)):
             parser.error('두 이미지, revision, runtime-env-file, data-env-file을 모두 지정해야 합니다.')

@@ -1,4 +1,4 @@
-package com.oneorthree.phone.db;
+package com.oneorthree.phone.common.db;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;

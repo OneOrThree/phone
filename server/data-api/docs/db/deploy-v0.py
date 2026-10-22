@@ -365,7 +365,7 @@ def execute(args, journal, values, connection):
     def migrate(mode):
         journal.save(phase='migrate-' + mode)
         containers.run(args.data_image,
-                       ['java', '-Dloader.main=com.oneorthree.phone.db.DeploymentMigrationMain',
+                       ['java', '-Dloader.main=com.oneorthree.phone.common.db.DeploymentMigrationMain',
                         '-cp', '/app/app.jar', 'org.springframework.boot.loader.launch.PropertiesLauncher', mode],
                        values, timeout=1800)
 

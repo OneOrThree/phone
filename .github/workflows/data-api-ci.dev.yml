@@ -304,6 +304,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: read # 공동 CD의 수동 복구 검증과 같은 권한 계약
       pull-requests: write # CD 가 배포 결과를 PR 에 표시
       issues: write
     uses: ./.github/workflows/data-api-cd.dev.yml

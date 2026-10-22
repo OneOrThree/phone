@@ -44,6 +44,10 @@ class FakeHost:
             container('phone-db', 'db'), container('phone-redis', 'redis'), container('phone-kafka', 'kafka')]}
         self.rendered = config()
         self.bad_revision = False
+        self.revision = REVISION
+        self.database_state = 'legacy'
+        self.other_connections = 0
+        self.fail_preflight = False
         self.fail_apply = False
         self.fail_health = False
         self.nginx = True
@@ -56,8 +60,8 @@ class FakeHost:
         out, code = '', 0
         if args[:3] == ['docker', 'image', 'inspect']:
             image = args[3]
-            out = json.dumps([{'Id': 'new-data' if image == DATA else 'new-realtime', 'RepoDigests': [image],
-                'Config': {'Labels': {'org.opencontainers.image.revision': 'wrong' if self.bad_revision else REVISION}}}])
+            out = json.dumps([{'Id': 'new-data' if image == self.rendered['services']['data-api']['image'] else 'new-realtime', 'RepoDigests': [image],
+                'Config': {'Labels': {'org.opencontainers.image.revision': 'wrong' if self.bad_revision else self.revision}}}])
         elif args[:3] == ['docker', 'ps', '-aq']:
             out = '\n'.join(self.containers)
         elif args[:2] == ['docker', 'inspect']:
@@ -89,7 +93,10 @@ class FakeHost:
         elif args[0] == 'python3':
             phase = args[args.index('--phase') + 1]
             if phase == 'apply' and self.fail_apply: code = 1
-            out = json.dumps({'state': 'current' if phase == 'apply' else 'legacy', 'phase': 'complete' if phase == 'apply' else 'preflight'})
+            if phase == 'preflight' and self.fail_preflight: code = 1
+            if phase == 'apply' and not code: self.database_state = 'current'
+            out = json.dumps({'state': self.database_state, 'other_connections': self.other_connections,
+                              'phase': 'complete' if phase == 'apply' else 'preflight'})
         return SimpleNamespace(stdout=out, stderr='DB 검사 실패' if code else '', returncode=code)
 
 
@@ -150,10 +157,98 @@ class DeployTest(unittest.TestCase):
         self.assertFalse(self.host.containers['phone-realtime']['State']['Running'])
         self.assertFalse(any(cmd[:2] == ['docker', 'start'] for cmd in self.host.calls))
 
-    def test_incomplete_other_revision_is_rejected_before_pull(self):
-        core.durable_json(self.directory / 'deployment.json', {'phase': 'failed', 'revision': 'd' * 40})
+    def failed_readiness(self):
+        self.host.fail_health = True
+        with self.assertRaises(core.DeployError): self.deploy()
+        self.host.fail_health = False
+        self.host.calls.clear()
+        return (self.directory / 'deployment.json').read_bytes()
+
+    def replacement_images(self):
+        self.args.revision = 'd' * 40
+        self.args.data_image = 'example/data@sha256:' + 'e' * 64
+        self.args.realtime_image = 'example/realtime@sha256:' + 'f' * 64
+        self.host.revision = self.args.revision
+        for service in core.CORE:
+            self.host.rendered['services'][service]['image'] = getattr(self.args, service.replace('-api', '') + '_image')
+
+    def test_new_pair_recovers_readiness_failure_and_preserves_restore_list_and_backup(self):
+        original = json.loads(self.failed_readiness())
+        backup = self.directory / 'backups/before-change.dump'
+        backup.parent.mkdir(); backup.write_bytes(b'existing-backup')
+        self.replacement_images()
+        self.deploy()
+        state = json.loads((self.directory / 'deployment.json').read_text())
+        self.assertEqual(state['phase'], 'complete')
+        for key in ('revision', 'data_image', 'realtime_image'):
+            self.assertEqual(state[key], getattr(self.args, key))
+        for key in ('running', 'overlays', 'nginx_active'):
+            self.assertEqual(state[key], original[key])
+        self.assertEqual(backup.read_bytes(), b'existing-backup')
+        self.assertTrue(self.host.nginx)
+        self.assertTrue(self.host.containers['phone-business-api-1']['State']['Running'])
+        self.assertFalse(self.host.containers['phone-notification-1']['State']['Running'])
+        runners = [cmd for cmd in self.host.calls if '--phase' in cmd]
+        self.assertEqual([cmd[cmd.index('--phase') + 1] for cmd in runners], ['preflight', 'apply'])
+        for cmd in runners:
+            self.assertEqual(cmd[cmd.index('--state-file') + 1], str(self.directory / 'database.json'))
+            self.assertEqual(cmd[cmd.index('--backup-dir') + 1], str(backup.parent))
+        for image in (self.args.data_image, self.args.realtime_image):
+            self.assertIn(['docker', 'image', 'inspect', image], self.host.calls)
+
+    def test_replacement_rejects_active_writer_or_nginx_before_pull(self):
+        original = self.failed_readiness()
+        self.replacement_images()
+        for service in ('phone-business-api-1', 'nginx'):
+            with self.subTest(service=service):
+                if service == 'nginx': self.host.nginx = True
+                else: self.host.containers[service]['State']['Running'] = True
+                self.host.calls.clear()
+                with self.assertRaises(core.DeployError): self.deploy()
+                self.assertEqual((self.directory / 'deployment.json').read_bytes(), original)
+                self.assertFalse(any(cmd[:2] == ['docker', 'pull'] for cmd in self.host.calls))
+                if service == 'nginx': self.host.nginx = False
+                else: self.host.containers[service]['State']['Running'] = False
+
+    def test_replacement_preflight_failure_does_not_change_existing_deployment(self):
+        original = self.failed_readiness()
+        self.replacement_images()
+        for failure in ('legacy', 'empty', 'connections', 'database', 'image', 'token'):
+            with self.subTest(failure=failure):
+                self.host.calls.clear()
+                self.host.database_state = failure if failure in ('legacy', 'empty') else 'current'
+                self.host.other_connections = 1 if failure == 'connections' else 0
+                self.host.fail_preflight = failure == 'database'
+                self.host.bad_revision = failure == 'image'
+                self.host.rendered['services']['realtime']['environment']['SVC_TOKEN_REALTIME_TO_DATA'] = (
+                    'wrong' if failure == 'token' else 'rt-data')
+                with self.assertRaises(core.DeployError): self.deploy()
+                self.assertEqual((self.directory / 'deployment.json').read_bytes(), original)
+                self.assertFalse(any('--phase' in cmd and 'apply' in cmd for cmd in self.host.calls))
+                self.assertFalse(any(cmd[:2] == ['docker', 'stop'] or 'up' in cmd for cmd in self.host.calls))
+
+    def test_manual_recovery_rejects_fresh_and_completed_deployments_before_host_access(self):
+        self.args.recovery_only = True
         with self.assertRaises(core.DeployError): self.deploy()
         self.assertFalse(self.host.calls)
+        core.durable_json(self.directory / 'deployment.json', {'phase': 'complete'})
+        with self.assertRaises(core.DeployError): self.deploy()
+        self.assertFalse(self.host.calls)
+
+    def test_manual_same_image_recovery_requires_current_and_then_restores_services(self):
+        original = self.failed_readiness()
+        self.args.recovery_only = True
+        for state in ('legacy', 'empty'):
+            with self.subTest(state=state):
+                self.host.database_state = state
+                self.host.calls.clear()
+                with self.assertRaises(core.DeployError): self.deploy()
+                self.assertEqual((self.directory / 'deployment.json').read_bytes(), original)
+                self.assertFalse(any('--phase' in cmd and 'apply' in cmd for cmd in self.host.calls))
+        self.host.database_state = 'current'
+        self.deploy()
+        self.assertTrue(self.host.nginx)
+        self.assertTrue(self.host.containers['phone-business-api-1']['State']['Running'])
 
     def test_stop_success_without_stopped_state_never_applies_database(self):
         for flag in ('ignore_stop', 'ignore_nginx_stop'):
@@ -200,6 +295,48 @@ class ComposeContractTest(unittest.TestCase):
                     self.assertEqual(core.validate_contract(json.loads(result.stdout), DATA, REALTIME), 'phone_app-network')
 
 
+class RecoveryBuildTest(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.source = {'id': 123, 'event': 'push', 'head_branch': 'main', 'head_sha': REVISION,
+                       'path': '.github/workflows/data-api-ci.dev.yml', 'conclusion': 'failure',
+                       'head_repository': {'full_name': 'OneOrThree/Phone'}}
+        self.jobs = [{'id': index, 'name': name, 'head_sha': REVISION,
+                      'status': 'completed', 'conclusion': 'success'} for index, name in enumerate((
+                          'Dev 이미지 build · GAR push',
+                          'Realtime 공동 이미지 / 채팅 이미지 build · GAR push'), start=1)]
+
+    def api(self, args):
+        self.calls.append(args)
+        if 'actions/workflows/' in args[-1]: data = [{'workflow_runs': [self.source]}]
+        else: data = [{'jobs': self.jobs[:1]}, {'jobs': self.jobs[1:]}]
+        return SimpleNamespace(stdout=json.dumps(data))
+
+    def test_successful_pair_is_accepted_even_when_satellite_failure_fails_overall_ci(self):
+        self.assertEqual(core.verify_recovery_builds('OneOrThree/Phone', REVISION, self.api), 123)
+        self.assertIn('head_sha=' + REVISION, self.calls[0][-1])
+        self.assertIn('filter=all', self.calls[1][-1])
+        self.assertTrue(all('--paginate' in call for call in self.calls))
+
+    def test_wrong_source_cannot_prove_image_validation(self):
+        for key, value in (('event', 'pull_request'), ('head_branch', 'release'), ('head_sha', 'd' * 40),
+                           ('path', '.github/workflows/untrusted.yml'), ('head_repository', {'full_name': 'fork/Phone'})):
+            with self.subTest(key=key):
+                old = self.source[key]; self.source[key] = value
+                with self.assertRaises(core.DeployError): core.verify_recovery_builds('OneOrThree/Phone', REVISION, self.api)
+                self.source[key] = old
+
+    def test_both_builds_must_have_successful_latest_execution(self):
+        original = copy.deepcopy(self.jobs)
+        for service in (0, 1):
+            for status, conclusion in (('completed', 'failure'), ('completed', 'skipped'), ('in_progress', None)):
+                with self.subTest(service=service, status=status, conclusion=conclusion):
+                    self.jobs = copy.deepcopy(original)
+                    self.jobs.append(dict(original[service], id=10, status=status, conclusion=conclusion))
+                    with self.assertRaises(core.DeployError): core.verify_recovery_builds('OneOrThree/Phone', REVISION, self.api)
+        self.jobs = original[:1]
+        with self.assertRaises(core.DeployError): core.verify_recovery_builds('OneOrThree/Phone', REVISION, self.api)
+
 
 class WorkflowTest(unittest.TestCase):
     def test_only_data_main_ci_owns_two_digests_and_common_cd(self):
@@ -215,6 +352,36 @@ class WorkflowTest(unittest.TestCase):
         self.assertFalse((core.ROOT / '.github/workflows/realtime-cd.dev.yml').exists())
         for pattern in ('server/realtime/**', 'server/data-api/docs/db/**/*.py', 'server/data-api/docs/db/**/*.sql', 'server/data-api/docs/db/**/*.json'):
             self.assertIn(pattern, data['on']['push']['paths'])
+
+    def test_dispatch_is_main_only_and_cannot_bypass_current_database_recovery_guard(self):
+        cd = yaml.load((core.ROOT / '.github/workflows/data-api-cd.dev.yml').read_text(), Loader=yaml.BaseLoader)
+        data = yaml.load((core.ROOT / '.github/workflows/data-api-ci.dev.yml').read_text(), Loader=yaml.BaseLoader)
+        self.assertEqual(set(cd['on']['workflow_dispatch']['inputs']), set(cd['on']['workflow_call']['inputs']))
+        self.assertEqual(cd['jobs']['deploy']['if'], "github.ref == 'refs/heads/main'")
+        self.assertEqual(cd['jobs']['deploy']['permissions']['actions'], 'read')
+        self.assertEqual(data['jobs']['deploy']['permissions']['actions'], 'read')
+        steps = cd['jobs']['deploy']['steps']
+        self.assertIn('--verify-recovery-builds', steps[1]['run'])
+        health = next(step for step in steps if step.get('id') == 'health')
+        self.assertIn('workflow_dispatch', health['run'])
+        self.assertIn('recovery+=(--recovery-only)', health['run'])
+        self.assertIn('"${recovery[@]}"', health['run'])
+        self.assertFalse(any('${{ inputs.' in step.get('run', '') for step in steps))
+
+    def test_input_validation_rejects_wrong_ref_sha_or_digest_without_shell_expansion(self):
+        cd = yaml.load((core.ROOT / '.github/workflows/data-api-cd.dev.yml').read_text(), Loader=yaml.BaseLoader)
+        script = cd['jobs']['deploy']['steps'][1]['run']
+        values = {**os.environ, 'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': REVISION, 'IMAGE_REVISION': REVISION,
+                  'DATA_DIGEST': 'sha256:' + 'b' * 64, 'REALTIME_DIGEST': 'sha256:' + 'c' * 64, 'GITHUB_EVENT_NAME': 'push'}
+        self.assertEqual(subprocess.run(['bash', '-c', script], env=values, capture_output=True).returncode, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / 'injected'
+            for key, value in (('GITHUB_REF', 'refs/heads/release'), ('IMAGE_REVISION', 'd' * 40),
+                               ('DATA_DIGEST', 'sha256:invalid'), ('REALTIME_DIGEST', '$(touch ' + str(marker) + ')')):
+                with self.subTest(key=key):
+                    result = subprocess.run(['bash', '-c', script], env={**values, key: value}, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(marker.exists())
 
 
 if __name__ == '__main__':

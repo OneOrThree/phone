@@ -73,20 +73,21 @@ Data와 Realtime은 **같은 중단 창에서 교체**한다. 새 Data가 제거
   nginx와 Data·Realtime·Business·Notification 및 DB 관측 연결을 중지한다. DB·Redis·Kafka는
   유지한다. 전환 후 두 이미지와 readiness, 기존 위성 복원을 검증한 뒤 트래픽을 재개한다.
   실행 기록·백업과 재실행 방법은 [개발 공동 배포](../../../scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)를 따른다.
-- Catus prod는 Infra `prod/catus/runtime`의 SSM 실행기가 같은 DB 준비 도구와 동시 교체 계약을
-  수행한다. **먼저 Infra의 IAM·SSM 변경을 적용하고 새 runtime 구성을 발행한 뒤**, 게시된
-  40자리 Infra SHA를 `CATUS_PROD_INFRA_REVISION`에 고정한다. Phone은
-  `data_schema_generation=catus-v0`, `cutover_contract=data-v0-realtime-internal-v1`을 지원하지 않는
-  구성으로 릴리스를 발행하지 않는다. 최초 계약 전환은 네 서비스를 모두 발행·배포 대상으로
-  잡으며, 이후 Data나 Realtime 변경도 두 서비스를 함께 빌드한다. 운영 선행 조건과 승인 CD는
-  [운영 배포 문서](../../../../docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따른다.
-  운영 단계 기록은 `/opt/catus/runtime/data-v0-cutover.json`, DB 기록은
-  `/opt/catus/runtime/data-v0-db.json`, 백업은 `/opt/catus/backups/data-v0/<release-id>/`에 둔다.
-  백업은 EC2 로컬에 보존되며 S3로 자동 업로드하지 않는다.
+- Catus prod는 기존 Infra 실행 구성을 사용한다. 별도 V0 자동 전환 SSM 변경을 요구하지 않는다.
+  **최초 전환에서는 운영 호스트에서 nginx·네 앱·Data DB 관측 연결을 중지한 뒤** 같은 Data
+  digest의 `deploy-v0.py`를 수동 실행하고, V0 검증이 끝나면 기존 승인 CD로 네 앱을 배포한다.
+  최초 발행은 `rebuild_all=true`로 네 이미지를 같은 SHA로 만들며 이후 Data·Realtime 변경은
+  두 이미지를 함께 빌드한다. 운영 선행 조건과 최초 전환 순서는
+  [운영 배포 문서](../../../../docs/prd/fishcat/server-separation/deployment.md#배포와-롤백)를 따른다.
+  운영 DB 실행 기록은 `/opt/catus/runtime/data-v0-db.json`, 백업은
+  `/opt/catus/backups/data-v0/`에 보존한다. 기존 SSM 실행기는 이 DB 기록을 읽거나 DB를 전환하지 않는다.
 
 `apply` 실패는 자동 이미지 롤백 조건이 아니다. 예를 들어 V138 보완은 완료됐으나 V0 구조
 검증에서 실패할 수 있고, V0 전환 commit 이후 새 앱 readiness가 실패할 수도 있다.
-배포 실행기는 트래픽과 writer를 닫아 둔 채 실패 기록을 보존한다. 같은 배포를 재실행하면
+개발 공동 실행기는 트래픽과 writer를 닫아 둔 채 실패 기록을 보존한다. 실제 DB가 `current`이고
+트래픽·writer 중지가 확인되면 새 SHA의 수정 이미지로도 재개할 수 있다. 운영 최초 전환은
+기존 bootstrap이 실패 시 자동 정지를 보장하지 않으므로 운영자가 nginx·네 앱·Data DB 관측을
+다시 중지하고 확인한 뒤 DB 도구 또는 승인 CD를 다시 실행한다. DB 도구를 재실행하면
 기록만 믿고 다음 단계로 넘어가지 않고 실제 DB를 다시 분류·검증한다. 이전 일회성 DB
 컨테이너가 아직 실행 중이면 재진입을 거부하며, 종료된 경우만 정리 후 진행한다.
 백업은 새 파일에 누적하고 덮어쓰지 않는다. 미완료 기록이나 백업을 지워 재시도를 우회하지 않는다.
@@ -94,7 +95,7 @@ Data와 Realtime은 **같은 중단 창에서 교체**한다. 새 Data가 제거
 ## V138 → V0 정리와 저수준 검사·복구
 
 `rebase-v0.py`는 자동 실행기가 사용하는 일회성 정리 도구다. 아래 수동 CLI는 계획 검토와
-별도 복구 작업용이며 일반 dev/prod 배포 진입점은 위 공동 배포 절차다.
+별도 복구 작업용이다. 개발은 공동 CD를, 운영 최초 전환은 위 수동 DB 준비와 기존 승인 CD를 사용한다.
 
 `rebase-v0.py`는 현재 Catus 사용자·로그인 세션·섬·물고기 지갑·정책 데이터를
 보존한다. 폐기 테이블은 모두 삭제하고, V48이 생성한 정확한 190개 봇 UUID 중
@@ -177,7 +178,7 @@ python3 server/data-api/docs/db/rebase-v0.py --environment prod \
 python3 server/data-api/docs/db/test-rebase-v0.py
 python3 server/data-api/docs/db/test-deploy-v0.py
 server/data-api/docs/db/verify-schema-dbml.sh
-(cd server/data-api && ./gradlew test --tests 'com.oneorthree.phone.db.*')
+(cd server/data-api && ./gradlew test --tests 'com.oneorthree.phone.db.*' --tests 'com.oneorthree.phone.common.db.*')
 ```
 
 빌드한 Data 이미지의 digest로 배포 경로 전체를 로컬에서 재현할 수 있다.

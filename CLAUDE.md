@@ -187,7 +187,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   deployment: `dev-server/data-api`(Data·Realtime 공동), `dev-server/<business-api|notification|business-api+notification>`.
   `ops-redeploy.dev.yml`에서 Data 또는 Realtime을 선택하면 마지막 성공한 공동 배포 job을
   다시 실행해 두 서비스의 시크릿을 함께 갱신한다. 두 서비스의 결과 배지는 각각 기록한다.
-- **Prod**: Catus 2.0은 `prod-ci.yml`(release 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 첫 V0 전환은 4개 앱을 모두 빌드하며, 이후 Data·Realtime 변경은 두 이미지를 같은 SHA로 빌드한다. 운영 실행 구성은 Infra 저장소에 두고 V0 전환 계약을 지원하는 구성 SHA를 고정한다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
+- **Prod**: Catus 2.0은 `prod-ci.yml`(release 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 최초 V0 전환은 전체 이미지를 발행하고 운영 호스트에서 앱을 중지한 상태로 DB를 먼저 준비한 뒤 기존 승인 CD를 실행한다. 이후 Data·Realtime 변경은 두 이미지를 같은 SHA로 빌드한다. 운영 실행 구성은 게시된 Infra SHA로 고정하며, DB 자동 전환용 Infra 변경을 요구하지 않는다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
   실행 순서·운영 선행 조건·배지 초기화는 `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다. 워크플로 추가 자체가 운영 적용 완료를 뜻하지 않는다.
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`

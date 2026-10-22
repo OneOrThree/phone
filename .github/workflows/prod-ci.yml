@@ -305,14 +305,6 @@ jobs:
                   content = archive.read(name)
                   assert hashlib.sha256(content).hexdigest() == metadata['files'][name]
                   (root / name).write_bytes(content)
-          # 구 Infra 구성은 V0 전환 없이 서비스를 순서대로 띄우므로 발행 전에 거부한다.
-          import importlib.util
-          spec = importlib.util.spec_from_file_location('catus_runtime_release', root / 'release.py')
-          runtime = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(runtime)
-          if (getattr(runtime, 'DATA_SCHEMA_GENERATION', None) != 'catus-v0'
-                  or getattr(runtime, 'CUTOVER_CONTRACT', None) != 'data-v0-realtime-internal-v1'):
-              raise ValueError('CATUS_PROD_INFRA_REVISION에 V0 동시 전환을 지원하는 Infra 구성을 지정해야 합니다')
           PYTHON
           mkdir -p image-descriptors
           python3 infra-config/release.py --source-root "$GITHUB_WORKSPACE" --descriptors image-descriptors \
@@ -344,9 +336,6 @@ jobs:
           with zipfile.ZipFile('release-output/selected.zip') as archive:
               manifest = json.loads(archive.read('manifest.json'))
           release.validate(manifest)
-          if (manifest.get('data_schema_generation') != 'catus-v0'
-                  or manifest.get('cutover_contract') != 'data-v0-realtime-internal-v1'):
-              raise ValueError('발행된 릴리스에 V0 동시 전환 계약이 없습니다')
           for key in ['release_id', 'version', 'source_revision', 'infra_revision']:
               if envelope[key] != manifest[key]:
                   raise ValueError('버전 참조와 릴리스 불일치')

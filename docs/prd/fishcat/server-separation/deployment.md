@@ -46,9 +46,9 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 
 ## 실패 복구
 
-준비 단계의 실패는 기존 서비스를 변경하지 않는다. 자동 배포는 이미지·runtime·DB 읽기 전용 검증을 모두 통과한 뒤 트래픽과 writer를 중지한다. `deploy-v0.py`는 검증한 원본 이력 prefix에 대해 전체 백업 후 V138 보완 → V0 전환을 실행한다. 빈 DB에는 V0를 적용하고, 현재 V0 체인은 필요한 후속 migration과 기본 데이터 콜백을 실행한다.
+준비 단계의 실패는 기존 서비스를 변경하지 않는다. 개발 자동 배포는 이미지·runtime·DB 읽기 전용 검증을 모두 통과한 뒤 트래픽과 writer를 중지한다. `deploy-v0.py`는 검증한 원본 이력 prefix에 대해 전체 백업 후 V138 보완 → V0 전환을 실행한다. 빈 DB에는 V0를 적용하고, 현재 V0 체인은 필요한 후속 migration과 기본 데이터 콜백을 실행한다.
 
-**중지 이후의 실패는 유지보수 상태를 유지한다.** V138 보완 또는 V0 commit이 이미 끝났을 수 있으므로 구 이미지를 자동으로 다시 시작하지 않는다. 미완료 배포 기록·DB 기록·백업을 보존하고 같은 배포 식별자와 이미지 조합으로 다시 실행한다. 실행기는 실제 DB 상태를 다시 검사하며, 이전 일회성 DB 작업이 아직 실행 중이면 재진입을 거부한다. V0 DB에 구 이미지를 연결하는 방식은 복구가 아니다. 전환 이전으로 돌아가야 한다면 별도 빈 DB에 검증된 전체 백업을 복원하고 구 이미지와 함께 검증하는 수동 복구 절차를 사용한다.
+**중지 이후의 실패는 유지보수 상태를 유지한다.** V138 보완 또는 V0 commit이 이미 끝났을 수 있으므로 구 이미지를 자동으로 다시 시작하지 않는다. 미완료 배포 기록·DB 기록·백업을 보존한다. 개발은 같은 배포를 재실행하거나, DB가 `current`이며 트래픽·writer가 중지된 것을 확인한 새 SHA의 수정 이미지로 재개한다. 운영은 아래 최초 수동 전환 절차를 따른다. 실행기는 실제 DB 상태를 다시 검사하며, 이전 일회성 DB 작업이 아직 실행 중이면 재진입을 거부한다. V0 DB에 구 이미지를 연결하는 방식은 복구가 아니다. 전환 이전으로 돌아가야 한다면 별도 빈 DB에 검증된 전체 백업을 복원하고 구 이미지와 함께 검증하는 수동 복구 절차를 사용한다.
 
 `prepare-satellite-deploy.py --phase final`은 env 분리 계획을 생성하는 옵션이며 DB 전환·자격 회수·트래픽 교체를 대신 수행하지 않는다.
 
@@ -79,9 +79,9 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 ### 운영 선행 조건
 
-- **Phone의 V0 릴리스를 발행하기 전에** Infra의 IAM·SSM 변경을 적용하고, V0 DB 준비와 Data·Realtime 동시 교체를 지원하는 runtime 구성을 발행한다. Phone의 `CATUS_PROD_INFRA_REVISION`에는 **실제 게시된 구성**의 40자리 SHA를 고정한다. 이 저장소의 변경만 병합해도 원격 SSM 문서나 runtime 구성이 자동으로 교체되는 것은 아니다.
-- runtime의 Data 프로파일은 `prod,satellites,realtime-authorization`여야 하며, Data·Realtime에 동일한 `SVC_TOKEN_REALTIME_TO_DATA`와 검증한 내부 주소를 주입한다. Infra 구성의 `DATA_SCHEMA_GENERATION=catus-v0`, `CUTOVER_CONTRACT=data-v0-realtime-internal-v1` 및 릴리스 manifest의 대응 필드가 필수다. Phone 발행기는 이 계약이 없는 옛 구성·릴리스를 거부한다.
-- 현재 Realtime 이동·바다 기능에 필요한 Redis ACL도 함께 갱신한다. 최초 적용 순서는 **Infra SSM 적용 → 구성 발행 → Phone 구성 SHA 고정 → release CI 발행 → `prod-cd.yml`의 `operation=bootstrap`**이다. 일반 `deploy`는 기존 Redis ACL 변경을 감지하면 DB 작업 전에 중단한다. bootstrap 이후 앱 변경은 일반 deploy를 사용한다.
+- `CATUS_PROD_INFRA_REVISION`에는 실제 게시된 구성의 40자리 SHA를 고정한다. 별도 V0 자동 전환용 Infra PR·SSM 변경은 요구하지 않는다. 기존 실행기는 DB를 자동으로 전환하지 않으므로 최초 V0 배포는 아래 수동 전환 순서를 따른다.
+- runtime의 Data 프로파일은 `prod,satellites,realtime-authorization`여야 하며, Data·Realtime에 동일한 `SVC_TOKEN_REALTIME_TO_DATA`와 내부 주소를 주입한다. 기존 Infra 설정 생성기가 요구하는 시크릿도 기동 전에 검증한다.
+- Realtime 이동·바다 기능에는 Redis의 `movement:*`·`sea:*` 키와 `TIME` 권한이 필요하다. 이 권한은 V0 DB 전환과 별개다. 게시된 Infra 구성이 해당 ACL을 생성하는지 확인하고, 최초 중단 전환과 인프라·ACL 구성이 바뀔 때는 `operation=bootstrap`을 사용한다. 기존 구성 그대로 bootstrap을 반복하는 것으로 누락 권한이 추가되지는 않는다.
 - Phone의 `catus-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `catus-prod-publish`, 수동 배포 역할은 `catus-prod-deploy`다. 대상 설정은 Secrets Manager `catus/prod/cicd`에서 읽는다.
 - 제품명을 Catus로 정정해 Infra의 `prod/catus`에 새 state·새 AWS 스택을 준비한다. 신규 스택의 적용 완료와 운영 검증을 확인한 뒤 다음 단계로 진행한다. 기존 FocusCat은 전환 검증 후 별도 정리하며, Gromo 1.x는 계속 유지한다. 이전 스택의 성공 상태나 이미지·버전 참조를 Catus로 복사하지 않는다.
 - Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 정규 GitHub 구성 발행 잠금을 유지하기로 결정했다. 이후 FocusCat→Catus 교체 지시로 이번 전환은 운영자 직접 작업으로 수행했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
@@ -97,7 +97,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 ### 발행과 버전
 
 1. `main`·`release` 대상 PR에서 `prod-ci.yml`은 변경 서비스 검사·이미지 빌드를 수행하며 ECR에 발행하지 않는다. 공통 빌드 입력이 바뀌면 전체 서비스가 검사 대상이다.
-2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행, 기존 운영 상태에 V0 동시 전환 계약이 없는 최초 전환, 수동 `rebuild_all=true`는 전체 빌드다. Data 또는 Realtime의 변경은 두 서비스를 함께 빌드·배포 대상으로 묶는다. Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다. 발행·배포 실행은 `queue: max`로 대기 실행을 보존한다. 같은 실행을 재시도하면 계획·JAR·이미지 digest 산출물을 교체한다.
+2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행과 수동 `rebuild_all=true`는 전체 빌드다. V0 최초 전환 릴리스는 `rebuild_all=true`로 네 이미지를 발행한다. Data 또는 Realtime의 변경은 두 서비스를 함께 빌드·배포 대상으로 묶는다. Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다. 발행·배포 실행은 `queue: max`로 대기 실행을 보존한다. 같은 실행을 재시도하면 계획·JAR·이미지 digest 산출물을 교체한다.
 3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
 
 수동 실행은 소스·Infra 변경이 없어도 `version_bump`를 처리하며 기존 이미지 조합을 재사용한 새 버전을 발행한다. 이 경우 빌드·배포 대상은 비어 있고 실제 배포는 별도 승인 CD로 수행한다. 자동 push는 변경이 없으면 발행을 건너뛴다.
@@ -113,11 +113,34 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
 
-V0 최초 전환 릴리스는 네 이미지가 같은 Phone SHA여야 한다. 이후에도 Data·Realtime을 바꿀 때는 두 이미지의 SHA가 일치해야 한다. Infra 실행기는 고정 이미지·ARM64·runtime·nginx 권한·DB 사전 검증 후 nginx와 네 앱을 중지하고 실제 중지 상태를 확인한다. `deploy-v0.py`가 백업·필요한 원본 migration 보완·V0 전환을 마치면 네 앱을 기동하고 모두 health·digest를 확인한 뒤 nginx를 재개한다.
+최초 V0 전환은 사용자가 없는 운영 환경의 일회성 작업으로 처리한다. 네 이미지를 같은 Phone SHA로 발행한 뒤 다음 순서를 운영 호스트에서 수행한다.
 
-운영 단계 기록은 `/opt/catus/runtime/data-v0-cutover.json`, DB 실행 기록은 `/opt/catus/runtime/data-v0-db.json`에 따로 보존한다. 백업은 `/opt/catus/backups/data-v0/<release-id>/`에 누적하며 **EC2 로컬 보존으로, S3 자동 업로드는 없다**. 중지 후 실패하면 nginx와 앱은 닫힌 상태를 유지하고, 미완료 전환에는 동일한 `release_id`와 이미지 조합만 재시도할 수 있다. V0에서 legacy로 되돌리는 릴리스는 SSM 진입 단계에서 거부하며, 구 bundle에 포함된 옛 실행기로 이 제한을 우회하지 않는다. 일반 `rollback`도 스키마·시크릿·버전 계약이 호환되는 릴리스에만 사용한다.
+1. 게시된 릴리스의 이미지 digest와 runtime·시크릿·Redis ACL을 확인한다. 새 Data 이미지에서 `/opt/catus-db`를 추출하고 아래 `preflight`를 실행한다. 아직 앱을 교체하지 않는다.
+2. Catus nginx와 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지하고 실제 중지를 확인한다. RDS·Redis·Kafka와 볼륨은 유지한다.
+3. 동일 이미지의 DB 도구를 `apply --writers-stopped`로 실행한다. 빈 DB는 V0·기본 데이터를 생성하고 기존 DB는 검증·백업 후 전환한다. 완료 결과가 `current`·`complete`인지 확인한다.
+4. 발행한 릴리스의 기존 `prod-cd.yml`을 **`operation=bootstrap`**으로 실행한다. 기존 실행기는 앱을 순서대로 시작하므로 이 최초 전환에서는 네 앱을 모두 미리 중지한다. bootstrap은 기반 서비스를 준비하고 네 앱 health를 확인한 뒤 nginx를 시작한다. 일반 deploy는 변경이 없는 nginx를 재시작하지 않으므로 이 최초 중단 전환에 사용하지 않는다. 전체 앱의 새 digest·health와 nginx·관측의 복원을 확인한다. 기존 bootstrap에는 실패 시 자동 정지 처리가 없으므로, CD 실패 시 운영자가 nginx·네 앱·Data DB 관측을 다시 중지하고 확인한 뒤 재시도한다. 구 앱을 임의로 재시작하지 않는다.
 
-Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다. 이전 SSM 명령이 실패로 종료된 것을 확인하고 유지보수 전환을 재개하려면, 같은 `release_id`로 새 `prod-cd.yml` 수동 실행을 만들어 승인한다. 기존 Actions 실행의 재실행은 같은 SSM 명령의 결과 조회를 재개하므로 DB 작업을 새로 전송하는 절차와 구분한다.
+DB 도구 호출 형식은 다음과 같다. `data_image`는 발행된 Data digest, `data_env_file`은 같은 DB를 가리키는 `API_DB_URL`·`API_DB_USERNAME`·`API_DB_PASSWORD`가 담긴 권한 0600의 임시 파일이다. 시크릿은 로그나 명령행 인자로 출력하지 않는다.
+
+```bash
+# 검증한 Data 이미지의 /opt/catus-db를 이 경로에 추출한 뒤 실행
+python3 /opt/catus/db-package/docs/db/deploy-v0.py \
+  --phase preflight --environment prod --data-image "$data_image" \
+  --network catus_app-network --env-file "$data_env_file" \
+  --backup-dir /opt/catus/backups/data-v0 \
+  --state-file /opt/catus/runtime/data-v0-db.json
+
+# 위 2번의 중지 확인 뒤 같은 인자로 apply 실행
+python3 /opt/catus/db-package/docs/db/deploy-v0.py \
+  --phase apply --writers-stopped --environment prod --data-image "$data_image" \
+  --network catus_app-network --env-file "$data_env_file" \
+  --backup-dir /opt/catus/backups/data-v0 \
+  --state-file /opt/catus/runtime/data-v0-db.json
+```
+
+DB 기록과 백업은 호스트에 보존하며 S3 자동 업로드는 없다. 실패하면 실제 DB를 다시 검증해 재시도한다. 기존 SSM 실행기는 V0 세대나 이 DB 기록으로 구 이미지를 차단하지 않으므로, 운영 롤백 대상으로는 V0 이후 호환 릴리스만 선택한다. 후속 일반 배포에서는 앱의 Flyway가 V0 체인과 기본 데이터 콜백을 실행한다. Data·Realtime 이미지는 함께 발행하지만, 기존 운영 CD의 순차 기동까지 자동 동시 교체로 바뀌는 것은 아니다.
+
+Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다. 이전 SSM 명령이 실패로 종료된 것을 확인한 뒤 같은 릴리스를 재배포하려면 새 `prod-cd.yml` 수동 실행을 만들어 승인한다. 기존 Actions 실행의 재실행은 같은 SSM 명령의 결과 조회를 재개하므로 DB 작업을 새로 전송하는 절차와 구분한다.
 
 ### 배포 상태 배지
 
