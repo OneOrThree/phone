@@ -198,9 +198,9 @@ export function Library({ e }: any) {
             onPress={() => e.go('diary', nb ? 'residents' : '')}
           />
         ))}
-        {/* 건물 안(마을회관)과 같은 자리·모양의 ‹ — 도서관을 떠나 섬으로 간다 */}
+        {/* 건물 안(마을회관)과 같은 자리·모양의 ‹ — 도서관을 떠나 섬으로 간다. 읽는 이름도 건물 안 scene-back 과 같다 */}
         <NavBtn
-          label="닫기"
+          label="섬으로 돌아가기"
           onPress={e.home}
           style={{
             position: 'absolute',
