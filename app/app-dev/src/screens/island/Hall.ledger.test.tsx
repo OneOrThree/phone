@@ -122,7 +122,32 @@ test('「공동 가계부」 제목표와 책갈피는 한 줄에 놓여 책갈�
     assert.equal(tab.width, undefined);
     assert.equal(tab.flex, 1);
     assert.equal(tab.maxWidth, 72.3);
+    // 좁은 화면·큰 글자에서도 최소 터치 폭 44 아래로는 줄지 않는다
+    assert.equal(tab.minWidth, 44);
   }
+});
+
+test('가계부 책갈피가 44 를 지킬 폭이 없으면 제목표 아래 줄로 내려가고, 늘어난 높이만큼 책을 내린다(GROMO-2409)', async () => {
+  townHallMock.mockResolvedValue(screenBody({}));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+
+  // 줄바꿈: 책갈피 묶음은 셋 × 44 + 사이 간격보다 좁아지지 않고, 자리가 없으면 다음 줄로 간다
+  const heading = screen.getByTestId('ledger-heading');
+  const headingStyle = StyleSheet.flatten(heading.props.style);
+  assert.equal(headingStyle.flexWrap, 'wrap');
+  // 줄은 아래(책갈피 아랫변)에 붙여 위로 쌓인다 — 두 줄이어도 책갈피는 책 위 같은 자리
+  assert.equal(headingStyle.bottom, 0);
+  const tabs = StyleSheet.flatten(screen.getByTestId('ledger-tabs').props.style);
+  assert.equal(tabs.minWidth, 3 * 44 + 2 * 3.9);
+
+  // 한 줄(높이 43.9 − 22 + 51.6)이면 책은 제자리, 두 줄로 접혀 제목표 높이만큼 늘면 그만큼 책을 내린다
+  const bookTop = () => StyleSheet.flatten(screen.getByTestId('ledger-book').props.style).top;
+  const single = 43.9 - 22 + 51.6;
+  await fireEvent(heading, 'layout', { nativeEvent: { layout: { height: single } } });
+  const base = bookTop();
+  await fireEvent(heading, 'layout', { nativeEvent: { layout: { height: single + 44.3 } } });
+  assert.ok(Math.abs(bookTop() - (base + 44.3)) < 1e-9);
 });
 
 test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨·묶음 표시를 단다', async () => {

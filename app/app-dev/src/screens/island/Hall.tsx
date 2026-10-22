@@ -328,6 +328,8 @@ export function Hall({ e }: any) {
   });
   const [mockMonth, setMockMonth] = useState(0);
   const [mockTab, setMockTab] = useState<LedgerTab>('balance');
+  // 가계부 제목표·책갈피 줄이 두 줄로 접혀 위로 늘어난 높이 — 그만큼 책을 내려 제목표를 제자리에 둔다(onLayout 으로 잰다)
+  const [ledgerHeadingExtra, setLedgerHeadingExtra] = useState(0);
   // 모크 모드용 로컬 view model — 서버 모델과 같은 모양으로 맞춰 아래 렌더를 공유한다.
   // reason 자리에는 표시용 로컬 제목(l.title)을 싣는다(아래 렌더가 mockLedger 면 그대로 그린다).
   const mockLedgerState = useMemo<LedgerScreenState>(() => {
@@ -782,8 +784,9 @@ export function Hall({ e }: any) {
           onPress={() => ledger.setTab(key)}
           style={[
             {
-              // 시안 폭 72.3까지만 커지고, 제목표 옆에 남는 폭이 모자라면 셋이 똑같이 줄어든다
+              // 시안 폭 72.3까지만 커지고, 제목표 옆에 남는 폭이 모자라면 셋이 똑같이 줄어든다(최소 터치 폭 44)
               flex: 1,
+              minWidth: semanticTokens.size.tapMin,
               maxWidth: 72.3,
               height: 51.6,
               alignItems: 'center',
@@ -1054,16 +1057,20 @@ export function Hall({ e }: any) {
         </Pressable>
       );
     };
+    // 한 줄일 때 제목표·책갈피 줄 높이: 제목표 윗변(책 위 43.9) ~ 책갈피 아랫변(책 위 22 + 책갈피 51.6)
+    const headingRow = 43.9 - 22 + 51.6;
     return shell(
       <View
+        testID="ledger-book"
         style={[
           {
             position: 'absolute',
             zIndex: 7,
             left: land ? side : 18.1,
             right: land ? 18 : 18.1,
-            // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
-            top: land ? 46 : Math.max(L.insets.top + 94, H - 28.4 - 635.3),
+            // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작.
+            // 제목표·책갈피가 두 줄로 접히면 늘어난 높이만큼 내려 제목표가 뒤로 버튼 쪽으로 올라가지 않게 한다
+            top: (land ? 46 : Math.max(L.insets.top + 94, H - 28.4 - 635.3)) + ledgerHeadingExtra,
             bottom: land ? 12 : 28.4,
           },
           web({ filter: 'drop-shadow(rgba(60, 38, 27, 0.384) 0px 14.2px 15.5px)' }),
@@ -1181,66 +1188,85 @@ export function Hall({ e }: any) {
             </ScrollView>
           )}
         </View>
-        {/* 제목표와 책갈피를 한 줄에 둔다 — 따로 절대 배치하면 좁은 화면·큰 글자에서 책갈피가 제목을 덮는다 */}
+        {/* 제목표와 책갈피를 한 줄에 둔다 — 따로 절대 배치하면 좁은 화면·큰 글자에서 책갈피가 제목을 덮는다.
+            책갈피가 44 아래로 줄어야 할 만큼 좁으면 책갈피 묶음이 제목표 아래 줄로 내려간다(flexWrap). 줄은 책갈피
+            아랫변(책 안 headingRow − 43.9)에 붙여 위로 쌓으므로 책갈피는 늘 책 위 같은 자리에 걸린다 */}
         <View
-          testID="ledger-heading"
+          pointerEvents="box-none"
           style={{
             position: 'absolute',
             zIndex: 5,
             left: 12.9,
             right: 19.4,
-            top: -43.9,
-            flexDirection: 'row',
-            alignItems: 'flex-start',
-            gap: semanticTokens.spacing.control,
+            top: headingRow - 43.9,
+            height: 0,
           }}
         >
           <View
-            style={[
-              {
-                minWidth: 133,
-                paddingTop: 7.7,
-                paddingHorizontal: 19.4,
-                paddingBottom: 9,
-                borderWidth: 1.9,
-                borderColor: '#68482f',
-                borderTopLeftRadius: 7.7,
-                borderTopRightRadius: 7.7,
-                borderBottomLeftRadius: 11.6,
-                borderBottomRightRadius: 11.6,
-                backgroundColor: '#c78e58',
-                boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
-                transform: [{ rotate: '-1deg' }],
-              },
-              web({
-                backgroundImage:
-                  'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
-              }),
-            ]}
-          >
-            <T
-              style={g(19.4, 23.28, {
-                color: '#fff8e8',
-                textAlign: 'center',
-                textShadowColor: 'rgb(102, 68, 46)',
-                textShadowOffset: { width: 0, height: 1.3 },
-                textShadowRadius: 0,
-              })}
-            >
-              공동 가계부
-            </T>
-          </View>
-          {/* 책갈피 윗변은 시안대로 책 위 22(제목표 윗변보다 43.9 − 22 아래) */}
-          <View
+            testID="ledger-heading"
+            onLayout={(ev) =>
+              setLedgerHeadingExtra(Math.max(0, ev.nativeEvent.layout.height - headingRow))
+            }
             style={{
-              flex: 1,
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
               flexDirection: 'row',
-              justifyContent: 'flex-end',
-              gap: 3.9,
-              marginTop: 43.9 - 22,
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              columnGap: semanticTokens.spacing.control,
             }}
           >
-            {(['잔액', '적립', '지출'] as const).map(bookmark)}
+            <View
+              style={[
+                {
+                  minWidth: 133,
+                  paddingTop: 7.7,
+                  paddingHorizontal: 19.4,
+                  paddingBottom: 9,
+                  borderWidth: 1.9,
+                  borderColor: '#68482f',
+                  borderTopLeftRadius: 7.7,
+                  borderTopRightRadius: 7.7,
+                  borderBottomLeftRadius: 11.6,
+                  borderBottomRightRadius: 11.6,
+                  backgroundColor: '#c78e58',
+                  boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
+                  transform: [{ rotate: '-1deg' }],
+                },
+                web({
+                  backgroundImage:
+                    'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
+                }),
+              ]}
+            >
+              <T
+                style={g(19.4, 23.28, {
+                  color: '#fff8e8',
+                  textAlign: 'center',
+                  textShadowColor: 'rgb(102, 68, 46)',
+                  textShadowOffset: { width: 0, height: 1.3 },
+                  textShadowRadius: 0,
+                })}
+              >
+                공동 가계부
+              </T>
+            </View>
+            {/* 책갈피 윗변은 시안대로 책 위 22(제목표 윗변보다 43.9 − 22 아래). 셋 다 44 를 지킬 폭이 없으면 다음 줄로 */}
+            <View
+              testID="ledger-tabs"
+              style={{
+                flexGrow: 1,
+                minWidth: 3 * semanticTokens.size.tapMin + 2 * 3.9,
+                flexDirection: 'row',
+                justifyContent: 'flex-end',
+                gap: 3.9,
+                marginTop: 43.9 - 22,
+              }}
+            >
+              {(['잔액', '적립', '지출'] as const).map(bookmark)}
+            </View>
           </View>
         </View>
       </View>,
