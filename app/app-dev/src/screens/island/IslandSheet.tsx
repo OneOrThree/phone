@@ -9,7 +9,6 @@ import {
   ScrollView,
   Image,
   StyleSheet,
-  StyleProp,
   ViewStyle,
   ImageStyle,
   TextStyle,
@@ -28,7 +27,7 @@ import Svg, {
   Image as SvgImage,
 } from 'react-native-svg';
 import { useGowun } from './sceneKit';
-import { C, art, k, Txt, Pic, Btn, Gear } from '@/design-system/patterns';
+import { C, art, k, Txt, Pic, Btn, Gear, NavBtn } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
@@ -66,45 +65,6 @@ function Backdrop({ bg, onClose }: { bg?: IslandBgKey; onClose: () => void }) {
         style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3938' }]}
       />
     </>
-  );
-}
-
-// × 닫기 동그라미 버튼
-function CloseX({
-  onPress,
-  size,
-  font,
-  style,
-}: {
-  onPress: () => void;
-  size: number;
-  font: number;
-  style?: StyleProp<ViewStyle>;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t('common.close')}
-      onPress={onPress}
-      hitSlop={6}
-      style={[
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: 1.5,
-          borderColor: C.brown,
-          backgroundColor: C.paper,
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        style,
-      ]}
-    >
-      <Txt tabletScale={1} style={{ fontSize: font, lineHeight: font * 1.2, color: C.ink }}>
-        ×
-      </Txt>
-    </Pressable>
   );
 }
 
@@ -284,31 +244,8 @@ export function IslandSheet({
             gap: 6,
           }}
         >
-          {onBack && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="뒤로"
-              onPress={onBack}
-              style={{
-                width: 34,
-                height: 34,
-                marginLeft: -10,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Svg width={22} height={22} viewBox="0 0 24 24">
-                <Path
-                  d="M15 5l-7 7 7 7"
-                  stroke={C.ink}
-                  strokeWidth={2.4}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-              </Svg>
-            </Pressable>
-          )}
+          {/* 뒤로 ‹·닫기 × 는 공용 NavBtn(DESIGN §7.14). 뒤로는 한 단계 위, 닫기는 시트를 접고 섬으로 */}
+          {onBack && <NavBtn label="뒤로" onPress={onBack} style={{ marginLeft: -10 }} />}
           <Txt
             accessibilityRole="header"
             numberOfLines={1}
@@ -336,7 +273,7 @@ export function IslandSheet({
               )}
             </Pressable>
           )}
-          <CloseX onPress={onClose} size={34} font={19} />
+          <NavBtn close label={t('common.close')} onPress={onClose} />
         </View>
         <View
           testID="island-sheet-content-clip"
@@ -467,11 +404,11 @@ export function IslandPopup({
             boxShadow: `0px 6px 0px ${C.brown}`,
           }}
         >
-          <CloseX
+          <NavBtn
+            close
+            label={t('common.close')}
             onPress={onClose}
-            size={32}
-            font={18}
-            style={{ position: 'absolute', right: 14, top: 14, zIndex: 1 }}
+            style={{ position: 'absolute', right: 9, top: 9, zIndex: 1 }}
           />
           <ScrollView
             style={{ flexGrow: 0, flexShrink: 1 }}
@@ -671,16 +608,11 @@ export function WoodBoard({
               <Txt tabletScale={1} accessibilityRole="header" style={[title, { color: '#FFF3DF' }]}>
                 게시판
               </Txt>
-              <CloseX
+              <NavBtn
+                close
+                label={t('common.close')}
                 onPress={onClose}
-                size={32 * s}
-                font={19 * s}
-                style={{
-                  position: 'absolute',
-                  right: 6 * s,
-                  top: -12 * s,
-                  boxShadow: `0px ${2 * s}px 0px ${C.brown}`,
-                }}
+                style={{ position: 'absolute', right: 6 * s, top: -12 * s }}
               />
             </View>
             <View

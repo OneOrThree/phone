@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
-import { art, CharCount, Wheel } from '@/design-system/patterns';
+import { art, CharCount, NavBtn, Wheel } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
@@ -438,9 +438,8 @@ export function Hall({ e }: any) {
     </>
   );
   const back = (onPress: () => void) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="뒤로"
+    <NavBtn
+      label="뒤로"
       testID="hall-back"
       onPress={onPress}
       style={{
@@ -448,19 +447,8 @@ export function Hall({ e }: any) {
         zIndex: 12,
         left: (land ? 56 : 18) + off.left,
         top: (land ? 14 : 46.5) + off.top,
-        width: 43.9,
-        height: 43.9,
-        borderRadius: 22,
-        borderWidth: 2.6,
-        borderColor: BROWN,
-        backgroundColor: '#fff7eb',
-        boxShadow: `0px 3.9px 0px ${BROWN}`,
-        alignItems: 'center',
-        justifyContent: 'center',
       }}
-    >
-      <T style={g(29.7, 29.7, { fontWeight: '800' })}>‹</T>
-    </Pressable>
+    />
   );
   const toastView = toast !== '' && (
     <View
@@ -560,10 +548,11 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
+                  // 주 행동은 Pink(DESIGN §7.2), 위험 행동만 빨강
                   backgroundColor: ok
                     ? dialog.danger
                       ? '#e9a49d'
-                      : semanticTokens.color.accent
+                      : componentTokens.button.background
                     : undefined,
                 }}
               >
@@ -1329,7 +1318,7 @@ export function Hall({ e }: any) {
                     borderWidth: 2.6,
                     borderColor: BROWN,
                     borderRadius: 999,
-                    backgroundColor: '#ffa6bc',
+                    backgroundColor: componentTokens.button.background,
                     boxShadow: `0px 5.2px 0px ${BROWN}`,
                   }}
                 >
@@ -1561,7 +1550,7 @@ export function Hall({ e }: any) {
             borderWidth: 2.6,
             borderColor: BROWN,
             borderRadius: 999,
-            backgroundColor: '#ffa6bc',
+            backgroundColor: componentTokens.button.background,
             boxShadow: `0px 5.2px 0px ${BROWN}`,
           }}
         >
@@ -2101,18 +2090,7 @@ export function Hall({ e }: any) {
     });
   };
   const close = (onPress: () => void, style?: object) => (
-    <Pressable
-      testID="hall-close"
-      accessibilityRole="button"
-      accessibilityLabel="닫기"
-      onPress={onPress}
-      style={[
-        { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-        style,
-      ]}
-    >
-      <T style={{ fontSize: 27, lineHeight: 27, color: '#5e4d42' }}>×</T>
-    </Pressable>
+    <NavBtn close testID="hall-close" label="닫기" onPress={onPress} style={style} />
   );
   const person = (
     m: { id: string; name: string; color: string; outfit?: Outfit },
@@ -2609,7 +2587,7 @@ export function Hall({ e }: any) {
           borderWidth: 2,
           borderColor: BROWN,
           borderRadius: 99,
-          backgroundColor: semanticTokens.color.accent,
+          backgroundColor: componentTokens.button.background,
           boxShadow: `0px 3px 0px ${BROWN}`,
           opacity: draft.name.trim() ? 1 : 0.5,
         }}
@@ -2902,7 +2880,7 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: semanticTokens.color.accent,
+                  backgroundColor: componentTokens.button.background,
                 }}
               >
                 <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>승인</T>

@@ -134,6 +134,7 @@ import {
   Overlay,
   Wheel,
   Graph,
+  NavBtn,
 } from '@/design-system/patterns';
 import {
   IslandSheet,
@@ -2700,9 +2701,8 @@ export function RedesignScreens({ e }: any) {
           >
             {scene ? focusScene : <Pic id="interior/gram" w="100%" h="100%" cover />}
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
+          <NavBtn
+            label={
               state.session?.status === 'paused'
                 ? '휴식으로 돌아가기'
                 : scene
@@ -2710,24 +2710,8 @@ export function RedesignScreens({ e }: any) {
                   : '섬으로 돌아가기'
             }
             onPress={back}
-            style={{
-              position: 'absolute',
-              left: 20 + ins.left,
-              top: 16 + ins.top,
-              width: gramophone.touchMin,
-              height: gramophone.touchMin,
-              borderRadius: gramophone.touchMin / 2,
-              borderWidth: 1.5,
-              borderColor: C.brown,
-              backgroundColor: C.paper,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Txt tabletScale={1} style={{ fontSize: 28, lineHeight: 31 }}>
-              ‹
-            </Txt>
-          </Pressable>
+            style={{ position: 'absolute', left: 20 + ins.left, top: 16 + ins.top }}
+          />
           {!scene && (
             <View
               style={[
@@ -5279,7 +5263,8 @@ export function RedesignScreens({ e }: any) {
                 fontSize: 13,
                 lineHeight: 19,
                 fontWeight: '600',
-                color: '#9A4C3E',
+                // 위험 행동이 아니라 Danger 색을 쓰지 않는다(DESIGN §7.2)
+                color: semanticTokens.color.text,
               }}
             >
               {t('account.boat.changeMain')}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { art, Seg } from '@/design-system/patterns';
+import { art, NavBtn, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
@@ -503,7 +503,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   };
 
   return (
-    <Book title={title} font={font} onBack={back} onClose={close}>
+    <Book title={title} font={font} onBack={back}>
       {!neighbors && (
         <View style={styles.controls}>
           <Seg
@@ -565,13 +565,11 @@ function Book({
   title,
   font,
   onBack,
-  onClose,
   children,
 }: React.PropsWithChildren<{
   title: string;
   font?: string;
   onBack: () => void;
-  onClose: () => void;
 }>) {
   const L = useAppLayout();
   const width = Math.min(D.maxWidth, L.width - L.insets.left - L.insets.right);
@@ -602,11 +600,13 @@ function Book({
       <View
         style={[styles.header, { left: left + D.headerInset, right: left + D.headerInset, top }]}
       >
-        <Arrow label="뒤로" onPress={onBack} glyph="‹" />
+        {/* 뒤로 하나만 둔다(DESIGN §7.14) — 이웃 상세에서는 목록으로, 그 밖에는 도서관으로 */}
+        <NavBtn label="뒤로" onPress={onBack} />
         <T numberOfLines={1} style={[styles.headerTitle, { fontFamily: font }]}>
           {title}
         </T>
-        <Arrow label="책 덮기" onPress={onClose} glyph="×" />
+        {/* 제목을 가운데에 두려고 뒤로 버튼만큼 비운다 */}
+        <View style={styles.headerSpacer} />
       </View>
       <View
         style={{
@@ -876,6 +876,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: F.body },
+  headerSpacer: { width: semanticTokens.size.tapMin },
   arrow: {
     minWidth: semanticTokens.size.tapMin,
     minHeight: semanticTokens.size.tapMin,

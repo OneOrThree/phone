@@ -1,39 +1,12 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
-import { Txt } from '@/design-system/patterns';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
+import { Btn, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
 import { useGowun } from './sceneKit';
 
 const c = componentTokens.raftDestinations;
-
-function Arrow({ back = false }: { back?: boolean }) {
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      aria-hidden
-      style={styles.arrow}
-    >
-      <Svg
-        width={back ? c.backIconSize : c.forwardIconSize}
-        height={back ? c.backIconSize : c.forwardIconSize}
-        viewBox="0 0 24 24"
-      >
-        <Path
-          d={back ? 'm14 5-7 7 7 7' : 'M4 12h15m-6-6 6 6-6 6'}
-          fill="none"
-          stroke={semanticTokens.color.text}
-          strokeWidth={semanticTokens.stroke.strong}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    </View>
-  );
-}
 
 /** 1인칭 뗏목에서 집중섬과 지평선을 바라보는 이동 화면. 그림 속 표식과 노는 두지 않는다. */
 export function RaftDestinationScene({
@@ -71,38 +44,35 @@ export function RaftDestinationScene({
     (L.width < c.narrowWidth || L.fontScale > c.largeTextThreshold
       ? semanticTokens.size.tapMin
       : c.titleOffset);
+  // 목적지는 바다 위 보조 버튼(Btn glass). 마지막에 고른 목적지만 Primary(Pink)로 칠해 선택을 보인다 — 한 화면에 Primary 는 하나
   const choice = (kind: 'sea' | 'focus', action: () => void) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t(kind === 'sea' ? 'home.raft.departSea' : 'home.raft.goFocus')}
-      accessibilityState={{ disabled: busy, selected: selected === kind }}
+    <Btn
+      kind={selected === kind ? '' : 'glass'}
+      title={t(kind === 'sea' ? 'home.raft.departSea' : 'home.raft.goFocus')}
+      selected={selected === kind}
       disabled={busy}
+      dynamicHeight={reflow}
       onPress={action}
-      style={({ pressed }) => [
-        styles.choice,
+      style={
         reflow
           ? [styles.flowChoice, { alignSelf: kind === 'sea' ? 'flex-end' : 'flex-start' }]
           : kind === 'sea'
             ? {
+                position: 'absolute',
                 right: Math.max(L.insets.right, L.width * c.choiceInset),
                 top: L.height * c.seaTop,
                 maxWidth:
                   L.width - L.insets.left - Math.max(L.insets.right, L.width * c.choiceInset),
               }
             : {
+                position: 'absolute',
                 left: Math.max(L.insets.left, L.width * c.choiceInset),
                 top: L.height * c.focusTop,
                 maxWidth:
                   L.width - L.insets.right - Math.max(L.insets.left, L.width * c.choiceInset),
-              },
-        { opacity: busy ? componentTokens.button.disabledOpacity : pressed ? c.pressedOpacity : 1 },
-      ]}
-    >
-      <Txt style={[styles.choiceText, font, selected === kind && styles.selected]}>
-        {t(kind === 'sea' ? 'home.raft.departSea' : 'home.raft.goFocus')}
-      </Txt>
-      <Arrow />
-    </Pressable>
+              }
+      }
+    />
   );
   const heading = (
     <Txt
@@ -117,21 +87,23 @@ export function RaftDestinationScene({
     </Txt>
   );
   const members = (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t('home.raft.myIslands')}
+    <Btn
+      small
+      kind="glass"
+      title={t('home.raft.myIslands')}
       disabled={busy}
+      dynamicHeight={reflow}
       onPress={onMembers}
-      style={[
-        styles.members,
+      style={
         reflow
           ? styles.flowMembers
-          : { top, left: L.insets.left + semanticTokens.spacing.component },
-      ]}
-    >
-      <Arrow back />
-      <Txt style={[styles.membersText, font]}>{t('home.raft.myIslands')}</Txt>
-    </Pressable>
+          : {
+              position: 'absolute',
+              top,
+              left: L.insets.left + semanticTokens.spacing.component,
+            }
+      }
+    />
   );
   const caption = !visiting && (
     <Txt
@@ -141,7 +113,7 @@ export function RaftDestinationScene({
         reflow
           ? styles.flowCaption
           : {
-              top: L.height * c.focusTop + semanticTokens.size.tapMin + c.titleOffset,
+              top: L.height * c.focusTop + componentTokens.button.height + c.titleOffset,
               left: Math.max(L.insets.left, L.width * c.captionInset),
             },
       ]}
@@ -195,10 +167,9 @@ export function RaftDestinationScene({
 
 const styles = StyleSheet.create({
   scene: { flex: 1, overflow: 'hidden', backgroundColor: semanticTokens.color.secondary },
-  arrow: { flexShrink: 0 },
-  flowChoice: { position: 'relative', maxWidth: '100%', minWidth: 0 },
+  flowChoice: { maxWidth: '100%', minWidth: 0 },
   flowHeading: { position: 'relative' },
-  flowMembers: { position: 'relative', alignSelf: 'flex-start', maxWidth: '100%' },
+  flowMembers: { alignSelf: 'flex-start', maxWidth: '100%' },
   flowCaption: { position: 'relative', marginLeft: semanticTokens.spacing.control },
   heading: {
     position: 'absolute',
@@ -209,41 +180,6 @@ const styles = StyleSheet.create({
     textShadowColor: c.textShadow,
     textShadowRadius: c.textShadowRadius.title,
   },
-  members: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: c.inlineGap,
-    minHeight: semanticTokens.size.tapMin,
-    minWidth: semanticTokens.size.tapMin,
-  },
-  membersText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: semanticTokens.typography.caption,
-    fontWeight: semanticTokens.typography.regular,
-    textShadowColor: c.textShadow,
-    textShadowRadius: c.textShadowRadius.members,
-  },
-  choice: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: componentTokens.homeNavigation.gap,
-    minHeight: semanticTokens.size.tapMin,
-    paddingHorizontal: semanticTokens.spacing.control,
-  },
-  choiceText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: c.choiceSize,
-    lineHeight: c.choiceSize * 1.4,
-    fontWeight: semanticTokens.typography.regular,
-    textDecorationLine: 'underline',
-    textShadowColor: c.textShadow,
-    textShadowRadius: c.textShadowRadius.choice,
-  },
-  selected: { fontWeight: semanticTokens.typography.bold },
   caption: {
     position: 'absolute',
     fontSize: componentTokens.homeNavigation.clockSize,

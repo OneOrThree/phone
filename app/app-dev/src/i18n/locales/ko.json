@@ -444,7 +444,7 @@
     },
     "raft": {
       "title": "뗏목",
-      "fishingIsland": "앞바다 낚시섬",
+      "fishingIsland": "낚시섬",
       "toIsland": "{{name}}섬으로",
       "telescope": "망원경",
       "myRaft": "내 뗏목",

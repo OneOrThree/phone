@@ -1,12 +1,12 @@
 import React from 'react';
 import { Image, Platform, Pressable, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Polygon } from 'react-native-svg';
-import { art } from '@/design-system/patterns';
+import { art, NavBtn } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import { CatSprite } from '@/components/CatSprite';
 import { State } from '@/services/model';
-import { BROWN, T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { Diary } from './library/Diary';
 
 function Flower({ outline }: { outline: boolean }) {
@@ -198,27 +198,16 @@ export function Library({ e }: any) {
             onPress={() => e.go('diary', nb ? 'residents' : '')}
           />
         ))}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="닫기"
+        {/* 건물 안(마을회관)과 같은 자리·모양의 ‹ — 도서관을 떠나 섬으로 간다 */}
+        <NavBtn
+          label="닫기"
           onPress={e.home}
           style={{
             position: 'absolute',
-            right: (land ? 56 : 16) + off.right,
-            top: (land ? 14 : 62) + off.top,
-            width: 42,
-            height: 42,
-            borderRadius: 21,
-            borderWidth: 2,
-            borderColor: BROWN,
-            backgroundColor: '#fff7eb',
-            boxShadow: `0px 3px 0px ${BROWN}`,
-            alignItems: 'center',
-            justifyContent: 'center',
+            left: (land ? 56 : 18) + off.left,
+            top: (land ? 14 : 46.5) + off.top,
           }}
-        >
-          <T style={{ fontSize: 24, fontWeight: '800', lineHeight: 34.8 }}>×</T>
-        </Pressable>
+        />
       </View>
     );
   }

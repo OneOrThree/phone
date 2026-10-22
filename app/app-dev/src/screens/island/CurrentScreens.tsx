@@ -138,6 +138,7 @@ import {
   Strip,
   Toggle,
   Overlay,
+  NavBtn,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
@@ -1694,12 +1695,8 @@ function FocusVisit({ e, islandId, onBack }: any) {
           left: Math.max(18, safe.left + 8),
         }}
       >
-        <FiButton
-          small
-          title={visiting ? '돌아가기' : '닫기'}
-          id="close-focus-visit"
-          onPress={close}
-        />
+        {/* 건물 안과 같은 ‹ 동그라미(DESIGN §7.14). 읽는 이름은 그대로 — 구경이면 「돌아가기」, 내 낚시섬이면 「닫기」 */}
+        <NavBtn testID="close-focus-visit" label={visiting ? '돌아가기' : '닫기'} onPress={close} />
       </View>
       {liveIslandId && live.status === 'loading' ? (
         <View

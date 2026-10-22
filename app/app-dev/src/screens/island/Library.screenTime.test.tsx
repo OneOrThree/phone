@@ -61,10 +61,11 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
   };
 }
 
-test.each(['뒤로', '책 덮기'])('일기장의 %s는 기존 경로를 pop한다', async (label) => {
+test('일기장의 뒤로는 기존 경로를 pop하고, 같은 일을 하던 책 덮기(×)는 두지 않는다', async () => {
   const e = environment();
   const screen = await render(<Library e={e} />);
-  await fireEvent.press(screen.getByLabelText(label));
+  expect(screen.queryByLabelText('책 덮기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('뒤로'));
   expect(e.back).toHaveBeenCalledTimes(1);
   expect(e.go).not.toHaveBeenCalled();
 });
