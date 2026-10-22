@@ -3521,9 +3521,12 @@ function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
   }, [impact, reduceMotion]);
   return (
     <Animated.View
+      testID="board-blueprint-ready-stamp"
       style={{
-        width: 126,
-        height: 126,
+        // 시안 크기 126까지, 좁은 화면에서는 들어 있는 그림 칸 폭만큼 줄어든다(정사각형 유지)
+        width: '100%',
+        maxWidth: 126,
+        aspectRatio: 1,
         opacity: impact,
         transform: [
           { scale: impact.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1.65, 0.94, 1] }) },
@@ -5832,6 +5835,7 @@ export function Board({
             style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
           >
             <View
+              testID="board-blueprint-preview"
               style={{
                 width: '36%',
                 minHeight: 142,
@@ -5904,6 +5908,26 @@ export function Board({
               >
                 예상 모습
               </Text>
+              {/* 도장은 이 그림 칸 안 가운데에 찍는다 — 칸 폭을 넘지 않게 줄어 옆 글자 칸(가격·공사 시간)을 가리지 않고,
+                  칸이 overflow hidden 이라 찍히는 순간 커지는 연출도 칸 밖으로 나가지 않는다 */}
+              {stamp && (
+                <View
+                  testID="board-blueprint-stamp-area"
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    zIndex: 2,
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
+                </View>
+              )}
             </View>
             <View
               testID="board-blueprint-copy"
@@ -5924,23 +5948,6 @@ export function Board({
                 {bp.detail}
               </Text>
             </View>
-            {/* 도장은 예상 모습 그림(왼쪽 36% 칸) 가운데에 찍는다 — 글자 칸 가운데면 가격·공사 시간 숫자를 가린다 */}
-            {stamp && (
-              <View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  zIndex: 2,
-                  // 왼쪽 예상 모습 칸 width '36%' 의 가운데 — 그 칸 비율을 바꾸면 같이 고친다
-                  left: '18%',
-                  top: '50%',
-                  marginLeft: -63,
-                  marginTop: -63,
-                }}
-              >
-                <BlueprintReadyStamp reduceMotion={reduceMotion} />
-              </View>
-            )}
           </View>
         </View>
         {showResidentProgress && (

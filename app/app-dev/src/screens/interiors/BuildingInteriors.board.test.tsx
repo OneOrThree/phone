@@ -825,7 +825,7 @@ test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 
   );
 });
 
-test('준비 완료 도장은 예상 모습 그림 위에 찍혀 가격 숫자를 가리지 않는다(GROMO-2409)', async () => {
+test('준비 완료 도장은 예상 모습 그림 칸 안에서 칸 폭을 넘지 않아 가격·시간을 가리지 않는다(GROMO-2409)', async () => {
   getBoardMock.mockResolvedValue(page([]));
   const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });
   options.items[0] = { ...options.items[0], buildable: true, blockedReason: null };
@@ -833,11 +833,28 @@ test('준비 완료 도장은 예상 모습 그림 위에 찍혀 가격 숫자�
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
   await waitFor(() => assert.ok(screen.getByLabelText('준비 완료 도장')));
 
-  // 도장은 가격·시간이 적힌 글자 칸 밖(청사진 두 열 위)에 있다
+  // 도장은 왼쪽 그림 칸의 자식이고, 가격·시간이 적힌 글자 칸에는 없다
+  const preview = screen.getByTestId('board-blueprint-preview');
+  assert.ok(within(preview).getByLabelText('준비 완료 도장'));
   const copy = screen.getByTestId('board-blueprint-copy');
   assert.ok(within(copy).getByText('총 37마리'));
   expect(within(copy).queryByLabelText('준비 완료 도장')).toBeNull();
-  assert.ok(within(screen.getByTestId('board-blueprint-grid')).getByLabelText('준비 완료 도장'));
+  // 칸을 꽉 채우는 자리(absolute 0) 가운데에, 칸 폭(100%)과 시안 크기 126 중 작은 쪽 정사각형으로 찍힌다
+  const area = StyleSheet.flatten(
+    within(preview).getByTestId('board-blueprint-stamp-area').props.style,
+  );
+  assert.deepEqual(
+    [area.position, area.left, area.right, area.top, area.bottom],
+    ['absolute', 0, 0, 0, 0],
+  );
+  const stamp = StyleSheet.flatten(screen.getByTestId('board-blueprint-ready-stamp').props.style);
+  assert.equal(stamp.width, '100%');
+  assert.equal(stamp.maxWidth, 126);
+  assert.equal(stamp.aspectRatio, 1);
+  // 그림 칸은 자르기(overflow hidden)만 하고 그림자는 두지 않는다(DESIGN.md §6.3)
+  const column = StyleSheet.flatten(preview.props.style);
+  assert.equal(column.overflow, 'hidden');
+  assert.equal(column.boxShadow, undefined);
 });
 
 test.each([
