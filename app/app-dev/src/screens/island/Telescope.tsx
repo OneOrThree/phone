@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   chip: { flexShrink: 1 },
   panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
-  // 섬 칸 — 폭은 섬 칸(122)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
+  // 섬 칸 — 폭은 섬 칸(170)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
   cell: { minWidth: TELESCOPE.islandBox, alignItems: 'center' },
   art: { width: ART_W, height: ART_H, marginTop: TELESCOPE.islandArtTop },
   // 깃대 밑동을 섬 그림 위 가운데에 꽂는다

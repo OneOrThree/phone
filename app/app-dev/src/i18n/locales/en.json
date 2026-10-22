@@ -722,7 +722,7 @@
   },
   "telescope": {
     "back": "Back",
-    "nextIslands": "New islands in {{minutes}} min",
+    "nextIslands": "Islands change in {{minutes}} min",
     "loading": "Looking for islands…",
     "empty": "No islands in sight right now",
     "loadFailed": "Couldn't load the islands.",
