@@ -333,6 +333,7 @@ public class OutboxRelayService {
         meterRegistry.counter("outbox.relay.failed",
                 "target", delivery.getTarget().name(), "retryable", String.valueOf(retryable)).increment();
         // lastError 는 선점 시점 값 = 직전에 기록된 실패 사유라서 같은 영구 실패를 다시 적지 않는다.
+        // 이 ERROR 는 실패 표시가 성공한 뒤에만 남는다 — 낡은 리스(0행)나 markFailed 예외면 그 시도엔 WARN·예외 로그만 남는다.
         if (!retryable && !Objects.equals(reason, delivery.getLastError())) {
             log.error("재시도로 풀리지 않는 전달 실패 — deliveryId={} target={} 사유={} (행은 남긴다)",
                     delivery.getId(), delivery.getTarget(), error);
