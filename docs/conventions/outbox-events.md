@@ -107,7 +107,7 @@
 | --- | --- | --- | --- |
 | `KAFKA` | `notification-events` 토픽(key=userId) | 없음(`toKafka()`) | relay 가 켜지면 항상 |
 | `NOTI` | 알림 서버 HTTP | `noti.*` 4개 | `application-satellites.yml` 에 `target: NOTI` 키가 있을 때 |
-| `LINK` | 링크 HTTP(A23 로 서버 분리는 폐기됐고 걷어내기는 링크 구현 PR 몫) | `link.*` 7개 | `target: LINK` 키가 있을 때 |
+| `LINK` | 받는 서버가 없다(A23 로 서버 분리는 폐기) — **적고 보내지 않는다** | `link.*` 7개 — producer 는 계속 적지만 허용목록 항목은 없다 | 등록되지 않는다 — `link.*` relay endpoint 를 걷어(GROMO-2407) 행은 내구 보류되고 순서 판정이 대상별이라 다른 대상을 막지 않는다(SCORE 와 같다). 기존 LINK 행은 V138 이 지웠고, producer 걷어내기는 링크 구현 PR 몫이다(링크 LLD §9.2) |
 | `REALTIME` | realtime — **HTTP 기본 · Kafka 선택**(2026-09-19 R-1). HTTP 는 `POST /internal/events`(Data 전용 토큰 `SVC_TOKEN_DATA_TO_REALTIME`), Kafka 는 `realtime-events` 토픽(key=userId, `.DLT` 포함). realtime 은 두 입구를 한 처리기(`InboundEventService`)로 받아 `eventId` 로 한 번만 적용한다 | 사건 `type` 과 같은 값 — 14개 전부 `application-satellites.yml` 에 등록(`RealtimeOutboxEndpointsTest`) | 기본: `target: REALTIME` 키가 있을 때 HTTP. `outbox.relay.realtime-kafka-enabled=true` 면 HTTP 대신 Kafka(한 대상에 경로 하나). 앱 사건 14종은 realtime 이 받아 중복만 거르고 **앱으로는 아직 내보내지 않는다**(섬 구독 인가 미구현 — `StompAuthChannelInterceptor`) |
 
 | `SCORE` | `score-events` 토픽(랭킹 소비자, ㊣) — **소비자·transport 미구현** | 없음(`toScore()`) | 등록되지 않는다 — 행은 내구 보류되고 순서 판정이 대상별이라 다른 대상을 막지 않는다(V80, GROMO-1945) |

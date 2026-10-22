@@ -15,7 +15,10 @@ public enum OutboxTarget {
     /** {@code notification-events} 토픽. key = userId, value = 정본 봉투(A12·A21). */
     KAFKA,
 
-    /** 링크 서버(Neon 소유)로 가는 내부 명령 — HTTP. 링크는 Kafka 에 붙지 않는다. */
+    /**
+     * 링크 서버(Neon 소유)로 가는 내부 명령 — HTTP. 링크는 Kafka 에 붙지 않는다. 받는 서버가 없어(A23) 지금은
+     * <b>적고 보내지 않는다</b> — {@code link.*} relay endpoint 를 걷어 relay 는 이 대상을 건너뛴다(GROMO-2407).
+     */
     LINK,
 
     /** 알림 서버로 가는 동기 명령의 <b>재시도 실패분</b> — HTTP. 기기 토큰 삭제·설정 최종 상태 등. */

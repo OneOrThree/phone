@@ -572,3 +572,21 @@ test('집중 중 내 말풍선에서도 한마디 입력을 열고 저장하며 
   expect(p.onMessage).toHaveBeenCalledWith('함께 집중해요');
   expect(p.onFinish).not.toHaveBeenCalled();
 });
+
+test('표류 중에는 위쪽에 홈과 같은 친구·설정 버튼과 내 고양이 아바타를 두고, 항해 중에는 숨긴다(GROMO-2404)', async () => {
+  const go = jest.fn();
+  const p = props();
+  const screen = await render(<SeaScreen {...p} hud={{ requests: 2, go }} />);
+  await fireEvent.press(screen.getByLabelText('내 고양이 꾸미기'));
+  await fireEvent.press(screen.getByLabelText('친구, 받은 요청 2개'));
+  await fireEvent.press(screen.getByLabelText('설정'));
+  expect(go.mock.calls).toEqual([['wardrobe'], ['friends'], ['settings']]);
+  // 항해 집중 중에는 과목·시간 HUD 만 남는다
+  await screen.rerender(<SeaScreen {...p} hud={{ requests: 2, go }} voyage={voyage} />);
+  expect(screen.queryByLabelText('설정')).toBeNull();
+  expect(screen.queryByLabelText('내 고양이 꾸미기')).toBeNull();
+  expect(screen.getByTestId('sea-focus-clock')).toBeTruthy();
+  // 호스트가 HUD 를 주지 않으면(결과창·출항 연출) 그리지 않는다
+  await screen.rerender(<SeaScreen {...p} hud={null} />);
+  expect(screen.queryByLabelText('설정')).toBeNull();
+});

@@ -308,6 +308,32 @@ const DEEP_LINK_HOLD_ROUTES: Route[] = [
   'approval',
   'guide',
 ];
+// 바다 표류 HUD 로 여는 친구·설정·꾸미기와 그 안에서 이어 여는 화면(GROMO-2404) — 계정 단위 화면이라 소속 섬이
+// 없어도 머물고, 닫기는 홈 대신 바다로 간다. 강퇴 복구 신호도 이 화면들은 옮기지 않는다.
+const SEA_HUD_ROUTES: Route[] = [
+  'friends',
+  'friendSearch',
+  'blockedUsers',
+  'settings',
+  'mainIsland',
+  'profile',
+  'language',
+  'permission',
+  'screenTimeApps',
+  'wardrobe',
+];
+// 소속 섬이 없어도 머무는 화면 — 로그인·계정 온보딩·섬 고르기·구경, 바다 표류에서 연 망원경(GROMO-2366), 위 HUD 화면.
+const NO_ISLAND_ROUTES: Route[] = [
+  'login',
+  'character',
+  'createIsland',
+  'joinIsland',
+  'approval',
+  'currentIsland',
+  'visit',
+  'telescope',
+  ...SEA_HUD_ROUTES,
+];
 
 function Gromo() {
   const layout = useAppLayout();
@@ -633,7 +659,11 @@ function Gromo() {
     const finish = () => {
       setWalkRequest(null);
       setHistory([]);
-      transitionRoute('home');
+      // 바다 표류에서 연 친구·설정·꾸미기의 닫기(GROMO-2404)는 홈이 아니라 연 곳인 바다로 — 소속 섬이 있어도 같다.
+      // 「어디서 열었나」는 기록의 바닥(첫 항목)으로 본다. 기록이 없으면(부팅 복구 등) 섬이 없을 때만 바다다.
+      // state.onboarded 만 보지 않는 이유: 가입 dispatch 직후 같은 핸들러의 home() 은 옛 값을 읽는다.
+      const fromSea = history.length ? seaRouteHeld(history[0].route) : !state.onboarded;
+      transitionRoute(fromSea && SEA_HUD_ROUTES.includes(route) ? 'sea' : 'home');
     };
     const target = BUILDING_TRANSITION_RETURN_TARGET[route];
     if (target) returnToIsland(target, finish);
@@ -1578,6 +1608,12 @@ function Gromo() {
       return;
     }
     if (state.membershipRecovery || kickedDestination) {
+      // 계정 단위 화면(친구·설정·꾸미기)은 강퇴로 섬이 사라져도 그대로 둔다 — 강퇴 안내만 뜨고, 닫기·뒤로가기 때
+      // 아래 평소 검사가 바다로 보낸다. 강퇴된 섬을 보는 방문·항해 화면은 그대로 옮긴다.
+      if (!kickedDestination && SEA_HUD_ROUTES.includes(route)) {
+        dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+        return;
+      }
       setModal(null);
       setWalkRequest(null);
       setVisited(state.onboarded ? state.islandId : '');
@@ -1588,20 +1624,7 @@ function Gromo() {
     if (state.onboarded) return;
     // 소속 없이 구경 중(바다 도착 뒤 등) — 방문이 끝나면(visitingIslandId 해제) 평소 검사가 다시 돈다
     if (visitRouteHeld(route, state.visitingIslandId)) return;
-    if (
-      [
-        'login',
-        'character',
-        'createIsland',
-        'joinIsland',
-        'approval',
-        'currentIsland',
-        'visit',
-        // 바다 표류에서 연 망원경(GROMO-2366) — 섬이 없어도 여기서 갈 섬을 고른다
-        'telescope',
-      ].includes(route)
-    )
-      return;
+    if (NO_ISLAND_ROUTES.includes(route)) return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
     // 현재 섬이 없으면 이야기 이력·소속 상실 사유와 관계없이 바다로 보낸다.
     reset('sea');

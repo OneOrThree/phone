@@ -2141,13 +2141,77 @@ test.each([
     await act(async () => {
       captured.dispatch({ type: 'LOGIN' });
       captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
-      captured.reset('settings');
+      // 설정은 바다에서도 여는 화면이라(GROMO-2404) 섬이 있어야 하는 홈에서 잃는다
+      captured.reset('home');
     });
     await act(async () => captured.dispatch(islandSync(null, lossReason)));
     await waitFor(() => expect(captured.route).toBe(to));
     await app.unmount();
   },
 );
+
+test('소속 섬이 없는 계정이 바다에서 연 친구·설정·꾸미기는 바다로 되돌리지 않는다(GROMO-2404)', async () => {
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync(null, null));
+    captured.reset('sea');
+  });
+  for (const route of ['friends', 'settings', 'wardrobe', 'profile', 'blockedUsers']) {
+    await act(async () => {
+      captured.go(route);
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(captured.route).toBe(route);
+    // 시트의 닫기(X)는 홈을 거치지 않고 바다로 돌아간다
+    await act(async () => {
+      captured.home();
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(captured.route).toBe('sea');
+  }
+  await app.unmount();
+});
+
+test('소속 섬이 있어도 바다에서 연 설정의 닫기는 바다로, 홈에서 연 설정의 닫기는 홈으로 간다(GROMO-2404)', async () => {
+  const tick = () => new Promise((done) => setTimeout(done, 50));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    captured.reset('sea');
+  });
+  await act(async () => {
+    captured.go('settings');
+    await tick();
+  });
+  expect(captured.route).toBe('settings');
+  // 설정에서 이어 연 메인 섬 변경도 닫기는 바다로
+  await act(async () => {
+    captured.go('mainIsland');
+    await tick();
+  });
+  expect(captured.route).toBe('mainIsland');
+  await act(async () => {
+    captured.home();
+    await tick();
+  });
+  expect(captured.route).toBe('sea');
+  // go 는 렌더 시점의 route 를 기록에 남기므로 reset 과 다른 act 에서 부른다
+  await act(async () => captured.reset('home'));
+  await act(async () => {
+    captured.go('settings');
+    await tick();
+  });
+  await act(async () => {
+    captured.home();
+    await tick();
+  });
+  expect(captured.route).toBe('home');
+  await app.unmount();
+});
 
 const kickedApp = async (userId: string) => {
   // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있어 multiRemove 로 지운다
@@ -2158,7 +2222,7 @@ const kickedApp = async (userId: string) => {
   await act(async () => {
     captured.dispatch({ type: 'LOGIN' });
     captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
-    captured.reset('settings');
+    captured.reset('home');
   });
   return app;
 };
@@ -2259,6 +2323,21 @@ test.each([
     await app.unmount();
   },
 );
+
+test('설정처럼 섬 없이도 쓰는 화면은 강퇴 복구 신호가 와도 바다로 옮기지 않는다(GROMO-2404)', async () => {
+  mockBootRoute = 'home';
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.state.onboarded).toBe(true));
+  await act(async () => captured.reset('settings'));
+  await act(async () => {
+    captured.dispatch({ type: 'KICKED_FROM_ISLAND', id: captured.state.islandId });
+    captured.dispatch(islandSync(null, 'KICKED'));
+  });
+  await waitFor(() => expect(captured.state.membershipRecovery).toBeUndefined());
+  expect(captured.route).toBe('settings');
+  await app.unmount();
+});
 
 test('계정이 바뀌면 같은 강퇴 상태여도 그 계정의 「봤음」으로 다시 본다(GROMO-2366)', async () => {
   await AsyncStorage.multiRemove(['kickNoticeSeen:kick-e']);

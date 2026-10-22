@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -106,6 +107,15 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   useEffect(() => {
     if (step === 'ready' && !selected) setStep('scope');
   }, [step, selected]);
+  // 이름 입력 중 키보드가 다 올라온 뒤에 끝까지 내려야 입력 칸 아래 [이 이름으로 할게요] 까지 키보드 위에 보인다 —
+  // onFocus 시점에는 아직 KeyboardAvoidingView 가 줄어들기 전이라 scrollToEnd 가 움직일 거리가 없다
+  useEffect(() => {
+    if (!nameStep) return;
+    const shown = Keyboard.addListener('keyboardDidShow', () =>
+      scroll.current?.scrollToEnd({ animated: true }),
+    );
+    return () => shown.remove();
+  }, [nameStep]);
   // 출항 완료 직후 강제 종료됐으면 서버가 복구한 세션으로 돌아간다. 이 화면의 타이머는 정본이 아니다.
   const enterSea = () => {
     const session = latest.current.state.session;
@@ -322,10 +332,11 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {/* 키보드 대응은 바깥 KeyboardAvoidingView 하나만 — ScrollView 에 automaticallyAdjustKeyboardInsets 까지 주면 iOS 가
+          키보드 높이를 두 번 더해 장면이 2배로 밀려 올라가고 아래가 빈 바탕색으로 남는다(이름 입력 화면 깨짐) */}
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
         contentContainerStyle={{ flexGrow: 1, alignItems: 'center' }}
       >
         <View
