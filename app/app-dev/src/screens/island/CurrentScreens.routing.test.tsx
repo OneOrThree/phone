@@ -336,6 +336,8 @@ test('소속 섬 없이 주민 화면을 열면 「가입한 섬이 없어요」
   const screen = await mount('hall', state, { reset });
   expect(screen.getByText('가입한 섬이 없어요')).toBeTruthy();
   expect(screen.getByTestId('no-island-background', { includeHiddenElements: true })).toBeTruthy();
+  // 장식 그림 — Overlay 가 background 를 숨김 View 로 감싸 스크린리더에서 빠진다
+  expect(screen.queryByTestId('no-island-background')).toBeNull();
   // 버튼이 갈 곳을 말하므로 부연 문장은 두지 않는다
   expect(screen.queryByText('바다에서 머물 섬을 찾아보세요.')).toBeNull();
   await fireEvent.press(screen.getByText('바다로 가기'));

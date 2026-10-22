@@ -4916,14 +4916,18 @@ export function RedesignScreens({ e }: any) {
               불러오는 중…
             </Txt>
           ) : null}
-          {/* 불러오는 중·실패가 아닌데 파는 상품이 없으면 빈 상태 한 줄 */}
-          {!items.length && !(server && (shopApi.loading || shopApi.error)) && (
-            <EmptyState
-              testID="shop-empty"
-              art={cat(state.color, 'side')}
-              title={t('emptyState.shop')}
-            />
-          )}
+          {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
+          {!items.length &&
+            (!server ||
+              (shopApi.itemsCategory === (mine ? 'personal' : 'island') &&
+                !shopApi.loading &&
+                !shopApi.error)) && (
+              <EmptyState
+                testID="shop-empty"
+                art={cat(state.color, 'side')}
+                title={t('emptyState.shop')}
+              />
+            )}
           {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
           <View style={{ gap: layout.compact ? 10 : 12 }}>
             {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (

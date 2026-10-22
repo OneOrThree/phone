@@ -1,7 +1,12 @@
 import React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
-import { fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
-import { IslandPopup, IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
+import { act, fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
+import {
+  FIT_REVEAL_FALLBACK_MS,
+  IslandPopup,
+  IslandSheet,
+  SheetRow,
+} from '@/screens/island/IslandSheet';
 
 let mockLayout = {
   width: 874,
@@ -128,4 +133,26 @@ test('fit 시트는 내용·버튼 줄을 잰 뒤 내용 높이까지만 올라�
   await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 900);
   expect(box().top).toBe(100);
   mockLayout = before;
+});
+
+test('fit 시트는 내용 높이 측정이 끝내 안 와도 잠깐 뒤 tall 높이로 보인다(GROMO-2412)', async () => {
+  const before = mockLayout;
+  mockLayout = { ...mockLayout, width: 402, height: 874, compact: false, tablet: false };
+  jest.useFakeTimers();
+  try {
+    const screen = await render(
+      <IslandSheet bg="shop" sign="dog" title="상품 상세" fit onClose={() => {}}>
+        <Text>설명</Text>
+      </IslandSheet>,
+    );
+    const box = () => StyleSheet.flatten(screen.getByTestId('island-sheet-box').props.style);
+    expect(box().opacity).toBe(0);
+    await act(async () => {
+      jest.advanceTimersByTime(FIT_REVEAL_FALLBACK_MS);
+    });
+    expect(box()).toMatchObject({ top: 100, opacity: 1 });
+  } finally {
+    jest.useRealTimers();
+    mockLayout = before;
+  }
 });

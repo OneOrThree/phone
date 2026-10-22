@@ -135,3 +135,20 @@ test('받은·보낸 요청과 친구가 모두 0건이면 빈 칸·「받은 �
   assert.ok(some.getByText('받은 요청'));
   assert.ok(some.getByText('하늘'));
 });
+
+test('요청·친구가 0건이어도 검색어로 찾은 결과 행은 보인다(GROMO-2412)', async () => {
+  const screen = await render(
+    <Harness
+      friendsScreen={{
+        ...screenState([]),
+        query: '구름',
+        searchStatus: 'ready',
+        searchItems: [{ userId: 'u9', nickname: '구름', relation: 'NONE', catColor: 'gray' }],
+      }}
+    />,
+  );
+  assert.equal(screen.queryByTestId('friends-empty'), null);
+  assert.ok(screen.getByText('검색 결과'));
+  assert.ok(screen.getByText('구름'));
+  assert.ok(screen.getByText('친구 요청'));
+});

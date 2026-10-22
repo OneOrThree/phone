@@ -50,6 +50,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const scroll = useRef<ScrollView>(null);
   // 이웃 일기장 내용 높이 — 짧으면 책을 그만큼 줄여 빈 페이지를 남기지 않는다(GROMO-2412)
   const [neighborHeight, setNeighborHeight] = useState<number | null>(null);
+  // 내 일기장으로 갔다 돌아오면 새로 잴 때까지 옛 높이로 책을 줄이지 않는다
+  useEffect(() => {
+    if (!neighbors) setNeighborHeight(null);
+  }, [neighbors]);
   const range = neighbors
     ? { from: shiftDate(today, -6), to: today }
     : diaryRange(period, offset, e.now, false);

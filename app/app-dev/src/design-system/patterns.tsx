@@ -718,7 +718,7 @@ const emptyStyles = StyleSheet.create({
   },
   art: { width: componentTokens.emptyState.art, height: componentTokens.emptyState.art },
   scene: {
-    height: componentTokens.emptyState.sceneHeight,
+    minHeight: componentTokens.emptyState.sceneMinHeight,
     padding: componentTokens.emptyState.padding,
   },
   // 웹 Image 는 크기를 안 주면 원본 크기로 그려서 absoluteFill 대신 100% 를 준다

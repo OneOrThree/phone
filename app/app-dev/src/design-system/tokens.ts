@@ -680,7 +680,8 @@ export const componentTokens = {
     art: 96,
     gap: space[3],
     padding: space[6],
-    sceneHeight: 240,
+    // 최소 높이 — 가로 폰·큰 글자에서 카드 글줄이 길어지면 상자가 따라 늘어난다
+    sceneMinHeight: 240,
   },
 } as const;
 

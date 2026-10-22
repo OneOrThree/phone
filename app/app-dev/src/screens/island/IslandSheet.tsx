@@ -132,6 +132,8 @@ const GEO = {
   },
 };
 
+// fit 시트가 내용 높이를 기다리는 최대 시간
+export const FIT_REVEAL_FALLBACK_MS = 300;
 export function IslandSheet({
   bg,
   sign,
@@ -182,8 +184,15 @@ export function IslandSheet({
   // 알림(.toast)은 아래 버튼 줄 바로 위에 뜬다(세로 48 · 가로 14 간격)
   const [footH, setFootH] = useState(0);
   const [contentH, setContentH] = useState(0);
-  // fit 은 내용·버튼 줄 높이를 잰 뒤에 자리를 잡는다 — 재기 전 한 프레임은 숨겨 높은 시트가 번쩍이지 않게 한다
+  // fit 은 내용·버튼 줄 높이를 잰 뒤에 자리를 잡는다 — 재기 전에는 숨겨 높은 시트가 번쩍이지 않게 한다
   const fitReady = fit && contentH > 0 && (!footer || footH > 0);
+  // 측정이 끝내 안 오면(내용 높이 0 등) 숨긴 채 남지 않게 잠깐 뒤 tall 높이로 보인다
+  const [fitGaveUp, setFitGaveUp] = useState(false);
+  useEffect(() => {
+    if (!fit) return;
+    const timer = setTimeout(() => setFitGaveUp(true), FIT_REVEAL_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [fit]);
   const endPad = panel ? Math.max(22, ins.bottom) : L.tablet ? 18 : ins.bottom + 12;
   const cardH = Math.min(
     L.height * (tall || fit ? 0.9 : 0.76),
@@ -223,7 +232,7 @@ export function IslandSheet({
             : tall || fit
               ? 100
               : 210,
-          opacity: fit && !fitReady ? 0 : 1,
+          opacity: fit && !fitReady && !fitGaveUp ? 0 : 1,
           borderTopWidth: 2,
           borderTopLeftRadius: 30,
           borderTopRightRadius: 30,

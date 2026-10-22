@@ -552,3 +552,14 @@ test('내 일기장은 내용 높이와 관계없이 책을 끝까지 편다', a
   await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
   expect(book().height).toBe(full);
 });
+
+test('내 일기장으로 갔다 이웃 일기장으로 돌아오면 다시 잴 때까지 책을 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBeLessThan(full);
+  await screen.rerender(<Library e={environment()} />);
+  await screen.rerender(<Library e={environment({ neighbors: true })} />);
+  expect(book().height).toBe(full);
+});
