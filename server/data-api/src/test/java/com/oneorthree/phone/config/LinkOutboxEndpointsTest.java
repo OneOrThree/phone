@@ -30,6 +30,8 @@ class LinkOutboxEndpointsTest {
         assertThat(Arrays.stream(yml.getPropertyNames())
                 .filter(name -> name.startsWith("outbox.relay.endpoints[") && name.endsWith("].target")))
                 .as("endpoint 목록을 실제로 읽었다").isNotEmpty()
-                .allSatisfy(name -> assertThat(String.valueOf(yml.getProperty(name))).as(name).isNotEqualTo("LINK"));
+                // 바인더는 enum 을 대소문자 구분 없이 받는다 — `target: link` 도 LINK transport 를 만든다.
+                .allSatisfy(name -> assertThat(String.valueOf(yml.getProperty(name))).as(name)
+                        .isNotEqualToIgnoringCase("LINK"));
     }
 }
