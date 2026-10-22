@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
   Image,
   Platform,
   Pressable,
@@ -54,8 +55,34 @@ const PRESSED_OPACITY = 0.7;
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill 만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다(IslandSheet 와 같다)
 const FILL: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
 
+/**
+ * 파노라마 바다(GROMO-2414) — 섬이 바다에 붙어 같이 밀리게 바다 그림을 가로로 이어 깐다. 한 장은 지금처럼 cover 가운데 맞춤
+ * 크기·높이라 수평선이 그대로고, 스크롤 0 의 0번 장은 예전 한 장과 같은 자리다. 이음매가 안 보이게 홀수 번째 장은 좌우 반전한다
+ * (맞닿는 가장자리가 같은 픽셀 줄). 스크롤 끝과 양쪽 튕김까지 한 화면씩 더 덮는다.
+ */
+export function telescopeSeaTiles(sceneW: number, sceneH: number, contentW: number) {
+  const scale = Math.max(sceneW / telescopeSea.width, sceneH / telescopeSea.height);
+  const width = telescopeSea.width * scale;
+  const left0 = (sceneW - width) / 2;
+  const first = -Math.ceil((left0 + sceneW) / width);
+  const last = Math.ceil((Math.max(contentW, sceneW) + sceneW - left0) / width) - 1;
+  return {
+    top: (sceneH - telescopeSea.height * scale) / 2,
+    width,
+    height: telescopeSea.height * scale,
+    tiles: Array.from({ length: last - first + 1 }, (_, i) => ({
+      n: first + i,
+      left: left0 + (first + i) * width,
+      mirror: (first + i) % 2 !== 0,
+    })),
+  };
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.secondary },
+  // 파노라마를 따라 밀리는 바다 층과 그 안에 이어 붙인 그림 한 장
+  sea: { position: 'absolute' },
+  seaTile: { position: 'absolute', top: 0 },
   topBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -66,7 +93,7 @@ const styles = StyleSheet.create({
   chip: { flexShrink: 1 },
   panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
-  // 섬 칸 — 폭은 섬 칸(170)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
+  // 섬 칸 — 폭은 섬 칸(146)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
   cell: { minWidth: TELESCOPE.islandBox, alignItems: 'center' },
   art: { width: ART_W, height: ART_H, marginTop: TELESCOPE.islandArtTop },
   // 깃대 밑동을 섬 그림 위 가운데에 꽂는다
@@ -504,6 +531,20 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     space[10],
     Math.round(horizonY - TELESCOPE.horizonGap - barH - FLAG_ALLOWANCE),
   );
+  // 파노라마 가로 스크롤을 UI 스레드에서 바다 그림 이동으로 잇는다(스크롤마다 JS 리렌더 없음). 동작 줄이기에서도 따라간다 —
+  // 장식 모션이 아니라 사용자가 미는 스크롤 그 자체라서. 뗏목 고양이는 화면에 고정이라 내가 망원경을 돌리는 것처럼 보인다.
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const panoramaScroll = useMemo(
+    () => ({
+      seaX: Animated.multiply(scrollX, -1),
+      onScroll: Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
+        useNativeDriver: true,
+      }),
+    }),
+    [scrollX],
+  );
+  const [panoramaW, setPanoramaW] = useState(0);
+  const sea = telescopeSeaTiles(sceneW, sceneH, panoramaW);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -695,13 +736,38 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
         accessibilityElementsHidden={popupOpen}
         importantForAccessibility={popupOpen ? 'no-hide-descendants' : 'auto'}
       >
-        <Image
-          source={telescopeSea.source}
-          resizeMode="cover"
+        <Animated.View
+          testID="telescope-sea"
+          pointerEvents="none"
           accessibilityElementsHidden
-          importantForAccessibility="no"
-          style={FILL}
-        />
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.sea,
+            {
+              top: sea.top,
+              left: sea.tiles[0].left,
+              width: sea.tiles.length * sea.width,
+              height: sea.height,
+              transform: [{ translateX: panoramaScroll.seaX }],
+            },
+          ]}
+        >
+          {sea.tiles.map((tile) => (
+            <Image
+              key={tile.n}
+              source={telescopeSea.source}
+              style={[
+                styles.seaTile,
+                {
+                  left: tile.left - sea.tiles[0].left,
+                  width: sea.width,
+                  height: sea.height,
+                  transform: tile.mirror ? [{ scaleX: -1 }] : undefined,
+                },
+              ]}
+            />
+          ))}
+        </Animated.View>
         {/* 가로 화면에서는 섬 띠 뒤에 깔려 가리므로 세로일 때만 둔다 */}
         {sceneW <= sceneH && (
           <View
@@ -786,10 +852,13 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
                 <Txt style={styles.panelText}>{t('telescope.empty')}</Txt>
               </Panel>
             ) : (
-              <ScrollView
+              <Animated.ScrollView
                 testID="telescope-panorama"
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={panoramaScroll.onScroll}
+                onContentSizeChange={(w) => setPanoramaW(w)}
                 contentContainerStyle={{
                   ...(uninhabitedOnly ? { flexGrow: 1, justifyContent: 'center' } : {}),
                   paddingTop: FLAG_ALLOWANCE,
@@ -808,7 +877,7 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
                     onPress={() => setSelectedId(item.islandId)}
                   />
                 ))}
-              </ScrollView>
+              </Animated.ScrollView>
             )}
           </View>
         </ScrollView>

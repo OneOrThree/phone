@@ -525,21 +525,21 @@ export const componentTokens = {
   },
   // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
   // ribbonTilt(GROMO-2273) — 잡지에서 넣은 섬에 붙이는 「찜」 리본이 마스킹테이프처럼 살짝 기울어 붙은 각도
-  // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874 · GROMO-2414 확대). 섬 칸 170 안에 섬 그림 160 을 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
+  // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874 · GROMO-2414 확대). 섬 칸 146 안에 섬 그림 126 을 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
   // 칸 폭은 알약이 더 길면 알약을 따라 늘어(최대 pillMaxWidth) 서로 겹치지 않는다. 홀수 번째 섬은 stagger 만큼 낮다.
   // 짝수 번째 섬 칸 위쪽이 수평선보다 horizonGap 위에 오게 띠를 둔다 — 섬 그림이 수평선에 걸쳐 하늘 쪽으로 솟아 빈 하늘이 줄어든다.
   // 뗏목 고양이는 안전 영역 안쪽 오른쪽 아래(시안 아래 84 = 홈 인디케이터 34 + 50).
   telescope: {
     largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
-    islandBox: 170,
-    islandArtWidth: 160,
+    islandBox: 146,
+    islandArtWidth: 126,
     islandArtTop: 37,
     cellGap: space[1],
     pillGap: space[3],
     pillMaxWidth: 200,
-    stagger: 48,
-    horizonGap: 92,
+    stagger: 40,
+    horizonGap: 80,
     ribbonOffset: { left: -4, top: -6 },
     raft: { width: 200, right: 26, bottom: 50 },
   },

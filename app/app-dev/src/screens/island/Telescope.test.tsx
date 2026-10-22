@@ -2,12 +2,12 @@
 // API(getTelescope·arriveAtIsland)와 도착 영상(VideoCutscene)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
 // 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
 import React from 'react';
-import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Animated, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { Telescope } from '@/screens/island/Telescope';
-import { raftTelescope } from '@/screens/sea/seaAssets';
+import { Telescope, telescopeSeaTiles } from '@/screens/island/Telescope';
+import { raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
 import { applyLocalePref } from '@/i18n';
 import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
@@ -462,6 +462,75 @@ test('말풍선을 닫아도 그 사이 다른 곳이 걸어 둔 뒤로가기 �
   await fireEvent.press(screen.getByLabelText('닫기'));
   expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
   expect(e.backOverride.current).toBe(other);
+});
+
+describe('파노라마 바다(GROMO-2414) — 섬을 밀면 바다도 같이 밀린다', () => {
+  const flat = (node: any) => StyleSheet.flatten(node.props.style);
+
+  test('바다 그림은 파노라마 가로 스크롤 오프셋만큼 같은 속도로 따라가고(UI 스레드 이벤트), 뗏목 고양이는 고정이다', async () => {
+    // 앱은 네이티브 드라이버(UI 스레드)로 잇는다. 테스트 런타임에는 네이티브 값이 JS 로 돌아오지 않아,
+    // 설정을 확인한 뒤 같은 매핑을 JS 드라이버로 돌려 스크롤 → 바다 이동을 본다
+    const real = Animated.event;
+    const event = jest
+      .spyOn(Animated, 'event')
+      .mockImplementation((mapping, config) =>
+        real(mapping, { ...config, useNativeDriver: false }),
+      );
+    try {
+      const { screen } = await open([item('r1'), item('r2'), item('r3'), item('r4')]);
+      expect(event).toHaveBeenCalledWith(
+        [{ nativeEvent: { contentOffset: { x: expect.any(Animated.Value) } } }],
+        { useNativeDriver: true },
+      );
+      const panorama = screen.getByTestId('telescope-panorama');
+      expect(panorama.props.scrollEventThrottle).toBe(16);
+      const seaX = () =>
+        flat(screen.getByTestId('telescope-sea', { includeHiddenElements: true })).transform[0]
+          .translateX;
+      const raft = () =>
+        flat(screen.getByTestId('telescope-raft', { includeHiddenElements: true }));
+      expect(seaX()).toBeCloseTo(0, 6); // −0
+      const raftBefore = raft();
+      await fireEvent.scroll(panorama, { nativeEvent: { contentOffset: { x: 240, y: 0 } } });
+      expect(seaX()).toBe(-240);
+      await fireEvent.scroll(panorama, { nativeEvent: { contentOffset: { x: 90, y: 0 } } });
+      expect(seaX()).toBe(-90);
+      expect(raft()).toEqual(raftBefore);
+    } finally {
+      event.mockRestore();
+    }
+  });
+
+  test.each([
+    [402, 874, 1228],
+    [874, 402, 874],
+    [1024, 1366, 1600],
+  ])(
+    '%s×%s — 이어 붙인 바다는 수평선 높이 그대로, 반전 장을 번갈아 빈틈 없이 스크롤 끝·튕김까지 덮는다',
+    (w, h, content) => {
+      const sea = telescopeSeaTiles(w, h, content);
+      const scale = Math.max(w / telescopeSea.width, h / telescopeSea.height);
+      // 한 장은 예전 cover 가운데 맞춤과 같은 크기·높이 — 수평선이 그대로다
+      expect(sea.width).toBeCloseTo(telescopeSea.width * scale, 6);
+      expect(sea.top + telescopeSea.horizon * scale).toBeCloseTo(
+        (h - telescopeSea.height * scale) / 2 + telescopeSea.horizon * scale,
+        6,
+      );
+      const zero = sea.tiles.find((tile) => tile.n === 0)!;
+      expect(zero.left).toBeCloseTo((w - sea.width) / 2, 6);
+      expect(zero.mirror).toBe(false);
+      sea.tiles.forEach((tile, i) => {
+        if (i === 0) return;
+        const prev = sea.tiles[i - 1];
+        // 맞닿고, 반전이 번갈아 든다(맞닿는 가장자리가 같은 픽셀 줄이라 이음매가 안 보인다)
+        expect(tile.left).toBeCloseTo(prev.left + sea.width, 6);
+        expect(tile.mirror).toBe(!prev.mirror);
+      });
+      // 스크롤 0~끝(content − w)과 양쪽 한 화면 튕김까지 화면이 늘 바다로 덮인다
+      expect(sea.tiles[0].left).toBeLessThanOrEqual(-w);
+      expect(sea.tiles.at(-1)!.left + sea.width).toBeGreaterThanOrEqual(content + w);
+    },
+  );
 });
 
 describe('버튼 상태', () => {
