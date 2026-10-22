@@ -6,11 +6,12 @@ import React from 'react';
 import { Animated, PanResponder, StyleSheet } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -140,4 +141,21 @@ test('화면 가장자리 자리의 머리 위 말풍선·이름은 보이는 �
   expect(labelCenter - 33).toBeCloseTo(view.sx);
   expect(edgeName).toBeGreaterThan(centered);
   await screen.unmount();
+
+  // 접근성 글자 배율만큼 이름이 넓어지므로 더 많이 민다
+  mockFontScale = 2;
+  try {
+    const large = await render(
+      <FishingIsland focus={{ x: 50, y: 50 }} spots={[]} onRaft={jest.fn()}>
+        {(size, sizeY) => [actor(20, '민지')(size, sizeY)]}
+      </FishingIsland>,
+    );
+    const [largeName] = large
+      .getAllByTestId('fishing-actor-name')
+      .map((node) => StyleSheet.flatten(node.props.style).left);
+    expect(largeName).toBeGreaterThan(edgeName);
+    await large.unmount();
+  } finally {
+    mockFontScale = 1;
+  }
 });

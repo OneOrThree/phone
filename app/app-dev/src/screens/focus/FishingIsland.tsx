@@ -608,8 +608,12 @@ export function FishingIsland({
     gramW = (size * GRAM.w) / 100,
     raftK = raftW / raftBox.w;
   const visibleX = useMemo(
-    () => ({ lo: L.insets.left - left, hi: L.width - L.insets.right - left }),
-    [left, L.width, L.insets.left, L.insets.right],
+    () => ({
+      lo: L.insets.left - left,
+      hi: L.width - L.insets.right - left,
+      fontScale: L.fontScale ?? 1,
+    }),
+    [left, L.width, L.insets.left, L.insets.right, L.fontScale],
   );
   return (
     <View
@@ -804,7 +808,10 @@ export function FishingIsland({
 }
 // 지금 화면에 보이는 가로 범위(지도 px, 안전 영역 제외). 지도가 화면보다 넓어 가장자리 자리의 머리 위 말풍선·이름이
 // 잘리므로 FishingActor 가 이 범위 기준으로 민다(keepLabelInView). 제공자 밖(단독 렌더)에서는 밀지 않는다.
-const FishingVisibleX = React.createContext<{ lo: number; hi: number } | null>(null);
+// fontScale 은 글자 폭 추정용 OS 접근성 글자 배율이다.
+const FishingVisibleX = React.createContext<{ lo: number; hi: number; fontScale: number } | null>(
+  null,
+);
 // 머리 위 과목·시간표 상자 폭(지도 px). 글자 폭은 대략값: 10px 한글 한 자 ≈ 10px, 시간 8자 ≈ 50px, 최대 120px
 const labelWidth = (subject: string) => Math.min(120, 16 + Math.max(50, [...subject].length * 10));
 // 머리 위 과목·시간표 상자(지도 px)
@@ -982,14 +989,16 @@ export function FishingActor({
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
   // 화면 가장자리 자리의 머리 위 말풍선·이름이 반쯤 잘리지 않게 민다. 걷는 중에는 몸이 자리(spot)에 없어 밀지 않는다
   const visibleX = useContext(FishingVisibleX),
+    // 글자는 OS 접근성 글자 배율만큼 커진다 — 폭 추정에도 곱한다
+    fontScale = visibleX?.fontScale ?? 1,
     footX = (size * spot.x) / 100,
     pushIn = (w: number) =>
       visibleX && motion !== 'walk'
         ? keepLabelInView(footX, w, visibleX.lo, visibleX.hi) - footX
         : 0,
-    // 이름 글자 폭 대략값: 11px 한 자 ≈ 11px
-    labelShift = pushIn(labelWidth(emote ? '' : (subject ?? ''))),
-    nameShift = pushIn([...name].length * nameText(me).fontSize);
+    // 말풍선은 maxWidth 120 을 넘지 않는다. 이름 글자 폭 대략값: 11px 한 자 ≈ 11px
+    labelShift = pushIn(Math.min(120, labelWidth(emote ? '' : (subject ?? '')) * fontScale)),
+    nameShift = pushIn([...name].length * nameText(me).fontSize * fontScale);
   return (
     <Animated.View
       pointerEvents="none"

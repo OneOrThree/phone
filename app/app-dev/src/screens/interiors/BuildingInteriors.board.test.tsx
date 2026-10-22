@@ -848,20 +848,24 @@ test.each([
   '%s 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 날짜·댓글 줄이 삐져나오지 않는다(GROMO-2409)',
   async (_name, over) => {
     const screen = await renderBoard(null, concept(over));
-    // 상세가 떠 있으면 목록 종이는 스크린리더에서도 숨겨져 있다
-    const drawer = StyleSheet.flatten(
-      screen.getByTestId('board-drawer', { includeHiddenElements: true }).props.style,
-    );
-    assert.equal(drawer.opacity, 0);
+    // 상세가 떠 있으면 목록 종이는 보이지도, 눌리지도, 읽히지도(안드로이드 TalkBack 포함) 않는다
+    const hidden = screen.getByTestId('board-drawer', { includeHiddenElements: true });
+    assert.equal(StyleSheet.flatten(hidden.props.style).opacity, 0);
+    assert.equal(hidden.props.pointerEvents, 'none');
+    assert.equal(hidden.props.accessibilityElementsHidden, true);
+    assert.equal(hidden.props.importantForAccessibility, 'no-hide-descendants');
     await screen.unmount();
 
-    // 목록만 볼 때는 그대로 보인다
+    // 목록만 볼 때는 그대로 보이고 누를 수 있다
     const list = await renderBoard(
       null,
       concept({ boardPanel: over.boardPanel, boardView: 'list' }),
     );
-    const listDrawer = StyleSheet.flatten(list.getByTestId('board-drawer').props.style);
-    assert.notEqual(listDrawer.opacity, 0);
+    const shown = list.getByTestId('board-drawer');
+    assert.notEqual(StyleSheet.flatten(shown.props.style).opacity, 0);
+    assert.equal(shown.props.pointerEvents, 'auto');
+    assert.equal(shown.props.accessibilityElementsHidden, false);
+    assert.equal(shown.props.importantForAccessibility, 'auto');
     await list.unmount();
   },
 );

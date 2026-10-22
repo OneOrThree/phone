@@ -5931,6 +5931,7 @@ export function Board({
                 style={{
                   position: 'absolute',
                   zIndex: 2,
+                  // 왼쪽 예상 모습 칸 width '36%' 의 가운데 — 그 칸 비율을 바꾸면 같이 고친다
                   left: '18%',
                   top: '50%',
                   marginLeft: -63,
@@ -6538,6 +6539,11 @@ export function Board({
         testID="board-drawer"
         ref={boardDrawerRef as any}
         {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+        // 상세 종이가 떠 있어 감춘(opacity 0) 목록 종이는 누를 수도, 읽을 수도 없게 한다 — opacity 0 은 터치와
+        // 안드로이드 TalkBack 을 막지 않는다(iOS 는 상세의 accessibilityViewIsModal, 웹은 aria-hidden·inert 가 막는다)
+        pointerEvents={boardOverlayOpen ? 'none' : 'auto'}
+        accessibilityElementsHidden={boardOverlayOpen}
+        importantForAccessibility={boardOverlayOpen ? 'no-hide-descendants' : 'auto'}
         style={[
           {
             position: 'absolute',
@@ -6584,7 +6590,7 @@ export function Board({
             boxShadow: 'none',
           },
           // 공지 상세·쓰기·퀘스트 상세 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 상세 종이보다 넓고 길어
-          // 아래·옆으로 날짜·댓글 줄이 삐져나온다. 닫으면 스크롤 위치 그대로 다시 보인다
+          // 아래·옆으로 날짜·댓글 줄이 삐져나온다. 닫으면 스크롤 위치 그대로 다시 보인다(터치·스크린리더는 위 prop 이 막는다)
           boardOverlayOpen && { opacity: 0 },
         ]}
       >
@@ -6875,6 +6881,10 @@ const boardArtifacts: Record<string, ArtifactRenderer> = {
 // 전망대·우체통 기능 화면: observatory-desk · island-ranking · old-map · mail-home · island-room · friend-mail
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// 우체통 첫 화면 「우리 섬 채팅방」 칸의 줄 종이 — 웹 repeating-linear-gradient 와 네이티브 1px 줄(View)이 같은 값을 쓴다.
+// pitch 간격마다 마지막 1px 이 줄이다
+const MAIL_RULED_PAPER = { sheet: '#fffaf0', rule: '#d7c5a3', pitch: 12 } as const;
 
 // 본문 글꼴 스택 한 벌 (font-size · line-height 배수)
 const obsFont = (
@@ -8056,10 +8066,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             first
               ? [
                   webOnly({
-                    backgroundImage: 'repeating-linear-gradient(#fffaf0 0 11px,#d7c5a3 12px)',
+                    backgroundImage: `repeating-linear-gradient(${MAIL_RULED_PAPER.sheet} 0 ${MAIL_RULED_PAPER.pitch - 1}px,${MAIL_RULED_PAPER.rule} ${MAIL_RULED_PAPER.pitch}px)`,
                     clipPath: 'polygon(4% 0,96% 3%,100% 95%,1% 100%)',
                   }),
-                  Platform.OS !== 'web' && { backgroundColor: '#fffaf0' },
+                  Platform.OS !== 'web' && { backgroundColor: MAIL_RULED_PAPER.sheet },
                 ]
               : gradient(
                   'linear-gradient(145deg,transparent 49%,#ccb176 50%),linear-gradient(215deg,transparent 49%,#ead69f 50%)',
@@ -8070,16 +8080,16 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           {/* 네이티브는 repeating-linear-gradient 를 못 그려 흰 사각형만 남는다 — 웹과 같은 12px 간격 줄을 긋는다 */}
           {first &&
             Platform.OS !== 'web' &&
-            Array.from({ length: Math.floor(art.height / 12) }, (_, n) => (
+            Array.from({ length: Math.floor(art.height / MAIL_RULED_PAPER.pitch) }, (_, n) => (
               <View
                 key={n}
                 style={{
                   position: 'absolute',
                   left: 0,
                   right: 0,
-                  top: 11 + n * 12,
+                  top: (n + 1) * MAIL_RULED_PAPER.pitch - 1,
                   height: 1,
-                  backgroundColor: '#d7c5a3',
+                  backgroundColor: MAIL_RULED_PAPER.rule,
                 }}
               />
             ))}
