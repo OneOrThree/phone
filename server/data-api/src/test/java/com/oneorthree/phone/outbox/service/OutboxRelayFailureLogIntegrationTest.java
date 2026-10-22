@@ -112,7 +112,7 @@ class OutboxRelayFailureLogIntegrationTest {
                 .as("같은 영구 사유를 재시도마다 다시 적으면 prod 에서 5분마다 같은 줄이 쌓인다").hasSize(1);
         assertThat(errors("임계값", deliveryId)).as("max-attempts=2 — 2번째 시도에서 한 번").hasSize(1);
         assertThat(deliveries.findById(deliveryId).orElseThrow().getAttemptCount())
-                .as("로그를 줄였을 뿐 재시도는 멈추지 않는다(A18 보류)").isGreaterThanOrEqualTo(4);
+                .as("로그를 줄였을 뿐 재시도는 멈추지 않는다(A18 보류)").isEqualTo(4);
         assertThat(metrics.get("outbox.relay.failed").tags("target", "KAFKA", "retryable", "false")
                 .counter().count()).as("매 재시도는 카운터가 센다").isEqualTo(4);
     }
@@ -126,7 +126,7 @@ class OutboxRelayFailureLogIntegrationTest {
 
         assertThat(errors("재시도로 풀리지 않는", deliveryId)).isEmpty();
         assertThat(errors("임계값", deliveryId)).hasSize(1);
-        assertThat(deliveries.findById(deliveryId).orElseThrow().getAttemptCount()).isGreaterThanOrEqualTo(4);
+        assertThat(deliveries.findById(deliveryId).orElseThrow().getAttemptCount()).isEqualTo(4);
     }
 
     @Test
@@ -143,9 +143,46 @@ class OutboxRelayFailureLogIntegrationTest {
                         message -> assertThat(message).contains("HTTP 410"));
     }
 
+    @Test
+    @DisplayName("리스를 잃은 낡은 소유자는 영구 실패 ERROR 를 남기지 않는다 — 표시가 거부돼 WARN 만 남고 ERROR 는 현재 소유자의 한 번뿐이다")
+    void aStaleLeaseOwnerLogsNoPermanentFailureError() {
+        UUID deliveryId = append();
+        AtomicInteger currentOwnerCalls = new AtomicInteger();
+        OutboxRelayService currentOwner =
+                relayOf(currentOwnerCalls, call -> OutboxTransportResult.permanent("HTTP 404"));
+        AtomicInteger staleOwnerCalls = new AtomicInteger();
+        // 낡은 소유자의 전송이 진행되는 사이 리스(30초)가 만료되고, 다른 워커가 같은 행을 새 토큰으로 다시 집어 먼저 실패를 기록한다.
+        OutboxRelayService staleOwner = relayOf(staleOwnerCalls, call -> {
+            NOW.set(NOW.get().plusSeconds(31));
+            currentOwner.relayTarget(OutboxTarget.KAFKA);
+            return OutboxTransportResult.permanent("HTTP 404");
+        });
+
+        staleOwner.relayTarget(OutboxTarget.KAFKA);
+
+        assertThat(currentOwnerCalls).as("현재 소유자가 같은 행을 다시 집어 보냈다").hasValue(1);
+        assertThat(staleOwnerCalls).hasValue(1);
+        assertThat(errors("재시도로 풀리지 않는", deliveryId))
+                .as("낡은 소유자의 영구 실패까지 적으면 이미 남이 기록한 사유를 거부된 표시 위에 또 적는다").hasSize(1);
+        assertThat(warnings("낡은 리스의 실패 표시를 거부했다", deliveryId))
+                .as("낡은 소유자의 실패 표시는 토큰이 달라 0행 — 울타리 WARN 만 남는다").isNotEmpty();
+        assertThat(deliveries.findById(deliveryId).orElseThrow().getAttemptCount())
+                .as("선점은 두 번(낡은 소유자, 현재 소유자)").isEqualTo(2);
+    }
+
     /** 틱을 {@code times} 번 돌린다 — 틱마다 시계를 한 시간 밀어 백오프(최대 10초)를 건너뛴다. */
     private void relayTimes(int times, IntFunction<OutboxTransportResult> result) {
         AtomicInteger calls = new AtomicInteger();
+        OutboxRelayService relay = relayOf(calls, result);
+        for (int i = 0; i < times; i++) {
+            relay.relayTarget(OutboxTarget.KAFKA);
+            NOW.set(NOW.get().plus(Duration.ofHours(1)));
+        }
+        assertThat(calls).as("틱마다 한 번씩 실제로 집어 보냈다").hasValue(times);
+    }
+
+    /** 실제 store 를 쓰는 워커 — 전송할 때마다 {@code calls} 를 올리고 결과는 {@code result} 가 정한다. */
+    private OutboxRelayService relayOf(AtomicInteger calls, IntFunction<OutboxTransportResult> result) {
         OutboxTransport transport = new OutboxTransport() {
             @Override
             public OutboxTarget target() {
@@ -157,18 +194,20 @@ class OutboxRelayFailureLogIntegrationTest {
                 return result.apply(calls.incrementAndGet());
             }
         };
-        OutboxRelayService relay = new OutboxRelayService(
-                store, outbox, PROPERTIES, CLOCK, List.of(transport), metrics, Runnable::run);
-        for (int i = 0; i < times; i++) {
-            relay.relayTarget(OutboxTarget.KAFKA);
-            NOW.set(NOW.get().plus(Duration.ofHours(1)));
-        }
-        assertThat(calls).as("틱마다 한 번씩 실제로 집어 보냈다").hasValue(times);
+        return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport), metrics, Runnable::run);
     }
 
     private List<String> errors(String fragment, UUID deliveryId) {
+        return logged(Level.ERROR, fragment, deliveryId);
+    }
+
+    private List<String> warnings(String fragment, UUID deliveryId) {
+        return logged(Level.WARN, fragment, deliveryId);
+    }
+
+    private List<String> logged(Level level, String fragment, UUID deliveryId) {
         return logs.list.stream()
-                .filter(event -> event.getLevel() == Level.ERROR)
+                .filter(event -> event.getLevel() == level)
                 .map(ILoggingEvent::getFormattedMessage)
                 .filter(message -> message.contains(fragment) && message.contains("deliveryId=" + deliveryId))
                 .toList();
