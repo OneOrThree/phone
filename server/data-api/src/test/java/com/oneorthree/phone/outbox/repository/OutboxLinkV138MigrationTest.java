@@ -47,18 +47,22 @@ class OutboxLinkV138MigrationTest {
     }
 
     @Test
-    @DisplayName("LINK 전달만 달린 봉투는 6개 사건 종류 모두 전달 행과 함께 사라진다 — 시도했다 실패한 행도 포함")
+    @DisplayName("LINK 전달만 달린 봉투는 6개 사건 종류 모두 전달 행과 함께 사라진다 — 시도했다 실패한 행·전달 표시된 행도 포함")
     void removesLinkOnlyEnvelopesOfEveryLinkType() {
         migrate(MigrationVersion.fromVersion("137"));
         for (String type : LINK_ONLY_TYPES) {
-            UUID outboxId = envelope(type);
+            // 운영의 링크 사건은 대부분 링크 멤버십 축에 적힌다 — V138 은 축을 보지 않지만 두 축을 섞어 고정한다.
+            UUID outboxId = type.startsWith("user.") ? envelope(type) : linkMembershipEnvelope(type);
             delivery(outboxId, "LINK", 7);
         }
+        UUID delivered = linkMembershipEnvelope("link.joined");
+        delivery(delivered, "LINK", 1);
+        jdbc.update("UPDATE event_outbox_deliveries SET delivered_at = now() WHERE outbox_id = ?", delivered);
 
         migrate(MigrationVersion.LATEST);
 
         assertThat(count("SELECT count(*) FROM event_outbox_deliveries WHERE target = 'LINK'")).isZero();
-        assertThat(count("SELECT count(*) FROM event_outbox")).as("LINK 만 갖던 봉투 6개").isZero();
+        assertThat(count("SELECT count(*) FROM event_outbox")).as("LINK 만 갖던 봉투 7개").isZero();
     }
 
     @Test
@@ -119,6 +123,16 @@ class OutboxLinkV138MigrationTest {
                         + " aggregate_type, aggregate_id, version, params, created_at)"
                         + " VALUES (?, ?, 1, ?, now(), ?, 'USER', ?, 1, '{}'::jsonb, now())",
                 id, type + ":" + id, type, userId, userId.toString());
+        return id;
+    }
+
+    /** 링크 멤버십 축 봉투 한 건 — {@code AggregateRef.ofLinkMembership} 의 {@code <groupId>:<inviterId>} 형태. */
+    private UUID linkMembershipEnvelope(String type) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO event_outbox (id, event_id, schema_version, type, occurred_at, user_id,"
+                        + " aggregate_type, aggregate_id, version, params, created_at)"
+                        + " VALUES (?, ?, 1, ?, now(), ?, 'LINK_MEMBERSHIP', ?, 1, '{}'::jsonb, now())",
+                id, type + ":" + id, type, UUID.randomUUID(), UUID.randomUUID() + ":" + UUID.randomUUID());
         return id;
     }
 
