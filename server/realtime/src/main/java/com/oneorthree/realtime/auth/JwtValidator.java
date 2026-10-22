@@ -35,8 +35,8 @@ import java.util.UUID;
  * 시작해 클레임이 없는 구 토큰({@code null})도 NPE 없이 거절된다(fail-closed).
  *
  * <p><b>legacy extractUserId의 알려진 한계(기본 OFF 모드)</b> — 탈퇴 유저를 걸러내지 못한다.
- * Data API 의 {@code JwtFilter} 는 매 요청
- * {@code users.is_deleted} 를 확인하지만 채팅에는 유저 테이블이 없다. 따라서 탈퇴 직전에 발급된 AT 로
+ * Data 내부 섬 목록은 조회할 때
+ * {@code users.is_deleted} 를 확인하지만 채팅의 로컬 토큰 검증에는 유저 테이블이 없다. 따라서 탈퇴 직전에 발급된 AT 로
  * 최대 만료까지(기본 1시간) 채팅에 붙을 수 있다. 다만 탈퇴는 그룹 멤버십도 정리하므로 실제 영향은
  * 멤버십 캐시 TTL(설정 기본120초) 안쪽으로 좁혀지고, 그 뒤에는 {@code NOT_A_MEMBER} 로 막힌다.
  * 신규 opt-in 그룹별 관문은 strict sid/gen과 Data 현재 판정을 추가하지만

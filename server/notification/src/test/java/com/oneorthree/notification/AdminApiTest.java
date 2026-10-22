@@ -56,7 +56,6 @@ class AdminApiTest {
     @Autowired MockMvc mvc;
     @Autowired Store store;
     @Autowired DeviceService devices;
-    @Autowired AckService ack;
     @Autowired DispatchService dispatch;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
@@ -66,12 +65,12 @@ class AdminApiTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
-                + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds,jobs,job_runs,"
-                + "admin_audit,imports,migration_snapshots,migration_state CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_RESULT','BYPASS')");
+                + "user_fences,settings,projections,templates,deeplinks,kinds,jobs,job_runs,"
+                + "admin_audit CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('FRIEND_REQUEST','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
-                + " VALUES('BET_RESULT.ko','BET_RESULT','ko','결과','내기 {count}건')");
+                + " VALUES('FRIEND_REQUEST.ko','FRIEND_REQUEST','ko','결과','내기 {count}건')");
         reset(transport, data, clock);
         when(clock.instant()).thenReturn(DAY);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
@@ -158,14 +157,14 @@ class AdminApiTest {
         devices.register(USER, Map.of("deviceToken", "secret-fcm-token", "deviceBootstrap", "b", "sessionEpoch", 1),
                 "reg");
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,payload,locale) "
-                + "VALUES(?,'e1',?,'BET_RESULT','{\"count\":1,\"displayName\":\"홍길동\"}'::jsonb,'ko')",
+                + "VALUES(?,'e1',?,'FRIEND_REQUEST','{\"count\":1,\"displayName\":\"홍길동\"}'::jsonb,'ko')",
                 UUID.randomUUID(), USER);
         MvcResult result = read("/internal/admin/deliveries").andReturn();
         String json = result.getResponse().getContentAsString();
         assertThat(json).doesNotContain("홍길동").doesNotContain("secret-fcm-token");
         Map<String, Object> item = Json.map(((List<?>) body(result).get("items")).get(0));
         assertThat(item.get("paramKeys")).isEqualTo(List.of("count", "displayName"));
-        assertThat(item).containsEntry("kind", "BET_RESULT").containsEntry("status", "PENDING")
+        assertThat(item).containsEntry("kind", "FRIEND_REQUEST").containsEntry("status", "PENDING")
                 .doesNotContainKey("payload");
         assertThat(code(read("/internal/admin/deliveries?status=DROPPED"))).isEqualTo("INVALID_STATUS");
     }
@@ -173,51 +172,51 @@ class AdminApiTest {
     @Test
     void templateWriteIsRejectedUnlessItActuallyRenders() throws Exception {
         Map<String, Object> broken = template("내기 {count건");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "t1", broken)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t1", broken)))
                 .isEqualTo("INVALID_TEMPLATE_SYNTAX");
         Map<String, Object> missing = template("내기 {count}건 · {missing}");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "t2", missing)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t2", missing)))
                 .isEqualTo("TEMPLATE_ARGUMENT_MISSING");
         Map<String, Object> mismatched = template("내기 {count}건");
         mismatched.put("locale", "en");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "t3", mismatched)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t3", mismatched)))
                 .isEqualTo("TEMPLATE_ID_MISMATCH");
         mismatched.put("locale", "de");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.de", "t4", mismatched)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.de", "t4", mismatched)))
                 .isEqualTo("INVALID_LOCALE");
         // 문법·인자·식별자를 모두 통과한 것만 실제로 저장된다.
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "t5", template("내기 {count}건 확정")))
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t5", template("내기 {count}건 확정")))
                 .get("version")).isEqualTo(2);
-        assertThat(store.one("SELECT body FROM templates WHERE id='BET_RESULT.ko'").get("body"))
+        assertThat(store.one("SELECT body FROM templates WHERE id='FRIEND_REQUEST.ko'").get("body"))
                 .isEqualTo("내기 {count}건 확정");
     }
 
     @Test
     void templatesMustFitAfterUtf8RenderingAndRejectedWritesCanRetry() throws Exception {
         Map<String, Object> multiByte = template("가".repeat(1400));
-        MvcResult rejected = put("/internal/admin/templates/BET_RESULT.ko", "oversized-template", multiByte);
+        MvcResult rejected = put("/internal/admin/templates/FRIEND_REQUEST.ko", "oversized-template", multiByte);
         assertThat(rejected.getResponse().getStatus()).isEqualTo(422);
         assertThat(code(rejected)).isEqualTo("FCM_PAYLOAD_TOO_LARGE");
-        assertThat(store.one("SELECT body,version FROM templates WHERE id='BET_RESULT.ko'"))
+        assertThat(store.one("SELECT body,version FROM templates WHERE id='FRIEND_REQUEST.ko'"))
                 .containsEntry("body", "내기 {count}건").containsEntry("version", 1L);
 
         Map<String, Object> combined = template("a".repeat(2500));
         combined.put("title", "b".repeat(2000));
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "combined-template", combined)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "combined-template", combined)))
                 .isEqualTo("FCM_PAYLOAD_TOO_LARGE");
         Map<String, Object> expanded = template("{message}");
         expanded.put("sampleParams", Map.of("message", "한".repeat(1400)));
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "expanded-template", expanded)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "expanded-template", expanded)))
                 .isEqualTo("FCM_PAYLOAD_TOO_LARGE");
 
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "oversized-template", template("정상 본문"))))
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "oversized-template", template("정상 본문"))))
                 .containsEntry("version", 2);
     }
 
     @Test
     void dataOwnedJobsAreRefusedAndNotificationJobsValidateCron() throws Exception {
         store.update("INSERT INTO jobs(id,owner,cron) VALUES('league-weekly','DATA','0 0 7 * * MON'),"
-                + "('bundle-flush','NOTIFICATION','0 */5 * * * *')");
+                + "('delivery-dispatch','NOTIFICATION','0 */5 * * * *')");
         Map<String, Object> change = new LinkedHashMap<>(Map.of("enabled", true, "cron", "0 0 * * * *",
                 "config", Map.of("batch", 25)));
         assertThat(code(put("/internal/admin/jobs/league-weekly", "j1", change))).isEqualTo("JOB_OWNED_BY_DATA");
@@ -225,9 +224,9 @@ class AdminApiTest {
                 .containsEntry("cron", "0 0 7 * * MON").containsEntry("enabled", false);
         Map<String, Object> broken = new LinkedHashMap<>(change);
         broken.put("cron", "every five minutes");
-        assertThat(code(put("/internal/admin/jobs/bundle-flush", "j2", broken))).isEqualTo("INVALID_CRON");
-        assertThat(body(put("/internal/admin/jobs/bundle-flush", "j3", change))).containsEntry("enabled", true);
-        assertThat(store.one("SELECT cron FROM jobs WHERE id='bundle-flush'")).containsEntry("cron", "0 0 * * * *");
+        assertThat(code(put("/internal/admin/jobs/delivery-dispatch", "j2", broken))).isEqualTo("INVALID_CRON");
+        assertThat(body(put("/internal/admin/jobs/delivery-dispatch", "j3", change))).containsEntry("enabled", true);
+        assertThat(store.one("SELECT cron FROM jobs WHERE id='delivery-dispatch'")).containsEntry("cron", "0 0 * * * *");
         assertThat(code(put("/internal/admin/deliveries/anything", "j4", change)))
                 .isEqualTo("UNKNOWN_ADMIN_RESOURCE");
     }
@@ -235,16 +234,16 @@ class AdminApiTest {
     @Test
     void previewRendersWithoutStoringAndUsesTheDeeplinkRegistry() throws Exception {
         store.update("INSERT INTO deeplinks(id,url_template,data_template)"
-                + " VALUES('BET_RESULT','gromo://bet/{count}','{\"screen\":\"bet-{count}\"}'::jsonb)");
+                + " VALUES('FRIEND_REQUEST','gromo://bet/{count}','{\"screen\":\"bet-{count}\"}'::jsonb)");
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("params", Map.of("count", 3));
         request.put("body", "초안 {count}건");
-        Map<String, Object> preview = body(post("/internal/admin/templates/BET_RESULT.ko/preview", null, request));
+        Map<String, Object> preview = body(post("/internal/admin/templates/FRIEND_REQUEST.ko/preview", null, request));
         assertThat(preview).containsEntry("body", "초안 3건").containsEntry("title", "결과");
         assertThat(Json.map(preview.get("data"))).containsEntry("link", "gromo://bet/3")
                 .containsEntry("screen", "bet-3");
         // 미리보기는 저장하지 않는다.
-        assertThat(store.one("SELECT body FROM templates WHERE id='BET_RESULT.ko'").get("body"))
+        assertThat(store.one("SELECT body FROM templates WHERE id='FRIEND_REQUEST.ko'").get("body"))
                 .isEqualTo("내기 {count}건");
     }
 
@@ -254,7 +253,7 @@ class AdminApiTest {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("userId", USER.toString());
         request.put("params", Map.of("count", 2));
-        Map<String, Object> queued = body(post("/internal/admin/templates/BET_RESULT.ko/test", "x1", request));
+        Map<String, Object> queued = body(post("/internal/admin/templates/FRIEND_REQUEST.ko/test", "x1", request));
         assertThat(queued).containsEntry("status", "PENDING").containsEntry("dispatchEnabled", false);
         verifyNoInteractions(transport);
         UUID id = UUID.fromString(queued.get("deliveryId").toString());
@@ -270,12 +269,12 @@ class AdminApiTest {
     }
 
     @Test
-    void resendKeepsTheOriginalRowAndTheSubjectThatGovernsResultAck() throws Exception {
+    void resendKeepsTheOriginalRowAndSubject() throws Exception {
         devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
         UUID session = UUID.randomUUID();
         UUID origin = UUID.randomUUID();
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,payload,locale,status,sent_at)"
-                + " VALUES(?,'origin-event',?,'BET_RESULT',?,'{\"count\":1}'::jsonb,'ko','SENT',?)",
+                + " VALUES(?,'origin-event',?,'FRIEND_REQUEST',?,'{\"count\":1}'::jsonb,'ko','SENT',?)",
                 origin, USER, session.toString(), java.sql.Timestamp.from(DAY));
         Map<String, Object> resent = body(post("/internal/admin/deliveries/" + origin + "/resend", "r1", Map.of()));
         UUID copy = UUID.fromString(resent.get("deliveryId").toString());
@@ -289,45 +288,25 @@ class AdminApiTest {
         assertThat(row.get("event_id").toString()).startsWith("admin:").isNotEqualTo("origin-event");
         assertThat(row.get("slot_at")).isNull();
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
-        // subject 를 보존했으므로 결과 ack 억제가 재전송에도 그대로 걸린다.
-        ack.command(USER, session, "prepare", "hold");
         dispatch.dispatch(copy);
-        verifyNoInteractions(transport);
-        ack.command(USER, session, "commit", "confirm");
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", copy))
-                .containsEntry("status", "SUPPRESSED");
+                .containsEntry("status", "SENT");
     }
 
     @Test
     void writesNeedAnIdempotencyKeyAndReplayIsSafe() throws Exception {
         Map<String, Object> change = template("내기 {count}건 v2");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", null, change)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", null, change)))
                 .isEqualTo("IDEMPOTENCY_KEY_REQUIRED");
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "k1", change)).get("version")).isEqualTo(2);
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "k1", change)).get("version")).isEqualTo(2);
-        assertThat(store.one("SELECT version FROM templates WHERE id='BET_RESULT.ko'"))
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "k1", change)).get("version")).isEqualTo(2);
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "k1", change)).get("version")).isEqualTo(2);
+        assertThat(store.one("SELECT version FROM templates WHERE id='FRIEND_REQUEST.ko'"))
                 .containsEntry("version", 2L);
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "k1", template("다른 본문 {count}"))))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "k1", template("다른 본문 {count}"))))
                 .isEqualTo("IDEMPOTENCY_KEY_CONFLICT");
     }
 
     /** 구 AT 롤아웃 창(generation-required=false)에서는 최초 게이트 개방을 허용하지 않는다(root 운영 제약). */
-    @Test
-    void gateOpenIsRefusedWhileTheLegacyAuthGenerationWindowIsOpen() throws Exception {
-        store.update("INSERT INTO migration_state(id,version,manifest,verified_at)"
-                + " VALUES('m1',1,'{\"version\":2}'::jsonb,now())");
-        Map<String, Object> manifest = Map.of("manifest", Map.of("version", 1,
-                "stopWindow", Map.of("closedAt", 0, "cursor", "c", "queueDepth", 0, "source", "data-api")));
-        // 검증 당시 매니페스트와 다른 것을 들고 오면 열리지 않는다.
-        assertThat(code(post("/internal/admin/migration/m1/dispatch/open", "o1", manifest)))
-                .isEqualTo("MANIFEST_MISMATCH");
-        store.update("UPDATE migration_state SET manifest=?::jsonb WHERE id='m1'",
-                Json.write(Json.map(manifest).get("manifest")));
-        assertThat(code(post("/internal/admin/migration/m1/dispatch/open", "o2", manifest)))
-                .isEqualTo("GENERATION_REQUIRED_FOR_OPEN");
-        assertThat(store.one("SELECT enabled,ever_opened FROM dispatch_control WHERE id=1"))
-                .containsEntry("enabled", false).containsEntry("ever_opened", false);
-    }
 
     // ── 도구 ────────────────────────────────────────────────────────────
 
@@ -337,7 +316,7 @@ class AdminApiTest {
 
     private static Map<String, Object> template(String body) {
         Map<String, Object> request = new LinkedHashMap<>();
-        request.put("kind", "BET_RESULT");
+        request.put("kind", "FRIEND_REQUEST");
         request.put("locale", "ko");
         request.put("title", "결과");
         request.put("body", body);

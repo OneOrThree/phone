@@ -97,7 +97,7 @@ class TelescopeIntegrationTest {
     @Autowired
     UserRepository users;
     @Autowired
-    GroupRepository groups;
+    GroupRepository islands;
     @Autowired
     GroupMemberRepository members;
     @Autowired
@@ -114,7 +114,7 @@ class TelescopeIntegrationTest {
         when(clock.instant()).thenAnswer(invocation -> NOW.get());
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         NOW.set(BASE);
-        jdbc.update("update groups set deleted_at = now() where deleted_at is null");
+        jdbc.update("update islands set deleted_at = now() where deleted_at is null");
     }
 
     // ---------------------------------------------------------------- ① 같은 버킷
@@ -165,7 +165,7 @@ class TelescopeIntegrationTest {
 
         // 가까운 섬과 무작위 섬 하나를 정원(2)까지 채운다 — 다시 뽑는다면 정원 찬 섬은 맨 뒤로 밀린다.
         for (UUID id : List.of(nearby, random)) {
-            Group island = groups.findById(id).orElseThrow();
+            Group island = islands.findById(id).orElseThrow();
             join(user(), island);
             join(user(), island);
         }
@@ -222,7 +222,7 @@ class TelescopeIntegrationTest {
         List<TelescopeItemView> first = telescope.list(viewer.getId()).items();
         UUID joined = first.get(3).islandId();
 
-        join(viewer, groups.findById(joined).orElseThrow());
+        join(viewer, islands.findById(joined).orElseThrow());
         List<TelescopeItemView> again = telescope.list(viewer.getId()).items();
 
         List<UUID> rest = first.stream().map(TelescopeItemView::islandId).filter(id -> !id.equals(joined)).toList();
@@ -242,7 +242,7 @@ class TelescopeIntegrationTest {
         }
         List<TelescopeItemView> first = telescope.list(viewer.getId()).items();
         UUID randomGone = first.get(2).islandId();
-        jdbc.update("update groups set is_private = true where id = ?", randomGone);
+        jdbc.update("update islands set is_private = true where id = ?", randomGone);
 
         List<TelescopeItemView> afterRandom = telescope.list(viewer.getId()).items();
         assertThat(afterRandom).extracting(TelescopeItemView::islandId).containsExactly(first.get(0).islandId(),
@@ -250,7 +250,7 @@ class TelescopeIntegrationTest {
         assertThat(afterRandom).extracting(TelescopeItemView::slot)
                 .containsExactly("nearby", "random", "random", "random");
 
-        jdbc.update("update groups set is_private = true where id = ?", first.get(0).islandId());
+        jdbc.update("update islands set is_private = true where id = ?", first.get(0).islandId());
         List<TelescopeItemView> afterNearby = telescope.list(viewer.getId()).items();
         assertThat(afterNearby).extracting(TelescopeItemView::islandId).containsExactly(first.get(1).islandId(),
                 first.get(3).islandId(), first.get(4).islandId());
@@ -389,7 +389,7 @@ class TelescopeIntegrationTest {
         String all = jdbc.queryForObject("select array_to_string(island_ids, ',') from telescope_buckets "
                 + "where user_id = ?", String.class, viewer.getId());
         for (String id : all.split(",")) {
-            jdbc.update("update groups set is_private = true where id = ?::uuid", id);
+            jdbc.update("update islands set is_private = true where id = ?::uuid", id);
         }
 
         List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
@@ -464,13 +464,13 @@ class TelescopeIntegrationTest {
     @DisplayName("비공개·종료 섬은 0건이고 자진 탈퇴·강퇴된 섬은 discover 와 같이 후보에 나온다")
     void privateAndEndedIslandsNeverAppearButLeftAndKickedIslandsDo() {
         User viewer = user();
-        Group privateIsland = groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
+        Group privateIsland = islands.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
         // 잡지에 홍보 칸이 실린 비공개 섬이라도 후보·목록에서 빠진다.
         jdbc.update("insert into island_promotions (id, island_id, issue_date, applied_by, applied_at, updated_at, "
                 + "body, layout) values (?, ?, ?, ?, ?, ?, '홍보', ?::jsonb)", UUID.randomUUID(), privateIsland.getId(),
                 java.sql.Date.valueOf("2026-10-12"), viewer.getId(), Timestamp.from(BASE), Timestamp.from(BASE),
                 "{\"v\":1,\"frameId\":\"mag.frame-scallop\",\"stickers\":[],\"tape\":null}");
-        groups.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build());
+        islands.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build());
         GroupMember kicked = join(viewer, island("강퇴섬", 10));
         kicked.kick(BASE);
         members.save(kicked);
@@ -556,14 +556,14 @@ class TelescopeIntegrationTest {
     @DisplayName("항목마다 이름·소개·주민 수/정원·평균·항해 분이 있고 소속 섬은 joined·도착 기록, 평균이 없으면 null")
     void itemsCarryTheFiveFieldsAndJoinedIslandsTheirArrival() {
         User viewer = user();
-        Group home = groups.save(Group.builder().name("윤슬").description("같이 집중해요").maxMembers(5).build());
+        Group home = islands.save(Group.builder().name("윤슬").description("같이 집중해요").maxMembers(5).build());
         join(viewer, home);
         join(user(), home);
         jdbc.update("insert into island_arrivals (user_id, island_id, first_arrived_at, last_arrived_at) "
                 + "values (?, ?, now(), now())", viewer.getId(), home.getId());
         jdbc.update("insert into island_focus_averages (snapshot_date, island_id, member_count, "
                 + "avg_minutes_per_member_day) values (?, ?, 2, 83)", LocalDate.of(2026, 10, 12), home.getId());
-        Group applied = groups.save(Group.builder().name("물결").maxMembers(10).approvalRequired(true).build());
+        Group applied = islands.save(Group.builder().name("물결").maxMembers(10).approvalRequired(true).build());
         join(user(), applied);
         joinRequests.save(IslandJoinRequest.pending(applied, viewer, null));
 
@@ -608,11 +608,11 @@ class TelescopeIntegrationTest {
         User viewer = user();
         Group alive = island("살아있는섬", 10);
         Group deleted = island("지운섬", 10);
-        Group ended = groups.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build());
+        Group ended = islands.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build());
         join(viewer, alive);
         join(viewer, deleted);
         join(viewer, ended);
-        jdbc.update("update groups set deleted_at = now() where id = ?", deleted.getId());
+        jdbc.update("update islands set deleted_at = now() where id = ?", deleted.getId());
 
         assertThat(telescope.list(viewer.getId()).items())
                 .extracting(TelescopeItemView::islandId, TelescopeItemView::slot)
@@ -674,7 +674,7 @@ class TelescopeIntegrationTest {
     }
 
     private Group island(String name, int maxMembers) {
-        return groups.save(Group.builder().name(name).maxMembers(maxMembers).build());
+        return islands.save(Group.builder().name(name).maxMembers(maxMembers).build());
     }
 
     /** 정원 1에 주민 1명 — 가득 찬 섬. */

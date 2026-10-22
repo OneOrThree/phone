@@ -12,14 +12,13 @@ import org.springframework.stereotype.Component;
  * 주간 섬 랭킹의 <b>분모 동결</b> 스케줄 트리거 (GROMO-1997).
  *
  * <p>매주 일요일 00:00 <b>UTC</b> 에 「방금 끝난」 주의 섬별 주민 수를 적는다. 존이 UTC 인 것은 주 경계 자체가
- * UTC 이기 때문이다({@link RankingWeek}) — 1.x 리그의 KST 월요일 크론과 <b>다른 축</b>이고, 같은 값으로 맞추면
- * 안 된다.
+ * UTC 이기 때문이다({@link RankingWeek}).
  *
  * <p>배치 로직은 {@link IslandRankingFreezeService} 에 있다 — 테스트는 크론 없이 그것만 부른다
- * ({@code LeagueScheduler} 와 같은 구성). 트랜잭션 경계도 거기다: {@code @Scheduled} 는 스스로 트랜잭션이 없고,
+ * 트랜잭션 경계도 그 서비스에 있다. {@code @Scheduled}는 스스로 트랜잭션을 열지 않고,
  * 리포지토리는 경계를 소유하지 않는다(규약 §4·§5).
  *
- * <p>분산 락은 리그 배치와 같은 이유로 건다 — 인스턴스가 둘이면 같은 주를 동시에 적는다. 다만 이 배치는
+ * <p>여러 인스턴스의 중복 실행은 분산 락으로 제한한다. 이 배치는
  * {@code ON CONFLICT DO NOTHING} 이라 <b>이미 적힌 값을 덮지 않으므로</b> 락은 중복 작업을 줄일 뿐 정합성의
  * 유일한 방어선이 아니다.
  *

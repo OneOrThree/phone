@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 위성 서비스(링크·알림) 자리에 세우는 <b>진짜 HTTP 서버</b>.
+ * 위성 서비스(realtime·알림) 자리에 세우는 <b>진짜 HTTP 서버</b>.
  *
  * <p>목 대신 실제 소켓을 쓰는 이유: 검증 대상이 「relay 가 무엇을 보내는가」가 아니라 <b>상태 코드에
  * 따라 무엇을 표시하는가</b>이기 때문이다. 목으로 세우면 HTTP 배선(헤더·본문·타임아웃)이 통째로

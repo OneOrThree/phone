@@ -128,7 +128,7 @@ class SeaFocusSessionEventsIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     ResultActions call(MockHttpServletRequestBuilder request, UUID user, String body) throws Exception {

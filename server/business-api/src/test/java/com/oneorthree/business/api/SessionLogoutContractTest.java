@@ -52,7 +52,6 @@ class SessionLogoutContractTest extends UpstreamTestBase {
         assertThat(sent.header("Authorization")).startsWith("Bearer ").doesNotContain(RT);
         assertThat(sent.header("X-Request-Id")).isEqualTo(result.getResponse().getHeader("X-Request-Id"));
         assertThat(NOTI.received()).isEmpty();
-        assertThat(LINK.received()).isEmpty();
     }
 
     @Test

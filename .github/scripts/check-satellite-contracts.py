@@ -33,7 +33,7 @@ for path in noti.rglob('*.java'):
             f'{path.relative_to(ROOT)}: 알림 서비스에 core ORM/JWT 경계가 유입됨')
 
 kinds = source('server/data-api/src/main/java/com/oneorthree/phone/notification/producer/NotificationKind.java')
-producer = set(re.findall(r'^\s+([A-Z][A-Z0-9_]+)\(NotificationSlotGranularity\.', kinds, re.M))
+producer = set(re.findall(r'^\s+([A-Z][A-Z0-9_]+)\(SubjectKind\.', kinds, re.M))
 # 카탈로그는 «마이그레이션 전체»다. V2 하나만 읽으면 그 뒤에 새 파일로 더해진 kind·템플릿이 안 보여,
 # 실제로는 등록된 종류를 「수신 누락」으로 잡는다. 이미 통합 브랜치에 있는 마이그레이션은 바이트가 계약이라
 # (워크플로 「적용된 마이그레이션 불변」) 신규 kind 는 앞으로도 새 V 파일로만 들어온다 — 그래서 디렉터리를
@@ -42,10 +42,11 @@ seed = '\n'.join(path.read_text() for path in sorted(
         (ROOT / 'server/notification/src/main/resources/db/migration').glob('V*.sql'),
         key=lambda path: int(path.name.split('__', 1)[0][1:])))
 consumers = set(re.findall(r"INSERT INTO kinds\([^\n]+VALUES\('([^']+)'", seed))
-bundles = {'BET_RESULT_BUNDLE', 'BET_VOID_REFUND_BUNDLE', 'BET_MIXED_BUNDLE', 'CHALLENGE_SESSION_OPEN_BUNDLE'}
-require(bool(producer) and consumers == producer | bundles,
-        f'producer/consumer kind 불일치: 수신 누락={producer-consumers}, 미정의={consumers-producer-bundles}')
-for kind in consumers:
+require(producer == {'FRIEND_REQUEST', 'FRIEND_ACCEPTED', 'MAIN_ISLAND_TRANSFERRED',
+                      'MAGAZINE_PUBLISHED', 'ISLAND_KICKED'},
+        f'현재 제품 알림 종류 불일치: {producer}')
+require(producer <= consumers, f'현재 알림 카탈로그 수신 누락: {producer-consumers}')
+for kind in producer:
     for locale in ['ko', 'en', 'ja', 'zh-Hant']:
         require(f"'{kind}.{locale}','{kind}','{locale}'" in seed,
                 f'{kind}/{locale}: 템플릿 시드 없음')
@@ -61,58 +62,15 @@ if relay_files:
             'HTTP outbox 인증이 위성의 Bearer 계약과 다름')
 
 profile = source('server/data-api/src/main/resources/application-satellites.yml')
-require('${NOTIFICATION_DISPATCH_MODE:LEGACY}' in profile, '구 FCM 컷오버 스위치 기본값이 LEGACY가 아님')
+require('NOTIFICATION_DISPATCH_MODE' not in profile, '폐기한 직접 발송 스위치가 남아 있음')
 require('${OUTBOX_RELAY_ENABLED:false}' in profile, 'A18 미확정 상태에서 relay가 자동으로 켜짐')
 for path in (ROOT / 'server/notification/src/main/resources').glob('application-*.yml'):
     require('API_DB_' not in path.read_text(), f'{path.relative_to(ROOT)}: 알림이 core DB 자격을 받음')
 
-migration_records = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationRecord.java')
-export_resources = set(re.findall(r'RESOURCE_[A-Z]+ = "([a-z]+)"', migration_records))
-noti_records = source('server/notification/src/main/java/com/oneorthree/notification/MigrationRecords.java')
-resource_list = re.search(r'RESOURCES = List.of\(([^;]+)\);', noti_records)
-import_resources = set(re.findall(r'"([a-z]+)"', resource_list.group(1))) if resource_list else set()
-require(export_resources == import_resources == {'settings', 'device', 'delivery', 'user', 'participation'},
-        'A22 ㋶: Data export와 Noti import의 다섯 이관 자원이 다름')
-probe = source('.github/scripts/check-migration-checksum.py')
-require('MigrationRecords.canonical(' in probe and 'NotificationMigrationRecord.of(' in probe,
-        'A22 ㋳: 체크섬 검사가 실제 export/import 정규화 함수를 통과하지 않음')
-frozen = source('server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalClickMigrationService.java')
-for field in ['groupNameVersion', 'inviterNameVersion']:
-    require(frozen.count(f'source.put("{field}"') == 2,
-            f'A22 ㋸: frozen click/link 양쪽의 {field} 누락')
-
 keys = source('server/business-api/src/main/java/com/oneorthree/business/usecase/RequestIdempotencyKeys.java')
-replay = source('server/business-api/src/main/java/com/oneorthree/business/usecase/ClaimIntentReplayService.java')
-invite = source('server/business-api/src/main/java/com/oneorthree/business/usecase/InviteLinkUseCase.java')
-intent = source('server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteClaimIntent.java')
-require('MAX_KEY_LENGTH = 150' in keys and 'fromStepKey(intent.idempotencyKey(), "claim-intent")' in replay,
-        'A22 ㋹: 외부 키 상한 또는 claim 재개 단계 키 복원 누락')
-require('abandonClaimIntent' in invite and 'markCommandDelivered(' not in invite,
-        'A22 ㋹: claim 의도 UUID를 알림 outbox 전달 완료에 사용함')
-require('complete(at, this.leaseToken)' in intent,
-        'A22 ㋹: 확정이 현재 리스 완료 토큰을 보존하지 않음')
-claim_service = source('server/data-api/src/main/java/com/oneorthree/phone/internal/service/InternalInviteLinkService.java')
-for lookup in ['findPendingByUserAndSlugForUpdate', 'findByIdForUpdate', 'findByIdAndUserIdForUpdate']:
-    require(lookup in claim_service, f'A22 ㋹: claim 의도 전이 잠금 조회 {lookup} 누락')
-
-require('claimIntentEventId(userId, key)' in claim_service
-        and 'IDEMPOTENCY_KEY_CONFLICT' in claim_service
-        and 'intent.isSettled()' in claim_service,
-        'A22 ㋹: 요청 키별 의도 식별·본문 충돌 판정·종결 결과 재생 누락')
-require('intent.completed()' in invite,
-        'A22 ㋹: 종결된 요청을 하위 claim 없이 완료로 재생하지 않음')
-
-termination = source('server/business-api/src/main/java/com/oneorthree/business/usecase/ClaimIntentTermination.java')
-require('ClaimIntentTermination.isTerminal(e)' in invite and 'ClaimIntentTermination.isTerminal(e)' in replay,
-        'A22 ㋹: 요청과 재개 경로의 확정 거절 종결 판정이 공유되지 않음')
-require('"SLUG_NOT_FOUND"' in termination and '"USER_WITHDRAWN"' in termination
-        and 'getRetryAfterMs()' in termination and '408' in termination and '429' in termination,
-        'A22 ㋹: 확정 거절 허용목록 또는 일시적 실패 보존 누락')
+require('MAX_KEY_LENGTH = 150' in keys, '외부 멱등 키 상한 누락')
 
 writer = source('.github/scripts/write-compose-env.py')
-require('if service == "business-api" and environment == "prod":' in writer
-        and 'required += ("LINK_PROXY_SECRET",)' in writer,
-        'A22 ㋯: 운영 Business 프록시 시크릿 필수 검증 누락')
 compose = source('server/scripts/docker-compose.satellites.yml')
 require('business_redis_acl' in writer and '~cache:business:*' in writer
         and 'user default off' in writer and 'BUSINESS_REDIS_PASSWORD' in writer,
@@ -121,13 +79,11 @@ require('networks: [business-cache]' in compose and 'internal: true' in compose,
         'A22 ㋺: Redis 캐시 전용 내부 네트워크 누락')
 
 auth_service = source('server/data-api/src/main/java/com/oneorthree/phone/auth/service/AuthService.java')
-refresh_entry = auth_service.split('public TokenRefreshResponse refreshToken(String refreshToken)', 1)[1].split(
-        'private TokenRefreshResponse refreshOnSession', 1)[0]
+refresh_entry = auth_service.split('public TokenRefreshResponse refreshSessionAccessToken(String refreshToken)', 1)[1]
 require(refresh_entry.index('findActiveByIdForUpdate') < refresh_entry.index('findByRefreshToken'),
-        'A22 ㋣: 사용자 잠금 뒤 세션 원장을 조회하는 갱신 순서 누락')
-require('rotateActive(session, refreshToken, rotatedRefreshToken)' in auth_service
-        and 'currentHash.equals(user.getRefreshTokenHash())' in auth_service,
-        'A22 ㋣: 세션별 RT 회전 또는 다른 기기 단일 해시 보존 누락')
+        '세션 갱신에서 사용자 잠금 뒤 세션 원장을 조회하는 순서 누락')
+require('getRefreshTokenHash()' not in auth_service,
+        '폐기한 users 단일 refresh 해시 경로가 남아 있음')
 user_commands = source('server/data-api/src/main/java/com/oneorthree/phone/user/service/UserSatelliteCommandService.java')
 require('DeviceOwnershipTokens.isCanonicalOrAbsent(request.ownershipToken())' in user_commands,
         'A22 ㋗: 소유권 형식의 Data 내구 기록 전 검증 누락')
@@ -159,81 +115,12 @@ require('dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadli
         'A22 ㋲: 서명된 sid 활성 확인 누락')
 
 
-end_producer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/ChallengeEndPushDispatcher.java')
-dispatch = source('server/notification/src/main/java/com/oneorthree/notification/DispatchService.java')
-families = source('server/notification/src/main/java/com/oneorthree/notification/Bundles.java')
-require('"bundleMembers"' in end_producer and '"bundleRepresentative"' in end_producer
-        and '"bundleMembers"' in dispatch and 'containsAll(declared)' in dispatch,
-        'A22 ㋴: 종료 묶음의 원본 구성원 선언 또는 수신 완료 대조 누락')
-open_producer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/SessionOpenNotificationService.java')
-require('"bundleMembers"' in open_producer and 'openBundleMembers(due, joined, membersByGroupId)' in open_producer
-        and 'key -> new ArrayList<>()).add(session.getId().toString())' in open_producer,
-        'A22 ㋴: 모집 묶음의 수신자별 회차 구성원 선언 누락')
-require('"CHALLENGE_WINDOW_END"' in families and '"CHALLENGE_ENDED"' in families
-        and 'holdUntil(' in dispatch and 'held_until' in dispatch,
-        'A22 ㋴: 종료 묶음 종류 또는 슬롯·ACK 보류의 후보 이월 누락')
+membership_transitions = source('server/data-api/src/main/java/com/oneorthree/phone/group/service/IslandMembershipTransitions.java')
+require('mainIslandService.onMembershipRevoked(member)' in membership_transitions
+        and 'userIslandContextRecovery.onMembershipRevoked(member)' in membership_transitions
+        and 'member.advanceMembershipEpoch()' in membership_transitions,
+        '현재 섬 복구 또는 초대 코드 멤버십 세대 갱신 누락')
 
-batch_retry = source('server/data-api/src/main/java/com/oneorthree/phone/notification/service/NotificationBatchRetry.java')
-lock_conflicts = source('server/data-api/src/main/java/com/oneorthree/phone/notification/producer/NotificationLockConflicts.java')
-fanout_writer = source('server/data-api/src/main/java/com/oneorthree/phone/notification/producer/NotificationFanOutWriter.java')
-require('Set.of("40001", "40P01")' in lock_conflicts
-        and 'NotificationLockConflicts.sqlStateOf(failure)' in batch_retry
-        and 'properties.isOutboxMode() ? MAX_ATTEMPTS : 1' in batch_retry
-        and 'batch.accept(slot)' in batch_retry and 'isActualTransactionActive()' in batch_retry,
-        'A22 ㋴: RR 배치의 OUTBOX 한정·동일 슬롯·트랜잭션 외부 재시도 경계 누락')
-# GROMO-893: 배치 쓰기는 판정 트랜잭션 밖 조각으로 커밋된다. 조각이 하나라도 커밋된 뒤 새 스냅샷으로 재판정하면
-# 상태가 바뀐 사용자에게 다른 종류의 알림이 같은 슬롯에 또 적힌다 — 실패 조각은 같은 요청으로만 다시 적는다.
-require('scope.committedChunks() > 0' in batch_retry
-        and 'catch (NotificationFanOutPartiallyCommittedException partial)' in batch_retry
-        and 'NotificationLockConflicts.sqlStateOf(failure)' in fanout_writer
-        and 'progress.recordCommittedChunk()' in fanout_writer,
-        'A22 ㋴: 커밋된 조각이 있는 배치를 새 스냅샷으로 재판정하거나 실패 조각을 같은 요청으로 다시 적지 않음')
-# 호출 «개수»가 아니라 리그 판정 진입점 «각각»이 재시도 경계 안에 있는지 본다. 개수로 세면 다른 배치를 감싼
-# 호출이 늘어나는 순간 리그 경로 하나가 빠져도 합계로 가려진다(893 이 모든 예약 배치를 감싸며 개수가 바뀌었다).
-# 잡과 그 판정 메서드는 «같은 호출 안에서» 짝지어져야 한다. 이름과 메서드를 따로 찾으면 WEEKLY_RESULTS 잡에
-# DEADLINE 메서드가 걸린 교차 결선도 둘 다 «어딘가에 있다»로 통과한다(#763 claude 재리뷰).
-league_entries = {
-    'LEAGUE_WEEKLY_RESULTS': 'leagueNotificationService::sendWeeklyResultNotifications',
-    'LEAGUE_DEADLINE': 'leagueNotificationService::sendDeadlineReminders',
-    'LEAGUE_SUNDAY_CRISIS': 'leagueNotificationService::sendSundayCrisisReminders',
-    'LEAGUE_RELEGATION_WARNING': 'leagueNotificationService::sendRelegationWarnings',
-    'LEAGUE_FINAL_DEADLINE': 'leagueNotificationService::sendFinalDeadlineReminders',
-}
-reengagement_entries = {
-    'MISSED_FOCUS_TODAY': 'leagueReengagementNotificationService::sendMissedFocusToday',
-    'STREAK_AT_RISK': 'leagueReengagementNotificationService::sendStreakAtRisk',
-}
-scheduled_call = r'batchRetry\.run\(NotificationCronReplayJob\.{job}\.lockName\(\),\s*{method}\)'
-replay_call = r'case\s+{job}\s*->\s*batchRetry\.run\(name,\s*missedAt,\s*{method}\)'
-direct_league_call = re.compile(r'league(Reengagement)?NotificationService\.send')
-for entry, entries, call in [
-        ('scheduler/NotificationScheduler.java', {**league_entries, **reengagement_entries}, scheduled_call),
-        ('NotificationBatchController.java', league_entries, scheduled_call),
-        ('migration/NotificationCronReplayService.java', {**league_entries, **reengagement_entries}, replay_call)]:
-    body = source('server/data-api/src/main/java/com/oneorthree/phone/notification/' + entry)
-    unpaired = [job for job, method in entries.items()
-                if not re.search(call.format(job=re.escape(job), method=re.escape(method)), body)]
-    require(not unpaired and not direct_league_call.search(body),
-            f'A22 ㋴: {entry}의 리그 판정 진입점이 재시도 경계를 우회하거나 잡·메서드 결선이 어긋남 {unpaired}')
-
-membership_events = source('server/data-api/src/main/java/com/oneorthree/phone/group/service/LinkMembershipEventService.java')
-member_repository = source('server/data-api/src/main/java/com/oneorthree/phone/group/repository/GroupMemberRepository.java')
-require(membership_events.count('lockActiveMembershipId(') == 2
-        and 'member.applyDisplaySnapshot(' not in membership_events
-        and 'SET gm.snapshotVersion = :snapshotVersion' in member_repository
-        and 'gm.isLeft = false' in member_repository,
-        'A22 ㋻: 표시정보 갱신이 멤버십 엔티티 전체를 덮거나 이탈 조건을 누락함')
-require('AggregateRef.ofUser(joinedUserId)' in membership_events
-        and 'joinedUserId + ":" + joinEpoch' in membership_events
-        and 'LINK_SLUG.matcher(slug).matches()' in membership_events,
-        'A22 ㋻: 가입 사실의 가입자 축·재가입 사건 키·선택 slug 형식 경계 누락')
-
-migration_service = source('server/notification/src/main/java/com/oneorthree/notification/MigrationService.java')
-require('for (String resource : MigrationRecords.RESOURCES)' in migration_service
-        and 'REQUIRED_RESOURCE_MISSING' in migration_service,
-        'A22 ㋭: manifest의 다섯 필수 자원 누락을 허용함')
-require('resumed && pendingSource' in migration_service and 'ATTEMPTS_REGRESSED' in migration_service,
-        'A22 ㋭: 최초 이관 검증과 개방 후 정상 재시도 재개를 구분하지 않음')
 fcm_transport = source('server/notification/src/main/java/com/oneorthree/notification/FcmTransport.java')
 fcm_payload = source('server/notification/src/main/java/com/oneorthree/notification/FcmPayload.java')
 require('return FcmPayload.create(token, push, sound, eventId);' in fcm_transport
@@ -252,16 +139,6 @@ require('AND active AND NOT transport_invalid' in dispatch_service
         'A22 ㊚: FCM 토큰 유효성·소유권·기기별 성공 이력을 같은 축으로 처리함')
 
 # 앱 큐의 직렬화 경계(ownershipCritical)도 앱 PR 이 들고 온다(머리말 참조).
-export_manifest = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationManifest.java')
-export_cli = source('server/data-api/src/main/java/com/oneorthree/phone/notification/migration/NotificationMigrationCliRunner.java')
-require('String snapshot' in export_manifest
-        and '"snapshot", document.manifest().snapshot(), "records", wire' in export_cli
-        and 'Math.max(1, records.size())' in export_cli,
-        'A22 ㋼: export 스냅샷 식별자·모든 청크 연결·명시적 빈 청크 중 일부 누락')
-require('snapshot_id=?' in migration_service and 'migration_snapshots' in migration_service
-        and 'retire(migrationId' in migration_service and 'settings.imported_by' in migration_service,
-        'A22 ㋼: 최종 전체 집합 검증·빈 스냅샷 등록·이관 소유 행 정리 경계 누락')
-
 require('SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1' in dispatch_service,
         'A22 ㊚: 성공 이력이 없는 UNREGISTERED 알림을 완료 처리함')
 kafka_compose = source('server/scripts/docker-compose.kafka.yml')
@@ -293,14 +170,16 @@ require(bool(re.search(r'catch \(UpstreamDomainException.*?UpstreamContractMisma
 
 member_entity = source('server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupMember.java')
 require('@DynamicUpdate' in member_entity,
-        'A22 ㋻: 멤버 역할·권한 변경이 동시 표시 버전을 전체 행 저장으로 되돌릴 수 있음')
-gate_commands = source('server/notification/src/main/java/com/oneorthree/notification/MigrationService.java')
-close_command = gate_commands.split('public Map<String, Object> close(', 1)[1].split('// ──', 1)[0]
-require('DISPATCH_OPEN_REPLAY_STALE' in gate_commands and 'activate.get();' in gate_commands
-        and '}, true);' in close_command,
-        'A22 ㋾: 게이트 재시도의 현재 검증·중지 보호·재차 drain 경계 누락')
+        '멤버 역할·권한 변경이 멤버십 상태를 전체 행 저장으로 덮을 수 있음')
+data_internal = ROOT / 'server/data-api/src/main/java/com/oneorthree/phone/internal'
+for path in data_internal.rglob('*.java'):
+    body = path.read_text()
+    require(not re.search(r'@(Get|Post)Mapping\("[^"\n]*(challenge-results|result-ack|/migrations/)', body),
+            f'{path.relative_to(ROOT)}: 폐기한 결과 확인·이관 API가 남아 있음')
+require(not list((ROOT / 'server/data-api/src/main/java/com/oneorthree/phone/notification/migration').rglob('*.java')),
+        '폐기한 Data 알림 이관 exporter가 남아 있음')
 
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)
-print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {len(consumers)*4}개')
+print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {len(producer)*4}개')

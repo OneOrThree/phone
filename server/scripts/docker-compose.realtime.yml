@@ -115,12 +115,11 @@ services:
       # Business 우체통 내부 어댑터(/internal/*, GROMO-1775) 자격. 비면 그 경로만 401 — Business 의
       # SVC_TOKEN_BIZ_TO_REALTIME 과 «같은 값», Data 토큰과는 «다른 값»(A22 ㊀).
       SVC_TOKEN_BIZ_TO_REALTIME: ${SVC_TOKEN_BIZ_TO_REALTIME:-}
-      # Realtime → Data 내부 조회(응원 인가 GROMO-1765 · 받는 사람 기준 차단 GROMO-2182) 대상·자격.
-      # ⚠️ 차단 필터는 fail-closed 라 REALTIME_BLOCKS_FILTER_ENABLED=true 에서 토큰이 비면 섬 채팅·응원 수신이 전부
-      #    멈춘다. Data 는 realtime-authorization 프로필(DATA_API_PROFILES)과 같은 SVC_TOKEN_REALTIME_TO_DATA 를 먼저
-      #    갖춰야 한다. dev 는 SM gromo/dev/env → dev-env.sh → write-compose-env.py(임시 dev.env) 경로로 온다.
+      # Realtime → Data의 섬 목록·멤버십·차단 조회는 내부 API 서비스 자격을 사용한다.
+      # Data는 realtime-authorization 프로필과 같은 SVC_TOKEN_REALTIME_TO_DATA가 필요하다.
+      # dev는 SM gromo/dev/env → dev-env.sh → write-compose-env.py(임시 dev.env) 경로로 온다.
       REALTIME_AUTHORIZATION_DATA_URL: ${REALTIME_AUTHORIZATION_DATA_URL:-}
-      SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:-}
+      SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:?Realtime에서 Data 내부 API를 호출할 서비스 토큰 필요}
       # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.
       REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
       # 채팅 이력 인가 예산(GROMO-2342). ON 모드 동시 16 초과 시 유한 대기·허용 결정 캐시 TTL(0=끔), OFF 모드 GroupClient 동시 상한.

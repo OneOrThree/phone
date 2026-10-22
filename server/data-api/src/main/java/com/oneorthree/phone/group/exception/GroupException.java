@@ -7,7 +7,7 @@ import com.oneorthree.phone.common.exception.DomainException;
  *
  * <p>실패 종류가 늘어도 예외 클래스는 늘리지 않고 코드를 늘린다. 핸들러가 하나뿐이라 코드만
  * 추가하면 응답 형태가 저절로 맞기 때문이다 — 재시도 지연 힌트처럼 <b>코드 밖의 데이터</b>를
- * 함께 실어야 할 때만 하위 클래스를 만든다({@link ChallengeResultClaimHeldException}).
+ * 함께 실어야 할 때만 하위 클래스를 만든다.
  */
 public class GroupException extends DomainException {
     /**

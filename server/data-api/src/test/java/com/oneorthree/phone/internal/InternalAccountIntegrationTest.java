@@ -1,6 +1,6 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
+import com.oneorthree.phone.auth.service.AuthService.LoginSessionResult;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -15,8 +15,6 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.SocialAccount;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
-import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.service.UserService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -74,6 +72,8 @@ class InternalAccountIntegrationTest {
     MockMvc mvc;
     @Autowired
     AuthService auth;
+    @Autowired
+    com.oneorthree.phone.auth.service.SessionLogoutService logout;
     @Autowired
     JwtProvider jwt;
     @Autowired
@@ -236,26 +236,6 @@ class InternalAccountIntegrationTest {
         assertThat(onboardedEvents(actor)).isZero();
     }
 
-    @Test
-    @DisplayName("legacy POST/PATCH /api/v1/users/me writer 도 같은 전이 경계로 user.onboarded 를 한 번 낸다")
-    void legacyWritersShareTheTransition() throws Exception {
-        Actor setup = actor();
-        rename(setup, UUID.randomUUID(), "{\"catColor\":\"black\"}").andExpect(status().isOk());
-        userService.setupProfile(setup.userId(), new UserProfileSetupRequest(uniqueName(), null, 0, 0, null));
-        assertThat(onboardedEvents(setup)).isEqualTo(1L);
-        userService.setupProfile(setup.userId(), new UserProfileSetupRequest(uniqueName(), null, 0, 0, null));
-        assertThat(onboardedEvents(setup)).isEqualTo(1L);
-
-        Actor update = actor();
-        userService.updateProfile(update.userId(),
-                new UserProfileUpdateRequest(uniqueName(), null, null, null, null));
-        assertThat(onboardedEvents(update)).as("색이 없으면 legacy 이름 저장만으로는 완료가 아니다").isZero();
-        rename(update, UUID.randomUUID(), "{\"catColor\":\"ginger\"}").andExpect(status().isOk());
-        assertThat(onboardedEvents(update)).isEqualTo(1L);
-        userService.updateProfile(update.userId(),
-                new UserProfileUpdateRequest(uniqueName(), null, null, null, null));
-        assertThat(onboardedEvents(update)).isEqualTo(1L);
-    }
 
     @Test
     @DisplayName("세션 폐기·세대 불일치·타 세션은 403 SESSION_NOT_ACTIVE — Business 가 401 로 옮긴다")
@@ -266,7 +246,7 @@ class InternalAccountIntegrationTest {
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("SESSION_NOT_ACTIVE"));
         mvc.perform(internal(get(path(actor)), actor.userId(), actor.sessionId(), 1))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("SESSION_NOT_ACTIVE"));
-        auth.logout(new com.oneorthree.phone.auth.dto.req.LogoutRequest(actor.login().refreshToken()));
+        logout.logout(actor.login().refreshToken(), actor.login().accessToken());
         me(actor).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("SESSION_NOT_ACTIVE"));
         rename(actor, UUID.randomUUID(), "{\"name\":\"" + uniqueName() + "\"}").andExpect(status().isForbidden());
         withdraw(actor).andExpect(status().isForbidden());
@@ -296,12 +276,8 @@ class InternalAccountIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from command_idempotency where user_id=?"
                 + " and command_type like 'public:v1:%'", Long.class, actor.userId())).isZero();
 
-        // 옛 자격은 legacy 경로에서도 통하지 않는다
-        mvc.perform(get("/api/v1/users/nickname/check").header("Authorization", "Bearer " + actor.login().accessToken()))
-                .andExpect(status().isUnauthorized());
-        mvc.perform(post("/api/v1/auth/refresh").contentType("application/json")
-                        .content("{\"refreshToken\":\"" + actor.login().refreshToken() + "\"}"))
-                .andExpect(status().isUnauthorized());
+        assertThatThrownBy(() -> auth.refreshSessionAccessToken(actor.login().refreshToken()))
+                .isInstanceOf(com.oneorthree.phone.auth.exception.InvalidTokenException.class);
     }
 
     @Test
@@ -355,8 +331,8 @@ class InternalAccountIntegrationTest {
     // ---------------------------------------------------------------- 도구
 
     private Actor actor() {
-        GuestLoginResponse login = auth.guestLogin();
-        return new Actor(jwt.extractUserId(login.accessToken()), login.sessionId(), login);
+        LoginSessionResult login = auth.guestSession(java.util.UUID.randomUUID().toString());
+        return new Actor(jwt.extractUserId(login.accessToken()), jwt.extractSessionId(login.accessToken()), login);
     }
 
     private ResultActions me(Actor actor) throws Exception {
@@ -409,6 +385,6 @@ class InternalAccountIntegrationTest {
         return new TransactionTemplate(transactions);
     }
 
-    private record Actor(UUID userId, UUID sessionId, GuestLoginResponse login) {
+    private record Actor(UUID userId, UUID sessionId, LoginSessionResult login) {
     }
 }

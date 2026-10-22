@@ -6,184 +6,47 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * Data 가 <b>판정</b>하는 알림 종류 — 22종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
- *
- * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
- * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
- * ({@link NotificationQuietPolicy}), ③ 「이 kind 의 대상 id 가 무엇인가」를 이름으로 남긴다.
- *
- * <p><b>{@code RANK_OVERTAKE} 와 봇 계열은 없다</b> — A5 에서 폐기됐다. 구 코드에는
- * {@code RankOvertakeNotificationService} 와 크론이 남아 있지만 새 경로로 옮기지 않는다.
- * 「일단 옮겨 두고 끄면 된다」는 이관 뒤에 <b>끄는 것을 잊는 쪽</b>으로만 실패한다.
- *
- * <p>이름은 구 {@code NotificationSentLog.TYPE_*} 문자열과 <b>같은 값</b>이다(있는 것에 한해).
- * 앱이 {@code data.type} 문자열로 분기하고 있어서(GA4 {@code push_opened}·결과 모달 라우팅)
- * 여기서 이름을 바꾸면 구 바이너리의 라우팅이 조용히 끊긴다.
- */
+/** 현재 제품이 발행하는 알림 종류. 렌더와 발송은 알림 서버가 담당한다. */
 public enum NotificationKind {
+    FRIEND_REQUEST(SubjectKind.COUNTERPART_USER),
+    FRIEND_ACCEPTED(SubjectKind.COUNTERPART_USER),
+    MAIN_ISLAND_TRANSFERRED(SubjectKind.ISLAND),
+    ISLAND_KICKED(SubjectKind.ISLAND),
+    MAGAZINE_PUBLISHED(SubjectKind.MAGAZINE_ISSUE);
 
-    // ── 리그 (LeagueNotificationService) ────────────────────────────────────────
-    /** 주간 결과 — 승격·강등·유지. 주 1회라 축이 주다. params: {@code result}·티어. */
-    LEAGUE_WEEKLY_RESULT(NotificationSlotGranularity.WEEK, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    /** 마감 4시간 전 — 일 20:00. params: {@code rank}. */
-    LEAGUE_DEADLINE(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    /** 마감 D-1 승급 독려 — 일 09:00 분기의 한쪽. params: {@code shortfallSeconds}. */
-    LEAGUE_DEADLINE_D1(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    /** 강등 경고 — 일 09:00 위기 분기의 한쪽. params: {@code shortfallSeconds}. */
-    LEAGUE_RELEGATION_WARNING(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    /**
-     * 강등 경고 <b>저녁 재발송</b> — 일 18:00. 문구는 {@link #LEAGUE_RELEGATION_WARNING} 과 같지만
-     * kind 를 나눈다: 축이 날이라 같은 kind 로 두면 18:00 재발송이 09:00 키에 접혀 <b>영영 안 나간다</b>.
-     * 「같은 문구니까 같은 kind」는 구 동작(의도된 하루 2회 발송)을 조용히 없앤다.
-     */
-    LEAGUE_RELEGATION_WARNING_EVENING(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP,
-            SubjectKind.NONE),
-
-    /** 마감 2시간 전 — 일 22:00. params: {@code rank}. */
-    LEAGUE_FINAL_DEADLINE(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    // ── 리텐션 (InactiveReturn · LeagueReengagement) ───────────────────────────
-    /** 미접속 복귀 — D+3·7·14 단계. params: {@code stage}. */
-    INACTIVE_RETURN(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    /** 오늘 미집중 — 평일 21:00. 렌더 입력 없음. */
-    MISSED_FOCUS_TODAY(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    /** 스트릭 위기 — params: {@code streakCount}. */
-    STREAK_AT_RISK(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.NONE),
-
-    // ── 내기 (BetEvent · BetWon · SilentFlush) ─────────────────────────────────
-    /** 내기 정산 결과. 대상 = 회차, 슬롯 = {@code settled_at} 15분(N20 묶음 축과 동일). */
-    BET_RESULT(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DEFER, SubjectKind.BET_SESSION),
-
-    /** 무산 환불 통지(N48). 결과와 <b>같은 묶음 슬롯</b>을 쓴다 — 섞인 슬롯은 알림 서버가 한 건으로 요약한다. */
-    BET_VOID_REFUND(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DEFER, SubjectKind.BET_SESSION),
-
-    /** 개인 승리 조기 확정(FR-43). 1회성이고 조용한 시간이면 버린다 — 결과는 {@link #BET_RESULT} 가 다시 알린다. */
-    BET_WON(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DROP, SubjectKind.BET_SESSION),
-
-    /** 정산 직전 사일런트 flush(FR-22) — 표시가 아니라 앱 기동 신호라 조용한 시간을 타지 않는다. */
-    BET_SILENT_FLUSH(NotificationSlotGranularity.NONE, NotificationQuietPolicy.BYPASS, SubjectKind.BET_SESSION),
-
-    /** 회차 참여 모집(N40). 이월하되 참가 마감에서 만료된다 — {@code params.deferExpiresAt}. */
-    CHALLENGE_SESSION_OPEN(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DEFER_UNTIL,
-            SubjectKind.BET_SESSION),
-
-    // ── 챌린지 (ChallengeEndPushDispatcher · ChallengeCreated) ─────────────────
-    /** 창형 챌린지 창 종료(B4). 창은 매일 반복이라 축이 날이다. 대상 = 챌린지. */
-    CHALLENGE_WINDOW_END(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.CHALLENGE),
-
-    /** 일 목표형 하루 마감. 이름이 {@code CHALLENGE_ENDED} 인 것은 구 앱 딥링크 폴백 때문이다. */
-    CHALLENGE_ENDED(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.CHALLENGE),
-
-    /** 그룹에 새 챌린지 개설. 1회성. params: {@code groupName}·구조화 목표 {@code mission}. */
-    CHALLENGE_CREATED(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DROP, SubjectKind.CHALLENGE),
-
-    // ── 친구 (FriendNotificationService) ───────────────────────────────────────
-    /** 친구 요청 도착. 대상 = 보낸 유저. 축이 분인 것은 구 「최근 1분」 dedup 창을 그대로 옮긴 것이다. */
-    FRIEND_REQUEST(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
-
-    /** 보낸 요청이 수락됨. 대상 = 수락한 유저. */
-    FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
-
-    // ── 섬 (MainIslandService · GroupMemberService 강퇴) ──────────────────
-    /**
-     * 메인 섬을 잃어 자동으로 옮겨졌다(GROMO-1971). 대상 = <b>옮겨 간 섬</b>. params: {@code islandId}·
-     * {@code islandName}.
-     *
-     * <p><b>대상 축이 없으면 연속 이전이 사라진다.</b> 한 사람이 1분 안에 A→C, C→B 로 두 번 옮겨지는 일은
-     * 서로 다른 섬에서 연달아 회수되면 실제로 일어나는데, {@code subjectId} 가 비면 결정적 키가
-     * 「유저 × kind × 분」으로 뭉쳐 <b>나중에 만들어진 B 알림이 중복으로 버려지고</b> 먼저 만들어진 C 만
-     * 남는다 — 사용자는 자기가 있지도 않은 섬으로 옮겼다는 알림을 받는다. 그래서 섬을 키의 대상 축에 둔다.
-     *
-     * <p>시간축이 분인 것은 <b>같은 섬으로의</b> 재전송만 접기 위해서다(재훑기·재시도).
-     */
-    MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
-
-    /**
-     * 섬에서 강퇴됐다(GROMO-2315). 대상 = <b>강퇴된 섬</b>, 시간축은 <b>강퇴 시각 그대로</b>({@code leftAt}) — 재가입
-     * 승인 뒤 1분 안에 다시 강퇴돼도 두 번째 알림이 분 축 중복으로 버려지지 않는다(구 경로는 원래 두 번 보낸다). 사건은 강퇴
-     * 트랜잭션 안에서 한 번만 적히므로 이 축으로도 재처리 중복이 없다. params: {@code islandId}·{@code islandName}.
-     * 메인 섬에서 강퇴돼도 이전 알림은 내지 않고 이 알림 1건만 간다(10/20 결정).
-     */
-    ISLAND_KICKED(NotificationSlotGranularity.INSTANT, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
-
-    // ── 고양이 잡지 (MagazineIssueNotifier) ────────────────────────────────────
-    /**
-     * 오늘 호가 나왔다(GROMO-2307). 대상 = <b>호</b>({@code magazine_issues.id}), 축은 KST 날짜 —
-     * 결정적 키 {@code noti:MAGAZINE_PUBLISHED:<userId>:<issueId>:<날짜>} 가 「계정당 하루 한 번」을 접는다.
-     * params: {@code issueId}·{@code issueNo}·{@code issueDate}. 틱이 07:00~23:50 이라 조용한 시간(DROP)과
-     * 겹치지 않는다.
-     */
-    MAGAZINE_PUBLISHED(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.MAGAZINE_ISSUE);
-
-    /** {@code subjectId} 가 가리키는 것 — 알림 서버의 상태 재검증이 무엇을 조회할지 가른다. */
+    /** 결정적 사건 키의 대상 축. */
     public enum SubjectKind {
-        /** 대상 없음 — 유저 자신에 대한 판정이다. */
-        NONE,
-        /** 그룹 챌린지 내기 회차 id. */
-        BET_SESSION,
-        /** 그룹 챌린지 id. */
-        CHALLENGE,
-        /** 상대 유저 id. */
         COUNTERPART_USER,
-        /**
-         * 섬(그룹) id (GROMO-1971). 알림 서버는 이 축으로 상태를 <b>재검증하지 않는다</b> —
-         * 「이미 일어난 이전」의 통보라 되물을 상태가 없다({@code NotificationEligibilityService}).
-         * 키의 <b>대상 축</b>으로만 쓰여 서로 다른 이전이 한 건으로 접히지 않게 한다.
-         */
         ISLAND,
-        /**
-         * 고양이 잡지 호 id (GROMO-2307). 이미 발행된 호의 통보라 알림 서버가 상태를 재검증하지 않는다 —
-         * 키의 대상 축으로만 쓰여 다른 날의 호가 한 건으로 접히지 않게 한다.
-         */
         MAGAZINE_ISSUE
     }
 
     private static final Map<String, NotificationKind> BY_NAME = Arrays.stream(values())
             .collect(Collectors.toUnmodifiableMap(Enum::name, Function.identity()));
 
-    private final NotificationSlotGranularity slotGranularity;
-    private final NotificationQuietPolicy quietPolicy;
     private final SubjectKind subjectKind;
 
-    NotificationKind(NotificationSlotGranularity slotGranularity, NotificationQuietPolicy quietPolicy,
-                     SubjectKind subjectKind) {
-        this.slotGranularity = slotGranularity;
-        this.quietPolicy = quietPolicy;
+    NotificationKind(SubjectKind subjectKind) {
         this.subjectKind = subjectKind;
     }
 
-    /** @return 결정적 사건 키의 시간 축 */
     public NotificationSlotGranularity slotGranularity() {
-        return slotGranularity;
+        return switch (this) {
+            case ISLAND_KICKED -> NotificationSlotGranularity.INSTANT;
+            case MAGAZINE_PUBLISHED -> NotificationSlotGranularity.DAY;
+            default -> NotificationSlotGranularity.MINUTE;
+        };
     }
 
-    /** @return 조용한 시간 정책 — 실행은 알림 서버가 한다 */
     public NotificationQuietPolicy quietPolicy() {
-        return quietPolicy;
+        return NotificationQuietPolicy.DROP;
     }
 
-    /** @return {@code subjectId} 가 가리키는 대상의 종류 */
     public SubjectKind subjectKind() {
         return subjectKind;
     }
 
-    /**
-     * 이름으로 찾는다 — <b>모르는 이름은 {@code null}</b> 이다.
-     *
-     * <p>{@code valueOf} 를 쓰지 않는 이유: 적격성 판정은 모르는 kind 를 <b>fail-closed</b> 로
-     * 다뤄야 하는데({@code eligible=false}), {@code IllegalArgumentException} 은 호출부에서
-     * 「일시 오류」와 구분되지 않아 5xx 로 새어 나간다.
-     *
-     * @param name 대소문자 구분 없는 kind 이름
-     * @return 찾은 kind. 없으면 {@code null}
-     */
+    /** 모르는 종류와 폐기된 종류는 null로 돌려 발송 직전 적격성 검사에서 거절한다. */
     public static NotificationKind find(String name) {
         if (name == null || name.isBlank()) {
             return null;

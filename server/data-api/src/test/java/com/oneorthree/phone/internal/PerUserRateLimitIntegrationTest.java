@@ -26,20 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * 계정당 시간 한도 (GROMO-1934)를 <b>실제 배선</b>(Flyway PostgreSQL · InternalAuthFilter · JwtFilter ·
- * 실제 {@code FriendService}/{@code InternalLetterService}/리미터 빈) 위에서 검증한다. 한도만 작게(3) 덮는다.
- *
- * <p>잡는 회귀: 한도 경계 off-by-one(1..cap 중 하나가 429 이거나 cap+1 이 통과), 게스트 판정 반전(정회원이
- * 막히거나 게스트가 안 막힘), 레거시 {@code /api/v1/friends/requests} 가 한도를 우회하는 배선, 편지에
- * 게스트 분기가 생겨 정회원이 우회, 429 가 {@code RATE_LIMITED}·{@code retryAfterMs}·{@code Retry-After}
- * 없이 나감.
- *
- * <p><b>GROMO-1992 로 친구 축의 무대가 갈렸다.</b> 2.0 내부 표면에서 게스트 친구 요청은 한도에 닿기 전에
- * 403 {@code SOCIAL_LOGIN_REQUIRED} 로 막히므로, 1934 의 게스트 한도가 실제로 도는 곳은 이제
- * <b>레거시 {@code /api/v1} 표면뿐</b> 이다(동결된 1.x 앱 보존). 그 사실 자체가 회귀 대상이다 —
- * 두 표면이 다시 같아지면 둘 중 하나가 잘못 바뀐 것이다.
- */
+/** 현재 친구 요청의 소셜 계정 제한과 편지 전송의 계정별 한도를 검증한다. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -55,7 +42,6 @@ class PerUserRateLimitIntegrationTest {
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "POST /internal/users/*/friend-requests");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/users/*/letters");
-        registry.add("friend.request.rate-limit.guest-max-per-hour", () -> CAP);
         registry.add("letter.send.rate-limit.max-per-hour", () -> CAP);
     }
 
@@ -95,35 +81,7 @@ class PerUserRateLimitIntegrationTest {
         }
     }
 
-    @Test
-    @DisplayName("레거시 /api/v1/friends/requests 는 게스트에게 열려 있고 같은 한도에 걸린다 — 동결된 1.x 동작 보존")
-    void legacyFriendRequestSurfaceIsCappedForGuests() throws Exception {
-        String accessToken = auth.guestLogin().accessToken();
 
-        for (int i = 0; i < CAP; i++) {
-            legacyFriendRequest(accessToken, newUser()).andExpect(status().isCreated());
-        }
-        expectRateLimited(legacyFriendRequest(accessToken, newUser()));
-    }
-
-    @Test
-    @DisplayName("값싼 거절(자기 자신·중복 요청)은 카운트를 먹지 않는다 — 거절 cap+1 번 뒤에도 정상 요청 cap 번이 통과한다")
-    void rejectedFriendRequestsDoNotConsumeTheCap() throws Exception {
-        // 게스트 한도만 세므로 게스트가 필요하고, 게스트가 친구 요청을 보낼 수 있는 표면은 이제 레거시뿐이다.
-        String accessToken = auth.guestLogin().accessToken();
-        UUID guest = jwt.extractUserId(accessToken);
-        UUID first = newUser();
-        legacyFriendRequest(accessToken, first).andExpect(status().isCreated());
-
-        for (int i = 0; i < CAP + 1; i++) {
-            legacyFriendRequest(accessToken, guest).andExpect(status().isBadRequest());
-            legacyFriendRequest(accessToken, first).andExpect(status().isConflict());
-        }
-        for (int i = 1; i < CAP; i++) {
-            legacyFriendRequest(accessToken, newUser()).andExpect(status().isCreated());
-        }
-        expectRateLimited(legacyFriendRequest(accessToken, newUser()));
-    }
 
     // ---------------------------------------------------------------- 편지 (전 계정)
 
@@ -197,7 +155,7 @@ class PerUserRateLimitIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     /** 게스트로 만든 뒤 회원으로 승격시킨다 — 소셜 어댑터 없이 {@code is_guest} 만 필요한 테스트용. */
@@ -219,12 +177,6 @@ class PerUserRateLimitIntegrationTest {
                 .content("{\"targetUserId\":\"" + target + "\"}"));
     }
 
-    private ResultActions legacyFriendRequest(String accessToken, UUID target) throws Exception {
-        return mvc.perform(post("/api/v1/friends/requests")
-                .header("Authorization", "Bearer " + accessToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"targetUserId\":\"" + target + "\"}"));
-    }
 
     private ResultActions sendLetter(UUID from, UUID to) throws Exception {
         return mvc.perform(post("/internal/users/" + from + "/letters")

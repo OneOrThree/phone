@@ -37,7 +37,7 @@ import java.util.UUID;
  * </ul>
  *
  * <h2>호출 지점은 하나다</h2>
- * {@code LinkMembershipEventService.recordMembershipRevoked} — 자진이탈·강퇴·계정탈퇴·레거시 네 경로가
+ * {@code IslandMembershipTransitions.recordMembershipRevoked} — 자진이탈·강퇴·계정탈퇴·레거시 네 경로가
  * 전부 지나는 유일한 공통 지점이고, {@link MainIslandService#onMembershipRevoked} 가 이미 같은 이유로
  * 거기 걸려 있다. <b>그 호출 «뒤»여야 한다</b> — 메인 섬 이전이 먼저 커밋돼야 여기서 읽는 다음 섬이
  * 「이미 떠난 섬」이 아니다.

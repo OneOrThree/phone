@@ -29,7 +29,8 @@ def fingerprints(root, files):
                 raise ValueError('빌드 입력은 일반 파일이어야 한다')
             content = path.read_bytes()
             code.update(name.encode() + b'\0' + content + b'\0')
-            if own and '/src/main/resources/db/migration/' in name and name.endswith('.sql'):
+            if own and name.endswith('.sql') and any(
+                    f'/src/main/resources/db/{location}/' in name for location in ('migration', 'v0', 'seed')):
                 sql.update(name.encode() + b'\0' + content + b'\0')
         source[service], migrations[service] = code.hexdigest(), sql.hexdigest()
     return source, migrations

@@ -243,7 +243,7 @@ class IslandPromotionIntegrationTest {
     @DisplayName("비공개 섬도 신청된다(10/16) — 201·차감·칸·소식·receipt 가 있고, 다음 호 발행 때 칸이 실려 읽힌다(privateIsland=true)")
     void privateIslandCanPromote() throws Exception {
         Island island = island(100);
-        jdbc.update("update groups set is_private = true where id = ?", island.id);
+        jdbc.update("update islands set is_private = true where id = ?", island.id);
 
         promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isCreated());
 
@@ -505,7 +505,7 @@ class IslandPromotionIntegrationTest {
 
         management.leave(host, closing, UUID.randomUUID());
 
-        assertThat(count("select count(*) from groups where id = ? and deleted_at is not null", closing))
+        assertThat(count("select count(*) from islands where id = ? and deleted_at is not null", closing))
                 .as("삭제 묘비 — 섬 행이 남아 ON DELETE CASCADE 는 돌지 않는다").isEqualTo(1);
         assertThat(newsRows(closing))
                 .as("닫힌 섬의 소식").isZero();
@@ -666,7 +666,7 @@ class IslandPromotionIntegrationTest {
                 .andExpect(jsonPath("$.code").value("NOT_OWNER"));
         editor(island.visitor, island.id).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_OWNER"));
-        jdbc.update("update groups set is_private = true where id = ?", island.id);
+        jdbc.update("update islands set is_private = true where id = ?", island.id);
         editor(island.host, island.id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.privateIsland").value(true));
 
@@ -822,7 +822,7 @@ class IslandPromotionIntegrationTest {
     }
 
     private UUID newGuest() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     /** 기본 칸 — 틀·스티커 하나·테이프. */

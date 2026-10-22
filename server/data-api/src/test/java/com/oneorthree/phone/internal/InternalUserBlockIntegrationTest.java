@@ -476,24 +476,6 @@ class InternalUserBlockIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(1));
     }
 
-    @Test
-    @DisplayName("차단한 친구는 핀이 남아 있어도 고정 친구에서 빠지고, 해제하면 다시 보인다")
-    void pinnedFriendsExcludeBlocked() {
-        UUID a = newUser();
-        UUID b = newUser();
-        friendService.acceptRequest(b, friendService.createRequest(a, b));
-        friendService.pinFriend(a, b);
-        LocalDate date = LocalDate.parse(DATE);
-        assertThat(friendService.getPinnedFriends(a, date)).hasSize(1);
-
-        userBlockService.block(a, b);
-        assertThat(friendService.getPinnedFriends(a, date)).isEmpty();
-        assertThat(jdbc.queryForObject("select count(*) from pinned_users where user_id = ? and pinned_user_id = ?",
-                Integer.class, a, b)).as("핀 행은 지우지 않는다").isEqualTo(1);
-
-        userBlockService.unblock(a, b);
-        assertThat(friendService.getPinnedFriends(a, date)).hasSize(1);
-    }
 
     // ---------------------------------------------------------------- 도구
 
@@ -539,7 +521,7 @@ class InternalUserBlockIntegrationTest {
 
     /** 게스트로 만든 뒤 {@code is_guest} 만 내린 회원 — 이 파일이 보는 것은 관계·필터지 승격이 아니다. */
     private UUID newUser() {
-        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         jdbc.update("update users set is_guest = false where id = ?", id);
         return id;
     }

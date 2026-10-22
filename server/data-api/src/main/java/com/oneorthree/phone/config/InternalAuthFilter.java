@@ -23,7 +23,7 @@ import java.util.UUID;
  * {@code /internal/*} 전용 인증 필터 — 앱 JWT 와 <b>완전히 다른 축</b>이다 (A22 ㉸ · ㉱ · ㊀).
  *
  * <h2>왜 별도 필터인가</h2>
- * {@code JwtFilter} 는 {@code /api/*} 에만 걸리고 1661 전환 전까지 그대로 유지된다. 내부 표면은
+ * 내부 표면은
  * <b>앱 JWT 로 인증하지 않는다</b> — 위성·Business 는 앱 토큰을 들고 있지 않고, 반대로 앱 토큰으로
  * 내부 명령에 닿을 수 있으면 「정상 AT 를 가진 사용자」가 임의 {@code X-User-Id} 로 남의 데이터를
  * 읽고 쓴다(㉸). 두 축을 한 필터에 합치면 그 경계가 조건문 하나로 좁아진다.
@@ -163,7 +163,7 @@ public class InternalAuthFilter extends OncePerRequestFilter {
         }
 
         if (userId != null) {
-            // 통과한 주체를 request 에 심는다 — 읽는 쪽은 내부 컨트롤러다. JwtFilter 와 같은 키를 쓰므로
+            // 통과한 주체를 request 에 심는다 — 읽는 쪽은 내부 컨트롤러다. 공유 인증 속성 키를 쓰므로
             // TraceIdFilter 가 붙는 날에도 유저 식별이 같은 자리에서 나온다.
             request.setAttribute(AuthAttributes.USER_ID, userId);
         }

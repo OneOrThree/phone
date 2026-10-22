@@ -38,10 +38,10 @@ class FriendContractTest extends UpstreamTestBase {
     private static final String DATA_DELETE = "DELETE " + INTERNAL + "/friends/" + TARGET;
     private static final String DATA_SEARCH = "GET " + INTERNAL + "/friend-search";
     private static final String SEARCH_HIT = "[{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\","
-            + "\"tierLevel\":null,\"occupation\":null,\"relation\":\"NONE\"}]";
+            + "\"relation\":\"NONE\"}]";
     private static final String CREATE_BODY = "{\"targetUserId\":\"" + TARGET + "\"}";
-    private static final String FRIEND = "{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
-            + "\"occupation\":\"CODING\",\"isPinned\":true,\"isFocusing\":true,\"focusTimeMinutes\":42,"
+    private static final String FRIEND = "{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\","
+            + "\"isFocusing\":true,\"focusTimeMinutes\":42,"
             + "\"focusStartedAt\":\"2026-09-18T01:00:00Z\",\"focusTagName\":\"전공\","
             + "\"mainIslandName\":\"모래섬\"}";
 
@@ -140,7 +140,7 @@ class FriendContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].userId").value(TARGET.toString()))
-                .andExpect(jsonPath("$.data[0].isPinned").value(true))
+                .andExpect(jsonPath("$.data[0].isPinned").doesNotExist())
                 .andExpect(jsonPath("$.data[0].isFocusing").value(true))
                 .andExpect(jsonPath("$.data[0].focusTimeMinutes").value(42))
                 .andExpect(jsonPath("$.data[0].focusStartedAt").value("2026-09-18T01:00:00Z"))
@@ -156,7 +156,7 @@ class FriendContractTest extends UpstreamTestBase {
     /** 항목에 필수 키가 빠지면 계약 불일치다 — 이름이 바뀐 배포를 조용히 통과시키지 않는다. */
     @Test
     void friendsRejectsItemMissingRequiredKey() throws Exception {
-        DATA.on(DATA_FRIENDS, request -> ok("[{\"nickname\":\"x\",\"isPinned\":false,\"isFocusing\":false,"
+        DATA.on(DATA_FRIENDS, request -> ok("[{\"nickname\":\"x\",\"isFocusing\":false,"
                 + "\"focusTimeMinutes\":0}]"));
         mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))
                 .andExpect(status().isBadRequest())
@@ -179,7 +179,7 @@ class FriendContractTest extends UpstreamTestBase {
     @Test
     void friendRequestsPassesTypeThrough() throws Exception {
         DATA.on(DATA_REQUESTS, request -> ok("[{\"requestId\":\"" + REQUEST + "\",\"userId\":\"" + TARGET
-                + "\",\"nickname\":\"짝꿍\",\"tierLevel\":null,\"createdAt\":\"2026-09-18T00:00:00Z\"}]"));
+                + "\",\"nickname\":\"짝꿍\",\"createdAt\":\"2026-09-18T00:00:00Z\"}]"));
         mockMvc.perform(auth(get("/friends/requests")).queryParam("type", "received"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].requestId").value(REQUEST.toString()))
@@ -355,7 +355,7 @@ class FriendContractTest extends UpstreamTestBase {
             }
             default -> {
                 item = "{\"requestId\":\"" + REQUEST + "\",\"userId\":\"" + TARGET
-                        + "\",\"nickname\":null,\"tierLevel\":null,\"createdAt\":\"2026-09-18T00:00:00.123456+00:00\"}";
+                        + "\",\"nickname\":null,\"createdAt\":\"2026-09-18T00:00:00.123456+00:00\"}";
                 route = DATA_REQUESTS;
                 request = get("/friends/requests").queryParam("type", kind);
             }
@@ -369,7 +369,7 @@ class FriendContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"/friends,get,,userId isPinned isFocusing focusTimeMinutes",
+    @CsvSource({"/friends,get,,userId isFocusing focusTimeMinutes",
             "/friends/requests,get,,requestId userId createdAt",
             "/friends/search,get,,userId nickname relation",
             "/blocks,get,,id name"})

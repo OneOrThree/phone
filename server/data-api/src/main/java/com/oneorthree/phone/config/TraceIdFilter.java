@@ -14,7 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * 요청 단위 로그 상관관계 키를 MDC 에 싣는 필터 — {@link FilterConfig} 가 {@code /api/*} 에
- * order 2 로 등록한다. {@link JwtFilter}(1) 뒤라야 인증이 심어 둔 userId 를 볼 수 있다.
+ * order 2 로 등록한다. {@link InternalAuthFilter}(1) 뒤라야 인증이 심어 둔 userId 를 볼 수 있다.
  *
  * <p>{@code X-Trace-Id} 헤더가 오면 그 값을 그대로 이어받아 앱→서버 로그가 한 줄로 꿰이고,
  * 없거나 공백이면 하이픈 없는 UUID 를 새로 만든다. userId 는 인증된 요청에서만 붙으므로

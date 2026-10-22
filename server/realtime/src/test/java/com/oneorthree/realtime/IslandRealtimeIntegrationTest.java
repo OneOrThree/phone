@@ -652,13 +652,14 @@ class IslandRealtimeIntegrationTest {
     void emptyGroupsBodyIsNotAVisitor() throws Exception {
         // 실 GroupClient 가 실제 HTTP 응답(본문 없는 200)을 해석하게 한다 — 목 스텁으로는 «형식 불량» 판정이 검증되지 않는다.
         HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        upstream.createContext("/api/v1/groups", exchange -> {
+        upstream.createContext("/internal/users/" + focusing + "/islands", exchange -> {
             exchange.sendResponseHeaders(200, -1);
             exchange.close();
         });
         upstream.start();
         try {
-            GroupClient real = new GroupClient("http://127.0.0.1:" + upstream.getAddress().getPort(), 1000);
+            GroupClient real = new GroupClient("http://127.0.0.1:" + upstream.getAddress().getPort(), 1000,
+                    "test-realtime-to-data", new com.oneorthree.realtime.auth.JwtValidator(jwtSecret));
             given(groupClient.fetchMyGroupIds(bearerOf(focusing)))
                     .willAnswer(invocation -> real.fetchMyGroupIds(invocation.getArgument(0)));
             given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));

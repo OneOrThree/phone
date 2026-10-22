@@ -86,7 +86,7 @@ public class UserIslandContext {
     }
 
     /**
-     * 현재 섬을 옮긴다 — 자격·정원·출발 시설 가드는 호출측(GroupService 등) 책임이다. 이 메서드는
+     * 현재 섬을 옮긴다 — 자격·정원·출발 시설 가드는 섬 이동 서비스 책임이다. 이 메서드는
      * 대입만 한다.
      *
      * @param islandId 새 현재 섬

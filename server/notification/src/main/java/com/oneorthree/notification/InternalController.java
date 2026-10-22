@@ -20,15 +20,13 @@ class InternalController {
 
     private final DeviceService devices;
     private final SettingsService settings;
-    private final AckService ack;
     private final InboundService inbound;
     private final Store store;
 
-    InternalController(DeviceService devices, SettingsService settings, AckService ack,
+    InternalController(DeviceService devices, SettingsService settings,
             InboundService inbound, Store store) {
         this.devices = devices;
         this.settings = settings;
-        this.ack = ack;
         this.inbound = inbound;
         this.store = store;
     }
@@ -87,9 +85,4 @@ class InternalController {
         return settings.initialize(userId, body);
     }
 
-    @PostMapping("/internal/users/{userId}/result-ack/{action}")
-    Map<String, Object> ack(@PathVariable UUID userId, @PathVariable String action,
-            @RequestBody Map<String, Object> body, @RequestHeader("Idempotency-Key") String key) {
-        return ack.command(userId, Json.uuid(body, "sessionId"), action, key);
-    }
 }

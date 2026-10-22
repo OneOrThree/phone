@@ -45,7 +45,7 @@ dependencies {
 	// 요청 본문 검증 (@Valid)
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-	// 멤버십 조회용 아웃바운드 HTTP(RestClient) — Data API 의 GET /api/v1/groups
+	// 멤버십 조회용 아웃바운드 HTTP(RestClient) — Data API 의 GET /internal/users/{userId}/islands
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 
 	// 관측 — Actuator 헬스·메트릭 + Prometheus 레지스트리. data-api 와 같은 규율로

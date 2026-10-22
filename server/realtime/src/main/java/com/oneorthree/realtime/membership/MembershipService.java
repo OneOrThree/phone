@@ -38,9 +38,8 @@ import java.util.stream.Collectors;
  * ({@code ""})을 그대로 담을 수 있다.
  *
  * <h2>캐시하지 «않는» 답이 하나 있다</h2>
- * 상류가 이 토큰을 거절해서(401/403) 나온 빈 집합은 적재하지 않는다 — 자세한 근거는
- * {@link GroupClient.Membership} 에 있다. 「소속이 없다」와 「이 토큰으로는 못 본다」는 둘 다
- * 빈 집합이지만 캐시해도 되는지가 정반대다.
+ * 상류의 불완전한 성공 응답은 적재하지 않는다 — {@link GroupClient.Membership}의
+ * {@code cacheable}이 구분한다. 사용자 자격 거절과 서비스 배선 오류는 예외로 전파한다.
  *
  * <h2>무효화는 TTL 과 사건 둘이다(GROMO-2140)</h2>
  * Data 가 {@code island.members.updated}(MEMBER_ADDED·MEMBER_REMOVED) 를 발행하면
@@ -103,13 +102,11 @@ public class MembershipService {
      * <p>방문자 응원(GROMO-2258)도 같은 이유로 이걸 쓴다 — 가입 직후 남은 «비주민» 캐시를 믿으면 세션 없는 주민이
      * 방문자로 위장해 {@code NOT_FOCUSING} 을 비켜 간다.
      *
-     * <p><b>«비주민»은 성공한 조회로만 확정한다</b>(GROMO-2258). 상류가 403 으로 거절했거나 형식이 깨진(본문 없음·
-     * groupId 없는 항목) 빈 답({@code rejected})은 이 사람의 소속에 대한 사실이 아니라 판정 불가다 — {@code false} 로
-     * 접으면 조회가 거절된 주민이 방문자로 승인된다. 그래서 fail-closed 로 올린다(401 은 이미
-     * {@code UpstreamRejectedCredentialException} 으로 올라온다).
+     * <p><b>비주민은 성공한 조회로만 확정한다</b>(GROMO-2258). 본문·items·id가 없는 불완전한 답은
+     * 소속에 대한 사실이 아니다. 이를 false로 접으면 조회가 실패한 주민이 방문자로 승인된다.
      *
-     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않거나, 403 으로
-     *         거절했거나, 형식이 깨진 성공 응답을 줬을 때
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류 장애·서비스 인증 실패
+     *         또는 형식이 깨진 성공 응답일 때
      */
     public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
         GroupClient.Membership fresh = fetchAndStore(RedisKeys.memberCache(userId), bearerToken);
@@ -121,9 +118,7 @@ public class MembershipService {
 
     private GroupClient.Membership fetchAndStore(String key, String bearerToken) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
-        // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
-        // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에
-        // 닿지 못한 채 TTL 동안 모든 방에서 차단된다 — 토큰 만료가 「2분간 전면 차단」으로 번진다.
+        // 형식이 불완전한 답을 무소속으로 캐시하면 정상 주민까지 TTL 동안 방문자로 오인한다.
         if (fresh.cacheable()) {
             store(key, fresh.groupIds());
         }

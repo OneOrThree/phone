@@ -1,13 +1,13 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
+import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -59,7 +59,7 @@ class IslandNoticeGateDefaultsTest {
     @Autowired
     IslandNoticeService notices;
     @Autowired
-    GroupAnnouncementService legacy;
+    GroupAnnouncementRepository announcements;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -76,7 +76,8 @@ class IslandNoticeGateDefaultsTest {
     void writesAreClosedByDefault() throws Exception {
         UUID owner = user();
         UUID islandId = island(owner);
-        legacy.createAnnouncement(islandId, owner, new CreateAnnouncementRequest("legacy 공지", "본문"));
+        announcements.save(GroupAnnouncement.builder().group(groups.findById(islandId).orElseThrow())
+                .user(users.findById(owner).orElseThrow()).title("보존 공지").content("본문").build());
         UUID noticeId = jdbc.queryForObject("select id from group_announcements where group_id=?", UUID.class,
                 islandId);
         long receipts = count("select count(*) from command_idempotency");
@@ -106,7 +107,7 @@ class IslandNoticeGateDefaultsTest {
         assertThat(count("select count(*) from group_announcement_comments where notice_id=?", noticeId)).isZero();
         assertThat(count("select count(*) from command_idempotency")).isEqualTo(receipts);
         assertThat(count("select count(*) from event_outbox where type='notice.updated' and aggregate_id=?",
-                noticeId.toString())).isEqualTo(1);
+                noticeId.toString())).isZero();
     }
 
     @Test
@@ -114,16 +115,17 @@ class IslandNoticeGateDefaultsTest {
     void readsWorkWithoutBoardWhenGateIsOff() {
         UUID owner = user();
         UUID islandId = island(owner);
-        legacy.createAnnouncement(islandId, owner, new CreateAnnouncementRequest("legacy 공지", "본문"));
+        announcements.save(GroupAnnouncement.builder().group(groups.findById(islandId).orElseThrow())
+                .user(users.findById(owner).orElseThrow()).title("보존 공지").content("본문").build());
 
         IslandNoticeViews.Page page = notices.list(islandId, owner, null, null, 30);
         assertThat(page.items()).singleElement().satisfies(item -> {
-            assertThat(item.title()).isEqualTo("legacy 공지");
+            assertThat(item.title()).isEqualTo("보존 공지");
             assertThat(item.commentCount()).isZero();
         });
         IslandNoticeViews.Detail detail = notices.detail(islandId, page.items().get(0).id(), owner, null, null, 30);
         assertThat(detail.body()).isEqualTo("본문");
-        assertThat(detail.version()).isEqualTo(1);
+        assertThat(detail.version()).isZero();
         assertThat(detail.comments()).isEmpty();
     }
 

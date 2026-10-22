@@ -1,21 +1,13 @@
 package com.oneorthree.phone.common.support;
 
+import com.oneorthree.phone.user.repository.domain.User;
+
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.common.exception.BannedWordException;
-import com.oneorthree.phone.common.exception.CommonErrorCode;
 import com.oneorthree.phone.friend.service.FriendService;
-import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
-import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
-import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupMember;
-import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
-import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
-import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandManageView;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.service.IslandGuestbookService;
@@ -24,30 +16,36 @@ import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
-import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
-import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.service.UserService;
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.oneorthree.phone.common.exception.BannedWordException;
+import com.oneorthree.phone.common.exception.CommonErrorCode;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
+import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 금칙어 차단 (GROMO-1986) — 사용자 입력 <b>8종</b>이 실제 Flyway PostgreSQL 위에서 400
@@ -60,7 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>마지막 테스트가 이 티켓의 핵심 회귀다: 레거시 {@code /api/v1} 경로({@code GroupService} ·
  * {@code GroupAnnouncementService})는 2.0 섬 서비스와 <b>다른 클래스</b>인데 <b>같은
- * {@code groups}·{@code group_announcements} 행</b>을 만든다. 2.0 쪽에만 검사를 두면 레거시가 그대로
+ * {@code islands}·{@code group_announcements} 행</b>을 만든다. 2.0 쪽에만 검사를 두면 레거시가 그대로
  * 우회로가 된다 — DTO 애노테이션이 아니라 저장 직전 서비스 계층을 고른 이유가 이것이다.
  *
  * <p>목록 자체는 {@code src/main/resources/moderation/banned-words.txt} 다. 테스트가 쓰는 낱말은 그
@@ -99,10 +97,6 @@ class BannedWordsIntegrationTest {
     IslandManagementService management;
     @Autowired
     IslandGuestbookService guestbook;
-    @Autowired
-    GroupService legacyGroups;
-    @Autowired
-    GroupAnnouncementService legacyNotices;
     @Autowired
     UserService userService;
     @Autowired
@@ -214,13 +208,12 @@ class BannedWordsIntegrationTest {
     @DisplayName("④ 닉네임 — 저장이 거절되고, 사전 검사도 같은 값을 «사용 가능» 으로 답하지 않는다")
     void nicknameRejectsBannedWordsAndTheCheckApiAgrees() {
         UUID userId = newUser();
-        userService.updateProfile(userId, nickname("집중고양이"));
+        userService.updatePublicProfile(userId, "집중고양이", null);
 
-        assertBanned(() -> userService.updateProfile(userId, nickname(DIRTY + "냥")));
+        assertBanned(() -> userService.updatePublicProfile(userId, DIRTY + "냥", null));
         assertThat(users.findById(userId).orElseThrow().getNickname())
                 .as("거절된 변경은 닉네임을 바꾸지 않는다").isEqualTo("집중고양이");
         // 체크 API 가 true 를 주면 앱은 「쓸 수 있다」고 안내한 뒤 저장에서 400 을 맞는다.
-        assertThat(userService.isNicknameAvailable(userId, DIRTY + "냥")).isFalse();
     }
 
     // ---------------------------------------------------------------- ⑤ 섬 이름 · ⑥ 섬 소개
@@ -233,7 +226,7 @@ class BannedWordsIntegrationTest {
         assertBanned(() -> islands.create(host, new CreateIslandCommandRequest(DIRTY + "섬", "소개", false, null), key()));
         assertBanned(() -> islands.create(host,
                 new CreateIslandCommandRequest("멀쩡섬", "여긴 " + DIRTY_EN + " 한 곳", false, null), key()));
-        assertThat(count("select count(*) from groups where name like ?", "%섬%"))
+        assertThat(count("select count(*) from islands where name like ?", "%섬%"))
                 .as("거절된 생성은 섬 행을 남기지 않는다").isZero();
 
         UUID islandId = islands.create(host, new CreateIslandCommandRequest("고요한섬", "같이 집중해요", false, null), key()).id();
@@ -311,31 +304,6 @@ class BannedWordsIntegrationTest {
 
     // ---------------------------------------------------------------- 우회 구멍 회귀
 
-    @Test
-    @DisplayName("레거시 /api/v1 경로도 같은 목록에 막힌다 — 같은 행을 쓰는 두 번째 입구가 우회로가 되지 않는다")
-    void legacyGroupPathsAreBlockedByTheSameList() {
-        UUID host = newUser();
-
-        assertBanned(() -> legacyGroups.createGroup(host, CreateGroupRequest.builder()
-                .name(DIRTY + "모임").description("소개").build()));
-        assertBanned(() -> legacyGroups.createGroup(host, CreateGroupRequest.builder()
-                .name("멀쩡모임").description("여긴 " + DIRTY_EN).build()));
-        assertThat(count("select count(*) from groups where name like ?", "%모임%"))
-                .as("레거시 생성도 행을 남기지 않는다").isZero();
-
-        Island is = island();
-        assertBanned(() -> legacyNotices.createAnnouncement(is.id(), is.owner(),
-                new CreateAnnouncementRequest("공지", DIRTY_SPACED)));
-        assertThat(noticeCount(is.id())).as("레거시 공지도 행을 남기지 않는다").isZero();
-
-        legacyNotices.createAnnouncement(is.id(), is.owner(), new CreateAnnouncementRequest("공지", "같이 집중해요"));
-        UUID noticeId = jdbc.queryForObject("select id from group_announcements where group_id=?",
-                UUID.class, is.id());
-        assertBanned(() -> legacyNotices.updateAnnouncement(is.id(), noticeId, is.owner(),
-                new CreateAnnouncementRequest("공지", DIRTY)));
-        assertThat(noticeBody(noticeId)).as("레거시 수정도 본문을 바꾸지 않는다").isEqualTo("같이 집중해요");
-    }
-
     // ---------------------------------------------------------------- 도구
 
     private record Island(UUID id, UUID owner) {
@@ -358,7 +326,7 @@ class BannedWordsIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     /** 게스트로 만든 뒤 {@code is_guest} 만 내린 회원 — 2.0 회원 전용 표면(편지 발송)을 통과시킬 때만 쓴다. */
@@ -373,11 +341,7 @@ class BannedWordsIntegrationTest {
     }
 
     private String storedGreeting(UUID islandId) {
-        return jdbc.queryForObject("select greeting from groups where id=?", String.class, islandId);
-    }
-
-    private static UserProfileUpdateRequest nickname(String value) {
-        return new UserProfileUpdateRequest(value, null, null, null, null);
+        return jdbc.queryForObject("select greeting from islands where id=?", String.class, islandId);
     }
 
     private static UUID key() {

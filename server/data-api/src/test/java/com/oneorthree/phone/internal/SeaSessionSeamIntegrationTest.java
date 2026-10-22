@@ -108,8 +108,6 @@ class SeaSessionSeamIntegrationTest {
 
         assertThat(jdbc.queryForList("select product_id from owned_products where user_id=?", String.class, user))
                 .containsExactly(won);
-        assertThat(count("select count(*) from sea_focus_totals where user_id=?", user))
-                .as("옛 누적 엔진은 없다").isZero();
         // 일 집계·정산 행·세션 종결은 섬 세션과 같게 간다 — 통장만 건드리지 않는다.
         assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?", user))
                 .isEqualTo(finished.activeSeconds());
@@ -148,8 +146,6 @@ class SeaSessionSeamIntegrationTest {
         assertThat(islandBalance(island)).as("섬 통장 적립 그대로").isEqualTo(40);
         assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals where session_id=?",
                 started.id())).isEqualTo(40);
-        assertThat(count("select count(*) from sea_focus_totals where user_id=?", user))
-                .as("옛 누적 행을 만들지 않는다").isZero();
         assertThat(jdbc.queryForList("select product_id from owned_products where user_id=?", String.class, user))
                 .containsExactlyElementsOf(finished.seaReward().grantedProductIds());
     }
@@ -247,7 +243,7 @@ class SeaSessionSeamIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID newIsland(UUID owner, String name) {

@@ -79,7 +79,6 @@ class DispatchEligibilityConcurrencyTest {
 
     @Autowired Store store;
     @Autowired DeviceService devices;
-    @Autowired AckService ack;
     @Autowired DispatchService dispatch;
     @Autowired PlatformTransactionManager manager;
     @MockitoBean PushTransport transport;
@@ -90,10 +89,10 @@ class DispatchEligibilityConcurrencyTest {
     @BeforeEach
     void setup() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
-                + "session_fences,legacy_session_fences,user_fences,settings,projections,result_ack,"
-                + "result_bundle_manifests,templates,deeplinks,kinds CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true,active_migration_id=NULL");
-        for (String kind : List.of("FRIEND_ACCEPTED", "BET_RESULT", "CHALLENGE_WINDOW_END")) {
+                + "session_fences,legacy_session_fences,user_fences,settings,projections,"
+                + "templates,deeplinks,kinds CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        for (String kind : List.of("FRIEND_ACCEPTED", "FRIEND_REQUEST", "MAIN_ISLAND_TRANSFERRED")) {
             store.update("INSERT INTO kinds(id,quiet_policy) VALUES(?,'BYPASS')", kind);
             store.update("INSERT INTO templates(id,kind,locale,title,body) VALUES(?,?,'ko','알림','본문')",
                     kind + ".ko", kind);
@@ -126,14 +125,13 @@ class DispatchEligibilityConcurrencyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"delete", "transfer", "ack", "gate", "withdrawn", "kind"})
+    @ValueSource(strings = {"delete", "transfer", "gate", "withdrawn", "kind"})
     void changesCommittedDuringTheLookupAreRecheckedBeforeSending(String change) throws Exception {
-        UUID id = enqueue("ack".equals(change) ? "BET_RESULT" : "FRIEND_ACCEPTED", false);
+        UUID id = enqueue("FRIEND_ACCEPTED", false);
         duringLookup(id, () -> {
             switch (change) {
                 case "delete" -> devices.delete(USER, "original", null, 0L, "delete");
                 case "transfer" -> register(OTHER, "original", "new-owner");
-                case "ack" -> ack.command(USER, SESSION, "prepare", "hold");
                 case "kind" -> store.update("UPDATE kinds SET enabled=false WHERE id='FRIEND_ACCEPTED'");
                 case "gate" -> store.update("UPDATE dispatch_control SET enabled=false WHERE id=1");
                 case "withdrawn" -> new TransactionTemplate(manager).executeWithoutResult(status -> {
@@ -148,16 +146,15 @@ class DispatchEligibilityConcurrencyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"member", "payload", "subject", "kind", "admin", "user"})
-    void aChangedBundleMustFetchFreshDecisionsBeforeAnySend(String change) throws Exception {
-        UUID id = enqueue("CHALLENGE_WINDOW_END", true);
+    @ValueSource(strings = {"payload", "subject", "kind", "admin", "user"})
+    void aChangedDeliveryMustFetchFreshDecisionsBeforeAnySend(String change) throws Exception {
+        UUID id = enqueue("MAIN_ISLAND_TRANSFERRED", true);
         if ("user".equals(change)) {
             register(OTHER, "other-current-device", "other");
         }
         duringLookup(id, () -> new TransactionTemplate(manager).executeWithoutResult(status -> {
             store.lock("device-ownership");
             switch (change) {
-                case "member" -> enqueue("CHALLENGE_WINDOW_END", true);
                 case "payload" -> store.update(
                         "UPDATE deliveries SET payload='{\"changed\":true}'::jsonb WHERE id=?", id);
                 case "subject" -> store.update("UPDATE deliveries SET subject_id=? WHERE id=?", SESSION.toString(), id);
@@ -172,7 +169,7 @@ class DispatchEligibilityConcurrencyTest {
         assertThat(state(id)).isEqualTo("PENDING");
         REQUESTS.clear();
         dispatch.dispatch(id);
-        assertThat(REQUESTS).hasSize("member".equals(change) ? 2 : 1);
+        assertThat(REQUESTS).hasSize(1);
         if ("payload".equals(change)) {
             assertThat(Json.map(REQUESTS.get(0).get("params"))).containsEntry("changed", true);
         }
@@ -237,7 +234,7 @@ class DispatchEligibilityConcurrencyTest {
         UUID id = UUID.randomUUID();
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,group_id,slot_at,payload,locale,"
                 + "next_attempt_at) VALUES(?,?,?,?,?,?,?,'{}'::jsonb,'ko',?)", id, id.toString(), USER, kind,
-                "BET_RESULT".equals(kind) ? SESSION.toString() : id.toString(), bundle ? GROUP : null,
+                "FRIEND_REQUEST".equals(kind) ? SESSION.toString() : id.toString(), bundle ? GROUP : null,
                 bundle ? Timestamp.from(NOW) : null, Timestamp.from(NOW));
         return id;
     }

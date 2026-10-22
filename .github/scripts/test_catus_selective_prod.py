@@ -89,6 +89,21 @@ class SelectivePlanTests(unittest.TestCase):
             all_changed, _ = planner.fingerprints(root, files)
             self.assertTrue(all(all_changed[service] != changed[service] for service in planner.SERVICES))
 
+    def test_V0와_기본데이터를_운영_마이그레이션_지문에_포함한다(self):
+        for resource in ('v0/V0__baseline.sql', 'seed/insert.sql'):
+            with self.subTest(resource=resource), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                name = 'server/data-api/src/main/resources/db/' + resource
+                path = root / name
+                path.parent.mkdir(parents=True)
+                path.write_text('initial SQL')
+                _, before = planner.fingerprints(root, [name])
+                path.write_text('changed SQL')
+                _, after = planner.fingerprints(root, [name])
+                self.assertNotEqual(before['data-api'], after['data-api'])
+                for service in planner.SERVICES - {'data-api'}:
+                    self.assertEqual(before[service], after[service])
+
     def test_상태조회_권한실패를_최초배포로_오인하지_않는다(self):
         config = SimpleNamespace(returncode=0, stdout=json.dumps({'PRODUCT': 'catus', 'DEPLOY_BUCKET': 'catus-prod-deploy-artifacts-808715036056'}))
         denied = SimpleNamespace(returncode=1, stderr='AccessDenied (403)')

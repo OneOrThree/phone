@@ -19,7 +19,7 @@ import java.util.UUID;
  * 섬 삭제 — 공동 데이터를 함께 지운다 (GROMO-1995, {@link IslandPurgePort}).
  *
  * <h2>소프트 삭제인 이유</h2>
- * {@code groups} 를 가리키는 FK 가 <b>전부 {@code ON DELETE RESTRICT}</b> 이고(V62·V64·V71·V73·V74),
+ * {@code islands} 를 가리키는 FK 가 <b>전부 {@code ON DELETE RESTRICT}</b> 이고(V62·V64·V71·V73·V74),
  * 그중에는 정책이 「유지한다」고 못 박은 개인 집중 기록({@code focus_sessions})과 정산 증거
  * ({@code group_members}·내기 참가)가 섞여 있다. 물리 삭제는 그것까지 지우거나 FK 로 실패한다.
  * 그래서 섬 행은 {@code status = ENDED} + {@code deleted_at} 묘비로 「없는 섬」을 확정하고
@@ -38,8 +38,8 @@ import java.util.UUID;
  * 신청자의 기록이다) · {@code focus_sessions}·{@code focus_reward_accruals}(개인 집중 기록, 정책이
  * 유지) · {@code owned_products} 의 {@code owner_type='user'} 행(개인 보유품, 정책이 유지).
  *
- * <h2>{@code groups(id)} 참조 전수 — 2026-09-21 실측, GROMO-2070 갱신</h2>
- * 목록을 눈대중으로 늘리면 또 빠진다. 마이그레이션 전량에서 {@code groups(id)} 를 참조하는 테이블을
+ * <h2>{@code islands(id)} 참조 전수 — 2026-09-21 실측, GROMO-2070 갱신</h2>
+ * 목록을 눈대중으로 늘리면 또 빠진다. 마이그레이션 전량에서 {@code islands(id)} 를 참조하는 테이블을
  * 세어 <b>22개</b>를 찾았고(V1 baseline 5 + V19·V21·V39·V57·V58·V62×3·V63·V64×2·V71×3·V73·V74·V81 —
  * {@code group_invites}·{@code group_join_codes} 는 GROMO-2070 의 V102 에서 DROP 됐다),
  * 아래 목록과 「안 지우는 것」이 그 22개를 남김없이 덮는다. 지우지 않기로 한 나머지의 근거는 이렇다:

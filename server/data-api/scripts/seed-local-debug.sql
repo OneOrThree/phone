@@ -191,7 +191,7 @@ WITH debug_groups(id, name, description, owner_id) AS (
         ('20000000-0000-7000-8000-000000000007'::uuid, '토익 900+', '매일 LC와 RC를 인증해요.', '10000000-0000-7000-8000-000000000012'::uuid),
         ('20000000-0000-7000-8000-000000000008'::uuid, '자기계발 습관방', '작은 습관을 꾸준히 쌓아요.', '10000000-0000-7000-8000-000000000017'::uuid)
 )
-INSERT INTO groups
+INSERT INTO islands
     (id, name, description, max_members, status, is_private, is_chat_enabled,
      invite_permission, version, created_at)
 SELECT id, name, description, 50, 'ACTIVE', false, true, 'ALL_MEMBERS', 0, now()

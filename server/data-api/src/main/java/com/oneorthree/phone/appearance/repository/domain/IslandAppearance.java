@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 섬 공동 외양 — 섬({@code groups})당 한 행의 <b>전체 상태</b> (GROMO-1783, LLD §1.4·§2).
+ * 섬 공동 외양 — 섬({@code islands})당 한 행의 <b>전체 상태</b> (GROMO-1783, LLD §1.4·§2).
  *
  * <p>{@code buildingThemes} 의 key 집합은 그 섬의 <b>외양 대상 완공 건물 집합</b>이다 — GET 은
  * 이 맵을 그대로 내보내며 즉석에서 새 건물을 채우지 않는다. 새 건물의 {@code default} 반영은

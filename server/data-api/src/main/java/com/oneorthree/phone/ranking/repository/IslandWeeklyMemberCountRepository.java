@@ -71,7 +71,7 @@ public interface IslandWeeklyMemberCountRepository
      * 주민 목록·정원 판정과 같은 기준이라 「목록 N명 · 분모 N+1명」이 생기지 않는다. 멤버가 0인 섬은
      * {@code GROUP BY} 에서 행 자체가 나오지 않으므로 자연히 빠진다(CHECK {@code member_count > 0} 과 짝이다).
      *
-     * <p>섬이 살아 있는지는 «여기서» 걸지 않는다 — 조회 경로가 어차피 {@code groups} 와 조인해 소프트 삭제·
+     * <p>섬이 살아 있는지는 «여기서» 걸지 않는다 — 조회 경로가 어차피 {@code islands} 와 조인해 소프트 삭제·
      * 종료 섬을 거른다. 하드 삭제는 FK {@code ON DELETE CASCADE} 가 치운다.
      *
      * <p>{@code ON CONFLICT DO NOTHING} 이라 <b>재실행해도 이미 동결된 값을 덮지 않는다</b>. 이것이 멱등 가드다.

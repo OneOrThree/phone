@@ -55,7 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>권한은 「활성 주민 + 완공된 방송기(gram)」다. 같은 섬 주민 누구나 곡·재생을 바꾼다(방장 승인 없음,
  * M02). 곡은 섬이 실제 소유한 {@code audio} 상품만 고를 수 있고 소유 확인과 변경은 같은 TX 다(M03).
  *
- * <p>잠금 순서(LLD §4) — caller → receipt → groups(배타) → membership(공유) → 보유 행(공유) → 재생 행(배타).
+ * <p>잠금 순서(LLD §4) — caller → receipt → islands(배타) → membership(공유) → 보유 행(공유) → 재생 행(배타).
  * 재생 행 잠금이 곧 version 발급 직렬화다(외양 행과 같은 방식). 서버 시각은 재생 행을 잠근 뒤 한 번만
  * 읽고 {@code t = max(now, 이전 anchor)} 로 역행을 막는다.
  *
