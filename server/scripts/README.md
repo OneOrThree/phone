@@ -239,7 +239,7 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 진행 기록과 백업은 러너 계정의 `~/.local/state/catus/dev/`에 보존됩니다(디렉터리 0700, JSON 0600). 이 경로를 작업 디렉터리 정리 대상에 넣지 않습니다. 실패하면 nginx와 writer는 닫힌 상태를 유지합니다. **실패한 공동 CD job을 재실행**하면 DB 실제 상태를 다시 확인하고 이어서 처리합니다. 앱 결함을 수정한 새 SHA도 기존 트래픽·writer가 중지되어 있고 새 이미지로 검증한 DB가 `current`이면 재개할 수 있습니다. 최초 전환이 아직 `legacy`·`empty`인 상태에서는 동일 SHA·digest로 재시도합니다. 원래 서비스 실행 목록과 백업을 유지하며, 일반 ops·위성 배포는 미완료 기록을 우회하지 못합니다. 정상 배포의 설정만 재적용할 때는 `Ops Dev Redeploy`에서 Data 또는 Realtime을 선택하며, 두 경우 모두 마지막 공동 배포 job을 재실행합니다. 이전 독립 배포 이력은 선택하지 않습니다.
 
-새 커밋의 자동 CD가 선행 위성 배포의 미완료 전환 검사에 막히면, Actions의 **Data·Realtime Dev CD**를 `main`에서 수동 실행합니다. 같은 main SHA의 Data CI에서 Data·Realtime 이미지 발행 job이 모두 성공한 뒤 그 두 digest와 `image_revision`을 입력합니다. 전체 CI 성공은 요구하지 않지만 두 이미지 발행 성공·고정 저장소·OCI revision·digest를 검증합니다. 수동 실행은 미완료 journal과 `current` DB가 있을 때만 허용하여 정상 배포의 위성 대기를 우회하지 못합니다. 복구 후 막혔던 위성 CD를 재실행합니다. `legacy`·`empty` 상태의 최초 전환 실패는 원래 공동 CD를 재실행합니다.
+새 커밋의 자동 CD가 선행 위성 배포의 미완료 전환 검사에 막히면, Actions의 **Data·Realtime Dev CD**를 `main`에서 수동 실행합니다. main에 포함된 소스 SHA의 Data CI에서 Data·Realtime 이미지 발행 job이 모두 성공한 뒤 그 두 digest와 `image_revision`을 입력합니다. 그 뒤 문서·앱 변경이 main에 추가돼도 검증된 조상 SHA의 이미지로 복구할 수 있습니다. 실행 코드는 선택한 현재 main을 사용합니다. 전체 CI 성공은 요구하지 않지만 두 이미지 발행 성공·고정 저장소·OCI revision·digest를 검증합니다. 수동 실행은 미완료 journal과 `current` DB가 있을 때만 허용하여 정상 배포의 위성 대기를 우회하지 못합니다. 복구 후 막혔던 위성 CD를 재실행합니다. `legacy`·`empty` 상태의 최초 전환 실패는 원래 공동 CD를 재실행합니다.
 
 
 ## 10. 로그 S3 적재본 수명 주기

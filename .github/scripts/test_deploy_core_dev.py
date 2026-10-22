@@ -361,7 +361,9 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(cd['jobs']['deploy']['permissions']['actions'], 'read')
         self.assertEqual(data['jobs']['deploy']['permissions']['actions'], 'read')
         steps = cd['jobs']['deploy']['steps']
+        self.assertEqual(steps[0]['with']['fetch-depth'], '0')
         self.assertIn('--verify-recovery-builds', steps[1]['run'])
+        self.assertIn('git merge-base --is-ancestor "$IMAGE_REVISION" "$GITHUB_SHA"', steps[1]['run'])
         health = next(step for step in steps if step.get('id') == 'health')
         self.assertIn('workflow_dispatch', health['run'])
         self.assertIn('recovery+=(--recovery-only)', health['run'])
@@ -380,6 +382,64 @@ class WorkflowTest(unittest.TestCase):
                                ('DATA_DIGEST', 'sha256:invalid'), ('REALTIME_DIGEST', '$(touch ' + str(marker) + ')')):
                 with self.subTest(key=key):
                     result = subprocess.run(['bash', '-c', script], env={**values, key: value}, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(marker.exists())
+
+    def test_manual_recovery_uses_tested_ancestor_after_docs_only_main_commit(self):
+        cd = yaml.load((core.ROOT / '.github/workflows/data-api-cd.dev.yml').read_text(), Loader=yaml.BaseLoader)
+        script = cd['jobs']['deploy']['steps'][1]['run']
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+
+            def git(*args):
+                return subprocess.run(['git', *args], cwd=directory, check=True, capture_output=True, text=True).stdout.strip()
+
+            def commit(message):
+                git('add', '.')
+                git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.com', 'commit', '-m', message)
+                return git('rev-parse', 'HEAD')
+
+            git('init', '-b', 'main')
+            (directory / 'application.txt').write_text('tested main image B')
+            built = commit('B image built')
+            git('checkout', '-b', 'unmerged')
+            (directory / 'other.txt').write_text('not merged')
+            unmerged = commit('unmerged image')
+            git('checkout', 'main')
+            (directory / 'README.md').write_text('C docs-only main change')
+            current = commit('C docs only')
+            package = directory / '.github/scripts'
+            package.mkdir(parents=True)
+            (package / 'deploy-core-dev.py').write_text((core.ROOT / '.github/scripts/deploy-core-dev.py').read_text())
+            evidence = directory / 'evidence.json'
+            evidence.write_text(json.dumps({
+                'runs': [{'workflow_runs': [{'id': 123, 'event': 'push', 'head_branch': 'main', 'head_sha': built,
+                    'path': '.github/workflows/data-api-ci.dev.yml', 'head_repository': {'full_name': 'fixture/phone'}}]}],
+                'jobs': [{'jobs': [{'id': index, 'name': name, 'head_sha': built, 'status': 'completed', 'conclusion': 'success'}
+                    for index, name in enumerate(('Dev 이미지 build · GAR push',
+                        'Realtime 공동 이미지 / 채팅 이미지 build · GAR push'))]}]}))
+            binary = directory / 'bin'
+            binary.mkdir()
+            gh = binary / 'gh'
+            gh.write_text('#!/usr/bin/env python3\nimport json, os, pathlib, sys\n'
+                          'pathlib.Path(os.environ["CI_QUERY_MARKER"]).touch()\n'
+                          'data = json.loads(pathlib.Path(os.environ["CI_EVIDENCE"]).read_text())\n'
+                          'print(json.dumps(data["runs" if "actions/workflows/" in sys.argv[-1] else "jobs"]))\n')
+            gh.chmod(0o700)
+            marker = directory / 'ci-queried'
+            env = {**os.environ, 'PATH': str(binary) + os.pathsep + os.environ['PATH'],
+                   'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': current, 'IMAGE_REVISION': built,
+                   'DATA_DIGEST': 'sha256:' + 'b' * 64, 'REALTIME_DIGEST': 'sha256:' + 'c' * 64,
+                   'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REPOSITORY': 'fixture/phone',
+                   'CI_EVIDENCE': str(evidence), 'CI_QUERY_MARKER': str(marker)}
+            result = subprocess.run(['bash', '-c', script], cwd=directory, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(marker.exists())
+            marker.unlink()
+            for revision, event in ((unmerged, 'workflow_dispatch'), ('0' * 40, 'workflow_dispatch'), (built, 'push')):
+                with self.subTest(revision=revision, event=event):
+                    result = subprocess.run(['bash', '-c', script], cwd=directory,
+                        env={**env, 'IMAGE_REVISION': revision, 'GITHUB_EVENT_NAME': event}, capture_output=True)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(marker.exists())
 

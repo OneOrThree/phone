@@ -18,7 +18,7 @@ on:
         required: true
         type: string
       image_revision:
-        description: 선택한 main ref와 같은 40자리 SHA (미완료 current DB 복구 전용)
+        description: main에 포함된 이미지의 40자리 SHA (미완료 current DB 복구 전용)
         required: true
         type: string
   workflow_call:
@@ -69,6 +69,8 @@ jobs:
       issues: write # 라벨은 이슈 API
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: main SHA·digest 및 수동 복구 CI 검증
         env:
@@ -79,12 +81,14 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
-          test "$IMAGE_REVISION" = "$GITHUB_SHA"
           [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
           [[ "$DATA_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
           [[ "$REALTIME_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
           if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then
+            git merge-base --is-ancestor "$IMAGE_REVISION" "$GITHUB_SHA"
             python3 .github/scripts/deploy-core-dev.py --verify-recovery-builds --revision "$IMAGE_REVISION"
+          else
+            test "$IMAGE_REVISION" = "$GITHUB_SHA"
           fi
 
       - name: AWS 자격증명 (OIDC)
@@ -118,9 +122,12 @@ jobs:
           IMAGE_REVISION: ${{ inputs.image_revision }}
         run: |
           set -euo pipefail
-          test "$IMAGE_REVISION" = "$GITHUB_SHA"
           recovery=()
-          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then recovery+=(--recovery-only); fi
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then
+            recovery+=(--recovery-only)
+          else
+            test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          fi
           python3 .github/scripts/deploy-core-dev.py \
             --data-image "$DATA_IMAGE" --realtime-image "$REALTIME_IMAGE" \
             --revision "$IMAGE_REVISION" --runtime-env-file "$RUNTIME_ENV_FILE" \
