@@ -41,7 +41,60 @@ SQL은 하나의 `DO` 문에서 전용 advisory transaction lock과 기본 테�
 원본 `build_reward_catalog.py`는 적용된 V134·V136을 재생성하므로 기본 SQL 갱신용으로
 실행하지 않는다. 원본 migration은 불변 보존하고 최종 카탈로그 값으로 기본 SQL을 갱신한다.
 
-## 기존 dev/prod 전환
+## 자동 배포의 DB 준비와 동시 교체
+
+새 배포는 Data 이미지에 포함된 `/opt/catus-db/docs/db/deploy-v0.py`를 사용한다.
+이 패키지에는 불변 원본 migration, V0, 기본 데이터 SQL과 검증 manifest가 함께 들어 있다.
+일회성 `DeploymentMigrationMain`은 Flyway만 실행하며 API·배치·스케줄러를 시작하지 않는다.
+배포 호스트가 고정 digest의 이미지에서 패키지를 꺼내 `preflight`와 `apply`를 호출한다.
+
+`preflight`는 DB에 쓰지 않고 대상·계정·PostgreSQL 16·이력·체크섬을 검사해 아래 상태를
+반환한다. `apply`는 모든 writer와 Data DB 관측 연결을 중지한 뒤에만 실행한다.
+
+| DB 상태 | 자동 처리 |
+|---|---|
+| `empty` | 사용자 객체가 없는 DB에 V0와 기본 데이터를 적용한다. 이력 없는 기존 데이터베이스를 빈 DB로 간주하지 않는다. |
+| `legacy` | 번들의 원본 migration 이력과 정확히 일치하는 prefix인지 확인하고 전체 custom-format 백업을 만든다. V138 미만이면 불변 원본 체인으로 V138까지 적용하고, V138 구조 지문을 검증한 뒤 V0로 전환한다. |
+| `current` | V0부터 시작하는 현재 migration 이력이 번들의 정확한 prefix인지 확인한다. 미적용 migration이 있으면 전체 백업 후 적용하고, 없으면 기본 데이터 콜백을 다시 실행한다. |
+
+현재 번들의 숫자 버전은 0이다. 향후 V1 이상이 추가되면 자동 실행기도 그 체인의
+미적용 migration을 처리한다. V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
+후속 V1 이상은 불변 이력·체크섬과 Flyway 검증을 사용한다. 이미지보다 새로운 DB,
+실패 이력, 체크섬 불일치, 이력 없는 사용자 객체, 지원하지 않는 스키마는 자동 수정하지 않는다.
+기존 V125의 핀 만료, V130의 집계 백필, V135·V136의 보상 갱신을 생략하고 V0 이력만 기록하지 않는다.
+
+Data와 Realtime은 **같은 중단 창에서 교체**한다. 새 Data가 제거한 `/api/v1/groups` 대신
+새 Realtime은 `GET /internal/users/{userId}/islands`를 호출한다. Data의
+`<환경>,satellites,realtime-authorization` 프로파일과 양쪽의 동일한
+`SVC_TOKEN_REALTIME_TO_DATA`를 기동 전에 준비한다.
+
+- dev는 Data CI가 같은 main SHA의 두 이미지를 만들고 공동 CD에 digest를 넘긴다.
+  해당 push의 위성 배포가 필요하면 먼저 완료를 기다린다. 이미지·runtime·DB 사전 검증 후
+  nginx와 Data·Realtime·Business·Notification 및 DB 관측 연결을 중지한다. DB·Redis·Kafka는
+  유지한다. 전환 후 두 이미지와 readiness, 기존 위성 복원을 검증한 뒤 트래픽을 재개한다.
+  실행 기록·백업과 재실행 방법은 [개발 공동 배포](../../../scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)를 따른다.
+- Catus prod는 Infra `prod/catus/runtime`의 SSM 실행기가 같은 DB 준비 도구와 동시 교체 계약을
+  수행한다. **먼저 Infra의 IAM·SSM 변경을 적용하고 새 runtime 구성을 발행한 뒤**, 게시된
+  40자리 Infra SHA를 `CATUS_PROD_INFRA_REVISION`에 고정한다. Phone은
+  `data_schema_generation=catus-v0`, `cutover_contract=data-v0-realtime-internal-v1`을 지원하지 않는
+  구성으로 릴리스를 발행하지 않는다. 최초 계약 전환은 네 서비스를 모두 발행·배포 대상으로
+  잡으며, 이후 Data나 Realtime 변경도 두 서비스를 함께 빌드한다. 운영 선행 조건과 승인 CD는
+  [운영 배포 문서](../../../../docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따른다.
+  운영 단계 기록은 `/opt/catus/runtime/data-v0-cutover.json`, DB 기록은
+  `/opt/catus/runtime/data-v0-db.json`, 백업은 `/opt/catus/backups/data-v0/<release-id>/`에 둔다.
+  백업은 EC2 로컬에 보존되며 S3로 자동 업로드하지 않는다.
+
+`apply` 실패는 자동 이미지 롤백 조건이 아니다. 예를 들어 V138 보완은 완료됐으나 V0 구조
+검증에서 실패할 수 있고, V0 전환 commit 이후 새 앱 readiness가 실패할 수도 있다.
+배포 실행기는 트래픽과 writer를 닫아 둔 채 실패 기록을 보존한다. 같은 배포를 재실행하면
+기록만 믿고 다음 단계로 넘어가지 않고 실제 DB를 다시 분류·검증한다. 이전 일회성 DB
+컨테이너가 아직 실행 중이면 재진입을 거부하며, 종료된 경우만 정리 후 진행한다.
+백업은 새 파일에 누적하고 덮어쓰지 않는다. 미완료 기록이나 백업을 지워 재시도를 우회하지 않는다.
+
+## V138 → V0 정리와 저수준 검사·복구
+
+`rebase-v0.py`는 자동 실행기가 사용하는 일회성 정리 도구다. 아래 수동 CLI는 계획 검토와
+별도 복구 작업용이며 일반 dev/prod 배포 진입점은 위 공동 배포 절차다.
 
 `rebase-v0.py`는 현재 Catus 사용자·로그인 세션·섬·물고기 지갑·정책 데이터를
 보존한다. 폐기 테이블은 모두 삭제하고, V48이 생성한 정확한 190개 봇 UUID 중
@@ -60,15 +113,11 @@ outbox·집계 키·JSON에 들어 있는 사용자/세션 UUID도 확인한다.
 `user.displayNameChanged` 원본 중 다른 위성 전달 작업이 없는 행만 삭제한다.
 공유 `user.withdrawn` 원본과 다른 위성 전달 작업은 보존한다. 계획 출력에 각 대상 건수를 표시한다.
 
-이 도구는 **V138까지의 검증된 126개 이력과 스키마**에만 적용한다. 낮은 버전, 더 새로운
-버전, 체크섬 차이, 스키마 차이, 알 수 없는 봇은 자동 보정하지 않는다. V0에서
-`baseline-on-migrate`는 꺼져 있으므로 기존 DB에 새 이미지를 먼저 시작하면
-실패한다. 먼저 쓰기를 중지하고 아래 전환을 수행한 뒤 새 이미지를 시작한다.
-
-V117~V137 DB는 **먼저 기존 runtime과 불변 `db/migration` 체인으로 V138까지 적용**한다.
-V125의 핀 만료 변경과 V130의 주간 집중 집계 백필, V135·V136 보상 갱신을 건너뛰고
-V0 이력만 기록하면 안 된다. V138 적용·검증을 마친 뒤 모든 writer를 중지하고 아래
-전환을 수행한다. 이 도구는 이전 버전의 migration을 대신 실행하지 않는다.
+저수준 `rebase-v0.py`는 **V138까지의 검증된 126개 이력과 스키마**에만 적용한다.
+낮은 버전의 보완은 위 `deploy-v0.py`가 writer 중지와 백업 후 담당하며, 이 저수준 도구는
+이전 migration을 대신 실행하지 않는다. 더 새로운 원본 이력, 체크섬·스키마 차이,
+알 수 없는 봇도 자동 보정하지 않는다. V0의 `baseline-on-migrate`는 꺼져 있으므로
+기존 DB에 새 API 이미지를 직접 시작하는 방식으로 전환하지 않는다.
 
 지원 범위는 `public` 단일 사용자 스키마다. 다른 사용자 스키마에 객체가 있으면
 읽기 전용 계획과 잠금 후 적용 트랜잭션 모두 거부한다. 외부 스키마의 FK가 봇 삭제를
@@ -77,7 +126,7 @@ V0 이력만 기록하면 안 된다. V138 적용·검증을 마친 뒤 모든 w
 
 dev는 현재 Data API DB를 지정한다. prod는 **Catus 2.0 전용 DB**를 지정한다.
 이 저장소의 옛 `docker-compose.prod.yml`은 Gromo 1.x용이다. Catus 운영 접속과
-실행 구성은 Infra의 `prod/catus/runtime`에서 관리한다. 이 도구는 비밀 조회,
+실행 구성은 Infra의 `prod/catus/runtime`에서 관리한다. 저수준 `rebase-v0.py`는 비밀 조회,
 원격 명령 전송, 배포 또는 서버 재시작을 수행하지 않는다.
 
 PostgreSQL 16의 `psql`, `pg_dump`, `pg_restore`를 사용할 수 있으면 그대로 쓴다.
@@ -113,7 +162,7 @@ python3 server/data-api/docs/db/rebase-v0.py --environment prod \
 기존 행 수 검증 후 동일한 `insert.sql`로 기본 데이터 누락을 복구하고 V0 이력을 기록한다.
 기본 데이터 충돌도 전체 전환을 롤백한다. 계획에 V0·seed 체크섬과 기본 행 수를 출력한다.
 이미 검증된 V0라면 구조 변경 없이 종료하며 기본 행 복구는 앱 기동 콜백이 담당한다.
-새 V0 이미지를 기동해 health와 실제
+새 Data와 Realtime을 같은 창에서 기동하고 두 서비스의 health와 실제
 회원·섬·집중 흐름을 확인한 다음 다른 writer와 배포 자동화를 재개한다.
 
 백업에는 모든 사용자 정보가 들어 있으므로 운영 백업 저장·접근·보존 정책으로
@@ -126,14 +175,28 @@ python3 server/data-api/docs/db/rebase-v0.py --environment prod \
 
 ```bash
 python3 server/data-api/docs/db/test-rebase-v0.py
+python3 server/data-api/docs/db/test-deploy-v0.py
 server/data-api/docs/db/verify-schema-dbml.sh
 (cd server/data-api && ./gradlew test --tests 'com.oneorthree.phone.db.*')
 ```
 
+빌드한 Data 이미지의 digest로 배포 경로 전체를 로컬에서 재현할 수 있다.
+아래 검사는 전용 PostgreSQL 컨테이너·network를 만들고 종료 시 제거한다.
+이미지에서 추출한 실행기로 빈 DB·반복 배포·V117→V138→V0·백업 복원,
+빈 history 재시도, 잔존 연결 거부, seed 충돌 롤백과 중단된 컨테이너 처리를 확인한다.
+백업과 검증 JSON은 지정한 artifacts 디렉터리에 남긴다.
+
+```bash
+python3 server/data-api/docs/db/test-deploy-v0-integration.py \
+  --data-image 'registry/data-api@sha256:<빌드한 이미지의 digest>' \
+  --artifacts-dir /tmp/catus-db-deployment-verification
+```
+
 `v0-rebase/manifest.json`에는 기존 Flyway 체크섬, 원본/전환 후 스키마 지문,
 폐기 대상과 봇 UUID를 고정했다. `retire.sql`·V0·기본 insert.sql의 체크섬도 확인하므로
-파일 일부만 수정해 실행할 수 없다. 이 자료는 일회성 V138→V0 전환 전용이다.
-추후 V1 이상 스키마에는 이 도구를 재사용하지 않는다.
+파일 일부만 수정해 실행할 수 없다. 이 자료와 `rebase-v0.py`는 일회성 V138→V0 전환 전용이다.
+추후 V1 이상 스키마에는 저수준 rebase를 재사용하지 않는다. 자동 `deploy-v0.py`는
+현재 체인을 인식하고 위 설명대로 후속 migration만 적용한다.
 
 `v0-rebase/schema.sql`은 스키마 생성 SQL이 아니라 비교할 카탈로그를 정렬된 JSON으로
 읽는 쿼리다. V138 원본 지문은 `groups`, 전환 후 지문은 `islands`를 기준으로 한다.

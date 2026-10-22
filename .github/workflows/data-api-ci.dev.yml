@@ -16,6 +16,10 @@ on:
       # 마이그레이션은 src/main/resources 아래라 이 제외에 걸리지 않는다.
       - "!server/data-api/docs/**"
       - "!server/data-api/**/*.md"
+      # DB 전환 도구·manifest·원본 SQL은 Docker 이미지에 포함된다.
+      - "server/data-api/docs/db/**/*.py"
+      - "server/data-api/docs/db/**/*.sql"
+      - "server/data-api/docs/db/**/*.json"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       # data-api-cd 가 조건부로 물리는 오버레이 (GROMO-1658) — 바뀌면 다음 배포에 반영돼야 한다.
@@ -32,6 +36,9 @@ on:
       - ".github/workflows/data-api-cd.dev.yml"
       # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
       - ".github/scripts/dev-env.sh"
+      - ".github/scripts/deploy-core-dev.py"
+      - ".github/scripts/wait-smoke-deploy.py"
+      - ".github/scripts/test_deploy_core_dev.py"
       - ".github/scripts/write-compose-env.py"
       - ".github/scripts/wait-healthy.sh"
       - ".github/scripts/mark-deploy.sh"
@@ -40,12 +47,23 @@ on:
   push:
     branches: [main]
     paths:
+      - "server/realtime/**"
+      - "!server/realtime/docs/**"
+      - "!server/realtime/**/*.md"
+      - ".github/workflows/realtime-ci.dev.yml"
+      - "server/scripts/docker-compose.realtime.yml"
+      - "app/app-dev/src/assets/village-world/v1/nav.json"
+      - "docs/prd/fishcat/island-movement/fixtures/paths.json"
       - "server/data-api/**"
       # 문서·스크래치는 빌드를 바꾸지 않는다. 안 빼면 schema.dbml 한 줄에 checkstyle·spotbugs·
       # test 가 전부 돌아 러너 슬롯을 물고 관계없는 PR 을 줄 세운다 (PR #790 이 실제로 그랬다).
       # 마이그레이션은 src/main/resources 아래라 이 제외에 걸리지 않는다.
       - "!server/data-api/docs/**"
       - "!server/data-api/**/*.md"
+      # DB 전환 도구·manifest·원본 SQL은 Docker 이미지에 포함된다.
+      - "server/data-api/docs/db/**/*.py"
+      - "server/data-api/docs/db/**/*.sql"
+      - "server/data-api/docs/db/**/*.json"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       - "server/scripts/docker-compose.kafka.yml"
@@ -59,6 +77,9 @@ on:
       - ".github/workflows/data-api-cd.dev.yml"
       # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
       - ".github/scripts/dev-env.sh"
+      - ".github/scripts/deploy-core-dev.py"
+      - ".github/scripts/wait-smoke-deploy.py"
+      - ".github/scripts/test_deploy_core_dev.py"
       - ".github/scripts/write-compose-env.py"
       - ".github/scripts/wait-healthy.sh"
       - ".github/scripts/mark-deploy.sh"
@@ -159,12 +180,26 @@ jobs:
       artifact-path: build/test-results/
       measure-jar: true
 
+  db-tools:
+    name: DB 전환 도구 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: 이력·대상·재실행 보호 조건
+        run: |
+          python3 server/data-api/docs/db/test-rebase-v0.py
+          python3 server/data-api/docs/db/test-deploy-v0.py
+          python3 server/data-api/docs/db/test-compare-schema-dbml.py
+
   # PR에서는 merge-ref의 build 가능 여부를 검증하고 GAR 캐시만 갱신한다.
   # main에서는 최종 main SHA를 같은 캐시로 build해 GAR에 push한다. 이 job이 반환한
   # digest를 아래 deploy job에 직접 넘기므로 CD는 태그를 다시 조회하거나 재빌드하지 않는다.
   build:
     name: Dev 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
-    needs: [checkstyle, spotbugs, test, secrets-check]
+    needs: [checkstyle, spotbugs, test, db-tools, secrets-check]
     # GROMO-1918: 이미지를 «push» 하는 실행에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
     # 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없기 때문이다. PR 은 push 하지 않으므로
     # (아래 `push:` 가 main push 로 한정) 그 인증이 필요 없고, 레지스트리 캐시만 GAR 를 쓰던 것을
@@ -232,9 +267,39 @@ jobs:
 
   # build-push-action의 digest는 같은 workflow 안의 reusable CD로 직접 전달한다.
   # registry tag는 사람이 main SHA로 이미지를 찾는 용도일 뿐, 배포 입력으로 사용하지 않는다.
+  realtime:
+    name: Realtime 공동 이미지
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/realtime-ci.dev.yml
+    secrets: inherit
+
+  satellites-ready:
+    name: 같은 커밋 위성 배포 확인
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 경로 필터 파서 준비
+        run: python3 -m pip install PyYAML==6.0.2
+      - name: 위성 교체 후 공동 배포 진입
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_WAIT_SATELLITES_ONLY: "true"
+        run: python3 .github/scripts/wait-smoke-deploy.py
+
   deploy:
-    name: Dev CD
-    needs: build
+    name: Dev 공동 CD
+    needs: [build, realtime, satellites-ready]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       id-token: write
@@ -244,5 +309,6 @@ jobs:
     uses: ./.github/workflows/data-api-cd.dev.yml
     with:
       image_digest: ${{ needs.build.outputs.image-digest }}
+      realtime_image_digest: ${{ needs.realtime.outputs.image-digest }}
       image_revision: ${{ github.sha }}
     secrets: inherit

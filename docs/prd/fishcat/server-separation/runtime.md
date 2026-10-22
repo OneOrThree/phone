@@ -16,17 +16,17 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
       --output .runtime/business-api.env
 ```
 
-같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. dev VM 에서 `/var/lib/gromo/runtime/` 에 직접 만들 때는 그 디렉터리가 runner 소유 0700 이라 `sudo -u runner` 로 실행한다 — 다른 계정 소유로 생기면 다음 CD 가 못 읽어 파일이 없는 것과 같다. 특히 `data-api.env` 는 CD 가 다시 만들지 않는 수동 파일이다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. 운영에서는 `--environment prod`와 `gromo/prod/env`를 사용한다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
+같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. 현재 dev CD는 `.github/scripts/dev-env.sh`로 매 실행마다 `$RUNNER_TEMP`에 필요한 env를 만들고 종료 시 삭제한다. 영구 수동 env를 배포 입력으로 사용하지 않는다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. Catus 운영은 Infra runtime이 `catus/prod/env`와 `catus/prod/database`에서 서비스별 임시 env를 만든다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
 
 | 서비스 | 필수 자격 |
 |---|---|
-| data-api | API_DB 3종, OPENAI_API_KEY, BIZ_TO_DATA·NOTI_TO_DATA·DATA_TO_NOTI·DATA_TO_LINK 서비스 토큰, LINK_CAPABILITY_KEY, LINK_IP_SALT, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
-| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_LINK·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, LINK_BASE_URL, REALTIME_BASE_URL, LINK_IP_SALT, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
+| data-api | API_DB 3종, BIZ_TO_DATA·NOTI_TO_DATA·REALTIME_TO_DATA·DATA_TO_NOTI 서비스 토큰, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
+| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, REALTIME_BASE_URL, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
 | notification | NOTI_DB 3종, FCM 2종, BIZ_TO_NOTI·DATA_TO_NOTI·CONSOLE_TO_NOTI·NOTI_TO_DATA 서비스 토큰, DATA_API_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
 
-표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. 표의 링크 관련 값(`DATA_TO_LINK`·`BIZ_TO_LINK` 토큰 · `LINK_CAPABILITY_KEY` · `LINK_BASE_URL` · business-api 의 `LINK_IP_SALT`)은 A23 으로 폐기된 #745 잔재다 — 생성기가 요구하는 동안만 채우고, `LINK_IP_SALT` 는 최종적으로 data-api 만 갖는다(링크 정책 L03). `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
+표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. Data·Realtime에는 같은 `REALTIME_TO_DATA` 토큰을 공급하고 Data 프로파일에 `satellites,realtime-authorization`을 포함한다. `LINK_BASE_URL`은 현재 섬 초대 공유 주소이며, `LINK_PROXY_SECRET`은 게스트 요청의 프록시 신뢰 검증용이다. 폐기한 독립 Link 자격과 OpenAI 키는 주입하지 않는다. `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
 
-Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. 구 코드가 기동·발송해야 하는 기간의 자격이다. 구 빈 제거·트래픽 전환·롤백 창 종료 확인 후에만 `--phase final`을 사용한다. writer의 final 선택 자체가 구 빈 제거를 수행하지는 않는다.
+Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. FCM은 현재 집중 상태 알림에서도 쓰므로 `final` 허용 목록에도 유지한다. `--phase final`은 env 분리 옵션으로, DB 전환이나 트래픽 교체를 대신 수행하지 않는다. 자동 배포·실패 복구는 [배포 문서](deployment.md)를 따른다.
 
 ## 기존 볼륨과 RDS의 알림 DB 초기화
 

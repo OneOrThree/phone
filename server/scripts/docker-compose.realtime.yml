@@ -62,9 +62,9 @@ services:
 
   realtime:
     logging: *app-logging
-    # 이미지는 main push 때 realtime-ci.dev.yml 이 realtime/realtime:<sha> 로 올리고 realtime-cd.dev.yml 이 digest 로 넘김.
+    # Data CI가 같은 main SHA의 두 이미지를 만들고 공동 CD가 digest로 함께 교체한다.
     # 기본값 없음 — 예전 기본값(ci-cache/realtime:latest)은 올리는 곳과 다른 옛 저장소라 비면 옛 이미지로 조용히 떴음.
-    # 수동 실행·되돌리기: REALTIME_IMAGE=asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime:<sha> docker compose … up -d
+    # 운영 재실행은 Ops Dev Redeploy를 사용한다. Data와 다른 SHA를 독립 배포하지 않는다.
     image: ${REALTIME_IMAGE:?Realtime 이미지 필요 — REALTIME_IMAGE=…/realtime/realtime:<sha> 또는 @digest}
     container_name: phone-realtime
     ports:

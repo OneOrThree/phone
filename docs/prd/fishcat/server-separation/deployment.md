@@ -1,4 +1,11 @@
-# 위성 서비스 배포 준비
+# 서비스 배포와 V0 동시 전환
+
+Data의 V0 전환과 Realtime의 내부 API 전환은 하나의 중단 창에서 수행한다. dev는 같은
+main SHA의 Data·Realtime 공동 CI/CD를 사용하고, prod는 고정 Infra 구성의 승인 SSM 배포를
+사용한다. 배포 중 DB 상태는 `deploy-v0.py`가 판별하며, 상세 검증·보존 범위·저수준 복구는
+[Data V0 문서](../../../../server/data-api/docs/db/README.md)를 따른다.
+
+## 서비스별 설정 준비
 
 `prepare-satellite-deploy.py`는 서비스별 env, digest 입력, 적용 순서를 생성한다. 실행 환경과 컷오버는 [runtime.md](runtime.md), 정본은 서비스 아키텍처 §7을 따른다. 이 도구는 배포·DNS·시크릿 조회를 실행하지 않는다.
 
@@ -20,13 +27,13 @@ python3 server/scripts/prepare-satellite-deploy.py \
 
 ## Data 전용 환경 연결
 
-`docker-compose.satellites.data.yml`을 마지막 `-f`로 넣는다. `env_file: !override`로 prod의 공유 `.env.prod`를 교체하고 `environment: !override`로 dev의 관리자 DB 자격 덮어쓰기를 제거한다. Data 이미지는 `APP_IMAGE`의 검증된 digest를 사용한다. 전용 파일의 `dev,satellites` 또는 `prod,satellites` 프로파일을 검사한다. `!override`를 지원하는 Compose가 필요하며 `config --quiet` 실패 시 진행하지 않는다.
+`docker-compose.satellites.data.yml`을 마지막 `-f`로 넣는다. `env_file: !override`로 prod의 공유 `.env.prod`를 교체하고 `environment: !override`로 dev의 관리자 DB 자격 덮어쓰기를 제거한다. Data 이미지는 `APP_IMAGE`의 검증된 digest를 사용한다. 전용 파일의 `dev,satellites,realtime-authorization` 또는 `prod,satellites,realtime-authorization` 프로파일을 검사한다. `!override`를 지원하는 Compose가 필요하며 `config --quiet` 실패 시 진행하지 않는다.
 
 공유 SecretString의 `SPRING_PROFILES_ACTIVE`·`DEPLOY_ENV`·`DATA_API_PROFILES`·`DD_ENV`·`DD_SERVICE`·`DD_VERSION`은 공개 설정 키로 분류해 compose 누출 후보에서 제외한다. 같은 문자열을 가진 실제 자격 키와 미분류 키는 계속 검사하며, 자격을 포함할 수 있는 URL·접속 문자열도 제외하지 않는다.
 
-`--data-image`를 지정하면 `--data-profiles`의 선택값을 Data env의 `SPRING_PROFILES_ACTIVE`와 오버레이의 `DATA_API_PROFILES`에 동일하게 전달한다. 생략 시 기본값은 `<environment>,satellites`이며 `--data-profiles=prod,satellites,foo`처럼 추가할 수 있다. 쉼표로 구분한 정확한 `satellites` 항목이 필수이고, 선택값과 다른 셸 `DATA_API_PROFILES`는 준비 단계에서 거부한다. 이 선택값은 Business·Notification에 전달하지 않는다.
+`--data-image`를 지정하면 `--data-profiles`의 선택값을 Data env의 `SPRING_PROFILES_ACTIVE`와 오버레이의 `DATA_API_PROFILES`에 동일하게 전달한다. 생략 시 기본값은 `<environment>,satellites,realtime-authorization`이며 `--data-profiles=prod,satellites,realtime-authorization,foo`처럼 추가할 수 있다. 쉼표로 구분한 정확한 `satellites`와 `realtime-authorization` 항목이 필수이고, 선택값과 다른 셸 `DATA_API_PROFILES`는 준비 단계에서 거부한다. 이 선택값은 Business·Notification에 전달하지 않는다.
 
-Business/Notification만 기동하는 단계와 Data(app)를 재생성하는 단계는 생성된 `deploy-plan.txt`에서 분리한다. 기존 스택의 네트워크·볼륨과 프로젝트명은 유지한다. Data의 prod APM JVM 옵션도 준비한 보간 파일에 포함한다. 운영 DB 초기화·서비스 토큰·A18 입력은 기동 전에 준비한다.
+생성된 `deploy-plan.txt`는 서비스별 설정 검토 자료다. Data나 Realtime을 독립 재생성하는 일반 배포 진입점으로 사용하지 않는다. 기존 스택의 네트워크·볼륨과 프로젝트명은 유지한다. Data의 prod APM JVM 옵션도 준비한 보간 파일에 포함한다. 운영 DB 초기화·서비스 토큰·A18 입력은 기동 전에 준비한다.
 
 ## 라우팅
 
@@ -34,15 +41,24 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 
 - 준비된 Business 경로만 라우팅하고 나머지 기존 Data 경로를 유지한다.
 - Notification은 시스템 §2.1대로 `/internal/admin/`만 공개하며 서비스가 콘솔 전용 Bearer와 actor를 검증한다. 나머지 `/internal/`과 management 9091은 공개하지 않는다.
-- ~~Cloudflare CIDR·방화벽·realip 설정으로 검증한 방문자 IP를 전용 `X-Link-Client-IP`로 보낸다. 프록시 시크릿은 nginx·Business·Link에서 일치해야 한다.~~ → A23(2026-09-13): 링크 서버가 없다 — 검증한 방문자 IP 는 현행대로 `X-Real-IP` 로 넘기고 프록시 시크릿은 없다([링크 정본](../link-attribution/high-level-design.md) §2·§5).
-- (A23(2026-09-13)으로 폐기 — 링크 컷오버·정지 창이 없다, 링크 정본 HLD §7 4단계: nginx 설정 한 번) §7.2 3~4단계에는 랜딩을 닫고 Business 호환 match를 사용한다. `IMPORT_CLOSED`·import drain 후 예시의 final 블록으로 랜딩과 match를 같은 reload에서 Link로 넘긴다. claim 목적지 전환·큐 처리도 같은 정지 창에서 확인한다.
-- ~~라우팅 교체 후 호환 인플라이트를 drain하고 `COMPAT_MATCH_HANDLER_ENABLED`를 끈다. 구 앱의 `/l/match` URL은 제거하지 않는다. DNS 이전은 두 경로가 Neon을 본 뒤에 한다.~~ → A23: 호환 핸들러·Neon·DNS 이전이 없다. `business.compat.*` 는 #745 잔재로 기본 false 를 유지하고(링크 LLD §9.1) 링크 구현 PR 이 걷어낸다(링크 LLD §9.2).
+- 게스트 요청의 IP 신뢰 검증은 현재 nginx·Business 계약과 `LINK_PROXY_SECRET`을 유지한다. 이 이름의 시크릿은 폐기된 독립 Link 서비스의 배포 자격이 아니다.
+- 독립 Link 이관·export/freeze·호환 match 전환 단계는 폐기됐다. 현재 섬 초대 공유 주소의 `LINK_BASE_URL`은 유지한다. Data 내부 API와 관리 포트를 공개 라우팅에 추가하지 않는다.
 
 ## 실패 복구
 
-준비 단계의 실패는 기존 서비스를 변경하지 않는다. 신규 쓰기 전 기동 실패는 해당 서비스의 직전 검증 digest로 복구한다. ~~Link §7.2 3단계 이후에는 Neon을 정본으로 유지하며 실패한 import·검증·라우팅 단계를 재개한다.~~ → A23: 링크 이관 단계가 없다(정본은 계속 RDS `gromo`). Notification의 최초 gate 개방 이후에는 close/drain → 새 경로 수정·검증 → 재개 순서다. 이 단계 이후 구 Data FCM이나 구 클릭 원장으로 자동 복귀하지 않는다. DB·이관 원장·서비스별 env를 보존한다.
+준비 단계의 실패는 기존 서비스를 변경하지 않는다. 자동 배포는 이미지·runtime·DB 읽기 전용 검증을 모두 통과한 뒤 트래픽과 writer를 중지한다. `deploy-v0.py`는 검증한 원본 이력 prefix에 대해 전체 백업 후 V138 보완 → V0 전환을 실행한다. 빈 DB에는 V0를 적용하고, 현재 V0 체인은 필요한 후속 migration과 기본 데이터 콜백을 실행한다.
 
-`--phase final`은 구 빈 제거·트래픽 전환·롤백 창 종료가 확인된 뒤에만 사용한다. 현재 최소 Business 어댑터는 전체 인증 이전을 완료하지 않았으므로 이 배치만으로 final 자격 회수를 실행하지 않는다.
+**중지 이후의 실패는 유지보수 상태를 유지한다.** V138 보완 또는 V0 commit이 이미 끝났을 수 있으므로 구 이미지를 자동으로 다시 시작하지 않는다. 미완료 배포 기록·DB 기록·백업을 보존하고 같은 배포 식별자와 이미지 조합으로 다시 실행한다. 실행기는 실제 DB 상태를 다시 검사하며, 이전 일회성 DB 작업이 아직 실행 중이면 재진입을 거부한다. V0 DB에 구 이미지를 연결하는 방식은 복구가 아니다. 전환 이전으로 돌아가야 한다면 별도 빈 DB에 검증된 전체 백업을 복원하고 구 이미지와 함께 검증하는 수동 복구 절차를 사용한다.
+
+`prepare-satellite-deploy.py --phase final`은 env 분리 계획을 생성하는 옵션이며 DB 전환·자격 회수·트래픽 교체를 대신 수행하지 않는다.
+
+## 개발 자동 배포
+
+`data-api-ci.dev.yml`이 main의 Data·Realtime 배포를 함께 소유한다. 어느 한쪽 입력이 바뀌어도 같은 SHA의 두 이미지를 검사·발행한 뒤 digest를 공동 CD에 직접 넘긴다. Realtime CI는 PR 검사와 재사용 빌드만 제공하며 독립 Realtime CD는 없다.
+
+공동 CD 진입 전에 push의 실제 변경 경로와 위성 CI의 경로 필터로 선행 배포 필요 여부를 정한다. 위성 대상이면 같은 main SHA·원본 workflow·최신 실행 시도의 CI와 CD 성공을 기다린다. 등록 지연이나 누락을 시간 경과만으로 성공 처리하지 않는다. 이 대기는 `dev-vm-deploy` 잠금을 잡기 전에 수행한다.
+
+공동 CD는 이미지·토큰·프로파일·DB 사전 검사 후 nginx와 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지하고 실제 중지 상태를 확인한다. DB·Redis·Kafka는 유지한다. DB 전환, 두 새 컨테이너의 digest·readiness, 기존 위성 복원을 검증한 뒤 nginx를 재개한다. 실패한 동일 공동 CD job의 재실행과 기록·백업 경로는 [개발 배포 실행 문서](../../../../server/scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)를 따른다. 일반 ops·위성 배포는 미완료 공동 전환을 우회하지 못한다.
 
 ## 검증
 
@@ -56,7 +72,6 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 단독 로컬 실행도 `write-compose-env.py --service business-api --redis-acl-output <경로>`가 생성한 env와 ACL을 사용한다. `BUSINESS_API_ENV_FILE`·`BUSINESS_REDIS_ACL_FILE`을 지정해 `server/business-api/compose.yml`을 실행하면 호스트 `127.0.0.1:8082`가 컨테이너 8080으로 연결된다. 시크릿이 포함된 파일은 커밋하지 않는다.
 
-~~Link/MMP는 `OneOrThree/mmp-custom`의 별도 배포다. 여기서 Vercel·Neon 연결이나 DNS 전환을 수행하지 않는다.~~ → A23(2026-09-13): Link/MMP 는 별도 배포가 아니다 — business-api·data-api 이미지에 포함되며 공개 경로 전환은 nginx 설정 한 번이다([링크 정본](../link-attribution/high-level-design.md) §7).
 
 ## Catus 2.0 운영 발행·배포
 
@@ -64,12 +79,14 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 ### 운영 선행 조건
 
-- Infra에서 최신 IAM·SSM 변경을 적용하고, 승인된 구성 산출물을 먼저 게시한다. Phone의 `CATUS_PROD_INFRA_REVISION`에는 **게시된 구성**의 SHA를 설정한다.
+- **Phone의 V0 릴리스를 발행하기 전에** Infra의 IAM·SSM 변경을 적용하고, V0 DB 준비와 Data·Realtime 동시 교체를 지원하는 runtime 구성을 발행한다. Phone의 `CATUS_PROD_INFRA_REVISION`에는 **실제 게시된 구성**의 40자리 SHA를 고정한다. 이 저장소의 변경만 병합해도 원격 SSM 문서나 runtime 구성이 자동으로 교체되는 것은 아니다.
+- runtime의 Data 프로파일은 `prod,satellites,realtime-authorization`여야 하며, Data·Realtime에 동일한 `SVC_TOKEN_REALTIME_TO_DATA`와 검증한 내부 주소를 주입한다. Infra 구성의 `DATA_SCHEMA_GENERATION=catus-v0`, `CUTOVER_CONTRACT=data-v0-realtime-internal-v1` 및 릴리스 manifest의 대응 필드가 필수다. Phone 발행기는 이 계약이 없는 옛 구성·릴리스를 거부한다.
+- 현재 Realtime 이동·바다 기능에 필요한 Redis ACL도 함께 갱신한다. 최초 적용 순서는 **Infra SSM 적용 → 구성 발행 → Phone 구성 SHA 고정 → release CI 발행 → `prod-cd.yml`의 `operation=bootstrap`**이다. 일반 `deploy`는 기존 Redis ACL 변경을 감지하면 DB 작업 전에 중단한다. bootstrap 이후 앱 변경은 일반 deploy를 사용한다.
 - Phone의 `catus-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `catus-prod-publish`, 수동 배포 역할은 `catus-prod-deploy`다. 대상 설정은 Secrets Manager `catus/prod/cicd`에서 읽는다.
 - 제품명을 Catus로 정정해 Infra의 `prod/catus`에 새 state·새 AWS 스택을 준비한다. 신규 스택의 적용 완료와 운영 검증을 확인한 뒤 다음 단계로 진행한다. 기존 FocusCat은 전환 검증 후 별도 정리하며, Gromo 1.x는 계속 유지한다. 이전 스택의 성공 상태나 이미지·버전 참조를 Catus로 복사하지 않는다.
 - Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 정규 GitHub 구성 발행 잠금을 유지하기로 결정했다. 이후 FocusCat→Catus 교체 지시로 이번 전환은 운영자 직접 작업으로 수행했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
-- `catus/prod/env`의 필요한 앱 설정·FCM·Google·Apple·OpenAI·JWT·서비스 caller 자격은 `gromo/dev/env`의 키와 값을 그대로 따른다. DB 접속 키·POSTGRES 관리 값·관리형 서비스 URL·파일 경로 키는 복사 대상에서 제외한다. 운영 DB 자격은 별도로 생성한 `catus/prod/database`에서 공급하고, 개발 env에 없는 채팅 DB 자격도 여기에 따로 준비한다. Redis·프록시·Datadog의 운영 설정과 자격은 Infra에서 별도 보충한다. 앱의 OAuth audience/bundle ID(`com.oneorthree.focuscat`)는 스택 이름 변경으로 바꾸지 않는다. 관리형 RDS 시크릿의 AWS 자동 생성 이름도 변경 대상이 아니다.
-- Link는 같은 구성으로 미완 상태를 유지하되 prod `LINK_BASE_URL`은 Catus 운영 주소 `https://catus-api.oneorthree.world`를 사용한다. dev는 기존 주소를 유지한다. 실제 dev에는 별도 Link 서비스가 없고 `/internal/links`·`/l/...`가 404이므로 초대 링크 기능은 미연결이다. 닫힌 PR #736의 코드는 가져오지 않았다. DB·로그 장애 알람 수신처도 사용자 요청으로 TODO다.
+- `catus/prod/env`의 필요한 앱 설정·FCM·Google·Apple·JWT·서비스 caller 자격은 `gromo/dev/env`의 키와 값을 그대로 따른다. DB 접속 키·POSTGRES 관리 값·관리형 서비스 URL·파일 경로 키는 복사 대상에서 제외한다. 운영 DB 자격은 별도로 생성한 `catus/prod/database`에서 공급하고, 개발 env에 없는 채팅 DB 자격도 여기에 따로 준비한다. Redis·프록시·Datadog의 운영 설정과 자격은 Infra에서 별도 보충한다. 앱의 OAuth audience/bundle ID(`com.oneorthree.focuscat`)는 스택 이름 변경으로 바꾸지 않는다. 관리형 RDS 시크릿의 AWS 자동 생성 이름도 변경 대상이 아니다.
+- 현재 섬 초대 공유 주소 `LINK_BASE_URL`은 prod에서 `https://catus-api.oneorthree.world`를 사용하며 dev는 기존 주소를 유지한다. 폐기된 독립 Link migration이나 호환 endpoint를 복구하지 않는다. DB·로그 장애 알람 수신처는 별도 운영 구성 항목이다.
 
 ### 2026-10-14 운영 전환 확인
 
@@ -80,7 +97,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 ### 발행과 버전
 
 1. `main`·`release` 대상 PR에서 `prod-ci.yml`은 변경 서비스 검사·이미지 빌드를 수행하며 ECR에 발행하지 않는다. 공통 빌드 입력이 바뀌면 전체 서비스가 검사 대상이다.
-2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행과 수동 `rebuild_all=true`는 전체 빌드이며, Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다. 발행·배포 실행은 `queue: max`로 대기 실행을 보존한다. 같은 실행을 재시도하면 계획·JAR·이미지 digest 산출물을 교체한다.
+2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행, 기존 운영 상태에 V0 동시 전환 계약이 없는 최초 전환, 수동 `rebuild_all=true`는 전체 빌드다. Data 또는 Realtime의 변경은 두 서비스를 함께 빌드·배포 대상으로 묶는다. Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다. 발행·배포 실행은 `queue: max`로 대기 실행을 보존한다. 같은 실행을 재시도하면 계획·JAR·이미지 digest 산출물을 교체한다.
 3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
 
 수동 실행은 소스·Infra 변경이 없어도 `version_bump`를 처리하며 기존 이미지 조합을 재사용한 새 버전을 발행한다. 이 경우 빌드·배포 대상은 비어 있고 실제 배포는 별도 승인 CD로 수행한다. 자동 push는 변경이 없으면 발행을 건너뛴다.
@@ -96,7 +113,11 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
 
-Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다.
+V0 최초 전환 릴리스는 네 이미지가 같은 Phone SHA여야 한다. 이후에도 Data·Realtime을 바꿀 때는 두 이미지의 SHA가 일치해야 한다. Infra 실행기는 고정 이미지·ARM64·runtime·nginx 권한·DB 사전 검증 후 nginx와 네 앱을 중지하고 실제 중지 상태를 확인한다. `deploy-v0.py`가 백업·필요한 원본 migration 보완·V0 전환을 마치면 네 앱을 기동하고 모두 health·digest를 확인한 뒤 nginx를 재개한다.
+
+운영 단계 기록은 `/opt/catus/runtime/data-v0-cutover.json`, DB 실행 기록은 `/opt/catus/runtime/data-v0-db.json`에 따로 보존한다. 백업은 `/opt/catus/backups/data-v0/<release-id>/`에 누적하며 **EC2 로컬 보존으로, S3 자동 업로드는 없다**. 중지 후 실패하면 nginx와 앱은 닫힌 상태를 유지하고, 미완료 전환에는 동일한 `release_id`와 이미지 조합만 재시도할 수 있다. V0에서 legacy로 되돌리는 릴리스는 SSM 진입 단계에서 거부하며, 구 bundle에 포함된 옛 실행기로 이 제한을 우회하지 않는다. 일반 `rollback`도 스키마·시크릿·버전 계약이 호환되는 릴리스에만 사용한다.
+
+Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다. 이전 SSM 명령이 실패로 종료된 것을 확인하고 유지보수 전환을 재개하려면, 같은 `release_id`로 새 `prod-cd.yml` 수동 실행을 만들어 승인한다. 기존 Actions 실행의 재실행은 같은 SSM 명령의 결과 조회를 재개하므로 DB 작업을 새로 전송하는 절차와 구분한다.
 
 ### 배포 상태 배지
 

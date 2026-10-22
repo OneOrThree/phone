@@ -9,6 +9,12 @@ import subprocess
 from pathlib import Path
 
 SERVICES = {'data-api', 'realtime', 'business-api', 'notification'}
+DATA_SCHEMA_GENERATION = 'catus-v0'
+CUTOVER_CONTRACT = 'data-v0-realtime-internal-v1'
+COUPLED_SERVICES = {'data-api', 'realtime'}
+DATA_DEPLOY_INPUTS = ('server/data-api/docs/db/deploy-v0.py',
+                      'server/data-api/docs/db/rebase-v0.py',
+                      'server/data-api/docs/db/v0-rebase/')
 SHARED = ('.github/actions/ci-jar/', '.github/scripts/ci-jar.py', '.github/scripts/catus-',
           '.github/workflows/prod-ci.yml', '.dockerignore', 'server/gradle')
 IMAGE = re.compile(r'^808715036056\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/catus-prod/([^/]+)@sha256:[0-9a-f]{64}$')
@@ -22,15 +28,16 @@ def fingerprints(root, files):
             own = name.startswith(f'server/{service}/')
             if not own and not name.startswith(SHARED):
                 continue
-            if name.endswith('.md') or '/docs/' in name:
+            deployment_input = service == 'data-api' and name.startswith(DATA_DEPLOY_INPUTS)
+            if name.endswith('.md') or ('/docs/' in name and not deployment_input):
                 continue
             path = root / name
             if path.is_symlink() or not path.is_file():
                 raise ValueError('빌드 입력은 일반 파일이어야 한다')
             content = path.read_bytes()
             code.update(name.encode() + b'\0' + content + b'\0')
-            if own and name.endswith('.sql') and any(
-                    f'/src/main/resources/db/{location}/' in name for location in ('migration', 'v0', 'seed')):
+            if deployment_input or (own and name.endswith('.sql') and any(
+                    f'/src/main/resources/db/{location}/' in name for location in ('migration', 'v0', 'seed'))):
                 sql.update(name.encode() + b'\0' + content + b'\0')
         source[service], migrations[service] = code.hexdigest(), sql.hexdigest()
     return source, migrations
@@ -45,10 +52,17 @@ def plan(source, migrations, previous, revision, infra_revision, force=False):
         for service, image in previous['images'].items():
             match = IMAGE.fullmatch(image)
             if not match or match.group(1) != service: raise ValueError('기준 이미지 오류')
-    build = sorted(service for service in SERVICES if force or not previous or
-                   previous.get('source_fingerprints', {}).get(service) != source[service])
-    deploy = sorted(SERVICES) if not previous or previous.get('infra_revision') != infra_revision else build
+    first_cutover = not previous or previous.get('cutover_contract') != CUTOVER_CONTRACT or (
+        previous.get('data_schema_generation') != DATA_SCHEMA_GENERATION)
+    build = {service for service in SERVICES if force or first_cutover or
+             previous.get('source_fingerprints', {}).get(service) != source[service]}
+    # 두 서비스의 API 계약은 같은 소스 SHA의 이미지 쌍으로 교체한다.
+    if build & COUPLED_SERVICES:
+        build |= COUPLED_SERVICES
+    build = sorted(build)
+    deploy = sorted(SERVICES) if first_cutover or previous.get('infra_revision') != infra_revision else build
     return {'source_revision': revision, 'infra_revision': infra_revision, 'build_services': build,
+            'data_schema_generation': DATA_SCHEMA_GENERATION, 'cutover_contract': CUTOVER_CONTRACT,
             'deploy_services': deploy, 'base_release_id': previous['release_id'] if previous else None,
             'source_fingerprints': source, 'migration_fingerprints': migrations, 'previous': previous}
 
@@ -84,7 +98,8 @@ def main():
         names = subprocess.check_output(['git', 'diff', '--no-renames', '--name-only', args.pr_base, os.environ['GITHUB_SHA']], text=True).splitlines()
         shared = any(name.startswith(SHARED) for name in names)
         result['build_services'] = sorted(service for service in SERVICES if shared or
-            any(name.startswith(f'server/{service}/') and not name.endswith('.md') and '/docs/' not in name for name in names))
+            any(name.startswith(f'server/{service}/') and not name.endswith('.md') and
+                ('/docs/' not in name or name.startswith(DATA_DEPLOY_INPUTS)) for name in names))
     args.output.write_text(json.dumps(result, sort_keys=True))
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('matrix=' + json.dumps({'service': result['build_services']}) + '\n')

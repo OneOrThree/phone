@@ -55,8 +55,12 @@ def public_schema_guard():
 
 
 class Database:
-    def __init__(self, client):
-        self.env = dict(os.environ)
+    def __init__(self, client, connection_env=None, network='host'):
+        self.env = dict(os.environ) if connection_env is None else {
+            key: value for key, value in os.environ.items() if not key.startswith('PG')}
+        if connection_env is not None:
+            self.env.update(connection_env)
+        self.network = network
         for key in ('PGHOST', 'PGDATABASE', 'PGUSER'):
             if not self.env.get(key):
                 raise ValueError(f'{key}를 명시해야 합니다. 기본 DB/로컬 소켓으로 대체하지 않습니다.')
@@ -84,7 +88,7 @@ class Database:
         if not self.docker:
             return [tool, *args]
         # 비밀번호 값은 argv에 넣지 않는다. libpq의 PG* 설정은 docker가 환경에서 읽는다.
-        command = ['docker', 'run', '--rm', '-i', '--network', 'host']
+        command = ['docker', 'run', '--rm', '-i', '--network', self.network]
         for key in sorted(self.env):
             if key.startswith('PG'):
                 command += ['--env', key]
@@ -336,15 +340,7 @@ COMMIT;
 """
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--environment', required=True, choices=('dev', 'prod'))
-    parser.add_argument('--client', choices=('auto', 'native', 'docker'), default='auto')
-    parser.add_argument('--apply', action='store_true', help='생략하면 읽기 전용 계획만 출력')
-    parser.add_argument('--writers-stopped', action='store_true', help='모든 DB writer 중지 확인')
-    parser.add_argument('--confirm', help='<environment>:<PGDATABASE>')
-    parser.add_argument('--backup', type=Path, help='전체 custom-format 백업 파일의 새 경로')
-    args = parser.parse_args()
+def load_manifest():
     manifest = json.loads((ASSETS / 'manifest.json').read_text())
     expected_checksum = checksum(BASELINE)
     if expected_checksum != manifest['v0_checksum']:
@@ -354,6 +350,20 @@ def main():
     if (hashlib.sha256(DEFAULTS.read_bytes()).hexdigest() != manifest['seed_sha256']
             or checksum(DEFAULTS) != manifest['seed_checksum']):
         raise ValueError('기본 insert.sql과 검증한 manifest가 다릅니다.')
+    return manifest
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--environment', required=True, choices=('dev', 'prod'))
+    parser.add_argument('--client', choices=('auto', 'native', 'docker'), default='auto')
+    parser.add_argument('--apply', action='store_true', help='생략하면 읽기 전용 계획만 출력')
+    parser.add_argument('--writers-stopped', action='store_true', help='모든 DB writer 중지 확인')
+    parser.add_argument('--confirm', help='<environment>:<PGDATABASE>')
+    parser.add_argument('--backup', type=Path, help='전체 custom-format 백업 파일의 새 경로')
+    args = parser.parse_args()
+    manifest = load_manifest()
+    expected_checksum = manifest['v0_checksum']
     database = Database(args.client)
     info = database.data("SELECT json_build_object('database',current_database(),'user',current_user,"
                          "'server_version',current_setting('server_version_num'),"

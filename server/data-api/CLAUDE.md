@@ -52,7 +52,7 @@
 - Optional per-domain sub-packages, used only when the domain has them:
   `support/` (pure helpers/policies — no injected repository or service),
   `event/` (events this domain publishes), `listener/` (handlers it subscribes),
-  `client/` (outbound HTTP/FCM/OpenAI), `scheduler/` (`@Scheduled` entry points).
+  `client/` (outbound HTTP/FCM), `scheduler/` (`@Scheduled` entry points).
 - **Entity PKs are UUID v7** — annotate the `@Id UUID id` field with `@GeneratedUuidV7`
   (`common/id`); repositories are `JpaRepository<Entity, UUID>`.
 - **Error responses**: one envelope `{code, message}`; `code` is the `ErrorCode` enum

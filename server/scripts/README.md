@@ -233,6 +233,12 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 3. 트래픽과 Data·Realtime 및 DB writer를 중지하고 진행 중 요청을 소진한 뒤 V0 전환을 수행합니다. 전환 검증이 성공하면 같은 창에서 새 Data와 새 Realtime을 기동합니다.
 4. Data 내부 섬 목록 인증·응답과 Realtime의 섬 입장·채팅 연결을 확인한 뒤 트래픽을 재개합니다. 스키마 전환 뒤 복구는 V0 문서의 백업·검증 절차를 따릅니다.
 
+개발 환경의 자동 진입점은 `data-api-ci.dev.yml`입니다. Data 또는 Realtime 입력이 바뀌면 같은 main SHA로 두 이미지를 검사·발행하고, 두 digest를 `data-api-cd.dev.yml`에 함께 전달합니다. 해당 push가 위성 CI 대상이면 같은 SHA의 Business·Notification 배포 완료를 먼저 기다립니다. Realtime CI는 PR 검사와 재사용 빌드만 담당하며 독립 Realtime CD는 없습니다.
+
+공동 CD의 [`deploy-core-dev.py`](../../.github/scripts/deploy-core-dev.py)는 이미지 OCI revision·digest, 실제 Compose의 공유 토큰·프로파일, DB 전환 패키지, nginx stop/start 권한을 먼저 검증합니다. nginx가 실행 중이었다면 멈추고 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지합니다. DB·Redis·Kafka와 볼륨은 유지합니다. 이미지에 포함된 `deploy-v0.py`로 DB 백업·기존 migration 보완·V0 전환을 수행한 뒤 새 Data·Realtime을 함께 시작합니다. 두 컨테이너의 readiness와 이미지가 확인되면 원래 실행 중이던 위성·관측 및 nginx를 복원합니다.
+
+진행 기록과 백업은 러너 계정의 `~/.local/state/catus/dev/`에 보존됩니다(디렉터리 0700, JSON 0600). 이 경로를 작업 디렉터리 정리 대상에 넣지 않습니다. 실패하면 nginx와 writer는 닫힌 상태를 유지합니다. **실패한 동일 SHA·digest의 공동 CD job을 재실행**하면 DB 실제 상태를 다시 확인하고 이어서 처리합니다. 다른 SHA의 배포나 일반 ops·위성 배포는 미완료 기록이 있으면 거부됩니다. 정상 배포의 설정만 재적용할 때는 `Ops Dev Redeploy`에서 Data 또는 Realtime을 선택하며, 두 경우 모두 마지막 공동 배포 job을 재실행합니다. 이전 독립 배포 이력은 선택하지 않습니다.
+
 ## 10. 로그 S3 적재본 수명 주기
 
 [`s3-log-archive-lifecycle.json`](s3-log-archive-lifecycle.json)은 운영 로그 적재 버킷 `gromo-prod-logs-808715036056`(AWS 프로필 `gromo`)의 만료 규칙입니다. 접두 세 개 모두 **90일**입니다.

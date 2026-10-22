@@ -23,7 +23,6 @@ REQUIRED_KEYS = (
     "APPLE_CLIENT_ID",
     "FCM_PROJECT_ID",
     "FCM_SERVICE_ACCOUNT_JSON",
-    "OPENAI_API_KEY",
 )
 
 # legacy(data-api-cd 가 쓰는 공유 dev.env)가 «있으면 옮기는» 값. 이 파일은 컨테이너 env_file 이 아니라 compose 보간
@@ -60,7 +59,7 @@ DATA_REQUIRED_PROFILES = ("satellites", "realtime-authorization")
 # 자기 허용목록만 내보낸다. prod의 전체 env_file 주입을 새 서비스에 복제하지 않는다.
 SERVICE_REQUIRED_KEYS = {
     "data-api": (
-        "API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD", "OPENAI_API_KEY",
+        "API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD",
         "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_NOTI_TO_DATA", "SVC_TOKEN_REALTIME_TO_DATA",
         "SVC_TOKEN_DATA_TO_NOTI",
         "LINK_BASE_URL", "NOTIFICATION_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",

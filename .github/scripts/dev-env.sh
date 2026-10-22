@@ -16,6 +16,12 @@ set -euo pipefail
 # Data 프로파일 (비밀 아님). realtime-authorization: Realtime → Data 조회 인가 (GROMO-2182)
 DATA_API_PROFILES=${DATA_API_PROFILES:-dev,satellites,realtime-authorization}
 
+# 실패한 DB 전환을 다른 ops·위성 배포가 우회하여 다시 열 수 없다.
+# 공동 CD만 동일 SHA의 journal을 읽고 복구한다. check는 읽기 전용 CI 검사다.
+if [ "${1:-}" != check ] && [ "${CATUS_PAIRED_DEPLOY:-0}" != 1 ]; then
+  python3 "$(dirname "$0")/deploy-core-dev.py" --assert-idle
+fi
+
 # 원본은 gromo/dev/env 하나. 서버별로 필요한 키만 고르는 건 write-compose-env.py(필터)가 맡음
 secrets() {
   aws secretsmanager get-secret-value --secret-id "${DEV_SECRET_ID:-gromo/dev/env}" \

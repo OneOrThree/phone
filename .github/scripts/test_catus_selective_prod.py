@@ -7,6 +7,8 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
+import zipfile
 import yaml
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,6 +21,8 @@ spec.loader.exec_module(planner)
 
 def baseline(source):
     return {'product': 'catus', 'release_id': 'a' * 40 + '-1-1', 'infra_revision': 'b' * 40,
+            'data_schema_generation': planner.DATA_SCHEMA_GENERATION,
+            'cutover_contract': planner.CUTOVER_CONTRACT,
             'source_fingerprints': source,
             'images': {service: f'808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-prod/{service}@sha256:' + 'c' * 64 for service in planner.SERVICES}}
 
@@ -28,11 +32,66 @@ class SelectivePlanTests(unittest.TestCase):
         self.source = {service: hashlib.sha256(service.encode()).hexdigest() for service in planner.SERVICES}
         self.migrations = {service: 'd' * 64 for service in planner.SERVICES}
 
-    def test_Data변경은_Data만_빌드하고_배포한다(self):
-        current = {**self.source, 'data-api': 'e' * 64}
+    def test_Data와_Realtime은_같은_SHA의_이미지_쌍으로_빌드하고_배포한다(self):
+        for service in ['data-api', 'realtime']:
+            with self.subTest(service=service):
+                current = {**self.source, service: 'e' * 64}
+                plan = planner.plan(current, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40)
+                self.assertEqual(plan['build_services'], ['data-api', 'realtime'])
+                self.assertEqual(plan['deploy_services'], ['data-api', 'realtime'])
+
+    def test_최초V0전환은_구서비스_이미지를_재사용하지_않는다(self):
+        previous = baseline(self.source)
+        previous.pop('cutover_contract')
+        previous.pop('data_schema_generation')
+        plan = planner.plan(self.source, self.migrations, previous, 'f' * 40, 'b' * 40)
+        self.assertEqual(set(plan['build_services']), planner.SERVICES)
+        self.assertEqual(set(plan['deploy_services']), planner.SERVICES)
+        self.assertEqual(plan['cutover_contract'], planner.CUTOVER_CONTRACT)
+        self.assertEqual(plan['data_schema_generation'], planner.DATA_SCHEMA_GENERATION)
+
+    def test_위성만_변경되면_다른_이미지는_재빌드하지_않는다(self):
+        current = {**self.source, 'notification': 'e' * 64}
         plan = planner.plan(current, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40)
-        self.assertEqual(plan['build_services'], ['data-api'])
-        self.assertEqual(plan['deploy_services'], ['data-api'])
+        self.assertEqual(plan['build_services'], ['notification'])
+        self.assertEqual(plan['deploy_services'], ['notification'])
+
+    def test_이미지에_포함하는_DB전환도구는_문서경로여도_빌드입력이다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = 'server/data-api/docs/db/v0-rebase/manifest.json'
+            path = root / name
+            path.parent.mkdir(parents=True)
+            path.write_text('before')
+            before, migrations_before = planner.fingerprints(root, [name])
+            path.write_text('after')
+            after, migrations_after = planner.fingerprints(root, [name])
+            self.assertEqual({service for service in planner.SERVICES if before[service] != after[service]}, {'data-api'})
+            self.assertNotEqual(migrations_before['data-api'], migrations_after['data-api'])
+
+    def test_발행_워크플로는_구_Infra_구성을_거부한다(self):
+        ci = yaml.load((Path(__file__).parents[1] / 'workflows/prod-ci.yml').read_text(), Loader=yaml.BaseLoader)
+        step = next(step for step in ci['jobs']['release']['steps'] if step.get('name') == '불변 릴리스 생성·업로드')
+        script = textwrap.dedent(step['run'].split("python3 - <<'PYTHON'\n", 1)[1].split('\nPYTHON', 1)[0])
+        for supported in (False, True):
+            with self.subTest(supported=supported), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / 'infra-config'
+                root.mkdir()
+                content = ("DATA_SCHEMA_GENERATION = 'catus-v0'\nCUTOVER_CONTRACT = 'data-v0-realtime-internal-v1'\n"
+                           if supported else '# 이전 세대의 릴리스 생성기\n').encode()
+                with zipfile.ZipFile(root / 'configuration.zip', 'w') as archive:
+                    archive.writestr('release.py', content)
+                metadata = {'product': 'catus', 'infra_revision': 'b' * 40,
+                            'sha256': hashlib.sha256((root / 'configuration.zip').read_bytes()).hexdigest(),
+                            'files': {'release.py': hashlib.sha256(content).hexdigest()}}
+                (root / 'configuration.json').write_text(json.dumps(metadata))
+                result = subprocess.run([sys.executable, '-c', script], cwd=directory,
+                                        env={**os.environ, 'INFRA_REVISION': 'b' * 40}, capture_output=True, text=True)
+                if supported:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('V0 동시 전환', result.stderr)
 
     def test_Infra변경은_앱을_재빌드하지_않고_전체를_배포한다(self):
         plan = planner.plan(self.source, self.migrations, baseline(self.source), 'f' * 40, 'e' * 40)
