@@ -327,3 +327,18 @@ test('바다 잡지(seaMagazine) 라우트는 소속 섬이 없어도 섬 가드
   expect(putMagazineReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA', opened: true });
   await screen.unmount();
 });
+
+test('소속 섬 없이 주민 화면을 열면 「가입한 섬이 없어요」 안내가 회색 단색이 아니라 바다 장면 위에 뜬다(GROMO-2412)', async () => {
+  const state = serverFocusState();
+  state.session = null;
+  state.serverIslands = { ...state.serverIslands!, currentIslandId: null };
+  const reset = jest.fn();
+  const screen = await mount('hall', state, { reset });
+  expect(screen.getByText('가입한 섬이 없어요')).toBeTruthy();
+  expect(screen.getByTestId('no-island-background', { includeHiddenElements: true })).toBeTruthy();
+  // 버튼이 갈 곳을 말하므로 부연 문장은 두지 않는다
+  expect(screen.queryByText('바다에서 머물 섬을 찾아보세요.')).toBeNull();
+  await fireEvent.press(screen.getByText('바다로 가기'));
+  expect(reset).toHaveBeenCalledWith('sea');
+  await screen.unmount();
+});

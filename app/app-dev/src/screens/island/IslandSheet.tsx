@@ -148,6 +148,7 @@ export function IslandSheet({
   scrollRef,
   onScroll,
   keepOnBackdrop = false,
+  fit = false,
   children,
 }: {
   bg: IslandBgKey;
@@ -169,6 +170,8 @@ export function IslandSheet({
   onScroll?: React.ComponentProps<typeof ScrollView>['onScroll'];
   // 글을 쓰는 시트는 바깥(스크림)을 눌러도 닫지 않는다. 작성 중인 글 보호용, × 닫기는 그대로
   keepOnBackdrop?: boolean;
+  // 세로 폰 아래 시트를 내용 높이까지만 올린다(내용이 길면 tall 과 같다). 짧은 상세의 설명~아래 버튼 사이 빈 공간을 없앤다(GROMO-2412)
+  fit?: boolean;
   children?: React.ReactNode;
 }) {
   const L = useAppLayout();
@@ -178,8 +181,14 @@ export function IslandSheet({
   const top = panel ? ins.top : 0;
   // 알림(.toast)은 아래 버튼 줄 바로 위에 뜬다(세로 48 · 가로 14 간격)
   const [footH, setFootH] = useState(0);
+  const [contentH, setContentH] = useState(0);
+  // fit 은 내용·버튼 줄 높이를 잰 뒤에 자리를 잡는다 — 재기 전 한 프레임은 숨겨 높은 시트가 번쩍이지 않게 한다
+  const fitReady = fit && contentH > 0 && (!footer || footH > 0);
   const endPad = panel ? Math.max(22, ins.bottom) : L.tablet ? 18 : ins.bottom + 12;
-  const cardH = Math.min(L.height * (tall ? 0.9 : 0.76), L.height - ins.top - ins.bottom - 72);
+  const cardH = Math.min(
+    L.height * (tall || fit ? 0.9 : 0.76),
+    L.height - ins.top - ins.bottom - 72,
+  );
   // 가로 폰은 오른쪽 안전영역까지 패널이 덮고, 내용은 그만큼 안쪽으로(iOS 가로 인셋은 좌우 대칭)
   const right = panel ? ins.right : 0;
   // 상자: 세로 폰 = 아래 시트(76% top 210 / 90% top 100), 가로 폰 = 오른쪽 540 패널, 태블릿 = 가운데 카드
@@ -208,7 +217,13 @@ export function IslandSheet({
           left: 0,
           right: 0,
           bottom: 0,
-          top: tall ? 100 : 210,
+          top: fitReady
+            ? // 위 여백 + 위 테두리 2 + 내용 + 버튼 줄
+              Math.max(100, L.height - (g.body + 2 + contentH + (footer ? footH : 0)))
+            : tall || fit
+              ? 100
+              : 210,
+          opacity: fit && !fitReady ? 0 : 1,
           borderTopWidth: 2,
           borderTopLeftRadius: 30,
           borderTopRightRadius: 30,
@@ -219,6 +234,7 @@ export function IslandSheet({
       <Backdrop bg={bg} onClose={keepOnBackdrop ? () => {} : onClose} />
       {/* 키보드는 App 최상단 KeyboardAvoidingView가 루트를 줄여 주므로 시트도 따라 줄어든다 */}
       <View
+        testID="island-sheet-box"
         style={[
           {
             position: 'absolute',
@@ -351,6 +367,7 @@ export function IslandSheet({
             ref={scrollRef}
             testID="island-sheet-scroll"
             onScroll={onScroll}
+            onContentSizeChange={fit ? (_, h) => setContentH(h) : undefined}
             scrollEventThrottle={16}
             style={{ flex: 1 }}
             keyboardShouldPersistTaps="handled"
@@ -367,6 +384,7 @@ export function IslandSheet({
           </ScrollView>
           {!!footer && (
             <View
+              testID="island-sheet-footer"
               onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
               style={{
                 gap: 8,

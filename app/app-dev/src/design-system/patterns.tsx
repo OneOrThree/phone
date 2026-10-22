@@ -13,9 +13,10 @@ import {
   Platform,
   StyleSheet,
   PanResponder,
+  type ImageSourcePropType,
 } from 'react-native';
 import Svg, { Path, Line, Circle, Polyline } from 'react-native-svg';
-import { C, useScreenInsets, MotionContext } from '@/design-system/primitives';
+import { C, Card, useScreenInsets, MotionContext } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
@@ -673,6 +674,57 @@ export function Strip({ label, value }: any) {
     </View>
   );
 }
+// 빈 상태(DESIGN §7.15) — 앱에 있는 그림 한 장과 한 줄. 설명 문장을 덧붙이지 않는다.
+// 그림은 장식이라 스크린리더에서 숨기고 한 줄만 읽힌다. scene 이면 그림을 장면 상자에 깔고 한 줄을 그 위 카드에 둔다.
+export function EmptyState({
+  art: source,
+  title,
+  scene = false,
+  testID,
+}: {
+  art: ImageSourcePropType;
+  title: string;
+  scene?: boolean;
+  testID?: string;
+}) {
+  const picture = (
+    <Image
+      testID={testID && `${testID}-art`}
+      source={source}
+      resizeMode={scene ? 'cover' : 'contain'}
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+      style={scene ? emptyStyles.sceneArt : emptyStyles.art}
+    />
+  );
+  const line = <Txt style={[k.h17, emptyStyles.line]}>{title}</Txt>;
+  return scene ? (
+    <View testID={testID} style={[k.preview, emptyStyles.scene]}>
+      {picture}
+      <Card>{line}</Card>
+    </View>
+  ) : (
+    <View testID={testID} style={emptyStyles.root}>
+      {picture}
+      {line}
+    </View>
+  );
+}
+const emptyStyles = StyleSheet.create({
+  root: {
+    alignItems: 'center',
+    gap: componentTokens.emptyState.gap,
+    paddingVertical: componentTokens.emptyState.padding,
+  },
+  art: { width: componentTokens.emptyState.art, height: componentTokens.emptyState.art },
+  scene: {
+    height: componentTokens.emptyState.sceneHeight,
+    padding: componentTokens.emptyState.padding,
+  },
+  // 웹 Image 는 크기를 안 주면 원본 크기로 그려서 absoluteFill 대신 100% 를 준다
+  sceneArt: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
+  line: { textAlign: 'center' },
+});
 // 헤더 톱니(섬 관리) 아이콘. Page와 IslandSheet가 같이 쓴다
 export function Gear() {
   return (

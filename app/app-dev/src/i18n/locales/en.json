@@ -496,6 +496,11 @@
       "shoes": "Shoes"
     }
   },
+  "emptyState": {
+    "shop": "Nothing for sale yet",
+    "wardrobe": "No outfits yet",
+    "friends": "No friends yet"
+  },
   "focusFlow": {
     "visitorCheered": "A visitor cheered you on 🎉",
     "memberArrived": "{{name}} has arrived",

@@ -112,6 +112,24 @@ test('옛 서버 인벤토리(head/neck/shoes 키 없음)면 새 슬롯 섹션�
   expect(screen.queryByText('옷')).toBeNull();
 });
 
+test('가진 꾸미기가 하나도 없으면 빈 상태 한 줄, 보유품을 받기 전이나 하나라도 있으면 없다(GROMO-2412)', async () => {
+  mockShopApi = api({});
+  const empty = await render(<Harness />);
+  expect(empty.getByTestId('wardrobe-empty')).toBeTruthy();
+  expect(empty.getByText('아직 가진 꾸미기가 없어요')).toBeTruthy();
+  await empty.unmount();
+
+  mockShopApi = { ...api({}), my: null };
+  const loading = await render(<Harness />);
+  expect(loading.queryByTestId('wardrobe-empty')).toBeNull();
+  await loading.unmount();
+
+  mockShopApi = api({ head: ['cap'] });
+  const some = await render(<Harness />);
+  expect(some.queryByTestId('wardrobe-empty')).toBeNull();
+  expect(some.getByLabelText('cap-제목')).toBeTruthy();
+});
+
 test('결과창에서 처음 받은 꾸미기는 옷장 칸에 NEW! — 한 번 누르면 사라지고 기존 보유품엔 없다 (GROMO-2382)', async () => {
   resetUnseenOutfitsForTest();
   await AsyncStorage.setItem(

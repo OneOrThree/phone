@@ -469,6 +469,11 @@
       "shoes": "신발"
     }
   },
+  "emptyState": {
+    "shop": "아직 파는 꾸미기가 없어요",
+    "wardrobe": "아직 가진 꾸미기가 없어요",
+    "friends": "아직 친구가 없어요"
+  },
   "focusFlow": {
     "visitorCheered": "방문자가 응원했어요 🎉",
     "memberArrived": "{{name}}님이 도착했어요",

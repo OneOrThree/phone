@@ -1,6 +1,6 @@
 import React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
-import { isHiddenFromAccessibility, render } from '@testing-library/react-native';
+import { fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
 import { IslandPopup, IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
 
 let mockLayout = {
@@ -99,4 +99,33 @@ describe('IslandPopup 은 모달 표시만 한다(GROMO-2263)', () => {
       backSpy.mockRestore();
     }
   });
+});
+
+test('fit 시트는 내용·버튼 줄을 잰 뒤 내용 높이까지만 올라오고, 길면 tall 높이에서 멈춘다(GROMO-2412)', async () => {
+  const before = mockLayout;
+  mockLayout = { ...mockLayout, width: 402, height: 874, compact: false, tablet: false };
+  const screen = await render(
+    <IslandSheet
+      bg="shop"
+      sign="dog"
+      title="상품 상세"
+      fit
+      onClose={() => {}}
+      footer={<Text>구매</Text>}
+    >
+      <Text>설명</Text>
+    </IslandSheet>,
+  );
+  const box = () => StyleSheet.flatten(screen.getByTestId('island-sheet-box').props.style);
+  // 재기 전에는 높은 시트가 번쩍이지 않게 숨긴다
+  expect(box()).toMatchObject({ top: 100, opacity: 0 });
+  await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 300);
+  await fireEvent(screen.getByTestId('island-sheet-footer'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 120 } },
+  });
+  // 위 여백 72 + 위 테두리 2 + 내용 300 + 버튼 줄 120
+  expect(box()).toMatchObject({ top: 874 - (72 + 2 + 300 + 120), opacity: 1 });
+  await fireEvent(screen.getByTestId('island-sheet-scroll'), 'contentSizeChange', 402, 900);
+  expect(box().top).toBe(100);
+  mockLayout = before;
 });

@@ -118,3 +118,20 @@ test('서버가 털색을 안 준 친구는 흰 고양이, 준 친구는 그 색
   assert.ok(sources.includes(art['avatar/white']));
   assert.ok(sources.includes(art['avatar/ginger']));
 });
+
+test('받은·보낸 요청과 친구가 모두 0건이면 빈 칸·「받은 요청 0」 배지 대신 빈 안내 하나만 보인다(GROMO-2412)', async () => {
+  const empty = await render(<Harness friendsScreen={screenState([])} />);
+  assert.ok(empty.getByTestId('friends-empty'));
+  assert.ok(empty.getByText('아직 친구가 없어요'));
+  assert.equal(empty.queryByText('받은 요청'), null);
+  assert.equal(empty.queryByText('보낸 요청'), null);
+  assert.equal(empty.queryByText('0'), null);
+  await empty.unmount();
+
+  const some = await render(
+    <Harness friendsScreen={screenState([friend('f1', '하늘', 'ginger')])} />,
+  );
+  assert.equal(some.queryByTestId('friends-empty'), null);
+  assert.ok(some.getByText('받은 요청'));
+  assert.ok(some.getByText('하늘'));
+});
