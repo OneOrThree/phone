@@ -1387,7 +1387,7 @@ export function RedesignScreens({ e }: any) {
             },
           ]}
         >
-          GROMO
+          {t('onboardingStory.brand')}
         </Txt>
         <Txt style={[shade, { fontSize: 15, lineHeight: 21.75, fontWeight: '700' }]}>
           {t('login.tagline')}
@@ -4575,9 +4575,6 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         <SearchField value={search} onChange={setSearch} placeholder="섬 이름이나 초대 코드" />
-        <Txt kind="meta" style={st.meta}>
-          섬 이름이나 초대 코드를 입력해요. 이미 참가한 섬은 소속됨으로 표시돼요.
-        </Txt>
         {results.length ? (
           <SheetGroup>
             {results.map((i) => (
@@ -4878,17 +4875,13 @@ export function RedesignScreens({ e }: any) {
             value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
             onChange={setTab}
           />
-          {mine ? (
+          {mine && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Pic id="dog" w={56} />
               <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
                 어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
               </Txt>
             </View>
-          ) : (
-            <Txt kind="meta" style={st.meta}>
-              섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
-            </Txt>
           )}
           {server && shopApi.error ? (
             <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
@@ -5416,8 +5409,7 @@ export function RedesignScreens({ e }: any) {
             대표로 보여줄 섬을 골라 주세요
           </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
-            친구 목록과 프로필에 표시되는 대표 섬이에요.{`\n`}
-            집중하거나 접속 중인 섬은 바뀌지 않아요.
+            {t('islandPicker.mainDescription')}
           </Txt>
         </View>
         <View
@@ -6330,7 +6322,7 @@ export function RedesignScreens({ e }: any) {
           />
         </SheetGroup>
         <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
-          catus {Application.nativeApplicationVersion ?? appManifest.version}
+          {t('onboardingStory.brand')} {Application.nativeApplicationVersion ?? appManifest.version}
         </Txt>
       </IslandSheet>
     );
@@ -6399,7 +6391,7 @@ export function RedesignScreens({ e }: any) {
     );
   }
   return (
-    <Page title="GROMO" back={home}>
+    <Page title={t('onboardingStory.brand')} back={home}>
       <Btn title="섬으로 돌아가기" onPress={home} />
     </Page>
   );

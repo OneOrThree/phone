@@ -19,7 +19,6 @@ import { assets, cat } from '@/constants/assets';
 import { componentTokens } from '@/design-system/tokens';
 import { C, T, H, Button, useScreenInsets } from '@/design-system/primitives';
 import { CatSprite } from '@/components/CatSprite';
-import { PolicyLinks } from '@/components/PolicyLink';
 import { growthStage } from '@/screens/island/IslandHome';
 // Geometry, colors, layers and timing follow preview/motion/sailing.html.
 function SeaDrift({
@@ -842,80 +841,6 @@ export function SceneHero({
       <View style={{ maxWidth: '66%', gap: 6 }}>
         <H>{title}</H>
         {subtitle && <T small>{subtitle}</T>}
-      </View>
-    </View>
-  );
-}
-export function Welcome({
-  start,
-  terms,
-  toggle,
-}: {
-  start: () => void;
-  terms: boolean;
-  toggle: () => void;
-}) {
-  return (
-    <View style={{ flex: 1, backgroundColor: C.cream }}>
-      <View
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-          backgroundColor: C.sky,
-          borderBottomLeftRadius: 48,
-          borderBottomRightRadius: 48,
-        }}
-      >
-        <Image
-          source={assets['backgrounds/island/growth/00-start/day.png']}
-          resizeMode="cover"
-          style={{ width: '100%', height: '100%' }}
-        />
-        <View style={{ position: 'absolute', top: 24, left: 27 }}>
-          <Text
-            style={{
-              fontSize: 42,
-              fontWeight: '900',
-              color: C.paper,
-              letterSpacing: 1,
-            }}
-          >
-            GROMO
-          </Text>
-          <Text style={{ fontSize: 16, fontWeight: '700', color: C.paper }}>
-            오늘의 집중이 자라는 곳
-          </Text>
-        </View>
-        <Image
-          source={cat('black', 'idle')}
-          style={{
-            position: 'absolute',
-            width: 150,
-            height: 150,
-            bottom: 0,
-            right: 16,
-          }}
-        />
-      </View>
-      <View style={{ padding: 26, gap: 15 }}>
-        <H large>{'조금씩 집중하고,\n함께 자라요.'}</H>
-        <T>나의 작은 배에서 시작하는 집중 습관.</T>
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: terms }}
-          onPress={toggle}
-          style={{
-            flexDirection: 'row',
-            gap: 9,
-            alignItems: 'center',
-            minHeight: 40,
-          }}
-        >
-          <Text style={{ fontSize: 22, color: C.brown }}>{terms ? '☑' : '☐'}</Text>
-          <T small>이용약관과 개인정보처리방침에 동의해요.</T>
-        </Pressable>
-        <PolicyLinks textStyle={{ fontSize: 13, color: C.brown }} />
-        <Button fill title="GROMO 시작하기" disabled={!terms} onPress={start} />
       </View>
     </View>
   );

@@ -75,9 +75,6 @@ export function ObservatorySearch({ e }: { e: any }) {
         onChange={setText}
         placeholder={t('observatory.searchPlaceholder')}
       />
-      <Txt kind="meta" style={st.meta}>
-        {t('observatory.searchGuide')}
-      </Txt>
       {search.status === 'loading' && (
         <View testID="observatory-search-loading" style={styles.panel}>
           <ActivityIndicator color={semanticTokens.color.outline} />

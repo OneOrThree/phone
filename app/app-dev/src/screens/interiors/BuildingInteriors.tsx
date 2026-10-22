@@ -8476,11 +8476,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           ) : null}
         </View>
       ),
-    foot: (
-      <Text style={[mailFont(5.8, 1.4, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
-        받은 편지는 열었다가 닫으면 사라져요.
-      </Text>
-    ),
+    foot: null,
   };
 
   const letter: Pane | undefined = openedLetter && {
@@ -8776,11 +8772,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           <View style={{ alignItems: 'center' }}>
             {failedLine('letter-retry', retryLetter, 'center')}
           </View>
-        ) : (
-          <Text style={[mailFont(5.8, 1.35, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
-            친구의 섬에 우체통이 없어도 배달돼요.
-          </Text>
-        )}
+        ) : null}
       </>
     ),
   };

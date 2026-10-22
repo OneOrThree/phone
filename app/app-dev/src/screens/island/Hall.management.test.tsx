@@ -435,11 +435,7 @@ test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 �
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   await waitFor(() => assert.ok(screen.getByText('삭제하고 나가기')));
-  assert.ok(
-    screen.getByText(
-      '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.',
-    ),
-  );
+  assert.ok(screen.getByText('나만 남은 섬이라 공동 데이터가 모두 삭제돼요.'));
   assert.equal(leave.mock.calls.length, 0); // 삭제 영향에 동의한 뒤에만 탈퇴한다
   await fireEvent.press(screen.getByTestId('hall-dialog-cancel'));
   assert.equal(leave.mock.calls.length, 0);

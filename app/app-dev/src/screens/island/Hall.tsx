@@ -2060,10 +2060,8 @@ export function Hall({ e }: any) {
       const islandName = management.detail?.name ?? '';
       setDialog({
         title: `${eul(islandName)} 떠날까요?`,
-        text: liveSolo
-          ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
-          : '내가 모은 물고기와 기록은 섬에 남아요.',
-        detail: '계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.',
+        text: t(liveSolo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
+        detail: t('hall.leave.detail'),
         ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
         danger: true,
         onOk: () =>
@@ -2080,17 +2078,9 @@ export function Hall({ e }: any) {
     const solo = !i.members.length;
     setDialog({
       title: `${eul(i.name)} 떠날까요?`,
-      text: solo
-        ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
-        : '내가 모은 물고기와 기록은 섬에 남아요.',
-      detail: next ? (
-        <>
-          이후 <T style={g(14, 20.3, { color: CARD_INK, fontWeight: '700' })}>{next.name}</T>
-          {ro(next.name).slice(next.name.length)} 이동해요.
-        </>
-      ) : (
-        '이후 「혼자 시작 / 기존 섬 참여」 화면으로 이동해요.\n계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.'
-      ),
+      // 서버 경로와 같은 문구 — 행선지(다른 소속 섬·바다)는 약속하지 않는다.
+      text: t(solo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
+      detail: t('hall.leave.detail'),
       ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
       danger: true,
       onOk: () => {
