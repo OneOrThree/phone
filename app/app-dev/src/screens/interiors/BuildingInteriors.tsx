@@ -8705,8 +8705,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     e.notify(`${composeTo.name}에게 편지를 보냈어요`);
     e.reset('mail');
   };
-  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼·안내가 약 213)
-  const letterInput = Math.max(64, Math.min(210, height - 14 - 213));
+  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼이 약 197)
+  const letterInput = Math.max(64, Math.min(210, height - 14 - 197));
   const compose: Pane | undefined = composeTo && {
     head: header('친구에게 편지 쓰기', `${composeTo.name} · ${composeTo.island}`, 'friend-select'),
     body: (
