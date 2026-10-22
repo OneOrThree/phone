@@ -975,6 +975,9 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
   const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
   assert.equal(statusStyle.flexShrink, 1);
   assert.equal(statusStyle.maxWidth, '45%');
+  // 곡 행 글자는 글자 크기 단계(12 이상) 안이다(GROMO-2413) — 예전 9·11 은 읽기 어려웠다
+  assert.ok(statusStyle.fontSize >= 12);
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).fontSize >= 12);
 });
 
 test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {

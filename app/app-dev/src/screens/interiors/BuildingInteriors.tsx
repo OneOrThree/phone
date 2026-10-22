@@ -10,7 +10,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
   ViewStyle,
@@ -64,6 +63,12 @@ import { Guestbook } from './Guestbook';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { Text as TypeText } from '@/design-system/typography';
+
+// 건물 안 장면은 시안 크기로 그린 뒤 통째로 키우므로 태블릿 글자 배율은 끄고, 공용 글자의 한국어 줄바꿈 기본값만 받는다
+const Text = (props: React.ComponentProps<typeof TypeText>) => (
+  <TypeText tabletScale={1} {...props} />
+);
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -5054,10 +5059,7 @@ export function Board({
                 backgroundColor: pressed ? exact('#b67c4d14') : 'transparent',
               })}
             >
-              <Text
-                style={[boardFont(17, 1.25, '700', INK), webOnly({ wordBreak: 'keep-all' })]}
-                lineBreakStrategyIOS="hangul-word"
-              >
+              <Text style={[boardFont(17, 1.25, '700', INK), webOnly({ wordBreak: 'keep-all' })]}>
                 {notice.title}
               </Text>
               <View
@@ -5150,7 +5152,6 @@ export function Board({
             { marginTop: 4, marginBottom: 3 },
             webOnly({ wordBreak: 'keep-all', textWrap: 'pretty' }),
           ]}
-          lineBreakStrategyIOS="hangul-word"
         >
           {notice.title}
         </Text>
@@ -5683,7 +5684,6 @@ export function Board({
                 muted({ marginTop: 4, marginBottom: 14 }),
                 webOnly({ wordBreak: 'keep-all' }),
               ]}
-              lineBreakStrategyIOS="hangul-word"
             >
               {form.type === 'focus'
                 ? '설정한 시간 안에서 목표 집중 시간을 채워요. 매일 00시에 새 회차로 시작해요.'
@@ -6118,7 +6118,6 @@ export function Board({
                 boardFont(12, 1.45, '400', '#e8faff'),
                 { marginTop: 10, textAlign: 'center' },
               ]}
-              lineBreakStrategyIOS="hangul-word"
             >
               주민 전원이 요구량을 채워야 건설할 수 있어요.
             </Text>
@@ -7952,7 +7951,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: lh(21), color: INK }}>
             {title}
           </Text>
-          {note ? <Text style={mailFont(6.5, 1.35, '#826c5b')}>{note}</Text> : null}
+          {/* 부제는 글자 크기 단계(xs 12)로 — 시안 6.5 를 1.3 배 해도 8 이라 읽기 어려웠다 */}
+          {note ? (
+            <Text style={obsFont(primitiveTokens.fontSize.xs, 1.35, '#826c5b')}>{note}</Text>
+          ) : null}
         </View>
       </View>
     </View>

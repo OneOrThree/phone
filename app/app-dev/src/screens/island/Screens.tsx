@@ -2874,7 +2874,7 @@ export function RedesignScreens({ e }: any) {
                   <View testID="sound-current-track" style={{ minHeight: 36, flexShrink: 0 }}>
                     <Txt
                       tabletScale={1}
-                      style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
+                      style={{ color: gramophone.foreground, ...gramophone.titleText }}
                     >
                       {hasCurrentTrack
                         ? trackLabel(currentTrack!)
@@ -2884,7 +2884,7 @@ export function RedesignScreens({ e }: any) {
                     </Txt>
                     <Txt
                       tabletScale={1}
-                      style={{ color: gramophone.foregroundMuted, fontSize: 11, lineHeight: 14 }}
+                      style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
                     >
                       {hasCurrentTrack
                         ? island.playing
@@ -2954,7 +2954,7 @@ export function RedesignScreens({ e }: any) {
                             <Txt
                               testID={`sound-track-title-${id}`}
                               tabletScale={1}
-                              style={{ fontSize: 11, lineHeight: 14, flexShrink: 1 }}
+                              style={{ ...gramophone.rowTitleText, flexShrink: 1 }}
                             >
                               {trackLabel(id)}
                             </Txt>
@@ -2967,8 +2967,7 @@ export function RedesignScreens({ e }: any) {
                               flexShrink: 1,
                               textAlign: 'right',
                               color: gramophone.rowForeground,
-                              fontSize: 9,
-                              lineHeight: 12,
+                              ...gramophone.rowStatusText,
                             }}
                           >
                             {selected && island.playing ? '재생 중' : status}

@@ -96,8 +96,8 @@ const grid = ['library', 'tower', 'mail', 'gram', 'shop'] as const satisfies rea
 const cardDesc: Record<string, string> = {
   hall: '주민이 모이는 곳',
   board: '섬 공지와 퀘스트',
-  library: '집중·스크린타임 기록',
-  tower: '다른 섬 랭킹과 탐색',
+  library: '집중과 스크린타임',
+  tower: '섬 랭킹과 탐색',
   mail: '주민·친구 편지',
   gram: '공동 음원 재생',
   shop: '의상·섬 테마 구매',
@@ -1373,10 +1373,9 @@ export function Hall({ e }: any) {
             transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
-          {cards.map((b, n) => {
+          {cards.map((b) => {
             const st = status(b),
               off = dim(b),
-              wide = n === cards.length - 1 && n % 2 === 0,
               item = liveConstruction ? liveItem(b) : undefined,
               cardName = item?.name ?? buildingNames[b];
             // 흐린 카드도 눌러서 잠금 사유·공사 상태 패널을 본다
@@ -1392,8 +1391,8 @@ export function Hall({ e }: any) {
                 disabled={!tappable}
                 onPress={() => setPlan(b)}
                 style={{
-                  // 홀수 마지막 카드는 세로 두 칸 전체, 가로 두 칸을 차지한다
-                  width: wide ? (cols === 3 ? cardW * 2 + gap : gridW) : cardW,
+                  // 홀수 마지막 카드(상점)도 같은 폭 — 혼자 한 줄 전체를 차지하지 않는다
+                  width: cardW,
                   gap: 3.9,
                   minHeight: land ? 100 : 113.6,
                   paddingVertical: 9,
@@ -1455,8 +1454,10 @@ export function Hall({ e }: any) {
                   />
                   <View style={{ flex: 1, minWidth: 0, gap: 2.6 }}>
                     <T style={g(18.1, 23.53, { fontWeight: '800' })}>{cardName}</T>
+                    {/* 설명은 두 줄까지 — 좁은 폰(375)에서도 단어가 한 줄에 들도록 라벨 크기(sm 14)로 둔다 */}
                     <T
-                      style={g(15.5, 21.7, {
+                      numberOfLines={2}
+                      style={g(semanticTokens.typography.label, 19.6, {
                         color: MUTED,
                         ...(land ? web({ wordBreak: 'keep-all' }) : null),
                       })}

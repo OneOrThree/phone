@@ -41,6 +41,7 @@ const PER_PAGE = 3;
 /** 편집부 쪽을 지면 높이에 맞춰 줄이는 하한 — 이보다 더 줄여야 하면(큰 글자 등) 줄이지 않고 세로로 민다 */
 const EDITORIAL_MIN_SCALE = 0.7;
 const NAV_H = R.navHeight;
+const TAP = semanticTokens.size.tapMin;
 const COVER_H = R.coverHeight;
 const TIP_COUNT = 14;
 
@@ -511,12 +512,7 @@ export function MagazineReader({
                     : 'magazine.reader.tipNote',
                 )}
               </T>
-              <T
-                lineBreakStrategyIOS="hangul-word"
-                style={text(12, semanticTokens.color.textMuted)}
-              >
-                {note}
-              </T>
+              <T style={text(12, semanticTokens.color.textMuted)}>{note}</T>
             </View>
           </View>,
         )}
@@ -563,10 +559,7 @@ export function MagazineReader({
         </T>
         {item.kind === 'end' && (
           // 쓰기 입구는 마을회관에만 있다(10/14) — 끝 장은 어디서 쓰는지 알려 주기만 한다
-          <T
-            lineBreakStrategyIOS="hangul-word"
-            style={[text(12, semanticTokens.color.textMuted), { textAlign: 'center' }]}
-          >
+          <T style={[text(12, semanticTokens.color.textMuted), { textAlign: 'center' }]}>
             {t('magazine.reader.endBody')}
           </T>
         )}
@@ -594,14 +587,14 @@ export function MagazineReader({
         onPress={() => go(index + dir)}
         hitSlop={8}
         style={{
-          width: semanticTokens.size.tapMin,
-          height: NAV_H,
+          width: TAP,
+          height: TAP,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: disabled ? 0.3 : 1,
+          opacity: disabled ? componentTokens.button.disabledOpacity : 1,
         }}
       >
-        <T maxFontSizeMultiplier={R.fixedTextMaxScale} style={text(18)}>
+        <T maxFontSizeMultiplier={R.fixedTextMaxScale} style={text(primitiveTokens.fontSize.xl)}>
           {dir < 0 ? '‹' : '›'}
         </T>
       </Pressable>
@@ -735,13 +728,16 @@ export function MagazineReader({
             )}
           </View>
           {status === 'ready' && (total > 1 || moreFailed) && (
+            // 쪽 넘김 줄은 그림 자리(NAV_H)의 가운데를 지킨 채 누르는 높이만 44로 늘린다 — 부모 밖 hitSlop 은 잡히지 않는다.
+            // 위로 늘어나는 만큼(7)은 지면과의 틈(cellGap 8) 안이라 칸과 겹치지 않고, 빈 곳은 아래 지면으로 터치를 넘긴다
             <View
+              pointerEvents="box-none"
               style={{
                 position: 'absolute',
                 left: 0,
                 right: 0,
-                bottom: H * R.navBottom,
-                height: NAV_H,
+                bottom: H * R.navBottom - (TAP - NAV_H) / 2,
+                height: TAP,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -770,7 +766,7 @@ export function MagazineReader({
                   accessibilityLabel={pageLabel}
                   accessibilityLiveRegion="polite"
                   style={[
-                    text(13, semanticTokens.color.textMuted),
+                    text(primitiveTokens.fontSize.sm),
                     { minWidth: R.pageNumberMinWidth, textAlign: 'center' },
                   ]}
                 >

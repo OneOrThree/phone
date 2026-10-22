@@ -371,7 +371,8 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderTopColor: `${s.color.surface}E6`,
   },
-  caption: { fontSize: s.typography.caption, color: s.color.textMuted, textAlign: 'center' },
+  // 한마디 말풍선·이름표는 라벨·칩 크기(sm 14) — 넓은 바다 위에서 12 는 읽기 어려웠다. 집중 시간(clock)은 캡션 12
+  caption: { fontSize: s.typography.label, color: s.color.textMuted, textAlign: 'center' },
   clock: {
     fontSize: s.typography.caption,
     lineHeight: 16,
@@ -384,11 +385,11 @@ const styles = StyleSheet.create({
   },
   selfSubject: { marginBottom: -p.space[2] },
   name: {
-    fontSize: s.typography.caption,
+    fontSize: s.typography.label,
     color: s.color.text,
     backgroundColor: `${s.color.surface}8C`,
     borderRadius: p.radius.control,
-    lineHeight: 16,
+    lineHeight: 18,
     includeFontPadding: false,
     paddingHorizontal: 2,
     paddingVertical: 0,

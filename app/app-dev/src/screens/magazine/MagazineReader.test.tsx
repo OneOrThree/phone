@@ -152,6 +152,14 @@ test('다음 장부터 3칸씩 — 섬에서 펼친 잡지는 망원경 동그�
   expect(screen.queryByTestId('magazine-cell-p2-ours', hidden)).toBeNull();
   // 강퇴된 섬(KICKED)·남의 섬 어디에도 동그라미가 없다
   expect(screen.queryAllByTestId(/-scope$/, hidden)).toHaveLength(0);
+  // ‹ › 는 44×44 누름 자리이고(GROMO-2413), 감싼 쪽 넘김 줄도 44 라 부모 밖으로 잘리지 않는다
+  for (const id of ['magazine-prev', 'magazine-next']) {
+    const arrow = StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(Math.min(arrow.width, arrow.height)).toBeGreaterThanOrEqual(44);
+    expect(
+      StyleSheet.flatten(screen.getByTestId(id).parent!.props.style).height,
+    ).toBeGreaterThanOrEqual(44);
+  }
   await fireEvent.press(screen.getByTestId('magazine-next'));
   expect(screen.getByText('2 / 3')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('magazine-prev'));
