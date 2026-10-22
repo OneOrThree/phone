@@ -1,4 +1,8 @@
-"""실제 대기 스크립트에 Docker 기동 상태를 가상 시간으로 공급한다."""
+"""실제 Compose 정책과 대기 스크립트를 검사한다.
+
+상태 재생은 검사 소요 시간을 0초로 둔 타이밍 모델이다.
+실제 Docker 검사 실행·스케줄링 시간의 재현은 포함하지 않는다.
+"""
 import os
 import importlib.util
 import json
@@ -79,7 +83,8 @@ elif sys.argv[1] == "inspect":
         status = "exited" if fault == "exit" and t >= 90 else "running"
         restarts = int(fault == "restart" and t >= 90)
         grace = int(os.environ["GRACE"])
-        # 시작 유예 이후 연속 실패가 retries에 도달하면 unhealthy가 된다.
+        # 모델 가정: 검사는 interval 경계에서 즉시 끝나며 grace 경계의 실패부터 집계한다.
+        # 실제 Docker 타이밍을 보장하는 공식이 아니라 대기 스크립트에 공급할 상태를 만든다.
         interval = int(os.environ["INTERVAL"])
         retries = int(os.environ["RETRIES"])
         failed_at = ((grace + interval - 1) // interval + retries - 1) * interval

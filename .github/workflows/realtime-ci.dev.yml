@@ -30,6 +30,10 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
+      # startup-contract가 실제 렌더링하는 다른 dev 앱 설정도 검사 입력이다.
+      - 'server/scripts/docker-compose.dev.yml'
+      - 'server/scripts/docker-compose.satellites.yml'
+      - 'server/scripts/docker-compose.business.yml'
       # 이동 A* 가 앱과 공유하는 두 파일 — 앱 nav.json 만 바뀐 PR 에서도 NavJsonParityTest(sha256)·
       # PathfinderTest(fixture) 가 돌아야 「다르면 CI 가 실패한다」가 성립한다 (GROMO-2245)
       - 'app/app-dev/src/assets/village-world/v1/nav.json'
@@ -55,6 +59,10 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
+      # startup-contract가 실제 렌더링하는 다른 dev 앱 설정도 검사 입력이다.
+      - 'server/scripts/docker-compose.dev.yml'
+      - 'server/scripts/docker-compose.satellites.yml'
+      - 'server/scripts/docker-compose.business.yml'
       # 이동 A* 가 앱과 공유하는 두 파일 (GROMO-2245) — pull_request 와 같은 이유
       - 'app/app-dev/src/assets/village-world/v1/nav.json'
       - 'docs/prd/fishcat/island-movement/fixtures/paths.json'
@@ -85,6 +93,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: Compose 검증 도구 버전 확인
+        run: docker compose version
       - run: python3 -m unittest discover -s .github/scripts -p 'test_realtime_startup.py' -v
 
   # 배포 전 SM 점검 (GROMO-2224). main push 에서만 SM 을 읽고 PR 에선 아무것도 안 함 — 공개 레포라 PR 에 AWS 자격 금지.
