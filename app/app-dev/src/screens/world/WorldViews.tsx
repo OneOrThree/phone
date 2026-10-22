@@ -3,15 +3,7 @@ import { t } from '@/i18n';
 import { useAppLayout } from '@/utils/layout';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Image,
-  Animated,
-  AppState,
-  Easing,
-  Pressable,
-  type AppStateStatus,
-} from 'react-native';
+import { View, Image, Animated, AppState, Easing, type AppStateStatus } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useGowun } from '@/screens/island/sceneKit';
 import { State, currentIsland } from '@/services/model';
