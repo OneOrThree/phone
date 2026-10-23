@@ -158,6 +158,12 @@
   `eventId` 멱등 대조를 위해 원래 본문을 유지한다. 생산 스위치를 껐더라도 기존 행의 개인정보는 지운다.
 - receipt는 `PublicCommandService.forgetReceiptsOf`가 탈퇴자의 멱등 기록을 지운다.
 - `notification.deviceToken.deleted`는 삭제 대상 식별에 기기 토큰이 필요해 싣는다. 해당 명령 receipt도 위 지움 대상이다.
+- Notification은 `user.withdrawn`을 처리하는 TX에서 그 사용자의 수신 사본 `inbound_events.envelope`를 null로 바꾸고
+  멱등 기록 `commands`(`device-register:`·`device-delete:`·`settings:`·`settings-patch:` 범위)를 지운다(GROMO-2212).
+  최소 보존 증거는 `event_id`·`user_id`·`envelope_hash`다. 같은 `eventId`의 같은 의미 봉투(키 순서만 다른 것 포함)는
+  해시 대조로 적용 없이 수락하고, 다른 봉투는 `EVENT_ID_CONFLICT`로 거절한다. 탈퇴 tombstone 뒤 도착한 봉투는 원문 없이
+  해시만 적고, 늦은 기기 토큰 삭제는 탈퇴자의 `device_tokens` 행을 새로 만들지 않는다. 다른 수신자의 봉투·발송 payload에
+  실린 탈퇴자 정보(`counterpartNickname`)는 그 수신자의 사본이라 이 파기 범위 밖이다.
 
 ### 2.8 생산을 막는 스위치와 전송을 막는 스위치
 
