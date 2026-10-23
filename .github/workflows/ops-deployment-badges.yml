@@ -1,7 +1,7 @@
 name: 서버 배포 상태 배지
 on:
   workflow_run:
-    workflows: [Data API CI, Realtime CI, 'Satellite CI (dev)', Satellite Dev CD, prod-cd]
+    workflows: [Data API CI, 'Data·Realtime Dev CD', Realtime CI, 'Satellite CI (dev)', Satellite Dev CD, prod-cd]
     branches: [main, release]
     types: [completed]
   workflow_dispatch:
@@ -20,7 +20,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.head_repository.id == github.event.repository.id &&
        ((github.event.workflow_run.head_branch == 'main' &&
-         (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_run')) ||
+         (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_run' ||
+          (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.path == '.github/workflows/data-api-cd.dev.yml'))) ||
         (github.event.workflow_run.head_branch == 'release' && github.event.workflow_run.event == 'workflow_dispatch')))
     steps:
       # 기본 브랜치의 신뢰한 게시 코드만 실행한다. 원본 실행 산출물은 JSON 데이터로만 읽는다.

@@ -433,6 +433,11 @@ else:
         self.assertEqual(self.run_badge('.github/workflows/data-api-ci.dev.yml', [
             ('deployment-status-dev-2', records)], 'success'), records)
 
+    def test_직접_수동_복구_CD도_실제_이미지_SHA로_배지를_회복한다(self):
+        records = [record(service) for service in ('data-api', 'realtime')]
+        self.assertEqual(self.run_badge('.github/workflows/data-api-cd.dev.yml', [
+            ('deployment-status-dev-2', records)], 'success'), records)
+
     def test_Satellite_CD는_실패전에_기록한_선택대상과_원본SHA만_실패로_남긴다(self):
         for service in ['business-api', 'notification']:
             plan = {s: s == service for s in ['business-api', 'notification']}
