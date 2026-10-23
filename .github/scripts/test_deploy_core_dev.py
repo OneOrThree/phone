@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -100,6 +101,73 @@ class FakeHost:
         return SimpleNamespace(stdout=out, stderr='DB 검사 실패' if code else '', returncode=code)
 
 
+class FakeClock:
+    def __init__(self):
+        self.now = 0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+class ReadinessTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.args = argparse.Namespace(state_dir=self.directory, data_image=DATA, realtime_image=REALTIME,
+            revision=REVISION, health_timeout=900)
+        self.host = FakeHost(self.directory)
+        self.clock = FakeClock()
+
+    def healthy(self, run=None, expected_id='old'):
+        deployment = core.Deployment(self.args, run or self.host, sleep=self.clock.sleep)
+        with patch.object(core.time, 'monotonic', self.clock.monotonic):
+            deployment.healthy('phone-data-api', expected_id)
+
+    def test_unhealthy_can_recover_before_deadline_for_new_and_restored_containers(self):
+        for expected_id in ('old', None):
+            with self.subTest(expected_id=expected_id):
+                self.clock = FakeClock()
+                statuses = iter(('starting', 'unhealthy', 'unhealthy', 'healthy'))
+
+                def inspect(args):
+                    self.host.containers['phone-data-api']['State']['Health']['Status'] = next(statuses)
+                    return self.host(args)
+
+                self.healthy(inspect, expected_id)
+                self.assertEqual(self.clock.now, 15)
+                self.assertEqual(self.clock.sleeps, [5, 5, 5])
+
+    def test_permanent_unhealthy_fails_at_explicit_deadline(self):
+        self.host.containers['phone-data-api']['State']['Health']['Status'] = 'unhealthy'
+        with self.assertRaisesRegex(core.DeployError, 'readiness 대기 시간이 지났습니다'):
+            self.healthy()
+        self.assertEqual(self.clock.now, self.args.health_timeout)
+        self.assertEqual(len(self.host.calls), self.args.health_timeout // 5)
+
+    def test_invalid_container_fails_immediately_without_waiting_for_health(self):
+        for failure in ('stopped', 'restarting', 'paused', 'restarted', 'image', 'no_healthcheck'):
+            with self.subTest(failure=failure):
+                self.host = FakeHost(self.directory)
+                self.clock = FakeClock()
+                item = self.host.containers['phone-data-api']
+                item['State']['Health']['Status'] = 'unhealthy'
+                if failure == 'stopped': item['State']['Running'] = False
+                elif failure == 'restarting': item['State']['Restarting'] = True
+                elif failure == 'paused': item['State']['Paused'] = True
+                elif failure == 'restarted': item['RestartCount'] = 1
+                elif failure == 'image': item['Image'] = 'unexpected-image'
+                else: del item['State']['Health']
+                with self.assertRaises(core.DeployError):
+                    self.healthy()
+                self.assertEqual(self.clock.sleeps, [])
+                self.assertEqual(len(self.host.calls), 1)
+
+
 class DeployTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -107,9 +175,11 @@ class DeployTest(unittest.TestCase):
         self.args = argparse.Namespace(state_dir=self.directory, data_image=DATA, realtime_image=REALTIME,
             revision=REVISION, runtime_env_file=self.directory / 'dev.env', data_env_file=self.directory / 'data.env', health_timeout=1)
         self.host = FakeHost(self.directory)
+        self.clock = FakeClock()
 
     def deploy(self):
-        return core.Deployment(self.args, self.host, sleep=lambda _: None).deploy()
+        with patch.object(core.time, 'monotonic', self.clock.monotonic):
+            return core.Deployment(self.args, self.host, sleep=self.clock.sleep).deploy()
 
     def test_both_images_and_database_preflight_precede_any_stop(self):
         self.deploy()

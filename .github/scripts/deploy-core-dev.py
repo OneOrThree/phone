@@ -278,8 +278,9 @@ class Deployment:
             health = state.get('Health', {}).get('Status')
             if health == 'healthy':
                 return
-            if health == 'unhealthy' or not health:
+            if not health:
                 raise DeployError(f'컨테이너 readiness를 통과하지 못했습니다: {container}')
+            # 기동 중 일시적인 unhealthy도 제한 시간 안에 healthy로 회복할 수 있다.
             self.sleep(5)
         raise DeployError(f'컨테이너 readiness 대기 시간이 지났습니다: {container}')
 
