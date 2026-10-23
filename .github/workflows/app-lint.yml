@@ -1,11 +1,17 @@
 name: Lint
 
 on:
+  workflow_call:
   push:
     branches: [main]
     paths:
       - 'app/app-dev/**'
       - '.github/workflows/app-lint.yml'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-android-ci.yml'
+      - '.github/workflows/app-android-cd.yml'
+      - '.github/workflows/app-android-build.yml'
+      - '.github/scripts/wait-app-checks.py'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
   pull_request:
@@ -16,6 +22,11 @@ on:
       # 검사가 아예 안 돌아, 워크플로 변경이 맞는지 **머지해 봐야** 알 수 있다.
       # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
       - '.github/workflows/app-lint.yml'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-android-ci.yml'
+      - '.github/workflows/app-android-cd.yml'
+      - '.github/workflows/app-android-build.yml'
+      - '.github/scripts/wait-app-checks.py'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
 
@@ -55,7 +66,7 @@ jobs:
           if [ -f app/app-dev/package.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
-            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::error::검사 대상 앱이 없습니다"; exit 1
             echo "::warning::app/app-dev/ 가 없어 앱 검사를 건너뜁니다 — 동결된 1.x 앱(app/legacy/app-dev)은 검사하지 않습니다."
           fi
 

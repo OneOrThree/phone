@@ -32,6 +32,9 @@ on:
       - ".github/workflows/app-android-cd.yml"
       # Android CI 전용 스크립트. .github/scripts/ 에 두면 satellite-ci 까지 돎
       - ".github/ci/**"
+      - ".github/scripts/wait-app-checks.py"
+      - ".github/workflows/app-lint.yml"
+      - ".github/workflows/app-android-build.yml"
   push:
     branches: [main]
     paths: *android_release_paths
@@ -58,9 +61,40 @@ env:
   ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37
 
 jobs:
+  quality-gate:
+    name: 동일 SHA 앱 필수 검사 확인
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: 앱 검사 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_android: android
+        run: python3 .github/scripts/wait-app-checks.py
+
+  manual-quality:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-lint.yml
+
+  manual-native:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-android-build.yml
+
   version:
     name: versionCode 조회
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [quality-gate, manual-quality, manual-native]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && needs.quality-gate.result == 'success') ||
+       (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -119,9 +153,12 @@ jobs:
 
   build:
     name: release AAB 빌드
-    needs: version
+    needs: [version, manual-quality, manual-native]
     # PR 은 version 잡이 건너뜀 → 그래도 돎. main 은 version 성공해야 돎
-    if: ${{ !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped') }}
+    if: >-
+      !cancelled() && (github.event_name == 'pull_request' || needs.version.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' &&
+       needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # AWS OIDC 권한 없음. Play·서명 키를 받지 않는다.

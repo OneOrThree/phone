@@ -49,10 +49,37 @@ permissions:
   contents: read
 
 jobs:
+  quality-gate:
+    name: 동일 SHA 앱 필수 검사 확인
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: 앱 검사 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_ios: ios
+        run: python3 .github/scripts/wait-app-checks.py
+
+  manual-quality:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-lint.yml
+
   testflight-dev:
+    needs: [quality-gate, manual-quality]
     # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
     # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip testflight]') }}
+    if: >-
+      !cancelled() &&
+      ((github.event_name == 'push' && needs.quality-gate.result == 'success' && !contains(github.event.head_commit.message, '[skip testflight]')) ||
+       (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success'))
     # main push: 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를
     # 붙여 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
     # 수동 실행: 폴백 없이 항상 누른 사람의 맥 — 아무 브랜치나 고를 수 있는 수동 실행이 남의 맥으로 가면 안 된다.

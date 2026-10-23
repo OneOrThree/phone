@@ -36,6 +36,7 @@ name: Android Checks
 #    TS 만 고친 PR 은 app-lint.yml 이 이미 잡는다.
 
 on:
+  workflow_call:
   push:
     branches: [main]
     paths: &android_paths
