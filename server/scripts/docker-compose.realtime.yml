@@ -160,9 +160,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      # dev 앱 공통 정책: 시작 유예 120초, 이후 10초 간격·6회 실패 허용.
-      # 유예 중에도 readiness가 성공하면 즉시 healthy가 된다.
-      start_period: 120s
+      # dev 앱 공통 정책(10초 간격·6회 실패 허용)에서 Realtime 만 시작 유예 180초 — dev 실측 21회가
+      # p50 125s·p95 170s·max 188s 라(GROMO-2286) 120초면 unhealthy 판정(≈170s)이 p95 를 못 넘어 첫 시도가 실패한다.
+      # 180초면 판정 ≈230s. 유예 중에도 readiness가 성공하면 즉시 healthy가 되므로 정상 기동은 느려지지 않는다.
+      start_period: 180s
 
 networks:
   app-network:
