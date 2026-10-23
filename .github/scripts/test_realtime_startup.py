@@ -57,11 +57,15 @@ class RealtimeStartupTest(unittest.TestCase):
 
     def test_dev_네_서비스는_실제_Compose_결과에서_동일한_기동_정책을_쓴다(self):
         configured = self.compose_health("dev")
-        for name in ["data-api", "business-api", "notification", "realtime"]:
+        for name in ["data-api", "business-api", "notification"]:
             with self.subTest(service=name):
                 health = configured[name]
                 self.assertEqual((health["start_period"], health["interval"], health["timeout"], health["retries"]),
                                  ("2m0s", "10s", "5s", 6))
+        # Realtime 만 유예가 길다 — dev 실측 21회 p95 170s·max 188s (GROMO-2286). 검사 간격·제한·횟수는 같다.
+        health = configured["realtime"]
+        self.assertEqual((health["start_period"], health["interval"], health["timeout"], health["retries"]),
+                         ("3m0s", "10s", "5s", 6))
 
     def test_공용_위성_Compose의_prod_기본값은_유지한다(self):
         configured = self.compose_health("prod")
@@ -126,6 +130,15 @@ else:
         result = self.replay()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_현재_구성은_실측_최대_188초_기동도_허용한다(self):
+        result = self.replay(ready_at=188)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_120초_유예는_실측_최대_188초_기동을_조기_실패시킨다(self):
+        result = self.replay(ready_at=188, grace=120, interval=10, retries=6)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unhealthy (170s)", result.stdout)
+
     def test_프로세스_종료는_유예_중에도_실패한다(self):
         result = self.replay(fault="exit")
         self.assertNotEqual(result.returncode, 0)
@@ -139,7 +152,7 @@ else:
     def test_준비되지_않으면_unhealthy로_실패한다(self):
         result = self.replay(ready_at=9999)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unhealthy (170s)", result.stdout)
+        self.assertIn("unhealthy (230s)", result.stdout)
 
     def test_시작_유예보다_짧은_대기_상한도_지킨다(self):
         result = self.replay(ready_at=9999, limit=45)
