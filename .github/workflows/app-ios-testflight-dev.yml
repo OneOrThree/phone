@@ -30,6 +30,12 @@ on:
     branches: [main]
     paths:
       - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/android/**'
+      - '!app/app-dev/modules/**/android/**'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-lint.yml'
+      - '.github/scripts/wait-app-checks.py'
   workflow_dispatch:
 
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
