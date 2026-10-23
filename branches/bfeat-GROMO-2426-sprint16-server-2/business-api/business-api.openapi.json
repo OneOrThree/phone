@@ -3990,6 +3990,12 @@
       "JsonNode": {
         "type": "object",
         "properties": {
+          "valueNode": {
+            "type": "boolean"
+          },
+          "container": {
+            "type": "boolean"
+          },
           "missingNode": {
             "type": "boolean"
           },
@@ -4014,12 +4020,6 @@
             "type": "boolean"
           },
           "integralNumber": {
-            "type": "boolean"
-          },
-          "valueNode": {
-            "type": "boolean"
-          },
-          "container": {
             "type": "boolean"
           },
           "pojo": {
