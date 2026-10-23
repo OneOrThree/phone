@@ -2853,6 +2853,37 @@
         }
       }
     },
+    "/internal/admin/island-focus-averages/snapshots": {
+      "post": {
+        "tags": [
+          "internal-island-focus-average-controller"
+        ],
+        "operationId": "snapshot",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFocusAverageSnapshotView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}": {
       "get": {
         "tags": [
@@ -7851,6 +7882,19 @@
         "required": [
           "deviceBootstrap"
         ]
+      },
+      "IslandFocusAverageSnapshotView": {
+        "type": "object",
+        "properties": {
+          "snapshotDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "inserted": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "AccountPatchRequest": {
         "type": "object",
