@@ -732,7 +732,8 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           emoteErrorCountedSinceConnect = true;
           // 몇 시간 이어지는 집중 중 드문 상류 장애 세 번이 쌓여 응원을 영영 잃지 않게, 오래 조용했으면 카운트를 새로 센다.
           const now = Date.now();
-          if (now - lastEmoteErrorAt > EVENTS_HEALTHY_MS) emoteTransientErrors = 0;
+          if (now < lastEmoteErrorAt || now - lastEmoteErrorAt > EVENTS_HEALTHY_MS)
+            emoteTransientErrors = 0;
           lastEmoteErrorAt = now;
           if (++emoteTransientErrors >= MOVEMENT_TRANSIENT_ERROR_LIMIT) emoteDenied = true;
         }
@@ -772,6 +773,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       if (enabled) {
         emoteDenied = false;
         emoteTransientErrors = 0;
+        lastEmoteErrorAt = 0;
       }
       emoteEnabled = enabled;
       if (!enabled) {
