@@ -47,6 +47,13 @@ island:
 magazine:
   enabled: ${MAGAZINE_ENABLED:false}
 
+# GROMO-2349 주간 섬 랭킹 분자(island_weekly_focus)를 기동 직후 «이번 주» 로 한 번 다시 채우는 운영 손잡이.
+# 기본 OFF — 켠 채로 두면 재기동마다 테이블 잠금(수 초)을 쥔다. 켜기: SM gromo/dev/env 에 =true → ops-redeploy.dev data-api →
+# 로그 «주간 섬 랭킹 분자 재계산» 확인 → 값을 false 로 되돌려 다시 배포. 대조 SQL·절차는 island-rankings/ops-runbook.md.
+ranking:
+  weekly-focus:
+    recompute-on-startup: ${RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP:false}
+
 island-board:
   writes-enabled: ${ISLAND_BOARD_WRITES_ENABLED:false}
   # UTF-16 단위 — 2026-09-25 결정 GROMO-2136 으로 확정값이다(BQ03).

@@ -186,9 +186,12 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
   바다 세션·포기·소속 상실은 더하지 않는다. 한 세션이 두 번 더해지지 않는 것은 정산 행(`focus_settlements` PK)이 지킨다.
   주 경계를 걸친 세션이 늦게 끝나면 지난 주 합이 늘어나는 것은 종전과 같다(RK-D04 미결).
 - **재계산** — `IslandWeeklyFocusService.recompute(week)` 가 그 주를 지우고 정본 집계와 같은 술어로 다시 채운다
-  (테이블을 SHARE ROW EXCLUSIVE 로 잠가 동시 가산과 직렬화). 주 마감 크론이 동결과 같은 트랜잭션에서 **방금 끝난 주**를
-  재계산하므로 배포 창·장애로 빠진 가산은 그 주 마감에 바로잡힌다. V130 이 기존 모든 주를 백필하고, 배포 뒤
-  수동 보정이 필요하면 같은 메서드를 그 주로 부른다(HTTP 표면 없음).
+  (테이블을 SHARE ROW EXCLUSIVE 로 잠가 동시 가산과 직렬화). 주 마감 크론이 동결 직전에 **방금 끝난 주**를
+  (동결과는 별개의 트랜잭션에서) 재계산하므로 배포 창·장애로 빠진 가산은 그 주 마감에 바로잡힌다. V130 이 기존
+  모든 주를 백필한다. 진행 중인 **이번 주**를 배포 뒤에 바로잡아야 하면 기동 옵션
+  `ranking.weekly-focus.recompute-on-startup`(`RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP`, 기본 꺼짐)을 켜고 Data 를 다시
+  띄운다 — 기동 직후 `IslandWeeklyFocusStartupRecompute` 가 이번 주를 한 번 재계산한다(HTTP 엔드포인트는 없고, 다 쓰면 다시
+  끈다). 절차와 정본-사본 대조 SQL 은 [운영 런북](ops-runbook.md).
   주 마감은 **트랜잭션 두 개**다 — 재계산 트랜잭션을 커밋해 테이블 잠금을 푼 «뒤» 분모 동결 트랜잭션을 연다
   (`IslandRankingFreezeService.closeWeek`). 한 트랜잭션이면 동결 INSERT 의 `island_weekly_member_counts → groups` FK 검사가
   테이블 잠금을 쥔 채 groups 행을 기다려 완료와 교착한다. `recompute` 는 활성 트랜잭션 안에서 부르면 거절한다.
