@@ -104,9 +104,9 @@ BEGIN;
 UPDATE focus_session_details d SET last_transition_at = m.mx
 FROM (SELECT session_id, max(ended_at) mx FROM focus_session_intervals GROUP BY session_id) m
 WHERE m.session_id = d.session_id AND d.lifecycle = 'COMPLETED' AND m.mx > d.last_transition_at;
--- UPDATE N 의 N 이 점검의 count 와 같으면 COMMIT, 다르면 ROLLBACK
-COMMIT;
 ```
+
+`UPDATE N` 의 N 이 점검의 `count` 와 같으면 `COMMIT;`, 다르면 `ROLLBACK;` 을 **따로** 입력한다. `COMMIT` 을 블록 밖에 두는 이유: 블록을 통째로 붙여 넣어도 행 수를 보기 전에는 커밋되지 않게.
 
 고친 뒤 점검 SQL 을 다시 돌려 0 인지 확인한다.
 
