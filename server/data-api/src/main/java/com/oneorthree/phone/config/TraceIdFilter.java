@@ -62,6 +62,11 @@ public class TraceIdFilter extends OncePerRequestFilter {
      * X-Trace-Id → X-Request-Id 순으로 비어 있지 않은 첫 값을 검사해 쓰고, 없거나 검사에 걸리면 새로 만든다.
      * 헤더 값이 있는데 검사에 걸려 버릴 때만 debug 로그를 남기며, 값은 외부 입력이라 싣지 않고
      * 어느 헤더였는지와 길이만 남긴다.
+     *
+     * <p>이 로그는 debug 라 평소(dev·prod root INFO) 꺼져 있고, 추적이 필요할 때 이 로거의 레벨만
+     * 올린다. INFO 로 두면 외부 호출자가 마음대로 일으킬 수 있는 경로라 로그 증폭 수단이 된다.
+     * 이 로그는 MDC 에 새 trace_id 를 싣기 전에 찍히므로 그 줄의 trace_id 칸은 비어 있다 —
+     * 헤더 이름·길이로 찾는다.
      */
     private static String resolveTraceId(HttpServletRequest request) {
         String header = TRACE_ID_HEADER;
