@@ -505,6 +505,35 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
+    @DisplayName("관문이 먼저 막으므로 정상 경로에선 도달 불가 — 인터셉터 순서가 바뀌어 관문 없이 같은 id 가 다른 섬 movement 에 다시 쓰여도 리스너가 옛 섬 묶음을 풀고 새 섬으로 묶는다")
+    void listenerAloneRebindsAReusedSubscriptionIdToTheNewIsland() {
+        // 관문이 먼저 막으므로 정상 경로에선 도달 불가 — 인터셉터 순서가 바뀌어도 리스너가 스스로 정리하는지 고정한다.
+        // 그래서 관문(gate.preSend)을 거치지 않고 리스너만 부른다. 리스너는 레지스트리의 구독 기록을 보지 않는다.
+        UUID otherIsland = UUID.randomUUID();
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal mover = connect("b");
+        join("a", stays);
+        listener.preSend(subscribe("b", "x", StompTopics.movementTopic(island), mover), null);
+        tick();
+        sent.clear();
+
+        listener.preSend(subscribe("b", "x", StompTopics.movementTopic(otherIsland), mover), null); // 같은 id x, 다른 섬
+        tick();
+
+        assertThat(listener.holdsLiveOutbox("b", island)).as("옛 섬 묶음은 풀린다").isFalse();
+        assertThat(listener.holdsLiveOutbox("b", otherIsland)).as("새 섬으로 묶인다").isTrue();
+        assertThat(publisher.outboxes(island)).as("옛 섬 outbox 는 닫힌다").extracting(MovementOutbox::sessionId)
+                .containsExactly("a");
+        assertThat(publisher.outboxes(otherIsland)).extracting(MovementOutbox::sessionId).containsExactly("b");
+        assertThat(actorIds(bodiesFor("a").get(0))).as("옛 섬에서 퇴장 — 남은 주민의 FullState 엔 b 가 없다")
+                .containsExactly(stays.userId().toString());
+        assertThat(framesFor("b")).as("b 의 프레임은 전부 새 섬 목적지 — 옛 섬 사건이 이 id 로 나가지 않는다")
+                .isNotEmpty()
+                .allSatisfy(frame -> assertThat(SimpMessageHeaderAccessor.getDestination(frame.getHeaders()))
+                        .isEqualTo(StompTopics.movementTopic(otherIsland)));
+    }
+
+    @Test
     @DisplayName("이동 구독 id 를 해지 없이 비이동 토픽(/user/queue/errors)에 다시 쓰면 관문이 INVALID_REQUEST 로 거절한다 — 이동 구독은 그대로 남는다")
     void reusedSubscriptionIdForANonMovementTopicIsRejectedAndTheMovementStays() {
         StompAuthChannelInterceptor gate = gate();
