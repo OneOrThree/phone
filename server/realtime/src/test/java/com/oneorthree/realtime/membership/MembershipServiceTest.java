@@ -11,10 +11,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.Set;
 import java.util.UUID;
 
@@ -22,7 +26,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willReturn;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -256,7 +266,6 @@ class MembershipServiceTest {
     void lookupStartedAfterEvictStoresNormally() {
         membershipService.evict(userId);
         assertThat(redis.hasKey(RedisKeys.memberGeneration(userId))).as("evict 가 표식을 남겼다").isTrue();
-        assertThat(redis.getExpire(RedisKeys.memberGeneration(userId))).as("표식에도 수명이 있다").isPositive();
         given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
 
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
@@ -264,5 +273,33 @@ class MembershipServiceTest {
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isTrue();
         assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
         verify(groupClient, times(1)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("evict — 표식 쓰기가 실패해도 캐시 삭제는 시도하고 실패를 돌려준다(GROMO-2141)")
+    void evictStillDeletesTheCacheWhenWritingTheMarkFails() {
+        redis.opsForValue().set(RedisKeys.memberCache(userId), groupId.toString());
+        // 표식 SET 만 실패하는 템플릿 — 나머지 명령은 진짜 Redis 로 나간다.
+        ValueOperations<String, String> values = spy(redis.opsForValue());
+        doThrow(new RedisConnectionFailureException("표식 쓰기 실패")).when(values)
+                .set(eq(RedisKeys.memberGeneration(userId)), anyString(), any(Duration.class));
+        StringRedisTemplate flaky = spy(redis);
+        doReturn(values).when(flaky).opsForValue();
+        MembershipService service = new MembershipService(groupClient, flaky);
+        ReflectionTestUtils.setField(service, "cacheTtlSeconds", 120L);
+
+        boolean evicted = service.evict(userId);
+
+        assertThat(evicted).as("한쪽이라도 실패하면 false").isFalse();
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("표식이 실패해도 캐시는 지워진다").isFalse();
+        assertThat(redis.hasKey(RedisKeys.memberGeneration(userId))).as("표식은 못 썼다").isFalse();
+    }
+
+    @Test
+    @DisplayName("표식은 캐시 TTL 과 별개로 600초 이상 산다 — 오래 멈춘 «표식 없음» 조회가 옛 집합을 못 적재하게(GROMO-2141)")
+    void markOutlivesTheCacheTtl() {
+        membershipService.evict(userId);
+
+        assertThat(redis.getExpire(RedisKeys.memberGeneration(userId))).isGreaterThanOrEqualTo(600L);
     }
 }

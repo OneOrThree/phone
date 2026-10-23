@@ -70,6 +70,13 @@ public class MembershipService {
     private static final String SEPARATOR = ",";
 
     /**
+     * 무효화 표식 수명의 하한(초). 표식 없음(빈 문자열)으로 읽은 조회가 표식 TTL 보다 오래 멈췄다 깨어나면 «표식 없음 == 표식 없음»으로
+     * 통과해 옛 집합을 적재한다 — 그 창을 캐시 TTL(기본 120 s)이 아니라 이 값으로 닫는다. 표식은 동일성 비교에만 쓰여
+     * 캐시보다 오래 살아도 해가 없다.
+     */
+    private static final long MARK_MIN_TTL_SECONDS = 600;
+
+    /**
      * 표식이 {@code ARGV[1]}(조회 전에 읽은 값, 없었으면 빈 문자열) 그대로일 때만 캐시를 쓴다 — 반환 1 적재, 0 건너뜀.
      * KEYS: 캐시, 표식. ARGV: 읽어 둔 표식, 값, 수명(초). 값과 수명은 여전히 한 {@code SET … EX} 명령이다.
      */
@@ -111,8 +118,9 @@ public class MembershipService {
         if (cached != null) {
             return parse(cached);
         }
-        // 표식 없음(null)은 빈 문자열로 접는다 — 적재 스크립트가 «없음»을 같은 값으로 비교한다.
-        String mark = read == null || read.get(1) == null ? "" : read.get(1);
+        // 표식을 못 읽었으면(응답 없음) null — readMark 와 같은 규칙으로 적재를 건너뛴다. Redis 예외는 캐시 읽기 실패와
+        // 같이 올라간다(예전 GET 과 같다).
+        String mark = read == null ? null : markOf(read.get(1));
         return fetchAndStore(userId, bearerToken, mark).groupIds();
     }
 
@@ -143,8 +151,7 @@ public class MembershipService {
     /** 상류를 부르기 «전에» 읽어 둔 표식. 없으면 빈 문자열, 읽기가 실패하면 {@code null} — 그러면 적재하지 않는다. */
     private String readMark(UUID userId) {
         try {
-            String mark = redis.opsForValue().get(RedisKeys.memberGeneration(userId));
-            return mark == null ? "" : mark;
+            return markOf(redis.opsForValue().get(RedisKeys.memberGeneration(userId)));
         } catch (RuntimeException e) {
             log.warn("멤버십 무효화 표식 읽기 실패 — 이번 조회는 캐시에 적재하지 않는다. userId={}", userId, e);
             return null;
@@ -152,6 +159,11 @@ public class MembershipService {
     }
 
     /** @param mark 상류를 부르기 전에 읽은 무효화 표식 — {@code null} 이면 적재를 건너뛴다 */
+    /** 표식 없음(null)은 빈 문자열로 접는다 — 적재 스크립트가 «없음»을 같은 값으로 비교한다. */
+    private static String markOf(String raw) {
+        return raw == null ? "" : raw;
+    }
+
     private GroupClient.Membership fetchAndStore(UUID userId, String bearerToken, String mark) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 형식이 불완전한 답을 무소속으로 캐시하면 정상 주민까지 TTL 동안 방문자로 오인한다.
@@ -195,19 +207,29 @@ public class MembershipService {
      * <p>지우기 «전에» 표식을 새 값으로 쓴다(GROMO-2141) — 이미 상류를 부르던 조회가 지운 뒤에 옛 집합을 적재하지 못하게.
      * 순서가 반대면 지운 직후·표식을 쓰기 직전 틈에 그 적재가 통과한다.
      *
-     * @return 지웠거나 지울 게 없었으면 true, Redis 가 실패해 옛 답이 TTL 동안 남으면 false
+     * <p>표식 쓰기와 지우기는 서로 독립이다 — 한쪽이 실패해도 다른 쪽은 시도한다.
+     *
+     * @return 표식 쓰기와 지우기가 모두 되었으면(지울 게 없었어도) true, 하나라도 Redis 가 실패했으면 false
      */
     public boolean evict(UUID userId) {
+        boolean failed = false;
         try {
-            // ponytail: 표식 수명은 상류 조회 최장 시간(GroupClient 타임아웃 ≈ 6 s)을 넘어야 한다 — 캐시 TTL 을 그 아래로 줄이면 창이 다시 열린다.
+            // ponytail: 표식 수명은 상류 조회가 멈출 수 있는 최장 시간을 넘어야 한다(정상은 GroupClient 타임아웃 ≈ 6 s) —
+            // 캐시 TTL 과 하한 MARK_MIN_TTL_SECONDS 중 큰 값. 그보다 오래 멈춘 조회는 못 거른다.
             redis.opsForValue().set(RedisKeys.memberGeneration(userId), UUID.randomUUID().toString(),
-                    Duration.ofSeconds(cacheTtlSeconds));
+                    Duration.ofSeconds(Math.max(cacheTtlSeconds, MARK_MIN_TTL_SECONDS)));
+        } catch (RuntimeException e) {
+            // 표식 쓰기가 실패해도 지우기는 시도한다 — 이 PR 이전에는 지우기만 있었다. 둘 중 하나라도 실패하면 false.
+            log.warn("멤버십 무효화 표식 쓰기 실패 — 캐시 삭제는 계속 시도한다. userId={}", userId, e);
+            failed = true;
+        }
+        try {
             redis.delete(RedisKeys.memberCache(userId));
-            return true;
         } catch (RuntimeException e) {
             log.warn("멤버십 캐시 무효화 실패 — userId={}", userId, e);
-            return false;
+            failed = true;
         }
+        return !failed;
     }
 
     /**

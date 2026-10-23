@@ -14,7 +14,7 @@ import java.util.UUID;
  *       <td>유저가 속한 섬(그룹) id 집합. 서비스 내부 캐시라 <b>다른 서비스와 공유하지 않는다</b></td></tr>
  *   <tr><td>{@code cache:chat:membergen:{userId}}</td><td>채팅</td><td>읽기·쓰기</td>
  *       <td>그 유저의 멤버십 캐시 «무효화 표식»(GROMO-2141) — 사건이 무효화할 때마다 새 무작위 값으로 쓴다.
- *       진행 중이던 조회의 늦은 적재를 거른다. TTL 은 캐시와 같다</td></tr>
+ *       진행 중이던 조회의 늦은 적재를 거른다. TTL 은 캐시 TTL 과 600 초 중 큰 값</td></tr>
  *   <tr><td>{@code cache:chat:block:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>그 유저가 차단한 사용자 id 집합 + 적재 당시 세대(GROMO-2182). Data 정본의 사본이다</td></tr>
  *   <tr><td>{@code cache:chat:blockgen:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>

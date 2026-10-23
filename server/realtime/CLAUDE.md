@@ -281,7 +281,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | Key | Writer | This service | Purpose |
 | --- | --- | --- | --- |
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
-| `cache:chat:membergen:{userId}` | chat | read/write | 멤버십 캐시 무효화 표식(GROMO-2141) — `MembershipService.evict` 가 무작위 값을 `SET … EX <cache-ttl>` 로 쓰고, 조회는 상류를 부르기 전에 읽어 둔 값과 같을 때만 `cache:chat:member:` 를 적재한다(Lua CAS). 표식 TTL 은 상류 조회 최장 시간(≈6 s)을 넘어야 한다 |
+| `cache:chat:membergen:{userId}` | chat | read/write | 멤버십 캐시 무효화 표식(GROMO-2141) — `MembershipService.evict` 가 무작위 값을 `SET … EX max(<cache-ttl>, 600)` 로 쓰고, 조회는 상류를 부르기 전에 읽어 둔 값과 같을 때만 `cache:chat:member:` 를 적재한다(Lua CAS). 표식 TTL 은 상류 조회가 멈출 수 있는 최장 시간(정상 ≈6 s)을 넘어야 해서 캐시 TTL 과 600 s 중 큰 값이다(동일성 비교만 하니 캐시보다 오래 살아도 무해) |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
 | `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
 | `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <payload accessTokenExpiresAt + 60 s, 없으면 30일>`. CONNECT·REST(`JwtFilter`)가 읽는다(프레임 검사는 인메모리). 쓰기 실패는 경고만, 읽기 실패는 fail-open. 사건은 `chat:events:v1` 제어 봉투로 전 replica 에 퍼져 각자 인메모리 펜스·세션 종료를 한다 |
