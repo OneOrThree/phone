@@ -684,6 +684,8 @@ function Gromo() {
   routeRef.current = route;
   const goRef = useRef(go);
   goRef.current = go;
+  const resetRef = useRef(reset);
+  resetRef.current = reset;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
   useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
@@ -715,6 +717,40 @@ function Gromo() {
     if (target.kind === 'unsupported') {
       goRef.current('home');
       notifyRef.current(t('app.linkUnsupported'));
+      return;
+    }
+    if (target.kind === 'magazine') {
+      // 소속 섬이 있으면 섬에서, 없으면 바다에서 펼친다(둘 다 호가 없으면 리더가 «사라진 호»로 안내한다).
+      goRef.current(
+        stateRef.current.serverIslands?.currentIslandId ? 'magazine' : 'seaMagazine',
+        target.issueId,
+      );
+      return;
+    }
+    if (target.kind === 'island') {
+      const { islandId } = target;
+      const snap = stateRef.current.serverIslands;
+      const unavailable = () => {
+        goRef.current('home');
+        notifyRef.current(t('app.linkIslandUnavailable'));
+      };
+      if (islandId === snap?.currentIslandId) goRef.current('home');
+      // 강퇴·탈퇴로 소속이 아닌 섬이거나 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 옮기지 않는다.
+      else if (!snap?.memberships.some((item) => item.id === islandId) || stateRef.current.session)
+        unavailable();
+      else {
+        const generation = sessionGeneration();
+        // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
+        // 응답 전에 계정이 바뀌었으면(세대 변경) 새 세션 화면을 건드리지 않는다.
+        islandCmds.current!.commands.switchCurrent(islandId).then(
+          () => {
+            if (sessionGeneration() === generation) resetRef.current('home');
+          },
+          () => {
+            if (sessionGeneration() === generation) unavailable();
+          },
+        );
+      }
       return;
     }
     goRef.current(target.route);

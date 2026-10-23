@@ -4,15 +4,35 @@ export type AppDeepLinkRoute = 'home' | 'focusSetup' | 'friends';
 
 export type AppDeepLinkTarget =
   | { kind: 'route'; route: AppDeepLinkRoute }
+  | { kind: 'island'; islandId: string }
+  | { kind: 'magazine'; issueId: string }
   | { kind: 'unsupported'; legacyPath: 'join' | 'group' | 'league' }
   | null;
 
-/** 1.x scheme 경로 중 2.0에서 실제 제공하는 화면만 열고, 나머지는 안전한 fallback 대상으로 분류한다. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 쿼리에서 `key`의 UUID 값을 꺼낸다. 없거나 깨졌거나 UUID가 아니면 null — 다른 파라미터(challenge 등)는 무시한다. */
+function queryUuid(query: string, key: 'g' | 'issue'): string | null {
+  const raw = new RegExp(`(?:^|&)${key}=([^&]*)`).exec(query)?.[1];
+  if (raw === undefined) return null;
+  try {
+    const value = decodeURIComponent(raw);
+    return UUID.test(value) ? value : null;
+  } catch {
+    return null; // 잘못된 퍼센트 인코딩
+  }
+}
+
+/**
+ * 서버가 보내는 링크(home·friends·group?g=·magazine?issue=)와 기기에 남은 1.x 링크(focus·league·join·챌린지 group)를
+ * 분류한다. 2.0에 없는 화면은 안전한 fallback 대상(unsupported)으로 둔다.
+ */
 export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
-  const match = /^gromo:\/\/+([^?#]*)(?:[?#].*)?$/i.exec(rawUrl.trim());
+  const match = /^gromo:\/\/+([^?#]*)(?:\?([^#]*))?(?:#.*)?$/i.exec(rawUrl.trim());
   if (!match) return null;
 
   const path = match[1].split('/').filter(Boolean)[0]?.toLowerCase();
+  const query = match[2] ?? '';
   switch (path) {
     case 'home':
       return { kind: 'route', route: 'home' };
@@ -20,8 +40,15 @@ export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
       return { kind: 'route', route: 'focusSetup' };
     case 'friends':
       return { kind: 'route', route: 'friends' };
+    case 'group': {
+      const islandId = queryUuid(query, 'g');
+      return islandId ? { kind: 'island', islandId } : { kind: 'unsupported', legacyPath: 'group' };
+    }
+    case 'magazine': {
+      const issueId = queryUuid(query, 'issue');
+      return issueId ? { kind: 'magazine', issueId } : { kind: 'route', route: 'home' };
+    }
     case 'join':
-    case 'group':
     case 'league':
       return { kind: 'unsupported', legacyPath: path };
     default:

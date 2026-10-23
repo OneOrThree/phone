@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseAppDeepLink, subscribeToAppLinks, type AppLinkSource } from './appDeepLink';
 
+const ISLAND_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const ISSUE_ID = '0197e0c3-9a10-7c3d-8e21-5a6b7c8d9e0f';
+
 test.each([
   ['gromo://home', { kind: 'route', route: 'home' }],
   ['gromo:///focus', { kind: 'route', route: 'focusSetup' }],
@@ -12,7 +15,20 @@ test.each([
     { kind: 'unsupported', legacyPath: 'join' },
   ],
   ['gromo://group?g=bad', { kind: 'unsupported', legacyPath: 'group' }],
+  ['gromo://group', { kind: 'unsupported', legacyPath: 'group' }],
   ['gromo://league', { kind: 'unsupported', legacyPath: 'league' }],
+  [`gromo://group?g=${ISLAND_ID}`, { kind: 'island', islandId: ISLAND_ID }],
+  // 1.x 챌린지 링크의 나머지 파라미터는 무시하고 섬만 연다.
+  [`gromo://group?challenge=${ISSUE_ID}&g=${ISLAND_ID}`, { kind: 'island', islandId: ISLAND_ID }],
+  [
+    `gromo://group?g=${ISLAND_ID}&challenge=${ISSUE_ID}#top`,
+    { kind: 'island', islandId: ISLAND_ID },
+  ],
+  [`gromo://group?g=${ISLAND_ID.replace('-', '%2D')}`, { kind: 'island', islandId: ISLAND_ID }],
+  ['gromo://group?g=%E0%A4%A', { kind: 'unsupported', legacyPath: 'group' }],
+  [`gromo://magazine?issue=${ISSUE_ID}`, { kind: 'magazine', issueId: ISSUE_ID }],
+  ['gromo://magazine', { kind: 'route', route: 'home' }],
+  ['gromo://magazine?issue=bad', { kind: 'route', route: 'home' }],
 ])('%s를 제공 화면 또는 명시적 fallback으로 분류한다', (url, expected) => {
   assert.deepEqual(parseAppDeepLink(url), expected);
 });
