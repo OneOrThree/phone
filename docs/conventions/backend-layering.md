@@ -251,6 +251,7 @@ Controller  →  Service  →  Repository  →  Entity
 | L7 | `notification` · `appearance` · `quest` | 현행 알림 사건을 outbox에 적는다 · 섬 공동/개인 외양(GROMO-1783) · 섬 퀘스트(GROMO-1773) — 집중 구간(`focus`)·스크린타임(`screentime`)을 판정하고 섬 통장(`construction`)에 정산하므로 그 셋보다 위다. 같은 층끼리는 참조하지 않는다 |
 | L8 | `auth` · `magazine` | 진입·부가 · 고양이 잡지의 홍보 칸·꾸미기 재료(GROMO-2289) — 엔티티·리포지토리·순수 규칙(`support/`)만 두고, 홍보비는 섬 통장(`construction`)에서 빠지고 재료는 카탈로그·보유품(`appearance`)을 읽으므로 둘 위다. 신청·고치기 조합은 L10 `internal` 이 한다 |
 | L9 | `withdrawal` | **조립·오케스트레이션 전용** — 자기 테이블이 없고, 아래 도메인의 정리를 정해진 순서로 부른다 |
+| L10 | `internal` | **가장 위** — 서비스 간 내부 표면(`/internal/*`, GROMO-1659·1660). 앱 계약이 아니라 Business·알림·링크가 부르는 입구이고 `auth`(L8)·`group`(L5)·`invitelink`(L6)·`user`(L0)·`outbox`(L-1) 등 아래 도메인을 «조합»해 응답한다 — 아무도 이 패키지를 참조하지 않는다. `internal` 은 타 도메인 repository 직접 사용을 허용하며 이 면제는 freeze 대상이 아니다 — 출발에서 제외돼 store 에 줄이 쌓이지 않는다 |
 
 `common/` 과 `config/` 는 레이어 밖이다 — 누가 참조해도 된다.
 
@@ -309,11 +310,11 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 | 항목 | 실측(2026-09) | 이관처 |
 | --- | --- | --- |
-| 타 도메인 repository 직접 주입 | **27파일 / import 62건** (2026-09-09 재측정, 1654 착수 시 약 120건) | 미해결 — ArchUnit 규칙 후보였으나 현행 위반이 많아 GROMO-1724 범위에서 제외 |
+| 타 도메인 repository 직접 주입 | **freeze 로 동결(기준선 479건/47파일, 2026-10-24)** — ArchUnit 의존 줄 수·출발 파일 수라 옛 import 기준(27파일 / 62건, 2026-09-09)과 단위가 다르다 | **새 위반은 빌드 실패, 줄이면 store 갱신** — `DomainLayerRulesTest`(GROMO-2198), 기준선은 `server/data-api/archunit_store/`. 제외: 출발 `config`·`common`·`internal`, 대상 읽기 경계 `QueryService` 3종(FQCN 허용 목록)·`outbox` |
 | service 의 `EntityManager` 직접 조작 | 5개 파일 | GROMO-1655 |
 | ~~도메인 간 레이어 역행 참조~~ | **0쌍 / 0건** (2026-09-08 · 착수 시 15쌍 49건, 파생 순환 238개) | GROMO-1656 완료 · **테스트로 강제됨**(GROMO-1724) |
 | 컨트롤러의 영속 enum 노출 | 6건 | GROMO-1657 (앱 계약 변경 동반) |
-| 규칙의 테스트 강제 | **도메인 의존 방향·순환만 강제됨**(`DomainLayerRulesTest`). 나머지 계층 규칙은 미강제 | GROMO-1724 (도입 완료) |
+| 규칙의 테스트 강제 | **도메인 의존 방향·순환 + 타 도메인 repository 직접 의존(freeze)** 이 강제됨(`DomainLayerRulesTest`). 나머지 계층 규칙은 미강제 | GROMO-1724 (도입 완료) · GROMO-2198 |
 
 ---
 

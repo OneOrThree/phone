@@ -166,6 +166,8 @@ tasks.named('test') {
 	// 컨텍스트마다 자기 스키마(TestPostgres)·자기 database(OutboxTestPostgres)를 가지므로 닫히는 컨텍스트의
 	// create-drop 이 살아 있는 이웃의 테이블을 지우지 않는다 (GROMO-1792 — 1757 의 maxSize=64 임시 조치 해제).
 	useJUnitPlatform()
+	// ArchUnit freeze store 가 바뀌면 테스트를 다시 돌린다 — 입력으로 선언하지 않으면 store 만 고친 뒤 UP-TO-DATE 로 건너뛴다 (GROMO-2198).
+	inputs.dir('archunit_store').withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
 	// 테스트 완료 후 JaCoCo 리포트 자동 생성
 	finalizedBy jacocoTestReport
 }
