@@ -5,10 +5,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeSet;
@@ -35,10 +38,11 @@ class PublicResponseTypeAuditTest extends UpstreamTestBase {
     /**
      * 알려진 노출(2026-10-24 기준 14건) — {@code 핸들러 -> 상류 타입(패키지 뺀 이름, 중첩은 $)}. 새 항목을 추가하지 말고 노출을 없애라.
      *
-     * <p>원인 4곳 — {@code IslandPromotionController}({@code IslandPromotions.*} 를 직접 반환),
+     * <p>원인은 5곳(컨트롤러 3 + 응답 레코드 2; 방문록은 컨트롤러·레코드 한 쌍이라 «4묶음»으로도 센다) —
+     * 컨트롤러: {@code IslandPromotionController}({@code IslandPromotions.*} 를 직접 반환),
      * {@code MagazineController}({@code Magazines.*} 를 직접 반환), {@code IslandGuestbookController#write}
-     * ({@code ResponseEntity<IslandGuestbooks.Item>}) 와 {@code IslandGuestbookResponses.items}({@code List<IslandGuestbooks.Item>}),
-     * {@code IslandMembershipResponses} 의 {@code Magazines.Cell magazineCell}(망원경 응답).
+     * ({@code ResponseEntity<IslandGuestbooks.Item>}). 응답 레코드: {@code IslandGuestbookResponses.items}
+     * ({@code List<IslandGuestbooks.Item>}), {@code IslandMembershipResponses} 의 {@code Magazines.Cell magazineCell}(망원경 응답).
      */
     private static final Set<String> KNOWN_EXPOSURES = Set.of(
             "IslandGuestbookController#list -> IslandGuestbooks$Item",
@@ -67,15 +71,15 @@ class PublicResponseTypeAuditTest extends UpstreamTestBase {
         Set<String> found = new TreeSet<>();
         int endpoints = 0;
         for (var handler : mappings.getHandlerMethods().values()) {
-            String pkg = handler.getBeanType().getPackageName();
-            if (pkg.equals("com.oneorthree.business.api") || pkg.equals("com.oneorthree.business.linkpreview")) {
+            // business 아래 모든 @RestController — 패키지를 api·linkpreview 로 좁히면 새 패키지의 컨트롤러가 조용히 빠진다.
+            if (handler.getBeanType().getPackageName().startsWith("com.oneorthree.business")
+                    && handler.getBeanType().isAnnotationPresent(RestController.class)) {
                 String name = handler.getBeanType().getSimpleName() + "#" + handler.getMethod().getName();
                 collectUpstreamTypes(handler.getMethod().getGenericReturnType(), name, new HashSet<>(), found);
                 endpoints++;
             }
         }
         assertThat(endpoints).as("감사 대상 엔드포인트 수 — 매핑 탐색이 빗나가면 감사가 조용히 비어 버린다").isGreaterThan(50);
-        System.out.println("DTO_TYPE_AUDIT endpoints=" + endpoints + " exposures=" + found.size());
 
         Set<String> added = new TreeSet<>(found);
         added.removeAll(KNOWN_EXPOSURES);
@@ -99,7 +103,17 @@ class PublicResponseTypeAuditTest extends UpstreamTestBase {
                 collectUpstreamTypes(argument, handler, visited, found);
             }
             collectUpstreamTypes(parameterized.getRawType(), handler, visited, found);
+        } else if (type instanceof GenericArrayType array) {
+            collectUpstreamTypes(array.getGenericComponentType(), handler, visited, found);
+        } else if (type instanceof WildcardType wildcard) {
+            for (Type bound : wildcard.getUpperBounds()) {
+                collectUpstreamTypes(bound, handler, visited, found);
+            }
         } else if (type instanceof Class<?> value) {
+            if (value.isArray()) {
+                collectUpstreamTypes(value.getComponentType(), handler, visited, found);
+                return;
+            }
             if (value.getPackageName().startsWith(UPSTREAM_PACKAGE)) {
                 found.add(handler + " -> " + value.getName().substring(value.getName().lastIndexOf('.') + 1));
                 return;
@@ -110,5 +124,6 @@ class PublicResponseTypeAuditTest extends UpstreamTestBase {
                 }
             }
         }
+        // TypeVariable 은 건너뛴다 — 구체 타입이 아니라 따라갈 경계가 없다(제네릭 레코드는 현재 응답에 없다).
     }
 }
