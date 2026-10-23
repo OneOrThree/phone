@@ -404,8 +404,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         countIslandSubscribe(channel, code);
         String kind = destination.endsWith("/snapshot") ? "movement/snapshot" : channel;
         log.info("섬 구독 거절 — userId={} islandId={} destination={} code={}", userId, islandId, kind, code);
-        if (e instanceof ChatException chat) {
-            chat.setChannel(channel);
+        if (e instanceof DomainException d) {
+            d.setChannel(channel);
         }
     }
 
@@ -549,7 +549,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         UUID island = uuidOrReject(islandId);
         requireAuthenticated(accessor);
         if (sessions.subscriptionIdOf(accessor.getSessionId(), StompTopics.movementTopic(island)) == null) {
-            throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
+            ChatException notSubscribed = new ChatException(ChatErrorCode.NOT_A_MEMBER);
+            notSubscribed.setChannel(CHANNEL_MOVEMENT); // ERROR 프레임 channel 헤더(GROMO-2354)
+            throw notSubscribed;
         }
         return movementSubscriptions.acceptsIntents(accessor.getSessionId(), island);
     }
