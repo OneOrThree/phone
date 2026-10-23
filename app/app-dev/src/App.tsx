@@ -762,7 +762,7 @@ function Gromo() {
     if (target.kind === 'island') {
       // 불변식: 보관(queuedIslandLink)은 followsAnother — 같은 세대의 링크 전환이 아직 진행 중일 때 — 에만 일어난다. 보관분을
       // 다시 열 때는 앞선 전환이 끝나 linkSwitching 이 비었으니 followsAnother=false 라 다시 보관되지 않는다(무한 재시도 없음).
-      // 재개가 가능한 전제: islandCommands.ts 의 selection 잠금(:131-141)이 finally 에서 풀린 뒤에야 switchCurrent 가 resolve/reject 한다.
+      // 재개가 가능한 전제: islandCommands.ts 의 selection 잠금이 finally 에서 풀린 뒤에야 switchCurrent 가 resolve/reject 한다.
       const openIsland = (islandId: string, order: number, navKey: string) => {
         const unavailable = () => {
           open('home');
