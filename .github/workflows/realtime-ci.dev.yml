@@ -16,6 +16,8 @@ on:
       - '!server/realtime/docs/**'
       - '!server/realtime/**/*.md'
       - '.github/workflows/realtime-ci.dev.yml'
+      # 공동 배포 호출·경로 계약을 startup-contract에서 함께 읽는다.
+      - '.github/workflows/data-api-ci.dev.yml'
       - '.github/workflows/data-api-cd.dev.yml'
       - '.github/scripts/deploy-core-dev.py'
       # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)

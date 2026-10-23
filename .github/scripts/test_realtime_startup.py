@@ -25,6 +25,7 @@ class RealtimeStartupTest(unittest.TestCase):
         inputs = {"server/scripts/docker-compose." + name + ".yml"
                   for name in ["dev", "realtime", "satellites", "business"]}
         inputs.add(".github/scripts/test_realtime_startup.py")
+        inputs.add(".github/workflows/data-api-ci.dev.yml")
         self.assertTrue(inputs.issubset(realtime["on"]["pull_request"]["paths"]))
         self.assertTrue(inputs.issubset(core["on"]["push"]["paths"]))
         self.assertIn("workflow_call", realtime["on"])
