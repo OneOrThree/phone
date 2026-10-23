@@ -391,6 +391,8 @@ else:
             'updated_at': '2026-01-02T00:00:00Z', 'conclusion': conclusion, 'run_attempt': attempt}}
         class API:
             def request(self, path, raw=False):
+                if '/jobs?' in path:
+                    return {'jobs': [{'steps': [{'started_at': '2026-01-02T00:00:00Z'}]}]}
                 if '/artifacts?' in path:
                     return {'artifacts': [{'id': i, 'name': name, 'expired': False}
                                           for i, (name, _) in enumerate(artifacts)]}

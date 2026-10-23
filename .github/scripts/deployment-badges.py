@@ -180,6 +180,18 @@ def planned_rule(rule, plan):
     return (rule[0], rule[1], {service for service, selected in plan.items() if selected}, rule[3])
 
 
+def cancelled_before_execution(api, run):
+    if run.get('conclusion') != 'cancelled':
+        return False
+    for page in range(1, 101):
+        jobs = api.request(f'/actions/runs/{run["id"]}/attempts/{run["run_attempt"]}/jobs?per_page=100&page={page}')['jobs']
+        if any(step.get('started_at') for job in jobs for step in job.get('steps', [])):
+            return False
+        if len(jobs) < 100:
+            return True
+    raise ValueError('취소된 실행 job 페이지 상한 초과')
+
+
 def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     api = GitHub()
@@ -203,6 +215,9 @@ def main():
         page += 1
     artifacts = [item for item in available if item['name'] == name]
     if not artifacts:
+        if cancelled_before_execution(api, run):
+            print('대기 중 취소된 실행 — 배포 실패로 기록하지 않음')
+            return
         if run.get('path', '').split('@')[0] == '.github/workflows/satellite-ci.dev.yml':
             plans = [item for item in available if item['name'] == 'satellite-deploy-plan']
             if not plans:

@@ -39,11 +39,10 @@ on:
   workflow_dispatch:
 
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
-# 뒤 것들이 순서대로 기다린다 — 기본값(queue: single)은 대기 중인 실행을 하나만 남기고 취소한다.
+# 실행 중 빌드는 유지하고 대기 중인 빌드는 최신 하나만 남긴다.
 concurrency:
   group: ios-testflight-dev
   cancel-in-progress: false
-  queue: max
 
 permissions:
   contents: read
