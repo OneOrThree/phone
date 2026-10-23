@@ -1,0 +1,7706 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Business API 명세서",
+    "description": "앱·QA가 사용하는 외부 공개 계약입니다. 서버 간 계약은 Data API 문서를 본다.",
+    "version": "v0.0.1"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Generated server url"
+    }
+  ],
+  "paths": {
+    "/me/sea-remark": {
+      "put": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "updateSeaRemark",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeaRemarkView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/screen-time/{date}": {
+      "put": {
+        "tags": [
+          "island-records-controller"
+        ],
+        "operationId": "putScreenTime",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenTimeDayView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues/{issueId}/receipt": {
+      "put": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "receipt",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineReceipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/current-island": {
+      "put": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "switchCurrentIsland",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentIslandView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/{promotionId}": {
+      "put": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionUpdated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/construction-target": {
+      "put": {
+        "tags": [
+          "island-construction-controller"
+        ],
+        "operationId": "target",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionTargetView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/{sessionId}/live-activity": {
+      "put": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "registerLiveActivity",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/users/me/notification-settings": {
+      "get": {
+        "tags": [
+          "user-notification-controller"
+        ],
+        "operationId": "getNotificationSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "user-notification-controller"
+        ],
+        "operationId": "updateNotificationSettings",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/users/me/device-token": {
+      "put": {
+        "tags": [
+          "user-notification-controller"
+        ],
+        "operationId": "registerDeviceToken",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceTokenRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceTokenRegisterResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "user-notification-controller"
+        ],
+        "operationId": "clearDeviceToken",
+        "parameters": [
+          {
+            "name": "X-Device-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Device-Ownership",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/telescope/pins": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "pinTelescope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopePinView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/letters": {
+      "get": {
+        "tags": [
+          "letter-controller"
+        ],
+        "operationId": "letters",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LetterPageView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "letter-controller"
+        ],
+        "operationId": "send",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LetterDetailView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "islands",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandCreatedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/tutorial-reward": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "claimTutorialExperience",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorialExperienceView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/shop/orders": {
+      "get": {
+        "tags": [
+          "shop-controller"
+        ],
+        "operationId": "orders",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orders"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "shop-controller"
+        ],
+        "operationId": "purchase",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopOrder"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/quests": {
+      "post": {
+        "tags": [
+          "island-quest-controller"
+        ],
+        "operationId": "create_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandQuestCreated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/quests/{questId}/claims": {
+      "post": {
+        "tags": [
+          "island-quest-controller"
+        ],
+        "operationId": "claim",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandQuestClaimed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions": {
+      "post": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "promote",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/{promotionId}/reports": {
+      "post": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "report",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionReported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/notices": {
+      "get": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "create_2",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/notices/{noticeId}/comments": {
+      "post": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "comment",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noticeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeCommentCreatedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/messages": {
+      "get": {
+        "tags": [
+          "island-mailbox-controller"
+        ],
+        "operationId": "list_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailboxPageResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "island-mailbox-controller"
+        ],
+        "operationId": "send_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailboxMessageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/memberships": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "join",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandJoinResultView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/invitations": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "issueInvitation",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandInvitationView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/host-transfer": {
+      "post": {
+        "tags": [
+          "island-host-transfer-controller"
+        ],
+        "operationId": "transfer",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandHostTransferResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/guestbook": {
+      "get": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "list_2",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandGuestbook"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "write",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandGuestbookItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/constructions": {
+      "post": {
+        "tags": [
+          "island-construction-controller"
+        ],
+        "operationId": "build",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionResultView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/arrivals": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "arrive",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invitations/resolve": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "resolveInvitation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationResolvedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/requests": {
+      "get": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "friendRequests",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RequestView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "createRequest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/friends/requests/{requestId}/reject": {
+      "post": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/friends/requests/{requestId}/cancel": {
+      "post": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/friends/requests/{requestId}/accept": {
+      "post": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "accept",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/focus-sessions": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "start",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/{sessionId}/tutorial-reward": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "claimTutorialReward",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorialRewardView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/{sessionId}/resume": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "resume",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/{sessionId}/pause": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "pause",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/{sessionId}/finish": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "finish",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinishView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/{sessionId}/acknowledge": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "acknowledge",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/focus-sessions/sea": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "summary": "바다 집중 시작",
+        "description": "목적지는 지금 망원경 목록에 있는 섬이어야 한다. 망원경 목록은 정시마다 다시 계산되므로 앱이 본 목록과 어긋날 수 있다 — 409 SEA_DESTINATION_UNAVAILABLE 이면 GET /me/telescope 를 다시 불러 같은 섬이 있으면 재시도하고, 없으면 선택 화면으로 돌아간다. 항해 분은 서버가 그 항목 값으로 고정한다.",
+        "operationId": "startSea",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/blocks": {
+      "get": {
+        "tags": [
+          "user-block-controller"
+        ],
+        "operationId": "blocks",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BlockedUserView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "user-block-controller"
+        ],
+        "operationId": "block",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/auth/sessions": {
+      "post": {
+        "tags": [
+          "auth-session-controller"
+        ],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSessionResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/sessions/guest": {
+      "post": {
+        "tags": [
+          "guest-session-controller"
+        ],
+        "operationId": "start_1",
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSessionResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/sessions/current/refresh": {
+      "post": {
+        "tags": [
+          "session-refresh-controller"
+        ],
+        "operationId": "refresh",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRefreshResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/link-previews": {
+      "post": {
+        "tags": [
+          "preview-controller"
+        ],
+        "operationId": "create_3",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Preview"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/link-previews": {
+      "post": {
+        "tags": [
+          "preview-controller"
+        ],
+        "operationId": "create_4",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Preview"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "account-controller"
+        ],
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "account-controller"
+        ],
+        "operationId": "withdraw",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeleted"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "account-controller"
+        ],
+        "operationId": "patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/settings": {
+      "get": {
+        "tags": [
+          "account-settings-controller"
+        ],
+        "operationId": "read",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSettingsResult"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "account-settings-controller"
+        ],
+        "operationId": "patch_1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSettingsResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/appearance": {
+      "patch": {
+        "tags": [
+          "appearance-controller"
+        ],
+        "operationId": "patchMine",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAppearanceView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "island",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "island-management-controller"
+        ],
+        "operationId": "manage",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedIslandView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/quests/{questId}": {
+      "patch": {
+        "tags": [
+          "island-quest-controller"
+        ],
+        "operationId": "update_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandQuestUpdated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/playback": {
+      "get": {
+        "tags": [
+          "playback-controller"
+        ],
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "playback-controller"
+        ],
+        "operationId": "patch_2",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/notices/{noticeId}": {
+      "get": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "detail",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noticeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noticeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "update_2",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noticeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/join-requests/{requestId}": {
+      "patch": {
+        "tags": [
+          "island-management-controller"
+        ],
+        "operationId": "answer",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestAnswerView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/appearance": {
+      "patch": {
+        "tags": [
+          "appearance-controller"
+        ],
+        "operationId": "patchIsland",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandAppearanceView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/visit/{islandId}": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "visit",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/town-hall": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "townHall",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/shop": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "shop",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/raft": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "raft",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/playback": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "playback",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/mailbox": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "mailbox",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/library": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "library",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/launch": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "launch",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/home": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "home",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/friends": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "friends",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/focus": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "focus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/explore": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "explore",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/board": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "board",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/screens/account": {
+      "get": {
+        "tags": [
+          "screen-controller"
+        ],
+        "operationId": "account",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rankings/islands": {
+      "get": {
+        "tags": [
+          "island-rankings-controller"
+        ],
+        "operationId": "islands_1",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandRankings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/telescope": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "telescope",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/today": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "today",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineToday"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "issues",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineIssues"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues/{issueId}": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "issue",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineIssuePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/assets": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "assets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineAssets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/join-requests": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "myJoinRequests",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyJoinRequests"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/join-requests/{requestId}": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "joinRequest",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestStatusView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "cancelJoinRequest",
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestCancelView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/islands": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "myIslands",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyIslandsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/inventory": {
+      "get": {
+        "tags": [
+          "appearance-controller"
+        ],
+        "operationId": "myInventory",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalInventoryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/focus-summary": {
+      "get": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "summary",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/letters/{letterId}": {
+      "get": {
+        "tags": [
+          "letter-controller"
+        ],
+        "operationId": "letter",
+        "parameters": [
+          {
+            "name": "letterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LetterDetailView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "letter-controller"
+        ],
+        "operationId": "close",
+        "parameters": [
+          {
+            "name": "letterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/statistics/screen-time": {
+      "get": {
+        "tags": [
+          "island-records-controller"
+        ],
+        "operationId": "screenTime",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/statistics/focus": {
+      "get": {
+        "tags": [
+          "island-records-controller"
+        ],
+        "operationId": "focus_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/statistics/fish-earnings": {
+      "get": {
+        "tags": [
+          "island-records-controller"
+        ],
+        "operationId": "fishEarnings",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FishEarningsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/shop/wallets": {
+      "get": {
+        "tags": [
+          "shop-controller"
+        ],
+        "operationId": "wallets",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopWallets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/shop/products": {
+      "get": {
+        "tags": [
+          "shop-controller"
+        ],
+        "operationId": "products",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Products"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/shop/products/{productId}": {
+      "get": {
+        "tags": [
+          "shop-controller"
+        ],
+        "operationId": "product",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopProduct"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/rest-members": {
+      "get": {
+        "tags": [
+          "island-focus-members-controller"
+        ],
+        "operationId": "restMembers",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestMembersView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/resources/ledger": {
+      "get": {
+        "tags": [
+          "island-records-controller"
+        ],
+        "operationId": "ledger",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ledger"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/quests/{questId}/progress": {
+      "get": {
+        "tags": [
+          "island-quest-controller"
+        ],
+        "operationId": "progress",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandQuestProgressView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/quests/current": {
+      "get": {
+        "tags": [
+          "island-quest-controller"
+        ],
+        "operationId": "current",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentQuestsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/editor": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "editor",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionEditor"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/news": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "news",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandNewsPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/members": {
+      "get": {
+        "tags": [
+          "island-management-controller"
+        ],
+        "operationId": "members",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembersPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/join-requests": {
+      "get": {
+        "tags": [
+          "island-management-controller"
+        ],
+        "operationId": "joinRequests",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestsPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/inventory": {
+      "get": {
+        "tags": [
+          "appearance-controller"
+        ],
+        "operationId": "islandInventory",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedInventoryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/focus-members": {
+      "get": {
+        "tags": [
+          "island-focus-members-controller"
+        ],
+        "operationId": "focusMembers",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusMembersView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/construction-options": {
+      "get": {
+        "tags": [
+          "island-construction-controller"
+        ],
+        "operationId": "options",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionOptionsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/discover": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "discover",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends": {
+      "get": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "friends_1",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/search": {
+      "get": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "search",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SearchView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/pending-result": {
+      "get": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "pendingResult",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinishView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/focus-sessions/current": {
+      "get": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "current_1",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/customization/catalog": {
+      "get": {
+        "tags": [
+          "customization-catalog-controller"
+        ],
+        "operationId": "catalog",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/link-previews/{id}/thumbnail": {
+      "get": {
+        "tags": [
+          "preview-controller"
+        ],
+        "operationId": "thumbnail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/link-previews/{id}/thumbnail": {
+      "get": {
+        "tags": [
+          "preview-controller"
+        ],
+        "operationId": "thumbnail_1",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/link-previews/{id}": {
+      "get": {
+        "tags": [
+          "preview-controller"
+        ],
+        "operationId": "get_1",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/link-previews/{id}": {
+      "get": {
+        "tags": [
+          "preview-controller"
+        ],
+        "operationId": "get_2",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/telescope/pins/{islandId}": {
+      "delete": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "unpinTelescope",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/notices/{noticeId}/comments/{commentId}": {
+      "delete": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "deleteComment",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noticeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/memberships/me": {
+      "delete": {
+        "tags": [
+          "island-management-controller"
+        ],
+        "operationId": "leave",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Left"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/members/{userId}": {
+      "delete": {
+        "tags": [
+          "island-management-controller"
+        ],
+        "operationId": "kick",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/guestbook/{entryId}": {
+      "delete": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "delete_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/{friendUserId}": {
+      "delete": {
+        "tags": [
+          "friend-controller"
+        ],
+        "operationId": "deleteFriend",
+        "parameters": [
+          {
+            "name": "friendUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/blocks/{blockedUserId}": {
+      "delete": {
+        "tags": [
+          "user-block-controller"
+        ],
+        "operationId": "unblock",
+        "parameters": [
+          {
+            "name": "blockedUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/auth/sessions/current": {
+      "delete": {
+        "tags": [
+          "session-logout-controller"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionLogoutResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "JsonNode": {
+        "type": "object",
+        "properties": {
+          "valueNode": {
+            "type": "boolean"
+          },
+          "container": {
+            "type": "boolean"
+          },
+          "missingNode": {
+            "type": "boolean"
+          },
+          "object": {
+            "type": "boolean"
+          },
+          "nodeType": {
+            "type": "string",
+            "enum": [
+              "ARRAY",
+              "BINARY",
+              "BOOLEAN",
+              "MISSING",
+              "NULL",
+              "NUMBER",
+              "OBJECT",
+              "POJO",
+              "STRING"
+            ]
+          },
+          "string": {
+            "type": "boolean"
+          },
+          "integralNumber": {
+            "type": "boolean"
+          },
+          "pojo": {
+            "type": "boolean"
+          },
+          "floatingPointNumber": {
+            "type": "boolean"
+          },
+          "short": {
+            "type": "boolean"
+          },
+          "int": {
+            "type": "boolean"
+          },
+          "long": {
+            "type": "boolean"
+          },
+          "double": {
+            "type": "boolean"
+          },
+          "bigDecimal": {
+            "type": "boolean"
+          },
+          "bigInteger": {
+            "type": "boolean"
+          },
+          "textual": {
+            "type": "boolean",
+            "deprecated": true
+          },
+          "boolean": {
+            "type": "boolean"
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "array": {
+            "type": "boolean"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "null": {
+            "type": "boolean"
+          },
+          "float": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "boolean"
+          },
+          "embeddedValue": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SeaRemarkView": {
+        "type": "object",
+        "properties": {
+          "remark": {
+            "type": "string"
+          },
+          "changedAt": {
+            "type": "string"
+          },
+          "lockedUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "changedAt",
+          "lockedUntil"
+        ]
+      },
+      "ScreenTimeDayView": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "MagazineReceipt": {
+        "type": "object",
+        "properties": {
+          "place": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deferredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "deferredAt",
+          "openedAt",
+          "place",
+          "receivedAt"
+        ]
+      },
+      "CurrentIslandView": {
+        "type": "object",
+        "properties": {
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "currentIslandId"
+        ]
+      },
+      "IslandPromotionUpdated": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId",
+          "updatedAt"
+        ]
+      },
+      "ConstructionTargetView": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "spent": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "buildingId",
+          "selected",
+          "spent",
+          "version"
+        ]
+      },
+      "NotificationSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "notificationEnabled": {
+            "type": "boolean"
+          },
+          "soundEnabled": {
+            "type": "boolean"
+          },
+          "nightModeEnabled": {
+            "type": "boolean"
+          },
+          "nightStartTime": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "nightEndTime": {
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          }
+        },
+        "required": [
+          "nightModeEnabled",
+          "notificationEnabled",
+          "soundEnabled"
+        ]
+      },
+      "DeviceTokenRegisterRequest": {
+        "type": "object",
+        "properties": {
+          "deviceToken": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0
+          },
+          "ownershipToken": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0,
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "deviceBootstrap": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "deviceToken"
+        ]
+      },
+      "DeviceTokenRegisterResponse": {
+        "type": "object",
+        "properties": {
+          "ownershipToken": {
+            "type": "string"
+          }
+        }
+      },
+      "EvictedPinView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "islandId",
+          "name"
+        ]
+      },
+      "MagazineCell": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "relation": {
+            "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "body",
+          "buildingCount",
+          "islandId",
+          "layout",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "promotionId",
+          "relation"
+        ]
+      },
+      "TelescopeItemView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "sailingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "pinnedFrom": {
+            "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "magazineCell": {
+            "$ref": "#/components/schemas/MagazineCell"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "완공 건물 수. 키가 없으면 0 으로 읽는다(옛 Data 호환 — 롤링 배포 중에만 빠지고 null 은 보내지 않는다). 단계 그림은 앱 islandStage(memberCount, buildingCount)"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "arrivedBefore",
+          "full",
+          "intro",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "membershipStatus",
+          "name",
+          "sailingMinutes",
+          "slot"
+        ]
+      },
+      "TelescopePinView": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/TelescopeItemView"
+          },
+          "evicted": {
+            "$ref": "#/components/schemas/EvictedPinView"
+          }
+        },
+        "required": [
+          "item"
+        ]
+      },
+      "LetterDetailView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderNickname": {
+            "type": "string"
+          },
+          "receiverId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "readAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "content",
+          "createdAt",
+          "id",
+          "receiverId"
+        ]
+      },
+      "IslandCreatedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "currentIslandId",
+          "id",
+          "membershipStatus",
+          "role"
+        ]
+      },
+      "TutorialExperienceView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ShopOrder": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "spent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "walletVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "currency",
+          "id",
+          "owned",
+          "ownerType",
+          "productId",
+          "spent",
+          "walletVersion"
+        ]
+      },
+      "IslandQuestCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ]
+      },
+      "IslandQuestClaimed": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string"
+          },
+          "occurrenceId": {
+            "type": "string"
+          },
+          "villagePointsAdded": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bonusAdded": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "claimed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bonusAdded",
+          "claimId",
+          "claimed",
+          "occurrenceId",
+          "villagePointsAdded"
+        ]
+      },
+      "IslandPromotion": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balanceAfter": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newsId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "balanceAfter",
+          "feeFish",
+          "issueDate",
+          "newsId",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionReported": {
+        "type": "object",
+        "properties": {
+          "reported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reported"
+        ]
+      },
+      "NoticeView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "id",
+          "title"
+        ]
+      },
+      "NoticeCommentCreatedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ]
+      },
+      "MailboxMessageResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientMessageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "IslandJoinResultView": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "currentIslandId",
+          "islandId",
+          "requestId",
+          "status",
+          "version"
+        ]
+      },
+      "IslandInvitationView": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "code",
+          "expiresAt",
+          "url"
+        ]
+      },
+      "IslandHostTransferResult": {
+        "type": "object",
+        "properties": {
+          "hostUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandGuestbookItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mine": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authorId",
+          "content",
+          "createdAt",
+          "id",
+          "mine"
+        ]
+      },
+      "ConstructionResultView": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "spent": {
+            "$ref": "#/components/schemas/ConstructionSpent"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "villagePoints": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "walletVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "completesAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildingId",
+          "completesAt",
+          "spent",
+          "startedAt",
+          "status",
+          "version",
+          "villagePoints",
+          "walletVersion"
+        ]
+      },
+      "ConstructionSpent": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ]
+      },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "arrivedBefore",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
+      "InvitationArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrived": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arrived",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
+      "InvitationResolvedView": {
+        "type": "object",
+        "properties": {
+          "island": {
+            "$ref": "#/components/schemas/IslandSummaryView"
+          },
+          "invitationToken": {
+            "type": "string"
+          },
+          "arrival": {
+            "$ref": "#/components/schemas/InvitationArrivalView"
+          }
+        },
+        "required": [
+          "invitationToken",
+          "island"
+        ]
+      },
+      "IslandSummaryView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "joinRequestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "growthStage": {
+            "type": "string"
+          },
+          "themeId": {
+            "type": "string"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "greeting": {
+            "type": "string"
+          },
+          "greetingIsDefault": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "id",
+          "intro",
+          "joinRequestId",
+          "maxMembers",
+          "memberCount",
+          "membershipStatus",
+          "name",
+          "visibility"
+        ]
+      },
+      "ActiveIntervalView": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endedAt",
+          "startedAt"
+        ]
+      },
+      "StateView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverNow": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "restStartedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activeIntervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveIntervalView"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "destinationIslandName": {
+            "type": "string",
+            "description": "바다 세션의 목적지 섬 이름. 키가 없으면 섬 세션이거나 섬 행이 없는 것이다(옛 Data 호환 — null 은 보내지 않는다)"
+          }
+        },
+        "required": [
+          "activeSeconds",
+          "id",
+          "islandId",
+          "serverNow",
+          "startedAt",
+          "status",
+          "subject",
+          "version"
+        ]
+      },
+      "TutorialRewardView": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "AllocationView": {
+        "type": "object",
+        "properties": {
+          "personalFishAdded": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "constructionFishAdded": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "constructionFishAdded",
+          "personalFishAdded"
+        ]
+      },
+      "FinishView": {
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "goalAchieved": {
+            "type": "boolean"
+          },
+          "earnedFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "allocation": {
+            "$ref": "#/components/schemas/AllocationView"
+          },
+          "completedAt": {
+            "type": "string"
+          },
+          "questProgress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestProgressView"
+            }
+          },
+          "activeIntervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveIntervalView"
+            }
+          },
+          "seaReward": {
+            "$ref": "#/components/schemas/SeaRewardView"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "arrived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "activeSeconds",
+          "allocation",
+          "completedAt",
+          "earnedFish",
+          "goalAchieved",
+          "islandId",
+          "recordId",
+          "subject"
+        ]
+      },
+      "QuestProgressView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "myRate": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "id",
+          "myRate"
+        ]
+      },
+      "SeaRewardView": {
+        "type": "object",
+        "properties": {
+          "grantedProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minutesToNextTier": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "grantedProductIds",
+          "newProductIds"
+        ]
+      },
+      "AuthSessionResult": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "onboardingComplete": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionRefreshResult": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "BatchRequest": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 4096,
+              "minLength": 0
+            },
+            "maxItems": 10,
+            "minItems": 1
+          }
+        },
+        "required": [
+          "urls"
+        ]
+      },
+      "Preview": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "originalUrl": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "mainIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "catColor",
+          "id",
+          "mainIslandId",
+          "name"
+        ]
+      },
+      "AccountSettingsResult": {
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PersonalAppearanceView": {
+        "type": "object",
+        "properties": {
+          "clothes": {
+            "type": "string"
+          },
+          "decor": {
+            "type": "string"
+          },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
+            "type": "string"
+          },
+          "hull": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "clothes",
+          "decor",
+          "head",
+          "hull",
+          "neck",
+          "position",
+          "shoes",
+          "version"
+        ]
+      },
+      "ManagedIslandView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "id",
+          "intro",
+          "maxMembers",
+          "name",
+          "version"
+        ]
+      },
+      "IslandQuestUpdated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "id",
+          "targetMinutes",
+          "title"
+        ]
+      },
+      "PlaybackView": {
+        "type": "object",
+        "properties": {
+          "trackId": {
+            "type": "string"
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "positionSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "changedBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "changedBy",
+          "durationSeconds",
+          "effectiveAt",
+          "playing",
+          "positionSeconds",
+          "serverNow",
+          "trackId",
+          "version"
+        ]
+      },
+      "JoinRequestAnswerView": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "status",
+          "version"
+        ]
+      },
+      "IslandAppearanceView": {
+        "type": "object",
+        "properties": {
+          "islandThemeId": {
+            "type": "string"
+          },
+          "buildingThemes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "buildingThemes",
+          "islandThemeId",
+          "version"
+        ]
+      },
+      "IslandRankingView": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "averageFocusSeconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandRankings": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandRankingView"
+            }
+          },
+          "myRank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string"
+          }
+        }
+      },
+      "AccountView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "mainIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "linkedProviders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "onboardingComplete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "catColor",
+          "id",
+          "linkedProviders",
+          "mainIslandId",
+          "name",
+          "onboardingComplete"
+        ]
+      },
+      "TelescopeView": {
+        "type": "object",
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRefreshMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelescopeItemView"
+            }
+          }
+        },
+        "required": [
+          "bucketStart",
+          "items",
+          "nextRefreshMinutes"
+        ]
+      },
+      "MagazineIssue": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "current",
+          "issueDate",
+          "issueId",
+          "issueNo",
+          "publishedAt"
+        ]
+      },
+      "MagazineToday": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/MagazineIssue"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/MagazineReceipt"
+          }
+        },
+        "required": [
+          "issue",
+          "receipt"
+        ]
+      },
+      "MagazineIssueSummary": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issueDate",
+          "issueId",
+          "issueNo",
+          "opened",
+          "publishedAt"
+        ]
+      },
+      "MagazineIssues": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineIssueSummary"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "MagazineEditorial": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineRankedIsland"
+            }
+          },
+          "newIslands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineIslandCard"
+            }
+          },
+          "note": {
+            "$ref": "#/components/schemas/MagazineNote"
+          }
+        },
+        "required": [
+          "newIslands",
+          "note",
+          "ranking"
+        ]
+      },
+      "MagazineIslandCard": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "buildingCount",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "relation"
+        ]
+      },
+      "MagazineIssuePage": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/MagazineIssue"
+          },
+          "editorial": {
+            "$ref": "#/components/schemas/MagazineEditorial"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineCell"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cells",
+          "editorial",
+          "issue",
+          "nextCursor"
+        ]
+      },
+      "MagazineNote": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tipNo": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "body",
+          "tipNo",
+          "type"
+        ]
+      },
+      "MagazineRankedIsland": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "buildingCount",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "rank",
+          "relation"
+        ]
+      },
+      "MagazineAsset": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assetId",
+          "bundle",
+          "owned"
+        ]
+      },
+      "MagazineAssets": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineAsset"
+            }
+          },
+          "stickers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineSticker"
+            }
+          },
+          "tapes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineAsset"
+            }
+          }
+        },
+        "required": [
+          "frames",
+          "stickers",
+          "tapes"
+        ]
+      },
+      "MagazineSticker": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "tab": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assetId",
+          "bundle",
+          "owned",
+          "tab"
+        ]
+      },
+      "MyJoinRequestView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandName": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "createdAt",
+          "id",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "status",
+          "version"
+        ]
+      },
+      "MyJoinRequests": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyJoinRequestView"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "JoinRequestStatusView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "id",
+          "islandId",
+          "status",
+          "version"
+        ]
+      },
+      "MyIslandsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandSummaryView"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lossReason": {
+            "type": "string"
+          }
+        }
+      },
+      "PersonalInventoryView": {
+        "type": "object",
+        "properties": {
+          "clothes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "decor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "head": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "neck": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shoes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hulls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inventoryVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "equipped": {
+            "$ref": "#/components/schemas/PersonalAppearanceView"
+          }
+        },
+        "required": [
+          "clothes",
+          "decor",
+          "equipped",
+          "head",
+          "hulls",
+          "inventoryVersion",
+          "neck",
+          "shoes"
+        ]
+      },
+      "SummaryView": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "completedSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currentSessionSecondsToday": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverNow": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "completedSeconds",
+          "currentSessionSecondsToday",
+          "date",
+          "serverNow",
+          "totalSeconds"
+        ]
+      },
+      "LetterItemView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "counterpartUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "counterpartNickname": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "isRead": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "readAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "createdAt",
+          "id",
+          "isRead"
+        ]
+      },
+      "LetterPageView": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LetterItemView"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "hasNext": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "content",
+          "hasNext",
+          "size"
+        ]
+      },
+      "IslandPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandSummaryView"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "FishEarningsMember": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "earnedFish": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FishEarningsView": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FishEarningsMember"
+            }
+          }
+        }
+      },
+      "ShopWallets": {
+        "type": "object",
+        "properties": {
+          "fish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "villagePoints": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fishVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "villagePointsVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "fish",
+          "fishVersion",
+          "villagePoints",
+          "villagePointsVersion"
+        ]
+      },
+      "Products": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShopCatalogItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "ShopCatalogItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "productVersion": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "available",
+          "currency",
+          "id",
+          "kind",
+          "owned",
+          "ownerType",
+          "price",
+          "productVersion",
+          "reason",
+          "title"
+        ]
+      },
+      "ShopProduct": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "productVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previewUrl": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": "string"
+          },
+          "requiredBuilding": {
+            "type": "string"
+          },
+          "requiredProduct": {
+            "$ref": "#/components/schemas/ShopRequiredProduct"
+          },
+          "targetBuilding": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "blockedReason",
+          "currency",
+          "id",
+          "kind",
+          "owned",
+          "ownerType",
+          "previewUrl",
+          "price",
+          "productVersion",
+          "requiredBuilding",
+          "requiredProduct",
+          "targetBuilding",
+          "title"
+        ]
+      },
+      "ShopRequiredProduct": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ]
+      },
+      "Orders": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShopOrderItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "ShopOrderItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "createdAt",
+          "currency",
+          "id",
+          "price",
+          "productId"
+        ]
+      },
+      "MemberWatermarkView": {
+        "type": "object",
+        "properties": {
+          "projection": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string"
+          },
+          "aggregateId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "aggregateId",
+          "islandId",
+          "projection",
+          "version"
+        ]
+      },
+      "RestMemberView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "restSeat": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "restStartedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "restSeat",
+          "restStartedAt",
+          "userId"
+        ]
+      },
+      "RestMembersView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RestMemberView"
+            }
+          },
+          "serverNow": {
+            "type": "string"
+          },
+          "watermarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberWatermarkView"
+            }
+          }
+        },
+        "required": [
+          "items",
+          "serverNow",
+          "watermarks"
+        ]
+      },
+      "IslandLedgerEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "groupedUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "entryCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "Ledger": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string"
+          },
+          "earnedTotal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spentTotal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandLedgerEntry"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "IslandQuestMember": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          },
+          "achieved": {
+            "type": "boolean"
+          },
+          "claimed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "achieved",
+          "claimed",
+          "measurementStatus",
+          "name",
+          "rate",
+          "userId"
+        ]
+      },
+      "IslandQuestProgressView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "occurrenceId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "myRate": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reward": {
+            "$ref": "#/components/schemas/IslandQuestReward"
+          },
+          "settlementStatus": {
+            "type": "string"
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "claimBlockedReason": {
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "bonusAmount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bonusGranted": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandQuestMember"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bonusAmount",
+          "bonusGranted",
+          "claimBlockedReason",
+          "claimable",
+          "claimed",
+          "date",
+          "id",
+          "members",
+          "myRate",
+          "nextCursor",
+          "occurrenceId",
+          "reward",
+          "settlementStatus",
+          "targetMinutes",
+          "timezone",
+          "title",
+          "type",
+          "version",
+          "windowEnd",
+          "windowStart"
+        ]
+      },
+      "IslandQuestReward": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ]
+      },
+      "CurrentQuestsView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandQuestItem"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "IslandQuestItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "occurrenceId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "myRate": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reward": {
+            "$ref": "#/components/schemas/IslandQuestReward"
+          },
+          "settlementStatus": {
+            "type": "string"
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "claimBlockedReason": {
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "bonusAmount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bonusGranted": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "bonusAmount",
+          "bonusGranted",
+          "claimBlockedReason",
+          "claimable",
+          "claimed",
+          "date",
+          "id",
+          "myRate",
+          "occurrenceId",
+          "reward",
+          "settlementStatus",
+          "targetMinutes",
+          "timezone",
+          "title",
+          "type",
+          "version",
+          "windowEnd",
+          "windowStart"
+        ]
+      },
+      "IslandPromotionEditor": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "$ref": "#/components/schemas/IslandPromotionWindow"
+          },
+          "next": {
+            "$ref": "#/components/schemas/IslandPromotionNext"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/IslandPromotionLatest"
+          },
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balance": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "privateIsland": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "balance",
+          "feeFish",
+          "latest",
+          "next",
+          "privateIsland",
+          "window"
+        ]
+      },
+      "IslandPromotionLatest": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionNext": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "appliedAt",
+          "body",
+          "editable",
+          "issueDate",
+          "layout",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionWindow": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "boolean"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "closesAt",
+          "issueDate",
+          "open",
+          "opensAt"
+        ]
+      },
+      "IslandNoticeItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "commentCount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandNoticeItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Detail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            }
+          },
+          "nextCommentsCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "IslandNewsItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "body",
+          "createdAt",
+          "id",
+          "kind"
+        ]
+      },
+      "IslandNewsPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandNewsItem"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "MailboxPageResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailboxMessageResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "IslandMemberView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/MemberAppearanceView"
+          }
+        },
+        "required": [
+          "appearance",
+          "id",
+          "role"
+        ]
+      },
+      "MemberAppearanceView": {
+        "type": "object",
+        "properties": {
+          "clothes": {
+            "type": "string"
+          },
+          "decor": {
+            "type": "string"
+          },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
+            "type": "string"
+          },
+          "hull": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "clothes",
+          "decor",
+          "hull",
+          "position",
+          "version"
+        ]
+      },
+      "MembersPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandMemberView"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandJoinRequestView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "applicantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "applicantId",
+          "id",
+          "status",
+          "version"
+        ]
+      },
+      "JoinRequestsPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandJoinRequestView"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "BuildingThemeView": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "themeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildingId",
+          "themeId"
+        ]
+      },
+      "SharedInventoryView": {
+        "type": "object",
+        "properties": {
+          "audio": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "islandThemes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "buildingThemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuildingThemeView"
+            }
+          },
+          "inventoryVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/IslandAppearanceView"
+          }
+        },
+        "required": [
+          "appearance",
+          "audio",
+          "buildingThemes",
+          "inventoryVersion",
+          "islandThemes"
+        ]
+      },
+      "IslandGuestbook": {
+        "type": "object",
+        "properties": {
+          "boardBuilt": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandGuestbookItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardBuilt",
+          "items"
+        ]
+      },
+      "FocusMemberView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "activeSeconds",
+          "name",
+          "sessionId",
+          "status",
+          "subject",
+          "userId"
+        ]
+      },
+      "FocusMembersView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FocusMemberView"
+            }
+          },
+          "serverNow": {
+            "type": "string"
+          },
+          "watermarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberWatermarkView"
+            }
+          }
+        },
+        "required": [
+          "items",
+          "serverNow",
+          "watermarks"
+        ]
+      },
+      "ActiveConstruction": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "completesAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildingId",
+          "completesAt",
+          "startedAt"
+        ]
+      },
+      "ConstructionOptionItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "buildable": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blockedReason",
+          "buildable",
+          "cost",
+          "currency",
+          "id",
+          "name",
+          "selectable"
+        ]
+      },
+      "ConstructionOptionsView": {
+        "type": "object",
+        "properties": {
+          "islandVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "costPolicyVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "selectedBuildingId": {
+            "type": "string"
+          },
+          "villagePoints": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "walletVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConstructionOptionItem"
+            }
+          },
+          "residentProgress": {
+            "$ref": "#/components/schemas/ConstructionResidentProgress"
+          },
+          "activeConstruction": {
+            "$ref": "#/components/schemas/ActiveConstruction"
+          },
+          "contributedCompletions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "costPolicyVersion",
+          "islandVersion",
+          "items",
+          "selectedBuildingId",
+          "villagePoints",
+          "walletVersion"
+        ]
+      },
+      "ConstructionResident": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "contributed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "remaining": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "contributed",
+          "name",
+          "remaining",
+          "userId"
+        ]
+      },
+      "ConstructionResidentProgress": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "requiredPerResident": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "residents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConstructionResident"
+            }
+          }
+        },
+        "required": [
+          "buildingId",
+          "requiredPerResident",
+          "residents"
+        ]
+      },
+      "FriendView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "isFocusing": {
+            "type": "boolean"
+          },
+          "focusTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusStartedAt": {
+            "type": "string"
+          },
+          "focusTagName": {
+            "type": "string"
+          },
+          "mainIslandName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "focusTimeMinutes",
+          "isFocusing",
+          "userId"
+        ]
+      },
+      "SearchView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nickname",
+          "relation",
+          "userId"
+        ]
+      },
+      "RequestView": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "createdAt",
+          "requestId",
+          "userId"
+        ]
+      },
+      "ItemView": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "anchorX": {
+            "type": "number"
+          },
+          "anchorY": {
+            "type": "number"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retiredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "renderData": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "anchorX",
+          "anchorY",
+          "height",
+          "imageUrl",
+          "kind",
+          "productId",
+          "retiredAt",
+          "slot",
+          "sortOrder",
+          "title",
+          "width"
+        ]
+      },
+      "BlockedUserView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "NotificationSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "notificationEnabled": {
+            "type": "boolean"
+          },
+          "soundEnabled": {
+            "type": "boolean"
+          },
+          "nightModeEnabled": {
+            "type": "boolean"
+          },
+          "nightStartTime": {
+            "type": "string"
+          },
+          "nightEndTime": {
+            "type": "string"
+          }
+        }
+      },
+      "AccountDeleted": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeDeletedView": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
+      "JoinRequestCancelView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ]
+      },
+      "Left": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "boolean"
+          },
+          "nextLocation": {
+            "$ref": "#/components/schemas/NextLocation"
+          }
+        },
+        "required": [
+          "nextLocation"
+        ]
+      },
+      "NextLocation": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Removed": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionLogoutResult": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}
