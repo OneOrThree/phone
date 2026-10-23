@@ -137,7 +137,8 @@ class FocusScreenContractTest extends ScreenContractTestBase {
     void fragmentTimeoutPreservesReasonWithPublic400() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
         // ci 의 read-timeout 은 300ms 다 — 매 시도를 그보다 길게 붙든다. 재시도(maxAttempts 2)까지 두 시도를 모두
-        // 붙드니 latch 는 2 다. 서킷 임계를 1000 으로 올려 이 실패가 다른 테스트를 오염시키지 않는다.
+        // 붙드니 latch 는 2 다. maxAttempts 를 올리면 latch 도 같이 올릴 것 — 2 는 «정확히 2회»일 때만 안전하다.
+        // 서킷 임계를 1000 으로 올려 이 실패가 다른 테스트를 오염시키지 않는다.
         CountDownLatch released = new CountDownLatch(2);
         DATA.on(members(ISLAND), request -> {
             try {
@@ -150,11 +151,16 @@ class FocusScreenContractTest extends ScreenContractTestBase {
             return ok(focusMembers(ISLAND));
         });
 
-        mockMvc.perform(auth(get("/screens/focus")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
-        // mock 상류는 스레드 하나다 — 붙든 두 시도가 끝났다는 신호를 기다려 다음 테스트 요청이 줄 서지 않게 한다.
-        assertThat(released.await(5, TimeUnit.SECONDS)).isTrue();
+        try {
+            mockMvc.perform(auth(get("/screens/focus")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
+        } finally {
+            // 단언이 실패해도 붙든 시도를 비운다 — 안 그러면 후속 테스트가 연쇄로 타임아웃 난다.
+            // mock 상류는 스레드 하나다 — 붙든 두 시도가 끝났다는 신호를 기다려 다음 테스트 요청이 줄 서지 않게 한다.
+            released.await(5, TimeUnit.SECONDS);
+        }
+        assertThat(released.getCount()).as("붙든 두 시도가 모두 끝났다").isZero();
     }
 
     @Test
