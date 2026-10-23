@@ -37,7 +37,7 @@ class SubscriptionRegistryConsistencyTest {
         boolean changed = subscribeThroughGate("id1", destinationB); // 같은 id 의 다른 목적지
         boolean other = subscribeThroughGate("id2", destinationA); // A 는 id1 이 이미 들고 있다
 
-        // 브로커 상태가 이 테스트의 본 단언이다 — 관문이 바꿔 끼우면 id2 가 통과해 A 에 [id1, id2] 둘이 걸린다.
+        // 브로커 상태가 이 테스트의 본 단언이다 — 관문이 바꿔 끼우면 id2 가 통과해 A 에 [id2, id1] 둘이 걸린다.
         MultiValueMap<String, String> forA = broker.findSubscriptions(messageTo(destinationA));
         assertThat(forA).as("A 의 구독자는 이 세션 하나").hasSize(1);
         assertThat(forA.get(SESSION)).as("그 세션의 A 구독은 id1 하나 — 두 번 전송되지 않는다").containsExactly("id1");

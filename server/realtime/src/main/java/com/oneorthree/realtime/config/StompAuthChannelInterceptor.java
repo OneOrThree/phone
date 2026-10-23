@@ -462,7 +462,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private ChatPrincipal requireSubscribable(StompHeaderAccessor accessor, String destination) {
         ChatPrincipal principal = requireAuthenticated(accessor);
         if (!sessions.subscribe(accessor.getSessionId(), accessor.getSubscriptionId(), destination)) {
-            log.debug("구독 거절 — 세션의 중복 구독이거나 누적 상한을 넘었다");
+            log.debug("구독 거절 — 같은 id 의 목적지 변경이거나 세션의 중복 구독이거나 누적 상한을 넘었다");
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
         return principal;
