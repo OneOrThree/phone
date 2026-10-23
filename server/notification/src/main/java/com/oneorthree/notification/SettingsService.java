@@ -40,7 +40,7 @@ class SettingsService {
             merge(user, patch, version, false);
             return Map.of("applied", true);
         }, false, () -> requireLive(user, patch.generation()));
-        // 최초·재전달 모두 live()가 잡은 user-state xact 잠금 아래다. 저장 응답이 아니라 지금 정본을 읽는다(GROMO-2209).
+        // 최초·재전달 모두(merge / requireLive → live()) user-state xact 잠금 아래다. 저장 응답이 아니라 지금 정본을 읽는다(GROMO-2209).
         // 이 읽기는 READ COMMITTED(기본) 전제다. REPEATABLE READ 로 올리면 스냅샷이 잠금 전에 잡혀 옛 값을 읽을 수 있다.
         return Map.of("applied", true, "settings", view(requiredRow(user)));
     }
