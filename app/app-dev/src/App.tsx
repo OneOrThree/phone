@@ -695,6 +695,7 @@ function Gromo() {
   navKeyRef.current = `${route}|${detail}|${history.length}`;
   // 링크가 시작한 섬 이동이 진행 중인 세션 세대(없으면 null — 세대 0 과 구분한다), 그 사이 도착해 REQUEST_IN_PROGRESS 로
   // 거절된 «가장 최근» 섬 링크 하나. 둘 다 세대를 달아, 이전 세션의 늦은 응답이 새 세션의 값을 건드리지 못하게 한다.
+  const islandsSynced = !!state.serverIslands;
   const linkSwitching = useRef<number | null>(null);
   const queuedIslandLink = useRef<{
     islandId: string;
@@ -722,12 +723,14 @@ function Gromo() {
     // 현재 섬 유무(state.onboarded)는 계정 온보딩과 별개다 — 계정 온보딩(character)은 위 보관 화면이 이미 막는다.
     // 호 읽기는 소속 섬이 없는 바다에서도 열려서(seaMagazine) 현재 섬을 요구하지 않는다. 그 밖의 링크는 현재 섬이 있어야 한다
     // (섬 이동은 첫 섬 안내 대기(awaiting-first-island)를 건너뛰지 않게 onboarded 로 막는다).
+    // 다만 잡지는 섬/바다를 serverIslands 로 가르므로 섬 동기화(ISLAND_SYNC)를 한 번이라도 마친 뒤에 연다. 부팅(decideBootRoute)과
+    // 로그인 채택(navigate)은 동기화 뒤에 loaded·화면 이동을 하니 성공하면 항상 채워져 있다 — 비는 것은 동기화가 실패한 경우뿐이다.
     const tutorialForcesGuide = route === 'home' && !!state.tutorial && state.tutorial.step <= 3;
     // 건물·휴식 전환 애니메이션이 도는 동안에도 보관한다 — 끝날 때 부르는 navigate 가 링크 목적지를 덮는다.
     // 전환을 취소하지 않고, 끝나면(phase idle) 이 effect 가 다시 돌아 그때 연다.
     if (
       !hasServerSession ||
-      (!state.onboarded && target.kind !== 'magazine') ||
+      (target.kind === 'magazine' ? !islandsSynced : !state.onboarded) ||
       DEEP_LINK_HOLD_ROUTES.includes(route) ||
       tutorialForcesGuide ||
       fireTransition.phase !== 'idle'
@@ -757,6 +760,9 @@ function Gromo() {
       return;
     }
     if (target.kind === 'island') {
+      // 불변식: 보관(queuedIslandLink)은 followsAnother — 같은 세대의 링크 전환이 아직 진행 중일 때 — 에만 일어난다. 보관분을
+      // 다시 열 때는 앞선 전환이 끝나 linkSwitching 이 비었으니 followsAnother=false 라 다시 보관되지 않는다(무한 재시도 없음).
+      // 재개가 가능한 전제: islandCommands.ts 의 selection 잠금(:131-141)이 finally 에서 풀린 뒤에야 switchCurrent 가 resolve/reject 한다.
       const openIsland = (islandId: string, order: number, navKey: string) => {
         const unavailable = () => {
           open('home');
@@ -820,6 +826,7 @@ function Gromo() {
     incomingAppLink,
     hasServerSession,
     state.onboarded,
+    islandsSynced,
     state.tutorial,
     route,
     fireTransition.phase,
