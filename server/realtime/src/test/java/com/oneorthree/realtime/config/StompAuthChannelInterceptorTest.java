@@ -4,6 +4,8 @@ import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
+import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
@@ -34,6 +36,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -901,6 +904,74 @@ class StompAuthChannelInterceptorTest {
         var plain = handler.handleClientMessageProcessingError(null,
                 new ChatException(ChatErrorCode.NOT_A_MEMBER));
         assertThat(StompHeaderAccessor.wrap(plain).getFirstNativeHeader("channel")).isNull();
+    }
+
+    /** 관문이 던진 거절을 실제 ERROR 핸들러에 통과시켜 {@code channel} 헤더를 읽는다(GROMO-2354) — 헤더가 없으면 null. */
+    private String errorFrameChannel(org.assertj.core.api.ThrowableAssert.ThrowingCallable rejected) {
+        Throwable thrown = catchThrowable(rejected);
+        assertThat(thrown).isInstanceOf(DomainException.class);
+        var handler = new ChatStompErrorHandler(tools.jackson.databind.json.JsonMapper.builder().build());
+        var frame = handler.handleClientMessageProcessingError(null, new RuntimeException(thrown));
+        return StompHeaderAccessor.wrap(frame).getFirstNativeHeader("channel");
+    }
+
+    private StompHeaderAccessor emotesSubscribe() {
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+        return frame;
+    }
+
+    @Test
+    @DisplayName("ERROR 프레임 — events·movement 구독 판정에서 나온 상류 장애·토큰 거절도 channel 헤더를 싣는다 (GROMO-2354)")
+    void upstreamFailureDuringIslandSubscribeCarriesChannel() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        for (DomainException upstream : java.util.List.<DomainException>of(
+                new UpstreamUnavailableException(), new UpstreamRejectedCredentialException())) {
+            org.mockito.BDDMockito.willThrow(upstream).given(accessGuard).requireMember(groupId, userId, BEARER);
+
+            assertThat(errorFrameChannel(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null)))
+                    .as("events — %s", upstream.getErrorCode()).isEqualTo("events");
+            assertThat(errorFrameChannel(() -> interceptor.preSend(message(movementSubscribe("movement", groupId)), null)))
+                    .as("movement — %s", upstream.getErrorCode()).isEqualTo("movement");
+            assertThat(errorFrameChannel(() -> interceptor.preSend(
+                    message(movementSubscribe("movement/snapshot", groupId)), null)))
+                    .as("movement/snapshot — %s", upstream.getErrorCode()).isEqualTo("movement");
+        }
+    }
+
+    @Test
+    @DisplayName("ERROR 프레임 — emotes 구독 거절(시도 창·NOT_FOCUSING·상류 장애)은 channel: emotes 를 싣고 events·movement 카운터는 세지 않는다 (GROMO-2354)")
+    void emotesSubscribeRejectionCarriesChannel() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+
+        // 구독 시도 창 초과
+        given(valueOps.setIfAbsent(eq(RedisKeys.emoteSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isEqualTo("emotes");
+        given(valueOps.setIfAbsent(eq(RedisKeys.emoteSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(true);
+
+        // 주민인데 진행 세션 없음
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isEqualTo("emotes");
+
+        // 방문자 판정 조회가 판정 불가
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willThrow(new UpstreamUnavailableException());
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isEqualTo("emotes");
+
+        assertThat(meters.find("realtime.island.subscribe.total").counters()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ERROR 프레임 — 구독 없이 보낸 이동 intent 의 NOT_A_MEMBER 는 channel: movement 를 싣는다 (GROMO-2354)")
+    void movementIntentWithoutSubscriptionCarriesChannel() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(intentSend(groupId)), null)))
+                .isEqualTo("movement");
     }
 
     @Test
