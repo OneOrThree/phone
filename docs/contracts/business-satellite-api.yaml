@@ -895,7 +895,8 @@ paths:
       x-retryable: true
       description: ever_opened 확인과 사용자 fence를 같은 TX에서 잠근다. 최초행은 baseline의5값으로 초기화, 기존행은 mask만 적용한다. field version별 비교로
         늦은 다른필드 요청을 보존한다. MIGRATION_NOT_READY409/STALE_AUTH_GENERATION409은 신규 Business에서503/401로 매핑한다. relay도 동일 병합을
-        적용하며 폐기 세대는 수신 완료 no-op이다.
+        적용하며 폐기 세대는 수신 완료 no-op이다. 최초·재전달 모두 같은 TX 잠금에서 현재 정본을 settings로 반환하며 재전달은 다시
+        적용하지 않는다(GROMO-2209).
     get:
       tags: [noti-설정]
       operationId: getNotificationSettings
@@ -1226,10 +1227,14 @@ components:
       additionalProperties: false
       required:
       - applied
+      - settings
       properties:
         applied:
           type: boolean
           const: true
+        settings:
+          $ref: '#/components/schemas/CompleteNotificationSettings'
+          description: 최초·재전달 모두 사용자 잠금과 같은 TX에서 읽은 현재 정본. 요청값·저장된 첫 응답을 재생하지 않는다(GROMO-2209).
     SettingsPatchCommandResult:
       type: object
       additionalProperties: false

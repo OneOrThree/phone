@@ -92,7 +92,10 @@ class SettingsPatchIntegrationTest {
         open();
         settings.patch(USER, partial("notificationEnabled", false, 0), 42, "new-off");
         settings.patch(USER, partial("soundEnabled", false, 0), 41, "old-sound");
-        settings.patch(USER, partial("notificationEnabled", true, 0), 41, "old-on");
+        Map<String, Object> late = settings.patch(USER, partial("notificationEnabled", true, 0), 41, "old-on");
+        // 대체된 늦은 명령도 요청값이 아니라 현재 정본을 돌려주고, 같은 키 재전달도 다시 적용하지 않는다.
+        assertThat(Json.map(late.get("settings"))).containsEntry("notificationEnabled", false);
+        assertThat(settings.patch(USER, partial("notificationEnabled", true, 0), 41, "old-on")).isEqualTo(late);
         assertThat(settings.read(USER)).containsEntry("notificationEnabled", false).containsEntry("soundEnabled", false)
                 .containsEntry("nightModeEnabled", true).containsEntry("nightStartTime", "23:05");
         assertThat(store.one("SELECT version,sound_enabled_version FROM settings WHERE user_id=?", USER))
@@ -122,12 +125,15 @@ class SettingsPatchIntegrationTest {
     }
 
     @Test
-    void replayPreservesOriginalSuccessWithoutApplyingOldValuesAndDifferentBodyConflicts() {
+    void replayReturnsCurrentValueWithoutApplyingOldValuesAndDifferentBodyConflicts() {
         open();
-        settings.patch(USER, partial("notificationEnabled", false, 0), 1, "same");
+        Map<String, Object> first = settings.patch(USER, partial("notificationEnabled", false, 0), 1, "same");
+        assertThat(Json.map(first.get("settings"))).containsEntry("notificationEnabled", false);
         settings.patch(USER, partial("notificationEnabled", true, 0), 2, "new");
-        assertThat(settings.patch(USER, partial("notificationEnabled", false, 0), 1, "same"))
-                .containsEntry("applied", true);
+        // v1 응답 유실 → 다른 기기 v2 적용 → v1 같은 키 재시도: 첫 응답(false)을 재생하지 않고 현재 정본을 돌려준다.
+        Map<String, Object> replay = settings.patch(USER, partial("notificationEnabled", false, 0), 1, "same");
+        assertThat(replay).containsEntry("applied", true);
+        assertThat(Json.map(replay.get("settings"))).containsEntry("notificationEnabled", true);
         assertThat(settings.read(USER)).containsEntry("notificationEnabled", true);
         assertThatThrownBy(() -> settings.patch(USER, partial("notificationEnabled", true, 0), 1, "same"))
                 .hasMessage("IDEMPOTENCY_KEY_CONFLICT");
