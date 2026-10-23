@@ -281,6 +281,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | Key | Writer | This service | Purpose |
 | --- | --- | --- | --- |
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
+| `cache:chat:membergen:{userId}` | chat | read/write | 멤버십 캐시 무효화 표식(GROMO-2141) — `MembershipService.evict` 가 무작위 값을 `SET … EX <cache-ttl>` 로 쓰고, 조회는 상류를 부르기 전에 읽어 둔 값과 같을 때만 `cache:chat:member:` 를 적재한다(Lua CAS). 표식 TTL 은 상류 조회 최장 시간(≈6 s)을 넘어야 한다 |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
 | `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
 | `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <payload accessTokenExpiresAt + 60 s, 없으면 30일>`. CONNECT·REST(`JwtFilter`)가 읽는다(프레임 검사는 인메모리). 쓰기 실패는 경고만, 읽기 실패는 fail-open. 사건은 `chat:events:v1` 제어 봉투로 전 replica 에 퍼져 각자 인메모리 펜스·세션 종료를 한다 |
@@ -307,7 +308,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
-`Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
+`MembershipService.store` 의 CAS Lua 도 `cache:chat:member:`·`cache:chat:membergen:` 두 키를 한 번에 만져 같은 제약을 받는다. `Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
 **ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
 키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는

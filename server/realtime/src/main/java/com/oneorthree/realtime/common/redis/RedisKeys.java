@@ -12,6 +12,9 @@ import java.util.UUID;
  *   <tr><th>키</th><th>소유(쓰기)</th><th>이 서비스</th><th>용도</th></tr>
  *   <tr><td>{@code cache:chat:member:{userId}}</td><td>채팅</td><td>읽기·쓰기</td>
  *       <td>유저가 속한 섬(그룹) id 집합. 서비스 내부 캐시라 <b>다른 서비스와 공유하지 않는다</b></td></tr>
+ *   <tr><td>{@code cache:chat:membergen:{userId}}</td><td>채팅</td><td>읽기·쓰기</td>
+ *       <td>그 유저의 멤버십 캐시 «무효화 표식»(GROMO-2141) — 사건이 무효화할 때마다 새 무작위 값으로 쓴다.
+ *       진행 중이던 조회의 늦은 적재를 거른다. TTL 은 캐시와 같다</td></tr>
  *   <tr><td>{@code cache:chat:block:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>그 유저가 차단한 사용자 id 집합 + 적재 당시 세대(GROMO-2182). Data 정본의 사본이다</td></tr>
  *   <tr><td>{@code cache:chat:blockgen:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
@@ -120,6 +123,7 @@ public final class RedisKeys {
     private static final String SEA_EMOTE_RATE_PREFIX = "lock:chat:sea:emote:";
     private static final String SEA_EMOTE_ATTEMPT_PREFIX = "lock:chat:sea:emote:try:";
     private static final String MEMBER_CACHE_PREFIX = "cache:chat:member:";
+    private static final String MEMBER_EVICT_PREFIX = "cache:chat:membergen:";
     private static final String BLOCK_CACHE_PREFIX = "cache:chat:block:";
     private static final String BLOCK_GENERATION_PREFIX = "cache:chat:blockgen:";
     private static final String REVOKED_SESSION_PREFIX = "cache:chat:revoked:";
@@ -151,6 +155,18 @@ public final class RedisKeys {
     /** 유저가 속한 그룹 id 집합(SET). 값은 groupId 의 문자열 표현이다. */
     public static String memberCache(UUID userId) {
         return MEMBER_CACHE_PREFIX + userId;
+    }
+
+    /**
+     * 멤버십 캐시의 무효화 표식(GROMO-2141) — 값은 {@code MembershipService#evict} 가 쓰는 무작위 문자열이고 없으면 «표식 없음»이다.
+     *
+     * <p>조회는 상류를 부르기 «전에» 이 값을 읽어 두고, 적재할 때 그 값이 그대로일 때만 {@link #memberCache} 를 쓴다. 강퇴 커밋 직전에
+     * 시작한 조회가 무효화(키 삭제)보다 늦게 적재하면 지우기만으로는 옛 집합이 TTL 내내 살아남기 때문이다. {@link #memberCache} 값
+     * 형식은 그대로 두려고 차단 캐시처럼 세대를 값에 싣지 않고 키를 따로 둔다. 접두사를 {@code cache:chat:member:} 와 일부러 다르게 둔다 —
+     * 그 패턴을 훑는 운영 명령에 표식이 섞이지 않게.
+     */
+    public static String memberGeneration(UUID userId) {
+        return MEMBER_EVICT_PREFIX + userId;
     }
 
     /**

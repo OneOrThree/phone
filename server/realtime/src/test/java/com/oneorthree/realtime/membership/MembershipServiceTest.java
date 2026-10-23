@@ -21,6 +21,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -56,6 +57,7 @@ class MembershipServiceTest {
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         redis.delete(RedisKeys.memberCache(userId));
+        redis.delete(RedisKeys.memberGeneration(userId));
     }
 
     @Test
@@ -209,5 +211,58 @@ class MembershipServiceTest {
         membershipService.evict(userId);
 
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
+    }
+
+    @Test
+    @DisplayName("evict 와 겹친 진행 중 상류 조회는 옛 집합을 적재하지 못한다(GROMO-2141) — isMember")
+    void lookupOverlappingEvictDoesNotStoreStaleSet() {
+        // 강퇴 커밋 직전에 시작한 조회 A 가 상류에 가 있는 동안 사건을 받은 B 가 evict 한다.
+        // 단일 스레드로 그 겹침을 재현하려고 상류 호출 «안에서» evict 를 부른다.
+        given(groupClient.fetchMyGroupIds(BEARER)).willAnswer(invocation -> {
+            membershipService.evict(userId);
+            return GroupClient.Membership.of(Set.of(groupId));
+        });
+
+        // 그 한 번의 호출은 받아 온 답으로 판정한다 — 예외로 올리지 않는다.
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("무효화 뒤 늦은 적재가 옛 집합을 되살리면 안 된다").isFalse();
+
+        // 다음 호출은 캐시가 없으니 상류에 다시 묻고, 새 답(강퇴됨)이 적용된다.
+        willReturn(GroupClient.Membership.of(Set.of())).given(groupClient).fetchMyGroupIds(BEARER);
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
+        verify(groupClient, times(2)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("evict 와 겹친 진행 중 상류 조회는 옛 집합을 적재하지 못한다(GROMO-2141) — isMemberUncached")
+    void uncachedLookupOverlappingEvictDoesNotStoreStaleSet() {
+        given(groupClient.fetchMyGroupIds(BEARER)).willAnswer(invocation -> {
+            membershipService.evict(userId);
+            return GroupClient.Membership.of(Set.of(groupId));
+        });
+
+        assertThat(membershipService.isMemberUncached(groupId, userId, BEARER)).isTrue();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("무효화 뒤 늦은 적재가 옛 집합을 되살리면 안 된다").isFalse();
+
+        willReturn(GroupClient.Membership.of(Set.of())).given(groupClient).fetchMyGroupIds(BEARER);
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
+        verify(groupClient, times(2)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("표식이 있어도 그 뒤에 시작한 조회는 적재된다 — 표식은 «진행 중이던» 조회만 거른다(GROMO-2141)")
+    void lookupStartedAfterEvictStoresNormally() {
+        membershipService.evict(userId);
+        assertThat(redis.hasKey(RedisKeys.memberGeneration(userId))).as("evict 가 표식을 남겼다").isTrue();
+        assertThat(redis.getExpire(RedisKeys.memberGeneration(userId))).as("표식에도 수명이 있다").isPositive();
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
+
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isTrue();
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
+        verify(groupClient, times(1)).fetchMyGroupIds(BEARER);
     }
 }
