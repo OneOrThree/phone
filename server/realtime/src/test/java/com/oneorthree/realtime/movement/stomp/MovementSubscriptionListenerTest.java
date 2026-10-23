@@ -2,6 +2,7 @@ package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
@@ -470,8 +471,8 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
-    @DisplayName("같은 구독 id 를 해지 없이 다른 섬 movement 에 다시 쓰면 옛 섬 구독부터 푼다 — 옛 섬 outbox·actor 가 남지 않고 옛 섬 사건이 그 id 로 나가지 않는다")
-    void reusedSubscriptionIdForAnotherIslandDetachesTheOldIslandFirst() {
+    @DisplayName("같은 구독 id 를 해지 없이 다른 섬 movement 에 다시 쓰면 관문이 INVALID_REQUEST 로 거절한다 — 처음 섬 구독은 그대로 남고 새 섬은 들어오지 않는다")
+    void reusedSubscriptionIdForAnotherIslandIsRejectedAndTheFirstIslandStays() {
         StompAuthChannelInterceptor gate = gate();
         UUID otherIsland = UUID.randomUUID();
         ChatPrincipal stays = connect("a");
@@ -481,28 +482,31 @@ class MovementSubscriptionListenerTest {
         tick();
         sent.clear();
 
-        inbound(gate, raw("b", "x", StompTopics.movementTopic(otherIsland), mover)); // 같은 id x 로 다른 섬
-        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5)); // 옛 섬에서 사건이 난다
+        assertThatThrownBy(() -> inbound(gate, raw("b", "x", StompTopics.movementTopic(otherIsland), mover))) // 같은 id x 로 다른 섬
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5)); // 처음 섬에서 사건이 난다
         tick();
         tick();
 
-        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).as("옛 섬 outbox 는 없다")
-                .containsExactly("a");
-        assertThat(actorIds(bodiesFor("a").get(0))).as("옛 섬에서 퇴장했다 — 유령 actor 없음")
-                .containsExactly(stays.userId().toString());
-        List<Message<?>> toMover = framesFor("b");
-        assertThat(toMover).as("옛 섬 사건은 그 id 로 나가지 않는다 — 전부 새 섬 목적지")
+        assertThat(sessions.destinationOf("b", "x")).as("id x 의 목적지는 처음 섬 그대로")
+                .isEqualTo(StompTopics.movementTopic(island));
+        assertThat(sessions.subscriptionIdOf("b", StompTopics.movementTopic(otherIsland))).as("새 섬은 기록되지 않는다")
+                .isNull();
+        assertThat(listener.holdsLiveOutbox("b", island)).as("처음 섬 구독은 그대로 선다").isTrue();
+        assertThat(listener.holdsLiveOutbox("b", otherIsland)).as("새 섬에는 들어가지 않는다").isFalse();
+        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).containsExactlyInAnyOrder("a", "b");
+        assertThat(publisher.outboxes(otherIsland)).as("새 섬 outbox 는 없다").isEmpty();
+        assertThat(framesFor("b")).as("처음 섬 사건이 그 id 로 계속 나간다 — 전부 처음 섬 목적지")
                 .isNotEmpty()
                 .allSatisfy(frame -> assertThat(SimpMessageHeaderAccessor.getDestination(frame.getHeaders()))
-                        .isEqualTo(StompTopics.movementTopic(otherIsland)));
-        JsonNode first = json.readTree((byte[]) toMover.get(0).getPayload());
-        assertThat(first.get("type").stringValue()).as("새 섬은 정상 — 첫 메시지는 자기 FullState").isEqualTo("FullState");
-        assertThat(actorIds(first)).containsExactly(mover.userId().toString());
+                        .isEqualTo(StompTopics.movementTopic(island)));
     }
 
     @Test
-    @DisplayName("이동 구독 id 를 해지 없이 비이동 토픽(/user/queue/errors)에 다시 쓰면 옛 이동 구독부터 푼다 — outbox·actor 가 남지 않고 이동 프레임이 그 id 로 나가지 않는다")
-    void reusedSubscriptionIdForANonMovementTopicDetachesTheMovementFirst() {
+    @DisplayName("이동 구독 id 를 해지 없이 비이동 토픽(/user/queue/errors)에 다시 쓰면 관문이 INVALID_REQUEST 로 거절한다 — 이동 구독은 그대로 남는다")
+    void reusedSubscriptionIdForANonMovementTopicIsRejectedAndTheMovementStays() {
         StompAuthChannelInterceptor gate = gate();
         ChatPrincipal stays = connect("a");
         ChatPrincipal mover = connect("b");
@@ -511,17 +515,16 @@ class MovementSubscriptionListenerTest {
         tick();
         sent.clear();
 
-        inbound(gate, raw("b", "x", "/user/queue/errors", mover)); // 같은 id x 로 비이동 토픽
-        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5)); // 그 섬에서 사건이 난다
-        tick();
-        tick();
+        assertThatThrownBy(() -> inbound(gate, raw("b", "x", "/user/queue/errors", mover))) // 같은 id x 로 비이동 토픽
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_REQUEST);
 
-        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).as("이동 outbox 는 없다")
-                .containsExactly("a");
-        assertThat(actorIds(bodiesFor("a").get(0))).as("퇴장했다 — 유령 actor 없음")
-                .containsExactly(stays.userId().toString());
-        assertThat(framesFor("b")).as("이동 프레임이 그 id 로 나가지 않는다").isEmpty();
-        assertThat(sessions.subscriptionIdOf("b", "/user/queue/errors")).as("비이동 구독은 그대로 선다").isEqualTo("x");
+        assertThat(sessions.destinationOf("b", "x")).as("id x 의 목적지는 이동 토픽 그대로")
+                .isEqualTo(StompTopics.movementTopic(island));
+        assertThat(sessions.subscriptionIdOf("b", "/user/queue/errors")).as("비이동 구독은 기록되지 않는다").isNull();
+        assertThat(listener.holdsLiveOutbox("b", island)).as("이동 구독은 그대로 선다").isTrue();
+        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).containsExactlyInAnyOrder("a", "b");
     }
 
     @Test
