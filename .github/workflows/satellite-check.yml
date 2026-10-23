@@ -4,6 +4,11 @@ name: Satellite Checks
 
 on:
   workflow_call:
+    inputs:
+      build-services:
+        description: 서비스 전체 검사·JAR 생성. release PR에서는 prod-ci가 담당한다.
+        type: boolean
+        default: true
     outputs:
       services:
         description: 서비스별 전체 검사·이미지 대상 여부 JSON
@@ -101,6 +106,7 @@ jobs:
   build:
     name: ${{ matrix.service }} 검증
     needs: changes
+    if: inputs.build-services
     # GROMO-1918: GitHub-hosted 로 옮긴다. 이 잡은 GAR·GCE 메타데이터를 쓰지 않는다 —
     # 도커로 test 스테이지 이미지를 만들어 그 안에서 gradle 을 돌릴 뿐이고 도커는 양쪽 다 있다.
     # 변경이 없을 때는 원래도 ubuntu-latest 로 돌고 있었다(아래 조건부 스텝들이 건너뛰는 경로).
