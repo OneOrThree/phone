@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import signal
 import subprocess
@@ -17,6 +18,7 @@ STATE_ROOT = Path(os.environ.get('CATUS_DEV_DEPLOY_STATE_DIR', str(Path.home() /
 CORE = {'data-api': 'phone-data-api', 'realtime': 'phone-realtime'}
 QUIESCE_SERVICES = {'data-api', 'realtime', 'business-api', 'notification', 'postgres-exporter', 'datadog-agent'}
 QUIESCE_NAMES = set(CORE.values()) | {'gromo-postgres-exporter', 'gromo-datadog-agent'}
+NGINX_SYSTEMCTL = '/usr/bin/systemctl'
 
 
 class DeployError(RuntimeError):
@@ -208,7 +210,15 @@ class Deployment:
                         self.run(['systemctl', 'is-active', '--quiet', 'nginx'], check=False).returncode == 0)
         if nginx_active:
             for action in ('stop', 'start'):
-                self.run(['sudo', '-n', '-l', 'systemctl', action, 'nginx'])
+                try:
+                    self.run(['sudo', '-n', '-l', NGINX_SYSTEMCTL, action, 'nginx'])
+                except DeployError as error:
+                    user = pwd.getpwuid(os.geteuid()).pw_name
+                    raise DeployError(
+                        f'nginx {action} sudo 사전 검사 실패 (실행 계정: {user}). '
+                        f'VM에서 해당 계정으로 `sudo -n -l {NGINX_SYSTEMCTL} {action} nginx`를 확인하고 '
+                        '.github/scripts/provision-dev-nginx-sudo.sh로 제한된 권한을 설정하세요.'
+                    ) from error
         # 실행될 SQL과 도구도 검증한 Data 이미지에서 가져온다.
         self.package = self.directory / 'packages' / args.revision
         self.package.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -235,7 +245,7 @@ class Deployment:
         failure = None
         if self.state['nginx_active']:
             try:
-                self.run(['sudo', '-n', 'systemctl', 'stop', 'nginx'])
+                self.run(['sudo', '-n', NGINX_SYSTEMCTL, 'stop', 'nginx'])
             except Exception as error:
                 failure = error
         current = selected_containers(inspect_containers(self.run))
@@ -303,7 +313,7 @@ class Deployment:
             self.healthy(CORE['data-api'], self.image_ids['data'])
             self.healthy(CORE['realtime'], self.image_ids['realtime'])
             if self.state['nginx_active']:
-                self.run(['sudo', '-n', 'systemctl', 'start', 'nginx'])
+                self.run(['sudo', '-n', NGINX_SYSTEMCTL, 'start', 'nginx'])
                 self.run(['systemctl', 'is-active', '--quiet', 'nginx'])
             self.save('complete')
             print(json.dumps({'phase': 'complete', 'revision': self.args.revision}))

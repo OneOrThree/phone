@@ -55,6 +55,7 @@ class FakeHost:
         self.ignore_stop = False
         self.ignore_nginx_stop = False
         self.fail_restore = False
+        self.deny_sudo_action = None
 
     def __call__(self, args, **kwargs):
         args = list(map(str, args)); self.calls.append(args)
@@ -89,7 +90,9 @@ class FakeHost:
             code = 0 if self.nginx else 3
         elif args[:2] == ['systemctl', 'show']:
             out = 'active' if self.nginx else 'inactive'
-        elif args[:3] == ['sudo', '-n', 'systemctl']:
+        elif args[:3] == ['sudo', '-n', '-l'] and args[4] == self.deny_sudo_action:
+            raise core.DeployError('sudo 명령 실패 (exit 1)')
+        elif args[:3] == ['sudo', '-n', core.NGINX_SYSTEMCTL]:
             if not self.ignore_nginx_stop: self.nginx = args[3] == 'start'
         elif args[0] == 'python3':
             phase = args[args.index('--phase') + 1]
@@ -183,7 +186,7 @@ class DeployTest(unittest.TestCase):
 
     def test_both_images_and_database_preflight_precede_any_stop(self):
         self.deploy()
-        first_stop = next(i for i, cmd in enumerate(self.host.calls) if cmd[:4] == ['sudo', '-n', 'systemctl', 'stop'])
+        first_stop = next(i for i, cmd in enumerate(self.host.calls) if cmd[:4] == ['sudo', '-n', core.NGINX_SYSTEMCTL, 'stop'])
         apply = next(i for i, cmd in enumerate(self.host.calls) if '--phase' in cmd and 'apply' in cmd)
         preflight = next(i for i, cmd in enumerate(self.host.calls) if '--phase' in cmd and 'preflight' in cmd)
         self.assertLess(preflight, first_stop); self.assertLess(first_stop, apply)
@@ -196,6 +199,20 @@ class DeployTest(unittest.TestCase):
             self.assertTrue({'phone-db', 'phone-redis', 'phone-kafka'}.isdisjoint(cmd))
         start = next(cmd for cmd in self.host.calls if '--force-recreate' in cmd)
         self.assertEqual(start[-2:], ['data-api', 'realtime']); self.assertIn('--no-deps', start)
+
+    def test_nginx_sudo_denial_explains_command_before_service_stop(self):
+        for action in ('stop', 'start'):
+            with self.subTest(action=action):
+                self.host = FakeHost(self.directory)
+                self.host.deny_sudo_action = action
+                with self.assertRaisesRegex(core.DeployError, f'sudo -n -l /usr/bin/systemctl {action} nginx') as failure:
+                    self.deploy()
+                self.assertIn('실행 계정:', str(failure.exception))
+                self.assertIn('provision-dev-nginx-sudo.sh', str(failure.exception))
+                self.assertFalse((self.directory / 'deployment.json').exists())
+                self.assertFalse(any(cmd[:3] == ['sudo', '-n', core.NGINX_SYSTEMCTL] for cmd in self.host.calls))
+                self.assertFalse(any('--phase' in cmd and 'apply' in cmd for cmd in self.host.calls))
+                self.assertTrue(self.host.nginx)
 
     def test_mismatched_revision_or_token_never_stops_running_services(self):
         for failure in ('revision', 'token'):
@@ -332,7 +349,7 @@ class DeployTest(unittest.TestCase):
         self.host.fail_restore = True
         with self.assertRaises(core.DeployError): self.deploy()
         self.assertFalse(self.host.nginx)
-        self.assertFalse(any(cmd[:4] == ['sudo', '-n', 'systemctl', 'start'] for cmd in self.host.calls))
+        self.assertFalse(any(cmd[:4] == ['sudo', '-n', core.NGINX_SYSTEMCTL, 'start'] for cmd in self.host.calls))
         self.assertFalse(self.host.containers['phone-business-api-1']['State']['Running'])
 
     def test_journal_is_private_and_atomically_replaced(self):

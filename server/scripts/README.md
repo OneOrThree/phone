@@ -241,6 +241,10 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 공동 CD의 [`deploy-core-dev.py`](../../.github/scripts/deploy-core-dev.py)는 이미지 OCI revision·digest, 실제 Compose의 공유 토큰·프로파일, DB 전환 패키지, nginx stop/start 권한을 먼저 검증합니다. nginx가 실행 중이었다면 멈추고 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지합니다. DB·Redis·Kafka와 볼륨은 유지합니다. 이미지에 포함된 `deploy-v0.py`로 DB 백업·기존 migration 보완·V0 전환을 수행한 뒤 새 Data·Realtime을 함께 시작합니다. 두 컨테이너의 readiness와 이미지가 확인되면 원래 실행 중이던 위성·관측 및 nginx를 복원합니다.
 
+새 dev VM에 Actions 러너의 `runner` 계정을 설치한 뒤, 첫 공동 배포 전에 저장소 체크아웃에서 `sudo bash .github/scripts/provision-dev-nginx-sudo.sh`를 실행합니다. 이 명령은 `/etc/sudoers.d/catus-dev-nginx`를 원자적으로 설치하고 `visudo` 및 `runner`의 비대화식 권한을 검증합니다. 허용 범위는 `/usr/bin/systemctl stop nginx`와 `start nginx` 두 명령뿐입니다. 기존 VM·러너를 재설정할 때도 같은 명령을 실행합니다. 스크립트는 nginx 서비스를 중지하거나 시작하지 않습니다.
+
+권한만 확인하려면 VM에서 `sudo -n -u runner sudo -n -l /usr/bin/systemctl stop nginx`와 `sudo -n -u runner sudo -n -l /usr/bin/systemctl start nginx`를 실행합니다. 실패하면 공동 CD는 서비스 중지·DB 전환 전에 멈추고 필요한 명령을 로그에 표시합니다.
+
 진행 기록과 백업은 러너 계정의 `~/.local/state/catus/dev/`에 보존됩니다(디렉터리 0700, JSON 0600). 이 경로를 작업 디렉터리 정리 대상에 넣지 않습니다. 실패하면 nginx와 writer는 닫힌 상태를 유지합니다. **실패한 공동 CD job을 재실행**하면 DB 실제 상태를 다시 확인하고 이어서 처리합니다. 앱 결함을 수정한 새 SHA도 기존 트래픽·writer가 중지되어 있고 새 이미지로 검증한 DB가 `current`이면 재개할 수 있습니다. 최초 전환이 아직 `legacy`·`empty`인 상태에서는 동일 SHA·digest로 재시도합니다. 원래 서비스 실행 목록과 백업을 유지하며, 일반 ops·위성 배포는 미완료 기록을 우회하지 못합니다. 정상 배포의 설정만 재적용할 때는 `Ops Dev Redeploy`에서 Data 또는 Realtime을 선택하며, 두 경우 모두 마지막 공동 배포 job을 재실행합니다. 이전 독립 배포 이력은 선택하지 않습니다.
 
 새 커밋의 자동 CD가 선행 위성 배포의 미완료 전환 검사에 막히면, Actions의 **Data·Realtime Dev CD**를 `main`에서 수동 실행합니다. main에 포함된 소스 SHA의 Data CI에서 Data·Realtime 이미지 발행 job이 모두 성공한 뒤 그 두 digest와 `image_revision`을 입력합니다. 그 뒤 문서·앱 변경이 main에 추가돼도 검증된 조상 SHA의 이미지로 복구할 수 있습니다. 실행 코드는 선택한 현재 main을 사용합니다. 전체 CI 성공은 요구하지 않지만 두 이미지 발행 성공·고정 저장소·OCI revision·digest를 검증합니다. 수동 실행은 미완료 journal과 `current` DB가 있을 때만 허용하여 정상 배포의 위성 대기를 우회하지 못합니다. 복구 후 막혔던 위성 CD를 재실행합니다. `legacy`·`empty` 상태의 최초 전환 실패는 원래 공동 CD를 재실행합니다.
