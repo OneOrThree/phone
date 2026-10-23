@@ -17,7 +17,7 @@ public class RealtimeMembershipAuthorizationQuery {
                 FROM users u
                 JOIN auth_sessions s ON s.user_id = u.id
                 JOIN group_members m ON m.user_id = u.id
-                JOIN groups g ON g.id = m.group_id
+                JOIN islands g ON g.id = m.group_id
                 WHERE u.id = :userId
                   AND u.is_deleted = false
                   AND u.auth_generation = :authGeneration

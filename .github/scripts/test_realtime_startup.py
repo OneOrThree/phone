@@ -18,6 +18,19 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RealtimeStartupTest(unittest.TestCase):
+    def test_공동_배포에서도_기동_검사_입력_변경을_놓치지_않는다(self):
+        workflows = ROOT / ".github/workflows"
+        realtime = yaml.load((workflows / "realtime-ci.dev.yml").read_text(), Loader=yaml.BaseLoader)
+        core = yaml.load((workflows / "data-api-ci.dev.yml").read_text(), Loader=yaml.BaseLoader)
+        inputs = {"server/scripts/docker-compose." + name + ".yml"
+                  for name in ["dev", "realtime", "satellites", "business"]}
+        inputs.add(".github/scripts/test_realtime_startup.py")
+        self.assertTrue(inputs.issubset(realtime["on"]["pull_request"]["paths"]))
+        self.assertTrue(inputs.issubset(core["on"]["push"]["paths"]))
+        self.assertIn("workflow_call", realtime["on"])
+        self.assertNotIn("push", realtime["on"])
+        self.assertEqual(core["jobs"]["realtime"]["uses"], "./.github/workflows/realtime-ci.dev.yml")
+
     def compose_health(self, environment, overlay="docker-compose.satellites.yml"):
         spec = importlib.util.spec_from_file_location("startup_env_writer", ROOT / ".github/scripts/write-compose-env.py")
         writer = importlib.util.module_from_spec(spec)

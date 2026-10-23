@@ -9,6 +9,8 @@ internal:
       realtime:
         token: ${SVC_TOKEN_REALTIME_TO_DATA}
         allow:
+          # 현재 소속 목록. 공개 API 폐기 후 기본 멤버십 조회도 이 내부 경로를 사용한다.
+          - 'GET /internal/users/*/islands'
           - 'POST /internal/realtime/membership-authorization'
           # GROMO-1765 응원 인가 — Realtime 이 「이 사람이 이 섬에서 active 집중 중인가」를 물을 때
           # 읽는 정본이다. Business 와 «같은 경로»지만 caller 가 달라 허용목록도 각자 적는다(㉱).

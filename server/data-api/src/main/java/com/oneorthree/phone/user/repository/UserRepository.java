@@ -5,11 +5,9 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -28,7 +26,7 @@ import java.util.UUID;
  * 재평가에 기대고 있다.
  *
  * <p><b>단일 컬럼 조건부 UPDATE</b> — {@link User} 에 {@code @Version} 도 {@code @DynamicUpdate} 도 없어
- * 더티 체킹은 <b>전 컬럼을 스냅샷으로 덮어쓴다</b>. 그래서 토큰·앵커·활동 시각 갱신은 전부
+ * 더티 체킹은 <b>전 컬럼을 스냅샷으로 덮어쓴다</b>. 그래서 활동 시각 갱신은 전부
  * {@code @Modifying} 벌크 UPDATE 로 한 컬럼만 조건부로 건드린다 — 그러지 않으면 그 사이 커밋된 탈퇴가
  * 되살아나거나 다른 갱신이 조용히 사라진다(lost update). 벌크라 영속성 컨텍스트도 우회한다.
  */
@@ -45,12 +43,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     /**
      * 탈퇴 트랜잭션의 대상 유저 배타 락 (GROMO-801).
-     * withdraw 는 friendships·pinned_users 를 스캔해 정리한 뒤 is_deleted 를 세우는데, READ COMMITTED 에서
-     * 그 사이 다른 트랜잭션이 아직 커밋 안 된 is_deleted=true 를 못 보고 새 친구요청·핀을 끼워 넣으면
+     * withdraw 는 friendships 를 스캔해 정리한 뒤 is_deleted 를 세우는데, READ COMMITTED 에서
+     * 그 사이 다른 트랜잭션이 아직 커밋 안 된 is_deleted=true 를 못 보고 새 친구 요청을 끼워 넣으면
      * 정리를 통과해 유령 관계가 남는다. 탈퇴 시작 시점에 대상 행을 잠가 관계 생성과 직렬화한다.
      *
      * 락 선택 원칙 (codex 리뷰 3차) — **그 트랜잭션이 users 행을 변경하면 처음부터 이 배타 락**을 쓴다
-     * (탈퇴, 소셜 로그인/게스트 승격의 refreshTokenHash·isGuest 갱신). 공유 락으로 읽고 나중에 UPDATE
+     * (탈퇴, 소셜 로그인/게스트 승격의 isGuest 갱신). 공유 락으로 읽고 나중에 UPDATE
      * 하면, 같은 행을 잡은 두 트랜잭션이 서로의 공유 락 해제를 기다리며 락 승급 교착으로 죽는다.
      * users 행을 읽기만 하는 트랜잭션(관계·멤버십·내기 생성)은 아래 공유 락으로 병렬성을 지킨다.
      *
@@ -59,7 +57,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * 트랜잭션이 커밋하면 잠금을 얻은 뒤 그 행의 **최신 커밋 버전으로 WHERE 술어를 재평가**한다
      * (Postgres EvalPlanQual). 그래서 탈퇴(is_deleted=true)와 경합해도 스냅샷의 옛 활성 행이 아니라
      * 빈 결과를 돌려받고, 호출측은 그것을 "탈퇴가 먼저 커밋됐다"로 읽고 skip/404 한다
-     * (리그 정산 LeagueUserSettler, 그룹 위임·강퇴 GroupMemberService 등이 전부 이 전제 위에 있다).
+     * (섬 위임·강퇴 GroupMemberService 등이 이 전제 위에 있다).
      * 격리 수준을 REPEATABLE READ 이상으로 올리면 같은 경합이 재평가 대신 직렬화 오류로 터지므로
      * 이 논증들은 그대로 성립하지 않는다 — 격리 수준을 바꾸려면 락 논증 전면 재검토가 필요하다.
      *
@@ -70,67 +68,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.id = :id AND u.isDeleted = false")
     Optional<User> findActiveByIdForUpdate(@Param("id") UUID id);
-
-    /**
-     * 무효 토큰 정리 전용 — device_token 한 컬럼만 조건부로 지운다 (GROMO-1090 @codex 리뷰 P1).
-     *
-     * 더티체킹(user.setDeviceToken(null))으로 지우면 안 되는 이유: User 에 @Version·@DynamicUpdate 가
-     * 없어 커밋 시 UPDATE 가 전체 컬럼을 이 트랜잭션의 스냅샷으로 덮어쓴다. 발송 대상을 읽은 뒤
-     * FCM 응답이 오기 전에 withdraw 가 먼저 커밋되면(is_deleted=true·닉네임 등 PII 파기), 그 뒤 나가는
-     * 이 UPDATE 가 옛 스냅샷으로 되돌려 탈퇴 계정과 PII 가 되살아난다. 발송이 비동기·크론이라 그 간격은
-     * 짧지 않고, FCM RestClient 에 타임아웃도 없다.
-     *
-     * is_deleted = false 조건이 그 창을 닫는다 — 탈퇴가 먼저 커밋됐다면 0행이 되어 아무것도 되돌리지 않는다.
-     *
-     * device_token = :invalidToken 조건도 같은 이유다: FCM 에 보낸 토큰이 무효라는 응답을 기다리는 사이
-     * 클라이언트가 새 토큰을 등록(registerDeviceToken)하면, id 만 보고 지울 경우 **새 토큰까지** 날아가
-     * 다음 등록 전까지 그 유저의 모든 푸시가 사라진다. 토큰 회전은 정상 시나리오다.
-     * 실제로 보냈던 토큰과 일치할 때만 지운다.
-     *
-     * clearAutomatically=false: 호출측(발송 루프)이 들고 있는 다른 영속 엔티티를 detach 시키지 않기 위함.
-     *
-     * @param id           토큰을 지울 유저
-     * @param invalidToken FCM 이 무효라고 응답한 <b>바로 그</b> 토큰. 그 사이 새 토큰이 등록됐으면 조건이 어긋나
-     *                     아무것도 지우지 않는다(토큰 회전은 정상 시나리오다)
-     * @return 지운 행 수. 0 은 탈퇴했거나 토큰이 이미 바뀐 경우이고, 어느 쪽도 오류가 아니다
-     */
-    @Modifying(clearAutomatically = false, flushAutomatically = false)
-    @Query("UPDATE User u SET u.deviceToken = null"
-            + " WHERE u.id = :id AND u.isDeleted = false AND u.deviceToken = :invalidToken")
-    int clearDeviceToken(@Param("id") UUID id, @Param("invalidToken") String invalidToken);
-
-    /**
-     * 삭제 명령이 지정한 토큰만 지운다 — <b>탈퇴 유저도 대상이다</b> (A22 ㊲ · ㊨).
-     *
-     * <p>{@link #clearDeviceToken} 과 나눈 이유는 {@code isDeleted = false} 조건 하나다. 탈퇴한 계정도
-     * 자기 기기 토큰은 지워져야 한다 — 안 그러면 <b>이전 계정 푸시가 그 기기로 계속 간다</b>. 앱은
-     * 토큰 DELETE 실패를 삼키고 로컬 인증을 지우므로 아무도 재시도하지 않는다.
-     *
-     * <p>대상 토큰 조건은 그대로 둔다 — 그 사이 같은 유저가 새 토큰을 등록했으면 그것까지 지워서는
-     * 안 된다(지연된 삭제가 새 등록을 지우는 ㊨ 와 같은 이유).
-     *
-     * @param id     대상 유저
-     * @param target 삭제 명령이 지목한 <b>바로 그</b> 토큰
-     * @return 지운 행 수. 0 은 토큰이 이미 바뀐 경우이고 오류가 아니다
-     */
-    @Modifying(clearAutomatically = false, flushAutomatically = false)
-    @Query("UPDATE User u SET u.deviceToken = null"
-            + " WHERE u.id = :id AND u.deviceToken = :target")
-    int clearDeviceTokenIncludingWithdrawn(@Param("id") UUID id, @Param("target") String target);
-
-    /**
-     * 유저의 기기 토큰을 조건 없이 지운다 — <b>대상 토큰을 모를 때만</b> (A22 ㊪).
-     *
-     * <p>현 앱의 {@code DELETE /users/me/device-token} 에는 본문이 없어 어떤 토큰을 지울지 알 수 없다.
-     * 그 기간에는 유저 단위로 지우고 그 경합(같은 유저의 새 등록을 지울 수 있다)을 인정한다 —
-     * 남겨 두면 이전 계정 푸시가 계속 가는 쪽이 더 나쁘다.
-     *
-     * @param id 대상 유저
-     * @return 지운 행 수
-     */
-    @Modifying(clearAutomatically = false, flushAutomatically = false)
-    @Query("UPDATE User u SET u.deviceToken = null WHERE u.id = :id AND u.deviceToken IS NOT NULL")
-    int clearDeviceTokenUnconditionally(@Param("id") UUID id);
 
     /**
      * 게스트 승격(loginOrRegister) 전용 — 활성 **게스트** 행만 배타 락으로 잠근다 (GROMO-801, codex 리뷰 4차).
@@ -165,38 +102,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findActiveByIdForShare(@Param("id") UUID id);
 
     /**
-     * 티어만 필요한 화면(랭킹·배지)의 배치 조회 — User 엔티티를 로드하지 않고 (id, 티어) 두 컬럼만 가져온다.
-     *
-     * @param ids 조회 대상. 비어 있으면 빈 목록
-     * @return 활성 유저분만. <b>탈퇴·부재 유저는 행이 아예 빠지므로</b> 요청 수와 결과 수가 다를 수 있고,
-     *         호출측이 id 로 매핑해 없는 쪽을 처리해야 한다
-     */
-    @Query("SELECT new com.oneorthree.phone.user.repository.UserTierLevelProjection(u.id, u.tierLevel)"
-            + " FROM User u WHERE u.id IN :ids AND u.isDeleted = false")
-    List<UserTierLevelProjection> findTierLevelsByIdInAndIsDeletedFalse(@Param("ids") Collection<UUID> ids);
-
-    /**
-     * 티어 정산처럼 실제 User 변경이 필요한 경로의 활성 사용자 엔티티 배치 조회.
+     * 여러 사용자 정보를 한 번에 읽는 경로의 활성 사용자 엔티티 배치 조회.
      *
      * @param ids 조회 대상
      * @return 활성 유저 엔티티. 탈퇴·부재분은 빠진다. <b>락이 없으므로</b> 여기서 얻은 엔티티를 더티 체킹으로
      *         고치면 전 컬럼 UPDATE 가 나가 동시 갱신을 덮어쓸 수 있다
      */
     List<User> findAllByIdInAndIsDeletedFalse(Collection<UUID> ids);
-
-    /**
-     * 인증 hot path 단일 조회 (GROMO-903) — 탈퇴 차단 판정(827)과 활동 갱신 판정(578)을 한 왕복으로 병합.
-     * 이전엔 존재 확인(왕복 ①) 직후 오늘 이미 갱신된 유저에게도 UPDATE 트랜잭션(왕복 ②)이 매 요청 붙었다.
-     * 왕복 ① 이 이미 그 유저 행을 PK 로 찾으므로, last_active_at 을 함께 읽어오면 왕복을 늘리지 않고 스로틀 판정이 끝난다.
-     * empty = 없는 유저 or 소프트딜리트 → existsByIdAndIsDeletedFalse 가 false 이던 집합과 동일(=401 신호 불변).
-     * (last_active_at 이 null 인 행은 탈퇴 파기된 행뿐이고(V65) 이미 is_deleted=true 라 결과가 같다)
-     *
-     * @param id 인증 토큰이 지목한 유저
-     * @return 마지막 활동 시각. <b>빈 값이면 곧 401 신호</b>다(없는 유저 = 탈퇴 유저로 묶인다).
-     *         값이 있으면 그걸로 활동 갱신 스로틀을 판정한다
-     */
-    @Query("SELECT u.lastActiveAt FROM User u WHERE u.id = :id AND u.isDeleted = false")
-    Optional<Instant> findLastActiveAtIfActive(@Param("id") UUID id);
 
     /**
      * 닉네임 중복 검사 (GROMO-584) — 본인 제외로 자기 닉네임 재사용은 허용.
@@ -243,89 +155,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findActiveByNicknameIgnoreCase(@Param("nickname") String nickname);
 
     /**
-     * refresh 토큰 해시 조건부 교체 (GROMO-1509) — 회전 전용. 바뀐 행 수를 반환한다.
-     *
-     * <p><b>해시로 유저를 찾는 진입점은 더 이상 없다</b>(GROMO-1659 codex R10) — 유저 행의 해시는
-     * 「마지막 로그인」 하나뿐이라 세션이 여럿이면 판정 근거가 될 수 없다. 갱신은 서명된 RT 의
-     * userId 로 {@link #findActiveByIdForUpdate} 배타 락을 잡은 뒤 세션 원장으로 판정한다.
-     *
-     * <p>그 락 아래에서도 엔티티 필드를 고쳐 dirty checking 에 맡기지 않는다. {@link User} 에는
-     * {@code @Version} 도 {@code @DynamicUpdate} 도 없어 <b>full-row UPDATE</b> 가 나가는데, 한 컬럼을
-     * 바꾸자고 전 컬럼을 이 트랜잭션의 스냅샷으로 덮는 것은 같은 행을 건드리는 다른 경로(탈퇴의
-     * PII 파기 등)가 하나만 끼어도 곧장 되살림 사고가 된다. 컬럼 하나만, 그것도 조건부로 바꾼다.
-     *
-     * <p>그래서 해시 컬럼만, 그것도 "여전히 활성이고 해시가 그대로일 때만" 바꾸는 조건부 UPDATE 로
-     * 쓴다. 다른 컬럼을 건드리지 않으니 되살릴 것이 없고, 조건이 곧 compare-and-swap 이라 탈퇴·
-     * 로그아웃·다른 기기 로그인과의 경합을 한 번에 막는다. <b>0 이면 그 사이 세션이 끊긴 것이므로
-     * 회전을 포기하고 거절해야 한다</b>(끊긴 세션 부활 금지).
-     *
-     * @param id           회전 대상 유저
-     * @param expectedHash 조회 때 본 옛 해시 — 이 값이 compare-and-swap 의 기대값이다
-     * @param newHash      새로 발급한 토큰의 해시
-     * @return 1이면 회전 성공. 0이면 탈퇴·로그아웃·다른 기기 로그인이 먼저 일어난 것이므로 <b>거절</b>해야 한다
-     */
-    @Modifying
-    @Query("UPDATE User u SET u.refreshTokenHash = :newHash"
-            + " WHERE u.id = :id AND u.refreshTokenHash = :expectedHash AND u.isDeleted = false")
-    int rotateRefreshTokenHash(@Param("id") UUID id,
-                               @Param("expectedHash") String expectedHash,
-                               @Param("newHash") String newHash);
-
-    /**
-     * last_active_at 스로틀 갱신 (GROMO-578) — JwtFilter 인증 통과 지점에서 호출.
-     * WHERE 의 last_active_at &lt; :staleBefore 가드로 스로틀 창당 최대 1 row write/유저 (이미 최신이면 0건 매치=무쓰기).
-     * 호출측이 needsTouch 로 이미 걸러 보내므로 이 가드는 동시 요청 레이스의 최종 방어선이다 (GROMO-903).
-     * User 엔티티 로드 없이 UPDATE 만 — @Modifying 이라 호출측 @Transactional 필요.
-     *
-     * @param id          갱신 대상
-     * @param now         새로 기록할 활동 시각
-     * @param staleBefore 이보다 오래된 값일 때만 갱신한다 — 스로틀 창의 하한
-     * @return 갱신된 행 수. 0 은 "이미 최신이라 쓸 필요가 없었다"는 정상 결과다.
-     *         탈퇴 유저의 행은 갱신하지 않는다 — 탈퇴가 파기한 활동 시각(null)을 되살리지 않게 활성 조건을 건다
-     *         (GROMO-1801 · 계정 LLD §4 「active-user 갱신 조건」). null 과의 비교는 참이 아니라 이중 방어다
-     */
-    @Modifying
-    @Query("UPDATE User u SET u.lastActiveAt = :now"
-            + " WHERE u.id = :id AND u.isDeleted = false AND u.lastActiveAt < :staleBefore")
-    int touchLastActiveAt(@Param("id") UUID id,
-                          @Param("now") Instant now,
-                          @Param("staleBefore") Instant staleBefore);
-
-    /**
-     * 누끼 생성 trial 앵커 최초 1회 세팅 — 유저가 쿼터를 처음 조회/기록하는 시점에 호출.
-     * touchLastActiveAt 과 같은 이유로 엔티티 로드 후 setter 가 아니라 단일 컬럼 UPDATE 다: User 는
-     * {@code @DynamicUpdate} 가 아니라 더티 필드 하나만 있어도 전 컬럼을 flush 해, 같은 유저에게 동시에 도는
-     * touchLastActiveAt 등의 갱신을 조용히 되돌릴 수 있다(lost update).
-     * WHERE ... IS NULL 가드로 동시 요청에서도 앵커는 최초 1건만 박힌다(멱등).
-     *
-     * @param id  앵커를 세울 유저
-     * @param now 앵커 시각 — trial 만료 계산의 기준점이 되므로 한 번 박히면 바뀌지 않는다
-     * @return 1이면 이번 호출이 앵커를 세웠다. 0이면 이미 있던 것이므로 그대로 두면 된다
-     */
-    @Modifying
-    @Query("UPDATE User u SET u.characterTrialAnchorAt = :now"
-            + " WHERE u.id = :id AND u.characterTrialAnchorAt IS NULL")
-    int initCharacterTrialAnchorAt(@Param("id") UUID id, @Param("now") Instant now);
-
-    /**
-     * 미접속 복귀 푸시 대상 조회 (GROMO-578) — last_active_at 가 [startInclusive, endExclusive) KST 하루 구간에 든 유저.
-     * 호출측이 D+3/7/14 각 단계의 KST 캘린더 하루 경계를 주입 → "정확히 N일째" 판정. isGuest·소프트딜리트 유저는 제외.
-     * (deviceToken·알림설정 필터는 sendIfAllowed 가 처리 — 여기선 대상 셋만 좁힘)
-     *
-     * @param startInclusive 구간 시작(포함). 호출측이 KST 캘린더 하루 경계를 절대시각으로 환산해 넘긴다
-     * @param endExclusive   구간 끝(제외)
-     * @return 그날이 마지막 활동일인 활성 <b>정식</b> 유저(게스트 제외). 기기 토큰·알림 수신 동의는 보지 않으므로
-     *         실제 발송 대상은 이보다 줄어든다
-     */
-    @Query("SELECT u FROM User u"
-            + " WHERE u.isGuest = false AND u.isDeleted = false"
-            + " AND u.lastActiveAt >= :startInclusive AND u.lastActiveAt < :endExclusive")
-    List<User> findInactiveReturnTargets(@Param("startInclusive") Instant startInclusive,
-                                         @Param("endExclusive") Instant endExclusive);
-
-    /**
      * 잡지 발행 알림 대상 한 쪽(GROMO-2307) — 활성 <b>정식</b> 유저를 id 순 키셋으로 훑는다.
-     * {@link #findInactiveReturnTargets} 와 같은 조건(게스트·탈퇴 제외)에 날짜 창이 없다.
+     * 게스트·탈퇴 계정을 제외하며 날짜 창은 적용하지 않는다.
      *
      * <p><b>잠금 없이</b> 읽는다 — 쪽 전체(200행)를 FCM 왕복 동안 잠그면 프로필 수정·접속 갱신이 그만큼 대기한다. 호출부는
      * id·언어만 쓰고, 탈퇴와의 직렬화가 필요하면 사용자별 짧은 트랜잭션에서 {@code findActiveByIdForShare} 로 다시 읽는다

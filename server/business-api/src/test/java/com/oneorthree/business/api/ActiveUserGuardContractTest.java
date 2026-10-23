@@ -36,7 +36,6 @@ class ActiveUserGuardContractTest extends UpstreamTestBase {
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("UPSTREAM_CONTRACT_MISMATCH"));
         assertThat(NOTI.received()).isEmpty();
-        assertThat(LINK.received()).isEmpty();
         assertThat(DATA.hits(ACTIVATION)).isEqualTo(1);
 
         stubActiveUser(USER);

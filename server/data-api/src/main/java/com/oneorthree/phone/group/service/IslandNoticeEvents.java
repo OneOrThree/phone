@@ -22,7 +22,7 @@ import java.util.UUID;
  * 변경과 삭제가 하나씩 올린다 — 삭제된 공지도 마지막 version+1 이 이 행에 남는다. 봉투의
  * {@code version} 이 곧 공개 {@code aggregateVersion}·{@code payload.version} 이다.
  *
- * <p><b>정책 B08</b>: legacy {@code /api/v1} 공지 생성·수정·삭제({@link GroupAnnouncementService})도 여기서 같은
+ * <p><b>정책 B08</b>: legacy {@code /api/v1} 공지 생성·수정·삭제({@code IslandNoticeService})도 여기서 같은
  * 축을 올린다. 새 경로만 올리면 legacy 수정이 새 구독자에게 보이지 않는다.
  *
  * <p>params 에 version 을 적지 않는다 — 번호는 append 가 잠금 아래 한 번만 발급한다({@link IslandStateEvents}

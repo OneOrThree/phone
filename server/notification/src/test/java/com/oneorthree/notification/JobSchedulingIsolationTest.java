@@ -84,7 +84,7 @@ class JobSchedulingIsolationTest {
 
     @Test
     @Order(1)
-    void slowSnapshotDoesNotBlockNewAckAndBundleRuns() throws Exception {
+    void slowSnapshotDoesNotBlockDeliveryRuns() throws Exception {
         Timestamp run = Timestamp.from(Instant.now().minusSeconds(60));
         enqueue("user-reconcile", run);
         try {
@@ -94,10 +94,9 @@ class JobSchedulingIsolationTest {
             assertThat(HITS).hasValue(1);
             assertThat(store.one("SELECT lock_until>timezone('UTC',now()) AS held FROM shedlock"
                     + " WHERE name='notification-user-reconcile'")).containsEntry("held", true);
-            enqueue("ack-reconcile", run);
-            enqueue("bundle-flush", run);
-            assertThat(await(() -> completed("ack-reconcile", run) && completed("bundle-flush", run),
-                    Duration.ofSeconds(3))).as("snapshot HTTP 대기 중에도 두 잡의 새 회차가 완료되어야 한다").isTrue();
+            enqueue("delivery-dispatch", run);
+            assertThat(await(() -> completed("delivery-dispatch", run),
+                    Duration.ofSeconds(3))).as("snapshot HTTP 대기 중에도 발송 잡의 새 회차가 완료되어야 한다").isTrue();
             assertThat(completed("user-reconcile", run)).isFalse();
             assertThat(HITS).hasValue(1);
         } finally {
@@ -120,9 +119,8 @@ class JobSchedulingIsolationTest {
                     + " AND scheduled_at=?", run).get("error") != null, Duration.ofSeconds(5))).isTrue();
             assertThat(completed("user-reconcile", run)).isFalse();
             store.update("UPDATE jobs SET enabled=false WHERE id='user-reconcile'");
-            enqueue("ack-reconcile", run);
-            enqueue("bundle-flush", run);
-            assertThat(await(() -> completed("ack-reconcile", run) && completed("bundle-flush", run),
+            enqueue("delivery-dispatch", run);
+            assertThat(await(() -> completed("delivery-dispatch", run),
                     Duration.ofSeconds(3))).isTrue();
             BODY.set("{\"items\":[],\"nextCursor\":null}");
             store.update("UPDATE jobs SET enabled=true WHERE id='user-reconcile'");

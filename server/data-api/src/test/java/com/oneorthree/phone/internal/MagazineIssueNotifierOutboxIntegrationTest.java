@@ -2,15 +2,14 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
 import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
-import com.oneorthree.phone.notification.producer.NotificationDispatcher;
-import com.oneorthree.phone.notification.producer.NotificationFanOutPartiallyCommittedException;
-import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
+import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.notification.producer.NotificationSlotGranularity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -22,17 +21,15 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
-import static org.mockito.Mockito.doThrow;
 
-/** 잡지 발행 알림 — OUTBOX 모드(GROMO-2307): 결정적 키가 중복을 접는다. */
-@SpringBootTest(properties = "notification.dispatch.mode=OUTBOX")
+/** 잡지 발행 알림 — outbox(GROMO-2307): 결정적 키가 중복을 접는다. */
+@SpringBootTest
 class MagazineIssueNotifierOutboxIntegrationTest extends MagazineIssueNotifierTestBase {
 
     @MockitoSpyBean
-    NotificationDispatcher dispatcher;
+    NotificationOutboxProducer producer;
     @Autowired
     MagazineIssueRepository issueRepository;
     @Autowired
@@ -78,8 +75,8 @@ class MagazineIssueNotifierOutboxIntegrationTest extends MagazineIssueNotifierTe
     @DisplayName("두 번째 쪽에서 예외 — notified_at 은 NULL, 다음 틱이 나머지만 적고 중복 0")
     void failureOnSecondPageResumesWithoutDuplicates() {
         usersFor(5);
-        doCallRealMethod().doThrow(new IllegalStateException("쪽 실패")).doCallRealMethod()
-                .when(dispatcher).writeFanOut(any(), eq(NotificationFanOutUnit.RECIPIENT));
+        doCallRealMethod().doCallRealMethod().doThrow(new IllegalStateException("수신자 실패")).doCallRealMethod()
+                .when(AopTestUtils.<NotificationOutboxProducer>getUltimateTargetObject(producer)).appendAll(any());
 
         assertThatThrownBy(() -> notifier.notifyIfPending(DATE, NOW)).isInstanceOf(IllegalStateException.class);
         assertThat(notifiedAt()).isNull();
@@ -87,27 +84,6 @@ class MagazineIssueNotifierOutboxIntegrationTest extends MagazineIssueNotifierTe
 
         notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
         assertThat(eventIds()).hasSize(5).doesNotHaveDuplicates();
-        assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
-    }
-
-    @Test
-    @DisplayName("부분 커밋 예외 — 그대로 전파되고 notified_at 은 NULL, 다음 틱이 키로 중복 없이 잇는다(outbox·전달 행 수 모두)")
-    void partialCommitExceptionPropagatesAndResumes() {
-        usersFor(5);
-        doCallRealMethod()
-                .doThrow(new NotificationFanOutPartiallyCommittedException(1, "40001", new RuntimeException("충돌")))
-                .doCallRealMethod()
-                .when(dispatcher).writeFanOut(any(), eq(NotificationFanOutUnit.RECIPIENT));
-
-        assertThatThrownBy(() -> notifier.notifyIfPending(DATE, NOW))
-                .isInstanceOf(NotificationFanOutPartiallyCommittedException.class);
-        assertThat(notifiedAt()).isNull();
-        assertThat(eventIds()).hasSize(2);
-        assertThat(deliveryRows()).isEqualTo(2);
-
-        notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
-        assertThat(eventIds()).hasSize(5).doesNotHaveDuplicates();
-        assertThat(deliveryRows()).isEqualTo(5);
         assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
     }
 
@@ -131,7 +107,7 @@ class MagazineIssueNotifierOutboxIntegrationTest extends MagazineIssueNotifierTe
         doAnswer(invocation -> {
             jdbc.update("UPDATE magazine_issues SET notified_at = ?", java.sql.Timestamp.from(first));
             return invocation.callRealMethod();
-        }).when(dispatcher).writeFanOut(any(), eq(NotificationFanOutUnit.RECIPIENT));
+        }).when(AopTestUtils.<NotificationOutboxProducer>getUltimateTargetObject(producer)).appendAll(any());
 
         MagazineIssueNotifier.Result result = notifier.notifyIfPending(DATE, NOW);
 

@@ -59,7 +59,7 @@ class SettingsPatchIntegrationTest {
     void resetState() {
         store.update("TRUNCATE settings,user_fences,commands,inbound_events,projections,deliveries,"
                 + "device_tokens,session_fences,legacy_session_fences CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false");
     }
 
     @Test
@@ -134,16 +134,12 @@ class SettingsPatchIntegrationTest {
     }
 
     @Test
-    void migrationGateBlocksPartialAndInitializationButClosingDispatchDoesNot() {
-        assertThatThrownBy(() -> settings.patch(USER, partial("notificationEnabled", false, 0), 1, "blocked"))
-                .hasMessage("MIGRATION_NOT_READY");
-        assertThatThrownBy(() -> settings.initialize(USER, baseline(0, 0, full(false))))
-                .hasMessage("MIGRATION_NOT_READY");
-        assertThat(store.rows("SELECT * FROM settings")).isEmpty();
-        assertThat(store.rows("SELECT * FROM commands")).isEmpty();
-        open();
-        settings.patch(USER, partial("notificationEnabled", false, 0), 1, "blocked");
+    void settingsRemainWritableBeforeTheFirstDispatchOpen() {
+        settings.initialize(USER, baseline(0, 0, full(true)));
+        settings.patch(USER, partial("notificationEnabled", false, 0), 1, "closed");
         assertThat(settings.read(USER)).containsEntry("notificationEnabled", false);
+        assertThat(store.one("SELECT enabled FROM dispatch_control WHERE id=1"))
+                .containsEntry("enabled", false);
     }
 
     @Test
@@ -159,16 +155,16 @@ class SettingsPatchIntegrationTest {
     }
 
     @Test
-    void preOpenImportScalarRemainsTheBaselineForAllFieldsOnFirstPostOpenWrite() {
-        store.update("INSERT INTO settings(user_id,version,notification_enabled,imported_by) VALUES(?,40,true,'m')", USER);
-        // 기존 import가 같은/더 높은 scalar와 값을 갱신하는 동안 필드 version은 아직 비어 있어야 한다.
+    void existingScalarVersionRemainsTheBaselineForEachField() {
+        store.update("INSERT INTO settings(user_id,version,notification_enabled) VALUES(?,40,true)", USER);
+        // 기존 scalar version을 초기 필드 version으로 승계한다.
         store.update("UPDATE settings SET version=45,sound_enabled=false WHERE user_id=?", USER);
         open();
         settings.patch(USER, partial("notificationEnabled", false, 0), 46, "new");
         settings.patch(USER, partial("soundEnabled", true, 0), 44, "late");
         assertThat(settings.read(USER)).containsEntry("soundEnabled", false);
-        assertThat(store.one("SELECT sound_enabled_version,imported_by FROM settings WHERE user_id=?", USER))
-                .containsEntry("sound_enabled_version", 45L).containsEntry("imported_by", null);
+        assertThat(store.one("SELECT sound_enabled_version FROM settings WHERE user_id=?", USER))
+                .containsEntry("sound_enabled_version", 45L);
     }
 
     @Test
@@ -241,7 +237,7 @@ class SettingsPatchIntegrationTest {
     }
 
     @Test
-    void actualGateLockMakesPartialWaitUntilOpeningTransactionCommits() throws Exception {
+    void dispatchGateLockDoesNotBlockSettingsWrites() throws Exception {
         var executor = Executors.newFixedThreadPool(2);
         var held = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -254,17 +250,7 @@ class SettingsPatchIntegrationTest {
             }));
             assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
             var writer = executor.submit(() -> settings.patch(USER, partial("notificationEnabled", false, 0), 1, "race"));
-            // 확인 가능한 DB 대기를 기준으로 잠금 경합을 증명한다. 단순 sleep 성공 판정이 아니다.
-            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            boolean blocked = false;
-            while (!blocked && System.nanoTime() < until) {
-                blocked = store.one("SELECT pid FROM pg_stat_activity WHERE datname=current_database()"
-                        + " AND wait_event_type='Lock' AND query LIKE '%ever_opened%FOR SHARE%' LIMIT 1") != null;
-                if (!blocked) {
-                    Thread.sleep(10);
-                }
-            }
-            assertThat(blocked).isTrue();
+            assertThat(writer.get(5, TimeUnit.SECONDS)).containsEntry("applied", true);
             release.countDown();
             opener.get(5, TimeUnit.SECONDS);
             assertThat(writer.get(5, TimeUnit.SECONDS)).containsEntry("applied", true);

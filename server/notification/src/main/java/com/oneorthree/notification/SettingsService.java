@@ -27,9 +27,9 @@ class SettingsService {
         SettingsPatch patch = SettingsPatch.full(body);
         SettingsPatch.requireVersion(version);
         return store.command("settings:" + user, key, Map.of("body", body, "version", version), () -> {
-            merge(user, patch, version, false, false);
+            merge(user, patch, version, false);
             return Map.of("applied", true);
-        }, false, () -> requireLive(user, patch.generation(), false));
+        }, false, () -> requireLive(user, patch.generation()));
     }
 
     @Transactional
@@ -37,9 +37,9 @@ class SettingsService {
         SettingsPatch patch = SettingsPatch.partial(body);
         SettingsPatch.requireVersion(version);
         return store.command("settings-patch:" + user, key, Map.of("body", body, "version", version), () -> {
-            merge(user, patch, version, true, false);
+            merge(user, patch, version, false);
             return Map.of("applied", true);
-        }, false, () -> requireLive(user, patch.generation(), true));
+        }, false, () -> requireLive(user, patch.generation()));
     }
 
     /** relay는 폐기된 명령을 수락한 no-op으로 끝내 뒤의 사용자 이벤트를 막지 않는다. */
@@ -47,10 +47,10 @@ class SettingsService {
         boolean partial = body.containsKey("mask") || body.containsKey("patch");
         SettingsPatch patch = partial ? SettingsPatch.partial(body) : SettingsPatch.full(body);
         SettingsPatch.requireVersion(version);
-        merge(user, patch, version, partial, true);
+        merge(user, patch, version, true);
     }
 
-    /** 이관 완료 뒤 검증된 Data snapshot으로 없는 행만 초기화하고 항상 현재 정본을 읽는다. */
+    /** 검증된 Data snapshot으로 없는 행만 초기화하고 항상 현재 정본을 읽는다. */
     @Transactional
     public Map<String, Object> initialize(UUID user, Map<String, Object> body) {
         if (!body.keySet().equals(Set.of("version", "authGeneration", "settings"))
@@ -64,14 +64,13 @@ class SettingsService {
             throw new NotificationFailure(400, "FULL_SETTINGS_REQUIRED");
         }
         SettingsPatch patch = SettingsPatch.full(baseline);
-        requireLive(user, generation, true);
+        requireLive(user, generation);
         insert(user, patch.values(), version);
         initializeVersions(user);
         return view(requiredRow(user));
     }
 
-    private void merge(UUID user, SettingsPatch patch, long version, boolean partial, boolean relay) {
-        boolean opened = lockGate(partial);
+    private void merge(UUID user, SettingsPatch patch, long version, boolean relay) {
         if (!live(user, patch.generation())) {
             if (relay) {
                 return;
@@ -80,26 +79,11 @@ class SettingsService {
         }
         // 명령 당시 Data mirror의 전체 snapshot이다. 기존 정본이 있으면 절대 덮어쓰지 않는다.
         insert(user, patch.baseline(), version);
-        Map<String, Object> row = requiredRow(user);
-        if (opened) {
-            initializeVersions(user);
-            mergeFields(user, patch.values(), version);
-        } else if (((Number) row.get("version")).longValue() < version) {
-            replaceBeforeMigration(user, patch.values(), version);
-        }
+        initializeVersions(user);
+        mergeFields(user, patch.values(), version);
     }
 
-    private boolean lockGate(boolean requireOpened) {
-        // import/open도 gate -> 실제 사용자 행 순서다. 같은 TX의 공유 잠금으로 초기화 경계를 고정한다.
-        Map<String, Object> gate = store.one("SELECT ever_opened FROM dispatch_control WHERE id=1 FOR SHARE");
-        if (gate == null || (requireOpened && !Boolean.TRUE.equals(gate.get("ever_opened")))) {
-            throw new NotificationFailure(409, "MIGRATION_NOT_READY");
-        }
-        return Boolean.TRUE.equals(gate.get("ever_opened"));
-    }
-
-    private void requireLive(UUID user, Long generation, boolean partial) {
-        lockGate(partial);
+    private void requireLive(UUID user, Long generation) {
         if (!live(user, generation)) {
             throw new NotificationFailure(409, "STALE_AUTH_GENERATION");
         }
@@ -143,17 +127,11 @@ class SettingsService {
             String column = SettingsPatch.COLUMNS.get(field.getKey());
             // 컬럼은 고정 허용목록에서만 얻는다. 같은 필드만 단조 비교하고 전체 version은 최댓값이다.
             store.update("UPDATE settings SET " + column + "=?," + column + "_version=?,"
-                    + "version=GREATEST(version,?),imported_by=NULL WHERE user_id=? AND "
+                    + "version=GREATEST(version,?) WHERE user_id=? AND "
                     + column + "_version<?", field.getValue(), version, version, user, version);
         }
     }
 
-    private void replaceBeforeMigration(UUID user, Map<String, Object> values, long version) {
-        store.update("UPDATE settings SET version=?,notification_enabled=?,sound_enabled=?,night_mode_enabled=?,"
-                + "night_start_time=?,night_end_time=?,imported_by=NULL WHERE user_id=?", version,
-                values.get("notificationEnabled"), values.get("soundEnabled"), values.get("nightModeEnabled"),
-                values.get("nightStartTime"), values.get("nightEndTime"), user);
-    }
 
     private Map<String, Object> requiredRow(UUID user) {
         Map<String, Object> row = store.one("SELECT * FROM settings WHERE user_id=?", user);

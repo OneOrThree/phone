@@ -1,12 +1,14 @@
 package com.oneorthree.phone.internal;
 
+import com.oneorthree.phone.user.repository.domain.User;
+
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.SessionLogoutService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.group.dto.CreateGroupRequest;
-import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.service.GroupMemberService;
-import com.oneorthree.phone.group.service.GroupService;
+import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.service.IslandJoinService;
+import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,7 +64,7 @@ class RealtimeMembershipAuthorizationIntegrationTest {
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> 6);
         registry.add("spring.datasource.hikari.minimum-idle", () -> 0);
         registry.add("spring.flyway.enabled", () -> true);
-        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+        registry.add("spring.flyway.locations", () -> "classpath:db/v0");
         registry.add("spring.flyway.baseline-on-migrate", () -> false);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         registry.add("internal.api.enabled", () -> true);
@@ -88,7 +90,9 @@ class RealtimeMembershipAuthorizationIntegrationTest {
     @Autowired
     JwtProvider jwt;
     @Autowired
-    GroupService groups;
+    IslandMembershipService islands;
+    @Autowired
+    IslandJoinService joins;
     @Autowired
     GroupMemberService members;
     @Autowired
@@ -125,8 +129,8 @@ class RealtimeMembershipAuthorizationIntegrationTest {
                     "update users set auth_generation=auth_generation+1 where id=?", f.userId());
             case "kicked-marker" -> jdbc.update("update group_members set left_reason='KICKED'"
                     + " where group_id=? and user_id=?", f.islandId(), f.userId());
-            case "ended" -> jdbc.update("update groups set status='ENDED' where id=?", f.islandId());
-            case "deleted" -> jdbc.update("update groups set deleted_at=now() where id=?", f.islandId());
+            case "ended" -> jdbc.update("update islands set status='ENDED' where id=?", f.islandId());
+            case "deleted" -> jdbc.update("update islands set deleted_at=now() where id=?", f.islandId());
             case "missing-session" -> f = new Fixture(f.userId(), UUID.randomUUID(), f.islandId(), f.ownerId(), f.rt());
             case "missing-island" -> f = new Fixture(f.userId(), f.sid(), UUID.randomUUID(), f.ownerId(), f.rt());
             case "missing-user" -> f = new Fixture(UUID.randomUUID(), f.sid(), f.islandId(), f.ownerId(), f.rt());
@@ -167,7 +171,7 @@ class RealtimeMembershipAuthorizationIntegrationTest {
             request(token, f.userId().toString(), body(f)).andExpect(status().isForbidden());
         }
         request("unknown-service", f.userId().toString(), body(f)).andExpect(status().isUnauthorized());
-        var app = auth.guestLogin();
+        var app = auth.guestSession(java.util.UUID.randomUUID().toString());
         request(app.accessToken(), f.userId().toString(), body(f)).andExpect(status().isUnauthorized());
         mvc.perform(post(PATH).header("X-User-Id", f.userId()).contentType("application/json").content(body(f)))
                 .andExpect(status().isUnauthorized());
@@ -240,7 +244,7 @@ class RealtimeMembershipAuthorizationIntegrationTest {
             new TransactionTemplate(transactions).executeWithoutResult(ignored -> {
                 jdbc.queryForObject("select id from users where id=? for update", UUID.class, f.userId());
                 jdbc.queryForObject("select id from auth_sessions where id=? for update", UUID.class, f.sid());
-                jdbc.queryForObject("select id from groups where id=? for update", UUID.class, f.islandId());
+                jdbc.queryForObject("select id from islands where id=? for update", UUID.class, f.islandId());
                 jdbc.queryForObject("select id from group_members where group_id=? and user_id=? for update",
                         UUID.class, f.islandId(), f.userId());
                 try {
@@ -259,20 +263,19 @@ class RealtimeMembershipAuthorizationIntegrationTest {
     }
 
     private Fixture fixture() {
-        var owner = auth.guestLogin();
-        var member = auth.guestLogin();
+        var owner = auth.guestSession(java.util.UUID.randomUUID().toString());
+        var member = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID ownerId = jwt.extractUserId(owner.accessToken());
         UUID userId = jwt.extractUserId(member.accessToken());
-        UUID islandId = groups.createGroup(ownerId,
-                CreateGroupRequest.builder().name("현재 수신 자격 검증").build()).groupId();
-        groups.joinGroup(islandId, userId, new JoinGroupRequest(null));
-        return new Fixture(userId, member.sessionId(), islandId, ownerId, member.refreshToken());
+        UUID islandId = islands.create(ownerId, new CreateIslandCommandRequest("현재 수신 자격 검증", null, false, null), UUID.randomUUID()).id();
+        joins.join(userId, islandId, null, UUID.randomUUID());
+        return new Fixture(userId, jwt.extractSessionId(member.accessToken()), islandId, ownerId, member.refreshToken());
     }
 
     private List<String> rowVersions(Fixture f) {
         return jdbc.queryForList("select u.xmin::text || ':' || s.xmin::text || ':' || g.xmin::text"
                 + " || ':' || m.xmin::text from users u join auth_sessions s on s.user_id=u.id"
-                + " join group_members m on m.user_id=u.id join groups g on g.id=m.group_id"
+                + " join group_members m on m.user_id=u.id join islands g on g.id=m.group_id"
                 + " where u.id=? and s.id=? and g.id=?", String.class, f.userId(), f.sid(), f.islandId());
     }
 

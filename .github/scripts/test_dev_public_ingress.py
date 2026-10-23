@@ -20,7 +20,8 @@ class DevPublicIngressTest(unittest.TestCase):
         base = ROOT / "server/scripts/docker-compose.dev.yml"
         with tempfile.TemporaryDirectory(prefix="gromo-realtime-port-") as directory:
             env = Path(directory) / "env"
-            env.write_text("APP_IMAGE=example/data:dev\nREALTIME_IMAGE=example/realtime:dev\n")
+            env.write_text("APP_IMAGE=example/data:dev\nREALTIME_IMAGE=example/realtime:dev\n"
+                           "SVC_TOKEN_REALTIME_TO_DATA=synthetic-realtime-data-token\n")
             result = subprocess.run(
                 ["docker", "compose", "--env-file", str(env), "-f", str(base),
                  "-f", str(compose), "config", "--format", "json"],

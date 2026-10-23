@@ -3,33 +3,12 @@ package com.oneorthree.phone.common.exception;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
-/**
- * 도메인에 속하지 않는 실패 사유 (GROMO-1657) — 프레임워크·인프라 예외를 봉투에 실을 때 쓴다.
- *
- * <p><b>왜 따로 두나.</b> 종전엔 전역 핸들러가 {@code "INVALID_PARAMETER"} 같은 문자열을 손으로
- * 박았고, 낙관락 충돌 코드는 {@code GroupErrorCode.CONCURRENT_UPDATE} 를 <b>빌려</b> 썼다 —
- * {@code common} 이 {@code group} 을 참조하는 유일한 자리였다. 공통 실패는 공통이 소유한다.
- *
- * <p><b>이름은 계약이다.</b> 종전에도 나가던 다섯({@code INVALID_PARAMETER} · {@code INVALID_TIMEZONE} ·
- * {@code DATA_INTEGRITY_VIOLATION} · {@code CONCURRENT_UPDATE} · {@code LOGIN_USER_RESOLUTION_FAILED})은
- * 문자열·상태·문구가 종전과 글자 그대로 같다. {@code ILLEGAL_ARGUMENT} 는 <b>문자열만</b> 같다 —
- * 문구는 일부러 바꿨고(종전엔 예외 메시지를 그대로 반사해 내부 구현이 드러났다), 상태는 GROMO-1725 에서
- * 409 → 400 으로 바꿨다.
- * {@code UNAUTHORIZED} · {@code PAYLOAD_TOO_LARGE} 는 필터가 {@code {"error": …}} 로 내던 것에
- * 같은 이름으로 {@code code}·{@code message} 를 <b>더한</b> 것이다({@code error} 필드는 남긴다).
- * 그 외 새로 생긴 것은 종전에 봉투 없이 새던 경로에 처음으로 {@code code} 를 주는 것이라 앱 계약을
- * 깨지 않는다.
- *
- * <p><b>{@code NOT_FOUND} 를 쓰지 않는 이유</b> — 앱이 그 문자열을 「그룹이 사라짐」으로 해석하는
- * 분기가 17곳이다(GROMO-1725). 없는 경로·없는 엔티티에 그 코드를 주면 엉뚱한 안내가 뜬다.
- */
+/** 도메인에 속하지 않는 요청 검증·인프라 오류의 공통 응답 코드. */
 @Getter
 public enum CommonErrorCode implements ErrorCode {
 
-    /** 토큰이 없거나 검증에 실패했다 — {@code JwtFilter} 가 디스패처 앞에서 직접 쓴다. */
+    /** 액세스 자격이 없거나 검증에 실패했다. */
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다. 다시 로그인해 주세요."),
-    /** 요청 본문이 상한을 넘었다 — {@code RequestSizeLimitFilter} 가 디스패처 앞에서 직접 쓴다. */
-    PAYLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "요청 본문이 너무 큽니다."),
     /** 요청 바디가 검증({@code @Valid})에 걸렸거나 JSON 으로 읽을 수 없다. */
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 형식이 올바르지 않습니다."),
     /** 쿼리·경로 파라미터가 없거나 타입이 맞지 않는다. 문구에는 파라미터 이름이 붙는다. */
@@ -84,8 +63,6 @@ public enum CommonErrorCode implements ErrorCode {
      * Business 공개 표의 {@code RATE_LIMITED}(429)와 이름·상태가 같아야 이름 매핑이 붙는다.
      */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 많습니다. 잠시 후 다시 시도해 주세요."),
-    /** {@code @LoginUser} 주입 실패 — 재시도로 풀리지 않는 서버 배선 오류. */
-    LOGIN_USER_RESOLUTION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "서버 설정 오류로 요청을 처리하지 못했습니다."),
     /** 그 외 전부. 원인은 로그에만 남는다 — 응답에 내부 정보를 싣지 않는다. */
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.");
 

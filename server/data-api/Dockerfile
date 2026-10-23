@@ -44,6 +44,13 @@ ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1
 
 COPY --from=artifact /app/app.jar app.jar
 
+# 호스트가 같은 digest 이미지에서 추출하는 DB 전환 묶음. 실행 이미지에 Python/DB client는 넣지 않는다.
+COPY docs/db/deploy-v0.py docs/db/rebase-v0.py /opt/catus-db/docs/db/
+COPY docs/db/v0-rebase /opt/catus-db/docs/db/v0-rebase
+COPY src/main/resources/db/migration /opt/catus-db/src/main/resources/db/migration
+COPY src/main/resources/db/v0 /opt/catus-db/src/main/resources/db/v0
+COPY src/main/resources/db/seed /opt/catus-db/src/main/resources/db/seed
+
 # Datadog Autodiscovery — Micrometer /actuator/prometheus 를 OpenMetrics 로 스크레이프 (GROMO-1489).
 # 이미지 라벨에 두는 이유: Agent 설정 파일(conf.d/openmetrics.d)로 두면 호스트에 그 파일이 있어야 하는데,
 # prod 는 docker-compose.prod.yml 만 S3 로 배포하고 레포를 체크아웃하지 않아 마운트할 파일이 없다.

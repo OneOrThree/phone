@@ -44,7 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>친구 요청을 쓴다 — 요청형 다섯 중 fixture 가 가장 가볍고, 구 경로에 회수 수단이 아예 없어
  * 유실이 곧 영구 유실인 자리다.
  */
-@SpringBootTest(properties = "notification.dispatch.mode=OUTBOX")
+@SpringBootTest
 class NotificationRequestOutboxListenerIntegrationTest {
 
     @DynamicPropertySource

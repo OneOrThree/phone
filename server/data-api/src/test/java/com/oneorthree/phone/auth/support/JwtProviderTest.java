@@ -1,6 +1,5 @@
 package com.oneorthree.phone.auth.support;
 
-import com.oneorthree.phone.auth.support.JwtProvider;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -9,7 +8,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Date;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -125,44 +123,20 @@ class JwtProviderTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    // ── refresh 수명·회전 (GROMO-1509) ────────────────────────────────────
+    // ── refresh 수명 (GROMO-1509) ────────────────────────────────────
 
     @Test
     @DisplayName("게스트 refresh 는 소셜보다 길게 발급된다 — 만료가 곧 계정 소실이라 미접속 허용 기간을 따로 준다")
     void guestRefreshTokenLivesLonger() {
         UUID id = UUID.randomUUID();
 
-        long guestExp = jwtProvider.extractExpiration(jwtProvider.generateRefreshToken(id, true)).getTime();
-        long socialExp = jwtProvider.extractExpiration(jwtProvider.generateRefreshToken(id, false)).getTime();
+        long guestExp = jwtProvider.verifyLogoutToken(
+                jwtProvider.generateRefreshToken(id, true), JwtProvider.TYPE_REFRESH).expiresAt().toEpochMilli();
+        long socialExp = jwtProvider.verifyLogoutToken(
+                jwtProvider.generateRefreshToken(id, false), JwtProvider.TYPE_REFRESH).expiresAt().toEpochMilli();
 
         // 90일 - 30일 = 60일 차이. 발급 시각 오차를 감안해 하한만 본다.
         assertThat(guestExp - socialExp).isGreaterThan((GUEST_REFRESH_TTL - REFRESH_TTL - 60) * 1000);
     }
 
-    @Test
-    @DisplayName("갓 발급한 refresh 는 회전 대상이 아니다 — 매 갱신 회전을 막는 절반 기준")
-    void freshRefreshTokenIsNotRotationDue() {
-        UUID id = UUID.randomUUID();
-
-        assertThat(rotationDue(jwtProvider.generateRefreshToken(id, false), false)).isFalse();
-        assertThat(rotationDue(jwtProvider.generateRefreshToken(id, true), true)).isFalse();
-    }
-
-    @Test
-    @DisplayName("남은 수명이 절반 미만이면 회전 대상 — 기준 수명은 게스트·소셜이 각각 다르다")
-    void refreshTokenPastHalfLifeIsRotationDue() {
-        // 남은 14일 — 소셜(절반=15일)·게스트(절반=45일) 둘 다 절반 미만이라 회전한다
-        Date in14Days = new Date(System.currentTimeMillis() + 14L * 24 * 60 * 60 * 1000);
-        assertThat(jwtProvider.isRefreshRotationDue(in14Days, false)).isTrue();
-        assertThat(jwtProvider.isRefreshRotationDue(in14Days, true)).isTrue();
-
-        // 남은 20일 — 소셜(절반=15일)은 아직 아니고, 게스트(절반=45일)는 회전 대상이다
-        Date in20Days = new Date(System.currentTimeMillis() + 20L * 24 * 60 * 60 * 1000);
-        assertThat(jwtProvider.isRefreshRotationDue(in20Days, false)).isFalse();
-        assertThat(jwtProvider.isRefreshRotationDue(in20Days, true)).isTrue();
-    }
-
-    private boolean rotationDue(String refreshToken, boolean isGuest) {
-        return jwtProvider.isRefreshRotationDue(jwtProvider.extractExpiration(refreshToken), isGuest);
-    }
 }

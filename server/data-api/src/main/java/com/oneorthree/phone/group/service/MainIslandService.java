@@ -123,7 +123,7 @@ public class MainIslandService implements MainIslandNamePort {
     /**
      * 멤버십이 끝났다 — 그 섬이 메인 섬이었으면 <b>가장 최근 가입한 남은 섬</b>으로 옮긴다 (요구 5).
      *
-     * <p>이탈·강퇴·계정탈퇴의 <b>공통 지점</b>인 {@code LinkMembershipEventService.recordMembershipRevoked}
+     * <p>이탈·강퇴·계정탈퇴의 <b>공통 지점</b>인 {@code IslandMembershipTransitions.recordMembershipRevoked}
      * 하나에서만 불린다. 마킹 지점마다 달면 다섯 곳 중 하나만 빠져도 「탈퇴한 섬이 대표로 남는」 상태가
      * 조용히 생긴다.
      *

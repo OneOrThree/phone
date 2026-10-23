@@ -7,7 +7,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * 해시 인코더 등록. spring-boot-starter-security 는 넣지 않고 {@code spring-security-crypto} 만
- * 의존하므로 Boot 의 시큐리티 자동 구성이 붙지 않는다 — 인증은 전적으로 {@link JwtFilter} 가 맡고,
+ * 의존하므로 Boot 의 시큐리티 자동 구성이 붙지 않는다 — 내부 인증은 {@link InternalAuthFilter}가 맡고,
  * 여기서 등록하는 건 해시 유틸 하나뿐이다.
  */
 @Configuration

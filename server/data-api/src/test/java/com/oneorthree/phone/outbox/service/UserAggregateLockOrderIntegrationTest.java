@@ -63,7 +63,7 @@ class UserAggregateLockOrderIntegrationTest {
     }
 
     private static NotificationRequest deadline(UUID user, Instant occurredAt) {
-        return new NotificationRequest(NotificationKind.LEAGUE_DEADLINE, user, null, null, null, occurredAt, "ko",
+        return new NotificationRequest(NotificationKind.FRIEND_ACCEPTED, user, user, occurredAt, "ko",
                 Map.of("rank", 1));
     }
 
@@ -102,9 +102,9 @@ class UserAggregateLockOrderIntegrationTest {
         for (UUID user : users) {
             assertThat(jdbc.queryForList("SELECT event_id FROM event_outbox WHERE user_id=? ORDER BY version",
                     String.class, user)).containsExactly(
-                    NotificationEventKey.of(NotificationKind.LEAGUE_DEADLINE, user, null,
+                    NotificationEventKey.of(NotificationKind.FRIEND_ACCEPTED, user, user,
                             Instant.parse("2026-11-01T11:00:00Z")),
-                    NotificationEventKey.of(NotificationKind.LEAGUE_DEADLINE, user, null,
+                    NotificationEventKey.of(NotificationKind.FRIEND_ACCEPTED, user, user,
                             Instant.parse("2026-11-02T11:00:00Z")));
         }
     }

@@ -41,8 +41,6 @@ public enum CommonErrorCode implements ErrorCode {
     UPSTREAM_CREDENTIAL_REJECTED(HttpStatus.BAD_GATEWAY, "일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."),
     /** 상류가 우리 요청을 해석하지 못했다(코드 없는 4xx) — 배선·계약 어긋남이다. 사용자 탓으로 돌리지 않는다. */
     UPSTREAM_CONTRACT_MISMATCH(HttpStatus.BAD_GATEWAY, "일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."),
-    /** 이관 정지 창 밖에서 한시 호환 핸들러가 호출됐다. */
-    COMPAT_HANDLER_DISABLED(HttpStatus.NOT_FOUND, "지원하지 않는 요청입니다."),
     /**
      * 매핑되지 않은 경로다.
      *

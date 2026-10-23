@@ -12,8 +12,6 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupAnnouncementCommentRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
-import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -42,7 +40,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 그룹 멤버십을 <b>바꾸는</b> 경로 — 방장 위임·강퇴·그룹 탈퇴. 조회는 {@code GroupService} 가 맡는다.
+ * 그룹 멤버십을 <b>바꾸는</b> 경로 — 방장 위임·강퇴·그룹 탈퇴. 멤버십 조회는 {@code GroupQueryService} 가 맡는다.
  *
  * <p>세 경로 모두 요청자(대상이 있으면 대상까지) users 행을 공유 락으로 읽는다. 계정 탈퇴와
  * 직렬화되지 않으면 탈퇴 확정 계정이 방장을 넘겨받을 수 있다. 변경 컬럼만 저장하더라도
@@ -62,19 +60,13 @@ public class GroupMemberService {
     private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
     private final UserActivityEventLogger userActivityEventLogger;
-    private final GroupBetService groupBetService;
     private final GroupMembershipMutationLocks membershipLocks;
     private final IslandMembershipEvents membershipEvents;
-    /**
-     * 멤버십 전이·그룹 종료를 링크 서버로 나르는 내구 명령 (A22 ⓑ · ㋢). 같은 트랜잭션에서 적는다 —
-     * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
-     */
-    private final LinkMembershipEventService linkMembershipEventService;
+    /** 멤버십 세대를 갱신하고 소속 상실에 따른 대표 섬과 현재 섬을 같은 트랜잭션에서 복구한다. */
+    private final IslandMembershipTransitions membershipTransitions;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
     private final GroupAnnouncementCommentRepository groupAnnouncementCommentRepository;
     private final IslandGuestbookEntryRepository guestbookEntryRepository;
-    private final GroupChallengeMemberRepository groupChallengeMemberRepository;
-    private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandArrivalRepository islandArrivalRepository;
     private final IslandArrivalEvents islandArrivalEvents;
@@ -98,7 +90,7 @@ public class GroupMemberService {
      * 지울 대상이 construction·appearance·quest·shop 소유라 호출을 포트로 뒤집는다 — 구현은 L10 이다.
      */
     private final IslandPurgePort islandPurge;
-    /** 강퇴 알림 사건(GROMO-2315) — 알림 리스너가 같은 트랜잭션(신 경로)·커밋 뒤(구 경로)에 받는다. */
+    /** 강퇴 알림 사건(GROMO-2315) — 알림 리스너가 같은 트랜잭션에서 outbox에 기록한다. */
     private final ApplicationEventPublisher events;
     /**
      * 이탈 시각을 찍는 시계 (GROMO-2050) — Hibernate 의 {@code @UpdateTimestamp} 를 쓰지 않는 이유는
@@ -192,21 +184,18 @@ public class GroupMemberService {
         // 커밋되면 여기서 삭제를 관측하고 TARGET_USER_NOT_FOUND 로 거절된다(GROMO-1725).
         // GROMO-1247: transferOwner 대상과 같은 이유로 USER_NOT_FOUND 로 바꾸지 않는다(대상 유저다).
         User targetUser = locked.requireTarget();
-        // 표시정보 갱신과 같은 순서로 멤버십 → LINK aggregate를 잠근다.
-        // 더티 갱신의 flush에 맡기면 aggregate를 먼저 잡아 그룹명 변경과 교착할 수 있다.
+        // 멤버십 행을 먼저 잠가 강퇴와 소속 복구를 같은 전이로 반영한다.
         GroupMember target = groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(
                         targetUser.getId(), group.getId())
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
-        // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
+        // 강퇴와 집중 종료를 같은 트랜잭션에 반영한다.
         target.kick(clock.instant());
         // FR-D03 — 멤버십 배타 잠금을 쥔 채 종결한다. 전이(pause/resume/finish)도 같은 섬 행을 먼저
         // 잡으므로, 여기서 끝낸 세션에 뒤늦은 전이가 끼어들지 않는다.
         focusMembershipLossService.endOnMembershipLoss(targetUser.getId(), groupId);
-        // 멤버십 전이 = 그 (그룹, 발급자) 링크의 폐기다(A22 ⓑ). Business 의 revoke 만 있으면
-        // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
-        // outbox 를 적고 relay 가 재전달한다.
-        linkMembershipEventService.recordMembershipRevoked(target);
+        // 초대 코드의 이전 세대를 무효화하고 대표 섬과 현재 섬을 복구한다.
+        membershipTransitions.recordMembershipRevoked(target);
         // 강퇴된 본인에게 앱 알림 1건(GROMO-2315) — 메인 섬이 옮겨졌어도 이전 알림은 MainIslandService 가 내지 않는다.
         events.publishEvent(new IslandKickedEvent(targetUser.getId(), groupId, group.getName(), target.getLeftAt()));
         // memberUserId 는 강퇴 «대상»이다 — 요청자(userId, 방장)가 아니라 targetUserId 를 줘야 Realtime 이
@@ -219,9 +208,7 @@ public class GroupMemberService {
     /**
      * 그룹에서 나간다 — 행을 지우지 않고 이탈로 마킹한다(A-0 소프트삭제).
      *
-     * <p>순서가 계약이다: 이탈이 확정된 뒤 <b>같은 트랜잭션에서</b> OPEN 내기 참가를 정리해 판돈을
-     * 환불한다. 별도 트랜잭션으로 미루면 「탈퇴는 됐는데 판돈은 묶인」 반쪽 상태가 남는다.
-     * 멤버가 둘 이상인데 요청자가 방장이면 {@code HOST_WITHDRAW} 로 막고(위임이 먼저),
+     * <p>멤버가 둘 이상인데 요청자가 방장이면 {@code HOST_WITHDRAW} 로 막고(위임이 먼저),
      * 마지막 1인이 나가면 그룹까지 닫는다.
      *
      * <p>이 섬에서 집중·휴식 중이면 {@code SESSION_IN_PROGRESS}(409)로 막는다 — FR-D03 의 「자진 탈퇴는
@@ -243,9 +230,7 @@ public class GroupMemberService {
      */
     @Transactional
     public EventEnvelope withdrawGroupAndRecord(UUID groupId, UUID userId) {
-        // 요청자 공유 락 (GROMO-1227) — 특히 이 경로는 아래 releaseFromOpenBets(환불·돈 경로)에
-        // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
-        // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
+        // 계정 탈퇴와 직렬화하도록 요청자의 공유 잠금을 먼저 잡는다.
         User user = requireActiveUser(userId);
         membershipLocks.lockGroup(groupId);
         membershipLocks.lockMembers(groupId, List.of(userId));
@@ -257,22 +242,13 @@ public class GroupMemberService {
         if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
-        // 돈이 움직이기 전에 판정한다 — 아래 내기 환불보다 앞이어야 거절이 깨끗하게 롤백된다.
+        // 진행 중 집중 세션은 종료한 뒤 나가야 한다.
         focusMembershipLossService.requireNoProgressingSession(userId, groupId);
-
-        // 탈퇴가 확정된 뒤, 같은 트랜잭션에서 OPEN 내기부터 정리한다(참가 해제·환불·자동 취소).
-        // 별도 트랜잭션이면 "탈퇴는 됐는데 판돈은 묶인" 반쪽 상태가 생길 수 있다.
-        groupBetService.releaseFromOpenBets(user, group);
 
         if (groupMembers.size() == 1) {
             groupMember.leave(clock.instant());
-            linkMembershipEventService.recordMembershipRevoked(groupMember);
+            membershipTransitions.recordMembershipRevoked(groupMember);
             group.close();
-            // 그룹 종료는 폐기와 «별개 사건»이다(㋢) — 현행 랜딩·매치가 둘 다 findActiveGroup 으로
-            // 실시간 판정하므로, 안 보내면 죽은 그룹의 slug 가 계속 랜딩·매치에 성공한다.
-            // 대상은 leave() «전»에 뜬 groupMembers 다. 여기서 다시 조회하면 방금 이탈한 마지막 1인이
-            // 빠져 목록이 비고, group.closed 봉투가 한 건도 만들어지지 않는다.
-            linkMembershipEventService.recordGroupClosed(group, groupMembers);
             // 공개 섬 상태 축에도 종료를 남긴다(섬 관리 LLD §3.7) — 주민 목록 사건만으로는 섬이 닫힌 것을 모른다.
             islandStateEvents.changed(groupId, userId, "CLOSED");
             closeJoinRequests(group);
@@ -281,7 +257,7 @@ public class GroupMemberService {
             islandPurge.purgeIsland(groupId);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave(clock.instant());
-            linkMembershipEventService.recordMembershipRevoked(groupMember);
+            membershipTransitions.recordMembershipRevoked(groupMember);
         }
         EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED", userId);
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
@@ -290,8 +266,7 @@ public class GroupMemberService {
 
     /**
      * 계정 탈퇴의 users 배타 잠금 직후, 세션·USER outbox보다 먼저 관련 그룹을 전부 잠근다.
-     * 챌린지 생성의 BEFORE_COMMIT 알림은 그룹 → 수신자 USER aggregate 순서이므로 탈퇴도
-     * 같은 순서를 따른다. 가입·이탈은 users 잠금과 직렬화되어 이 목록은 탈퇴 TX 동안 안정적이다.
+     * 섬 변경과 같은 그룹 → USER aggregate 순서를 따른다. 가입·이탈은 users 잠금과 직렬화된다.
      *
      * <p><b>잠그는 대상은 활성 멤버십 그룹 ∪ 댓글을 남긴 섬이다</b>(GROMO-2137 코드리뷰 대응). 이 유저의
      * 댓글은 {@link #eraseWithdrawnUserRecords} 가 원문째 지우며 그 섬의 {@code notice.updated} 를 발행하는데,
@@ -316,73 +291,28 @@ public class GroupMemberService {
     }
 
     /**
-     * 계정 탈퇴가 USER outbox 를 쓰기 «전»에 탈퇴자가 참가한 OPEN 내기 회차 행을 id 오름차순으로 전부 잠근다
-     * (GROMO-893).
+     * 계정 탈퇴자의 소속을 정리한다. 혼자 남은 섬은 닫고 다른 주민이 남은 방장은 위임을 요구한다.
+     * 멤버십·초대 링크·주민 사건은 호출자의 탈퇴 트랜잭션에서 함께 변경한다.
      *
-     * <p>정산({@code GroupBetSettler#settle})은 회차 행을 잠근 채 커밋 직전에 참가자 USER aggregate 를 잠근다.
-     * 탈퇴가 세션 폐기로 USER(탈퇴자)를 먼저 쥐고 {@link #detachWithdrawnUser} 의 내기 해제에서 회차 행을
-     * 기다리면, 그 회차를 정산 중인 트랜잭션과 서로를 기다린다. 그룹 선점과 같은 이유로 USER 보다 앞에 둔다.
-     *
-     * @param user 호출자가 배타 잠금으로 로드한 탈퇴 대상
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void lockOpenBetSessionsForAccountWithdrawal(User user) {
-        groupBetService.lockOpenSessionsForAccountWithdrawal(user);
-    }
-
-    /**
-     * 계정 탈퇴자를 그룹에서 떼어낸다 (GROMO-801, GROMO-1423 · 이동 GROMO-1656).
-     *
-     * <p><b>이 메서드가 여기 있는 이유.</b> 종전엔 {@code UserService.withdraw} 안에 이 네 단계가
-     * 펼쳐져 있어 계정 도메인이 그룹 리포지토리·예외·엔티티를 직접 참조했다(user → group 역행 6건).
-     * 그룹에서 떼어내는 방법은 그룹이 알아야 하므로 통째로 옮겼다 — <b>단계와 그 순서는 그대로다.</b>
-     * 호출은 {@code withdrawal/AccountWithdrawalService} 가 열어 둔 트랜잭션에 편승한다.
-     *
-     * <p><b>네 단계의 순서가 곧 정합성이다.</b>
-     * <ol>
-     *   <li><b>혼자 있는 소유 그룹 자동 종료</b> — 활성 멤버가 자기 하나뿐인 그룹은 방장 위임을
-     *       요구할 상대가 없으므로 그냥 닫는다. 여기서 이탈시킨 멤버십은 아래 4단계의 활성 조회에
-     *       다시 잡히지 않는다.</li>
-     *   <li><b>위임하지 않은 방장 그룹이 남으면 거절</b> — 다른 멤버가 남은 그룹의 방장은 위임 전까지
-     *       탈퇴할 수 없다. 판정이 아래 두 단계보다 <b>앞</b>이어야 돈이 움직이기 전에 롤백된다.</li>
-     *   <li><b>OPEN 내기 일괄 해제</b> — 해제하지 않으면 판돈이 에스크로에 묶인 채 소각된다
-     *       ({@code GroupBetSettler} 는 탈퇴자 지급을 스킵한다). 멤버십이 아니라 <b>유저 스코프</b>인
-     *       이유는 ① 강퇴자는 활성 멤버십이 없어도 참가·판돈이 남고 ② 그룹 단위 순차 해제는 앞 그룹
-     *       환불로 지갑 잠금을 쥔 채 다음 그룹 내기 잠금을 기다려 정산기와 AB-BA 교착이 되기 때문이다.
-     *       전 그룹의 내기 행을 bet id 오름차순으로 전부 잠근 뒤에만 돈이 움직인다.</li>
-     *   <li><b>판정 근거 박제</b> — 위 해제가 환불하지 못하고 정산 대상으로 남긴 OPEN 참가 행에
-     *       달성·진행분을 박제한다. 반드시 해제 <b>뒤</b>(남는 행만 박제)여야 한다.</li>
-     *   <li><b>활성 멤버십 이탈</b> — 안 하면 탈퇴자가 {@code is_left=false} 유령 멤버로 남아 멤버
-     *       목록에 nickname null 로 뜨고 정원 한 자리를 영구히 차지한다.</li>
-     * </ol>
-     *
-     * <p><b>호출부가 지켜야 하는 두 가지</b>(이 메서드가 강제할 수 없다) — 3단계의 환불이 이 유저의
-     * 지갑에 입금되므로 <b>지갑 삭제보다 먼저</b> 불려야 하고, 4단계의 박제는 통계가 사라지기 전의
-     * 값을 읽으므로 <b>집중·통계 익명화보다 먼저</b>여야 한다.
-     *
-     * @param user 탈퇴 중인 유저. 호출부가 배타 락으로 로드해 둔 엔티티여야 한다
-     * @throws GroupException 위임하지 않은 방장 그룹이 남아 있을 때 {@code HOST_WITHDRAW}
+     * @param user 배타 잠금으로 읽은 탈퇴 대상
+     * @throws GroupException 다른 주민이 남은 섬의 방장이면 HOST_WITHDRAW
      */
     @Transactional
     public void detachWithdrawnUser(User user) {
         UUID userId = user.getId();
         // 원 진입점은 USER outbox 전에 이미 선점했다. 직접 진입도 같은 그룹 잠금을 재확인한다.
-        // 환불은 기존대로 모든 bet ID를 먼저 잠근 뒤 수행하며 그룹별 환불 루프로 바꾸지 않는다.
         List<UUID> groupIds = lockGroupsForAccountWithdrawal(user);
         groupIds.stream().distinct().sorted()
                 .forEach(groupId -> membershipLocks.lockMembers(groupId, List.of(userId)));
 
         for (GroupMember ownerMembership : groupMemberRepository.findActiveOwnerMembershipsByUserId(userId)) {
-            // 이탈 «전»에 포착한다 — leave() 뒤에 조회하면 isLeft 필터에 걸려 목록이 비고,
-            // 그러면 group.closed 봉투가 한 건도 만들어지지 않는다.
+            // 현재 주민 수로 혼자인 방장의 섬 종료 여부를 판단한다.
             List<GroupMember> recipients = groupMemberRepository.findByGroup(ownerMembership.getGroup());
             if (recipients.size() <= 1) {
                 ownerMembership.leave(clock.instant());
-                linkMembershipEventService.recordMembershipRevoked(ownerMembership);
+                membershipTransitions.recordMembershipRevoked(ownerMembership);
                 membershipEvents.changed(ownerMembership.getGroup().getId(), userId, "MEMBER_REMOVED", userId);
                 ownerMembership.getGroup().close();
-                // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
-                linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
                 islandStateEvents.changed(ownerMembership.getGroup().getId(), userId, "CLOSED");
                 closeJoinRequests(ownerMembership.getGroup());
                 // 계정 탈퇴로 닫히는 1인 섬도 같은 삭제를 받는다 (GROMO-1995) — 닫히는 경로마다
@@ -395,16 +325,14 @@ public class GroupMemberService {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
 
-        groupBetService.releaseFromAllOpenBets(user);
-        groupBetService.freezeEvidenceForAccountErasure(user);
 
         for (GroupMember membership : groupMemberRepository.findByUser(user)) {
             // 사용자 배타 잠금은 다른 방장의 그룹명 변경을 막지 않는다.
-            // 환불 순서는 유지하고, 이탈 직전에 멤버십 → LINK aggregate 순서를 보장한다.
+            // 이탈 직전에 멤버십 행을 잠가 같은 전이를 직렬화한다.
             groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(userId, membership.getGroup().getId())
                     .ifPresent(locked -> {
                         locked.leave(clock.instant());
-                        linkMembershipEventService.recordMembershipRevoked(locked);
+                        membershipTransitions.recordMembershipRevoked(locked);
                         membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED", userId);
                     });
         }
@@ -422,9 +350,7 @@ public class GroupMemberService {
     /**
      * 탈퇴자의 그룹 쪽 개인 자료를 파기한다 (GROMO-1801 · 계정 LLD §4).
      *
-     * <p>{@link #detachWithdrawnUser} <b>뒤</b>에 같은 트랜잭션에서 부른다 — 그쪽이 환불·증거 동결·이탈을
-     * 끝내야 여기서 지우는 원본(창형 보고)과 열람 기록이 정산 근거에서 빠져도 금액이 바뀌지 않는다.
-     * 남는 것은 관계·정산 증거(멤버십 행·참가 행·공지 본문)뿐이다.
+     * <p>{@link #detachWithdrawnUser} 뒤에 같은 트랜잭션에서 개인 설정과 작성자 정보를 정리한다.
      *
      * <p><b>댓글 벌크 삭제는 {@code notice.updated} 를 함께 낸다</b>(GROMO-2137 코드리뷰 대응) — 안 그러면
      * 다른 주민의 목록·상세({@code commentCount})가 이 변화를 영영 모른다. {@code IslandNoticeService} 의 다른
@@ -440,8 +366,6 @@ public class GroupMemberService {
     public void eraseWithdrawnUserRecords(User user) {
         UUID userId = user.getId();
         groupMemberRepository.eraseSettingsOfUser(userId);
-        betParticipantRepository.eraseResultViewsOf(userId);
-        groupChallengeMemberRepository.deleteAllOfUser(userId);
         groupAnnouncementRepository.detachAuthor(userId);
         // 댓글은 공지와 달리 원문째 지운다 (2026-09-25 결정 GROMO-2136 — BQ02 확정). 지우기 전에 영향받는
         // (섬, 공지) 쌍을 모아 둔다 — 지운 뒤에는 어떤 공지의 댓글이 사라졌는지 알 수 없다.
@@ -465,8 +389,6 @@ public class GroupMemberService {
         telescopeBucketRepository.deleteAllOfUser(userId);
         onboardingIslandRepository.closePendingOfUser(userId);
         onboardingIslandRepository.deleteAllOfUser(userId);
-        // 링크 서버로 나간·나갈 닉네임 변경 봉투 속 이름 사본(GROMO-1946)
-        linkMembershipEventService.eraseWithdrawnDisplayName(userId);
     }
 
     /**
@@ -480,7 +402,6 @@ public class GroupMemberService {
      *
      * <p><b>readOnly 조회 메서드에서는 쓰지 말 것</b> — 이 클래스 기본 트랜잭션이
      * {@code @Transactional(readOnly = true)} 라 Postgres 가 FOR SHARE 를 거절한다
-     * (read-only 에서 행 잠금 불가 — {@code GroupBetService.getBetHistory} 주석 참조).
      * 메서드 레벨 {@code @Transactional} 로 쓰기 트랜잭션을 연 변경 경로 전용이다.
      */
     private User requireActiveUser(UUID userId) {

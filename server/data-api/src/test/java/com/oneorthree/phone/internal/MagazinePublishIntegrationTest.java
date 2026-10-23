@@ -119,7 +119,7 @@ class MagazinePublishIntegrationTest {
     @Autowired
     UserRepository users;
     @Autowired
-    GroupRepository groups;
+    GroupRepository islands;
     @Autowired
     GroupMemberRepository members;
     @Autowired
@@ -165,7 +165,7 @@ class MagazinePublishIntegrationTest {
         Island second = island("둘째섬", false);
         Island hidden = island("숨은섬", true);
         Island closed = island("닫힌섬", false);
-        jdbc.update("update groups set deleted_at = now() where id = ?", closed.id);
+        jdbc.update("update islands set deleted_at = now() where id = ?", closed.id);
         resident(first.group);
         UUID late = promotion(first.id, date, kst(date.minusDays(1), 9, 0), "늦게 신청");
         UUID early = promotion(second.id, date, kst(date.minusDays(1), 8, 0), "먼저 신청");
@@ -255,7 +255,7 @@ class MagazinePublishIntegrationTest {
                 .andExpect(jsonPath("$.editorial.ranking[1].privateIsland").value(false))
                 .andExpect(jsonPath("$.editorial.newIslands[0].privateIsland").value(false));
 
-        jdbc.update("update groups set is_private = true where id = ?", fresh.id);
+        jdbc.update("update islands set is_private = true where id = ?", fresh.id);
         issue(reader.getId(), issueId, "").andExpect(jsonPath("$.editorial.newIslands[0].privateIsland").value(true));
     }
 
@@ -361,8 +361,8 @@ class MagazinePublishIntegrationTest {
         UUID issueId = publisher.publish(date).orElseThrow().getId();
         // 발행 뒤의 변화 — 주민이 늘고, 한 섬은 비공개가 되고, 한 칸은 신고로 숨겨진다.
         resident(mine.group);
-        jdbc.update("update groups set is_private = true where id = ?", goesPrivate.id);
-        jdbc.update("update groups set status = 'ENDED' where id = ?", ended.id);
+        jdbc.update("update islands set is_private = true where id = ?", goesPrivate.id);
+        jdbc.update("update islands set status = 'ENDED' where id = ?", ended.id);
         jdbc.update("update island_promotions set moderation = 'HIDDEN' where id = ?", hiddenCell);
 
         now.set(kst(date, 9, 0));
@@ -483,7 +483,7 @@ class MagazinePublishIntegrationTest {
     /** 방장 한 명짜리 섬(정원 10). */
     private Island island(String name, boolean isPrivate) {
         User owner = user();
-        Group group = groups.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
+        Group group = islands.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
         members.save(GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build());
         return new Island(group.getId(), group, owner);
     }
@@ -501,7 +501,7 @@ class MagazinePublishIntegrationTest {
     }
 
     private void created(Island island, Instant at) {
-        jdbc.update("update groups set created_at = ? where id = ?", Timestamp.from(at), island.id);
+        jdbc.update("update islands set created_at = ? where id = ?", Timestamp.from(at), island.id);
     }
 
     /** 이번 주(발행 순간이 속한 UTC 일요일 주)에 끝난 집중 — 섬 방장 한 명의 순수 집중 {@code minutes} 분. */

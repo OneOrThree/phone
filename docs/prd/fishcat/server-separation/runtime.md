@@ -16,17 +16,17 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
       --output .runtime/business-api.env
 ```
 
-같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. dev VM 에서 `/var/lib/gromo/runtime/` 에 직접 만들 때는 그 디렉터리가 runner 소유 0700 이라 `sudo -u runner` 로 실행한다 — 다른 계정 소유로 생기면 다음 CD 가 못 읽어 파일이 없는 것과 같다. 특히 `data-api.env` 는 CD 가 다시 만들지 않는 수동 파일이다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. 운영에서는 `--environment prod`와 `gromo/prod/env`를 사용한다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
+같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. 현재 dev CD는 `.github/scripts/dev-env.sh`로 매 실행마다 `$RUNNER_TEMP`에 필요한 env를 만들고 종료 시 삭제한다. 영구 수동 env를 배포 입력으로 사용하지 않는다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. Catus 운영은 Infra runtime이 `catus/prod/env`와 `catus/prod/database`에서 서비스별 임시 env를 만든다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
 
 | 서비스 | 필수 자격 |
 |---|---|
-| data-api | API_DB 3종, OPENAI_API_KEY, BIZ_TO_DATA·NOTI_TO_DATA·DATA_TO_NOTI·DATA_TO_LINK 서비스 토큰, LINK_CAPABILITY_KEY, LINK_IP_SALT, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
-| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_LINK·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, LINK_BASE_URL, REALTIME_BASE_URL, LINK_IP_SALT, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
+| data-api | API_DB 3종, BIZ_TO_DATA·NOTI_TO_DATA·REALTIME_TO_DATA·DATA_TO_NOTI 서비스 토큰, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
+| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, REALTIME_BASE_URL, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
 | notification | NOTI_DB 3종, FCM 2종, BIZ_TO_NOTI·DATA_TO_NOTI·CONSOLE_TO_NOTI·NOTI_TO_DATA 서비스 토큰, DATA_API_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
 
-표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. 표의 링크 관련 값(`DATA_TO_LINK`·`BIZ_TO_LINK` 토큰 · `LINK_CAPABILITY_KEY` · `LINK_BASE_URL` · business-api 의 `LINK_IP_SALT`)은 A23 으로 폐기된 #745 잔재다 — 생성기가 요구하는 동안만 채우고, `LINK_IP_SALT` 는 최종적으로 data-api 만 갖는다(링크 정책 L03). `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
+표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. Data·Realtime에는 같은 `REALTIME_TO_DATA` 토큰을 공급하고 Data 프로파일에 `satellites,realtime-authorization`을 포함한다. `LINK_BASE_URL`은 현재 섬 초대 공유 주소이며, `LINK_PROXY_SECRET`은 게스트 요청의 프록시 신뢰 검증용이다. 폐기한 독립 Link 자격과 OpenAI 키는 주입하지 않는다. `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
 
-Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. 구 코드가 기동·발송해야 하는 기간의 자격이다. 구 빈 제거·트래픽 전환·롤백 창 종료 확인 후에만 `--phase final`을 사용한다. writer의 final 선택 자체가 구 빈 제거를 수행하지는 않는다.
+Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. FCM은 현재 집중 상태 알림에서도 쓰므로 `final` 허용 목록에도 유지한다. `--phase final`은 env 분리 옵션으로, DB 전환이나 트래픽 교체를 대신 수행하지 않는다. 자동 배포·실패 복구는 [배포 문서](deployment.md)를 따른다.
 
 ## 기존 볼륨과 RDS의 알림 DB 초기화
 
@@ -126,36 +126,12 @@ relay를 켤 때 모두 명시한다. warning attempts는 폐기 횟수가 아�
 라운드)는 **선택**이다 — 비우면 괄호의 기본값(GROMO-2338). poll 1s·예산 5s 면 relay 가 일하는 비율은 ≈ 83%다.
 Kafka4 기본 DLT 이름에 의존하지 않고 수신기가 `notification-events.DLT`를 명시한다.
 
-### ~~Link 정지 스냅샷 이관~~ → A23: 링크 이관 없음
+### 폐기한 Link 정지 스냅샷 이관
 
-> A23(2026-09-13): 이관 절차 자체가 폐기됐다(링크 정본 HLD §7 — 같은 DB 를 두 경로가 읽으므로 데이터 이관 창이 없다). 아래는 #745 가 남긴 `migrate-link.py`·`link-migration` 프로필의 운용 설명이며 링크 구현 PR 이 걷어낸다(링크 LLD §9.2). 실행하지 않는다.
-
-Data 실행 profile에 `link-migration`을 **한시적으로** 추가한다(예: `dev,satellites,link-migration`).
-기존 `BATCH_ADMIN_KEY`로 운영 caller를 인증하며 freeze·manifest·두 export·close 다섯 경로만 연다.
-Business/Notification 서비스 토큰은 이 운영 권한을 갖지 않는다. 이관 완료 뒤 profile을 제거한다.
-
-아래 명령은 이관 호스트에서 `BATCH_ADMIN_KEY`, `LINK_MIGRATION_TOKEN`을 환경변수로 주입한 뒤 실행한다. Link의 일회성 이관 자격은 상시 Data relay 자격과 별개다.
-토큰을 명령행 인수로 넣거나 결과 로그에 출력하지 않는다. Data URL은 private origin, Link URL은
-운영자가 확정한 Vercel origin이다. redirect 응답은 토큰을 전달하지 않고 실패한다.
-
-```bash
-python3 server/scripts/migrate-link.py freeze --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID" --source-drained
-python3 server/scripts/migrate-link.py import --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID"
-python3 server/scripts/migrate-link.py verify --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID"
-python3 server/scripts/migrate-link.py close --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID"
-```
-
-freeze 전에 기존 landing/match/claim/발급 쓰기를 정지하고 drain한다. `--source-drained`는 이 작업을
-수행했다는 운영자 입력이며 스크립트가 nginx나 프로세스를 정지했다는 뜻이 아니다.
-freeze 응답 유실은 같은 migration ID로 재실행한다. import는 0클릭 링크까지 전체 링크를 먼저,
-그 뒤 클릭을 가져온다. 배치는 최대20이고 기본10이다. 503이면 배치를 나눠 동일 체크섬으로 재시도한다.
-실패한 import/verify는 원본을 수정하지 말고 같은 회차의 import부터 재개한다.
-close는 Link의 원자 검증·importer drain·IMPORT_CLOSED가 성공한 뒤 Data를 닫는다.
-Data close 응답 유실도 같은 close를 재실행한다. 어느 단계도 DNS·nginx·발송 gate를 자동 전환하지 않는다.
+A23에서 링크 이관 절차를 폐기했으며, V0 전환에서 정지 스냅샷 API·프로필·실행 도구를 제거했다.
+현행 섬 초대 링크는 Data 내부 API가 관리한다. 현재 DB 전환과 Data·Realtime 교체는
+[서버 실행 가이드](../../../../server/scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)와
+[Data V0 전환 절차](../../../../server/data-api/docs/db/README.md)를 따른다.
 
 ### 알림 예약·재생과 등록부
 

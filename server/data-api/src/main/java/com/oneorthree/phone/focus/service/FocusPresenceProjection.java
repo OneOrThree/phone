@@ -13,52 +13,25 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 집중 프레즌스를 적는 <b>유일한 자리</b> (GROMO-2003 · focus-rest-session LLD §6).
+ * 집중 상태의 섬 투영과 공유 Redis 리스를 함께 갱신하는 진입점.
  *
- * <p><b>왜 한 자리여야 하는가.</b> 「지금 이 사람이 집중 중이다」는 두 곳에 나간다 — 섬 화면이 읽는
- * {@code focus/rest.member.updated} 사건(내구 outbox, <b>같은 트랜잭션</b>)과 채팅이 읽는 공유 Redis 리스
- * ({@link FocusPresencePort}, <b>커밋 이후</b>). 종전에는 전이마다 호출부가 둘을 각각 불렀고,
- * 그 호출부가 {@code FocusService} 7곳 · {@code FocusSessionLifecycleService} 3곳 ·
- * {@code FocusPresenceReconciler} 2곳 · {@code FocusMembershipLossService} 1곳으로 흩어져 있었다.
- * 흩어진 이중 배선의 대가는 <b>반쪽 기록</b>이다 — 새 종료 경로를 하나 더 만들면서 사건만 적고 리스를
- * 안 지우면, 그 사람은 집중이 끝났는데도 리스 TTL(최대 13시간) 내내 채팅에 못 들어간다. 그 구멍은
- * 코드를 읽어서는 보이지 않는다(두 호출이 서로를 모른다). 한 호출로 묶으면 «빠뜨릴 자리»가 사라진다.
+ * <p>섬의 {@code focus/rest.member.updated} 사건은 상태 전이와 같은 트랜잭션에 기록하고,
+ * {@link FocusPresencePort}는 커밋 이후 리스를 반영한다. 세션 전이·소속 상실·재구축은 이 클래스를
+ * 거쳐 두 기록의 누락을 방지한다. {@code DomainLayerRulesTest}가 직접 호출 경계를 검사한다.
  *
- * <p>LLD §6 이 적어 둔 「기존 RedisFocusPresence 와 새 도메인 producer 가 각각 직접 쓰는 이중 배선을
- * 두지 않고 하나의 Data projection 포트로 통합한다」가 이것이다.
- * {@code architecture/DomainLayerRulesTest} 가 「이 클래스 말고는 {@link FocusPresencePort} 도
- * {@link FocusMemberEvents} 도 부르지 않는다」를 빌드 실패로 고정한다.
- *
- * <p><b>왜 이벤트가 아니라 «부르는» 포트인가.</b> 섬 투영은 상태 전이와 <b>같은 트랜잭션</b>에 적혀야
- * 한다(사건이 따로 커밋되면 「세션은 끝났는데 섬 목록엔 남아 있다」가 영구화된다). 트랜잭션 경계를
- * 공유해야 하는 기록은 in-process {@code ApplicationEvent} 로 뒤집을 수 없다 — 티켓 1995 의
- * {@code IslandPurgePort} 가 같은 이유로 포트가 됐다.
- *
- * <p><b>이 도메인에 있는 이유.</b> 부르는 쪽은 {@code focus}(L2) 셋과 {@code internal}(L10) 하나다.
- * L2 에 두면 넷이 모두 «아래로» 부른다 — {@code internal} 에 두면 {@code focus} → {@code internal} 이
- * 역행이 된다. {@link FocusMemberEvents} 가 여기 있는 이유와 같다.
- *
- * <h2>레거시 마커에는 섬이 없다</h2>
- * 1.x 의 {@code focus_sessions} 마커는 섬에 묶이지 않아 적을 섬 투영이 없다. 그래서 그 경로는
- * {@link #legacyMarkerStarted}·{@link #legacyMarkerEnded} 로 <b>리스만</b> 적는다 — 없는 사건을
- * 지어내지 않는다. controlVersion 은 {@code 0} 이다(상세가 없어 전이 번호가 없다).
- *
- * <p>사건 목록을 {@link Arrays#asList} 로 돌려주는 것은 의도다. {@code List.of} 는 null 원소를 거부하는데,
- * 봉투는 「명령 결과에 실어 보내는 값」이라 {@code OutboxCommandPort} 를 목으로 둔 단위 테스트에서 null 로
- * 온다 — 종전 {@code settle} 의 {@code ArrayList} 도 그것을 허용했다. 여기서 NPE 를 새로 만들지 않는다.
+ * <p>반환 목록은 {@link Arrays#asList}를 사용해 테스트 대역이 반환하는 null 사건 봉투도 허용한다.
  */
 @Service
 @RequiredArgsConstructor
 public class FocusPresenceProjection {
 
-    /** 상세가 없는 경로(레거시 마커)의 controlVersion. 세션 안의 전이 번호가 없다는 뜻이다. */
-    private static final long NO_CONTROL_VERSION = 0L;
+
 
     private final FocusMemberEvents focusMemberEvents;
     private final FocusPresencePort focusPresencePort;
 
     /**
-     * v0.3 세션이 <b>진행 중 상태로</b> 전이했다 — 시작·휴식(pause)·재개(resume) 공용.
+     * 세션이 <b>진행 중 상태로</b> 전이했다 — 시작·휴식(pause)·재개(resume) 공용.
      *
      * <p>셋을 한 메서드로 둔 이유는 적는 내용이 같기 때문이다: focus 목록의 내 행 + rest 목록의 내 행 +
      * 리스의 절대 상태. 무엇이 달라지는가는 전부 {@code view} 안에 있다 — {@code status} 가 상태를,
@@ -85,7 +58,7 @@ public class FocusPresenceProjection {
     }
 
     /**
-     * v0.3 세션이 <b>끝났다</b> — 정상 정산·자동 종료·포기(마커 desync 정리)·소속 상실 공용.
+     * 세션이 <b>끝났다</b> — 정상 정산·자동 종료·포기(마커 desync 정리)·소속 상실 공용.
      *
      * <p>넷을 한 메서드로 둔 이유는 LLD §6 이 「focus 완료는 목록에서 제거」 하나만 정의했기 때문이다.
      * 종결 «사유»는 {@code focus_session_details.lifecycle} 에 남고, 투영에는 남지 않는다 — 섬 화면에는
@@ -107,20 +80,7 @@ public class FocusPresenceProjection {
         return Arrays.asList(focusEvent, restEvent);
     }
 
-    /**
-     * 레거시 1.x 마커가 열렸다 — 섬이 없어 리스만 적는다.
-     *
-     * @param startedAt 그 마커가 시작한 시각(리스 만료 기준)
-     */
-    public void legacyMarkerStarted(UUID userId, Long presenceOrder, Instant startedAt) {
-        focusPresencePort.focusStateChanged(userId, presenceOrder, NO_CONTROL_VERSION,
-                FocusPresenceState.ACTIVE, startedAt);
-    }
 
-    /** 레거시 1.x 마커가 닫혔다(정상 종료·취소·POST 폴백 선점·고아 스윕·회전) — 리스만 지운다. */
-    public void legacyMarkerEnded(UUID userId, Long presenceOrder) {
-        focusPresencePort.focusEnded(userId, presenceOrder);
-    }
 
     /**
      * 바다 세션이 열렸다 (GROMO-2299) — 섬 사건(목적지 섬 주민에게 항해자가 보이면 안 된다)은 내지 않고, 사용자 단위

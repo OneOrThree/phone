@@ -39,7 +39,7 @@ public final class IslandNoticeViews {
     public record Notice(UUID id, String title, String body) {
     }
 
-    /** 삭제 결과 — legacy 의 204 와 섞지 않는다. */
+    /** 삭제 결과. */
     public record Deleted(boolean deleted) {
     }
 

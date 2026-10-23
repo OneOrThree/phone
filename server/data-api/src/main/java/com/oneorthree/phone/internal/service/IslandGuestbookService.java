@@ -39,7 +39,7 @@ import java.util.UUID;
  * ({@link GuestAccountGuards}). {@code IslandNoticeService} 와 같은 자리(엔티티·레포는 group, 조합 서비스는
  * internal)다.
  *
- * <h2>잠금 — users 공유 → 섬(groups) 배타</h2>
+ * <h2>잠금 — users 공유 → 섬(islands) 배타</h2>
  * {@code IslandNoticeService#run} 과 같은 순서다. 같은 사람의 동시 두 쓰기를 섬 잠금에 직렬화해
  * 둘째는 «오늘 이미 씀» 409 가 된다(유니크 제약
  * 위반 500 이 아니다). users 를 먼저 쥐는 이유는 계정 탈퇴(users 배타 → 섬 잠금)와 순서를 맞춰 교착을 피하는

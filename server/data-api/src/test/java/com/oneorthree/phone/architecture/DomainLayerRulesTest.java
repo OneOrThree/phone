@@ -56,7 +56,6 @@ class DomainLayerRulesTest {
         LAYERS.put("outbox", -1);
         LAYERS.put("user", 0);              // 계정 — 아무도 참조하지 않는다
         LAYERS.put("currency", 1);          // 유저에게 달린 원장·보유
-        LAYERS.put("item", 1);
         LAYERS.put("focus", 2);             // 유저가 만든 기록
         LAYERS.put("screentime", 2);
         // letter 는 users.id 두 개(sender·receiver)만 참조하는 «유저가 만든 기록»이라 여기 둔다.
@@ -66,14 +65,13 @@ class DomainLayerRulesTest {
         LAYERS.put("letter", 2);
         LAYERS.put("friend", 3);            // 유저 사이의 관계
         LAYERS.put("stats", 4);             // 기록·관계의 집계
-        LAYERS.put("league", 4);
         // ranking 은 주간 섬 랭킹의 «동결된 분모» 표와 주 경계 계산기뿐이다(GROMO-1997) —
         // 도메인 타입을 하나도 참조하지 않는다: 엔티티는 island_id 를 그냥 UUID 열로 들고 있고
         // (group 엔티티를 매핑하지 않는다), 동결은 네이티브 SQL 한 문장이며 RankingWeek 은 순수 계산기다.
         // 집중 합(focus 2)·주민 수(group 5)·전망대(construction 6)·현재 섬을 «조합»하는 것은 internal(10)의
         // IslandRankingsService 다 — 여기에 그 조합을 넣으면 이 표를 단숨에 group 위로 밀어 올린다.
         LAYERS.put("ranking", 4);
-        LAYERS.put("group", 5);             // 모임·챌린지·내기
+        LAYERS.put("group", 5);             // 섬·멤버십
         LAYERS.put("invitelink", 6);        // 그룹을 가리키는 초대
         // construction 은 섬(group)에 딸린 시설·공동 지갑(GROMO-1767) — group 바로 위다.
         // 내부 표면 구현은 internal(10)이 이것을 참조하고, 이 도메인이 internal.dto 를 참조하면
@@ -85,7 +83,7 @@ class DomainLayerRulesTest {
         // quest 는 섬 퀘스트(GROMO-1773) — 집중 구간(focus 2)·스크린타임(screentime 2)으로 판정하고
         // 섬 통장(construction 6)에 정산하므로 construction 보다 위다. 내부 표면은 internal(10)이 참조한다.
         LAYERS.put("quest", 7);
-        LAYERS.put("notification", 7);      // 전 도메인 구독
+        LAYERS.put("notification", 7);      // 친구·메인 섬 사건 구독
         // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
         LAYERS.put("shop", 8);
         // magazine 은 고양이 잡지(GROMO-2289)의 홍보 칸·꾸미기 재료 엔티티·리포지토리·순수 규칙뿐이다. 홍보비는 섬 통장
@@ -93,10 +91,6 @@ class DomainLayerRulesTest {
         // 그 조합(신청·고치기·불러오기)은 internal(10)의 IslandPromotionService 가 한다.
         LAYERS.put("magazine", 8);
         LAYERS.put("auth", 8);              // 진입·부가
-        LAYERS.put("character", 8);
-        LAYERS.put("bot", 8);
-        LAYERS.put("analytics", 8);
-        LAYERS.put("profile", 9);           // 조립 — 영속성 없음
         LAYERS.put("withdrawal", 9);
         // L10 «가장 위» — 서비스 간 내부 표면(GROMO-1659·1660). 이 패키지는 앱 계약이 아니라
         // Business·알림·링크가 부르는 /internal/* 이고, 그 조합을 위해 auth(8)·group(5)·invitelink(6)·

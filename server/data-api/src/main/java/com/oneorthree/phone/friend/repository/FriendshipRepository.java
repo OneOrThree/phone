@@ -91,15 +91,6 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     Optional<FriendshipStatus> findStatusByIdAndDeletedAtIsNull(@Param("id") UUID id);
 
     /**
-     * 방향 고정 존재 확인. {@code deletedAt} 을 보지 않으므로 "지금 친구인가"가 아니라 "이 방향 행이 있었는가"다.
-     *
-     * @param fromUser 보낸 쪽
-     * @param toUser   받은 쪽
-     * @return 그 방향 행이 있으면 true — soft delete 된 행도 true 다
-     */
-    boolean existsByFromUserAndToUser(User fromUser, User toUser);
-
-    /**
      * 두 유저 사이 페어 양방향 조회 — (a→b) / (b→a) 모두 포함.
      * createRequest 의 중복·이미친구·REJECTED 재전환 판정용 (정렬: 최신 updatedAt 우선).
      * ⚠️ deletedAt 필터를 넣지 말 것 — createRequest 의 소프트삭제 행 복원 분기(GROMO-719)가
@@ -207,12 +198,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     List<Friendship> findAcceptedByUser(@Param("me") User me);
 
     /**
-     * 내 친구 상대편 id 집합 — ACCEPTED, 미삭제, from·to 양방향에서 나 아닌 쪽 id 를 모은다.
-     * 리그 랭킹 isFriend 후조인용 (GROMO-1630) — PinnedUserRepository.findPinnedUserIdsByUserId 와 대칭.
-     * 친구 수는 소수라 1쿼리 Set 대조로 충분하다.
+     * 바다 화면에 표시할 친구 상대편 ID를 양방향에서 모은다.
      *
      * @param userId 친구 관계의 주인
-     * @return 이미 친구인 상대 id 집합 — 랭킹·검색 결과에 친구 배지를 채우는 대조표로 쓴다
+     * @return 수락되었고 삭제되지 않은 관계의 상대 ID 집합
      */
     @Query("SELECT CASE WHEN f.fromUser.id = :userId THEN f.toUser.id ELSE f.fromUser.id END"
             + " FROM Friendship f"
@@ -220,18 +209,6 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
             + " AND f.deletedAt IS NULL"
             + " AND (f.fromUser.id = :userId OR f.toUser.id = :userId)")
     Set<UUID> findFriendUserIdsByUserId(@Param("userId") UUID userId);
-
-    /**
-     * 친구 수 카운트 — ACCEPTED, 미삭제, from·to 양방향 (공개 프로필 집계용).
-     *
-     * @param me 집계 대상 유저
-     * @return 살아 있는 ACCEPTED 관계 수. 방향은 세지 않으므로 상대 한 명당 1 이다
-     */
-    @Query("SELECT COUNT(f) FROM Friendship f"
-            + " WHERE f.status = 'ACCEPTED'"
-            + " AND f.deletedAt IS NULL"
-            + " AND (f.fromUser = :me OR f.toUser = :me)")
-    long countAcceptedByUser(@Param("me") User me);
 
     /**
      * 탈퇴자가 낀 친구 관계를 status·deleted_at 과 무관하게 전부 지운다 (GROMO-1801 · 계정 LLD §4 friendships).

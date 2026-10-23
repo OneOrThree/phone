@@ -63,7 +63,7 @@ class IslandGuestbookPaginationIntegrationTest {
 
     private UUID island() {
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
+        jdbc.update("INSERT INTO islands (id, name, max_members, is_chat_enabled, invite_permission, status) "
                 + "VALUES (?, '방명록섬', 10, true, 'OWNER_ONLY', 'WAITING')", id);
         return id;
     }

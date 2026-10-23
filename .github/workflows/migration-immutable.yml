@@ -48,13 +48,13 @@ jobs:
           set -euo pipefail
           # 패턴이 오타·매직 누락으로 «아무것도» 매칭하지 않으면 이 잡은 영원히 초록이 되어
           # 없는 것만 못하다. 그래서 대상이 하나도 없으면 여기서 먼저 실패한다.
-          tracked=$(git ls-files ':(glob)server/*/src/main/resources/db/migration/**' | wc -l | tr -d ' ')
+          tracked=$(git ls-files ':(glob)server/*/src/main/resources/db/migration/**' ':(glob)server/*/src/main/resources/db/v0/**' | wc -l | tr -d ' ')
           echo "추적 중인 마이그레이션 파일 $tracked 개"
           if [ "$tracked" -eq 0 ]; then
             echo "::error::검사 패턴이 어떤 마이그레이션도 가리키지 않습니다 — 패턴이 깨졌습니다."
             exit 1
           fi
-          git ls-files ':(glob)server/*/src/main/resources/db/migration/**' \
+          git ls-files ':(glob)server/*/src/main/resources/db/migration/**' ':(glob)server/*/src/main/resources/db/v0/**' \
             | sed 's|/src/.*||' | sort -u | sed 's/^/  덮는 서비스: /'
       - name: 이미 통합 브랜치에 있는 마이그레이션이 수정·삭제·개명되지 않았는지 확인
         env:
@@ -86,7 +86,7 @@ jobs:
           # 경로 구분자를 넘어 버려 이 패턴이 «아무것도» 매칭하지 않는다(실측). 검사가 늘
           # 초록이 되어 없는 것만 못해지므로, 패턴을 고칠 때는 아래 자가 검사를 꼭 다시 돌린다.
           changed=$(git diff --diff-filter=MDRT --name-only "$BASE_SHA...HEAD" \
-            -- ':(glob)server/*/src/main/resources/db/migration/**')
+            -- ':(glob)server/*/src/main/resources/db/migration/**' ':(glob)server/*/src/main/resources/db/v0/**')
           if [ -z "$changed" ]; then
             echo "적용된 마이그레이션 변경 없음 (추가만 있거나 손대지 않음)."
             exit 0

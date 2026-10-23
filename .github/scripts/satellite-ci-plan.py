@@ -17,7 +17,6 @@ BUILD_AFFECTING = (
     '.github/workflows/satellite-ci.dev.yml',
     '.github/workflows/satellite-ci.prod.yml',
     '.github/scripts/satellite-ci-plan.py',
-    '.github/scripts/check-migration-checksum.py',
     # JAR 재사용 팩·검증 로직 — build 와 images 가 이 스크립트로 아티팩트를 주고받는다.
     # 처음에 `.github/actions/ci-jar/` 만 넣고 이걸 빠뜨렸다가 test_ci_build_reuse 에 잡혔다.
     '.github/scripts/ci-jar.py',

@@ -21,10 +21,8 @@ public class UpstreamConfigProperties {
 
     private Target data = new Target();
     private Target notification = new Target();
-    private Target link = new Target();
     /**
-     * 실시간 서버(GROMO-1775 우체통). 기본 2 — 합계 상한을 16 에서 18 로 올리며 기존 셋(4·4·4)과 조합(4)의
-     * 몫은 건드리지 않았다. 우체통은 사용자 액션당 GET/POST 한 번이라 2 로 시작한다.
+     * 실시간 서버(GROMO-1775 우체통). 사용자 액션당 GET/POST 한 번이라 기본 연결 수는 2다.
      */
     private Target realtime = withMaxConnections(2);
     private Composition composition = new Composition();
@@ -38,15 +36,15 @@ public class UpstreamConfigProperties {
         return Deadline.startingNow(composition.getDeadline());
     }
 
-    /** 대상 넷과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
+    /** 대상 셋과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
     public void validateWorkerBudget() {
         if (data.getMaxConnections() < 1 || notification.getMaxConnections() < 1
-                || link.getMaxConnections() < 1 || realtime.getMaxConnections() < 1
+                || realtime.getMaxConnections() < 1
                 || composition.getPoolSize() < 1) {
             throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker는 각각 1 이상이어야 합니다.");
         }
         long total = (long) data.getMaxConnections() + notification.getMaxConnections()
-                + link.getMaxConnections() + realtime.getMaxConnections() + composition.getPoolSize();
+                + realtime.getMaxConnections() + composition.getPoolSize();
         if (total > 18) {
             throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker 합계는 18 이하여야 합니다.");
         }
@@ -86,7 +84,7 @@ public class UpstreamConfigProperties {
         private String serviceToken;
         /** 연결 수립 제한. 무제한은 허용하지 않는다. */
         private Duration connectTimeout = Duration.ofMillis(500);
-        /** 응답 대기 제한. 구 앱 match 5초 예산 안에서 «재시도 2회»가 들어가도록 잡는다. */
+        /** 응답 대기 제한. 상류 응답 대기에 적용하며 요청 전체 예산으로 추가 제한한다. */
         private Duration readTimeout = Duration.ofMillis(1500);
         /** 연속 실패 몇 번에 서킷을 여는가. */
         private int failureThreshold = 5;

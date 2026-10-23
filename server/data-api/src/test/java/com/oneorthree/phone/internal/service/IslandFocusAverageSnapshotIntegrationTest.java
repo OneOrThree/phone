@@ -97,7 +97,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
     @Autowired
     UserRepository users;
     @Autowired
-    GroupRepository groups;
+    GroupRepository islands;
     @Autowired
     GroupMemberRepository members;
     @Autowired
@@ -220,7 +220,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
     @DisplayName("주민이 0명인 섬은 행이 생기고 평균이 null 이다 — 멤버 없음·전원 이탈·계정 탈퇴, 집중이 있어도 마찬가지")
     void zeroMemberIslandsGetANullAverageRow() {
         // 멤버십이 한 번도 없던 섬 — 세션·멤버십에서 출발하면 이 섬은 행이 빠진다.
-        Group empty = groups.save(Group.builder().name("빈섬").maxMembers(15).build());
+        Group empty = islands.save(Group.builder().name("빈섬").maxMembers(15).build());
         // 집중한 뒤 유일한 주민이 나간 섬 — 분자는 있고 분모만 0 이다.
         Island abandoned = island(false);
         completedFocus(abandoned.owner, abandoned.id, kst(date.minusDays(1), 10, 0), kst(date.minusDays(1), 12, 0));
@@ -248,10 +248,10 @@ class IslandFocusAverageSnapshotIntegrationTest {
     void deadIslandsGetNoRow() {
         Island ended = island(false);
         ended.group.close();
-        groups.save(ended.group);
+        islands.save(ended.group);
         Island deleted = island(false);
         deleted.group.markDeleted(kst(date.minusDays(1), 9, 0));
-        groups.save(deleted.group);
+        islands.save(deleted.group);
         Island alive = island(false);
 
         service.snapshot(date);
@@ -285,10 +285,10 @@ class IslandFocusAverageSnapshotIntegrationTest {
         Island alive = island(false);
         Island ended = island(false);
         ended.group.close();
-        groups.save(ended.group);
+        islands.save(ended.group);
         Island deleted = island(false);
         deleted.group.markDeleted(kst(date.minusDays(1), 9, 0));
-        groups.save(deleted.group);
+        islands.save(deleted.group);
 
         // snapshot() 이 «살아 있는 섬 목록» 을 읽은 뒤 두 섬이 죽은 상황 — 낡은 목록 그대로 세 섬을 다 넘긴다.
         UUID[] ids = {alive.id, ended.id, deleted.id};
@@ -312,7 +312,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
         try {
             // 운영의 삭제 경로(GroupMemberService)와 같은 순서 — 섬 행 FOR UPDATE → 종료 → 공동 데이터 정리 → 커밋.
             Future<Integer> snapshot = new TransactionTemplate(transactionManager).execute(status -> {
-                Group locked = groups.findByIdForUpdate(closing.id).orElseThrow();
+                Group locked = islands.findByIdForUpdate(closing.id).orElseThrow();
                 int holder = backendPid();
                 // 이 시점의 closing 은 아직 살아 있다 — 스냅샷은 그 섬을 목록에 넣고 INSERT 에서 잠금을 기다린다.
                 Future<Integer> inFlight = pool.submit(() -> service.snapshot(date));
@@ -347,7 +347,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
                 int holder = backendPid();
                 // 스냅샷은 아직 커밋 전 — 섬 행 잠금과 적은 행을 쥐고 있다. 삭제가 그 뒤에서 기다린다.
                 Future<?> inFlight = pool.submit(() -> tx.executeWithoutResult(inner -> {
-                    Group locked = groups.findByIdForUpdate(closing.id).orElseThrow();
+                    Group locked = islands.findByIdForUpdate(closing.id).orElseThrow();
                     locked.close();
                     purge.purgeIsland(closing.id);
                 }));
@@ -410,7 +410,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
         Island home = island(false);
         completedFocus(home.owner, home.id, kst(date.minusDays(1), 10, 0), kst(date.minusDays(1), 11, 10));
 
-        int alive = jdbc.queryForObject("SELECT count(*) FROM groups WHERE deleted_at IS NULL AND status <> 'ENDED'",
+        int alive = jdbc.queryForObject("SELECT count(*) FROM islands WHERE deleted_at IS NULL AND status <> 'ENDED'",
                 Integer.class);
         assertThat(service.snapshot(date)).as("살아 있는 섬마다 한 행").isEqualTo(alive);
         assertThat(row(home.id).getAvgMinutesPerMemberDay()).isEqualTo(10);
@@ -450,7 +450,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
         completedFocus(steady.owner, steady.id, kst(date, 1, 0), kst(date, 4, 30));
         ownerLeaves(emptied);
         dying.group.close();
-        groups.save(dying.group);
+        islands.save(dying.group);
         service.snapshot(date.plusDays(1));
 
         Map<UUID, OptionalInt> latest = reader.latest(List.of(steady.id, emptied.id, dying.id));
@@ -474,7 +474,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
     /** 방장 한 명짜리 섬. */
     private Island island(boolean isPrivate) {
         User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
-        Group group = groups.save(Group.builder().name("평균섬").maxMembers(15).isPrivate(isPrivate).build());
+        Group group = islands.save(Group.builder().name("평균섬").maxMembers(15).isPrivate(isPrivate).build());
         members.save(GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build());
         return new Island(group.getId(), group, owner);
     }
@@ -529,7 +529,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
 
     /** 살아 있는(미삭제·미종료) 섬 수 — 이 DB 의 전부다. */
     private int aliveIslandCount() {
-        return jdbc.queryForObject("SELECT count(*) FROM groups WHERE deleted_at IS NULL AND status <> 'ENDED'",
+        return jdbc.queryForObject("SELECT count(*) FROM islands WHERE deleted_at IS NULL AND status <> 'ENDED'",
                 Integer.class);
     }
 
@@ -605,18 +605,18 @@ class IslandFocusAverageSnapshotIntegrationTest {
     void snapshotSurvivesMoreIslandsThanBindLimit() {
         int bulk = 33_000;
         try {
-            jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
+            jdbc.update("INSERT INTO islands (id, name, max_members, is_chat_enabled, invite_permission, status) "
                     + "SELECT gen_random_uuid(), 'bulk2287', 10, true, 'OWNER_ONLY', 'WAITING' "
                     + "FROM generate_series(1, ?)", bulk);
 
             int inserted = service.snapshot(date);
 
             assertThat(inserted).isEqualTo(aliveIslandCount());
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM island_focus_averages a JOIN groups g "
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM island_focus_averages a JOIN islands g "
                     + "ON g.id = a.island_id WHERE g.name = 'bulk2287' AND a.snapshot_date = ?",
                     Integer.class, date)).isEqualTo(bulk);
         } finally {
-            jdbc.update("DELETE FROM groups WHERE name = 'bulk2287'");
+            jdbc.update("DELETE FROM islands WHERE name = 'bulk2287'");
         }
     }
 }

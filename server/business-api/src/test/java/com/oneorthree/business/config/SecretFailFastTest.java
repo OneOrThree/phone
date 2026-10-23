@@ -3,7 +3,6 @@ package com.oneorthree.business.config;
 import com.oneorthree.business.auth.AccessTokenVerifier;
 import com.oneorthree.business.auth.CredentialDigest;
 import com.oneorthree.business.common.http.InternalHttpClient;
-import com.oneorthree.business.common.http.IpHasher;
 import com.oneorthree.business.common.http.UpstreamProperties;
 import com.oneorthree.business.common.http.UpstreamTarget;
 import org.junit.jupiter.api.DisplayName;
@@ -50,16 +49,16 @@ class SecretFailFastTest {
     @Test
     @DisplayName("치환되지 않은 ${...} 플레이스홀더도 거절한다 — blank 검사만으로는 못 막는다")
     void 치환되지않은플레이스홀더() {
-        // ⚠️ 이건 가설이 아니다. 이 이미지를 SVC_TOKEN_BIZ_TO_LINK 없이 띄웠을 때 Spring 이 값을
-        //    리터럴 "${SVC_TOKEN_BIZ_TO_LINK}" 로 남기고 «Started BusinessApplication» 까지 갔다.
+        // ⚠️ 이건 가설이 아니다. 이 이미지를 SVC_TOKEN_BIZ_TO_NOTI 없이 띄웠을 때 Spring 이 값을
+        //    리터럴 "${SVC_TOKEN_BIZ_TO_NOTI}" 로 남기고 «Started BusinessApplication» 까지 갔다.
         //    그 리터럴이 Bearer 토큰으로 나가면 상류가 전부 401 을 주고 「인증 장애」로 오진된다.
         assertThatThrownBy(() -> new InternalHttpClient(
-                UpstreamTarget.LINK, props("http://x", "${SVC_TOKEN_BIZ_TO_LINK}"), new ObjectMapper()))
+                UpstreamTarget.NOTIFICATION, props("http://x", "${SVC_TOKEN_BIZ_TO_NOTI}"), new ObjectMapper()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("치환되지 않았다")
                 // 변수 «이름» 을 메시지에 담는다 — 치환되지 않았으므로 비밀이 아니고,
                 // 어느 env 키가 전달되지 않았는지 바로 알려 준다.
-                .hasMessageContaining("SVC_TOKEN_BIZ_TO_LINK");
+                .hasMessageContaining("SVC_TOKEN_BIZ_TO_NOTI");
     }
 
     @Test
@@ -77,14 +76,6 @@ class SecretFailFastTest {
         assertThatThrownBy(() -> new AccessTokenVerifier("${JWT_SECRET}"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("치환되지 않았다");
-    }
-
-    @Test
-    @DisplayName("link.ip-salt 이 플레이스홀더면 거절한다 — 그 값으로 해싱하면 매치가 조용히 전멸한다")
-    void salt플레이스홀더() {
-        assertThatThrownBy(() -> new IpHasher("${LINK_IP_SALT}"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("LINK_IP_SALT");
     }
 
     @Test

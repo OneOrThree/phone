@@ -15,12 +15,6 @@ import java.time.Clock;
 @Configuration
 public class RateLimitConfig {
 
-    /** 게스트 친구 요청 — 정회원은 세지 않는다(오너 확정). */
-    @Bean
-    public PerUserHourlyLimiter friendRequestRateLimiter(
-            @Value("${friend.request.rate-limit.guest-max-per-hour:20}") int maxPerHour, Clock clock) {
-        return new PerUserHourlyLimiter("friend.request.rate-limit.guest-max-per-hour", maxPerHour, clock);
-    }
 
     /** 편지 발송 — 전 계정(편지 도메인엔 게스트 분기가 없다, FL-결정-1). */
     @Bean

@@ -173,7 +173,7 @@ class IslandQuestIntegrationTest {
         // 방문자도 미완공 게시판은 403, 종료된 섬은 404 다.
         Island noBoard = island(false);
         assertQuestError(() -> service.current(noBoard.id, visitor.getId()), QuestErrorCode.QUEST_BOARD_LOCKED);
-        jdbc.update("UPDATE groups SET status = 'ENDED' WHERE id = ?", a.id);
+        jdbc.update("UPDATE islands SET status = 'ENDED' WHERE id = ?", a.id);
         assertThatThrownBy(() -> service.current(a.id, visitor.getId()))
                 .isInstanceOfSatisfying(GroupException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.GROUP_NOT_FOUND));
