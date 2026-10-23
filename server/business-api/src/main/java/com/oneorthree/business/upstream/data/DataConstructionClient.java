@@ -13,8 +13,14 @@ import org.springframework.http.HttpMethod;
 import java.util.UUID;
 
 import static com.oneorthree.business.upstream.data.DataPaths.islandPath;
+import static com.oneorthree.business.upstream.data.DataPaths.sessionScoped;
 
-/** 섬 건설 3종의 Data 호출 (GROMO-1767) — 공개 경로와 이름이 같다. */
+/**
+ * 섬 건설 3종의 Data 호출 (GROMO-1767) — 공개 경로와 이름이 같다.
+ *
+ * <p>세 라우트는 서명된 AT 의 {@code sid}·{@code gen} 을 함께 싣는다(GROMO-2207) — 폐기된 세션의 명령과
+ * 재생을 Data 가 사용자 잠금 경계에서 거절한다. 앱이 보낸 같은 이름의 헤더는 복사하지 않는다({@code InternalCall}).
+ */
 public class DataConstructionClient {
 
     private static final String PATH_CONSTRUCTION_OPTIONS = "/internal/islands/{islandId}/construction-options";
@@ -30,12 +36,13 @@ public class DataConstructionClient {
 
     /**
      * 건설 옵션 스냅샷 (GROMO-1767). 멱등 GET 이라 재시도한다. selectable/buildable 판정과
-     * 권한 거절은 전부 상류 몫이다 — 주체는 {@code onBehalfOf} 로만 전달한다.
+     * 권한·세션 거절은 전부 상류 몫이다 — 주체·세션은 서명된 AT 에서만 가져온다.
      */
-    public ConstructionOptions fetchConstructionOptions(UUID userId, UUID islandId, Deadline deadline) {
+    public ConstructionOptions fetchConstructionOptions(UUID userId, UUID sessionId, long generation,
+            UUID islandId, Deadline deadline) {
         return http.exchange(
-                InternalCall.to(HttpMethod.GET, islandPath(PATH_CONSTRUCTION_OPTIONS, islandId))
-                        .onBehalfOf(userId)
+                sessionScoped(HttpMethod.GET, islandPath(PATH_CONSTRUCTION_OPTIONS, islandId), userId, sessionId,
+                        generation)
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<ConstructionOptions>() { });
@@ -58,11 +65,11 @@ public class DataConstructionClient {
      * 건설 목표 선택 (GROMO-1767). 차감이 없는 선택 명령이라 costPolicyVersion·잔액을 요구하지
      * 않는다(C03). 전체 교체 PUT 이라 멱등이고 앱 키를 그대로 전달한다.
      */
-    public ConstructionTarget selectConstructionTarget(UUID userId, UUID islandId, String buildingId,
-            long expectedVersion, UUID key, Deadline deadline) {
+    public ConstructionTarget selectConstructionTarget(UUID userId, UUID sessionId, long generation,
+            UUID islandId, String buildingId, long expectedVersion, UUID key, Deadline deadline) {
         return http.exchange(
-                InternalCall.to(HttpMethod.PUT, islandPath(PATH_CONSTRUCTION_TARGET, islandId))
-                        .onBehalfOf(userId)
+                sessionScoped(HttpMethod.PUT, islandPath(PATH_CONSTRUCTION_TARGET, islandId), userId, sessionId,
+                        generation)
                         .idempotencyKey(key.toString())
                         .body(new ConstructionTargetCommand(buildingId, expectedVersion))
                         .idempotentCommand()
@@ -75,11 +82,11 @@ public class DataConstructionClient {
      * 건설 시작 (GROMO-1767). {@code expectedCostPolicyVersion} 은 «사용자가 본 가격»의 동의
      * 증거다 — 가격만 바뀌어도 상류가 409 로 거절한다(C10). 응답 유실 복구는 같은 키 재생이다.
      */
-    public ConstructionResult startConstruction(UUID userId, UUID islandId, String buildingId,
-            long expectedVersion, long expectedCostPolicyVersion, UUID key, Deadline deadline) {
+    public ConstructionResult startConstruction(UUID userId, UUID sessionId, long generation, UUID islandId,
+            String buildingId, long expectedVersion, long expectedCostPolicyVersion, UUID key, Deadline deadline) {
         return http.exchange(
-                InternalCall.to(HttpMethod.POST, islandPath(PATH_CONSTRUCTIONS, islandId))
-                        .onBehalfOf(userId)
+                sessionScoped(HttpMethod.POST, islandPath(PATH_CONSTRUCTIONS, islandId), userId, sessionId,
+                        generation)
                         .idempotencyKey(key.toString())
                         .body(new ConstructionStartCommand(buildingId, expectedVersion,
                                 expectedCostPolicyVersion))
