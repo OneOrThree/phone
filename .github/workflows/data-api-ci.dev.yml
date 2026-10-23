@@ -52,6 +52,10 @@ on:
       - "!server/realtime/**/*.md"
       - ".github/workflows/realtime-ci.dev.yml"
       - "server/scripts/docker-compose.realtime.yml"
+      # 호출하는 Realtime startup-contract가 실제 읽는 입력도 공동 배포 CI를 시작한다.
+      - "server/scripts/docker-compose.satellites.yml"
+      - "server/scripts/docker-compose.business.yml"
+      - ".github/scripts/test_realtime_startup.py"
       - "app/app-dev/src/assets/village-world/v1/nav.json"
       - "docs/prd/fishcat/island-movement/fixtures/paths.json"
       - "server/data-api/**"
