@@ -1,0 +1,35 @@
+name: Smoke Checks
+
+on:
+  pull_request:
+    branches: [main, release]
+    paths:
+      - 'smoke/server/**'
+      - '.github/workflows/smoke-check.yml'
+      - '.github/workflows/ops-smoke.dev.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 셸 문법 검사
+        run: find smoke/server -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+      - name: 외부 서비스 없는 격리 계약 검사
+        run: python3 -m unittest discover -s smoke/server/tests -p 'test_*.py' -v
+      - name: mock API·fixture 가드 검사
+        run: |
+          bash smoke/server/tests/api-runner.sh
+          bash smoke/server/tests/friendship-guards.sh
+          bash smoke/server/tests/seed-guards.sh
