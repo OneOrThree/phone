@@ -138,7 +138,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     private static final String CHANNEL_EVENTS = "events";
     private static final String CHANNEL_MOVEMENT = "movement";
-    private static final String CHANNEL_EMOTES = "emotes";
 
     /**
      * 응원 구독·발신의 프레임 상한. 두 창은 <b>키가 다르고 길이가 같다</b>.
@@ -272,31 +271,23 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             ChatPrincipal principal = requireSubscribable(accessor, destination);
             UUID islandId = uuidOrReject(island.group(1));
             if (EMOTES_CHANNEL.equals(island.group(2))) {
+                // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다(발신 쪽과 같은 규율).
+                if (!acquireWindow(RedisKeys.emoteSubscribeAttempt(principal.userId()))) {
+                    throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+                }
+                // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
+                // 다만 비주민(방문자)은 세션 없이도 연다(GROMO-2258) — 주민인데 세션이 없으면 그대로 거절.
+                // 멤버십은 캐시가 아니라 상류에 직접 묻는다(갓 가입한 주민의 위장 방지). 세션이 있으면 묻지 않고,
+                // 비용 상한은 위의 구독 시도 창(600ms)이다. «방문자»는 성공한 그룹 조회로 확인된 비주민뿐이다 —
+                // 인가 판정(ChatAccessGuard·엄격 모드 verifier)의 NOT_A_MEMBER 는 세션 철회·세대 불일치로 실제 주민에게도
+                // 나오므로 소속 부재로 읽지 않는다(realtime CLAUDE.md 현재 인가 계약). 조회 거절·형식 불량은 예외로 올라온다.
                 try {
-                    // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다(발신 쪽과 같은 규율).
-                    if (!acquireWindow(RedisKeys.emoteSubscribeAttempt(principal.userId()))) {
-                        throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+                    focusSessions.requireActiveSession(islandId, principal.userId(), null);
+                } catch (ChatException e) {
+                    if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING
+                            || membershipService.isMemberUncached(islandId, principal.userId(), principal.bearer())) {
+                        throw e;
                     }
-                    // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
-                    // 다만 비주민(방문자)은 세션 없이도 연다(GROMO-2258) — 주민인데 세션이 없으면 그대로 거절.
-                    // 멤버십은 캐시가 아니라 상류에 직접 묻는다(갓 가입한 주민의 위장 방지). 세션이 있으면 묻지 않고,
-                    // 비용 상한은 위의 구독 시도 창(600ms)이다. «방문자»는 성공한 그룹 조회로 확인된 비주민뿐이다 —
-                    // 인가 판정(ChatAccessGuard·엄격 모드 verifier)의 NOT_A_MEMBER 는 세션 철회·세대 불일치로 실제 주민에게도
-                    // 나오므로 소속 부재로 읽지 않는다(realtime CLAUDE.md 현재 인가 계약).
-                    // 조회 거절·형식 불량은 예외로 올라온다.
-                    try {
-                        focusSessions.requireActiveSession(islandId, principal.userId(), null);
-                    } catch (ChatException e) {
-                        if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING
-                                || membershipService.isMemberUncached(
-                                        islandId, principal.userId(), principal.bearer())) {
-                            throw e;
-                        }
-                    }
-                } catch (DomainException e) {
-                    // ERROR 프레임 channel 헤더(GROMO-2354) — 카운터·로그는 events·movement 만 센다(emotes 미집계).
-                    e.setChannel(CHANNEL_EMOTES);
-                    throw e;
                 }
             }
             return;

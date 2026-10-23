@@ -52,8 +52,9 @@ public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
         // message 헤더 = 기계용 코드. 본문을 못 읽는 클라이언트도 이것만으로 분기할 수 있다.
         accessor.setMessage(errorCode.name());
         accessor.setContentType(MimeTypeUtils.APPLICATION_JSON);
-        // 섬 구독·intent 거절만 채널(events | movement | emotes)을 싣는다 — 앱이 어느 구독이 거절됐는지 가르는 근거
+        // 섬 구독·intent 거절만 채널(events | movement)을 싣는다 — 앱이 어느 구독이 거절됐는지 가르는 근거
         // (없으면 종전 코드 분류 폴백). 도메인 예외면 종류를 가리지 않는다(상류 장애도 같은 구독 판정에서 나온다).
+        // 응원(emotes) 거절은 일부러 싣지 않는다 — 배포된 앱은 헤더 없는 ERROR 로 응원 재구독을 멈춘다(DomainException#channel).
         if (domain != null && domain.getChannel() != null) {
             accessor.setNativeHeader("channel", domain.getChannel());
         }

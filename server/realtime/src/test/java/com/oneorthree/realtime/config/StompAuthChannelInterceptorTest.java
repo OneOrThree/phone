@@ -941,14 +941,14 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
-    @DisplayName("ERROR 프레임 — emotes 구독 거절(시도 창·NOT_FOCUSING·상류 장애)은 channel: emotes 를 싣고 events·movement 카운터는 세지 않는다 (GROMO-2354)")
-    void emotesSubscribeRejectionCarriesChannel() {
+    @DisplayName("ERROR 프레임 — 응원 구독 거절은 channel 을 싣지 않는다 — 배포된 앱이 헤더 없는 ERROR 로 재구독을 멈춘다 (GROMO-2354)")
+    void emotesSubscribeRejectionCarriesNoChannel() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
 
         // 구독 시도 창 초과
         given(valueOps.setIfAbsent(eq(RedisKeys.emoteSubscribeAttempt(userId)), any(String.class),
                 any(java.time.Duration.class))).willReturn(false);
-        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isEqualTo("emotes");
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isNull();
         given(valueOps.setIfAbsent(eq(RedisKeys.emoteSubscribeAttempt(userId)), any(String.class),
                 any(java.time.Duration.class))).willReturn(true);
 
@@ -956,13 +956,11 @@ class StompAuthChannelInterceptorTest {
         org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(groupId, userId, null);
         given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
-        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isEqualTo("emotes");
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isNull();
 
         // 방문자 판정 조회가 판정 불가
         given(membershipService.isMemberUncached(groupId, userId, BEARER)).willThrow(new UpstreamUnavailableException());
-        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isEqualTo("emotes");
-
-        assertThat(meters.find("realtime.island.subscribe.total").counters()).isEmpty();
+        assertThat(errorFrameChannel(() -> interceptor.preSend(message(emotesSubscribe()), null))).isNull();
     }
 
     @Test
