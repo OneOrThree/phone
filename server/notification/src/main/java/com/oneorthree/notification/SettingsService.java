@@ -36,10 +36,13 @@ class SettingsService {
     public Map<String, Object> patch(UUID user, Map<String, Object> body, long version, String key) {
         SettingsPatch patch = SettingsPatch.partial(body);
         SettingsPatch.requireVersion(version);
-        return store.command("settings-patch:" + user, key, Map.of("body", body, "version", version), () -> {
+        store.command("settings-patch:" + user, key, Map.of("body", body, "version", version), () -> {
             merge(user, patch, version, false);
             return Map.of("applied", true);
         }, false, () -> requireLive(user, patch.generation()));
+        // 최초·재전달 모두(merge / requireLive → live()) user-state xact 잠금 아래다. 저장 응답이 아니라 지금 정본을 읽는다(GROMO-2209).
+        // 이 읽기는 READ COMMITTED(기본) 전제다. REPEATABLE READ 로 올리면 스냅샷이 잠금 전에 잡혀 옛 값을 읽을 수 있다.
+        return Map.of("applied", true, "settings", view(requiredRow(user)));
     }
 
     /** relay는 폐기된 명령을 수락한 no-op으로 끝내 뒤의 사용자 이벤트를 막지 않는다. */

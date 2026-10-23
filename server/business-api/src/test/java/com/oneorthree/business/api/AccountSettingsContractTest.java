@@ -73,7 +73,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         });
         NOTI.on(APPLY, request -> {
             order.add("apply");
-            return ok("{\"applied\":true}");
+            return ok(applied(false));
         });
         DATA.on(DELIVERED, request -> {
             order.add("delivered");
@@ -106,7 +106,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         DATA.on(DATA_PATCH, request -> ok(command(false).replace("{", "{\"futureField\":true,")));
         NOTI.on(APPLY, request -> {
             assertThat(request.body()).doesNotContain("futureField");
-            return ok("{\"applied\":true,\"futureField\":true}");
+            return ok(applied(false).replace("{", "{\"futureField\":true,"));
         });
         DATA.on(DELIVERED, request -> ok(null));
         mockMvc.perform(write("{\"notifications\":false}"))
@@ -115,25 +115,38 @@ class AccountSettingsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    void applyFailureKeepsFailureThenSameKeyRecoversOriginalResult() throws Exception {
+    void applyFailureKeepsFailureThenSameKeyReturnsCurrentNotificationValue() throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false)));
         AtomicBoolean unavailable = new AtomicBoolean(true);
+        // 재시도 사이 다른 기기가 켰다. Notification은 같은 키를 다시 적용하지 않고 현재 정본 true를 돌려준다.
         NOTI.on(APPLY, request -> unavailable.get()
-                ? new MockUpstream.Response(503, "{}") : ok("{\"applied\":true}"));
+                ? new MockUpstream.Response(503, "{}") : ok(applied(true)));
         DATA.on(DELIVERED, request -> ok(null));
         mockMvc.perform(write("{\"notifications\":false}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.retryable").value(true));
         assertThat(DATA.hits(DELIVERED)).isZero();
         unavailable.set(false);
-        // 현재 정본이 true여도 PATCH 재생의 원 결과는 false다. GET을 호출하면 아래가 잡는다.
+        // Data 원 결과(false)나 요청값을 재생하지 않는다. GET 왕복 없이 PATCH 응답의 현재 정본만 쓴다(아래 INITIALIZE 0회).
         NOTI.on(INITIALIZE, request -> ok(settings(true)));
         mockMvc.perform(write("{\"notifications\":false}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(true));
         assertThat(DATA.receivedFor(DATA_PATCH)).allSatisfy(r ->
                 assertThat(r.header("Idempotency-Key")).isEqualTo(KEY));
         assertThat(NOTI.receivedFor(APPLY)).allSatisfy(r ->
                 assertThat(r.header("Idempotency-Key")).isEqualTo(COMMAND));
+        assertThat(NOTI.hits(INITIALIZE)).isZero();
+    }
+
+    @Test
+    void supersededFirstDeliveryReturnsCurrentNotificationValueNotTheRequest() throws Exception {
+        // 더 높은 version이 먼저 적용돼 이 명령이 대체돼도 요청값 false를 적용한 척 돌려주지 않는다.
+        DATA.on(DATA_PATCH, request -> ok(command(false)));
+        NOTI.on(APPLY, request -> ok(applied(true)));
+        DATA.on(DELIVERED, request -> ok(null));
+        mockMvc.perform(write("{\"notifications\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(true));
+        assertThat(DATA.hits(DELIVERED)).isEqualTo(1);
         assertThat(NOTI.hits(INITIALIZE)).isZero();
     }
 
@@ -227,8 +240,13 @@ class AccountSettingsContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"{}", "null", "{\"applied\":false}", "{\"applied\":\"true\"}"})
-    void requiresActualApplicationAcknowledgement(String response) throws Exception {
+    @ValueSource(strings = {"{}", "null", "{\"applied\":false}", "{\"applied\":\"true\"}", "{\"applied\":true}",
+            "{\"applied\":true,\"settings\":null}",
+            "{\"applied\":true,\"settings\":{\"notificationEnabled\":null,\"soundEnabled\":false,"
+                    + "\"nightModeEnabled\":true,\"nightStartTime\":\"22:00\",\"nightEndTime\":null}}",
+            "{\"applied\":true,\"settings\":{\"notificationEnabled\":\"true\",\"soundEnabled\":false,"
+                    + "\"nightModeEnabled\":true,\"nightStartTime\":\"22:00\",\"nightEndTime\":null}}"})
+    void requiresActualApplicationAcknowledgementAndCurrentSettings(String response) throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false)));
         NOTI.on(APPLY, request -> ok(response));
         mockMvc.perform(write("{\"notifications\":false}"))
@@ -288,7 +306,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
                 "\"eventId\":\"" + COMMAND + "\"",
                 "\"eventId\":\"" + COMMAND.toUpperCase(java.util.Locale.ROOT) + "\"")
                 .replace("{", "{\"futureField\":true,")));
-        NOTI.on(APPLY, request -> ok("{\"applied\":true,\"futureField\":true}"));
+        NOTI.on(APPLY, request -> ok(applied(false).replace("{", "{\"futureField\":true,")));
         DATA.on(DELIVERED, request -> ok(null));
         mockMvc.perform(write("{\"notifications\":false}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
@@ -322,7 +340,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
     void originalPastOrCurrentGenerationRemainsUnchangedWhenNotificationAccepts(long generation) throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false).replace(
                 "\"authGeneration\":3", "\"authGeneration\":" + generation)));
-        NOTI.on(APPLY, request -> ok("{\"applied\":true}"));
+        NOTI.on(APPLY, request -> ok(applied(false)));
         DATA.on(DELIVERED, request -> ok(null));
         mockMvc.perform(write("{\"notifications\":false}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.notifications").value(false));
@@ -402,6 +420,11 @@ class AccountSettingsContractTest extends UpstreamTestBase {
                 + "\"nightStartTime\":\"22:00\",\"nightEndTime\":null}";
     }
 
+    /** Notification PATCH 성공 응답 — 같은 잠금 경계에서 읽은 현재 정본을 함께 준다. */
+    private static String applied(boolean current) {
+        return "{\"applied\":true,\"settings\":" + settings(current) + "}";
+    }
+
     private static String snapshot() {
         return "{\"version\":7,\"authGeneration\":3,\"settings\":" + settings(true) + "}";
     }
@@ -415,7 +438,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
 
     private static void successfulPatch() {
         DATA.on(DATA_PATCH, request -> ok(command(false)));
-        NOTI.on(APPLY, request -> ok("{\"applied\":true}"));
+        NOTI.on(APPLY, request -> ok(applied(false)));
         DATA.on(DELIVERED, request -> ok(null));
     }
 }
