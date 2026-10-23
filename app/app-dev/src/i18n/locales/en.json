@@ -313,6 +313,7 @@
     "finishFocusTitle": "Finish focusing?",
     "finishFocusBody": "This will save your focus session.",
     "linkUnsupported": "This invite or group link isn't supported in this version, so we took you home.",
+    "linkIslandUnavailable": "That island can't be opened right now.",
     "storageRetrying": "A device storage issue is delaying your save. We'll keep retrying automatically.",
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",

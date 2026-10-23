@@ -307,6 +307,7 @@
     "finishFocusTitle": "집중을 마칠까요?",
     "finishFocusBody": "이번 집중을 기록해요.",
     "linkUnsupported": "이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.",
+    "linkIslandUnavailable": "지금은 열 수 없는 섬이에요.",
     "storageRetrying": "기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.",
     "memberConverted": "회원으로 전환했어요.",
     "restoreFailed": "저장된 상태를 불러오지 못했어요.",
