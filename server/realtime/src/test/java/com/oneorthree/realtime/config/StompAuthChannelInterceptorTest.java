@@ -602,6 +602,28 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("같은 id 로 다른 목적지를 보내면 거절하고 id 의 목적지는 처음 값 그대로다 — 브로커는 옛 목적지를 유지하므로 바꿔 끼우면 어긋난다")
+    void sameIdForAnotherDestinationIsRejectedAndKeepsTheFirst() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID first = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        assertThatCode(() -> interceptor.preSend(message(islandSubscribe("sub", first)), null))
+                .doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> interceptor.preSend(message(islandSubscribe("sub", other)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+
+        assertThat(registry.destinationOf(SESSION, "sub")).isEqualTo("/topic/islands/" + first + "/focus");
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + other + "/focus")).isNull();
+        assertThat(registry.subscriptionCount(SESSION)).isEqualTo(1);
+        // 거절이 처음 구독을 건드리지 않는다 — 처음 목적지의 재전송은 종전처럼 통과한다.
+        assertThatCode(() -> interceptor.preSend(message(islandSubscribe("sub", first)), null))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     @DisplayName("UNSUBSCRIBE 가 자리를 돌려준다 — 섬을 다시 찾아온 정상 클라이언트가 막히지 않는다")
     void unsubscribeFreesTheSlot() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
