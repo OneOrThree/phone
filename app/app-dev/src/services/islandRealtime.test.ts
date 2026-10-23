@@ -1156,6 +1156,21 @@ describe('startIslandRealtime 응원 발신 연타 (GROMO-2160)', () => {
     assert.equal(c.published.length, 2, '700ms — 다시 보낸다');
     rt.dispose();
   });
+
+  test('시스템 시계가 뒤로 가도(음수 간격) 응원을 막지 않고 보낸 뒤 다시 찍는다', () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const rt = open();
+    const c = (Client as any).instances.at(-1);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 1);
+    now -= 10_000; // 시계가 10초 뒤로 갔다
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 2, '음수 간격은 연타가 아니라 시계 되감김 — 보낸다');
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 2, '다시 찍었으니 바로 이어 누른 건 거른다');
+    rt.dispose();
+  });
 });
 
 describe('stompIslandChannel', () => {
@@ -1505,6 +1520,7 @@ describe('stompIslandChannel', () => {
   });
 
   describe('응원 구독 거절 정책 (GROMO-2160)', () => {
+    afterEach(() => jest.restoreAllMocks());
     const EMOTES = '/topic/islands/i1/emotes';
     const open = (over: Partial<IslandChannelOpts> = {}) => {
       stompIslandChannel({
@@ -1518,23 +1534,52 @@ describe('stompIslandChannel', () => {
       return client();
     };
 
-    test('시도 창(EMOTE_TOO_FREQUENT) ERROR 는 몇 번이 와도 응원 구독을 끄지 않는다', () => {
+    // 서버 응원 시도 창은 userId 단위라 두 기기가 600ms 안에 재접속하면 서로 거절하며 ERROR → 종료 → 재접속을 되풀이한다 —
+    // 세지 않으면 이 루프의 상한이 없다. 발신 연타는 700ms 앱 거름이 막는다.
+    test('시도 창(EMOTE_TOO_FREQUENT) ERROR 도 일시 오류처럼 센다 — 두 접속은 재구독, 세 번째에 끈다', () => {
       const c = open();
-      for (let i = 0; i < 5; i += 1) {
+      for (let conn = 1; conn <= 2; conn += 1) {
         c.opts.onStompError({ headers: { message: 'EMOTE_TOO_FREQUENT' }, body: '' });
-        assert.ok(reconnectDests(c).includes(EMOTES), `${i + 1}번째 ERROR 뒤에도 재구독`);
+        assert.ok(reconnectDests(c).includes(EMOTES), `${conn}번째 접속 뒤에도 재구독`);
       }
+      c.opts.onStompError({ headers: { message: 'EMOTE_TOO_FREQUENT' }, body: '' });
+      assert.ok(!reconnectDests(c).includes(EMOTES), '두 기기 충돌 루프는 세 번째에 끊는다');
     });
 
-    test('channel=emotes 인 EMOTE_TOO_FREQUENT 도 세지 않는다', () => {
-      const c = open();
-      for (let i = 0; i < 5; i += 1) {
+    test('channel=emotes 인 EMOTE_TOO_FREQUENT 도 같은 방식으로 센다 (events 구독이 있어도)', () => {
+      const c = open({ events: true });
+      const err = () =>
         c.opts.onStompError({
           headers: { message: 'EMOTE_TOO_FREQUENT', channel: 'emotes' },
           body: '',
         });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
         assert.ok(reconnectDests(c).includes(EMOTES));
       }
+      err();
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('UNAUTHORIZED 는 응원 구독에선 영구 차단이 아니라 일시 오류다 — 세 번째 접속에서 끈다', () => {
+      const denied: string[] = [];
+      // movement 구독은 UNAUTHORIZED 를 영구 차단으로 보지만 응원 구독은 그 분류를 따르지 않는다
+      const c = open({ movement: true, onMovementDenied: () => denied.push('m') });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
+        assert.ok(reconnectDests(c).includes(EMOTES), `${conn}번째 접속 뒤에도 재구독`);
+      }
+      assert.ok(denied.length > 0, 'movement 은 영구 차단으로 본다');
+      c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('events 구독이 있어도 헤더 없는 NOT_FOCUSING 은 events strike 를 기다리지 않고 바로 응원을 끈다', () => {
+      const c = open({ events: true });
+      c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' }, body: '' });
+      const dests = reconnectDests(c);
+      assert.ok(!dests.includes(EMOTES), '첫 ERROR 로 응원 끔');
+      assert.ok(dests.includes('/topic/islands/i1/events'), 'events 는 무관하니 그대로');
     });
 
     test('일시 오류(UPSTREAM_UNAVAILABLE)는 접속당 1번 세어 세 번째 접속에서 끈다', () => {
@@ -1562,6 +1607,40 @@ describe('stompIslandChannel', () => {
         headers: { message: 'UPSTREAM_UNAVAILABLE', channel: 'emotes' },
         body: '',
       });
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('60초를 넘게 조용했으면 일시 오류 카운트를 새로 센다 — 드문 장애가 쌓여 응원을 영영 잃지 않는다', () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const c = open();
+      const err = () =>
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+      now += 61_000; // 카운트 2 가 쌓인 채 한참 조용했다
+      err(); // 새로 센 1
+      assert.ok(reconnectDests(c).includes(EMOTES), '카운트가 되살아나지 않고 다시 시작');
+      err(); // 2
+      assert.ok(reconnectDests(c).includes(EMOTES));
+      err(); // 3 — 상한은 여전히 동작한다
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('조용한 시간이 60초 이내면 카운트는 그대로 쌓인다', () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const c = open();
+      const err = () =>
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+        now += 60_000;
+      }
+      err();
       assert.ok(!reconnectDests(c).includes(EMOTES));
     });
 

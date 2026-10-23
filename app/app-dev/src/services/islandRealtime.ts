@@ -616,6 +616,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let emoteDenied = false;
   let emoteTransientErrors = 0; // 접속 사이에 누적 — setEmoteEnabled(true) 로 비운다
   let emoteErrorCountedSinceConnect = false; // 접속당 1회만 센다 — onConnect 에서 false 로
+  let lastEmoteErrorAt = 0; // 마지막으로 센 응원 ERROR 시각 — 오래 조용했으면 카운트를 새로 시작한다
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
   // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
@@ -720,17 +721,19 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         eventsStrikes.set(code, strikes);
         if (strikes >= EVENTS_STRIKE_LIMIT) eventsDenied = true;
       }
-      // 응원 구독은 «다시 구독해도 같은 답»(NOT_FOCUSING)일 때만 이번 세션 동안 끈다. 시도 창(EMOTE_TOO_FREQUENT)은
-      // 발신 연타·재구독 600ms 라 구독과 무관 — 세지 않는다. 그 외는 재접속에서 다시 구독하고 접속당 1번 세어 3번째에 끈다(GROMO-2160).
+      // 응원 구독은 «다시 구독해도 같은 답»(NOT_FOCUSING)일 때만 이번 세션 동안 끈다. 그 외(UNAUTHORIZED 포함)는 일시 오류라
+      // 재접속에서 다시 구독하고 접속당 1번 세어 3번째에 끈다(GROMO-2160). EMOTE_TOO_FREQUENT 도 센다 — 서버 시도 창은
+      // userId 단위라 두 기기가 600ms 안에 재접속하면 서로 거절하며 «ERROR → 소켓 종료 → 재접속» 을 되풀이할 수 있어, 세지 않으면
+      // 그 루프의 상한이 사라진다(발신 연타는 위 700ms 앱 거름이 막으므로 이 비용은 두 기기 충돌에서만 든다).
       // channel 헤더로 events·movement 탓이 분명한 ERROR 는 반영하지 않고, 헤더가 없으면 events 탓이 아닌 것만 본다.
-      if (
-        emoteEnabled &&
-        (channel ? channel === 'emotes' : !eventsFault) &&
-        code !== 'EMOTE_TOO_FREQUENT'
-      ) {
+      if (emoteEnabled && (channel ? channel === 'emotes' : !eventsFault)) {
         if (code === 'NOT_FOCUSING') emoteDenied = true;
         else if (!emoteErrorCountedSinceConnect) {
           emoteErrorCountedSinceConnect = true;
+          // 몇 시간 이어지는 집중 중 드문 상류 장애 세 번이 쌓여 응원을 영영 잃지 않게, 오래 조용했으면 카운트를 새로 센다.
+          const now = Date.now();
+          if (now - lastEmoteErrorAt > EVENTS_HEALTHY_MS) emoteTransientErrors = 0;
+          lastEmoteErrorAt = now;
           if (++emoteTransientErrors >= MOVEMENT_TRANSIENT_ERROR_LIMIT) emoteDenied = true;
         }
       }
@@ -1141,7 +1144,9 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       const sessionId = emoteSessionId;
       if (!EMOTE_TYPES.has(type)) return false;
       if (!sessionId && !deps.visitor) return false;
-      if (Date.now() - lastEmoteAt < EMOTE_TRY_MS) return true; // 연타는 서버 시도 창 전에 앱이 거른다(실패 토스트 없이)
+      // 연타는 서버 시도 창 전에 앱이 거른다(실패 토스트 없이). 간격이 음수면 시계가 뒤로 갔다 — 막지 말고 보내고 다시 찍는다.
+      const since = Date.now() - lastEmoteAt;
+      if (since >= 0 && since < EMOTE_TRY_MS) return true;
       const sent = conn.send(
         `/app/islands/${islandId}/focus/emotes`,
         sessionId ? { sessionId, type } : { type },
