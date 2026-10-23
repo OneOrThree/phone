@@ -1644,6 +1644,21 @@ describe('stompIslandChannel', () => {
       assert.ok(!reconnectDests(c).includes(EMOTES));
     });
 
+    test('오류를 센 뒤 시계가 뒤로 가면 카운트를 새로 센다 — sendEmote 의 역행 방어와 대칭', () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const c = open();
+      const err = () =>
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+      now -= 10_000; // 시계가 10초 뒤로 갔다 — 간격이 음수
+      err(); // 새로 센 1 — 간격만 보면 3 이라 꺼졌을 것
+      assert.ok(reconnectDests(c).includes(EMOTES), '역행은 60초 조용함과 같이 다시 시작');
+    });
+
     test('channel=events 헤더의 ERROR 는 응원 구독을 건드리지 않는다', () => {
       const c = open({ events: true });
       for (let i = 0; i < 5; i += 1) {
