@@ -1874,6 +1874,48 @@ test('집중 → 휴식 전환 중에 받은 링크는 전환이 끝난 뒤에 �
   assert.equal(captured.detail, LINK_ISSUE);
 });
 
+// 두 보류가 겹친다 — 전환이 끝나도 섬 동기화 전이면 링크는 계속 보관되고, 동기화가 들어오는 순간 한 번만 열린다.
+test('휴식 전환 중에 섬 동기화 전 magazine 링크가 오면 전환이 끝나도 보관하다 동기화 뒤 한 번만 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'focus', false);
+  assert.ok(!captured.state.serverIslands);
+  await act(async () => captured.go('rest'));
+  assert.equal(captured.route, 'focus');
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'focus');
+
+  // 전환(620ms)이 끝나 목적지 rest 에 닿아도 동기화 전이라 링크는 열리지 않는다
+  await waitFor(() => assert.equal(captured.route, 'rest'), { timeout: 3000 });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.equal(captured.route, 'rest');
+
+  await act(async () =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }],
+        nextCursor: null,
+        currentIslandId: LINK_ISLAND_A,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    }),
+  );
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+
+  // 한 번 소비한 링크는 사라진다 — 사용자가 다른 화면으로 옮겨도 다시 열리지 않는다
+  await act(async () => captured.go('friends'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.equal(captured.route, 'friends');
+});
+
 // 구경 중에는 SERVER_VISIT_ROUTES 만 열려 목적지가 막힌다 — 링크가 구경을 먼저 끝내고 연다.
 test.each([
   ['현재 섬을 가리키는 group', `gromo://group?g=${LINK_ISLAND_A}`, 'home', '', 1],
