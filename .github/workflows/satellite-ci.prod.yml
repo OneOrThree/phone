@@ -28,6 +28,7 @@ on:
       - 'server/scripts/docker-compose*.yml'
       - 'server/realtime/Dockerfile'
       - '.github/scripts/**'
+      - '.github/release-protection.json'
       - '.github/actions/ci-jar/**'
       - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.*.yml'
