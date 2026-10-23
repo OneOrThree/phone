@@ -38,7 +38,7 @@ class PublicResponseTypeAuditTest extends UpstreamTestBase {
     /**
      * 알려진 노출(2026-10-24 기준 14건) — {@code 핸들러 -> 상류 타입(패키지 뺀 이름, 중첩은 $)}. 새 항목을 추가하지 말고 노출을 없애라.
      *
-     * <p>원인은 5곳(컨트롤러 3 + 응답 레코드 2; 방문록은 컨트롤러·레코드 한 쌍이라 «4묶음»으로도 센다) —
+     * <p>원인은 컨트롤러 3 + 응답 레코드 2 —
      * 컨트롤러: {@code IslandPromotionController}({@code IslandPromotions.*} 를 직접 반환),
      * {@code MagazineController}({@code Magazines.*} 를 직접 반환), {@code IslandGuestbookController#write}
      * ({@code ResponseEntity<IslandGuestbooks.Item>}). 응답 레코드: {@code IslandGuestbookResponses.items}

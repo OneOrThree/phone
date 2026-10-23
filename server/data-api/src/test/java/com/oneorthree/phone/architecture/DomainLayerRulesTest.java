@@ -333,7 +333,8 @@ class DomainLayerRulesTest {
         // - 위반을 고치면: store 에 남은 «고쳐진 위반» 줄을 지우려는 ArchUnit 이 StoreUpdateFailedException 으로 실패한다
         //   (allowStoreUpdate=false, FreezingArchRule.removeObsoleteViolationsFromStore → TextFileBasedViolationStore.save).
         //   archunit.properties 의 allowStoreUpdate=true 로 한 번 돌려 store 를 갱신·커밋하고 false 로 되돌린다(사람이 의도적으로).
-        // - 새 도메인 간 repository 의존을 «의도적으로» 허용하려면 store 에 줄을 넣지 말고 service 경계를 만든다.
+        // - store 갱신은 고쳐진 줄을 지우는 방향으로만 쓴다 — 새 도메인 간 repository 의존을 «의도적으로» 늘리는 갱신은 하지 않고
+        //   service 경계를 만든다.
         // 위반 메시지의 줄 번호는 freeze 가 비교에서 무시하므로 코드가 밀려도 동결은 유지된다.
         //
         // 예외 넷과 그 이유 (규칙 설명 CROSS_REPOSITORY_BECAUSE 에도 적혀 있다):
