@@ -14,6 +14,12 @@ class InboundService {
 
     private static final Set<String> PROJECTIONS = Set.of(
             "user.updated", "friend.request.resolved", "user.displayNameChanged");
+    /**
+     * 수신 멱등 해시(GROMO-2212). jsonb 로 캐스트해 키 순서·공백을 정규화한 텍스트의 SHA-256 이라 같은 의미의
+     * 봉투는 같은 값이다. 저장·재전달 비교·V11 백필({@code envelope::text})이 모두 이 식을 쓴다 — 탈퇴로
+     * 원문을 지운 뒤에도 이 값만으로 중복과 {@code EVENT_ID_CONFLICT} 를 가른다.
+     */
+    static final String ENVELOPE_HASH = "encode(sha256(convert_to((?::jsonb)::text,'UTF8')),'hex')";
     private final Store store;
     private final DeviceService devices;
     private final SettingsService settings;
@@ -27,18 +33,25 @@ class InboundService {
     @Transactional
     public Map<String, Object> accept(Map<String, Object> body) {
         Envelope event = Envelope.read(body);
+        String envelope = Json.write(body);
         store.lock("inbound:" + event.eventId());
-        Map<String, Object> existing = store.one("SELECT envelope::text FROM inbound_events WHERE event_id=?",
-                event.eventId());
+        Map<String, Object> existing = store.one("SELECT envelope_hash=" + ENVELOPE_HASH + " AS same"
+                + " FROM inbound_events WHERE event_id=?", envelope, event.eventId());
         if (existing != null) {
-            if (!Json.hash(Json.map(existing.get("envelope"))).equals(Json.hash(body))) {
+            if (!Boolean.TRUE.equals(existing.get("same"))) {
                 throw new NotificationFailure(409, "EVENT_ID_CONFLICT");
             }
             return Map.of("accepted", true);
         }
         apply(event);
-        store.update("INSERT INTO inbound_events(event_id,envelope) VALUES(?,?::jsonb)",
-                event.eventId(), Json.write(body));
+        // 탈퇴 TX 와 같은 user-state 잠금 아래서 fence 를 읽는다. 잠금 없이 여기까지 오는 경로(deleteLocked 의
+        // 조기 소비)도 탈퇴가 먼저 커밋됐으면 원문 없이 적고, 나중이면 탈퇴가 대기 뒤 이 행의 원문을 지운다.
+        // device-ownership 은 더 잡지 않는다 — 잡으면 SettingsService.live 경로와 잠금 순서가 뒤집힌다.
+        store.lock("user-state:" + event.userId());
+        Map<String, Object> fence = store.one("SELECT withdrawn FROM user_fences WHERE user_id=?", event.userId());
+        boolean withdrawn = fence != null && Boolean.TRUE.equals(fence.get("withdrawn"));
+        store.update("INSERT INTO inbound_events(event_id,user_id,envelope_hash,envelope) VALUES(?,?,"
+                + ENVELOPE_HASH + ",?::jsonb)", event.eventId(), event.userId(), envelope, withdrawn ? null : envelope);
         return Map.of("accepted", true);
     }
 

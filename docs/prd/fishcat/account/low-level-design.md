@@ -885,7 +885,7 @@ Business가 표지를 두기 전에 죽으면 탈퇴 명령도 전달되지 않�
 현재 main의 외부 FCM 호출 뒤 `saveAll`만으로 이 증거/멱등 경계가 구현됐다는 뜻은 아니다.
 원 발송 식별자·증거의 내구 보존과 결과 기록 연결을 검증하기 전 이 경합 보호를 완료로 표시하지 않는다.
 
-위성 이관 후에도 중앙 삭제만으로 완료 처리하지 않는다. 기존 `user.withdrawn` 및 알림 대상 내구 파기 명령에 위 수신자/사용자 상대 범위를 포함하고, Notification은 같은 fencing TX에서 미발송을 중단하고 위 종류별 삭제/nullify와 사용자 연계 payload/이관 복사본 제거를 적용해야 한다. 활성 수신자의 RANK_OVERTAKE 상한 근거는 위성에서도 보존하며 파기 재전달로 카운트를 줄이지 않는다. 최소 tombstone만 기존 계약대로 유지하여 늦은 direct/relay/import가 삭제한 관계 이력을 부활시키지 못하게 한다. 현재 `DeviceService.generation`의 미발송 SUPPRESSED·projection/settings 삭제만으로 이 발송 이력 파기까지 구현됐다고 주장하지 않는다. 위성별 파기 완료를 확인하며, 재전달 실패는 기존 outbox로 복구하고 중앙 탈퇴를 재실행하지 않는다.
+위성 이관 후에도 중앙 삭제만으로 완료 처리하지 않는다. 기존 `user.withdrawn` 및 알림 대상 내구 파기 명령에 위 수신자/사용자 상대 범위를 포함하고, Notification은 같은 fencing TX에서 미발송을 중단하고 위 종류별 삭제/nullify와 사용자 연계 payload/이관 복사본 제거를 적용해야 한다. 활성 수신자의 RANK_OVERTAKE 상한 근거는 위성에서도 보존하며 파기 재전달로 카운트를 줄이지 않는다. 최소 tombstone만 기존 계약대로 유지하여 늦은 direct/relay/import가 삭제한 관계 이력을 부활시키지 못하게 한다. 현재 `DeviceService.generation`은 탈퇴 TX에서 그 사용자의 발송 로그(`deliveries`·`delivery_devices`)·projection·settings를 하드 삭제하고, `inbound_events` 수신 원문을 null로 바꾸며(`event_id`·`envelope_hash`만 보존), 멱등 기록 `commands`를 지운다(GROMO-1943·2212). 다른 수신자 사본에 실린 상대 정보(예: `deliveries.payload`의 `counterpartNickname`)는 이 파기에 포함되지 않으므로, 이것만으로 위 수신자/사용자 상대 범위의 발송 이력 파기까지 구현됐다고 주장하지 않는다. 위성별 파기 완료를 확인하며, 재전달 실패는 기존 outbox로 복구하고 중앙 탈퇴를 재실행하지 않는다.
 
 #### 내기 정산 근거와 결과 열람 이력의 분리
 
