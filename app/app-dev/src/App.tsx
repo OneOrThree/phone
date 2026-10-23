@@ -690,6 +690,12 @@ function Gromo() {
   notifyRef.current = notify;
   // 소비한 링크 번호 — 섬 이동 응답이 늦게 와도 그 사이 더 새 링크를 열었으면 화면을 덮지 않는다.
   const linkSeq = useRef(0);
+  // 화면 위치(라우트·상세·이동 기록 길이) — 섬 이동 응답을 기다리는 사이 사용자가 직접 옮겼는지 가린다.
+  const navKeyRef = useRef('');
+  navKeyRef.current = `${route}|${detail}|${history.length}`;
+  // 링크가 시작한 섬 이동이 진행 중인가, 그 사이 도착해 REQUEST_IN_PROGRESS 로 거절된 «가장 최근» 섬 링크 하나.
+  const linkSwitching = useRef(false);
+  const queuedIslandLink = useRef<{ islandId: string; seq: number; navKey: string } | null>(null);
   useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
   useEffect(() => {
     if (!loaded || !incomingAppLink) return;
@@ -722,11 +728,11 @@ function Gromo() {
     const seq = ++linkSeq.current;
     // 서버 섬 구경 중에는 SERVER_VISIT_ROUTES 만 열려 홈·잡지·친구가 «주민만 이용할 수 있어요» 로 막힌다.
     // 구경을 먼저 끝내고(END_VISIT + reset — endServerVisit·뒤로가기와 같은 짝) 연다. reset 은 구경 화면 기록도 비운다.
-    const open = (r: Route, id = '') => {
-      if (stateRef.current.visitingIslandId) {
-        dispatch({ type: 'END_VISIT' });
-        resetRef.current(r, id);
-      } else goRef.current(r, id);
+    const open = (r: Route, id = '', clearHistory = false) => {
+      const visiting = !!stateRef.current.visitingIslandId;
+      if (visiting) dispatch({ type: 'END_VISIT' });
+      if (visiting || clearHistory) resetRef.current(r, id);
+      else goRef.current(r, id);
     };
     if (target.kind === 'unsupported') {
       open('home');
@@ -742,30 +748,62 @@ function Gromo() {
       return;
     }
     if (target.kind === 'island') {
-      const { islandId } = target;
-      const snap = stateRef.current.serverIslands;
-      const unavailable = () => {
-        open('home');
-        notifyRef.current(t('app.linkIslandUnavailable'));
-      };
-      if (islandId === snap?.currentIslandId) open('home');
-      // 강퇴·탈퇴로 소속이 아닌 섬이거나 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 옮기지 않는다.
-      else if (!snap?.memberships.some((item) => item.id === islandId) || stateRef.current.session)
-        unavailable();
-      else {
+      const openIsland = (islandId: string, order: number, navKey: string) => {
+        const snap = stateRef.current.serverIslands;
+        const unavailable = () => {
+          open('home');
+          notifyRef.current(t('app.linkIslandUnavailable'));
+        };
+        // 소속이 아니거나(강퇴·탈퇴), 다른 섬으로 옮기는데 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 옮기지 않는다.
+        // 캐시가 «이미 현재 섬» 이어도 서버에 확인한다 — 다른 기기에서 바꿨을 수 있고, 같은 섬 PUT 은 멱등 200(상태확인)이며
+        // 집중 세션 가드도 걸지 않는다(IslandMembershipService.switchCurrentIsland).
+        if (
+          !snap?.memberships.some((item) => item.id === islandId) ||
+          (stateRef.current.session && islandId !== snap.currentIslandId)
+        )
+          return unavailable();
         const generation = sessionGeneration();
-        // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
-        // 응답 전에 계정이 바뀌었거나(세대 변경) 더 새 링크를 열었으면(번호 변경) 화면을 건드리지 않는다.
-        const latest = () => sessionGeneration() === generation && linkSeq.current === seq;
+        // 응답 전에 계정이 바뀌었거나(세대 변경), 더 새 링크를 열었거나(번호 변경), 사용자가 직접 다른 화면으로 옮겼으면(위치 변경)
+        // 화면을 건드리지 않는다. 이동을 막지는 않는다.
+        const latest = () =>
+          sessionGeneration() === generation &&
+          linkSeq.current === order &&
+          navKeyRef.current === navKey;
+        const followsAnother = linkSwitching.current;
+        linkSwitching.current = true;
+        const settle = (ok: boolean, thrown?: unknown) => {
+          if (
+            !ok &&
+            followsAnother &&
+            (thrown as { code?: string } | undefined)?.code === 'REQUEST_IN_PROGRESS'
+          ) {
+            // 앞선 링크의 섬 이동이 아직 끝나지 않았다 — 가장 최근 목적지 하나만 보관했다가 그 이동이 끝나면 다시 연다.
+            if (linkSeq.current === order)
+              queuedIslandLink.current = { islandId, seq: order, navKey };
+            return;
+          }
+          linkSwitching.current = false;
+          // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
+          if (latest()) {
+            if (ok) open('home', '', true);
+            else unavailable();
+          }
+          const queued = queuedIslandLink.current;
+          queuedIslandLink.current = null;
+          if (
+            queued &&
+            sessionGeneration() === generation &&
+            queued.seq === linkSeq.current &&
+            queued.navKey === navKeyRef.current
+          )
+            openIsland(queued.islandId, queued.seq, queued.navKey);
+        };
         islandCmds.current!.commands.switchCurrent(islandId).then(
-          () => {
-            if (latest()) resetRef.current('home');
-          },
-          () => {
-            if (latest()) unavailable();
-          },
+          () => settle(true),
+          (thrown) => settle(false, thrown),
         );
-      }
+      };
+      openIsland(target.islandId, seq, navKeyRef.current);
       return;
     }
     open(target.route);
