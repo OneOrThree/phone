@@ -1548,6 +1548,62 @@ describe('stompIslandChannel', () => {
     assert.ok(dests.includes('/topic/islands/i1/emotes'), 'emotes 구독 유지');
   });
 
+  test('channel=events 인 UNAUTHORIZED 는 응원 카운트에 들어가지 않는다 — 접속 세 번을 거쳐도 응원은 살아 있고 events 만 strike 2 에서 꺼진다', () => {
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    for (let conn = 1; conn <= 3; conn += 1) {
+      c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+      const dests = reconnectDests(c);
+      assert.ok(dests.includes('/topic/islands/i1/emotes'), `${conn}번째 접속 뒤에도 응원 재구독`);
+      // 같은 코드 2번(strike 2)부터 events 는 꺼진다
+      assert.equal(
+        dests.includes('/topic/islands/i1/events'),
+        conn < 2,
+        `${conn}번째 접속 뒤 events`,
+      );
+    }
+  });
+
+  test('channel=emotes 헤더의 UPSTREAM_UNAVAILABLE 는 events·movement 를 건드리지 않는다 — 응원만 세 번째에 꺼진다', () => {
+    const denied: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push('m'),
+    });
+    const c = client();
+    const err = (channel: string) =>
+      c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE', channel }, body: '' });
+    for (let conn = 1; conn <= 2; conn += 1) {
+      err('emotes');
+      const dests = reconnectDests(c);
+      assert.ok(dests.includes('/topic/islands/i1/emotes'), `${conn}번째 접속 뒤에도 응원 재구독`);
+      assert.ok(dests.includes('/topic/islands/i1/events'), `${conn}번째 접속 뒤에도 events`);
+      assert.ok(dests.includes('/topic/islands/i1/movement'), `${conn}번째 접속 뒤에도 movement`);
+    }
+    err('emotes');
+    const dests = reconnectDests(c);
+    assert.ok(!dests.includes('/topic/islands/i1/emotes'), '응원만 세 번째에 끈다');
+    assert.ok(dests.includes('/topic/islands/i1/events'), 'events 는 그대로');
+    assert.ok(dests.includes('/topic/islands/i1/movement'), 'movement 는 그대로');
+    assert.deepEqual(denied, []);
+    // events strike 도 0 이다 — 응원 ERROR 가 쌓였다면 같은 코드 한 번으로 상한(2)에 닿아 꺼진다
+    err('events');
+    assert.ok(reconnectDests(c).includes('/topic/islands/i1/events'), 'events strike 는 1 뿐');
+  });
+
   describe('응원 구독 거절 정책 (GROMO-2160)', () => {
     afterEach(() => jest.restoreAllMocks());
     const EMOTES = '/topic/islands/i1/emotes';
