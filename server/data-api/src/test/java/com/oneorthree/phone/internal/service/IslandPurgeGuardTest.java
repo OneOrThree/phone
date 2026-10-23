@@ -54,7 +54,9 @@ class IslandPurgeGuardTest {
             entry("user_main_islands", "마지막 주민이 나갈 때 MainIslandService#onMembershipRevoked 가 같은 트랜잭션에서 옮기거나 "
                     + "지워 purge 에 닿을 땐 이 섬을 가리키는 행이 없다 — 또 지우면 같은 사실의 장부가 둘이 된다"),
             entry("user_island_contexts", "UserIslandContextRecovery 가 이미 옮기거나 비웠다 — 행 자체가 사용자의 것이다"),
-            entry("group_invite_links", "종결은 recordGroupClosed 가 링크 도메인에 폐기 사건으로 전달한다 — 행을 지우면 그 계약이 깨진다"),
+            entry("group_invite_links", "닫힌 섬의 코드는 행을 지우지 않고 읽을 때 410 으로 거른다 — "
+                    + "IslandInvitationService#requireLiveInvitation(isAlive)·IslandJoinService#requireIssuerCurrent"
+                    + "(발급자 활성 멤버십). 남기는 island_join_requests.invite_link_id 가 RESTRICT 라 지우면 purge 가 롤백된다"),
             entry("telescope_buckets", "사용자별 1시간 스냅샷이다 — 읽기가 TELESCOPE_VISIBLE_SQL(deleted_at·status)로 죽은 섬을 "
                     + "거르고, 지난 버킷 행은 TelescopeService 의 다음 조회가 deleteOlderThan 으로 지운다"));
 

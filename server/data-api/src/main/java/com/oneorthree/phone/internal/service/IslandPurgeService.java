@@ -61,7 +61,9 @@ import java.util.UUID;
  *       read model 과 동결 분모다. 랭킹은 읽을 때 죽은 섬을 거르므로({@code IslandRankingsService}) 화면은 같고 행만
  *       정리된다. 분자는 FK 가 없어 DB 가 따라 지울 길이 없다. 단 주 마감 재계산
  *       ({@code IslandRankingFreezeService#closeWeek})이 남아 있는 {@code focus_session_details} 로 섬이 닫힌 주의
- *       분자 행을 다시 채울 수 있다 — 그 행도 읽기에서 걸러진다.</li>
+ *       분자 행을 다시 채울 수 있다 — 그 행도 읽기에서 걸러진다. 분모도 같다: 주 마감 freeze
+ *       ({@code IslandWeeklyMemberCountRepository#freeze})가 남은 {@code group_members} 로 경계 인원을 다시 계산해
+ *       닫힌 섬의 {@code island_weekly_member_counts} 행을 다시 적을 수 있고, 읽기는 {@code isAlive} 로 거른다.</li>
  *   <li>{@code island_layouts}·{@code onboarding_islands} — 지운다(GROMO-2284). 섬 배치는 공동 데이터다. 온보딩 예약은
  *       정착 때 이미 지워지지만({@code OnboardingIslandService#settleAtArrival}) 남은 행이 닫힌 섬을 가리킬 이유가
  *       없다.</li>
@@ -82,11 +84,6 @@ public class IslandPurgeService implements IslandPurgePort {
     static final List<String> PURGE_STATEMENTS = List.of(
             // 섬별 7일 평균 일 스냅샷 (V114, GROMO-2257) — 파생 통계라 닫힌 섬을 읽는 곳이 없다. 자식이 없는 독립 표다.
             "DELETE FROM island_focus_averages WHERE island_id = :islandId",
-            // 주간 랭킹 분자·동결 분모 (GROMO-2343·1997) — 자식이 없는 독립 표다. 분자는 FK 가 없다(클래스 javadoc).
-            // ponytail: 두 표 PK 가 (week_start, island_id) 라 island_id 만으로는 표를 훑는다 — 섬 종료가 드물고 표가
-            // 주×섬 크기라 둔다. 느려지면 island_id 인덱스를 마이그레이션으로 더한다.
-            "DELETE FROM island_weekly_focus WHERE island_id = :islandId",
-            "DELETE FROM island_weekly_member_counts WHERE island_id = :islandId",
             // 건설 퀘스트·일일 퀘스트 (V71) — 청구·코호트가 회차의 자식이고 회차가 퀘스트의 자식이다.
             "DELETE FROM island_quest_claims WHERE island_id = :islandId",
             "DELETE FROM island_quest_cohort_members WHERE occurrence_id IN "
@@ -127,7 +124,14 @@ public class IslandPurgeService implements IslandPurgePort {
             "DELETE FROM onboarding_islands WHERE island_id = :islandId",
             // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다. 홍보비 원장 행(PROMOTION_FEE)도 여기서 지워진다.
             "DELETE FROM island_wallet_transactions WHERE island_id = :islandId",
-            "DELETE FROM island_wallets WHERE island_id = :islandId");
+            "DELETE FROM island_wallets WHERE island_id = :islandId",
+            // 주간 랭킹 분자·동결 분모 (GROMO-2343·1997) — 자식이 없는 독립 표라 순서 제약이 없다. 분자는 FK 가 없다(클래스
+            // javadoc). 주간 재계산의 LOCK TABLE 뒤에 줄 서는 시간이 길어질 수 있어, 이 트랜잭션이 앞선 행 잠금을 쥔 시간을
+            // 줄이려고 맨 끝에 둔다.
+            // ponytail: 두 표 PK 가 (week_start, island_id) 라 island_id 만으로는 표를 훑는다 — 섬 종료가 드물고 표가
+            // 주×섬 크기라 둔다. 느려지면 island_id 인덱스를 마이그레이션으로 더한다.
+            "DELETE FROM island_weekly_focus WHERE island_id = :islandId",
+            "DELETE FROM island_weekly_member_counts WHERE island_id = :islandId");
 
     private final GroupRepository groups;
     private final Clock clock;
