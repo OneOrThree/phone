@@ -21,10 +21,17 @@ GROMO-2349 주간 섬 랭킹(분자 read model `island_weekly_focus`, 분모 `is
 ### 1-2. 절차 (dev)
 
 1. Secrets Manager `gromo/dev/env` 에 `RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP=true` 를 넣는다.
-2. Actions `Ops Dev Redeploy`(`ops-redeploy.dev.yml`)를 `data-api` 로 실행한다. 새 이미지 없이 SM 값을 새로 읽어 컨테이너를 다시 띄운다.
+2. Actions `Ops Dev Redeploy`(`ops-redeploy.dev.yml`)를 `data-api` 로 실행한다. 새 이미지는 만들지 않지만 **가벼운 재시작이 아니다** — 아래 1-2a 를 읽고, dev 사용자가 적은 시간에 한다.
 3. Data 서버 로그에서 `주간 섬 랭킹 분자 재계산 week=… 섬=…` (info)를 확인한다. `week` 는 이번 주 일요일 날짜, `섬` 은 채운 섬 수다. 실패하면 `기동 시 주간 섬 랭킹 분자 재계산 실패 week=…` (error)가 스택과 함께 남고 서버는 정상 기동한다 — 원인을 고친 뒤 다시 배포한다.
 4. 아래 1-3 대조 SQL 을 돌려 **0행**임을 확인한다.
-5. SM 값을 `false` 로 되돌리고(또는 키를 지우고) `Ops Dev Redeploy` 를 한 번 더 한다. **켜 둔 채로 두지 않는다** — 재기동·재배포마다 테이블 잠금을 쥔다.
+5. SM 값을 `false` 로 되돌리고(또는 키를 지우고) `Ops Dev Redeploy` 를 한 번 더 한다. **켜 둔 채로 두지 않는다** — 재기동·재배포마다 테이블 잠금을 쥔다(아래 1-2a (c)).
+
+#### 1-2a. `Ops Dev Redeploy` 가 실제로 하는 일
+
+- **(a) 공동 배포 전체를 다시 돌린다.** `data-api` 를 고르면 `data-api-ci.dev.yml` 실행 중 마지막 성공 실행의 「Data·Realtime 공동 배포」 job 을 통째로 재실행한다(`ops-redeploy.dev.yml`). 이 job 은 `deploy-core-dev.py` 로 nginx 를 멈추고, Data·Realtime·Business·Notification 과 관측 컨테이너를 정지한 뒤(`stop()`, `QUIESCE_SERVICES`) DB 전환 도구(`deploy-v0.py apply`)를 다시 돌리고, Data·Realtime 을 `--force-recreate` 로 다시 띄운다. 그다음 정지했던 컨테이너를 되살리고 nginx 를 켠다(`deploy()`). 이 동안 dev API 는 응답하지 않는다. 켜고 한 번, 끄고 한 번이라 **중단 창이 두 번**이다.
+- **(b) 어느 커밋이 뜨는지 확인한다.** 재실행 대상은 `--status success` 로 거른 최근 20회, GitHub 재실행 한계(30일) 안의 «마지막 성공 실행»이다. 그 뒤에 실패한 main 실행이 있으면 그보다 옛 커밋의 이미지가 뜰 수 있다. 재배포 로그와 실행 요약의 `재실행: run … 커밋 …` 줄에서 어느 커밋이 뜨는지 본다.
+- **(c) 켠 채로 두면 일반 배포도 다시 계산한다.** Data 를 배포하는 다음 main 머지의 공동 배포도 같은 SM 값을 읽으므로(`data-api-cd.dev.yml` 의 임시 `dev.env` 생성 단계, `dev-env.sh`) 값이 `true` 인 동안은 그때마다 기동 직후 재계산한다.
+- **(d) Realtime 도 같이 재시작되지만 재계산과 무관하다.** 이 스위치는 Data 서버만 읽는다.
 
 prod 는 Infra 저장소의 `prod/catus/runtime` 환경 변수로 같은 키를 넣고 재시작한다(`server/scripts/README.md` 의 Catus prod 절차). 정확한 승인·재시작 절차는 인프라 담당에게 확인한다.
 
@@ -32,7 +39,7 @@ prod 는 Infra 저장소의 `prod/catus/runtime` 환경 변수로 같은 키를 
 
 ### 1-3. 대조 SQL — 정본 vs 사본 (읽기 전용, 0행이면 일치)
 
-정본 쪽은 `FocusSessionDetailRepository.sumIslandActiveSeconds`(구간마다 자르지 않고 창과의 교집합을 모두 더한 뒤 섬마다 한 번만 내림, 0초 섬 제외), 사본 쪽은 `IslandWeeklyFocusRepository.findSeconds`(`active_micros / 1000000`, 1초 미만 섬 제외)와 같은 술어다. 한 문장이라 두 쪽이 같은 스냅샷을 본다. 이번 주(`now()` 의 UTC 일요일 주)를 본다.
+정본 쪽은 `FocusSessionDetailRepository.sumIslandActiveSeconds`(구간마다 자르지 않고 창과의 교집합을 모두 더한 뒤 섬마다 한 번만 내림, 0초 섬 제외), 사본 쪽은 `IslandWeeklyFocusRepository.findSeconds`(`active_micros / 1000000`, 1초 미만 섬 제외)와 같은 술어다. 아래 SQL 을 **한 문장으로 그대로 실행할 때** 두 쪽이 같은 스냅샷을 본다(READ COMMITTED 는 문장마다 스냅샷을 새로 잡는다). `canon` 과 `rm` 을 떼어 따로 돌리거나 트랜잭션 안에서 문장을 나눠 돌리면 그 사이에 들어온 집중 완료 때문에 거짓 불일치가 나올 수 있다. 이번 주(`now()` 의 UTC 일요일 주)를 본다.
 
 ```sql
 WITH w AS (SELECT ws::date week_start, ws AT TIME ZONE 'UTC' b, (ws + interval '7 days') AT TIME ZONE 'UTC' e
@@ -77,6 +84,8 @@ ORDER BY average_focus_seconds DESC, i.id;
 ## 2. 2344 전제 점검 — `last_transition_at` ≥ 모든 구간의 `ended_at`
 
 회관 기록 조회(GROMO-2344)는 끝난 세션이 «창과 겹친다» 를 «`last_transition_at > 창 시작`» 으로 먼저 거른다(`FocusSessionDetailRepository.OPEN_OR_ENDED_AFTER_FROM`, 인덱스 `focus_session_details_user_transition_idx (user_id, island_id, last_transition_at)`). 끝난 세션의 `last_transition_at` 이 그 세션의 어떤 구간 `ended_at` 보다도 작지 않다는 전제에 기댄다. 전제가 깨진 행은 구간이 창과 겹쳐도 거름에서 빠져 회관 기록 합계가 조용히 모자란다. 주간 랭킹 분자는 이 거름을 쓰지 않으므로 영향이 없다.
+
+아래 점검·보정 SQL 이 `kind` 를 거르지 않는 것은 의도다. 회관 기록 scope=me 조회(`findOverlapping`)에는 `kind` 조건이 없어 바다(SEA) 세션도 같은 거름을 타고, scope=island 조회(`findOverlappingOnIsland`)만 `kind = ISLAND` 로 좁힌다. 어느 조회가 읽든 모든 COMPLETED 세션이 전제를 지켜야 해서 보정도 kind 로 줄이지 않는다.
 
 이 점검은 2344 가 나가는 배포 전에, 그리고 대량 정본 보정 뒤에 한가한 시간에 돌린다(읽기 전용이지만 두 표를 모두 훑는다).
 

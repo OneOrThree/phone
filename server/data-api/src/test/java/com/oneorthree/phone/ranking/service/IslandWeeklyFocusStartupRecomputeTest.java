@@ -9,12 +9,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-import java.lang.reflect.Method;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -23,13 +23,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * 기동 시 이번 주 재계산 옵션 (GROMO-2349) — 「어느 주를 넘기는가」는 고정 시계로, 「실패가 기동을 막지 않는가」는
- * 서비스 대역으로 확인한다. 켜짐 조건과 이벤트는 애노테이션이 정본이라 선언을 단언한다. 재계산 본체는
- * {@code IslandWeeklyFocusIntegrationTest}.
+ * 서비스 대역으로 확인한다. 「옵션을 켠 환경에서만 빈이 되고 준비 완료 이벤트에서 도는가」는 최소 컨텍스트
+ * ({@link ApplicationContextRunner})로 확인한다. 재계산 본체는 {@code IslandWeeklyFocusIntegrationTest}.
  */
 class IslandWeeklyFocusStartupRecomputeTest {
 
@@ -90,19 +91,37 @@ class IslandWeeklyFocusStartupRecomputeTest {
                 });
     }
 
-    @Test
-    @DisplayName("옵션을 켠 환경에서만 빈이 되고 ApplicationReadyEvent 에서 돈다 — 기본 꺼짐")
-    void isOptInAndRunsOnApplicationReady() throws NoSuchMethodException {
-        ConditionalOnProperty condition = IslandWeeklyFocusStartupRecompute.class
-                .getAnnotation(ConditionalOnProperty.class);
-        assertThat(condition).as("조건이 없으면 모든 기동이 테이블 잠금을 쥔다").isNotNull();
-        assertThat(condition.name()).containsExactly("ranking.weekly-focus.recompute-on-startup");
-        assertThat(condition.havingValue()).isEqualTo("true");
-        assertThat(condition.matchIfMissing()).as("속성이 없으면 꺼진다").isFalse();
+    private ApplicationContextRunner contextRunner() {
+        return new ApplicationContextRunner()
+                .withBean(IslandWeeklyFocusService.class, () -> service)
+                .withBean(Clock.class, () -> CLOCK)
+                .withUserConfiguration(IslandWeeklyFocusStartupRecompute.class);
+    }
 
-        Method entry = IslandWeeklyFocusStartupRecompute.class.getMethod("recomputeCurrentWeek");
-        EventListener listener = entry.getAnnotation(EventListener.class);
-        assertThat(listener).as("리스너가 아니면 영영 돌지 않는다").isNotNull();
-        assertThat(listener.value()).containsExactly(ApplicationReadyEvent.class);
+    @Test
+    @DisplayName("옵션 속성이 없으면 빈이 되지 않는다 — 기본 꺼짐이라 모든 기동이 테이블 잠금을 쥐지 않는다")
+    void noBeanWithoutTheProperty() {
+        contextRunner().run(context -> assertThat(context).doesNotHaveBean(IslandWeeklyFocusStartupRecompute.class));
+    }
+
+    @Test
+    @DisplayName("옵션이 false 이면 빈이 되지 않는다")
+    void noBeanWhenTheOptionIsFalse() {
+        contextRunner().withPropertyValues("ranking.weekly-focus.recompute-on-startup=false")
+                .run(context -> assertThat(context).doesNotHaveBean(IslandWeeklyFocusStartupRecompute.class));
+    }
+
+    @Test
+    @DisplayName("옵션이 true 이면 빈이 되고, ApplicationReadyEvent 가 발행될 때 이번 주를 재계산한다")
+    void recomputesThisWeekOnApplicationReady() {
+        contextRunner().withPropertyValues("ranking.weekly-focus.recompute-on-startup=true").run(context -> {
+            assertThat(context).hasSingleBean(IslandWeeklyFocusStartupRecompute.class);
+            verify(service, never()).recompute(any());
+
+            context.publishEvent(new ApplicationReadyEvent(new SpringApplication(), new String[0], context,
+                    Duration.ZERO));
+
+            verify(service).recompute(THIS_WEEK);
+        });
     }
 }
