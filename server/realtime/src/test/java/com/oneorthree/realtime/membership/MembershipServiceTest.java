@@ -16,7 +16,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.util.Set;
@@ -286,7 +285,6 @@ class MembershipServiceTest {
         StringRedisTemplate flaky = spy(redis);
         doReturn(values).when(flaky).opsForValue();
         MembershipService service = new MembershipService(groupClient, flaky);
-        ReflectionTestUtils.setField(service, "cacheTtlSeconds", 120L);
 
         boolean evicted = service.evict(userId);
 

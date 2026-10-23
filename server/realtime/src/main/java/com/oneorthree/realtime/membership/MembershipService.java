@@ -158,12 +158,12 @@ public class MembershipService {
         }
     }
 
-    /** @param mark 상류를 부르기 전에 읽은 무효화 표식 — {@code null} 이면 적재를 건너뛴다 */
     /** 표식 없음(null)은 빈 문자열로 접는다 — 적재 스크립트가 «없음»을 같은 값으로 비교한다. */
     private static String markOf(String raw) {
         return raw == null ? "" : raw;
     }
 
+    /** @param mark 상류를 부르기 전에 읽은 무효화 표식 — {@code null} 이면 적재를 건너뛴다 */
     private GroupClient.Membership fetchAndStore(UUID userId, String bearerToken, String mark) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 형식이 불완전한 답을 무소속으로 캐시하면 정상 주민까지 TTL 동안 방문자로 오인한다.
