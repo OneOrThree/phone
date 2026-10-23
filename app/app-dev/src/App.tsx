@@ -688,6 +688,8 @@ function Gromo() {
   resetRef.current = reset;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
+  // 소비한 링크 번호 — 섬 이동 응답이 늦게 와도 그 사이 더 새 링크를 열었으면 화면을 덮지 않는다.
+  const linkSeq = useRef(0);
   useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
   useEffect(() => {
     if (!loaded || !incomingAppLink) return;
@@ -705,23 +707,35 @@ function Gromo() {
     // 지원하지 않는 초대·그룹 링크도 같은 guard 뒤에서 홈 이동과 안내를 함께 처리한다.
     // 첫 안내 초반(3단계 이하)의 홈은 튜토리얼 effect 가 같은 렌더에서 guide 로 되돌린다. 여기서 링크를
     // 소비하면 목적지 이동이 덮여 링크가 사라지므로 안내 화면과 같이 보관한다.
+    // 현재 섬 유무(state.onboarded)는 계정 온보딩과 별개다 — 계정 온보딩(character)은 위 보관 화면이 이미 막는다.
+    // 호 읽기는 소속 섬이 없는 바다에서도 열려서(seaMagazine) 현재 섬을 요구하지 않는다. 그 밖의 링크는 현재 섬이 있어야 한다
+    // (섬 이동은 첫 섬 안내 대기(awaiting-first-island)를 건너뛰지 않게 onboarded 로 막는다).
     const tutorialForcesGuide = route === 'home' && !!state.tutorial && state.tutorial.step <= 3;
     if (
       !hasServerSession ||
-      !state.onboarded ||
+      (!state.onboarded && target.kind !== 'magazine') ||
       DEEP_LINK_HOLD_ROUTES.includes(route) ||
       tutorialForcesGuide
     )
       return;
     setIncomingAppLink(null);
+    const seq = ++linkSeq.current;
+    // 서버 섬 구경 중에는 SERVER_VISIT_ROUTES 만 열려 홈·잡지·친구가 «주민만 이용할 수 있어요» 로 막힌다.
+    // 구경을 먼저 끝내고(END_VISIT + reset — endServerVisit·뒤로가기와 같은 짝) 연다. reset 은 구경 화면 기록도 비운다.
+    const open = (r: Route, id = '') => {
+      if (stateRef.current.visitingIslandId) {
+        dispatch({ type: 'END_VISIT' });
+        resetRef.current(r, id);
+      } else goRef.current(r, id);
+    };
     if (target.kind === 'unsupported') {
-      goRef.current('home');
+      open('home');
       notifyRef.current(t('app.linkUnsupported'));
       return;
     }
     if (target.kind === 'magazine') {
       // 소속 섬이 있으면 섬에서, 없으면 바다에서 펼친다(둘 다 호가 없으면 리더가 «사라진 호»로 안내한다).
-      goRef.current(
+      open(
         stateRef.current.serverIslands?.currentIslandId ? 'magazine' : 'seaMagazine',
         target.issueId,
       );
@@ -731,29 +745,30 @@ function Gromo() {
       const { islandId } = target;
       const snap = stateRef.current.serverIslands;
       const unavailable = () => {
-        goRef.current('home');
+        open('home');
         notifyRef.current(t('app.linkIslandUnavailable'));
       };
-      if (islandId === snap?.currentIslandId) goRef.current('home');
+      if (islandId === snap?.currentIslandId) open('home');
       // 강퇴·탈퇴로 소속이 아닌 섬이거나 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 옮기지 않는다.
       else if (!snap?.memberships.some((item) => item.id === islandId) || stateRef.current.session)
         unavailable();
       else {
         const generation = sessionGeneration();
         // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
-        // 응답 전에 계정이 바뀌었으면(세대 변경) 새 세션 화면을 건드리지 않는다.
+        // 응답 전에 계정이 바뀌었거나(세대 변경) 더 새 링크를 열었으면(번호 변경) 화면을 건드리지 않는다.
+        const latest = () => sessionGeneration() === generation && linkSeq.current === seq;
         islandCmds.current!.commands.switchCurrent(islandId).then(
           () => {
-            if (sessionGeneration() === generation) resetRef.current('home');
+            if (latest()) resetRef.current('home');
           },
           () => {
-            if (sessionGeneration() === generation) unavailable();
+            if (latest()) unavailable();
           },
         );
       }
       return;
     }
-    goRef.current(target.route);
+    open(target.route);
   }, [loaded, incomingAppLink, hasServerSession, state.onboarded, state.tutorial, route]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({

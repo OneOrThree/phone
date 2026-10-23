@@ -1622,8 +1622,12 @@ const LINK_ISLAND_STRANGER = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
 const LINK_ISSUE = '0197e0c3-9a10-7c3d-8e21-5a6b7c8d9e0f';
 const LINK_TOAST = /지금은 열 수 없는 섬이에요/;
 
-// 로그인·온보딩을 마친 앱을 설정 화면에 세워 둔다 — 링크가 열려 «옮겨 가는» 것이 route 로 보이게 한다.
-const renderLinkedApp = async (currentIslandId: string | null, memberIds: string[]) => {
+// 로그인·온보딩을 마친 앱을 설정 화면(소속 섬이 없으면 바다 등 `startRoute`)에 세워 둔다 — 링크가 열려 «옮겨 가는» 것이 route 로 보이게 한다.
+const renderLinkedApp = async (
+  currentIslandId: string | null,
+  memberIds: string[],
+  startRoute: Route = 'settings',
+) => {
   await act(async () => {
     render(<App />);
     for (let n = 0; n < 10; n += 1) await Promise.resolve();
@@ -1643,9 +1647,9 @@ const renderLinkedApp = async (currentIslandId: string | null, memberIds: string
       requests: [],
       mainIslandId: currentIslandId,
     });
-    captured.reset('settings');
+    captured.reset(startRoute);
   });
-  await waitFor(() => assert.equal(captured.route, 'settings'));
+  await waitFor(() => assert.equal(captured.route, startRoute));
 };
 
 test('group 링크는 소속 섬이면 현재 섬을 옮기고 홈으로 간다', async () => {
@@ -1734,17 +1738,86 @@ test('magazine 링크는 소속 섬이 있으면 섬 잡지로, 없으면 바다
   assert.equal(captured.detail, LINK_ISSUE);
 });
 
-test('소속 섬 없이 온보딩만 끝난 상태의 magazine 링크는 바다 잡지로 연다', async () => {
-  await renderLinkedApp(null, []);
-  // 목업 섬 생성은 서버 current 없이 onboarded 만 켠다 — 바다 분기만 확인하는 용도다.
-  await act(async () => captured.dispatch({ type: 'CREATE_ISLAND', name: '목업 섬' }));
-  await waitFor(() => assert.equal(captured.state.onboarded, true));
+test('소속 섬이 없는 계정(ISLAND_SYNC 소속 0)의 magazine 링크는 바다 잡지로 열고 group 링크는 보관한다', async () => {
+  await renderLinkedApp(null, [], 'sea');
+  // 계정 온보딩은 끝났지만 현재 섬이 없는 실제 상태다 — ISLAND_SYNC 가 onboarded(현재 섬 유무)를 false 로 둔다.
+  assert.equal(captured.state.onboarded, false);
   assert.equal(captured.state.serverIslands.currentIslandId, null);
+
+  // 섬 이동은 현재 섬 맥락이 필요해 그대로 보관한다.
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  assert.equal(captured.route, 'sea');
+  assert.equal(mockSwitchCurrent.mock.calls.length, 0);
 
   await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
   await waitFor(() => assert.equal(captured.route, 'seaMagazine'));
   assert.equal(captured.detail, LINK_ISSUE);
 });
+
+// 구경 중에는 SERVER_VISIT_ROUTES 만 열려 목적지가 막힌다 — 링크가 구경을 먼저 끝내고 연다.
+test.each([
+  ['현재 섬을 가리키는 group', `gromo://group?g=${LINK_ISLAND_A}`, 'home', ''],
+  ['magazine', `gromo://magazine?issue=${LINK_ISSUE}`, 'magazine', LINK_ISSUE],
+  ['friends', 'gromo://friends', 'friends', ''],
+  ['지원하지 않는 join', `gromo://join?g=${LINK_ISLAND_B}`, 'home', ''],
+] as const)(
+  '서버 섬 구경 중 받은 %s 링크는 구경을 끝내고 목적지를 연다',
+  async (_name, url, route, detail) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    await act(async () => {
+      captured.dispatch({ type: 'ISLAND_VISIT', visit: { island: { id: LINK_ISLAND_STRANGER } } });
+      captured.dispatch({ type: 'SERVER_VISITING', islandId: LINK_ISLAND_STRANGER });
+      captured.reset('visitIsland', LINK_ISLAND_STRANGER);
+    });
+    assert.equal(captured.state.visitingIslandId, LINK_ISLAND_STRANGER);
+
+    await act(async () => mockEmitAppLink!(url));
+    await waitFor(() => assert.equal(captured.route, route));
+    assert.equal(captured.state.visitingIslandId, null);
+    assert.equal(captured.detail, detail);
+    assert.equal(mockSwitchCurrent.mock.calls.length, 0);
+  },
+);
+
+test.each(['성공', '실패'] as const)(
+  '섬 이동 응답이 오기 전에 더 새 링크를 열었으면 늦은 %s 응답이 화면을 덮지 않는다',
+  async (outcome) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    let settle!: () => void;
+    mockSwitchCurrent.mockReturnValue(
+      new Promise<void>((resolve, reject) => {
+        settle = () => {
+          if (outcome === '실패') return reject(new ApiError('STATE_CONFLICT', '충돌', 409));
+          mockAppDispatch!({
+            type: 'ISLAND_SYNC',
+            memberships: {
+              items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }],
+              nextCursor: null,
+              currentIslandId: LINK_ISLAND_B,
+              lossReason: null,
+            },
+            requests: [],
+            mainIslandId: LINK_ISLAND_A,
+          });
+          resolve();
+        };
+      }),
+    );
+
+    await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+    assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+    await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+    await waitFor(() => assert.equal(captured.route, 'magazine'));
+
+    await act(async () => {
+      settle();
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    assert.equal(captured.route, 'magazine');
+    assert.equal(captured.detail, LINK_ISSUE);
+    assert.equal(screen.queryByText(LINK_TOAST), null);
+  },
+);
 
 test.each([
   ['focus', 11, 'active', 11],
