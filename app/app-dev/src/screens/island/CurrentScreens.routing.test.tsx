@@ -122,6 +122,22 @@ jest.mock('@/services/api/telescope', () => ({
   arriveAtIsland: jest.fn(),
 }));
 
+// 잡지 리더는 실제 구현을 그대로 쓰되 마운트 횟수만 센다 — 호가 바뀔 때 새로 마운트되는지 본다.
+const mockReaderMount = jest.fn();
+jest.mock('@/screens/magazine/MagazineReader', () => {
+  const actual = jest.requireActual('@/screens/magazine/MagazineReader');
+  const React = require('react');
+  return {
+    ...actual,
+    MagazineReader: (props: any) => {
+      React.useEffect(() => {
+        mockReaderMount(props.e.detail);
+      }, []);
+      return React.createElement(actual.MagazineReader, props);
+    },
+  };
+});
+
 const redesignScreensMock = RedesignScreens as unknown as jest.Mock;
 
 // CurrentScreens.kicked.test.tsx 의 serverFocusState 를 그대로 재사용한다(새 대형 픽스처 금지).
@@ -151,29 +167,30 @@ const serverFocusState = (): State => {
   return state;
 };
 
+const screenOf = (route: Route, state: State, extra: object = {}) => (
+  <CurrentScreens
+    e={{
+      state,
+      route,
+      now: Date.now(),
+      dispatch: jest.fn(),
+      go: jest.fn(),
+      replace: jest.fn(),
+      reset: jest.fn(),
+      home: jest.fn(),
+      back: jest.fn(),
+      backOverride: { current: null },
+      notify: jest.fn(),
+      text: '',
+      setText: jest.fn(),
+      setGuideStep: jest.fn(),
+      islands: {},
+      ...extra,
+    }}
+  />
+);
 const mount = async (route: Route, state: State = serverFocusState(), extra: object = {}) =>
-  render(
-    <CurrentScreens
-      e={{
-        state,
-        route,
-        now: Date.now(),
-        dispatch: jest.fn(),
-        go: jest.fn(),
-        replace: jest.fn(),
-        reset: jest.fn(),
-        home: jest.fn(),
-        back: jest.fn(),
-        backOverride: { current: null },
-        notify: jest.fn(),
-        text: '',
-        setText: jest.fn(),
-        setGuideStep: jest.fn(),
-        islands: {},
-        ...extra,
-      }}
-    />,
-  );
+  render(screenOf(route, state, extra));
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -327,3 +344,38 @@ test('바다 잡지(seaMagazine) 라우트는 소속 섬이 없어도 섬 가드
   expect(putMagazineReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA', opened: true });
   await screen.unmount();
 });
+
+// 같은 잡지 라우트에서 호 id(detail)만 바뀌면(딥링크로 다른 호를 열 때) 리더를 새로 마운트해야 이전 호의 확대 모달·쪽 위치가 남지 않는다.
+test.each(['magazine', 'seaMagazine'] as const)(
+  '%s 라우트는 호 id 가 바뀌면 잡지 리더를 새로 마운트한다',
+  async (route) => {
+    (getMagazineIssue as jest.Mock).mockResolvedValue({
+      issue: {
+        issueId: 'iss-20',
+        issueNo: 20,
+        issueDate: '2026-10-20',
+        publishedAt: '2026-10-19T22:00:00Z',
+        current: true,
+      },
+      editorial: null,
+      cells: [],
+      nextCursor: null,
+    });
+    (putMagazineReceipt as jest.Mock).mockResolvedValue({
+      place: route === 'seaMagazine' ? 'SEA' : 'ISLAND',
+      receivedAt: 'a',
+      deferredAt: null,
+      openedAt: 'b',
+    });
+    const state = serverFocusState();
+    state.session = null;
+    const screen = await render(screenOf(route, state, { detail: 'iss-20' }));
+    await screen.findByTestId('magazine-reader');
+    expect(mockReaderMount).toHaveBeenCalledTimes(1);
+
+    await screen.rerender(screenOf(route, state, { detail: 'iss-21' }));
+    expect(mockReaderMount).toHaveBeenCalledTimes(2);
+    expect(mockReaderMount).toHaveBeenLastCalledWith('iss-21');
+    await screen.unmount();
+  },
+);

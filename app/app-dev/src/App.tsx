@@ -693,9 +693,15 @@ function Gromo() {
   // 화면 위치(라우트·상세·이동 기록 길이) — 섬 이동 응답을 기다리는 사이 사용자가 직접 옮겼는지 가린다.
   const navKeyRef = useRef('');
   navKeyRef.current = `${route}|${detail}|${history.length}`;
-  // 링크가 시작한 섬 이동이 진행 중인가, 그 사이 도착해 REQUEST_IN_PROGRESS 로 거절된 «가장 최근» 섬 링크 하나.
-  const linkSwitching = useRef(false);
-  const queuedIslandLink = useRef<{ islandId: string; seq: number; navKey: string } | null>(null);
+  // 링크가 시작한 섬 이동이 진행 중인 세션 세대(없으면 null — 세대 0 과 구분한다), 그 사이 도착해 REQUEST_IN_PROGRESS 로
+  // 거절된 «가장 최근» 섬 링크 하나. 둘 다 세대를 달아, 이전 세션의 늦은 응답이 새 세션의 값을 건드리지 못하게 한다.
+  const linkSwitching = useRef<number | null>(null);
+  const queuedIslandLink = useRef<{
+    islandId: string;
+    seq: number;
+    navKey: string;
+    generation: number;
+  } | null>(null);
   useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
   useEffect(() => {
     if (!loaded || !incomingAppLink) return;
@@ -749,29 +755,28 @@ function Gromo() {
     }
     if (target.kind === 'island') {
       const openIsland = (islandId: string, order: number, navKey: string) => {
-        const snap = stateRef.current.serverIslands;
         const unavailable = () => {
           open('home');
           notifyRef.current(t('app.linkIslandUnavailable'));
         };
-        // 소속이 아니거나(강퇴·탈퇴), 다른 섬으로 옮기는데 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 옮기지 않는다.
-        // 캐시가 «이미 현재 섬» 이어도 서버에 확인한다 — 다른 기기에서 바꿨을 수 있고, 같은 섬 PUT 은 멱등 200(상태확인)이며
-        // 집중 세션 가드도 걸지 않는다(IslandMembershipService.switchCurrentIsland).
+        // 소속 여부는 로컬 스냅샷이 아니라 서버가 판정한다 — 다른 기기에서 방금 가입·승인된 섬일 수 있다. 소속이 아니면 서버 거절이
+        // 아래 실패 경로로 같은 안내를 낸다. 캐시가 «이미 현재 섬» 이어도 서버에 확인한다(다른 기기에서 바꿨을 수 있고, 같은 섬 PUT 은
+        // 멱등 200 상태확인이며 집중 세션 가드도 걸지 않는다 — IslandMembershipService.switchCurrentIsland).
+        // 다른 섬으로 옮기는데 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 보내지 않는다.
         if (
-          !snap?.memberships.some((item) => item.id === islandId) ||
-          (stateRef.current.session && islandId !== snap.currentIslandId)
+          stateRef.current.session &&
+          islandId !== stateRef.current.serverIslands?.currentIslandId
         )
           return unavailable();
         const generation = sessionGeneration();
-        // 응답 전에 계정이 바뀌었거나(세대 변경), 더 새 링크를 열었거나(번호 변경), 사용자가 직접 다른 화면으로 옮겼으면(위치 변경)
-        // 화면을 건드리지 않는다. 이동을 막지는 않는다.
-        const latest = () =>
-          sessionGeneration() === generation &&
-          linkSeq.current === order &&
-          navKeyRef.current === navKey;
-        const followsAnother = linkSwitching.current;
-        linkSwitching.current = true;
+        // 응답 전에 더 새 링크를 열었거나(번호 변경) 사용자가 직접 다른 화면으로 옮겼으면(위치 변경) 화면을 건드리지 않는다.
+        // 이동을 막지는 않는다. 계정이 바뀐(세대 변경) 응답은 settle 맨 앞에서 통째로 버린다.
+        const latest = () => linkSeq.current === order && navKeyRef.current === navKey;
+        const followsAnother = linkSwitching.current === generation;
+        linkSwitching.current = generation;
         const settle = (ok: boolean, thrown?: unknown) => {
+          // 이전 세션의 늦은 응답은 새 세션의 진행 표시·보관 링크를 지우지 않는다.
+          if (sessionGeneration() !== generation) return;
           if (
             !ok &&
             followsAnother &&
@@ -779,10 +784,10 @@ function Gromo() {
           ) {
             // 앞선 링크의 섬 이동이 아직 끝나지 않았다 — 가장 최근 목적지 하나만 보관했다가 그 이동이 끝나면 다시 연다.
             if (linkSeq.current === order)
-              queuedIslandLink.current = { islandId, seq: order, navKey };
+              queuedIslandLink.current = { islandId, seq: order, navKey, generation };
             return;
           }
-          linkSwitching.current = false;
+          linkSwitching.current = null;
           // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
           if (latest()) {
             if (ok) open('home', '', true);
@@ -792,7 +797,7 @@ function Gromo() {
           queuedIslandLink.current = null;
           if (
             queued &&
-            sessionGeneration() === generation &&
+            queued.generation === generation &&
             queued.seq === linkSeq.current &&
             queued.navKey === navKeyRef.current
           )

@@ -27,6 +27,9 @@ test.each([
   [`gromo://group?g=${ISLAND_ID.replace('-', '%2D')}`, { kind: 'island', islandId: ISLAND_ID }],
   ['gromo://group?g=%E0%A4%A', { kind: 'unsupported', legacyPath: 'group' }],
   [`gromo://magazine?issue=${ISSUE_ID}`, { kind: 'magazine', issueId: ISSUE_ID }],
+  // 대문자 UUID 링크도 서버 id(소문자)로 정규화한다.
+  [`gromo://group?g=${ISLAND_ID.toUpperCase()}`, { kind: 'island', islandId: ISLAND_ID }],
+  [`gromo://magazine?issue=${ISSUE_ID.toUpperCase()}`, { kind: 'magazine', issueId: ISSUE_ID }],
   ['gromo://magazine', { kind: 'route', route: 'home' }],
   ['gromo://magazine?issue=bad', { kind: 'route', route: 'home' }],
 ])('%s를 제공 화면 또는 명시적 fallback으로 분류한다', (url, expected) => {

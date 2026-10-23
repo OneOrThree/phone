@@ -11,13 +11,13 @@ export type AppDeepLinkTarget =
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 쿼리에서 `key`의 UUID 값을 꺼낸다. 없거나 깨졌거나 UUID가 아니면 null — 다른 파라미터(challenge 등)는 무시한다. */
+/** 쿼리에서 `key`의 UUID 값을 소문자로 꺼낸다. 없거나 깨졌거나 UUID가 아니면 null — 다른 파라미터(challenge 등)는 무시한다. */
 function queryUuid(query: string, key: 'g' | 'issue'): string | null {
   const raw = new RegExp(`(?:^|&)${key}=([^&]*)`).exec(query)?.[1];
   if (raw === undefined) return null;
   try {
     const value = decodeURIComponent(raw);
-    return UUID.test(value) ? value : null;
+    return UUID.test(value) ? value.toLowerCase() : null; // 서버 id 는 소문자 — 대문자 링크도 같은 id 로 본다
   } catch {
     return null; // 잘못된 퍼센트 인코딩
   }

@@ -582,6 +582,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'seaMagazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         place="SEA"
         background={
@@ -786,6 +787,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'magazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         host={host && !state.visitingIslandId}
         background={
