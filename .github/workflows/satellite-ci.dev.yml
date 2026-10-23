@@ -34,6 +34,7 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.*.yml'
       - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/be-gradle.yml'
       - '.github/workflows/satellite-cd.dev.yml'
       - 'docs/contracts/**'
   push:
@@ -64,6 +65,7 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.*.yml'
       - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/be-gradle.yml'
       - '.github/workflows/satellite-cd.dev.yml'
       - 'docs/contracts/**'
 

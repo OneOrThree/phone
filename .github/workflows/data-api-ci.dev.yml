@@ -152,36 +152,14 @@ jobs:
   # 마이그레이션을 가진 서비스가 셋(data-api · realtime · notification)인데 이 워크플로의
   # `server/data-api/**` 경로 필터에 묶여 나머지 둘이 검사를 타지 못했다.
   # 지금은 .github/workflows/migration-immutable.yml 이 전 서비스를 본다.
-  checkstyle:
-    uses: ./.github/workflows/be-gradle.yml
-    with:
-      service: data-api
-      # DB·도커·GAR 인증이 필요 없는 순수 정적 분석이라 GitHub-hosted 로 뺄 수 있다.
-      runs-on: '["ubuntu-latest"]'
-      tasks: checkstyleMain checkstyleTest
-      artifact-name: checkstyle-report
-      artifact-path: build/reports/checkstyle/
-
-  spotbugs:
-    uses: ./.github/workflows/be-gradle.yml
-    with:
-      service: data-api
-      runs-on: '["ubuntu-latest"]'
-      tasks: spotbugsMain
-      artifact-name: spotbugs-report
-      artifact-path: build/reports/spotbugs/
-
   test:
     uses: ./.github/workflows/be-gradle.yml
     with:
       service: data-api
-      # GROMO-1910: 공개 전환으로 GitHub-hosted 무료 분 한도가 없어져 self-hosted 대기시간을
-      # 감수할 이유가 사라졌다. DB·GAR 인증 의존이 없으므로(GROMO-1793) 기술적으로도 그대로 옮긴다.
-      runs-on: '["ubuntu-latest"]'
-      tasks: test bootJar
+      tasks: build
       publish-jar: true
-      artifact-name: test-results
-      artifact-path: build/test-results/
+      artifact-name: data-api-reports
+      artifact-path: build/reports/
       measure-jar: true
 
   db-tools:
@@ -203,7 +181,7 @@ jobs:
   # digest를 아래 deploy job에 직접 넘기므로 CD는 태그를 다시 조회하거나 재빌드하지 않는다.
   build:
     name: Dev 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
-    needs: [checkstyle, spotbugs, test, db-tools, secrets-check]
+    needs: [test, db-tools, secrets-check]
     # GROMO-1918: 이미지를 «push» 하는 실행에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
     # 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없기 때문이다. PR 은 push 하지 않으므로
     # (아래 `push:` 가 main push 로 한정) 그 인증이 필요 없고, 레지스트리 캐시만 GAR 를 쓰던 것을

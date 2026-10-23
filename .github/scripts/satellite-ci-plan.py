@@ -13,6 +13,7 @@ SERVICES = ('business-api', 'notification')
 # 안 가르면 워크플로 한 줄만 고쳐도 business-api·notification 전체 빌드가 켜져
 # 러너 슬롯을 오래 물고, 관계없는 PR 까지 줄줄이 대기한다 (GROMO-1918).
 BUILD_AFFECTING = (
+    '.github/workflows/be-gradle.yml',
     '.github/workflows/satellite-check.yml',
     '.github/workflows/satellite-ci.dev.yml',
     '.github/workflows/satellite-ci.prod.yml',
