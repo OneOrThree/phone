@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.InOrder;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.CannotSerializeTransactionException;
@@ -29,7 +30,10 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -95,6 +99,16 @@ class IslandFocusAverageSchedulerTest {
         verify(service).snapshot(KST_DATE);
     }
 
+    @Test
+    @DisplayName("스냅샷이 끝나면 같은 KST 날짜로 오래된 행 정리를 부른다 — 스냅샷 «뒤» 에 (GROMO-2280)")
+    void cleansUpAfterTheSnapshot() {
+        scheduler.snapshotToday();
+
+        InOrder order = inOrder(service);
+        order.verify(service).snapshot(KST_DATE);
+        order.verify(service).cleanup(KST_DATE);
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("lockFailures")
     @DisplayName("잠금 경합(교착 등)으로 끊기면 한 번 다시 돌리고, 두 번째에 끝나면 예외 없이 마친다 — error 로그는 없다")
@@ -104,6 +118,7 @@ class IslandFocusAverageSchedulerTest {
         scheduler.snapshotToday();
 
         verify(service, times(2)).snapshot(KST_DATE);
+        verify(service).cleanup(KST_DATE);
         assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.WARN).singleElement()
                 .satisfies(event -> assertThat(event.getFormattedMessage()).contains(KST_DATE.toString()));
         assertThat(logs.list).noneMatch(event -> event.getLevel() == Level.ERROR);
@@ -119,6 +134,7 @@ class IslandFocusAverageSchedulerTest {
         assertThatThrownBy(scheduler::snapshotToday).isSameAs(second);
 
         verify(service, times(2)).snapshot(KST_DATE);
+        verify(service, never()).cleanup(any());
         assertThat(second.getSuppressed()).as("첫 실패가 두 번째에 붙는다").containsExactly(first);
         assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
                 .satisfies(event -> {
@@ -166,6 +182,7 @@ class IslandFocusAverageSchedulerTest {
         assertThatThrownBy(scheduler::snapshotToday).isSameAs(boom);
 
         verify(service, times(1)).snapshot(KST_DATE);
+        verify(service, never()).cleanup(any());
         assertThat(logs.list).noneMatch(event -> event.getLevel() == Level.ERROR);
     }
 }

@@ -103,6 +103,8 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 
 dev·loadtest·prod의 관리 포트는 `9091`입니다. 배포 시 호스트에 공개하지 않고 내부 수집기가 접근합니다. 지표·로그 분석은 [관측 README](../observability/README.md), 배포 구성은 [Scripts README](../scripts/README.md)를 참고합니다.
 
+운영자 수동 작업(섬별 7일 평균 스냅샷 수동 실행·정리, 주간 섬 랭킹 재계산)은 [섬 랭킹 운영 런북](../../docs/prd/fishcat/island-rankings/ops-runbook.md)에 있습니다.
+
 
 ### 첫 무인도 정착
 

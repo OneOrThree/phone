@@ -1,6 +1,6 @@
 # 주간 섬 랭킹 운영 런북
 
-GROMO-2349 주간 섬 랭킹(분자 read model `island_weekly_focus`, 분모 `island_weekly_member_counts`)을 운영할 때 쓰는 절차다. 운영 화면과 HTTP 엔드포인트는 따로 만들지 않았다. 아래 몇 가지는 설정값과 SQL 로 한다.
+GROMO-2349 주간 섬 랭킹(분자 read model `island_weekly_focus`, 분모 `island_weekly_member_counts`)을 운영할 때 쓰는 절차다. 주간 랭킹에는 운영 화면과 HTTP 엔드포인트를 따로 만들지 않았다. 아래 몇 가지는 설정값과 SQL 로 한다. 섬별 7일 평균(GROMO-2280)만 운영자용 내부 관리 API 가 있다(§4).
 
 - 대상 스키마: Data DB 의 `island_weekly_focus`(V130), `focus_session_details`·`focus_session_intervals`, `islands`·`group_members`. 현행 스키마 정본은 `server/data-api/src/main/resources/db/v0/V0__baseline.sql` 이다.
 - SQL 은 `psql` 기준이다. `\set 이름 '값'` 으로 값을 넣고 본문에서는 `:'이름'` 으로 쓴다. 꺾쇠(`<…>`) 자리를 실제 값으로 바꾼다.
@@ -156,3 +156,79 @@ WHERE relname IN ('focus_session_details', 'group_members', 'island_guestbook_en
    **V130 에는 쓰지 않는다.** V130 은 인덱스 외에 `island_weekly_focus` 표 생성과 전체 주 백필을 담고 있다. 인덱스만 만들고 성공 이력을 넣으면 Flyway 가 표와 백필을 건너뛰고, `deploy-v0.py` 의 V138 스키마 검증이 writer 를 멈춘 뒤 실패해 배포가 막힌다. V130 은 선택지 1 로만 간다(표·백필·인덱스를 전부 손으로 돌리고 검증한 뒤 이력을 넣는 길은 백필 SQL 까지 복제해야 해서 여기서 다루지 않는다).
 
 새로 추가하는 마이그레이션이라면 `CREATE INDEX IF NOT EXISTS` 로 쓰면 선택지 2 가 안전해진다(미리 만들어 둔 인덱스를 건너뛴다). 이미 적용된 V129·V130 은 고칠 수 없다.
+
+## 4. 섬별 7일 평균 스냅샷 수동 실행·정리
+
+GROMO-2280. 섬별 «최근 7일 주민 1명당 하루 평균 집중»(`island_focus_averages`, 망원경 목록과 잡지 칸이 읽는다)은 매일 07:00 KST 크론이 섬마다 한 행씩 적는다. 배포 직후 그날 행이 아직 없거나 07시 크론을 놓친 날은 운영자가 내부 관리 API 로 그날 행을 만든다. 같은 크론이 스냅샷 뒤에 오래된 행을 정리한다.
+
+- 경로: `POST /internal/admin/island-focus-averages/snapshots?date=YYYY-MM-DD`(`date` 는 선택). Data 서버 안에서만 부른다 — nginx 는 `/internal/` 을 404 로 막는다.
+- 응답: `{"snapshotDate": "…", "inserted": N}`. `inserted` 는 새로 적힌 행 수다. 같은 날을 다시 부르면 `0` 이고 행이 늘거나 바뀌지 않는다.
+- 거부: `400` 은 아직 닫히지 않은 날짜이거나 형식 오류, `401` 은 토큰 불일치 또는 토큰 미등록, `403` 은 다른 caller 의 토큰, `404` 는 내부 표면이 꺼진 환경(`INTERNAL_API_ENABLED=false`)이다.
+
+### 4-1. 스위치
+
+자격은 운영자 전용 caller `ops` 의 토큰 `SVC_TOKEN_OPS_TO_DATA` 하나다(`application-satellites.yml` 의 `internal.api.callers.ops`). 다른 서비스 토큰과 공유하지 않는다. 값이 다른 `SVC_TOKEN_*_TO_DATA` 와 같으면 Data 서버가 기동을 거부한다.
+
+`ops` 는 **선택 caller** 다. 토큰이 비어 있으면(SM 미등록) 이 caller 만 비활성이고 Data 서버는 정상 기동한다. 그동안 경로는 있지만 누구도 부를 수 없다(모든 요청이 `401`). 다른 caller(business·notification·realtime)는 종전처럼 토큰이 비면 기동이 실패한다.
+
+### 4-2. 절차 (dev)
+
+1. 새 토큰 값을 만든다(예: `openssl rand -hex 32`). 값은 이 문서·티켓·채팅에 적지 않는다.
+2. Secrets Manager `gromo/dev/env` 에 `SVC_TOKEN_OPS_TO_DATA` 로 넣는다.
+3. Actions `Ops Dev Redeploy`(`ops-redeploy.dev.yml`)를 `data-api` 로 실행한다. 가벼운 재시작이 아니다 — 1-2a 를 읽고 dev 사용자가 적은 시간에 한다. 토큰이 이미 등록돼 있으면 이 단계와 2번은 건너뛴다.
+4. dev VM(`gromo-dev-app`)에서 Data 컨테이너 안의 env 로 부른다. 토큰은 컨테이너 env 에서 읽으므로 명령에 값이 드러나지 않는다.
+
+   ```sh
+   docker exec phone-data-api sh -c 'curl -fsS -X POST -H "Authorization: Bearer $SVC_TOKEN_OPS_TO_DATA" "http://localhost:8080/internal/admin/island-focus-averages/snapshots"'
+   ```
+
+   특정 날짜를 적을 때는 URL 끝에 `?date=YYYY-MM-DD` 를 붙인다. `date` 를 빼면 «가장 최근에 지난 07:00 KST 의 날짜» 다(07:00 KST 이후면 오늘, 그 전이면 어제).
+5. 응답의 `snapshotDate`·`inserted` 를 확인한다. Data 서버 로그에는 `섬별 7일 평균 집계 date=… 대상 섬=… 새로 적음=…` (info)가 남는다.
+6. 아래 4-3 대조 SQL 로 그날 행 수를 확인한다.
+
+#### 4-2a. 주의
+
+- **07:00 KST 전에는 그날(D)을 적지 않는다.** 서버가 `400` 으로 막는다. 07시 전에 D 를 적으면 덜 닫힌 창(`[D-7 07:00, D 07:00) KST`)의 값이 `(snapshot_date, island_id)` PK 에 들어간다. `ON CONFLICT DO NOTHING` 이라 그날 07시 크론도, 발행 전에 스냅샷을 먼저 부르는 D 호 잡지도 그 값을 다시 적지 못한다.
+- **지난 날짜도 적을 수 있지만 값의 의미가 다르다.** 창은 그날 기준이지만 분모(주민 수)와 모집단(살아 있는 섬)은 **지금** 기준이다. 분자도 그날 뒤에 끝난 세션의 창 안 구간까지 센다. 그래서 그날 07시 크론이 적었을 값과 다를 수 있다. 이미 적힌 (날짜, 섬) 행은 덮지 않는다. 망원경은 섬마다 가장 최근 날짜의 행만 읽으므로, 지난 날짜 행은 그보다 새 행이 없는 섬에서만 보인다.
+- **정리는 크론만 한다.** 매일 07:00 KST 크론이 스냅샷에 성공한 뒤 같은 ShedLock(`island-focus-average-snapshot`) 안에서 보존 일수보다 오래된 행을 지운다. 보존 일수는 설정 `island.focus-average.retention-days` 이고 기본값은 90일이다(yml 에 노출하지 않았다). **섬마다 가장 최근 행은 보존 일수를 넘어도 남긴다** — 망원경이 그 행을 섬의 값으로 읽기 때문이다. 로그는 `섬별 7일 평균 오래된 행 정리 asOf=… cutoff=… 지움=…` (info)다. 스냅샷이 재시도까지 실패한 날은 정리하지 않고 다음 날 크론이 지운다. 수동 API 는 정리하지 않는다.
+
+prod 는 Infra 저장소의 `prod/catus/runtime` 환경 변수로 같은 키를 넣고 재시작한다(1-2 의 prod 문단과 같은 경로). **SM 토큰 등록은 인프라 담당 몫이다.** 등록 전에는 `ops` caller 가 비활성이고 경로만 있다. 배포 자체에는 영향이 없다.
+
+`SVC_TOKEN_OPS_TO_DATA` 는 `.github/scripts/write-compose-env.py` 의 data-api 선택 키 목록에 있어야 컨테이너 env 로 내려간다. 목록에서 빠지면 SM 에 넣어도 무시된다.
+
+### 4-3. 대조 SQL (읽기 전용)
+
+날짜별 행 수. 그날 행 수는 그 실행 시점의 살아 있는 섬 수와 같아야 한다.
+
+```sql
+SELECT snapshot_date, count(*) AS islands, count(avg_minutes_per_member_day) AS with_average,
+       min(computed_at) AS first_written, max(computed_at) AS last_written
+FROM island_focus_averages
+GROUP BY snapshot_date
+ORDER BY snapshot_date DESC
+LIMIT 10;
+
+SELECT count(*) AS alive_islands FROM islands WHERE deleted_at IS NULL AND status <> 'ENDED';
+```
+
+- `with_average` 가 `islands` 보다 작은 만큼은 주민 0명인 섬이다(평균 `NULL`).
+- 수동 실행을 다시 해도 `last_written` 이 바뀌지 않으면 멱등이 지켜진 것이다.
+
+섬별 최신 행(망원경이 읽는 값).
+
+```sql
+\set island '<섬 UUID>'
+SELECT DISTINCT ON (island_id) island_id, snapshot_date, member_count, avg_minutes_per_member_day, computed_at
+FROM island_focus_averages
+WHERE island_id = :'island'
+ORDER BY island_id, snapshot_date DESC;
+```
+
+정리 확인. 그날 07:00 KST 크론이 끝난 뒤에는 **0** 이어야 한다(보존 일수 기본값 90 기준).
+
+```sql
+SELECT count(*) FROM island_focus_averages a
+WHERE a.snapshot_date < (now() AT TIME ZONE 'Asia/Seoul')::date - 90
+  AND EXISTS (SELECT 1 FROM island_focus_averages b
+              WHERE b.island_id = a.island_id AND b.snapshot_date > a.snapshot_date);
+```
