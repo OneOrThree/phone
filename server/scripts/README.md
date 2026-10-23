@@ -301,3 +301,17 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 실행 기록은 기본적으로 gitignored `doc/dev-notification-cutover.env`에 0600으로 저장됩니다.
 스크립트는 Secrets Manager의 값을 자동 변경하거나 발송 gate를 열지 않습니다. 각 비가역 단계에서 사람이
 실제 상태를 확인하고 승인해야 다음 단계로 진행합니다.
+
+
+## 배포·검사 실행 계약
+
+- PR의 smoke 변경은 `smoke-check.yml`에서 셸 문법·mock API·격리 Python 계약으로 검증합니다. 실제 dev/prod API나 DB를 호출하지 않습니다.
+- 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. Business PDF 테스트는 Docker test 이미지의 poppler를 유지합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
+- release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci.yml`이 담당합니다.
+- main CI·앱 업로드·smoke의 진행 중 실행은 유지하고, 같은 그룹의 대기는 최신 하나만 남깁니다. VM을 공유하는 Data·Realtime 공동 CD·Satellite CD·smoke execute의 잠금 대기는 `queue: max`를 유지합니다. 같은 SHA의 서로 다른 배포 작업이 서로를 취소하지 않게 하기 위한 별도 자원 잠금입니다.
+- 자동 smoke는 실제 생성된 서버 CI·배포의 완료를 기다립니다. 앱·문서만 바뀌어 서버 배포가 없으면 게스트 생성·300초 대기·15개 검사를 생략하고 「미실행」을 기록합니다. nav.json·paths.json처럼 서버 배포를 시작하는 공유 입력은 검사 대상에 남습니다.
+- 잠금 안의 `smoke-target.py`가 변경된 서비스의 실제 OCI revision과 요청 SHA를 비교하고 네 서비스의 image ID·RepoDigests를 `smoke-results/targets.json`에 보관합니다. 변경되지 않은 서비스는 이전 SHA를 유지할 수 있습니다. 검사 중 버전 유지도 확인합니다.
+- 요청 SHA 이후의 이미지가 이미 배포됐다면 git 조상 관계가 확인된 경우에만 「후속 SHA로 대체됨」으로 생략합니다. 알 수 없는 SHA·조상 이미지·다른 분기 이미지는 실패합니다. 취소된 CI도 실제 후속 main 실행과 조상 관계를 확인해야 대체로 처리합니다. 공동 CD가 기다리던 위성 실행이 취소되면 후속 위성 배포 완료를 기다립니다.
+- 「미실행」·「대체됨」은 15개 TC 통과 증거가 아닙니다. 해당 SHA의 릴리스 기능 검증으로 인용하지 않습니다. 수동 smoke는 배포 대기 없이 현재 환경을 검사하고 실제 버전을 함께 남깁니다.
+- `ops-redeploy.dev.yml`은 요청 접수 뒤 원본 run의 새 attempt에서 정확히 해당 배포 job이 끝날 때까지 기다립니다. 배포 job 실패·취소·시간 초과는 복구 실패이며, 완료 배지는 원본 CI/CD의 시도별 배포 결과 산출물로 갱신합니다.
+- 후속 CD는 main 실행, 배지 게시 job은 신뢰한 main 배포 또는 release 수동 운영 배포에만 반응합니다. GitHub가 생성한 기존 동일 SHA 체크가 release PR에 표시되는 것은 별도의 Android release PR 실행을 뜻하지 않습니다.
