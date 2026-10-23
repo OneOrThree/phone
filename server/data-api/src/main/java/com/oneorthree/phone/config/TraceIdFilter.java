@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -30,6 +31,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * <p>MDC 는 스레드 로컬이고 톰캣 스레드는 재사용되므로, 다음 요청이 남은 값을 물려받지 않도록
  * {@code finally} 에서 반드시 비운다.
  */
+@Slf4j
 public class TraceIdFilter extends OncePerRequestFilter {
 
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
@@ -56,14 +58,23 @@ public class TraceIdFilter extends OncePerRequestFilter {
         }
     }
 
-    /** X-Trace-Id → X-Request-Id 순으로 비어 있지 않은 첫 값을 검사해 쓰고, 없거나 검사에 걸리면 새로 만든다. */
+    /**
+     * X-Trace-Id → X-Request-Id 순으로 비어 있지 않은 첫 값을 검사해 쓰고, 없거나 검사에 걸리면 새로 만든다.
+     * 헤더 값이 있는데 검사에 걸려 버릴 때만 debug 로그를 남기며, 값은 외부 입력이라 싣지 않고
+     * 어느 헤더였는지와 길이만 남긴다.
+     */
     private static String resolveTraceId(HttpServletRequest request) {
+        String header = TRACE_ID_HEADER;
         String candidate = trim(request.getHeader(TRACE_ID_HEADER));
         if (candidate.isEmpty()) {
+            header = REQUEST_ID_HEADER;
             candidate = trim(request.getHeader(REQUEST_ID_HEADER));
         }
         if (SAFE_ID.matcher(candidate).matches()) {
             return candidate;
+        }
+        if (!candidate.isEmpty()) {
+            log.debug("상관 ID 헤더를 버리고 새로 만든다 header={} length={}", header, candidate.length());
         }
         return UUID.randomUUID().toString().replace("-", "");
     }
