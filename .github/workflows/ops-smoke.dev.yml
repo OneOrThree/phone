@@ -73,7 +73,7 @@ jobs:
       - name: 실제 서비스 SHA·digest 기록 및 요청 대상 확인
         id: target
         env:
-          SMOKE_TARGET_PLAN: ${{ needs.wait-deploy.outputs.target-plan || format('{{"revision":"{0}","services":[]}}', github.sha) }}
+          SMOKE_TARGET_PLAN: ${{ needs.wait-deploy.outputs.target-plan }}
         run: python3 .github/scripts/smoke-target.py
       - uses: actions/setup-node@v4
         if: steps.target.outputs.state == 'matched'
@@ -122,6 +122,9 @@ jobs:
           RESULTS_FILE="$RUNNER_TEMP/smoke-results/api/results.tsv" smoke/server/run.sh
           api_rc=$?
           exit $((internal_rc || api_rc))
+      - name: 검사 중 버전 유지 확인
+        if: success() && steps.smoke.outcome == 'success'
+        run: python3 .github/scripts/smoke-target.py verify
       - name: dev 스모크 성공 이미지 이력 갱신
         if: success() && steps.smoke.outcome == 'success' && steps.target.outputs.state == 'matched'
         # 이력 갱신 실패로 이미 통과한 스모크 결과를 실패로 바꾸지 않는다.
@@ -130,9 +133,6 @@ jobs:
           DEPLOY_ENV: dev
           DEV_IMAGE_HISTORY: ${{ runner.tool_cache }}/phone-dev-images/successful-images.json
         run: python3 .github/scripts/dev-image-retention.py --record-success
-      - name: 검사 중 버전 유지 확인
-        if: success() && steps.smoke.outcome == 'success'
-        run: python3 .github/scripts/smoke-target.py verify
       - uses: actions/upload-artifact@v4
         if: always()
         with:
