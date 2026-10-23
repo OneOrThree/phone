@@ -102,6 +102,18 @@ class TraceIdFilterTest {
     }
 
     @Test
+    @DisplayName("같은 이름의 X-Request-Id 헤더가 둘이면 첫 값을 쓴다")
+    void X_Request_Id_가_둘이면_첫_값을_쓴다() throws Exception {
+        MockHttpServletRequest request = request();
+        request.addHeader("X-Request-Id", "first-1");
+        request.addHeader("X-Request-Id", "second-2");
+
+        run(request, capturingChain);
+
+        assertThat(seenTraceId).isEqualTo("first-1");
+    }
+
+    @Test
     @DisplayName("둘 다 없으면 하이픈 없는 32자 hex 를 새로 만든다")
     void 둘_다_없으면_32자_hex_를_새로_만든다() throws Exception {
         run(request(), capturingChain);
