@@ -140,6 +140,17 @@ class SettingsPatchIntegrationTest {
     }
 
     @Test
+    void replayWithoutSettingsRowConflictsAsNotInitialized() {
+        open();
+        settings.patch(USER, partial("notificationEnabled", false, 0), 1, "gone");
+        store.update("DELETE FROM settings WHERE user_id=?", USER);
+        // receipt 는 남았지만 정본 행이 없으면 요청값을 에코하지 않고 409 로 끝낸다.
+        assertThatThrownBy(() -> settings.patch(USER, partial("notificationEnabled", false, 0), 1, "gone"))
+                .isInstanceOf(NotificationFailure.class).hasMessage("SETTINGS_NOT_INITIALIZED")
+                .satisfies(error -> assertThat(((NotificationFailure) error).status()).isEqualTo(409));
+    }
+
+    @Test
     void settingsRemainWritableBeforeTheFirstDispatchOpen() {
         settings.initialize(USER, baseline(0, 0, full(true)));
         settings.patch(USER, partial("notificationEnabled", false, 0), 1, "closed");
