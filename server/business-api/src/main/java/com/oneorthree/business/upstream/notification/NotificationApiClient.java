@@ -139,7 +139,10 @@ public class NotificationApiClient {
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
-    /** 원 명령의 mask/patch/baseline만 전달하며 성공 applied:true를 본문까지 확인한다. */
+    /**
+     * 원 명령의 mask/patch/baseline만 전달하며 성공 applied:true를 본문까지 확인한다.
+     * 응답 {@code settings}는 최초·재전달 모두 같은 잠금 경계에서 읽은 Notification의 현재 정본이다(GROMO-2209).
+     */
     public JsonNode applySettingsPatch(UUID userId, Object patch, long version, String key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.PATCH, PATH_SETTINGS.replace("{userId}", userId.toString()))

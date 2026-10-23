@@ -53,7 +53,7 @@ final class SettingsContract {
         ObjectNode normalized = project(value, "commandId", "eventId", "version", "authGeneration", "mask", "result");
         normalized.set("patch", project(patch, "notificationEnabled"));
         normalized.set("baseline", settings(value.get("baseline")));
-        return new Command(id, version, normalized, requested);
+        return new Command(id, version, normalized);
     }
 
     static JsonNode settings(JsonNode value) {
@@ -67,11 +67,13 @@ final class SettingsContract {
                 "nightStartTime", "nightEndTime");
     }
 
-    static void applied(JsonNode value) {
+    /** 적용 확인 뒤 Notification이 같은 잠금 경계에서 읽은 현재 정본 값을 돌려준다. 요청값을 에코하지 않는다. */
+    static boolean applied(JsonNode value) {
         object(value);
         if (!bool(value, "applied")) {
             throw invalid();
         }
+        return bool(settings(value.get("settings")), "notificationEnabled");
     }
 
     static boolean bool(JsonNode value, String field) {
@@ -139,6 +141,6 @@ final class SettingsContract {
         return new UpstreamContractMismatchException("설정 상류 응답 계약 불일치");
     }
 
-    record Command(UUID id, long version, JsonNode data, boolean notifications) {
+    record Command(UUID id, long version, JsonNode data) {
     }
 }
