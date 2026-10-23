@@ -18,6 +18,7 @@ import { t } from '@/i18n';
 import { colors, type Color } from '@/services/model';
 import {
   attachCloseHandling,
+  EMOTE_TRY_MS,
   EMOTE_TYPES,
   friendlyRealtimeErrorMessage,
   realtimeClientOptions,
@@ -27,8 +28,6 @@ import { parseLook } from './memberAppearance';
 
 /** 주기 sync 간격 — 서버 권장 30~60초의 가운데. */
 export const SEA_SYNC_MS = 45_000;
-/** 서버 시도 창(600ms)을 넘기면 ERROR + 연결 종료라 앱이 먼저 거른다. */
-const EMOTE_TRY_MS = 700;
 const ENTER_TRY_MS = 1_000;
 /** 연속 ERROR 프레임(연결 종료) 상한 — 닿으면 stompjs 의 5초 재접속을 멈추고 아래 백오프로만 다시 붙는다. 스냅샷을 받으면 0 으로. */
 const STOMP_ERROR_LIMIT = 3;
