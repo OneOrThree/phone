@@ -126,6 +126,8 @@ SERVICE_OPTIONAL_KEYS = {
         "AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED",
         # GROMO-2302 주민 첫 도착 사건(island.member.arrived) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
         "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
+        # GROMO-2349 주간 섬 랭킹 분자 기동 재계산 스위치 — 기본 OFF, 한 번 돌린 뒤 다시 끈다.
+        "RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL",
