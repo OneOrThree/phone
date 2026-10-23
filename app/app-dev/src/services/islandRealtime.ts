@@ -586,6 +586,8 @@ const PERMANENT_MOVEMENT_DENY = new Set([
 ]);
 /** 일시 오류가 이 횟수만큼 쌓이면 그때부터 영구 차단한다 — 무한 재접속·재거절 루프 방지. */
 const MOVEMENT_TRANSIENT_ERROR_LIMIT = 3;
+/** 서버 응원 시도 창(600ms)을 넘기면 ERROR + 연결 종료라 앱이 먼저 거른다(섬·바다 공용, GROMO-2160). */
+export const EMOTE_TRY_MS = 700;
 
 /** events 구독에서는 나올 수 없는 ERROR 코드 — 응원(`NOT_FOCUSING`·`NO_ONE_FOCUSING`·`EMOTE_TOO_FREQUENT`)과 바다 방 전용
  * (`SEA_ENTER_TOO_FREQUENT`·`NOT_IN_SEA_ROOM`·`INVALID_EMOTE_TYPE`). 근거: server/realtime/CLAUDE.md 오류 코드 표(236~241행). */
@@ -612,6 +614,8 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let closed = false;
   let revoked = false; // 세션 폐기 close — reopen(포그라운드 복귀)도 폐기된 토큰으로 되살리지 않는다
   let emoteDenied = false;
+  let emoteTransientErrors = 0; // 접속 사이에 누적 — setEmoteEnabled(true) 로 비운다
+  let emoteErrorCountedSinceConnect = false; // 접속당 1회만 센다 — onConnect 에서 false 로
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
   // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
@@ -646,6 +650,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     ...realtimeClientOptions(),
     onConnect: () => {
       emoteSubscription = null;
+      emoteErrorCountedSinceConnect = false;
       movementErrorCountedSinceConnect = false;
       eventsStruckSinceConnect = false;
       if (opts.presence !== false) {
@@ -715,8 +720,20 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         eventsStrikes.set(code, strikes);
         if (strikes >= EVENTS_STRIKE_LIMIT) eventsDenied = true;
       }
-      // channel 헤더로 events·movement 탓이 분명한 ERROR 는 응원 구독에 반영하지 않는다(헤더 없는 ERROR 만 종전 규칙)
-      if (emoteEnabled && !eventsFault && !channel) emoteDenied = true;
+      // 응원 구독은 «다시 구독해도 같은 답»(NOT_FOCUSING)일 때만 이번 세션 동안 끈다. 시도 창(EMOTE_TOO_FREQUENT)은
+      // 발신 연타·재구독 600ms 라 구독과 무관 — 세지 않는다. 그 외는 재접속에서 다시 구독하고 접속당 1번 세어 3번째에 끈다(GROMO-2160).
+      // channel 헤더로 events·movement 탓이 분명한 ERROR 는 반영하지 않고, 헤더가 없으면 events 탓이 아닌 것만 본다.
+      if (
+        emoteEnabled &&
+        (channel ? channel === 'emotes' : !eventsFault) &&
+        code !== 'EMOTE_TOO_FREQUENT'
+      ) {
+        if (code === 'NOT_FOCUSING') emoteDenied = true;
+        else if (!emoteErrorCountedSinceConnect) {
+          emoteErrorCountedSinceConnect = true;
+          if (++emoteTransientErrors >= MOVEMENT_TRANSIENT_ERROR_LIMIT) emoteDenied = true;
+        }
+      }
       if (opts.movement && (channel ? channel === 'movement' : !eventsFault)) {
         // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
         // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
@@ -749,7 +766,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       return true;
     },
     setEmoteEnabled: (enabled) => {
-      if (enabled) emoteDenied = false;
+      if (enabled) {
+        emoteDenied = false;
+        emoteTransientErrors = 0;
+      }
       emoteEnabled = enabled;
       if (!enabled) {
         if (client.connected) emoteSubscription?.unsubscribe();
@@ -1061,6 +1081,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     }
   };
 
+  let lastEmoteAt = -Infinity;
   const conn = connect({
     islandId,
     emote: !!emoteSessionId || !!deps.visitor,
@@ -1120,10 +1141,13 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       const sessionId = emoteSessionId;
       if (!EMOTE_TYPES.has(type)) return false;
       if (!sessionId && !deps.visitor) return false;
-      return conn.send(
+      if (Date.now() - lastEmoteAt < EMOTE_TRY_MS) return true; // 연타는 서버 시도 창 전에 앱이 거른다(실패 토스트 없이)
+      const sent = conn.send(
         `/app/islands/${islandId}/focus/emotes`,
         sessionId ? { sessionId, type } : { type },
       );
+      if (sent) lastEmoteAt = Date.now();
+      return sent;
     },
     setEmoteSessionId: (sessionId) => {
       emoteSessionId = sessionId;
