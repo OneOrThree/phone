@@ -22,14 +22,14 @@ GROMO-2349 주간 섬 랭킹(분자 read model `island_weekly_focus`, 분모 `is
 
 1. Secrets Manager `gromo/dev/env` 에 `RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP=true` 를 넣는다.
 2. Actions `Ops Dev Redeploy`(`ops-redeploy.dev.yml`)를 `data-api` 로 실행한다. 새 이미지는 만들지 않지만 **가벼운 재시작이 아니다** — 아래 1-2a 를 읽고, dev 사용자가 적은 시간에 한다.
-3. Data 서버 로그에서 `주간 섬 랭킹 분자 재계산 week=… 섬=…` (info)를 확인한다. `week` 는 이번 주 일요일 날짜, `섬` 은 채운 섬 수다. 실패하면 `기동 시 주간 섬 랭킹 분자 재계산 실패 week=…` (error)가 스택과 함께 남고 서버는 정상 기동한다 — 원인을 고친 뒤 다시 배포한다.
+3. Data 서버 로그에서 `주간 섬 랭킹 분자 재계산 week=… 섬=…` (info)를 확인한다. `week` 는 이번 주 일요일 날짜, `섬` 은 채운 섬 수다. 이 로그는 재계산이 **끝난 뒤** 찍히고 컨테이너는 그 전에 healthy 가 될 수 있으므로, **이 로그가 보인 뒤에** 4번을 한다(먼저 돌리면 거짓 불일치). 실패하면 `기동 시 주간 섬 랭킹 분자 재계산 실패 week=…` (error)가 스택과 함께 남고 서버는 정상 기동한다 — 원인을 고친 뒤 다시 배포한다.
 4. 아래 1-3 대조 SQL 을 돌려 **0행**임을 확인한다.
 5. SM 값을 `false` 로 되돌리고(또는 키를 지우고) `Ops Dev Redeploy` 를 한 번 더 한다. **켜 둔 채로 두지 않는다** — 재기동·재배포마다 테이블 잠금을 쥔다(아래 1-2a (c)).
 
 #### 1-2a. `Ops Dev Redeploy` 가 실제로 하는 일
 
-- **(a) 공동 배포 전체를 다시 돌린다.** `data-api` 를 고르면 `data-api-ci.dev.yml` 실행 중 마지막 성공 실행의 「Data·Realtime 공동 배포」 job 을 통째로 재실행한다(`ops-redeploy.dev.yml`). 이 job 은 `deploy-core-dev.py` 로 nginx 를 멈추고, Data·Realtime·Business·Notification 과 관측 컨테이너를 정지한 뒤(`stop()`, `QUIESCE_SERVICES`) DB 전환 도구(`deploy-v0.py apply`)를 다시 돌리고, Data·Realtime 을 `--force-recreate` 로 다시 띄운다. 그다음 정지했던 컨테이너를 되살리고 nginx 를 켠다(`deploy()`). 이 동안 dev API 는 응답하지 않는다. 켜고 한 번, 끄고 한 번이라 **중단 창이 두 번**이다.
-- **(b) 어느 커밋이 뜨는지 확인한다.** 재실행 대상은 `--status success` 로 거른 최근 20회, GitHub 재실행 한계(30일) 안의 «마지막 성공 실행»이다. 그 뒤에 실패한 main 실행이 있으면 그보다 옛 커밋의 이미지가 뜰 수 있다. 재배포 로그와 실행 요약의 `재실행: run … 커밋 …` 줄에서 어느 커밋이 뜨는지 본다.
+- **(a) 공동 배포 전체를 다시 돌린다.** `data-api` 를 고르면 `data-api-ci.dev.yml` 실행 중 마지막 성공 실행의 「Data·Realtime 공동 배포」 job 을 통째로 재실행한다(`ops-redeploy.dev.yml`). 이 job 은 `deploy-core-dev.py` 로 nginx 를 멈추고, Data·Realtime·Business·Notification 과 관측 컨테이너를 정지한 뒤(`stop()`, `QUIESCE_SERVICES`) DB 전환 도구(`deploy-v0.py apply`)를 다시 돌리고, Data·Realtime 을 `--force-recreate` 로 다시 띄운다. 그다음 정지했던 컨테이너를 되살리고 nginx 를 켠다(`deploy()`). 이 동안 dev API 는 응답하지 않는다. 켜고 한 번, 끄고 한 번이라 **중단 창이 두 번**이다. **도중에 실패하면 전부 내려간 채 남는다** — `deploy()` 는 실패 시 `stop()` 을 다시 부르고 상태를 `failed` 로 저장할 뿐 옛 이미지로 자동 복귀하지 않는다. 복구는 `Ops Dev Redeploy` 를 같은 대상으로 다시 돌리는 것이다(저장된 미완료 상태에서 같은 이미지로 이어서 배포한다, `preflight()` 의 resume).
+- **(b) 어느 커밋이 뜨는지 확인한다.** 재실행 대상은 `--status success` 로 거른 최근 20회, GitHub 재실행 한계(30일) 안의 «마지막 성공 실행»이다. 그 뒤에 실패한 main 실행이 있으면 그보다 옛 커밋의 이미지가 뜰 수 있다. 재배포 로그의 `재실행: run … 커밋 …` 줄 또는 실행 요약의 «재실행한 배포: run … · 커밋 …» 줄에서 어느 커밋이 뜨는지 본다.
 - **(c) 켠 채로 두면 일반 배포도 다시 계산한다.** Data 를 배포하는 다음 main 머지의 공동 배포도 같은 SM 값을 읽으므로(`data-api-cd.dev.yml` 의 임시 `dev.env` 생성 단계, `dev-env.sh`) 값이 `true` 인 동안은 그때마다 기동 직후 재계산한다.
 - **(d) Realtime 도 같이 재시작되지만 재계산과 무관하다.** 이 스위치는 Data 서버만 읽는다.
 
