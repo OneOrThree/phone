@@ -253,8 +253,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         String destination = accessor.getDestination();
         Matcher topic = destination == null ? null : StompTopics.MOVEMENT_TOPIC.matcher(destination);
         if (topic == null || !topic.matches() || !(accessor.getUser() instanceof ChatPrincipal principal)) {
-            // 이동 토픽이 아니어도 이 id 가 이동 구독에 묶여 있었으면(해지 없이 id 를 재사용 — 레지스트리는 id 의
-            // 목적지를 바꿔 끼운다) 그 묶음부터 해지 경로로 푼다. 묶인 곳이 없으면 아무 일도 없다.
+            // 관문은 같은 id 의 목적지 변경을 거절하므로(GROMO-2210) 이 분기는 방어용이다 — 이동 토픽이 아니어도 이 id 가
+            // 이동 구독에 묶여 있었으면 그 묶음부터 해지 경로로 푼다. 묶인 곳이 없으면 아무 일도 없다.
             unsubscribed(accessor.getSessionId(), subscriptionId);
             return;
         }
@@ -269,9 +269,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             Map<UUID, MovementOutbox> outboxes = held != null ? held : new ConcurrentHashMap<>();
             MovementOutbox outbox = outboxes.get(islandId);
             if (outbox == null || !outbox.holds(subscriptionId, snapshot)) {
-                // 같은 id 가 이 세션의 다른 이동 목적지에 묶여 있었으면(해지 없이 id 를 재사용 — 레지스트리는 id 의 목적지를
-                // 바꿔 끼운다) 그 묶음부터 해지 경로로 푼다. 옛 섬 actor·outbox 가 유령으로 남거나 옛 섬 사건이 이 id 로
-                // 나가지 않게. 묶인 곳이 없으면 아무 일도 없고, 같은 목적지 재전송은 여기 오지 않는다.
+                // 관문은 같은 id 의 목적지 변경을 거절하므로(GROMO-2210) 이 분기는 방어용이다 — 같은 id 가 이 세션의 다른
+                // 이동 목적지에 묶여 있었으면 그 묶음부터 해지 경로로 푼다. 옛 섬 actor·outbox 가 유령으로 남거나 옛 섬
+                // 사건이 이 id 로 나가지 않게. 묶인 곳이 없으면 아무 일도 없고, 같은 목적지 재전송은 여기 오지 않는다.
                 detach(sessionId, outboxes, subscriptionId);
                 outbox = outboxes.get(islandId);
             }
