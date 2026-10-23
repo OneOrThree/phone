@@ -723,11 +723,14 @@ function Gromo() {
     // 호 읽기는 소속 섬이 없는 바다에서도 열려서(seaMagazine) 현재 섬을 요구하지 않는다. 그 밖의 링크는 현재 섬이 있어야 한다
     // (섬 이동은 첫 섬 안내 대기(awaiting-first-island)를 건너뛰지 않게 onboarded 로 막는다).
     const tutorialForcesGuide = route === 'home' && !!state.tutorial && state.tutorial.step <= 3;
+    // 건물·휴식 전환 애니메이션이 도는 동안에도 보관한다 — 끝날 때 부르는 navigate 가 링크 목적지를 덮는다.
+    // 전환을 취소하지 않고, 끝나면(phase idle) 이 effect 가 다시 돌아 그때 연다.
     if (
       !hasServerSession ||
       (!state.onboarded && target.kind !== 'magazine') ||
       DEEP_LINK_HOLD_ROUTES.includes(route) ||
-      tutorialForcesGuide
+      tutorialForcesGuide ||
+      fireTransition.phase !== 'idle'
     )
       return;
     setIncomingAppLink(null);
@@ -812,7 +815,15 @@ function Gromo() {
       return;
     }
     open(target.route);
-  }, [loaded, incomingAppLink, hasServerSession, state.onboarded, state.tutorial, route]);
+  }, [
+    loaded,
+    incomingAppLink,
+    hasServerSession,
+    state.onboarded,
+    state.tutorial,
+    route,
+    fireTransition.phase,
+  ]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
     dispatch,
@@ -889,6 +900,8 @@ function Gromo() {
       'product',
       'orders',
       'sound',
+      // 잡지 배경이 섬 홈이고 섬장만 끝 쪽 안내를 본다 — 링크로 바로 열어도 홈 스냅샷을 받아야 한다. 바다 잡지(seaMagazine)는 홈이 없다.
+      'magazine',
     ].includes(route);
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,

@@ -1818,6 +1818,34 @@ test('소속 섬이 없는 계정(ISLAND_SYNC 소속 0)의 magazine 링크는 �
   assert.equal(captured.detail, LINK_ISSUE);
 });
 
+// 잡지 배경은 섬 홈이고 섬장 여부(끝 쪽 안내)도 홈 스냅샷으로 정해진다 — 링크로 곧장 열어도 홈을 조회해야 한다.
+test('홈 스냅샷이 없는 상태에서 magazine 링크로 들어가면 홈 스냅샷을 조회한다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A]);
+  assert.ok(!captured.state.serverIslands.home);
+  // 홈 조회는 홈 위젯 갱신도 부른다 — 링크로 잡지에 들어간 뒤 조회가 더 늘어나는지 본다.
+  const before = mockLoadHomeSnapshot.mock.calls.length;
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  await waitFor(() => assert.ok(mockLoadHomeSnapshot!.mock.calls.length > before));
+});
+
+// 집중 → 휴식 전환 애니메이션이 도는 동안 받은 링크는 전환이 끝난 뒤에 열린다 — 끝날 때 부르는 navigate 가 덮어쓰지 않게.
+test('집중 → 휴식 전환 중에 받은 링크는 전환이 끝난 뒤에 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'focus');
+  await act(async () => captured.go('rest'));
+  // 전환(620ms)이 도는 동안은 화면이 그대로다
+  assert.equal(captured.route, 'focus');
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'focus');
+
+  await waitFor(() => assert.equal(captured.route, 'magazine'), { timeout: 3000 });
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
 // 구경 중에는 SERVER_VISIT_ROUTES 만 열려 목적지가 막힌다 — 링크가 구경을 먼저 끝내고 연다.
 test.each([
   ['현재 섬을 가리키는 group', `gromo://group?g=${LINK_ISLAND_A}`, 'home', '', 1],
