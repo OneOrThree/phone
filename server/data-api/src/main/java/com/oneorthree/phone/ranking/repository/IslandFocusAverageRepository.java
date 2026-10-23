@@ -85,4 +85,19 @@ public interface IslandFocusAverageRepository
             + "WHERE a.island_id IN (:islandIds) "
             + "ORDER BY a.island_id, a.snapshot_date DESC", nativeQuery = true)
     List<IslandFocusAverage> findLatestByIslandIds(@Param("islandIds") Collection<UUID> islandIds);
+
+    /**
+     * {@code cutoff} 보다 오래된 행을 지우되 <b>섬마다 가장 최근 행은 남긴다</b> (GROMO-2280) — cutoff 보다 오래됐어도.
+     * 읽기({@link #findLatestByIslandIds})가 «섬의 최신 행» 을 답으로 주므로 그 행을 지우면 한동안 새 행이 없던 섬의
+     * 값이 사라진다. 판정은 섬 단위라 다른 섬의 행은 영향을 주지 않는다. {@code (island_id, snapshot_date DESC)} 인덱스가
+     * {@code EXISTS} 를 받친다. 트랜잭션 경계는 호출부({@code IslandFocusAverageSnapshotService})가 소유한다.
+     *
+     * @param cutoff 이 날짜 «미만» 의 행이 지울 후보다(그날 행은 남는다)
+     * @return 지운 행 수
+     */
+    @Modifying
+    @Query(value = "DELETE FROM island_focus_averages a WHERE a.snapshot_date < CAST(:cutoff AS date) "
+            + "AND EXISTS (SELECT 1 FROM island_focus_averages b "
+            + "WHERE b.island_id = a.island_id AND b.snapshot_date > a.snapshot_date)", nativeQuery = true)
+    int deleteOlderThanKeepingLatest(@Param("cutoff") LocalDate cutoff);
 }

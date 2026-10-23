@@ -364,6 +364,12 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertNotIn("MAGAZINE_ENABLED", MODULE.allowed_keys(service))
         self.assertNotIn("MAGAZINE_ENABLED", MODULE.unused_secret_keys({"MAGAZINE_ENABLED": "true"}))
 
+    def test_ops_caller_토큰은_data_api에만_선택으로_전달된다(self) -> None:
+        # GROMO-2280 — SM 에 없으면 env 에 안 나오고 Data 는 ops caller 없이 뜬다. 다른 서비스로는 새지 않는다.
+        self._assert_optional_data_api_switch("SVC_TOKEN_OPS_TO_DATA")
+        for service in ("business-api", "notification"):
+            self.assertNotIn("SVC_TOKEN_OPS_TO_DATA", MODULE.allowed_keys(service))
+
     def _assert_optional_data_api_switch(self, key: str) -> None:
         combined = secret(
             API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",

@@ -112,6 +112,25 @@ class InternalAuthFilterTest {
     }
 
     @Test
+    @DisplayName("토큰이 빈 caller 는 등록되지 않는다 — `Bearer ` 뒤가 빈 요청이 그 caller 로 통과하지 못한다")
+    void blankTokenCallerIsNeverMatched() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        InternalApiProperties.Caller ops = new InternalApiProperties.Caller();
+        ops.setToken("");
+        ops.setOptional(true);
+        ops.setAllow(List.of("POST /internal/admin/island-focus-averages/snapshots"));
+        properties.getCallers().put("ops", ops);
+        MockHttpServletRequest request = request("POST", "/internal/admin/island-focus-averages/snapshots");
+        request.addHeader("Authorization", "Bearer ");
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
     @DisplayName("caller 별 허용목록이 실제로 갈린다 — 알림 자격으로 Business 명령에 닿지 못한다")
     void allowlistIsPerCaller() throws Exception {
         UUID userId = UUID.randomUUID();
