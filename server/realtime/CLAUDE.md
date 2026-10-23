@@ -308,7 +308,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
-`MembershipService.store` 의 CAS Lua 도 `cache:chat:member:`·`cache:chat:membergen:` 두 키를 한 번에 만져 같은 제약을 받는다. `Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
+`MembershipService.myGroupIds` 의 `multiGet`(MGET)과 `MembershipService.store` 의 CAS Lua 도 `cache:chat:member:`·`cache:chat:membergen:` 두 키를 한 번에 만져 같은 제약을 받는다. `Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
 **ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
 키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는
