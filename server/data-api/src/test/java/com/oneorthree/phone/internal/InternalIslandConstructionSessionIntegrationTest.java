@@ -224,6 +224,24 @@ class InternalIslandConstructionSessionIntegrationTest {
     }
 
     @Test
+    @DisplayName("⑥ 세대가 올라가면 같은 활성 세션이라도 옛 gen 은 SESSION_NOT_ACTIVE 고 새 gen 은 통과한다 — 호출자가 잠근 users 행의 현재 세대를 넘겨야 한다")
+    void raisedGenerationRejectsOldGenAndAcceptsNewGen() {
+        var actor = actor();
+        UUID islandId = fundedIsland(actor);
+        assertThat(gate.options(islandId, actor.userId(), actor.sessionId(), 0L).villagePoints()).isEqualTo(100);
+
+        // 세션은 폐기하지 않고 세대만 올린다 — 세대 분기만 따로 떼어 본다.
+        long newGen = tx().execute(status -> userQueries.getCallerForUpdate(actor.userId()).bumpAuthGeneration());
+        assertThat(newGen).isEqualTo(1L);
+
+        // 호출자가 user.getAuthGeneration() 대신 상수를 넘기면 깨지는 유일한 테스트다 (GROMO-2207 핫픽스 회귀 방지).
+        assertSessionNotActive(() -> gate.options(islandId, actor.userId(), actor.sessionId(), 0L));
+        assertSessionNotActive(() -> gate.setTarget(islandId, actor.userId(), actor.sessionId(), 0L, "hall", 0,
+                UUID.randomUUID()));
+        assertThat(gate.options(islandId, actor.userId(), actor.sessionId(), newGen).villagePoints()).isEqualTo(100);
+    }
+
+    @Test
     @DisplayName("실제 내부 라우트는 X-Session-Id·X-Auth-Generation 이 없으면 400, 폐기된 세션이면 403 SESSION_NOT_ACTIVE 다")
     void internalRoutesRequireSessionHeaders() throws Exception {
         var actor = actor();
