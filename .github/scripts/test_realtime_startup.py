@@ -55,17 +55,17 @@ class RealtimeStartupTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return {name: service.get("healthcheck") for name, service in json.loads(result.stdout)["services"].items()}
 
-    def test_dev_네_서비스는_실제_Compose_결과에서_동일한_기동_정책을_쓴다(self):
+    def test_dev_네_서비스는_실제_Compose_결과에서_간격_제한_횟수가_같고_시작_유예만_실측별로_다르다(self):
         configured = self.compose_health("dev")
-        for name in ["data-api", "business-api", "notification"]:
+        # 시작 유예는 서비스별 dev 실측에 맞춘다. 검사 간격·제한·횟수(10s·5s·6회)는 네 서비스 모두 같다.
+        # - Realtime 180s: 실측 21회 p95 170s·max 188s (GROMO-2286)
+        # - 위성 240s: 실측 14일 business-api 48회 p50 147s·p95 191s·max 295s, notification 44회 p50 145s·p95 195s·max 285s (GROMO-2452)
+        expected = {"data-api": "2m0s", "business-api": "4m0s", "notification": "4m0s", "realtime": "3m0s"}
+        for name, start_period in expected.items():
             with self.subTest(service=name):
                 health = configured[name]
                 self.assertEqual((health["start_period"], health["interval"], health["timeout"], health["retries"]),
-                                 ("2m0s", "10s", "5s", 6))
-        # Realtime 만 유예가 길다 — dev 실측 21회 p95 170s·max 188s (GROMO-2286). 검사 간격·제한·횟수는 같다.
-        health = configured["realtime"]
-        self.assertEqual((health["start_period"], health["interval"], health["timeout"], health["retries"]),
-                         ("3m0s", "10s", "5s", 6))
+                                 (start_period, "10s", "5s", 6))
 
     def test_공용_위성_Compose의_prod_기본값은_유지한다(self):
         configured = self.compose_health("prod")
@@ -75,7 +75,7 @@ class RealtimeStartupTest(unittest.TestCase):
 
     def test_Business_단독_dev_진입점도_같은_정책을_쓴다(self):
         health = self.compose_health("dev", "docker-compose.business.yml")["business-api"]
-        self.assertEqual((health["start_period"], health["interval"], health["retries"]), ("2m0s", "10s", 6))
+        self.assertEqual((health["start_period"], health["interval"], health["retries"]), ("4m0s", "10s", 6))
 
     def replay(self, ready_at=150, fault="", grace=None, limit=900, interval=None, retries=None):
         health = yaml.safe_load((ROOT / "server/scripts/docker-compose.realtime.yml").read_text())["services"]["realtime"]["healthcheck"]
