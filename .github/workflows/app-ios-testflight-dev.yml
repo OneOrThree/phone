@@ -64,7 +64,7 @@ jobs:
       - name: 앱 검사 완료 대기
         env:
           GH_TOKEN: ${{ github.token }}
-          APP_ios: ios
+          APP_PLATFORM: ios
         run: python3 .github/scripts/wait-app-checks.py
 
   manual-quality:

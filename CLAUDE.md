@@ -185,6 +185,10 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 - **앱 업로드 게이트**: 자동 Android·iOS 업로드는 `wait-app-checks.py`로 동일 main push SHA의
   Lint 성공을 확인한다. Android 네이티브 입력 변경이면 Android Checks도 필요하다.
   수동 실행은 reusable Lint·Android Checks를 직접 실행한다. 실패·취소·미생성을 성공으로 인정하지 않는다.
+- **Android CI/CD 분리**: `app-android-ci.yml`은 검사·AAB·원본 실행 메타데이터까지 생성한다.
+  `app-android-cd.yml`은 성공한 main CI를 별도 실행으로 받아 검증·업로드 키 서명·Play 게시를 한다.
+  CI 성공과 게시 성공을 구분한다. 버전 기준값·산출물 신뢰 경계·실패 job 재시도는
+  `docs/conventions/android-ci-cd.md`를 따른다.
 - **smoke**: `smoke-check.yml`이 PR에서 mock·격리 계약을 검사한다. 자동 dev smoke는 실제 생성된
   서버 배포가 있을 때만 실행하고, 잠금 안에서 실제 SHA·image ID·digest를 기록한다.
   서버 배포 미대상과 후속 SHA에 의한 대체는 미실행으로 보고한다. 전체 15개 PASS와 구분한다.
