@@ -460,14 +460,17 @@ public class IslandQuestService {
      */
     @Transactional
     public boolean openTodayIfMissing(UUID questId) {
-        IslandQuest quest = quests.findById(questId).orElse(null);
-        if (quest == null) {
+        // 엔티티가 아니라 섬 id 만 읽는다 — findById 로 먼저 읽으면 잠금을 기다리는 동안 방장 수정(update)이
+        // 커밋돼도 영속성 컨텍스트의 «잠금 전» 정의로 회차 스냅샷을 만든다(settleBonusIfAllAchieved 와 같은 이유).
+        UUID islandId = quests.findIslandIdById(questId).orElse(null);
+        if (islandId == null) {
             return false;
         }
         LocalDate today = LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC);
-        membershipLocks.lockGroup(quest.getIslandId());
-        Group island = groups.getGroup(quest.getIslandId());
-        if (!isAlive(island) || occurrences.existsByQuestIdAndOccurrenceDate(questId, today)) {
+        membershipLocks.lockGroup(islandId);
+        IslandQuest quest = quests.findById(questId).orElse(null);
+        Group island = groups.getGroup(islandId);
+        if (quest == null || !isAlive(island) || occurrences.existsByQuestIdAndOccurrenceDate(questId, today)) {
             return false;
         }
         open(quest, today, Objects.requireNonNullElse(quest.getCreatedBy(), SYSTEM_ACTOR));
