@@ -271,6 +271,14 @@ internal:
         allow:
           - 'GET /internal/users/notification-snapshot'
           - 'POST /internal/notifications/eligibility'
+      # GROMO-2280 운영자 수동 실행 — 섬별 7일 평균 스냅샷. 다른 서비스 토큰과 공유하지 않는 운영자 전용 자격이다.
+      # optional: 토큰이 비면(SM 미등록) 이 caller 만 비활성이고 기동은 막지 않는다. 절차는
+      # docs/prd/fishcat/island-rankings/ops-runbook.md §4.
+      ops:
+        token: ${SVC_TOKEN_OPS_TO_DATA:}
+        optional: true
+        allow:
+          - 'POST /internal/admin/island-focus-averages/snapshots'
 outbox:
   relay:
     enabled: ${OUTBOX_RELAY_ENABLED:false}

@@ -128,6 +128,8 @@ SERVICE_OPTIONAL_KEYS = {
         "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
         # GROMO-2349 주간 섬 랭킹 분자 기동 재계산 스위치 — 기본 OFF, 한 번 돌린 뒤 다시 끈다.
         "RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP",
+        # GROMO-2280 운영자 caller(ops) 토큰 — 비면 ops caller 비활성(기동은 막지 않는다). 섬별 7일 평균 수동 실행용.
+        "SVC_TOKEN_OPS_TO_DATA",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL",

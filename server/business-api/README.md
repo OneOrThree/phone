@@ -752,10 +752,10 @@ sequenceDiagram
     D-->>B: commandId/version/mask/patch/baseline/원 결과
     B->>N: 같은 내구 명령 적용
     Note over N: 이관 gate → 사용자 fence → 설정 행
-    N->>N: 선택 필드별 버전 비교 후 COMMIT
-    N-->>B: applied=true
+    N->>N: 선택 필드별 버전 비교 + 같은 잠금에서 현재 정본 읽기 후 COMMIT
+    N-->>B: applied=true + 현재 settings
     B->>D: 전달 완료 표시
-    B-->>A: 원 notifications 결과
+    B-->>A: Notification 현재 notifications 값
     Note over D,N: 적용 실패는 오류 + outbox 재전달, 완료 표시만 실패하면 원 성공 유지
 ```
 

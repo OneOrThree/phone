@@ -408,7 +408,7 @@ Table island_weekly_focus [note: 'GROMO-2343: 주간 섬 랭킹 «분자» read 
   }
 }
 
-Table island_focus_averages [note: 'GROMO-2257: 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷(migration V114, 섬 외부 계약 §3). 매일 07:00 KST 배치가 살아 있는(미삭제·미종료) 섬 «전부»(비공개 포함)마다 한 행을 적는다 — 창은 [D-7 07:00 KST, D 07:00 KST), 분자는 FocusSessionDetailRepository.sumIslandActiveSeconds(끝난 세션의 ACTIVE 구간 초 합), 분모는 그 시점의 GroupMemberRepository.countByGroupIdIn × 7. 망원경 목록(GROMO-2265)이 섬마다 «가장 최근 snapshot_date 행»을 읽는다. 주간 섬 랭킹(초 단위·고정 분모)과는 값이 다르다 — 계약이 수용한 차이. 정리 잡 없음(섬 × 일 1행)'] {
+Table island_focus_averages [note: 'GROMO-2257: 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷(migration V114, 섬 외부 계약 §3). 매일 07:00 KST 배치가 살아 있는(미삭제·미종료) 섬 «전부»(비공개 포함)마다 한 행을 적는다 — 창은 [D-7 07:00 KST, D 07:00 KST), 분자는 FocusSessionDetailRepository.sumIslandActiveSeconds(끝난 세션의 ACTIVE 구간 초 합), 분모는 그 시점의 GroupMemberRepository.countByGroupIdIn × 7. 망원경 목록(GROMO-2265)이 섬마다 «가장 최근 snapshot_date 행»을 읽는다. 주간 섬 랭킹(초 단위·고정 분모)과는 값이 다르다 — 계약이 수용한 차이. 섬 × 일 1행. GROMO-2280: 운영자 수동 실행(POST /internal/admin/island-focus-averages/snapshots, 가장 최근에 지난 07:00 KST 의 날짜까지)이 같은 INSERT 를 쓴다. 정리 — 07시 크론이 스냅샷 뒤 island.focus-average.retention-days(기본 90)일보다 오래된 행을 지우되 섬마다 최신 1행은 남긴다'] {
   snapshot_date              date        [not null, note: '배치가 도는 날의 KST 날짜(07시 실행일). (snapshot_date, island_id) PK + INSERT … ON CONFLICT DO NOTHING 이 «하루 1회·같은 날 2회 조회 = 같은 값» 을 지킨다 — 같은 날 재실행은 첫 값을 덮지 않는다']
   island_id                  uuid        [not null, note: 'FK → islands.id ON DELETE CASCADE. 배치는 islands 에서 출발하므로 집중이 0인 섬·주민이 0명인 섬도 행이 생긴다']
   member_count               integer     [not null, note: '계산 시점의 현재 주민 수(GroupMemberRepository.countByGroupIdIn 과 같은 모수 — 활성·미탈퇴). 0 이면 avg 는 NULL']

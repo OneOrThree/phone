@@ -87,6 +87,11 @@ public class InternalAuthFilter extends OncePerRequestFilter {
         Map<String, List<AllowedCall>> allow = new LinkedHashMap<>();
         if (this.enabled) {
             properties.getCallers().forEach((name, caller) -> {
+                if (!caller.hasToken()) {
+                    // 빈 토큰을 맵에 넣으면 `Bearer ` 뒤가 빈 요청이 이 caller 로 통과한다(상수 시간 비교가 빈 값끼리 같다고
+                    // 답한다). 토큰이 빈 선택 caller 는 «없는» caller 다.
+                    return;
+                }
                 tokens.put(caller.getToken(), name);
                 List<AllowedCall> parsed = new ArrayList<>();
                 caller.getAllow().forEach(entry -> {

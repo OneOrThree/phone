@@ -7,9 +7,11 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.ranking.repository.IslandFocusAverageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
@@ -52,9 +54,11 @@ import java.util.UUID;
  * 그래서 적는 문장({@link IslandFocusAverageRepository#insertIfAbsent})이 섬 행을 {@code FOR SHARE} 로 잠그며
  * 살아 있는지를 <b>다시</b> 확인한다 — 그사이 죽은 섬은 행이 적히지 않고 반환값에도 세지 않는다.
  *
- * <p>ponytail: 07시에 인스턴스가 모두 죽어 있으면 그날 행이 없다 — 읽는 쪽이 «가장 최근 행» 을 주므로 하루 묵은
- * 값이 나갈 뿐이라 보정 잡을 두지 않는다. 행은 섬 × 일 1건씩 쌓이고 정리 잡도 없다(섬 1천 개면 1년 36만 행) —
- * 부담이 되면 N일 지난 행을 지우는 잡을 더한다. {@code countByGroupIdIn} 은 섬 id 를
+ * <p>07시에 인스턴스가 모두 죽어 있으면 그날 행이 없다 — 읽는 쪽이 «가장 최근 행» 을 주므로 하루 묵은 값이 나간다.
+ * 자동 보정 잡은 두지 않고, 운영자가 내부 관리 API({@code POST /internal/admin/island-focus-averages/snapshots},
+ * GROMO-2280)로 {@link #lastClosedDate()} 까지의 날짜를 손으로 적는다 — 배포 직후 오늘 행을 만들 때도 같은 경로다.
+ * 행은 섬 × 일 1건씩 쌓이고, 크론이 스냅샷 뒤 {@link #cleanup} 으로 보존 일수(기본 90일)보다 오래된 행을 지운다(섬마다
+ * 최신 1행은 남긴다). {@code countByGroupIdIn} 은 섬 id 를
  * {@link #ID_CHUNK}(5000)개씩 끊어 부르므로 살아 있는 섬이 3만을 넘어도 바인드 파라미터 상한(32767)에 걸리지 않는다.
  *
  * <p>ponytail: 적는 문장은 살아 있는 섬의 행을 한 문장에서 id 오름차순으로 {@code FOR SHARE} 잠근다. 섬 행을
@@ -92,12 +96,21 @@ public class IslandFocusAverageSnapshotService {
     private final GroupMemberRepository members;
     private final FocusSessionDetailRepository details;
     private final IslandFocusAverageRepository snapshots;
+    private final Clock clock;
+
+    /** 정리 잡이 남기는 일수 — 이보다 오래된 행을 지운다(섬마다 최신 1행은 예외). */
+    @Value("${island.focus-average.retention-days:90}")
+    private int retentionDays;
 
     /**
-     * 그날의 스냅샷을 적는다 — 크론이 부르는 진입점이다.
+     * 그날의 스냅샷을 적는다 — 크론이 부르는 진입점이다(잡지 발행과 운영자 수동 실행도 부른다).
      *
      * <p>창의 끝은 «실행된 순간» 이 아니라 <b>그날 07:00 KST</b> 다. 멱등이다 — {@code ON CONFLICT DO NOTHING}
      * 이라 같은 날 두 번 돌아도 처음 적힌 값이 남는다(그 사이 주민·집중이 바뀌어도).
+     *
+     * <p>지난 날짜를 넘기면 창은 그날 기준이지만 분모(주민 수)·모집단(살아 있는 섬)은 <b>지금</b> 기준이고, 분자도 그 뒤에
+     * 끝난 세션의 창 안 구간까지 센다 — 그날 07시 크론이 적었을 값과 다를 수 있다. 이미 적힌 (날짜, 섬)은 덮지 않는다.
+     * 07:00 KST 가 지나지 않은 날짜는 넘기지 않는다({@link #lastClosedDate()} — 덜 닫힌 창의 값이 그날 PK 에 박힌다).
      *
      * @param kstDate 실행일(KST 날짜)
      * @return 새로 적힌 행 수. 같은 날 재실행이면 0 이다(그 사이 새로 생긴 섬은 센다). 읽어 둔 목록에서 그사이 죽은
@@ -132,6 +145,35 @@ public class IslandFocusAverageSnapshotService {
         int inserted = snapshots.insertIfAbsent(kstDate, ids, counts, averages);
         log.info("섬별 7일 평균 집계 date={} 대상 섬={} 새로 적음={}", kstDate, ids.length, inserted);
         return inserted;
+    }
+
+    /**
+     * 가장 최근에 지난 07:00 KST 의 날짜 — 창이 닫힌 마지막 날이다(D 06:59 KST → D-1, D 07:00 KST → D).
+     *
+     * <p>수동 실행은 이 날짜까지만 받는다. 07시 전에 D 를 적으면 덜 닫힌 창의 값이 PK 에 박혀, 그날 크론도 D 호 잡지
+     * (먼저 이 스냅샷을 부른다)도 다시 적지 못한다.
+     */
+    public LocalDate lastClosedDate() {
+        return ZonedDateTime.now(clock.withZone(ZonePolicy.KST)).minusHours(SNAPSHOT_HOUR_KST).toLocalDate();
+    }
+
+    /**
+     * {@code asOf} 에서 보존 일수({@code island.focus-average.retention-days}, 기본 90)를 뺀 날보다 오래된 행을 지운다 —
+     * 섬마다 최신 1행은 그보다 오래됐어도 남긴다({@link IslandFocusAverageRepository#deleteOlderThanKeepingLatest}).
+     * 크론이 스냅샷에 성공한 뒤 같은 락 안에서 부른다.
+     *
+     * <p>ponytail: 섬 삭제({@code IslandPurgeService})가 같은 섬의 행을 동시에 지우면 행 잠금 순서가 갈려 교착할 수
+     * 있다 — 끊기면 이번 정리만 롤백되고 다음 날 크론이 다시 지운다. 잦아지면 재시도를 붙인다.
+     *
+     * @param asOf 기준일(KST) — 크론의 실행일
+     * @return 지운 행 수
+     */
+    @Transactional
+    public int cleanup(LocalDate asOf) {
+        LocalDate cutoff = asOf.minusDays(retentionDays);
+        int deleted = snapshots.deleteOlderThanKeepingLatest(cutoff);
+        log.info("섬별 7일 평균 오래된 행 정리 asOf={} cutoff={} 지움={}", asOf, cutoff, deleted);
+        return deleted;
     }
 
     /** 섬 id 를 {@code chunk} 개씩 끊어 주민 수를 센다 — 청크 경계에서 빠지거나 겹치는 섬이 없다(그룹당 1행이라 합쳐도 같다). */
