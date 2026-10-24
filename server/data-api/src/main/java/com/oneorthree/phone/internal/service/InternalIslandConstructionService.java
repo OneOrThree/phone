@@ -6,6 +6,7 @@ import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.ConstructionTargetView;
 import com.oneorthree.phone.construction.service.IslandConstructionService;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -61,6 +62,7 @@ public class InternalIslandConstructionService {
 
     /** users 행을 잠그고(로그아웃과 같은 순서) 세션을 확인한다. 안쪽 건설 TX 의 같은 잠금은 재진입이다. */
     private void requireActive(UUID userId, UUID sessionId, long authGeneration) {
-        sessions.requireActive(users.getCallerForUpdate(userId), sessionId, authGeneration);
+        User user = users.getCallerForUpdate(userId);
+        sessions.requireActive(user.getId(), user.getAuthGeneration(), sessionId, authGeneration);
     }
 }
