@@ -2,9 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.auth.exception.AuthErrorCode;
-import com.oneorthree.phone.auth.exception.AuthException;
-import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -465,10 +462,7 @@ public class IslandRecordsService {
      */
     private void requireDeviceSession(UUID userId, UUID sessionId, long authGeneration, UUID deviceId) {
         User user = users.getCallerForUpdate(userId);
-        if (authGeneration != user.getAuthGeneration()
-                || sessions.verifySession(user.getId(), sessionId).filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        sessions.requireActive(user.getId(), user.getAuthGeneration(), sessionId, authGeneration);
         if (!sessionId.equals(deviceId)) {
             throw new StatsException(StatsErrorCode.SCREEN_TIME_DEVICE_FORBIDDEN);
         }

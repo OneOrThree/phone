@@ -2,8 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.auth.exception.AuthErrorCode;
-import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -94,12 +92,8 @@ public class InternalHostTransferService {
     }
 
     private void authorize(User caller, HostTransferRequest request) {
-        if (request.sessionId() == null || request.authGeneration() == null
-                || request.authGeneration() != caller.getAuthGeneration()
-                || sessions.verifySession(caller.getId(), request.sessionId())
-                        .filter(row -> row.isActive()).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        sessions.requireActive(caller.getId(), caller.getAuthGeneration(), request.sessionId(),
+                request.authGeneration());
     }
 
     private static HostTransferResponse response(JsonNode data) {

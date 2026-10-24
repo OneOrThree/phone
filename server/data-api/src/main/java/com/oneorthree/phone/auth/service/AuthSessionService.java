@@ -228,15 +228,18 @@ public class AuthSessionService {
     /**
      * 서명된 {@code sid}·{@code gen} 이 지금도 이 사용자의 살아 있는 세션인지 확인한다 (GROMO-2207).
      *
-     * <p>호출자가 {@code users} 행을 {@code FOR UPDATE} 로 잠근 TX 안에서 부른다 — 로그아웃도 같은 행을 먼저
-     * 잠그므로(users → auth_sessions) 둘이 직렬화된다. 단일 로그아웃은 세대를 올리지 않으므로 세션 행 검사가
-     * 반드시 필요하고, 같은 사용자의 다른 활성 세션은 영향받지 않는다.
+     * <p>호출자가 {@code users} 행을 읽은 TX 안에서 부른다(MANDATORY). 로그아웃과 직렬화해야 하는 쓰기 경로는
+     * {@code users} 행을 {@code FOR UPDATE} 로 먼저 잠근다 — 로그아웃도 같은 행을 먼저 잠그므로
+     * (users → auth_sessions) 둘이 직렬화된다. 계정 조회({@code InternalAccountService#me})는 {@code FOR SHARE}, 선택 AT 관문
+     * ({@code LoginAttemptService#gateOptionalSession})은 잠금 없이 부른다 — {@code users} 잠금 수준은
+     * 호출자가 정하고, 이 메서드는 세션 행 배타 락만 건다 (GROMO-2450). 단일 로그아웃은 세대를 올리지 않으므로
+     * 세션 행 검사가 반드시 필요하고, 같은 사용자의 다른 활성 세션은 영향받지 않는다.
      *
-     * <p>잠근 {@code users} 행은 호출자(L10 internal)가 읽어 id·세대를 값으로 넘긴다 — {@code auth} 가
-     * {@code user.repository} 를 직접 참조하지 않게 하기 위해서다 (GROMO-2198 규칙).
+     * <p>{@code users} 행은 호출자(L10 internal 또는 같은 도메인의 {@code AuthService})가 읽어 id·세대를
+     * 값으로 넘긴다 — {@code auth} 가 {@code user.repository} 를 직접 참조하지 않게 하기 위해서다 (GROMO-2198 규칙).
      *
-     * @param userId                 잠근 활성 사용자의 id
-     * @param currentAuthGeneration  잠근 사용자 행의 현재 인증 세대
+     * @param userId                 읽은 활성 사용자의 id
+     * @param currentAuthGeneration  읽은 사용자 행의 현재 인증 세대
      * @param sessionId              AT 의 {@code sid}
      * @param claimedAuthGeneration  AT 의 {@code gen}
      * @throws AuthException 하나라도 없거나 어긋나면 {@link AuthErrorCode#SESSION_NOT_ACTIVE}

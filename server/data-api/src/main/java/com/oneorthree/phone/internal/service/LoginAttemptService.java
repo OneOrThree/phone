@@ -313,12 +313,8 @@ public class LoginAttemptService {
         if (!source.isGuest()) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
-        if (sourceSessionId == null || sourceGeneration == null
-                || sourceGeneration.longValue() != source.getAuthGeneration()
-                || authSessionService.verifySession(sourceUserId, sourceSessionId)
-                        .filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(sourceUserId, source.getAuthGeneration(),
+                sourceSessionId, sourceGeneration);
 
         // target: IdP 가 확인한 providerId 의 «기존» 연동 행이어야 하고, 그 주인은 활성 회원
         // (비게스트)이어야 한다. owner 는 여기서 쓰지 않으므로 share 잠금까지다 — guest source 만
@@ -377,11 +373,8 @@ public class LoginAttemptService {
         if (!source.isGuest()) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
-        if (source.getAuthGeneration() != attempt.getSwitchSourceAuthGeneration()
-                || authSessionService.verifySession(sourceUserId, attempt.getSwitchSourceSessionId())
-                        .filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(sourceUserId, source.getAuthGeneration(),
+                attempt.getSwitchSourceSessionId(), attempt.getSwitchSourceAuthGeneration());
 
         // target: 저장된 연동 행이 아직 같은 provider·같은 주인을 가리키고 그 주인이 활성
         // 회원이어야 한다 — 폐기 동의의 대상이 바뀌었으면 진행하지 않는다. write 잠금은 없다
@@ -488,13 +481,7 @@ public class LoginAttemptService {
         // 탈퇴한 주체면 여기서 404 다 — 폐기 판정보다 계정 부재가 «먼저»라는 LLD §1 의 순서 그대로.
         User user = userQueryService.getCaller(userId);
 
-        if (sessionId == null || generation == null
-                || generation.longValue() != user.getAuthGeneration()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
-        if (authSessionService.verifySession(userId, sessionId).filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(userId, user.getAuthGeneration(), sessionId, generation);
     }
 
     /**
