@@ -52,7 +52,6 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
         assertThat(sent.body()).contains(SESSION.toString(), TARGET.toString(), "\"authGeneration\":3")
                 .doesNotContain("attacker", "expectedVersion", "accessToken");
         assertThat(NOTI.received()).isEmpty();
-        assertThat(LINK.received()).isEmpty();
     }
 
     @Test
@@ -65,7 +64,6 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.requestId").isNotEmpty()).andExpect(jsonPath("$.data").doesNotExist());
         assertThat(DATA.received()).hasSize(1);
         assertThat(NOTI.received()).isEmpty();
-        assertThat(LINK.received()).isEmpty();
     }
 
     @Test

@@ -42,10 +42,11 @@ public class AccountSettingsUseCase {
         Map<String, Object> body = Map.of("mask", original.get("mask"), "patch", original.get("patch"),
                 "baseline", original.get("baseline"), "authGeneration", original.get("authGeneration"));
         // 원 명령의 세대/결과를 유지한다. 현재 세대로 바꿔 tombstone을 우회하지 않는다.
-        SettingsContract.applied(notificationCall(() -> notification.applySettingsPatch(claims.userId(), body,
-                command.version(), command.id().toString(), deadline)));
+        // 요청값·Data 원 결과가 아니라 Notification의 현재 정본을 응답한다. 재시도 사이 다른 기기 변경을 되돌려 쓰지 않는다.
+        boolean current = SettingsContract.applied(notificationCall(() -> notification.applySettingsPatch(
+                claims.userId(), body, command.version(), command.id().toString(), deadline)));
         markDelivered(claims.userId(), command.id(), deadline);
-        return new Result(command.notifications());
+        return new Result(current);
     }
 
     private void markDelivered(UUID userId, UUID commandId, Deadline deadline) {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { isHiddenFromAccessibility, render } from '@testing-library/react-native';
-import { IslandPopup, IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
+import { IslandPopup, IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 
 let mockLayout = {
   width: 874,
@@ -99,4 +99,18 @@ describe('IslandPopup 은 모달 표시만 한다(GROMO-2263)', () => {
       backSpy.mockRestore();
     }
   });
+});
+
+test('SheetGroup 은 행이 없으면 아무것도 그리지 않는다 — 빈 안내 아래 갈색 막대가 남지 않는다(GROMO-2409)', async () => {
+  const empty = await render(<SheetGroup>{[]}</SheetGroup>);
+  expect(empty.toJSON()).toBeNull();
+  const filled = await render(
+    <SheetGroup>
+      {[1, 2].map((n) => (
+        <SheetRow key={n} title={`${n}위`} />
+      ))}
+    </SheetGroup>,
+  );
+  expect(filled.getByText('1위')).toBeTruthy();
+  expect(filled.getByText('2위')).toBeTruthy();
 });

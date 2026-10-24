@@ -59,7 +59,7 @@ public interface OutboxCommandPort {
      * <b>이 트랜잭션에서 배타 잠근 채</b> 불러야 한다 — 그 잠금이 곧 {@link #append(OutboxAppendCommand)} 의
      * aggregate 잠금 역할이라, 번호 순서가 커밋 순서가 된다.
      *
-     * <p>한 축에 두 경로를 섞지 않는다. {@code aggregate_versions} 가 발급하는 축(USER·LINK_MEMBERSHIP 등)에 쓰면
+     * <p>한 축에 두 경로를 섞지 않는다. {@code aggregate_versions} 가 발급하는 축(USER·ISLAND 등)에 쓰면
      * 두 번호가 부딪혀 {@code uq_event_outbox_aggregate_version} 에 걸린다.
      *
      * @param command       적을 봉투와 나갈 대상들

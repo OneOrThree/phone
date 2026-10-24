@@ -7,7 +7,6 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.service.FocusPresenceProjection;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -92,8 +91,38 @@ class FocusPresenceReconcilerTest {
         given(focusPresenceProjection.releaseLeaseNow(any(), any())).willReturn(true);
         given(focusPresenceProjection.restoreLeaseIfMissing(any(), any(), anyLong(), any(), any()))
                 .willReturn(true);
-        // 레거시 마커에는 상세가 없다 — 대부분의 테스트가 그 모수를 쓴다.
-        given(focusSessionDetailRepository.findControlStatesBySessionIdIn(any())).willReturn(List.of());
+        given(focusSessionDetailRepository.findControlStatesBySessionIdIn(any())).willAnswer(call -> {
+            Collection<UUID> ids = call.getArgument(0);
+            return ids.stream().map(id -> new FocusSessionControlState(id, FocusSessionLifecycle.ACTIVE, 0L))
+                    .toList();
+        });
+    }
+
+    @Test
+    @DisplayName("상세가 없는 구 마커는 프레즌스를 복원하지 않고 남은 리스를 해제한다")
+    void markerWithoutDetailDoesNotRestorePresence() {
+        FocusSession marker = openMarker(UUID.randomUUID());
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(marker));
+        willReturn(List.of()).given(focusSessionDetailRepository).findControlStatesBySessionIdIn(any());
+
+        reconciler(INLINE).onApplicationReady();
+
+        verify(focusPresenceProjection, never()).restoreLeaseIfMissing(any(), any(), anyLong(), any(), any());
+        verify(focusPresenceProjection).releaseLeaseNow(marker.getUser().getId(), marker.getPresenceOrder());
+    }
+
+    @Test
+    @DisplayName("휴식 중 상세의 상태와 전이 번호를 그대로 복원한다")
+    void pausedSessionKeepsItsControlVersion() {
+        FocusSession marker = openMarker(UUID.randomUUID());
+        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(marker));
+        willReturn(List.of(new FocusSessionControlState(marker.getId(), FocusSessionLifecycle.PAUSED, 5L)))
+                .given(focusSessionDetailRepository).findControlStatesBySessionIdIn(any());
+
+        reconciler(INLINE).onApplicationReady();
+
+        verify(focusPresenceProjection).restoreLeaseIfMissing(marker.getUser().getId(), marker.getPresenceOrder(),
+                5L, FocusPresenceState.PAUSED, marker.getStartedAt());
     }
 
     private FocusPresenceReconciler reconciler(AsyncTaskExecutor executor) {
@@ -148,7 +177,7 @@ class FocusPresenceReconcilerTest {
         ArgumentCaptor<Instant> threshold = ArgumentCaptor.forClass(Instant.class);
         verify(focusSessionRepository).findByEndedAtIsNullAndStartedAtAfter(threshold.capture());
         // 스윕과 «같은» 기준이어야 한다. 여기만 넓히면 스윕이 곧 끝낼 세션의 리스를 되살리게 된다.
-        assertThat(threshold.getValue()).isEqualTo(NOW.minus(FocusService.ORPHAN_TIMEOUT));
+        assertThat(threshold.getValue()).isEqualTo(NOW.minus(java.time.Duration.ofHours(12)));
     }
 
     @Test

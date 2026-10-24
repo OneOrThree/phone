@@ -26,8 +26,8 @@ import java.util.function.Supplier;
 /**
  * 섬 건설 3종의 공개 유스케이스 (GROMO-1767, island-construction LLD §2~§4).
  *
- * <p>권한·잔액·버전 비교·차감은 전부 Data TX 가 판정한다 — Business 는 strict 세션의 주체만
- * 넘기고, 도메인 실패를 공개 오류 표로 옮긴다. 등록되지 않은 판정은 그대로 올려
+ * <p>권한·잔액·버전 비교·차감과 세션 활성은 전부 Data TX 가 판정한다 — Business 는 strict 세션의
+ * 주체·{@code sid}·{@code gen} 만 넘기고, 도메인 실패를 공개 오류 표로 옮긴다. 등록되지 않은 판정은 그대로 올려
  * {@code registeredUpstream} 이 동명 공개 코드로 옮기거나 502 로 접는다(GROMO-1759 선례).
  *
  * <p>{@code REQUEST_IN_PROGRESS}·{@code IDEMPOTENCY_KEY_CONFLICT} 는 표에 두지 않는다 —
@@ -67,7 +67,8 @@ public class IslandConstructionUseCase {
     /** 건설 옵션 스냅샷 (LLD §2 GET). */
     public ConstructionOptionsView options(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         ConstructionOptions options = relay(
-                () -> data.fetchConstructionOptions(claims.userId(), islandId, deadline),
+                () -> data.fetchConstructionOptions(claims.userId(), claims.sessionId(), claims.authGeneration(),
+                        islandId, deadline),
                 claims, null, null, null, deadline);
         if (options == null) {
             throw new UpstreamContractMismatchException("건설 옵션 응답이 없습니다");
@@ -120,8 +121,8 @@ public class IslandConstructionUseCase {
     public ConstructionTargetView selectTarget(AccessTokenClaims claims, UUID islandId, String buildingId,
             long expectedVersion, UUID key, Deadline deadline) {
         ConstructionTarget target = relay(
-                () -> data.selectConstructionTarget(claims.userId(), islandId, buildingId,
-                        expectedVersion, key, deadline),
+                () -> data.selectConstructionTarget(claims.userId(), claims.sessionId(), claims.authGeneration(),
+                        islandId, buildingId, expectedVersion, key, deadline),
                 claims, islandId, expectedVersion, null, deadline);
         if (target == null) {
             throw new UpstreamContractMismatchException("건설 목표 선택 응답이 없습니다");
@@ -138,8 +139,8 @@ public class IslandConstructionUseCase {
     public ConstructionResultView build(AccessTokenClaims claims, UUID islandId, String buildingId,
             long expectedVersion, long expectedCostPolicyVersion, UUID key, Deadline deadline) {
         ConstructionResult result = relay(
-                () -> data.startConstruction(claims.userId(), islandId, buildingId, expectedVersion,
-                        expectedCostPolicyVersion, key, deadline),
+                () -> data.startConstruction(claims.userId(), claims.sessionId(), claims.authGeneration(),
+                        islandId, buildingId, expectedVersion, expectedCostPolicyVersion, key, deadline),
                 claims, islandId, expectedVersion, expectedCostPolicyVersion, deadline);
         if (result == null || !STATUS_BUILDING.equals(result.status())) {
             throw new UpstreamContractMismatchException("건설 명령 응답 상태가 계약과 다릅니다");
@@ -162,6 +163,11 @@ public class IslandConstructionUseCase {
         if (error.getStatus() == 409 && "VERSION_CONFLICT".equals(error.getCode()) && islandId != null) {
             return versionConflict(claims, islandId, expectedVersion, expectedCostPolicyVersion, deadline);
         }
+        // 폐기된 세션(GROMO-2207) — Data 는 서비스 자격 거부(401)와 구분되는 403 으로 알린다. 표는 상태까지
+        // 대조하므로 401 공개 코드는 표에 둘 수 없어 따로 옮긴다 — 앱의 답은 재로그인이다(AuthSessionUseCase 와 같다).
+        if (error.getStatus() == 403 && "SESSION_NOT_ACTIVE".equals(error.getCode())) {
+            return new PublicApiException(ApiErrorCode.UNAUTHORIZED, null);
+        }
         PublicFailure failure = DOMAIN_FAILURES.get(error.getCode());
         // 상태까지 대조한다 — Data 가 같은 코드의 상태를 바꾸면 공개 표가 조용히 어긋나는 대신 502 가 된다.
         if (failure == null || failure.code().getStatus().value() != error.getStatus()) {
@@ -183,7 +189,8 @@ public class IslandConstructionUseCase {
         ConstructionOptions current;
         ConstructionOptionsView publicCurrent;
         try {
-            current = data.fetchConstructionOptions(claims.userId(), islandId, deadline);
+            current = data.fetchConstructionOptions(claims.userId(), claims.sessionId(), claims.authGeneration(),
+                    islandId, deadline);
             publicCurrent = current == null ? null : publicOptions(current, claims, deadline);
         } catch (RuntimeException e) {
             return new PublicApiException(ApiErrorCode.VERSION_CONFLICT, FIELD_VERSION);

@@ -111,7 +111,7 @@ class OutboxRelayPropertiesTest {
     void rejectsEndpointWithoutAbsoluteUrlOrToken() {
         OutboxRelayProperties properties = fullyConfigured();
         OutboxRelayProperties.Endpoint endpoint = new OutboxRelayProperties.Endpoint();
-        endpoint.setTarget(OutboxTarget.LINK);
+        endpoint.setTarget(OutboxTarget.REALTIME);
         endpoint.setUrl("/internal/users/{userId}/withdraw");
         endpoint.setToken("service-token");
         properties.getEndpoints().put("LINK_USER_WITHDRAW", endpoint);
@@ -159,7 +159,7 @@ class OutboxRelayPropertiesTest {
     void rejectsEndpointWhoseMethodIsNotAStandardHttpMethod() {
         OutboxRelayProperties properties = fullyConfigured();
         OutboxRelayProperties.Endpoint endpoint = new OutboxRelayProperties.Endpoint();
-        endpoint.setTarget(OutboxTarget.LINK);
+        endpoint.setTarget(OutboxTarget.REALTIME);
         endpoint.setUrl("http://link:3000/internal/users/{userId}/withdraw");
         endpoint.setToken("service-token");
         properties.getEndpoints().put("LINK_USER_WITHDRAW", endpoint);

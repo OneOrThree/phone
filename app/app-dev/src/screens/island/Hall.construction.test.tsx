@@ -367,6 +367,10 @@ test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', as
   expect(screen.getByText('건설 현황')).toBeTruthy();
   expect(screen.getByTestId('hall-bld-grid')).toBeTruthy();
   expect(screen.queryByText('모든 건물을 지었어요')).toBeNull();
+  // 홀수 마지막 카드(상점)도 다른 카드와 같은 폭이다(GROMO-2413)
+  const width = (b: string) =>
+    StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+  expect(width('shop')).toBe(width('library'));
   for (const building of ['library', 'tower', 'mail', 'gram', 'shop']) {
     expect(screen.getByTestId(`hall-bld-${building}`)).toBeTruthy();
     expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();

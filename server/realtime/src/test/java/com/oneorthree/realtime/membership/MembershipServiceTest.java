@@ -11,17 +11,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.time.Duration;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willReturn;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,6 +66,7 @@ class MembershipServiceTest {
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         redis.delete(RedisKeys.memberCache(userId));
+        redis.delete(RedisKeys.memberGeneration(userId));
     }
 
     @Test
@@ -209,5 +220,84 @@ class MembershipServiceTest {
         membershipService.evict(userId);
 
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
+    }
+
+    @Test
+    @DisplayName("evict 와 겹친 진행 중 상류 조회는 옛 집합을 적재하지 못한다(GROMO-2141) — isMember")
+    void lookupOverlappingEvictDoesNotStoreStaleSet() {
+        // 강퇴 커밋 직전에 시작한 조회 A 가 상류에 가 있는 동안 사건을 받은 B 가 evict 한다.
+        // 단일 스레드로 그 겹침을 재현하려고 상류 호출 «안에서» evict 를 부른다.
+        given(groupClient.fetchMyGroupIds(BEARER)).willAnswer(invocation -> {
+            membershipService.evict(userId);
+            return GroupClient.Membership.of(Set.of(groupId));
+        });
+
+        // 그 한 번의 호출은 받아 온 답으로 판정한다 — 예외로 올리지 않는다.
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("무효화 뒤 늦은 적재가 옛 집합을 되살리면 안 된다").isFalse();
+
+        // 다음 호출은 캐시가 없으니 상류에 다시 묻고, 새 답(강퇴됨)이 적용된다.
+        willReturn(GroupClient.Membership.of(Set.of())).given(groupClient).fetchMyGroupIds(BEARER);
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
+        verify(groupClient, times(2)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("evict 와 겹친 진행 중 상류 조회는 옛 집합을 적재하지 못한다(GROMO-2141) — isMemberUncached")
+    void uncachedLookupOverlappingEvictDoesNotStoreStaleSet() {
+        given(groupClient.fetchMyGroupIds(BEARER)).willAnswer(invocation -> {
+            membershipService.evict(userId);
+            return GroupClient.Membership.of(Set.of(groupId));
+        });
+
+        assertThat(membershipService.isMemberUncached(groupId, userId, BEARER)).isTrue();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("무효화 뒤 늦은 적재가 옛 집합을 되살리면 안 된다").isFalse();
+
+        willReturn(GroupClient.Membership.of(Set.of())).given(groupClient).fetchMyGroupIds(BEARER);
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
+        verify(groupClient, times(2)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("표식이 있어도 그 뒤에 시작한 조회는 적재된다 — 표식은 «진행 중이던» 조회만 거른다(GROMO-2141)")
+    void lookupStartedAfterEvictStoresNormally() {
+        membershipService.evict(userId);
+        assertThat(redis.hasKey(RedisKeys.memberGeneration(userId))).as("evict 가 표식을 남겼다").isTrue();
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
+
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isTrue();
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isTrue();
+        verify(groupClient, times(1)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("evict — 표식 쓰기가 실패해도 캐시 삭제는 시도하고 실패를 돌려준다(GROMO-2141)")
+    void evictStillDeletesTheCacheWhenWritingTheMarkFails() {
+        redis.opsForValue().set(RedisKeys.memberCache(userId), groupId.toString());
+        // 표식 SET 만 실패하는 템플릿 — 나머지 명령은 진짜 Redis 로 나간다.
+        ValueOperations<String, String> values = spy(redis.opsForValue());
+        doThrow(new RedisConnectionFailureException("표식 쓰기 실패")).when(values)
+                .set(eq(RedisKeys.memberGeneration(userId)), anyString(), any(Duration.class));
+        StringRedisTemplate flaky = spy(redis);
+        doReturn(values).when(flaky).opsForValue();
+        MembershipService service = new MembershipService(groupClient, flaky);
+
+        boolean evicted = service.evict(userId);
+
+        assertThat(evicted).as("한쪽이라도 실패하면 false").isFalse();
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("표식이 실패해도 캐시는 지워진다").isFalse();
+        assertThat(redis.hasKey(RedisKeys.memberGeneration(userId))).as("표식은 못 썼다").isFalse();
+    }
+
+    @Test
+    @DisplayName("표식은 캐시 TTL 과 별개로 600초 이상 산다 — 오래 멈춘 «표식 없음» 조회가 옛 집합을 못 적재하게(GROMO-2141)")
+    void markOutlivesTheCacheTtl() {
+        membershipService.evict(userId);
+
+        assertThat(redis.getExpire(RedisKeys.memberGeneration(userId))).isGreaterThanOrEqualTo(600L);
     }
 }

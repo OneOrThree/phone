@@ -12,7 +12,7 @@ docker exec "$db_container" psql -U jajo -d tt_db -Atc \
     || ', focus_stats=' || (select count(*) from daily_focus_stats)
     || ', sessions=' || (select count(*) from focus_sessions)
     || ', friendships=' || (select count(*) from friendships)
-    || ', groups=' || (select count(*) from groups)
+    || ', islands=' || (select count(*) from islands)
     || ', announcements=' || (select count(*) from group_announcements)
     || ', ledger=' || (select count(*) from currency_transactions)
    from users"

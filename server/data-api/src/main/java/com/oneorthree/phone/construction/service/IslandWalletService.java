@@ -47,7 +47,7 @@ public class IslandWalletService {
      * 없으면 적립 경로가 {@code insertIfAbsent} 로 만든다. 그리고 {@code island_wallet_transactions} 가
      * {@code island_wallets} 를 {@code ON DELETE RESTRICT} 로 참조하므로 <b>한 번이라도 적립된 지갑은
      * 사라질 수 없다</b> — 행이 없다는 것은 그 섬에 원장이 한 줄도 없다는 뜻이고, 그러면 잔액은 0 이다.
-     * 오늘 행이 없는 섬은 레거시 {@code POST /api/v1/groups}(지갑을 만들지 않는다)로 생긴 섬뿐이다.
+     * 지갑 도입 전에 생성한 섬은 지갑 행이 없을 수 있다.
      *
      * <p>그래서 여기서 읽기만으로 행을 만들지 않는다(표시용 읽기는 쓰기 트랜잭션이 아니다). 「경제가 아직
      * 안 열렸다」는 통장이 아니라 카탈로그가 말한다 — 가격 미승인은 {@code available=false}, 활성 발행본이

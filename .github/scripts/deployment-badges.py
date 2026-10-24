@@ -14,7 +14,7 @@ from pathlib import Path
 
 DEV = {'data-api', 'realtime', 'business-api', 'notification'}
 RULES = {
-    '.github/workflows/data-api-ci.dev.yml': ('push', 'main', {'data-api'}, 'dev'),
+    '.github/workflows/data-api-ci.dev.yml': ('push', 'main', {'data-api', 'realtime'}, 'dev'),
     '.github/workflows/realtime-ci.dev.yml': ('push', 'main', {'realtime'}, 'dev'),
     '.github/workflows/satellite-ci.dev.yml': ('push', 'main', {'business-api', 'notification'}, 'dev'),
     '.github/workflows/satellite-cd.dev.yml': ('workflow_run', 'main', {'business-api', 'notification'}, 'dev'),

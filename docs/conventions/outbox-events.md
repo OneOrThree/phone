@@ -2,10 +2,10 @@
 
 기반(테이블 넷·봉투·relay·SSRF)은 [`docs/prd/fishcat/server-separation/outbox.md`](../prd/fishcat/server-separation/outbox.md)
 가 다룬다. 이 문서는 그 반대편, **도메인이 그 기반을 어떻게 부르는가**를 정한다. 결정의 정본은
-[`docs/architecture/decisions.md`](../architecture/decisions.md) A21·A22 이고, 이 문서와 어긋나면 그쪽이 맞다.
+[`docs/architecture/decisions.md`](../architecture/decisions.md) A21·A22·A23이다. 독립 Link 서비스 폐기와 V0 전환을 반영한 현재 호출 규약은 아래와 같다.
 
-실측 기준: 2026-09-19 `main` + GROMO-1953(봉투·어댑터 통일). 호출 지점 목록(§3)은 시간이 지나면 낡는다 — 정본은
-`grep -rln "OutboxCommandPort\|EventOutboxRepository" server/data-api/src/main` 이다.
+실측 기준: 2026-10-22 V0 전환 코드. 호출 지점 목록(§3)은 시간이 지나면 낡는다 — 정본은
+`rg -l "OutboxCommandPort|EventOutboxRepository" server/data-api/src/main`이다.
 
 ## 1. 이 층은 무엇인가
 
@@ -14,7 +14,7 @@
 - **영속 계층이 아니다.** repository 를 감싸지 않는다(`WithdrawalSatelliteCommandService` 는 repository 주입이 0개).
 - **도메인 서비스가 아니다.** 상태를 판정하지 않는다 — 판정이 끝난 사실을 받아 적는다.
 - 소유하는 것: 사건 이름(`EVENT_TYPE`·`EVENT_*`), 위성별 논리 키(`ENDPOINT_*`), 순서 축 이름(`AGGREGATE_TYPE`),
-  `params` 모양. 예: 탈퇴 하나가 알림엔 Kafka 로, 링크엔 HTTP 로, realtime 엔 REALTIME 으로 나간다 —
+  `params` 모양. 예: 탈퇴 하나가 알림엔 KAFKA, 실시간엔 REALTIME, 랭킹엔 SCORE 대상으로 적힌다 —
   그 분기 지식이 어댑터(`WithdrawalSatelliteCommandService`)에 있다.
 
 **단위는 「도메인당 하나」가 아니라 「사실을 내보내는 순서 축(aggregate)당 하나」다.** 섬 상태(`ISLAND`)와 주민 목록
@@ -39,7 +39,6 @@
 | 인라인 호출부 | 기준 | 근거 |
 | --- | --- | --- |
 | `AuthSessionService` | ② 해당(2종) | **예외로 둔다.** 봉투가 세션 행 필드(`sessionEpoch`·`bootstrapNonceHash`)에서 바로 나오고, 세션 epoch 발급이 같은 USER 축 잠금을 쓴다. 떼어 내면 어댑터가 세션 행을 알아야 해 「영속 계층 아님」이 깨진다 |
-| `InternalInviteLinkService` | 해당 없음(1종·1곳·1대상) | 허용. 게다가 `eventId` 를 확정 행에 저장하고 봉투의 `version` 을 확정 행에 되박는다(`applyEnvelopeVersion`) — 확정 행과 봉투가 한 몸이다 |
 | `InternalIslandMailboxService` | 해당 없음 | 허용 |
 
 `focus.member.updated`·`rest.member.updated` 는 두 호출부(`FocusSessionLifecycleService`·`FocusMembershipLossService`)가 각자
@@ -68,13 +67,14 @@
 | 상황 | 키 | 예 |
 | --- | --- | --- |
 | 재시도가 멱등 receipt(§2.5)로 접히는 명령 안 | 무작위 UUID 허용 — 재생은 `append` 를 다시 부르지 않고 저장된 봉투를 돌려준다 | `IslandStateEvents`·`UserSatelliteCommandService` |
-| 같은 사실이 두 번 적힐 수 있는 경로(리스너·크론·교차 DB 재시도) | **결정적 키** `<type>:<자연 키>[:<순번>]` | `user.withdrawn:<userId>`, `message.created:<messageId>`, `link.revoked:<groupId>:<inviterId>:<seq>` |
+| 같은 사실이 두 번 적힐 수 있는 경로(리스너·크론·교차 DB 재시도) | **결정적 키** `<type>:<자연 키>[:<순번>]` | `user.withdrawn:<userId>`, `message.created:<messageId>` |
 | 수신자별 fan-out | 수신자까지 키에 넣는다 `<사건 키>:<userId>`(㊢) | `join.request.updated:<requestId>:<recipient>:<status>:<ver>` |
 
-**접두는 `<type>:` 이 원칙이고, 알림 두 사건만 `noti:` 로 남는다.** `noti:<KIND>:…`(`NotificationEventKey`)와
-`noti:resultBundle:…` 는 공개 계약(`docs/contracts/notification-producer.md`)에 적힌 키이고, `ResultBundleCompletionService` 가
-이미 적힌 행을 `event_id = 'noti:'||…` 로 대조해 중복을 거른다. 접두를 바꾸면 배포 경계 전후로 같은 사실이 다른 키로 두 번
-적혀 알림이 중복 발송된다(GROMO-1953 결정 — 바꾸지 않는다).
+**접두는 `<type>:`가 원칙이고, 알림 요청은 `noti:`를 유지한다.**
+`NotificationEventKey`가 만드는 `noti:<KIND>:<userId>:<subjectId|none>:<시간축>`을 사용한다.
+현재 생산 종류는 `FRIEND_REQUEST`·`FRIEND_ACCEPTED`·`MAIN_ISLAND_TRANSFERRED`·`ISLAND_KICKED`·
+`MAGAZINE_PUBLISHED`다. 같은 사실의 재처리가 중복 발송으로 이어지지 않도록 원본 발생 시각을 사용한다.
+친구·대표 섬 변경은 분 단위, 강퇴는 밀리초 단위, 잡지 발행은 KST 날짜 단위로 중복을 구분한다.
 
 결정적 키로 중복을 거를 때는 **조회 전에 축을 잠근다** — 잠그지 않은 「조회 후 삽입」은 동시 요청 둘이 모두 「없음」을 보고
 뒤의 것이 UNIQUE 로 도메인 트랜잭션 전체를 되돌린다. 모범은 `NotificationOutboxProducer`(`allocateVersion` 으로 USER 축을
@@ -91,13 +91,13 @@
   이 축의 `params.version` 은 공개 payload 필드이고 봉투 `version` 과 같은 도메인 값이라 「추정 중복」이 아니다.
 - 스냅샷 응답의 경계처럼 **현재** version 만 필요하면 `currentVersion(aggregate)`(잠금 아래 읽기, 번호 불변)를 쓴다 —
   `InternalNotificationSettingsService#snapshot`.
-- 축: 유저는 `AggregateRef.ofUser`, 링크 멤버십 전이는 `AggregateRef.ofLinkMembership`, 그 밖의 도메인 축은
+- 축: 유저는 `AggregateRef.ofUser`, 그 밖의 도메인 축은
   `new AggregateRef(AGGREGATE_TYPE, id)` 이며 `AGGREGATE_TYPE` 은 **그 축의 어댑터 한 곳에만** 상수로 둔다.
-- `allocateVersion` 을 직접 부르는 경우는 셋뿐이다.
-  1. 봉투가 아닌 도메인 fencing 값 — 세션 epoch(`AuthSessionService`), claim 의도 version(`InternalInviteLinkService`).
+- `allocateVersion`을 직접 부르는 경우는 현재 두 가지다.
+  1. 봉투가 아닌 도메인 fencing 값 — 세션 epoch(`AuthSessionService`).
   2. 결정적 키 중복 검사 전 축 잠금 — `NotificationOutboxProducer`.
-  3. 전이 순번을 `eventId`·`params` 에 실어야 할 때 — `LinkMembershipEventService`. 이 경우 `append` 가 번호를 한 번 더 쓰므로
-     번호에 빈칸이 생긴다. 소비자는 「단조 증가」만 보고 「연속」에 기대지 않는다.
+- 섬 멤버십의 `membershipEpoch`는 outbox version이 아니다. `IslandMembershipTransitions`가 멤버십 행 잠금 아래
+  이탈·강퇴·재가입마다 직접 증가시킨다. 이탈 시 대표 섬을 먼저 옮기고 현재 섬을 복구하며, Link 사건은 생산하지 않는다.
 - 한 트랜잭션에서 **여러 유저**의 USER 축에 적으면(fan-out) 적기 «전»에 `lockUserAggregates` 로 정본 순서 잠금을 먼저
   잡는다(GROMO-893). CI 는 `outbox.user-lock-order.enforce=true` 로 순서를 거스르는 획득을 실패시킨다.
 
@@ -107,7 +107,6 @@
 | --- | --- | --- | --- |
 | `KAFKA` | `notification-events` 토픽(key=userId) | 없음(`toKafka()`) | relay 가 켜지면 항상 |
 | `NOTI` | 알림 서버 HTTP | `noti.*` 4개 | `application-satellites.yml` 에 `target: NOTI` 키가 있을 때 |
-| `LINK` | 받는 서버가 없다(A23 로 서버 분리는 폐기) — **적고 보내지 않는다** | `link.*` 7개 — producer 는 계속 적지만 허용목록 항목은 없다 | 등록되지 않는다 — `link.*` relay endpoint 를 걷어(GROMO-2407) 행은 내구 보류되고 순서 판정이 대상별이라 다른 대상을 막지 않는다(SCORE 와 같다). 기존 LINK 행은 V138 이 지웠고, producer 걷어내기는 링크 구현 PR 몫이다(링크 LLD §9.2) |
 | `REALTIME` | realtime — **HTTP 기본 · Kafka 선택**(2026-09-19 R-1). HTTP 는 `POST /internal/events`(Data 전용 토큰 `SVC_TOKEN_DATA_TO_REALTIME`), Kafka 는 `realtime-events` 토픽(key=userId, `.DLT` 포함). realtime 은 두 입구를 한 처리기(`InboundEventService`)로 받아 `eventId` 로 한 번만 적용한다 | 사건 `type` 과 같은 값 — 14개 전부 `application-satellites.yml` 에 등록(`RealtimeOutboxEndpointsTest`) | 기본: `target: REALTIME` 키가 있을 때 HTTP. `outbox.relay.realtime-kafka-enabled=true` 면 HTTP 대신 Kafka(한 대상에 경로 하나). 앱 사건 14종은 realtime 이 받아 중복만 거르고 **앱으로는 아직 내보내지 않는다**(섬 구독 인가 미구현 — `StompAuthChannelInterceptor`) |
 
 | `SCORE` | `score-events` 토픽(랭킹 소비자, ㊣) — **소비자·transport 미구현** | 없음(`toScore()`) | 등록되지 않는다 — 행은 내구 보류되고 순서 판정이 대상별이라 다른 대상을 막지 않는다(V80, GROMO-1945) |
@@ -116,7 +115,7 @@
   실패한 쪽이 영영 안 간다(유실).
 - REALTIME 을 NOTI·Kafka 로 우회시키거나, 저장만으로 전달 완료 처리하지 않는다(`OutboxTarget.REALTIME` javadoc).
 - 새 HTTP 논리 키는 `application-satellites.yml` 의 `outbox.relay.endpoints` 허용목록에 **같은 PR 에서** 등록한다 — 목록에 없는
-  키는 relay 가 보내지 않는다(SSRF 차단). 새 대상 값은 `V51__event_outbox.sql` 의 `target` CHECK 제약과 함께 늘린다.
+  키는 relay 가 보내지 않는다(SSRF 차단). 새 대상 값은 V0 계열의 신규 마이그레이션으로 `target` CHECK 제약도 함께 갱신한다. 적용된 마이그레이션은 수정하지 않는다.
 
 ### 2.5 멱등 receipt 와 사건은 다른 것이다
 
@@ -127,13 +126,12 @@
 
 - 공개 명령은 `PublicCommandService.run` 을 쓰고, 명령 본문이 `PublicCommandResult(httpStatus, data, events)` 의 `events` 에
   **`append` 가 돌려준 봉투를 그대로** 담는다. 사건이 없으면 빈 배열이다.
-- 내부(legacy) 명령은 `OutboxCommandPort.runIdempotent` 로 봉투(`UserSatelliteCommandService`) 또는 그 `eventId`·`version`
-  (`InternalInviteLinkService#confirmClaim` 의 `ClaimIntentAck`)을 응답으로 저장한다.
+- 내부 명령은 `OutboxCommandPort.runIdempotent`로 봉투(`UserSatelliteCommandService`)를 응답으로 저장한다.
 - **재생은 사건을 다시 만들지 않는다.** 재생 경로에서 명령 본문은 실행되지 않으므로 `append` 도 없다. `replayed` 를 보고
   사건을 재발행하지 않는다(`PublicCommandService` javadoc).
-- receipt 로 감싸지 않은 경로에서 적는 사건은 재시도가 새 `eventId`·새 version 을 만든다. `GroupService`·`GroupMemberService`·
-  `GroupAnnouncementService`·`IslandFacilityCompletionService` 는 멱등 래핑 없이 REALTIME 어댑터를 부르므로, 이들을 멱등 명령
-  바깥(레거시 그룹 API 등)에서 부르는 경로가 여기에 해당한다. 소비자는 `eventId` 가 아니라 축 version 으로 거른다.
+- receipt로 감싸지 않은 경로는 재호출 때 새 `eventId`·version을 만들 수 있다. `GroupMemberService`나
+  `IslandFacilityCompletionService`처럼 어댑터를 부르는 서비스는 호출 진입점의 receipt 적용 여부를 확인한다.
+  소비자는 같은 `eventId`의 중복과 축 version의 역순 적용을 각각 처리한다.
 
 ### 2.6 재전달
 
@@ -146,9 +144,6 @@
   `outbox.relay.failed{target,retryable}`·`outbox.relay.released{target,reason=overtaking|predecessor_failed}` 카운터.
   `SCORE` 는 전달 경로가 없어 영구 보류(V80)라 backlog 가 계속 자라는 것이 정상이다 — 경보에서 뺀다.
 - 재전달은 **저장된 전달 행 payload 를 그대로** 보낸다 — 발행 시점의 도메인 상태를 다시 읽지 않는다. 그래서 봉투는 불변이다.
-- **불변의 유일한 예외는 `eraseWithdrawnParam`** 이고 탈퇴 트랜잭션 전용이다. 이미 전달됐거나 한 번도 안 나간 행만 고치고,
-  시도했지만 미완료인 행은 그대로 둔다 — 본문이 바뀐 재전달은 소비자의 `eventId` 대조에서 영구 실패가 되고, 고갈 처리가 없는
-  relay(A18 보류)에서 그 축 전체를 막는다.
 
 ### 2.7 payload 와 개인정보 (GROMO-1946)
 
@@ -156,10 +151,19 @@
 
 - `params` 는 소비자가 필요한 최소만 싣는다. 식별자로 충분하면 식별자만 — `message.created` 는 본문 대신 `messageId`(M02).
 - **자격 원문을 싣지 않는다.** 대조가 필요하면 해시 — `auth.session.revoked` 는 bootstrap nonce 대신 `bootstrapNonceHash`.
-- 이름 같은 개인정보를 실으면 **같은 PR 에서** 탈퇴 트랜잭션의 지움 경로를 단다: 봉투는
-  `eraseWithdrawnParam(userId, type, paramKey)`(예: `link.displayNameChanged` 의 `inviterDisplayName`), receipt 는
-  `PublicCommandService.forgetReceiptsOf` 가 탈퇴자의 멱등 기록을 전부 지운다.
-- `notification.deviceToken.deleted` 는 삭제 대상 식별에 기기 토큰이 필요해 싣는다. 그 legacy receipt 도 위 지움 대상이다.
+- 이름 같은 개인정보를 새로 실어야 한다면 같은 PR에서 보존·삭제 정책과 소비자의 멱등 계약을 함께 정의한다.
+  `island.member.arrived`의 `name`·`catColor`는 `IslandArrivalEvents.eraseWithdrawnUser`가
+  `OutboxCommandPort.eraseWithdrawnParam`을 통해 탈퇴 트랜잭션에서 지운다. 봉투 불변의 유일한 예외다.
+  전달 완료 행과 한 번도 전달을 시도하지 않은 행만 null로 바꾸며, 시도 후 미완료인 행은 소비자의
+  `eventId` 멱등 대조를 위해 원래 본문을 유지한다. 생산 스위치를 껐더라도 기존 행의 개인정보는 지운다.
+- receipt는 `PublicCommandService.forgetReceiptsOf`가 탈퇴자의 멱등 기록을 지운다.
+- `notification.deviceToken.deleted`는 삭제 대상 식별에 기기 토큰이 필요해 싣는다. 해당 명령 receipt도 위 지움 대상이다.
+- Notification은 `user.withdrawn`을 처리하는 TX에서 그 사용자의 수신 사본 `inbound_events.envelope`를 null로 바꾸고
+  멱등 기록 `commands`(`device-register:`·`device-delete:`·`settings:`·`settings-patch:` 범위)를 지운다(GROMO-2212).
+  최소 보존 증거는 `event_id`·`user_id`·`envelope_hash`다. 같은 `eventId`의 같은 의미 봉투(키 순서만 다른 것 포함)는
+  해시 대조로 적용 없이 수락하고, 다른 봉투는 `EVENT_ID_CONFLICT`로 거절한다. 탈퇴 tombstone 뒤 도착한 봉투는 원문 없이
+  해시만 적고, 늦은 기기 토큰 삭제는 탈퇴자의 `device_tokens` 행을 새로 만들지 않는다. 다른 수신자의 봉투·발송 payload에
+  실린 탈퇴자 정보(`counterpartNickname`)는 그 수신자의 사본이라 이 파기 범위 밖이다.
 
 ### 2.8 생산을 막는 스위치와 전송을 막는 스위치
 
@@ -167,7 +171,6 @@
 | --- | --- | --- |
 | `outbox.relay.enabled` | 전송 | 봉투는 **적힌다.** 켜면 밀린 분이 나간다 |
 | `outbox.relay.realtime-kafka-enabled` | REALTIME 전송 경로 선택(HTTP ↔ Kafka) | HTTP 로 간다. 켜기 전에 realtime `REALTIME_EVENTS_KAFKA_ENABLED` 를 먼저 켠다 |
-| `notification.dispatch.mode`(`LEGACY`\|`OUTBOX`) | 알림 **생산** 경로 선택 | `LEGACY` 면 알림 봉투를 적지 않는다(`NotificationDispatcher`·`ResultBundleCompletionService`·`NotificationRequestOutboxListener`) |
 | `island-playback.events-enabled` | `playback.updated` **생산** | 행을 쓰지 않고 receipt `events` 는 빈 배열 |
 | `island-management.commands-enabled` 등 명령 스위치 | 명령 자체(503) | 명령이 없으니 사건도 없다 — 생산 스위치가 아니다 |
 
@@ -176,11 +179,10 @@
 
 ### 2.9 봉투 필드 `userId`·`subjectId` 의 뜻 (GROMO-1953)
 
-- **`userId` 는 사건의 당사자 유저다 — 한 사람에게 가거나 한 사람에 관한 사건(KAFKA·NOTI·LINK, REALTIME 개인큐,
+- **`userId` 는 사건의 당사자 유저다 — 한 사람에게 가거나 한 사람에 관한 사건(KAFKA·NOTI, REALTIME 개인큐,
   `user.withdrawn`)은 그 사람(알림은 수신자), 섬에 방송하는 REALTIME 사건은 그 사건을 일으킨 명령 주체다.**
-  수신자 권한의 근거가 아니다 — 섬 방송의 수신자는 realtime 이 현재 멤버십으로 정한다. `eraseWithdrawnParam` 은 이 값으로
-  탈퇴자의 봉투를 찾는다.
-- **`subjectId` 는 소비자가 사건을 적용할 대상이다 — realtime 앱 사건(realtime-events LLD §2 의 14종)은 전달 범위인 섬 id,
+  수신자 권한의 근거가 아니다 — 섬 방송의 수신자는 realtime이 현재 멤버십으로 정한다.
+- **`subjectId` 는 소비자가 사건을 적용할 대상이다 — realtime 앱 사건은 전달 범위인 섬 id,
   그 밖의 사건은 각 수신 계약이 정한 대상 id(알림은 `notification-producer.md`, `user.withdrawn` 은 탈퇴 유저)다.**
   개인 wallet/inventory 처럼 섬 범위가 없는 앱 사건은 `null` 이다.
 
@@ -205,19 +207,16 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 
 ## 3. 현재 호출 지점
 
-경로 접두 `server/data-api/src/main/java/com/oneorthree/phone/` 생략. 줄 번호는 `append`(또는 직접 저장) 호출 줄이다.
+경로 접두 `server/data-api/src/main/java/com/oneorthree/phone/` 생략. 주요 생산 경계는 다음과 같다.
 
 | 호출 지점 | 사건 `type` | 대상 | 순서 축 | eventId |
 | --- | --- | --- | --- | --- |
 | `auth/service/AuthSessionService.java:317` | `auth.generation.bumped` | NOTI | USER | `<type>:<userId>:<generation>` |
 | `auth/service/AuthSessionService.java:386` | `auth.session.revoked` | NOTI·REALTIME(`auth.session-revoked.realtime-events-enabled` ON 일 때만) | USER | `<type>:<sessionId>` — params `accessTokenExpiresAt`(ISO-8601) = revokedAt + `jwt.access-expiration`, realtime 폐기 펜스 TTL 의 근거 |
-| `user/service/UserSatelliteCommandService.java:282` | `notification.deviceToken.deleted` · `notification.legacyDeviceToken.deleted` · `notification.settings.changed` | NOTI | USER | UUID |
+| `user/service/UserSatelliteCommandService.java:282` | `notification.deviceToken.deleted` · `notification.settings.changed` | NOTI | USER | UUID |
 | `user/service/UserOnboardingEvents.java:43`(호출: `UserService` 의 setup·update·공개 PATCH 공통 전이 경계) | `user.onboarded` | SCORE | USER | `<type>:<userId>` |
-| `withdrawal/service/WithdrawalSatelliteCommandService.java:54` | `user.withdrawn` | KAFKA·LINK·REALTIME·SCORE | USER | `<type>:<userId>` |
-| `group/service/LinkMembershipEventService.java:346` | `link.revoked` · `link.joined` · `group.closed` · `group.renamed` · `user.displayNameChanged` | LINK | LINK_MEMBERSHIP(`link.joined` 만 USER) | `<type>:<groupId>:<inviterId\|userId>:<seq>` |
-| `internal/service/InternalInviteLinkService.java:403` | `link.claimConfirmed` | LINK | LINK_MEMBERSHIP | `<type>:<claimId>` |
-| `notification/producer/NotificationOutboxProducer.java:166` | `notification.requested` | KAFKA | USER | `noti:<KIND>:<userId>:<subjectId\|none>:<시간축\|none>` |
-| `notification/producer/ResultBundleCompletionService.java:169` | `notification.resultBundle.closed` | KAFKA | USER | `noti:resultBundle:<userId>:<groupId>:<slot>` |
+| `withdrawal/service/WithdrawalSatelliteCommandService.java:54` | `user.withdrawn` | KAFKA·REALTIME·SCORE | USER | `<type>:<userId>` |
+| `notification/producer/NotificationOutboxProducer.java` | `notification.requested` | KAFKA | USER | `noti:<KIND>:<userId>:<subjectId\|none>:<시간축\|none>` |
 | `group/service/IslandStateEvents.java:58` | `island.updated` | REALTIME | `ISLAND` | UUID |
 | `group/service/IslandArrivalEvents#arrived`(호출: `IslandMembershipService.arrive` — 주민 첫 도착만, 스위치 `island.arrival.realtime-events-enabled`) | `island.member.arrived` | REALTIME | `ISLAND_ARRIVAL` | UUID |
 | `group/service/IslandMembershipEvents.java:50` | `island.members.updated` | REALTIME | `ISLAND_MEMBERS` | UUID |
@@ -230,17 +229,18 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 | `appearance/service/AppearanceEvents.java:103` | `member.appearance.updated` · `island.appearance.updated` · `playback.updated` | REALTIME | `USER_APPEARANCE` · `ISLAND_APPEARANCE` · `ISLAND_PLAYBACK` | UUID — `append(command, domainVersion)`, version 은 외양·재생 행이 발급(§2.3) |
 | `appearance/service/AppearanceEvents#inventoryChanged`(호출: 상점 구매 `ShopService`, GROMO-1781) | `inventory.updated` | REALTIME | `USER_INVENTORY` · `ISLAND_INVENTORY` | UUID — version 은 `append` 가 발급. 개인 소유면 `subjectId=null`(§2.9) |
 
-포트를 부르지만 봉투를 적지 않는 곳: `allocateVersion` — `AuthSessionService`(세션 epoch)·`InternalInviteLinkService:185`(claim 의도);
-`currentVersion` — `InternalNotificationSettingsService:92`(설정 스냅샷 경계); `eraseWithdrawnParam` — `LinkMembershipEventService:335`
-(호출은 `GroupMemberService:386`).
+알림 생산자는 `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `MAIN_ISLAND_TRANSFERRED`, `ISLAND_KICKED`,
+`MAGAZINE_PUBLISHED`를 지원한다. 요청 사건은 커밋 직전에 기록하며 잡지 발행은 수신자별로 커밋한다.
+
+포트를 부르지만 봉투를 적지 않는 곳: `allocateVersion` — `AuthSessionService`(세션 epoch);
+`currentVersion` — `InternalNotificationSettingsService#snapshot`(설정 스냅샷 경계).
+`IslandMembershipTransitions`는 멤버십 세대와 대표·현재 섬 복구를 담당하며 outbox 포트를 직접 부르지 않는다.
 
 ## 4. 정리 대상
 
 GROMO-1953 에서 8건 중 6건을 풀었다(한 사건 두 발행자 → `FocusMemberEvents`, 외양 포트 우회 → `append(command, domainVersion)`,
 `userId`·`subjectId` 정의 → §2.9, `record*` MANDATORY → §2.1, 포트 밖 aggregate 잠금 → `currentVersion`). 남은 것과 남긴 이유:
 
-1. **이름 3종이 규약과 다르다** — `UserSatelliteCommandService`·`WithdrawalSatelliteCommandService`·`LinkMembershipEventService`
-   → `<축>Events`. 동작 변화는 없지만 참조가 main 14곳·test 11곳·문서 7곳에 걸쳐 있고 그중 `GroupService`·`GroupMemberService`·
-   `AuthService` 는 병렬 작업이 자주 겹치는 파일이라, 이름만 바꾸는 diff 가 다른 PR 의 충돌을 만든다. 규약 강제(ArchUnit, ticket
-   1724)와 함께 한 번에 바꾼다.
+1. **이름 2종이 규약과 다르다** — `UserSatelliteCommandService`·`WithdrawalSatelliteCommandService`.
+   새 어댑터는 `<축>Events` 규약을 따른다. 기존 이름 변경은 별도 정리에서 처리한다.
 2. **eventId 접두 `noti:`** — 바꾸지 않기로 했다(§2.2). 정리 대상이 아니라 규약의 예외다.

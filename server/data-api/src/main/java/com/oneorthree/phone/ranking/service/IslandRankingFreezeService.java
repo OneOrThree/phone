@@ -17,7 +17,7 @@ import java.time.LocalDate;
  * 주간 섬 랭킹의 <b>분모 동결</b> 배치 로직 (GROMO-1997).
  *
  * <p>스케줄 트리거({@code IslandRankingFreezeScheduler})와 분리돼 있다 — 테스트는 크론 없이 이것만 부른다
- * ({@code LeagueScheduler}/{@code LeagueBatchService} 와 같은 구성).
+ * 스케줄 트리거와 트랜잭션 경계를 분리한다.
  *
  * <p><b>트랜잭션 경계가 여기 있는 이유.</b> 리포지토리는 경계를 소유하지 않는다(규약 §4·§5,
  * {@code RepositoryTransactionalConventionTest} 가 정적으로 강제한다) — {@code @Modifying} 벌크 쿼리는

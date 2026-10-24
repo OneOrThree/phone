@@ -74,6 +74,7 @@ import {
   type TilesetFile,
 } from '@/services/mapAssets';
 import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
+import { keepLabelInView } from '@/utils/island-camera';
 import {
   loadNav,
   MS_PER_UNIT,
@@ -2196,7 +2197,15 @@ function FinalIslandScene({
                   position: 'absolute',
                   zIndex: 2001,
                   ...signBoxes[id],
-                  left: screenOrigin.x + signBoxes[id].left,
+                  // 화면 가장자리에 걸친 팻말이 반쯤 잘리지 않게 민다 — 건물이 화면 안이면(기본 카메라의 우체통) 안으로, 밖이면 밖으로
+                  left:
+                    keepLabelInView(
+                      screenOrigin.x + signBoxes[id].left + signBoxes[id].width / 2,
+                      signBoxes[id].width,
+                      L.insets.left,
+                      L.width - L.insets.right,
+                    ) -
+                    signBoxes[id].width / 2,
                   top: screenOrigin.y + signBoxes[id].top,
                 }}
               >

@@ -210,7 +210,7 @@ public class GlobalExceptionHandler {
         }
         return switch (code.name()) {
             case "USER_INACTIVE" -> ApiErrorCode.USER_NOT_FOUND;
-            case "ENDPOINT_NOT_FOUND", "COMPAT_HANDLER_DISABLED" -> ApiErrorCode.RESOURCE_NOT_FOUND;
+            case "ENDPOINT_NOT_FOUND" -> ApiErrorCode.RESOURCE_NOT_FOUND;
             case "UPSTREAM_UNAVAILABLE" -> ApiErrorCode.SERVICE_UNAVAILABLE;
             case "UPSTREAM_CREDENTIAL_REJECTED" -> ApiErrorCode.UPSTREAM_AUTH_FAILED;
             case "UPSTREAM_CONTRACT_MISMATCH" -> ApiErrorCode.UPSTREAM_CONTRACT_ERROR;

@@ -4,7 +4,6 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.exception.ErrorCode;
 import com.oneorthree.realtime.common.exception.ErrorResponse;
-import com.oneorthree.realtime.message.exception.ChatException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
@@ -53,9 +52,11 @@ public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
         // message 헤더 = 기계용 코드. 본문을 못 읽는 클라이언트도 이것만으로 분기할 수 있다.
         accessor.setMessage(errorCode.name());
         accessor.setContentType(MimeTypeUtils.APPLICATION_JSON);
-        // 섬 구독 인가 거절만 채널을 싣는다 — 앱이 events 거절을 가르는 근거(없으면 종전 코드 분류 폴백).
-        if (domain instanceof ChatException chat && chat.getChannel() != null) {
-            accessor.setNativeHeader("channel", chat.getChannel());
+        // 섬 구독·intent 거절만 채널(events | movement)을 싣는다 — 앱이 어느 구독이 거절됐는지 가르는 근거
+        // (없으면 종전 코드 분류 폴백). 도메인 예외면 종류를 가리지 않는다(상류 장애도 같은 구독 판정에서 나온다).
+        // 응원(emotes) 거절은 일부러 싣지 않는다 — 배포된 앱은 헤더 없는 ERROR 로 응원 재구독을 멈춘다(DomainException#channel).
+        if (domain != null && domain.getChannel() != null) {
+            accessor.setNativeHeader("channel", domain.getChannel());
         }
         accessor.setLeaveMutable(true);
 

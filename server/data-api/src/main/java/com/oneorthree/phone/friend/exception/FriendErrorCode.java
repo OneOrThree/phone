@@ -5,14 +5,13 @@ import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
 /**
- * 친구·핀 도메인의 실패 사유. 각 값이 HTTP 상태와 사용자 노출 문구를 함께 들고 있어, 예외를 던진 자리에서
+ * 친구 도메인의 실패 사유. 각 값이 HTTP 상태와 사용자 노출 문구를 함께 들고 있어, 예외를 던진 자리에서
  * 상태 코드를 고르지 않아도 된다.
  */
 @Getter
 public enum FriendErrorCode implements ErrorCode {
     // 잘못된 요청
     SELF_REQUEST(HttpStatus.BAD_REQUEST, "자기 자신에게는 친구 요청을 보낼 수 없습니다."),
-    SELF_PIN(HttpStatus.BAD_REQUEST, "자기 자신은 핀할 수 없습니다."),
 
     // 비즈니스 로직상 충돌
     ALREADY_FRIEND(HttpStatus.CONFLICT, "이미 친구인 유저입니다."),

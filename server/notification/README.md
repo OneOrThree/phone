@@ -14,9 +14,9 @@ Notification은 기기 토큰, 알림 설정, 수신 이벤트, 예약 발송, �
 | --- | --- |
 | 이벤트 수신 | Kafka·HTTP 공통 처리, `eventId` 중복 제거, 버전 기반 투영 |
 | 기기 · 설정 | 세션·세대에 따른 기기 소유권, 수신 동의, 설정 변경 |
-| 예약 · 발송 | 조용한 시간, 기한, 결과 확인 여부, 현재 발송 적격 검사 |
-| 푸시 생성 | ICU 메시지 렌더링, 묶음 결과 처리, FCM HTTP v1 |
-| 운영 · 이관 | 발송 게이트, 감사 기록, 스냅샷 반입·대조, 재조정 |
+| 예약 · 발송 | 조용한 시간, 기한, 현재 발송 적격 검사 |
+| 푸시 생성 | ICU 메시지 렌더링, FCM HTTP v1 |
+| 운영 | 발송 게이트, 감사 기록, 사용자 상태 재조정 |
 
 ## 2. 알림 전달 구조
 
@@ -25,11 +25,11 @@ flowchart LR
   data["Data · Outbox"] --> kafka["notification-events"]
   kafka --> inbound["InboundService"]
   data -->|"인증된 HTTP 이벤트"| inbound
-  business["Business"] -->|"기기·설정·결과 확인"| api["InternalController"]
+  business["Business"] -->|"기기·설정"| api["InternalController"]
   api --> db[("알림 PostgreSQL")]
   inbound -->|"상태 반영 + 수신 기록을 함께 커밋"| db
   db --> dispatch["DispatchService"]
-  dispatch --> policy["발송 게이트·설정·조용한 시간·확인 여부"]
+  dispatch --> policy["발송 게이트·설정·조용한 시간"]
   policy --> eligibility["Data 발송 적격 조회"]
   eligibility --> recheck["잠금 아래 상태 재검사"]
   recheck --> render["메시지 렌더링"]
@@ -45,8 +45,8 @@ flowchart LR
 - 같은 `eventId`와 같은 봉투는 이미 수신한 결과로 처리합니다. 같은 ID에 다른 내용이 오면 충돌로 거절합니다.
 - 상태 반영과 수신 기록을 같은 DB 트랜잭션으로 묶습니다.
 - Kafka 실패 메시지는 원본 파티션의 `.DLT`로 전달합니다. DLT 발행 실패를 성공으로 삼키지 않습니다.
-- 발송 전 외부 조회와 DB 잠금 단계를 분리하고, 다시 잠근 뒤 게이트·기기 소유권·확인 상태를 재검사합니다.
-- Data 조회는 스냅샷 재조정, 결과 확인 수렴, 발송 적격 판정의 제한된 용도입니다. 코어 DB를 직접 조회하지 않습니다.
+- 발송 전 외부 조회와 DB 잠금 단계를 분리하고, 다시 잠근 뒤 게이트·기기 소유권를 재검사합니다.
+- Data 조회는 스냅샷 재조정, 발송 적격 판정의 제한된 용도입니다. 코어 DB를 직접 조회하지 않습니다.
 
 ## 3. 코드 탐색
 
@@ -56,10 +56,10 @@ flowchart LR
 | --- | --- |
 | 내부 인증과 API | `ServiceAuth`, `InternalController` |
 | 이벤트 수신 | `KafkaInbound`, `InboundService`, `Envelope` |
-| 기기·설정·결과 확인 | `DeviceService`, `SettingsService`, `AckService` |
+| 기기·설정 | `DeviceService`, `SettingsService` |
 | 발송 | `DispatchScheduler`, `DispatchService`, `QuietHours` |
 | 메시지·전송 | `Renderer`, `FcmPayload`, `FcmTransport` |
-| 운영·이관 | `AdminController`, `AdminService`, `MigrationService`, `SnapshotReconciler` |
+| 운영 | `AdminController`, `AdminService`, `DispatchControlService`, `SnapshotReconciler` |
 | DB | `Store`, [Flyway 마이그레이션](src/main/resources/db/migration) |
 
 ## 4. 실행과 설정
@@ -104,4 +104,23 @@ cd server/notification
 | `NOTIFICATION_GENERATION_REQUIRED` | `false` | 세대 정보 필수 여부 |
 | `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | `true` | 기존 기기 등록 호환 |
 
-서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 이관 검증 절차까지 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 확인합니다.
+서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 예약 잡 활성화를 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 설정합니다.
+
+## 현재 알림과 운영 경로
+
+지원하는 알림은 `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `MAIN_ISLAND_TRANSFERRED`, `MAGAZINE_PUBLISHED`, `ISLAND_KICKED`입니다.
+V10은 과거 kind·템플릿을 비활성화하고 대기 발송을 억제하며 발송 이력은 보존합니다.
+결과 확인·묶음 완료·정지 스냅샷 반입 전용 `result_ack`, `result_bundle_manifests`,
+`imports`, `migration_snapshots`, `migration_state` 테이블은 삭제합니다.
+기기·설정·사용자 폐기 펜스·수신 이벤트·현재 발송 이력은 유지합니다.
+
+관리자 서비스 자격과 `Idempotency-Key`로 다음 경로를 사용합니다.
+
+- `GET /internal/admin/dispatch`: 발송 게이트 상태
+- `POST /internal/admin/dispatch/open`: 발송 개방. 종료 이후에는 새 멱등 키가 필요합니다.
+- `POST /internal/admin/dispatch/close`: 발송 종료. 진행 중인 발송이 제한 시간 안에 끝났는지는 `drained`로 확인합니다.
+- `POST /internal/admin/jobs/{jobId}/replay`: 놓친 예약 실행 등록. 현재 잡은 `delivery-dispatch`, `user-reconcile`입니다.
+
+기존 `/internal/admin/migration/**`와 `/internal/users/{userId}/result-ack/**` 경로는 제거했습니다.
+기존 `bundle-flush` 잡의 활성 여부·크론·실행 이력은 `delivery-dispatch`로 승계합니다.
+사용자 설정 저장과 기기 등록은 발송 게이트가 닫혀 있어도 동작합니다.

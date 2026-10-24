@@ -8,11 +8,9 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-import static com.oneorthree.business.upstream.data.DataPaths.resultPath;
 import static com.oneorthree.business.upstream.data.DataPaths.userPath;
 
 /**
@@ -25,8 +23,6 @@ public class DataOutboxClient {
     private static final String PATH_NOTIFICATION_SETTINGS_COMMANDS =
             "/internal/users/{userId}/notification-settings-commands";
     private static final String PATH_COMMAND_DELIVERED = "/internal/outbox-commands/{commandId}/delivered";
-    private static final String PATH_RESULT_CLAIM = "/internal/users/{userId}/challenge-results/{sessionId}/claim";
-    private static final String PATH_RESULT_ACK = "/internal/users/{userId}/challenge-results/{sessionId}/ack";
 
     private final InternalHttpClient http;
 
@@ -127,38 +123,6 @@ public class DataOutboxClient {
                 InternalCall.to(HttpMethod.POST, PATH_COMMAND_DELIVERED.replace("{commandId}", commandId.toString()))
                         .onBehalfOf(userId)
                         .idempotentCommand()
-                        .build(),
-                deadline);
-    }
-
-    /**
-     * 결과 표시 선점 — 알림 서버가 끼지 않는다. 조건부 원자 UPDATE 라 <b>재시도하지 않는다</b>:
-     * 최초 획득은 멱등이 아니고(두 번째 시도가 남의 리스를 가져올 수 있다) 실패 응답이 계약이다
-     * ({@code RESULT_CLAIM_HELD} + {@code retryAfterMs}).
-     */
-    public Object claimResultDisplay(UUID userId, UUID sessionId, UUID currentToken, Deadline deadline) {
-        return http.exchange(
-                InternalCall.to(HttpMethod.POST, resultPath(PATH_RESULT_CLAIM, userId, sessionId))
-                        .onBehalfOf(userId)
-                        .body(Map.of("claimToken", currentToken == null ? "" : currentToken.toString()))
-                        .build(),
-                deadline,
-                new ParameterizedTypeReference<Object>() { });
-    }
-
-    /**
-     * 결과 확인(ack) 커밋 — 2단계의 <b>가운데</b>다 (A22 ⓓ). 앞에 알림 prepare, 뒤에 알림 commit 이 온다.
-     *
-     * <p>재시도하지 않는다: {@code acknowledged_at IS NULL} 조건부 UPDATE 라 두 번째 시도는 0행이 되고,
-     * 그 0행을 실패로 읽으면 이미 성공한 ack 가 실패로 보고된다.
-     */
-    public void acknowledgeResult(UUID userId, UUID sessionId, UUID claimToken, Instant ackDeadlineAt,
-            Deadline deadline) {
-        http.execute(
-                InternalCall.to(HttpMethod.POST, resultPath(PATH_RESULT_ACK, userId, sessionId))
-                        .onBehalfOf(userId)
-                        .body(Map.of("claimToken", claimToken == null ? "" : claimToken.toString(),
-                                "ackDeadlineAt", ackDeadlineAt.toString()))
                         .build(),
                 deadline);
     }

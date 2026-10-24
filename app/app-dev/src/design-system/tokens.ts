@@ -527,23 +527,31 @@ export const componentTokens = {
     controlWidth: 60,
     rowMinHeight: semanticTokens.size.tapMin,
     largeTextThreshold: 1.3,
+    // 글자 크기 단계(DESIGN §5.2) — 현재 곡 제목 lg · 부제 xs, 곡 행 이름 sm · 상태(무료·보유·재생 중) xs
+    titleText: { fontSize: fontSize.lg, lineHeight: 24 },
+    captionText: { fontSize: fontSize.xs, lineHeight: 16 },
+    rowTitleText: { fontSize: fontSize.sm, lineHeight: 18 },
+    rowStatusText: { fontSize: fontSize.xs, lineHeight: 16 },
+    // 현재 곡 칸 = 제목 줄 24 + 부제 줄 16
+    currentTrackMinHeight: 40,
   },
   // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
   // ribbonTilt(GROMO-2273) — 잡지에서 넣은 섬에 붙이는 「찜」 리본이 마스킹테이프처럼 살짝 기울어 붙은 각도
-  // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874). 섬 칸 122 안에 섬 그림 92 를 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
+  // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874 · GROMO-2414 확대). 섬 칸 146 안에 섬 그림 126 을 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
   // 칸 폭은 알약이 더 길면 알약을 따라 늘어(최대 pillMaxWidth) 서로 겹치지 않는다. 홀수 번째 섬은 stagger 만큼 낮다.
-  // 짝수 번째 섬 칸 위쪽이 수평선보다 horizonGap 위에 오게 띠를 내린다. 뗏목 고양이는 안전 영역 안쪽 오른쪽 아래(시안 아래 84 = 홈 인디케이터 34 + 50).
+  // 짝수 번째 섬 칸 위쪽이 수평선보다 horizonGap 위에 오게 띠를 둔다 — 섬 그림이 수평선에 걸쳐 하늘 쪽으로 솟아 빈 하늘이 줄어든다.
+  // 뗏목 고양이는 안전 영역 안쪽 오른쪽 아래(시안 아래 84 = 홈 인디케이터 34 + 50).
   telescope: {
     largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
-    islandBox: 122,
-    islandArtWidth: 92,
+    islandBox: 146,
+    islandArtWidth: 126,
     islandArtTop: 37,
     cellGap: space[1],
     pillGap: space[3],
     pillMaxWidth: 200,
-    stagger: 34,
-    horizonGap: 18,
+    stagger: 40,
+    horizonGap: 80,
     ribbonOffset: { left: -4, top: -6 },
     raft: { width: 200, right: 26, bottom: 50 },
   },

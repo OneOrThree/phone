@@ -164,7 +164,8 @@ PR743의 단일 계산식을 사용한다. ACTIVE 구간은 `[start,end)`, 진�
 **조회 범위와 트랜잭션(GROMO-2344).** 상세에는 구간 시각이 없어 겹침 판정이 주민의 «전생애» 세션마다 구간을
 탐침했다. 끝난 세션의 `last_transition_at` 은 종결 시각이고 그 세션 어떤 구간의 `ended_at` 보다도 작지 않으므로
 `(진행 중) OR last_transition_at > from` 을 바깥 조건으로 더하고 V130 `(user_id, island_id, last_transition_at)`
-인덱스로 범위를 자른다(정확한 겹침은 여전히 EXISTS). 구간은 **매칭된 세션의 전체**를 그대로 읽는다 — 날짜 배분이
+인덱스로 범위를 자른다(정확한 겹침은 여전히 EXISTS). 이 거름은 «끝난 세션의 `last_transition_at` ≥ 모든 구간의 `ended_at`»
+전제에 기대므로 배포 전에 점검 SQL 로 확인한다([운영 런북 §2](../island-rankings/ops-runbook.md)). 구간은 **매칭된 세션의 전체**를 그대로 읽는다 — 날짜 배분이
 세션 전체의 누적 μs 에 기대므로 창 밖 구간을 빼면 경계 날짜가 최대 1초 달라진다. 조회는 REPEATABLE READ
 **읽기 전용** 트랜잭션이고, scope=me 기록이 한 페이지를 넘을 때의 스냅샷 저장만 조회가 끝난 뒤 별 쓰기 트랜잭션에서 한다.
 

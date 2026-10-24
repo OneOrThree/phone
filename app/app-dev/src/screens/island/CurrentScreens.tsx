@@ -583,6 +583,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'seaMagazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         place="SEA"
         background={
@@ -787,6 +788,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'magazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         host={host && !state.visitingIslandId}
         background={
@@ -830,8 +832,8 @@ function ScreenTimePermissionHelp() {
   return (
     <Txt kind="meta">
       {Platform.OS === 'android'
-        ? '거절했거나 요청을 닫았어도 다시 연결할 수 있어요. 사용 정보 접근 설정에서 catus를 선택하고 허용해 주세요. 앱으로 돌아오면 권한을 다시 확인해요.'
-        : '거절했거나 요청을 닫았어도 아래에서 다시 요청할 수 있어요. 허용 창에서 승인과 기기 인증을 마쳐 주세요. 창이 열리지 않으면 시스템 설정에서 이 앱의 스크린타임 접근 권한을 확인해 주세요. 해당 항목이 없으면 앱으로 돌아와 다시 요청해 주세요.'}
+        ? '사용 정보 접근 설정에서 이 앱을 허용해 주세요.'
+        : '허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.'}
     </Txt>
   );
 }
@@ -1203,11 +1205,7 @@ function ScreenTimePermission({ e }: any) {
     >
       <Pic id="cat/black/sitting" w={82} />
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
-      <Txt>
-        {Platform.OS === 'android'
-          ? '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
-          : 'catus가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
-      </Txt>
+      <Txt>선택한 앱의 사용 시간만 기록해요.</Txt>
       <Group flat>
         <Row
           title="스크린타임 권한"

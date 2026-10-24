@@ -1,14 +1,14 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.outbox.service.PublicCommandService;
+
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.UserIslandContextRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.repository.domain.UserWallet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,8 +57,6 @@ class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
     @Autowired
     UserRepository userRepository;
     @Autowired
-    UserWalletRepository userWalletRepository;
-    @Autowired
     PlatformTransactionManager transactionManager;
 
     private User user;
@@ -74,7 +72,6 @@ class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
     @BeforeEach
     void setUp() {
         user = userRepository.save(User.builder().nickname("컨텍스트경합자").isGuest(false).build());
-        userWalletRepository.save(UserWallet.builder().userId(user.getId()).balance(100).build());
         // 이동 대상 섬 두 개는 createGroup 을 거치지 않고 직접 만든다 — 이 테스트가 보는 것은
         // 잠금 서비스의 직렬화이지 그룹 생성 흐름이 아니다.
         islandA = groupRepository.save(Group.builder().name("경합섬A").maxMembers(5).build()).getId();
@@ -90,7 +87,6 @@ class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
         userIslandContextRepository.findById(user.getId()).ifPresent(userIslandContextRepository::delete);
         groupRepository.findById(islandA).ifPresent(groupRepository::delete);
         groupRepository.findById(islandB).ifPresent(groupRepository::delete);
-        userWalletRepository.findById(user.getId()).ifPresent(userWalletRepository::delete);
         userRepository.delete(user);
     }
 

@@ -251,7 +251,7 @@ SELECT bucket_start, count(*) FROM telescope_buckets GROUP BY 1 ORDER BY 1 DESC 
 
 ### 6-1. 시즌 재료 추가
 
-시즌 재료(`season`)는 지금 **지급 경로가 없다**. 바다 집중 누적 단계표(`sea_reward_tiers`, GROMO-2274)로 주던 엔진은 GROMO-2301 이 세션 단위 꾸미기 보상(`customization_reward_*`, 머리·목만)으로 바꾸며 지웠다 — `sea_reward_tiers` 에 행을 넣어도 아무도 받지 않는다(표 DROP 은 별도). 시즌 재료를 다시 주려면 지급 경로를 새로 정해야 한다. 등록만 해 두려면 스티커는 서랍 탭이 반드시 있어야 하고(`cat`·`sea`·`friends`·`deco`), 틀·테이프는 탭이 없다 — DB CHECK 가 막는다.
+시즌 재료(`season`)는 지금 **지급 경로가 없다**. 바다 집중 누적 보상 엔진(GROMO-2274)은 GROMO-2301에서 세션 단위 꾸미기 보상(`customization_reward_*`, 머리·목만)으로 바뀌었고, 옛 누적·단계표는 V0 스키마 정리에서 제거했다. 시즌 재료를 다시 주려면 지급 경로를 새로 정해야 한다. 등록만 해 두려면 스티커는 서랍 탭이 반드시 있어야 하고(`cat`·`sea`·`friends`·`deco`), 틀·테이프는 탭이 없다 — DB CHECK 가 막는다.
 
 ```sql
 \set product_id 'mag.<그림 id>'

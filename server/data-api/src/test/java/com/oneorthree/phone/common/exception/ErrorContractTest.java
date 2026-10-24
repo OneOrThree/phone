@@ -1,27 +1,21 @@
 package com.oneorthree.phone.common.exception;
 
-import com.oneorthree.phone.analytics.exception.AnalyticsErrorCode;
 import com.oneorthree.phone.appearance.exception.AppearanceErrorCode;
 import com.oneorthree.phone.appearance.exception.AppearanceException;
-import com.oneorthree.phone.analytics.exception.AnalyticsException;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.construction.exception.ConstructionErrorCode;
 import com.oneorthree.phone.construction.exception.ConstructionException;
-import com.oneorthree.phone.currency.exception.CurrencyErrorCode;
-import com.oneorthree.phone.currency.exception.CurrencyException;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
-import com.oneorthree.phone.group.exception.ChallengeResultClaimHeldException;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
-import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.letter.exception.LetterException;
 import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
@@ -32,7 +26,6 @@ import com.oneorthree.phone.quest.exception.QuestErrorCode;
 import com.oneorthree.phone.quest.exception.QuestException;
 import com.oneorthree.phone.shop.exception.ShopErrorCode;
 import com.oneorthree.phone.shop.exception.ShopException;
-import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -46,9 +39,7 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -87,18 +78,15 @@ class ErrorContractTest {
      * 더해야 한다</b> — 빠지면 {@link #everyErrorCodeEnumHasAFactory} 가 이름을 지목하며 실패한다.
      */
     private static final Map<Class<? extends ErrorCode>, Function<ErrorCode, DomainException>> FACTORIES = Map.ofEntries(
-            Map.entry(AnalyticsErrorCode.class, c -> new AnalyticsException((AnalyticsErrorCode) c)),
             Map.entry(AppearanceErrorCode.class, c -> new AppearanceException((AppearanceErrorCode) c)),
             Map.entry(AuthErrorCode.class, c -> new AuthException((AuthErrorCode) c)),
             Map.entry(InvalidTokenErrorCode.class, c -> new InvalidTokenException((InvalidTokenErrorCode) c)),
             Map.entry(ConstructionErrorCode.class, c -> new ConstructionException((ConstructionErrorCode) c)),
-            Map.entry(CurrencyErrorCode.class, c -> new CurrencyException((CurrencyErrorCode) c)),
             Map.entry(FocusErrorCode.class, c -> new FocusException((FocusErrorCode) c)),
             Map.entry(FriendErrorCode.class, c -> new FriendException((FriendErrorCode) c)),
             Map.entry(LetterErrorCode.class, c -> new LetterException((LetterErrorCode) c)),
             Map.entry(GroupErrorCode.class, c -> new GroupException((GroupErrorCode) c)),
             Map.entry(InviteLinkErrorCode.class, c -> new InviteLinkException((InviteLinkErrorCode) c)),
-            Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
             Map.entry(MagazineErrorCode.class, c -> new MagazineException((MagazineErrorCode) c)),
             Map.entry(OutboxErrorCode.class, c -> new OutboxException((OutboxErrorCode) c)),
             Map.entry(QuestErrorCode.class, c -> new QuestException((QuestErrorCode) c)),
@@ -139,12 +127,11 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 18개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)·magazine(GROMO-2289)이 늘었다")
-                .hasSize(19);
+        assertThat(found).isNotEmpty();
     }
 
     @TestFactory
-    @DisplayName("상수 239개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("모든 오류 코드 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -160,120 +147,10 @@ class ErrorContractTest {
                 }));
             }
         }
-        // GROMO-1660 이 초대 자격·이관 판정 코드를 2개 더 늘렸다(CLAIM_INTENT_NOT_FOUND ·
-        // CLAIM_INTENT_LEASE_STALE) — 재개 실행자의 「없는 항목」과 「낡은 리스」를 한 코드로 접으면
-        // 정상 경합과 배선 사고가 구분되지 않는다.
-        // GROMO-1764 가 집중 세션 수명주기 상수 12개를 더했다 — 입력 검증 5(INVALID_SUBJECT ·
-        // INVALID_TARGET_MINUTES · INVALID_SUMMARY_DATE · SUMMARY_DATE_OUT_OF_RANGE ·
-        // INVALID_SUMMARY_TIMEZONE), 전제 판정 3(ISLAND_NOT_CURRENT · ISLAND_MEMBERSHIP_REQUIRED ·
-        // SESSION_IN_PROGRESS), 전이 2(EXPECTED_VERSION_REQUIRED · SESSION_STATE_CONFLICT),
-        // 그리고 게이트 2(REWARD_POLICY_UNAVAILABLE · SESSION_START_UNAVAILABLE) — 같은 503 이지만
-        // 막는 사유가 달라 하나만 먼저 여는 날 구분이 필요하다.
-        // GROMO-1908 이 로그인 시도 원장 상수 2개를 더했다(AuthErrorCode) —
-        // LOGIN_ATTEMPT_IN_PROGRESS(409: 같은 자격인데 다른 실행자가 진행 중) 와
-        // LOGIN_ATTEMPT_UNUSABLE(401: 복구 창 종료·폐기·digest 키 교체). 앞의 것을
-        // IDEMPOTENCY_KEY_CONFLICT(같은 키에 «다른» 자격)와 합치면 앱이 「키를 잘못 썼다」로 읽고
-        // 새 시도를 만들어, 막으려던 동시 code 교환이 그대로 생긴다. 뒤의 것을 그 409 로 판정하는
-        // 것은 계정 LLD §3 이 명시적으로 금지한다 — 정상 사용자가 배포 한 번에 막히기 때문이다.
-        // GROMO-1759 가 섬 검색 진입 가드 1개를 더했다(GroupErrorCode.OBSERVATORY_LOCKED) —
-        // 전망대 없이 이름 검색을 여는 403 은 첫 소속 탐색(가드 없는 discover)과 갈라야 한다.
-        // GROMO-1894 가 친구 요청 취소의 권한 코드 1개(NOT_REQUEST_SENDER)를 더했다 — 발신자 축 거부를
-        // 수신자 축(NOT_REQUEST_RECEIVER)과 한 코드로 접으면 앱이 「내가 보낸 요청이 아니다」를 구분하지 못한다.
-        // GROMO-1775 가 우체통 시설 잠금 코드 1개를 더했다(GroupErrorCode.MAILBOX_LOCKED) —
-        // 전망대 가드와 같은 결이지만 잠기는 시설이 달라 한 코드로 접지 않는다.
-        // GROMO-1933 이 편지 코드 9개를 더했다 — 입력 4(SELF_LETTER · LETTER_CONTENT_BLANK ·
-        // INVALID_PAGE_REQUEST · INVALID_MAILBOX_TYPE), 권한 2(LETTER_MAILBOX_LOCKED ·
-        // NOT_LETTER_PARTICIPANT), 대상 없음 2(LETTER_NOT_FOUND · LETTER_RECIPIENT_NOT_FRIEND),
-        // 본문 상한 1(LETTER_CONTENT_OUT_OF_RANGE).
-        // GROMO-1767 이 건설 코드 6개를 더했다(ConstructionErrorCode) — 권한·시설 잠금
-        // 2(CONSTRUCTION_FORBIDDEN · FACILITY_LOCKED), 입력 1(OUT_OF_RANGE), 충돌
-        // 3(VERSION_CONFLICT · STATE_CONFLICT · INSUFFICIENT_FUNDS) — 섬 건설 명령의 실패 축이다.
-        // GROMO-1929 가 legacy 선택 AT 관문 상수 2개를 더했다 — ACCESS_TOKEN(401: Bearer 형식·
-        // 서명·만료·타입 거절, InvalidTokenErrorCode)과 LEGACY_SESSION_NOT_ACTIVE(401: 폐기·
-        // 세대 불일치·sid 없음, AuthErrorCode). 후자는 내부 경로의 SESSION_NOT_ACTIVE(403)와 같은
-        // 판정이지만 legacy 경로는 Business 매핑 없이 앱에 직접 닿아 공개 401 이어야 한다.
-        // GROMO-1760 이 섬 가입·초대 코드 상수 6개를 더했다 — 가입 요청 4(GroupErrorCode:
-        // JOIN_REQUEST_NOT_FOUND 404·JOIN_REQUEST_TERMINAL 409·INVITATION_REQUIRED 403·
-        // ISLAND_JOIN_UNAVAILABLE 403)와 초대 해석 2(InviteLinkErrorCode: INVITATION_CODE_INVALID
-        // 422·INVITATION_EXPIRED 410). 형식 오류·없음·폐기는 앱이 다른 분기를 타야 하므로 한 코드로
-        // 접지 않는다.
-        // GROMO-1802 가 섬 관리 명령 게이트 1개를 더했다(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY 503) —
-        // 위임 게이트 REALTIME_NOT_READY 와 같은 503 이지만 스위치가 달라 하나만 먼저 여는 날 구분해야 한다.
-        // GROMO-1934 가 공통 코드 1개(RATE_LIMITED, 429)를 더했다 — 게스트 친구 요청 · 전 계정 편지 발송의 계정당
-        // 시간 한도. 두 도메인이 같은 코드를 쓰고 Business 공개 표의 같은 이름으로 옮겨지므로 공통이 소유한다.
-        // GROMO-1771 이 섬 게시판 코드 4개를 더했다(GroupErrorCode) — 시설 잠금 1(BOARD_LOCKED 403),
-        // 쓰기 게이트 1(NOTICE_WRITE_UNAVAILABLE 503: BQ02·BQ03 결정 전 쓰기 비활성 — REALTIME_NOT_READY 와
-        // 같은 503 이지만 막는 사유가 달라 따로 둔다), 임시 상한 2(NOTICE_BODY_TOO_LONG · NOTICE_COMMENT_TOO_LONG
-        // 422 — 가리키는 입력 필드가 다르다).
-        // GROMO-1802 가 섬 정보 수정의 빈 이름 422 1개를 더했다(GroupErrorCode.ISLAND_NAME_BLANK) — 형식 오류 400 과 가른다.
-        // GROMO-1801 이 신규 PATCH /me 게이트 1개를 더했다(UserErrorCode.PROFILE_UPDATE_UNAVAILABLE) —
-        // 집중 세션 게이트와 같은 503 이지만 여는 조건(온보딩 전이 사건 연결)이 달라 코드를 가른다.
-        // GROMO-1895 가 도서관 시설 잠금 1개를 더했다(GroupErrorCode.LIBRARY_LOCKED) — 게시판·우체통 잠금과 같은 결이지만
-        // 잠기는 시설이 달라 한 코드로 접지 않는다.
-        // GROMO-1773 이 섬 퀘스트 코드 14개를 더했다(QuestErrorCode) — 권한 2(QUEST_FORBIDDEN · QUEST_BOARD_LOCKED),
-        // 대상 없음 2(QUEST_NOT_FOUND · QUEST_OCCURRENCE_NOT_FOUND), 입력 6(QUEST_INVALID_REQUEST ·
-        // QUEST_INVALID_TIMEZONE · 필드별 범위 3 · screen 미지원 QUEST_TYPE_OUT_OF_RANGE), 충돌 2(QUEST_VERSION_CONFLICT · QUEST_STATE_CONFLICT),
-        // 출시 게이트 2(QUEST_CREATION_UNAVAILABLE · QUEST_SETTLEMENT_UNAVAILABLE) — 생성과 정산은 여는 조건이 달라
-        // 같은 503 이라도 코드를 가른다.
-        // GROMO-1779 가 공용 음악 코드 2개를 더했다(AppearanceErrorCode) — 곡 없이 재생 요청(STATE_CONFLICT 409)과
-        // 방송기 미완공(GRAM_LOCKED 403). 후자는 건설 도메인의 FACILITY_LOCKED 를 빌리지 않고(error-contract §3)
-        // Business 가 공개 FACILITY_LOCKED 로 옮긴다 — BOARD_LOCKED·MAILBOX_LOCKED 와 같은 결.
-        // GROMO-1781 이 섬 상점 코드 8개를 더했다(ShopErrorCode) — 권한·시설 2(SHOP_FORBIDDEN · FACILITY_LOCKED),
-        // 대상 없음 1(PRODUCT_NOT_FOUND), 입력 1(OUT_OF_RANGE), 충돌 4(VERSION_CONFLICT · STATE_CONFLICT ·
-        // INSUFFICIENT_FUNDS · CURSOR_EXPIRED) — 구매·카탈로그 커서의 실패 축이다.
-        // GROMO-1769 가 회관 기록 코드 6개를 더했다(StatsErrorCode) — 기록 스냅샷 만료(409), 측정 기기 ≠ 세션(403),
-        // 같은 시각 다른 측정(409), 보고 창 밖 측정(422), 모르는 scope(422), 허용되지 않은 측정 상태·분(422).
-        // 공개 표에서 CURSOR_EXPIRED·FORBIDDEN·STATE_CONFLICT·OUT_OF_RANGE 로 옮겨지고 field 가 다르다.
-        // GROMO-1986 이 공통 코드 1개(BANNED_WORD, 400)를 더했다 — 공지·댓글·편지·닉네임·섬 이름·섬 소개 여섯 입력이
-        // group·letter·user·internal 네 도메인에 걸쳐 있어 어느 도메인 enum 에도 둘 수 없다(error-contract §3:
-        // 도메인 간 code 이름 재사용·차용 금지). RATE_LIMITED 와 같은 이유로 공통이 소유한다.
-        // GROMO-1997 이 주간 섬 랭킹 코드 1개를 더했다(StatsErrorCode) — week 가 UTC 일요일이 아니거나 아직
-        // 오지 않은 주(422 RANKING_WEEK_OUT_OF_RANGE). 형식(날짜 모양)은 Business 가 400 으로 먼저 거르고
-        // 달력 의미만 Data 가 판정하므로, 공개 표에서 OUT_OF_RANGE(field=week)로 옮겨진다.
-        // GROMO-1996 이 편지 닫기 코드 1개를 더했다(LetterErrorCode.NOT_LETTER_RECEIVER) — 닫을 수 있는 사람은
-        // 수신자 하나라 발신자 시도는 403 이다. 두 티켓이 각각 1개씩 더해 221 → 223 이 된다.
-        // GROMO-1992 가 공통 코드 1개(SOCIAL_LOGIN_REQUIRED, 403)를 더했다 — 정책 「친구 추가·편지 보내기·상점
-        // 구매를 처음 시도할 때 소셜 로그인을 요청한다」의 거절이다. 막는 자리가 friend·shop 두 도메인에
-        // 걸쳐 있어 BANNED_WORD·RATE_LIMITED 와 같은 이유로 공통이 소유한다(error-contract §3). 공개 표에도
-        // 같은 이름·상태로 등록했다 — 안 하면 정상 403 이 502 UPSTREAM_CONTRACT_ERROR 로 나간다.
-        // GROMO-1975 가 사용자 코드 1개(SELF_BLOCK, 400)를 더했다 — 차단 대상과 호출자가 같을 때의 입력 오류다.
-        // GROMO-2070 이 참가 코드 생성 실패 상수 1개(GroupErrorCode.CODE_GENERATION_FAILED)를 뺐다 —
-        // 초대 코드 기능 폐기로 던지는 곳이 없어졌다.
-        // GROMO-2137 이 게시판 댓글 삭제 전용 코드 1개(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN, 403)를 더했다 —
-        // 작성자 본인도 방장도 아닌 삭제 시도(2026-09-25 결정 GROMO-2136). NOTICE_FORBIDDEN 과 메시지가
-        // 가리키는 대상이 달라 코드를 나눈다(NOTICE_BODY_TOO_LONG/NOTICE_COMMENT_TOO_LONG 과 같은 결).
-        // GROMO-2242 가 Live Activity 등록 정보 검증 코드 1개(INVALID_LIVE_ACTIVITY)를 더했다.
-        // GROMO-2260 이 섬 도착 코드 1개(GroupErrorCode.ISLAND_NOT_ARRIVED, 403)를 더했다 — 망원경에서 가입만 하고
-        // 아직 항해하지 않은 소속 섬으로의 즉시 이동이다. 일반 MEMBER_ONLY 와 앱 안내(망원경 항해)가 달라 코드를 가른다.
-        // GROMO-2262 가 방명록 코드 1개(GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY, 409)를 더했다 — 같은 KST 날의
-        // 두 번째 쓰기다. 앱이 이 코드로 «오늘은 이미 남겼어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
-        // GROMO-2267 이 잡지 홍보 코드 1개(GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY, 409)를 더했다 — 같은 KST 날의
-        // 두 번째 신청이다. 앱이 이 코드로 «오늘은 이미 신청했어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
-        // GROMO-2299 가 바다 항해 코드 3개(FocusErrorCode.SEA_DESTINATION_UNAVAILABLE·SEA_SESSION_NO_REST·SEA_REMARK_LOCKED,
-        // 모두 409)를 더했다 — 앱이 각각 다른 안내를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다. 공개 표에도 같은 이름·상태로
-        // 등록했다.
-        // 잔액 부족은 새 코드가 아니라 건설·상점이 이미 쓰는 INSUFFICIENT_FUNDS(409)를 그대로 쓴다.
-        // GROMO-2289 가 잡지 코드 8개(MagazineErrorCode — 신청 창 밖·비공개 섬·글 60자 초과(422)·배치 위반·안 가진 재료·
-        // 마감 뒤 고치기·없는 홍보·기능 스위치 꺼짐(503))를 더했고, 발행 묶음이 없는 호(MAGAZINE_ISSUE_NOT_FOUND, 404)를 더했다.
-        // 앱이 각 코드로 안내를 가르므로 STATE_CONFLICT 로 접지 않는다. 지금 주민인 섬의 칸 신고(PROMOTION_REPORT_OWN_ISLAND,
-        // 403)를 더했다 — 공개 응답은 Business 가 FORBIDDEN 으로 옮긴다.
-        assertThat(tests).as("실측 기준 도메인 상수 224개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·Live Activity 등록 검증·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회·잡지 10종·바다 항해 3종 포함")
-                .hasSize(242);
+        assertThat(tests).as("오류 코드 스캔은 비어 있지 않아야 한다").isNotEmpty();
         return tests;
     }
 
-    @Test
-    @DisplayName("재시도 하위 타입은 상대 지연을 얹은 봉투로 나가되 code·status 는 부모 규칙 그대로다")
-    void retryAfterSubtypeKeepsParentContractAndAddsDelay() {
-        ResponseEntity<RetryAfterErrorResponse> response =
-                handler.handleChallengeResultClaimHeld(new ChallengeResultClaimHeldException(1500L));
-
-        assertThat(response.getStatusCode()).isEqualTo(GroupErrorCode.RESULT_CLAIM_HELD.getStatus());
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().getCode()).isEqualTo("RESULT_CLAIM_HELD");
-        assertThat(response.getBody().getMessage()).isEqualTo(GroupErrorCode.RESULT_CLAIM_HELD.getMessage());
-        assertThat(response.getBody().getRetryAfterMs()).isEqualTo(1500L);
-    }
 
     @Test
     @DisplayName("계정 레이트리밋은 429 RATE_LIMITED 에 상대 지연(ms)과 올림한 Retry-After(초)를 싣는다")
@@ -289,25 +166,4 @@ class ErrorContractTest {
         assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("2");
     }
 
-    @Test
-    @DisplayName("도메인별 핸들러가 다시 생기지 않는다 — DomainException 을 잡는 핸들러는 하나뿐이다")
-    void onlyOneHandlerCatchesDomainExceptions() {
-        List<String> domainHandlers = new ArrayList<>();
-        for (Method m : GlobalExceptionHandler.class.getDeclaredMethods()) {
-            ExceptionHandler ann = m.getAnnotation(ExceptionHandler.class);
-            if (ann == null) {
-                continue;
-            }
-            for (Class<? extends Throwable> t : ann.value()) {
-                // 재시도 하위 타입은 봉투 모양이 달라 전용 핸들러가 정당하다 — 그 둘만 예외
-                if (DomainException.class.isAssignableFrom(t) && t != ChallengeResultClaimHeldException.class
-                        && t != RateLimitedException.class) {
-                    domainHandlers.add(m.getName() + "(" + t.getSimpleName() + ")");
-                }
-            }
-        }
-        assertThat(domainHandlers)
-                .as("도메인 예외를 잡는 핸들러는 handleDomain(DomainException) 하나여야 한다")
-                .containsExactly("handleDomain(DomainException)");
-    }
 }

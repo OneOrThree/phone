@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
 import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
@@ -29,6 +29,7 @@ import type { Outfit } from '@/components/CatOutfitLayers';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
+import { keepLabelInView } from '@/utils/island-camera';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
 import {
@@ -606,6 +607,14 @@ export function FishingIsland({
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
     raftK = raftW / raftBox.w;
+  const visibleX = useMemo(
+    () => ({
+      lo: L.insets.left - left,
+      hi: L.width - L.insets.right - left,
+      fontScale: L.fontScale ?? 1,
+    }),
+    [left, L.width, L.insets.left, L.insets.right, L.fontScale],
+  );
   return (
     <View
       ref={node}
@@ -787,7 +796,9 @@ export function FishingIsland({
             </Pressable>
           )}
           <FishingSceneActive.Provider value={!inert}>
-            {children(size, sizeY, cam.zoom)}
+            <FishingVisibleX.Provider value={visibleX}>
+              {children(size, sizeY, cam.zoom)}
+            </FishingVisibleX.Provider>
           </FishingSceneActive.Provider>
         </View>
       </Animated.View>
@@ -795,10 +806,18 @@ export function FishingIsland({
     </View>
   );
 }
-// 머리 위 과목·시간표 상자(지도 px). 글자 폭은 대략값: 10px 한글 한 자 ≈ 10px, 시간 8자 ≈ 50px, 최대 120px
+// 지금 화면에 보이는 가로 범위(지도 px, 안전 영역 제외). 지도가 화면보다 넓어 가장자리 자리의 머리 위 말풍선·이름이
+// 잘리므로 FishingActor 가 이 범위 기준으로 민다(keepLabelInView). 제공자 밖(단독 렌더)에서는 밀지 않는다.
+// fontScale 은 글자 폭 추정용 OS 접근성 글자 배율이다.
+const FishingVisibleX = React.createContext<{ lo: number; hi: number; fontScale: number } | null>(
+  null,
+);
+// 머리 위 과목·시간표 상자 폭(지도 px). 글자 폭은 대략값: 10px 한글 한 자 ≈ 10px, 시간 8자 ≈ 50px, 최대 120px
+const labelWidth = (subject: string) => Math.min(120, 16 + Math.max(50, [...subject].length * 10));
+// 머리 위 과목·시간표 상자(지도 px)
 export function labelBox(spot: Spot, subject: string, size: number, sizeY: number) {
   const a = size * 0.077,
-    w = Math.min(120, 16 + Math.max(50, [...subject].length * 10)),
+    w = labelWidth(subject),
     x = (size * spot.x) / 100,
     bottom = (sizeY * spot.y) / 100 - a * 0.95625;
   return { left: x - w / 2, right: x + w / 2, top: bottom - 40, bottom };
@@ -968,6 +987,18 @@ export function FishingActor({
       catchFuturePeerSpots,
     ),
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
+  // 화면 가장자리 자리의 머리 위 말풍선·이름이 반쯤 잘리지 않게 민다. 걷는 중에는 몸이 자리(spot)에 없어 밀지 않는다
+  const visibleX = useContext(FishingVisibleX),
+    // 글자는 OS 접근성 글자 배율만큼 커진다 — 폭 추정에도 곱한다
+    fontScale = visibleX?.fontScale ?? 1,
+    footX = (size * spot.x) / 100,
+    pushIn = (w: number) =>
+      visibleX && motion !== 'walk'
+        ? keepLabelInView(footX, w, visibleX.lo, visibleX.hi) - footX
+        : 0,
+    // 말풍선은 maxWidth 120 을 넘지 않는다. 이름 글자 폭 대략값: 11px 한 자 ≈ 11px
+    labelShift = pushIn(Math.min(120, labelWidth(emote ? '' : (subject ?? '')) * fontScale)),
+    nameShift = pushIn([...name].length * nameText(me).fontSize * fontScale);
   return (
     <Animated.View
       pointerEvents="none"
@@ -1063,7 +1094,13 @@ export function FishingActor({
         />
       )}
       <View
-        style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
+        testID="fishing-actor-label"
+        style={{
+          position: 'absolute',
+          bottom: a * 1.05,
+          left: a / 2 - 100 + labelShift,
+          width: 200,
+        }}
         pointerEvents="none"
       >
         {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
@@ -1091,7 +1128,10 @@ export function FishingActor({
           )
         )}
       </View>
-      <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
+      <View
+        testID="fishing-actor-name"
+        style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100 + nameShift, width: 200 }}
+      >
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
       {Array.from({ length: Math.min(goldenFishCount, 3) }, (_, index) => (

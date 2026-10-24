@@ -20,7 +20,7 @@ BEGIN
       AND u.is_guest AND NOT u.is_deleted AND u.created_at>now()-interval '30 minutes') THEN
     RAISE EXCEPTION '신규 게스트 두 명 / 로그인 세션 대조 실패';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM groups g WHERE g.id=f.island_id AND g.deleted_at IS NULL
+  IF NOT EXISTS (SELECT 1 FROM islands g WHERE g.id=f.island_id AND g.deleted_at IS NULL
       AND g.name ~ '^smoke-friends-[0-9a-fA-F-]{36}$'
       AND g.created_at>now()-interval '30 minutes')
     OR (SELECT count(*) FROM group_members m WHERE m.group_id=f.island_id AND NOT m.is_left)<>2

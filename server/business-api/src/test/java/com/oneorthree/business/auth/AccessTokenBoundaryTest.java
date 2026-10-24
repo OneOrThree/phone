@@ -5,6 +5,9 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.HttpMethod;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.UUID;
@@ -16,6 +19,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -170,19 +174,28 @@ class AccessTokenBoundaryTest extends UpstreamTestBase {
             assertThat(request.header("Authorization")).isEqualTo("Bearer ci-token-noti");
         }
         // 링크는 이 유스케이스에 끼지 않으므로 링크 토큰이 어디에도 나가지 않았다.
-        assertThat(LINK.received()).isEmpty();
     }
 
-    @Test
+    // 건설 3종(GROMO-2207)도 같은 전역 필터를 지난다 — 상류 Data 의 TX 재검사 전에 Redis 거부목록이 먼저 막는다.
+    @ParameterizedTest
+    @CsvSource({"GET," + SETTINGS,
+            "GET,/islands/44444444-4444-4444-4444-444444444444/construction-options",
+            "PUT,/islands/44444444-4444-4444-4444-444444444444/construction-target",
+            "POST,/islands/44444444-4444-4444-4444-444444444444/constructions"})
     @DisplayName("폐기된 sid 의 AT 는 서명·만료가 멀쩡해도 401 이고 상류를 부르지 않는다")
-    void 폐기된세션() throws Exception {
+    void 폐기된세션(String method, String path) throws Exception {
         when(revokedSessions.isRevoked(SESSION)).thenReturn(true);
 
-        mockMvc.perform(get(SETTINGS)
-                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION)))
+        mockMvc.perform(request(HttpMethod.valueOf(method), path)
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION))
+                        .header("Idempotency-Key", "55555555-5555-4555-8555-555555555555")
+                        .contentType("application/json")
+                        .content("{\"buildingId\":\"gram\",\"expectedVersion\":4,\"expectedCostPolicyVersion\":1}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+                // 구 /api/v1 은 평평한 봉투, 공개 /islands 는 error 봉투다.
+                .andExpect(jsonPath(path.startsWith("/api/v1") ? "$.code" : "$.error.code").value("UNAUTHORIZED"));
         assertThat(NOTI.received()).isEmpty();
+        assertThat(DATA.received()).isEmpty();
     }
 
     @Test

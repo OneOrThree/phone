@@ -14,7 +14,6 @@ import com.oneorthree.phone.group.repository.domain.GroupAnnouncementComment;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandNoticeEvents;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
@@ -50,15 +49,13 @@ import java.util.stream.Collectors;
 
 /**
  * 섬 게시판 — 공지 목록·상세(댓글 페이지)·작성·수정·삭제·댓글 작성의 Data 측 구현 (GROMO-1771, island-board
- * LLD §1~§4). 저장소는 legacy 공지({@code group_announcements})를 그대로 쓰고 댓글 테이블만 새로 둔다.
+ * LLD §1~§4). 공지와 댓글은 각각 {@code group_announcements}, {@code group_announcement_comments}에 저장한다.
  *
  * <h2>인가 — 읽기는 누구나, 쓰기는 주민만, 둘 다 게시판 완공 뒤에만 (정책 B01, GROMO-2136)</h2>
  * 목록·상세 읽기는 활성 계정이면 방문자(가입 대기자 포함)도 된다(2026-09-19 결정 V-읽기, GROMO-1904) — 판정은
  * 요청자 활성 → 섬 생존 → 게시판 완공이다. 미완공 게시판은 방문자에게도 {@code BOARD_LOCKED} 다.
  * 댓글 작성은 활성 주민 누구나다. <b>공지 작성·수정·삭제는 방장(OWNER)만</b> 이다(2026-09-25 결정 GROMO-2136,
- * island-board policy B03) — legacy {@code /api/v1} 공지({@link GroupAnnouncementService},
- * {@link GroupMember#canWriteAnnouncement})는 여전히 방장 + {@code announcement_permission=ALLOW} 주민이지만,
- * 이 새 API 에서만 그 규칙을 대체한다. <b>댓글 삭제는 작성자 본인 또는 방장</b>이다(같은 결정).
+ * island-board policy B03). <b>댓글 삭제는 작성자 본인 또는 방장</b>이다(같은 결정).
  * 쓰기 판정 순서는 요청자 활성 → 섬 생존 → 주민 → 게시판 완공 → (공지·댓글 삭제면) 작성 권한이다. 방문자(비주민)의
  * 쓰기는 시설 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는
  * {@code construction.facility-gates.enforce} 를 따른다(기본 OFF — 적립 경로 배포 전엔 어느 섬도 지을 수 없다).
@@ -71,9 +68,8 @@ import java.util.stream.Collectors;
  * {@code NOTICE_WRITE_UNAVAILABLE} 로 거절한다({@code InternalHostTransferService} 와 같은 모양).
  *
  * <h2>잠금 순서 (LLD §3)</h2>
- * users 공유 → 섬(groups) 배타 → 공통 명령 receipt → 공지 aggregate. legacy {@code GroupAnnouncementService}
- * 도 users 공유 → 섬 배타 → aggregate 순이라 두 경로가 같은 순서로 직렬화된다. 공지 행 자체는 따로 잠그지
- * 않는다 — 모든 공지·댓글 writer 가 먼저 섬 행을 배타로 잡으므로 그 아래에서 공지 행의 경쟁자가 없다.
+ * users 공유 → 섬(islands) 배타 → 공통 명령 receipt → 공지 aggregate 순서다.
+ * 모든 공지·댓글 writer가 먼저 섬 행을 배타로 잡으므로 공지 행은 별도로 잠그지 않는다.
  * ponytail: 섬 단위 직렬화 — 한 섬의 공지 쓰기가 몰려 병목이면 공지 행 잠금으로 좁힌다.
  *
  * <p>계정 탈퇴의 댓글 벌크 삭제({@code GroupMemberService.eraseWithdrawnUserRecords})도 같은 writer 다 — 활성
@@ -422,7 +418,7 @@ public class IslandNoticeService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
     }
 
-    /** 공지 작성·수정·삭제 — 방장만(2026-09-25 결정 GROMO-2136, B03). legacy {@code canWriteAnnouncement} 와 다르다. */
+    /** 공지 작성·수정·삭제는 방장만 허용한다(2026-09-25 결정 GROMO-2136, B03). */
     private static void requireHost(GroupMember member) {
         if (member.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);

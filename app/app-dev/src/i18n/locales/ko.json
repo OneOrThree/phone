@@ -111,14 +111,14 @@
     "report": {
       "title": "신고센터",
       "sub": "이메일로 신고하기",
-      "subject": "[catus 신고] 신고센터",
+      "subject": "[{{brand}} 신고] 신고센터",
       "body": "신고 내용:\n\n상대 닉네임·섬 이름:\n\n발생 시각:\n\n캡처가 있다면 이 메일에 첨부해 주세요.",
       "openFailed": "메일 앱을 열지 못했어요. 메일 앱을 설정한 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
     },
     "feedback": {
       "title": "문의하기",
       "sub": "오류 제보·기능 제안",
-      "subject": "[catus 문의] 오류 제보·기능 제안",
+      "subject": "[{{brand}} 문의] 오류 제보·기능 제안",
       "body": "문의 종류 (오류 / 제안):\n\n내용:\n\n캡처가 있다면 이 메일에 첨부해 주세요.\n\n앱 버전: {{version}}\n기기: {{os}}",
       "openFailed": "메일 앱을 열지 못했어요. 메일 앱을 설정한 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
     },
@@ -144,7 +144,7 @@
     "guestStart": "게스트로 시작하기",
     "guestOpening": "게스트 계정을 여는 중…",
     "guestHint": "게스트 계정으로 먼저 시작할 수 있어요.",
-    "fallbackStart": "GROMO 시작하기",
+    "fallbackStart": "시작하기",
     "heroTitle": "조금씩 집중하고,\n함께 자라요.",
     "heroSubtitle": "나의 작은 배에서 시작하는 집중 습관.",
     "policy": {
@@ -190,7 +190,7 @@
       "nickname": "닉네임",
       "nicknamePlaceholder": "닉네임을 입력해 주세요",
       "linkedAccount": "연동 계정",
-      "accountSummary": "{{name}}님의 GROMO 계정 · {{providers}}",
+      "accountSummary": "{{name}}님의 계정 · {{providers}}",
       "noLinkedAccount": "연결된 계정 없음",
       "providers": {
         "google": "Google",
@@ -217,7 +217,7 @@
     },
     "switch": {
       "title": "이미 연결된 계정이 있어요",
-      "body": "이 소셜 계정은 다른 GROMO 계정에 연결돼 있어요. 기존 계정으로 전환하면 지금 게스트의 고양이·섬·기록은 삭제되고 되돌릴 수 없어요. 전환할까요?",
+      "body": "기존 계정으로 전환하면 지금 게스트의 고양이·섬·기록은 삭제되고 되돌릴 수 없어요. 전환할까요?",
       "confirm": "전환하기"
     },
     "blocked": {
@@ -307,6 +307,7 @@
     "finishFocusTitle": "집중을 마칠까요?",
     "finishFocusBody": "이번 집중을 기록해요.",
     "linkUnsupported": "이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.",
+    "linkIslandUnavailable": "지금은 열 수 없는 섬이에요.",
     "storageRetrying": "기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.",
     "memberConverted": "회원으로 전환했어요.",
     "restoreFailed": "저장된 상태를 불러오지 못했어요.",
@@ -604,7 +605,7 @@
     "chooseJoined": "가입한 섬 선택",
     "mainTitle": "내 메인 섬 변경하기",
     "currentTitle": "현재 섬 변경하기",
-    "mainDescription": "친구 목록과 프로필에 표시할 섬을 골라 주세요. 현재 접속한 섬은 그대로예요.",
+    "mainDescription": "친구 목록과 프로필에 보이는 섬이에요.",
     "currentDescription": "가입한 섬 중 지금 들어갈 섬을 골라 주세요. 대표 섬은 그대로예요.",
     "loading": "소속 섬을 불러오고 있어요.",
     "members": "주민 {{count}}/{{max}}명",
@@ -666,7 +667,12 @@
   },
   "hall": {
     "greeting": "인사말",
-    "greetingPlaceholder": "비워 두면 기본 인사말이 나가요"
+    "greetingPlaceholder": "비워 두면 기본 인사말이 나가요",
+    "leave": {
+      "soloText": "나만 남은 섬이라 공동 데이터가 모두 삭제돼요.",
+      "memberText": "내가 모은 물고기와 기록은 섬에 남아요.",
+      "detail": "계정·고양이·친구·보유품은 그대로예요."
+    }
   },
   "guestbook": {
     "title": "방명록",
@@ -692,7 +698,7 @@
   },
   "telescope": {
     "back": "뒤로",
-    "nextIslands": "새 섬까지 {{minutes}}분",
+    "nextIslands": "{{minutes}}분 뒤 새 섬",
     "loading": "섬을 찾고 있어요",
     "empty": "지금은 보이는 섬이 없어요",
     "loadFailed": "섬을 불러오지 못했어요.",
@@ -729,7 +735,6 @@
   "observatory": {
     "searchTitle": "섬 찾기",
     "searchPlaceholder": "섬 이름",
-    "searchGuide": "섬 이름을 입력해요. 소속된 섬은 소속됨으로 표시되고, 다른 섬은 망원경에 넣어 두고 다시 항해할 수 있어요.",
     "searchEmpty": "찾는 섬이 없어요. 섬 이름을 다시 확인해 주세요.",
     "searchFailed": "섬을 찾지 못했어요.",
     "searchMore": "더 많은 섬이 있어요. 섬 이름을 더 자세히 입력해 주세요.",

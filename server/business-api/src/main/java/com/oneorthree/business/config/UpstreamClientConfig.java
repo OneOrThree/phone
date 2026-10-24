@@ -12,13 +12,11 @@ import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.DataConstructionClient;
 import com.oneorthree.business.upstream.data.DataFocusClient;
 import com.oneorthree.business.upstream.data.DataFriendClient;
-import com.oneorthree.business.upstream.data.DataInviteClient;
 import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.data.DataQuestClient;
 import com.oneorthree.business.upstream.data.DataRecordsClient;
 import com.oneorthree.business.upstream.data.DataShopClient;
-import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -43,7 +41,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * 받는다.
  */
 @Configuration
-@EnableConfigurationProperties({UpstreamConfigProperties.class, CompatProperties.class})
+@EnableConfigurationProperties(UpstreamConfigProperties.class)
 public class UpstreamClientConfig implements MeterBinder {
 
     /** 마지막으로 bindTo 된 레지스트리 하나만 기억한다 — Boot 기본(Prometheus 단일 또는 composite) 전제. 레지스트리가 여럿이면 List 로. */
@@ -155,11 +153,6 @@ public class UpstreamClientConfig implements MeterBinder {
     }
 
     @Bean
-    public DataInviteClient dataInviteClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
-        return new DataInviteClient(dataHttp(properties, objectMapper));
-    }
-
-    @Bean
     public DataOutboxClient dataOutboxClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
         return new DataOutboxClient(dataHttp(properties, objectMapper));
     }
@@ -169,12 +162,6 @@ public class UpstreamClientConfig implements MeterBinder {
             ObjectMapper objectMapper) {
         return new NotificationApiClient(client(
                 UpstreamTarget.NOTIFICATION, convert(properties.getNotification()), objectMapper));
-    }
-
-    @Bean
-    public LinkApiClient linkApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
-        return new LinkApiClient(
-                client(UpstreamTarget.LINK, convert(properties.getLink()), objectMapper));
     }
 
     /** 우체통 저장소 어댑터(GROMO-1775). 넷째 대상, 넷째 토큰 — 셋과 같은 규율로 만든다. */

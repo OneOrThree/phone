@@ -35,9 +35,6 @@ services:
       # FCM 발송 (GROMO-528) — dev 프로파일 = FCM 구현 활성, 시크릿 미등록 시 fail-fast 기동 실패
       FCM_PROJECT_ID: ${FCM_PROJECT_ID}
       FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON}
-      # 누끼 유해 이미지 모더레이션 (GROMO-1048) — OpenAI omni-moderation 서버 게이트(1044)가 읽는 키.
-      # 미주입 시 서버는 fail-closed(전체 차단)로 동작하므로 dev 컨테이너에 반드시 주입한다.
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
       # 집중 프레즌스 (GROMO-292) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거를 여기에 쓴다.
       # 기본 false: Redis·채팅이 실제로 뜬 뒤에 .env 에서 켠다. 안 뜬 상태에서 켜면 집중 시작·종료마다
       # 연결 타임아웃을 문다. 쓰기는 best-effort 라 켜도 Redis 장애가 집중을 막지는 않는다.
@@ -75,8 +72,8 @@ services:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 30s
+      retries: 6
+      start_period: 120s
 
   db:
     logging: *infra-logging

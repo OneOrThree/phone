@@ -430,7 +430,7 @@ test('로그인 직후 터치 차단막이 끝나야 새 온보딩의 고양이 
   try {
     const screen = await render(<Harness route="login" flow />);
     await fireEvent.press(screen.getByRole('checkbox'));
-    await fireEvent.press(screen.getByText('GROMO 시작하기'));
+    await fireEvent.press(screen.getByText('시작하기'));
     expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
     expect(
       screen.getByTestId('route-transition-shield', { includeHiddenElements: true }).props
@@ -975,6 +975,9 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
   const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
   assert.equal(statusStyle.flexShrink, 1);
   assert.equal(statusStyle.maxWidth, '45%');
+  // 곡 행 글자는 글자 크기 단계(12 이상) 안이다(GROMO-2413) — 예전 9·11 은 읽기 어려웠다
+  assert.ok(statusStyle.fontSize >= 12);
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).fontSize >= 12);
 });
 
 test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {
@@ -1758,7 +1761,7 @@ test('프로필은 /me 에서 채택한 연결 제공자들을 표시한다', as
     linkedProviders: ['google', 'kakao', 'line'],
   };
   const s = await render(<Harness route="profile" initial={initial} api={() => ({})} />);
-  assert.ok(s.getByText('수빈님의 GROMO 계정 · Google · 카카오 · LINE'));
+  assert.ok(s.getByText('수빈님의 계정 · Google · 카카오 · LINE'));
 });
 
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
@@ -2845,7 +2848,7 @@ test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하�
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
   await fireEvent.press(ui.getByText('문의하기'));
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus 문의]'));
+  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[집중할고양 문의]'));
   open.mockRejectedValue(new Error('no mail'));
   await fireEvent.press(ui.getByText('문의하기'));
   await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
@@ -2861,7 +2864,7 @@ test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메�
   const ui = await render(<Harness route="settings" full localePref="en" />);
   await fireEvent.press(ui.getByText('Report center'));
   assert.ok(
-    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus report] Report center'),
+    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[Focus Cat report] Report center'),
   );
   assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('What happened:'));
   open.mockRestore();

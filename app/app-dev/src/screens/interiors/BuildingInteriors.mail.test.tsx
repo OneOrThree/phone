@@ -218,6 +218,20 @@ beforeEach(async () => {
   blockedUsersMock.mockResolvedValue([]);
 });
 
+test('우체통 첫 칸 — 글자는 덮개 그림 아래에서 시작하고(새 편지 줄이 붙어도), 네이티브 채팅방 종이에 줄이 있다(GROMO-2409)', async () => {
+  // 앱 문맥 없이 시안(우체통 첫 화면)으로 그린다 — 네이티브 경로의 줄 종이를 본다
+  const ui = await renderMail(null);
+  // 글자 칸은 가운데 정렬이라 줄이 늘면 위로 올라온다 — 시작선(paddingTop)이 그림 바닥보다 아래여야 덮개에 안 가린다
+  for (const i of [0, 1, 2]) {
+    const card = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}`).props.style);
+    const art = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}-art`).props.style);
+    assert.ok(card.paddingTop > art.top + art.height, `칸 ${i}: 글자 시작이 그림 바닥 아래`);
+  }
+  // 줄 종이 66 높이에 12 간격 줄 다섯 개(웹 repeating-linear-gradient 와 같은 자리)
+  assert.equal(ui.getByTestId('mail-home-0-art').props.children.filter(Boolean).length, 5);
+  await ui.unmount();
+});
+
 test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이름이 보인다', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   const ui = await renderMail(makeE());
@@ -550,6 +564,13 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
       '고양이 잡지 보기 19호, 아직 안 읽음',
     );
     assert.ok(ui.getByTestId('mail-home-magazine-dot'));
+    // 빨간 점은 알약 테두리에 걸치지 않고 안쪽에 있다(GROMO-2409)
+    const dot = StyleSheet.flatten(ui.getByTestId('mail-home-magazine-dot').props.style);
+    assert.ok(dot.top >= 0 && dot.right >= 0);
+    // 잡지 꽂이는 잡지 보기 옆에서 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 이면 웹에서 세로로 접힌다
+    const rack = StyleSheet.flatten(ui.getByTestId('mail-home-rack').props.style);
+    assert.equal(rack.flexShrink, 0);
+    assert.equal(rack.flex, undefined);
     await fireEvent.press(ui.getByTestId('mail-home-rack'));
     await waitFor(() => assert.ok(ui.getByTestId('magazine-rack-13')));
     await fireEvent.press(ui.getByTestId('magazine-rack-17'));

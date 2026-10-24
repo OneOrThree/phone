@@ -118,7 +118,7 @@ class IslandGuestbookGateDefaultsTest {
 
     /** 회원 — 게스트로 만든 뒤 {@code is_guest} 만 내린다(방명록 쓰기는 회원 전용). */
     private UUID newMember() {
-        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         jdbc.update("update users set is_guest = false where id = ?", id);
         return id;
     }
