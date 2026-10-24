@@ -3521,9 +3521,12 @@ function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
   }, [impact, reduceMotion]);
   return (
     <Animated.View
+      testID="board-blueprint-ready-stamp"
       style={{
-        width: 126,
-        height: 126,
+        // 시안 크기 126까지, 좁은 화면에서는 들어 있는 그림 칸 폭만큼 줄어든다(정사각형 유지)
+        width: '100%',
+        maxWidth: 126,
+        aspectRatio: 1,
         opacity: impact,
         transform: [
           { scale: impact.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1.65, 0.94, 1] }) },
@@ -5832,6 +5835,7 @@ export function Board({
             style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
           >
             <View
+              testID="board-blueprint-preview"
               style={{
                 width: '36%',
                 minHeight: 142,
@@ -5904,8 +5908,31 @@ export function Board({
               >
                 예상 모습
               </Text>
+              {/* 도장은 이 그림 칸 안 가운데에 찍는다 — 칸 폭을 넘지 않게 줄어 옆 글자 칸(가격·공사 시간)을 가리지 않고,
+                  칸이 overflow hidden 이라 찍히는 순간 커지는 연출도 칸 밖으로 나가지 않는다 */}
+              {stamp && (
+                <View
+                  testID="board-blueprint-stamp-area"
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    zIndex: 2,
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
+                </View>
+              )}
             </View>
-            <View style={{ position: 'relative', flex: 1, minWidth: 0, alignSelf: 'center' }}>
+            <View
+              testID="board-blueprint-copy"
+              style={{ flex: 1, minWidth: 0, alignSelf: 'center' }}
+            >
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
                 {bp.name}
               </Text>
@@ -5920,21 +5947,6 @@ export function Board({
               >
                 {bp.detail}
               </Text>
-              {stamp && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    zIndex: 2,
-                    left: '50%',
-                    top: '50%',
-                    marginLeft: -63,
-                    marginTop: -63,
-                  }}
-                >
-                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
-                </View>
-              )}
             </View>
           </View>
         </View>
@@ -6534,6 +6546,11 @@ export function Board({
         testID="board-drawer"
         ref={boardDrawerRef as any}
         {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+        // 상세 종이가 떠 있어 감춘(opacity 0) 목록 종이는 누를 수도, 읽을 수도 없게 한다 — opacity 0 은 터치와
+        // 안드로이드 TalkBack 을 막지 않는다(iOS 는 상세의 accessibilityViewIsModal, 웹은 aria-hidden·inert 가 막는다)
+        pointerEvents={boardOverlayOpen ? 'none' : 'auto'}
+        accessibilityElementsHidden={boardOverlayOpen}
+        importantForAccessibility={boardOverlayOpen ? 'no-hide-descendants' : 'auto'}
         style={[
           {
             position: 'absolute',
@@ -6579,6 +6596,9 @@ export function Board({
             backgroundColor: 'transparent',
             boxShadow: 'none',
           },
+          // 공지 상세·쓰기·퀘스트 상세 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 상세 종이보다 넓고 길어
+          // 아래·옆으로 날짜·댓글 줄이 삐져나온다. 닫으면 스크롤 위치 그대로 다시 보인다(터치·스크린리더는 위 prop 이 막는다)
+          boardOverlayOpen && { opacity: 0 },
         ]}
       >
         {paperPanel && (
@@ -6868,6 +6888,10 @@ const boardArtifacts: Record<string, ArtifactRenderer> = {
 // 전망대·우체통 기능 화면: observatory-desk · island-ranking · old-map · mail-home · island-room · friend-mail
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// 우체통 첫 화면 「우리 섬 채팅방」 칸의 줄 종이 — 웹 repeating-linear-gradient 와 네이티브 1px 줄(View)이 같은 값을 쓴다.
+// pitch 간격마다 마지막 1px 이 줄이다
+const MAIL_RULED_PAPER = { sheet: '#fffaf0', rule: '#d7c5a3', pitch: 12 } as const;
 
 // 본문 글꼴 스택 한 벌 (font-size · line-height 배수)
 const obsFont = (
@@ -8001,6 +8025,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     const routes: MailRoute[] = ['island', 'inbox', 'friend-select'];
     const colors = ['#dce8c1', '#bddde0', '#efbcc4'];
     const [title, note] = homeItems[i];
+    // 칸 위쪽 그림 자리(첫 칸은 줄 종이, 나머지는 봉투 덮개). 글자는 가운데 정렬이라 「새 편지 N통」 줄이 붙으면 위로 올라온다 —
+    // 글자 시작(paddingTop)을 그림 바닥 + 5(첫 칸과 같은 틈)로 둬 덮개가 제목을 가리지 않게 한다
+    const art = first ? { top: 17, height: 66 } : { top: 8, height: 25 };
     return (
       <Pressable
         key={title}
@@ -8011,7 +8038,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         style={[
           {
             minHeight: first ? 151 : 72,
-            paddingTop: first ? 88 : 29,
+            paddingTop: art.top + art.height + 5,
             paddingHorizontal: 7,
             paddingBottom: 9,
             justifyContent: 'center',
@@ -8034,28 +8061,46 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           </Text>
         ) : null}
         <View
+          testID={`mail-home-${i}-art`}
           style={[
             {
               position: 'absolute',
               left: 8,
               right: 8,
-              top: first ? 17 : 8,
-              height: first ? 66 : 25,
+              top: art.top,
+              height: art.height,
             },
             first
               ? [
                   webOnly({
-                    backgroundImage: 'repeating-linear-gradient(#fffaf0 0 11px,#d7c5a3 12px)',
+                    backgroundImage: `repeating-linear-gradient(${MAIL_RULED_PAPER.sheet} 0 ${MAIL_RULED_PAPER.pitch - 1}px,${MAIL_RULED_PAPER.rule} ${MAIL_RULED_PAPER.pitch}px)`,
                     clipPath: 'polygon(4% 0,96% 3%,100% 95%,1% 100%)',
                   }),
-                  Platform.OS !== 'web' && { backgroundColor: '#fffaf0' },
+                  Platform.OS !== 'web' && { backgroundColor: MAIL_RULED_PAPER.sheet },
                 ]
               : gradient(
                   'linear-gradient(145deg,transparent 49%,#ccb176 50%),linear-gradient(215deg,transparent 49%,#ead69f 50%)',
                 ),
             webOnly({ filter: 'drop-shadow(0 2px 1px #65402a33)' }),
           ]}
-        />
+        >
+          {/* 네이티브는 repeating-linear-gradient 를 못 그려 흰 사각형만 남는다 — 웹과 같은 12px 간격 줄을 긋는다 */}
+          {first &&
+            Platform.OS !== 'web' &&
+            Array.from({ length: Math.floor(art.height / MAIL_RULED_PAPER.pitch) }, (_, n) => (
+              <View
+                key={n}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: (n + 1) * MAIL_RULED_PAPER.pitch - 1,
+                  height: 1,
+                  backgroundColor: MAIL_RULED_PAPER.rule,
+                }}
+              />
+            ))}
+        </View>
       </Pressable>
     );
   };
@@ -8095,12 +8140,18 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 {t('magazine.mail.open', { no: magazineIssue.issueNo })}
               </Text>
               {magazineUnreadDot && (
+                // 알약 오른쪽 위 둥근 끝 안쪽에 둔다 — 점 중심이 모서리 원 중심 바로 위라 테두리에 닿지 않는다
                 <View
                   testID="mail-home-magazine-dot"
                   style={{
                     position: 'absolute',
-                    top: -componentTokens.mailboxAction.dotSize / 3,
-                    right: componentTokens.mailboxAction.dotSize / 2,
+                    top:
+                      (componentTokens.mailboxAction.pillRadius -
+                        componentTokens.mailboxAction.dotSize) /
+                      2,
+                    right:
+                      componentTokens.mailboxAction.pillRadius -
+                      componentTokens.mailboxAction.dotSize / 2,
                     width: componentTokens.mailboxAction.dotSize,
                     height: componentTokens.mailboxAction.dotSize,
                     borderRadius: componentTokens.mailboxAction.dotSize / 2,
@@ -8118,7 +8169,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             accessibilityLabel={t('magazine.rack.open')}
             onPress={() => setMagazineRack(true)}
             style={{
-              flex: magazineIssue ? 0 : 1,
+              // 잡지 보기 옆에서는 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 은 웹에서 기준 폭 0 이라 한 글자씩 세로로 접힌다
+              flexGrow: magazineIssue ? 0 : 1,
+              flexShrink: 0,
               minHeight: semanticTokens.size.tapMin,
               paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
               justifyContent: 'center',

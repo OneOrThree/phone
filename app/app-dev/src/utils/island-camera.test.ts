@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { IslandCamera } from '@/utils/island-camera';
+import { IslandCamera, keepLabelInView } from '@/utils/island-camera';
 test('reference zoom bounds reveal the whole 2560px island and cap close-up at 2.4x', () => {
   const c = new IslandCamera();
   c.resize(402, 874);
@@ -52,4 +52,18 @@ test("portrait to landscape and back preserves the user's relative zoom", () => 
   assert(c.scale >= c.minScale);
   c.resize(402, 874);
   assert.equal(c.scale, 402 / 1024);
+});
+test('keepLabelInView: 주인이 화면 안이면 이름표 전체를 화면 안으로, 밖이면 전체를 밖으로 민다(GROMO-2409)', () => {
+  // 가운데 → 그대로
+  assert.equal(keepLabelInView(200, 64, 0, 402), 200);
+  // 기본 카메라의 우체통처럼 왼쪽 가장자리에 걸친 건물(가운데 7.5) — 팻말 왼쪽 끝이 화면 0 에 맞는다
+  assert.equal(keepLabelInView(7.5, 64, 0, 402) - 32, 0);
+  // 오른쪽 가장자리·안전 영역
+  assert.equal(keepLabelInView(400, 120, 0, 402) + 60, 402);
+  assert.equal(keepLabelInView(60, 64, 47, 402) - 32, 47);
+  // 주인이 화면 밖이면(기본 카메라의 게시판, 가운데 429) 반쯤 걸친 팻말을 화면 밖으로 마저 뺀다
+  assert.equal(keepLabelInView(429, 64, 0, 402) - 32, 402);
+  assert.equal(keepLabelInView(-10, 64, 0, 402) + 32, 0);
+  // 이미 화면 밖이면 그대로
+  assert.equal(keepLabelInView(-200, 64, 0, 402), -200);
 });
