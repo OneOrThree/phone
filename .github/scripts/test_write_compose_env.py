@@ -133,6 +133,15 @@ class WriteComposeEnvTest(unittest.TestCase):
         self.assertIn("CHAT_WS_ALLOWED_ORIGINS='value-CHAT_WS_ALLOWED_ORIGINS'",
                       MODULE.render(secret(), "example/app@sha256:abc"))
 
+    def test_legacy_dev_렌더만_위성_기동_유예_240초와_연속_실패_6회를_준다(self) -> None:
+        # GROMO-2452 — 위성 dev 실측 14일 p95 195s·max 295s(정지 사건 제외 208s)라 120s(판정 ≈170s)로는 정상 기동이 unhealthy 로 찍힌다.
+        dev = MODULE.render(secret(), "example/app@sha256:abc")
+        self.assertIn("APP_HEALTH_START_PERIOD='240s'", dev)
+        self.assertIn("APP_HEALTH_RETRIES='6'", dev)
+        prod = MODULE.render(secret(), "example/app@sha256:abc", "legacy", "transition", "prod")
+        self.assertNotIn("APP_HEALTH_START_PERIOD", prod)
+        self.assertNotIn("APP_HEALTH_RETRIES", prod)
+
     def test_허용목록에_금지_키가_섞이면_출력_전에_실패한다(self) -> None:
         # GROMO-2224 — 허용목록을 실수로 넓혀도 다른 서버 자격은 못 나가게 하는 2차 방어선
         baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}

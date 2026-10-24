@@ -160,8 +160,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      # dev 앱 공통 정책(10초 간격·6회 실패 허용)에서 Realtime 만 시작 유예 180초 — dev 실측 21회가
-      # p50 125s·p95 170s·max 188s 라(GROMO-2286) 120초면 unhealthy 판정(≈170s)이 p95 를 못 넘어 정상 기동 중 일부(170초 초과)도 unhealthy 로 표시된다.
+      # dev 앱 공통 정책(10초 간격·6회 실패 허용)에서 시작 유예는 서비스별 실측에 맞춘다 — Realtime 180초(아래), 위성 240초(GROMO-2452, write-compose-env.py).
+      # Realtime 은 dev 실측 21회가 p50 125s·p95 170s·max 188s 라(GROMO-2286) 120초면 unhealthy 판정(≈170s)이 p95 를 못 넘어
+      # 정상 기동 중 일부(170초 초과)도 unhealthy 로 표시된다.
       # 180초면 판정 ≈230s. 유예 중에도 readiness가 성공하면 즉시 healthy가 되므로 정상 기동은 느려지지 않는다.
       start_period: 180s
 

@@ -270,9 +270,10 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
     require(secret, LEGACY_REQUIRED_KEYS)
 
     values: list[tuple[str, Any]] = [("APP_IMAGE", app_image)]
-    # 공용 위성 Compose의 운영 기본값은 유지하고 dev 배포 입력에서만 기동 정책을 통일한다.
+    # 위성 두 서비스(business-api·notification)의 기동 정책은 dev 배포 입력에서만 지정하고, 공용 위성 Compose 의
+    # 운영 기본값(30s·30회)은 유지한다. 시작 유예 240s 의 dev 실측 근거(GROMO-2452)는 server/scripts/README.md 기동 정책 문단.
     if environment == "dev":
-        values.extend((("APP_HEALTH_START_PERIOD", "120s"), ("APP_HEALTH_RETRIES", "6")))
+        values.extend((("APP_HEALTH_START_PERIOD", "240s"), ("APP_HEALTH_RETRIES", "6")))
     values.extend((key, secret[key]) for key in LEGACY_REQUIRED_KEYS)
     values.extend(
         (
