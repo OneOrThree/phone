@@ -2512,7 +2512,6 @@ function Gromo() {
                 </NativeText>
                 {/* 한국어 문장은 단어 단위로 줄바꿈(시안 .dlg .body word-break:keep-all) */}
                 <NativeText
-                  lineBreakStrategyIOS="hangul-word"
                   style={[
                     { color: C.muted },
                     Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
@@ -2598,7 +2597,6 @@ function Gromo() {
                     {t('account.guest.title')}
                   </NativeText>
                   <NativeText
-                    lineBreakStrategyIOS="hangul-word"
                     style={[
                       { color: C.muted },
                       Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
@@ -2700,7 +2698,6 @@ function Gromo() {
                   {t('account.switch.title')}
                 </NativeText>
                 <NativeText
-                  lineBreakStrategyIOS="hangul-word"
                   style={[
                     { color: C.muted },
                     Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),

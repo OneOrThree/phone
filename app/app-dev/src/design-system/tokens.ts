@@ -522,6 +522,13 @@ export const componentTokens = {
     controlWidth: 60,
     rowMinHeight: semanticTokens.size.tapMin,
     largeTextThreshold: 1.3,
+    // 글자 크기 단계(DESIGN §5.2) — 현재 곡 제목 lg · 부제 xs, 곡 행 이름 sm · 상태(무료·보유·재생 중) xs
+    titleText: { fontSize: fontSize.lg, lineHeight: 24 },
+    captionText: { fontSize: fontSize.xs, lineHeight: 16 },
+    rowTitleText: { fontSize: fontSize.sm, lineHeight: 18 },
+    rowStatusText: { fontSize: fontSize.xs, lineHeight: 16 },
+    // 현재 곡 칸 = 제목 줄 24 + 부제 줄 16
+    currentTrackMinHeight: 40,
   },
   // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
   // ribbonTilt(GROMO-2273) — 잡지에서 넣은 섬에 붙이는 「찜」 리본이 마스킹테이프처럼 살짝 기울어 붙은 각도
