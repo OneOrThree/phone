@@ -5,15 +5,12 @@ package com.oneorthree.phone.focus.repository.domain;
  */
 public enum FocusSessionStatus {
     /**
-     * 진행 중(라이브). 종료 시각(endedAt)이 채워지면 완료 전이로 COMPLETED 가 된다.
-     * (GROMO-610 시절 레거시 경로로 endedAt 만 채워지고 ACTIVE 로 남은 완료 세션도 존재할 수 있어,
-     * 완료 조회 필터는 status=COMPLETED 단독이 아닌 NOT IN(CANCELED, AUTO_CLOSED) 방식을 유지한다.)
+     * 진행 중. 정상 종료하면 {@link FocusSession#end}가 COMPLETED로 바꾼다.
+     * 이전 기록에는 종료 시각만 채워진 ACTIVE 행이 있을 수 있으므로 조회 시 종료 시각도 확인한다.
      */
     ACTIVE,
     /**
-     * 정상 완료(GROMO-733부터 사용). 세션 완료 전이({@link FocusSession#end}) 및 POST 완료 저장
-     * ({@code FocusService.saveFocusSession})이 이 값을 세팅한다. 통계·스트릭에 반영되는 정상값이며,
-     * 완료 조회 필터 NOT IN(CANCELED, AUTO_CLOSED)를 통과한다.
+     * 정상 완료. {@link FocusSession#end}가 종료 시각과 확정된 집중 시간을 기록하며 설정한다.
      */
     COMPLETED,
     /**
@@ -22,9 +19,7 @@ public enum FocusSessionStatus {
      */
     CANCELED,
     /**
-     * orphan 자동 종료(GROMO-804). 앱 강제종료 등으로 미종료로 남은 세션을 스케줄러가 '시작+상한'으로 종료할 때
-     * 부여한다. 종료 시각 신뢰도가 낮아(유저 미확정) <b>통계·스트릭에 미반영</b>하며, by-category 실시간 집계에서도
-     * 제외된다({@code FocusSessionRepository.findCompletedSessionsOverlappingPeriod}) — 사전집계 {@code /stats/focus} 와 총합 정합.
+     * 정상 완료로 집계하지 않는 기본 세션의 강제 종료 상태.
      */
     AUTO_CLOSED
 }

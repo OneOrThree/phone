@@ -122,7 +122,6 @@ public class NotificationOutboxProducer {
 
     private final OutboxCommandPort outboxCommandPort;
     private final EventOutboxRepository eventOutboxRepository;
-    private final ResultBundleCompletionService resultBundles;
 
     /**
      * 알림 요청 하나를 outbox 에 적는다 — <b>호출부의 도메인 트랜잭션 안에서</b>.
@@ -134,7 +133,6 @@ public class NotificationOutboxProducer {
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<EventEnvelope> append(NotificationRequest request) {
         String eventId = eventIdOf(request);
-        resultBundles.protect(request);
         AggregateRef aggregate = AggregateRef.ofUser(request.userId());
         // 「있으면 두고 없으면 적는다」는 조회와 삽입 사이에 창이 있다. 그 창에 같은 결정적 키가
         // 동시에 들어오면 둘 다 「없다」를 보고 둘 다 INSERT 해, 한쪽이 UNIQUE 위반으로 죽으면서
@@ -162,7 +160,6 @@ public class NotificationOutboxProducer {
         // 일이고, 그 판정에 필요한 조용한 시간 설정의 정본은 알림 DB 에 있다. relay 를 붙잡아 두면
         // 설정이 그사이 바뀌어도 이미 박힌 시각으로 나가고, Kafka 에 아직 없는 사건은 알림 서버가
         // 상태(설정 삭제·탈퇴·ack)를 반영할 기회조차 갖지 못한다.
-        resultBundles.register(request, eventId);
         EventEnvelope envelope = outboxCommandPort.append(new OutboxAppendCommand(
                 eventId,
                 SCHEMA_VERSION,
@@ -186,11 +183,6 @@ public class NotificationOutboxProducer {
      * 순서가 다른 두 트랜잭션(공통 멤버를 가진 두 그룹의 챌린지 개설, 같은 사용자를 다른 정렬로 훑는 두
      * 배치)이 A→B · B→A 로 교착해 PostgreSQL 이 한쪽 트랜잭션 «전체»를 {@code 40P01} 로 되돌린다.
      *
-     * <h2>잠금 순서 — 결과 슬롯 공유 잠금 → USER 잠금</h2>
-     * 결과·환불 요청의 슬롯 공유 잠금을 USER 보다 먼저 전부 잡는다. 거꾸로 USER 를 쥔 채 공유 잠금을
-     * 요청하면, 앞서 대기 중인 봉인의 배타 잠금 뒤에 줄을 서게 되고 그 봉인은 USER 를 기다리는 정산의
-     * 공유 잠금이 풀리길 기다려 셋이 순환한다. 정산({@code settlementTime})도 공유 잠금을 USER 보다 먼저 잡는다.
-     *
      * @param requests 판정이 끝난 요청들 — 수신자 중복·순서 무관
      * @return 입력 순서 그대로 — 새로 적었으면 봉투, 같은 결정적 키가 이미 있으면 {@link Optional#empty()}
      */
@@ -199,7 +191,6 @@ public class NotificationOutboxProducer {
         if (requests.isEmpty()) {
             return List.of();
         }
-        requests.forEach(resultBundles::protect);
         outboxCommandPort.lockUserAggregates(requests.stream().map(NotificationRequest::userId).toList());
         List<Optional<EventEnvelope>> written = new ArrayList<>(requests.size());
         for (NotificationRequest request : requests) {
@@ -236,19 +227,7 @@ public class NotificationOutboxProducer {
         Map<String, Object> params = new LinkedHashMap<>(request.params());
         params.put("kind", request.kind().name());
         params.put("quietPolicy", request.kind().quietPolicy().name());
-        if (request.groupId() != null) {
-            params.put("groupId", request.groupId().toString());
-        }
-        if (request.slotAt() != null) {
-            params.put("slotAt", request.slotAt().toString());
-        }
-        if (request.occurredAtKeyHint() != null) {
-            // 중복 판정이 «실제 1분»을 재려면 이 값이 행에 남아 있어야 한다. 봉투의 occurredAt 은
-            // append 시각이라 못 쓴다 — 재훑기가 옛 사건을 지금 적으면 둘이 크게 갈린다.
-            // 계약상 params 는 additive 허용이고(additionalProperties: true) 소비자는 모르는 필드를
-            // 무시하므로 스키마 버전은 올리지 않는다.
-            NotificationExpiry.addTo(params, request.kind(), request.occurredAtKeyHint());
-        }
+        NotificationExpiry.addTo(params, request.kind(), request.occurredAtKeyHint());
         return params;
     }
 }

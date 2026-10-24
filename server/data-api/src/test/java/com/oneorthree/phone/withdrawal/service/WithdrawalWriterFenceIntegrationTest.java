@@ -1,31 +1,18 @@
 package com.oneorthree.phone.withdrawal.service;
 
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.notification.service.FriendNotificationService;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.focus.dto.FocusTagUpdateRequest;
-import com.oneorthree.phone.focus.repository.domain.DefaultTag;
-import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.service.FriendService;
-import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
-import com.oneorthree.phone.group.repository.domain.GroupChallenge;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.repository.domain.MissionCategory;
-import com.oneorthree.phone.group.repository.domain.MissionType;
-import com.oneorthree.phone.group.service.ChallengeResultAckService;
-import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository;
-import com.oneorthree.phone.league.repository.LeagueRankSnapshotUpsertRepository.SnapshotRank;
-import com.oneorthree.phone.league.repository.domain.LeagueRankSnapshot;
-import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
-import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
-import com.oneorthree.phone.league.service.LeagueService;
-import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
-import com.oneorthree.phone.notification.service.FriendNotificationService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -42,11 +29,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -75,11 +57,6 @@ class WithdrawalWriterFenceIntegrationTest {
 
     @Autowired AccountWithdrawalService withdrawal;
     @Autowired FriendService friends;
-    @Autowired ChallengeResultAckService resultAcks;
-    @Autowired LeagueRankSnapshotUpsertRepository snapshots;
-    @Autowired LeagueService league;
-    @Autowired FriendNotificationService friendNotifications;
-    @Autowired FocusService focus;
     @Autowired AuthService auth;
     @Autowired JwtProvider jwt;
     @Autowired JdbcTemplate jdbc;
@@ -98,112 +75,6 @@ class WithdrawalWriterFenceIntegrationTest {
 
         assertUserNotFound(thrown);
         assertThat(count("select count(*) from friendships where from_user_id=? or to_user_id=?", w, w)).isZero();
-    }
-
-    @Test
-    @DisplayName("결과 표시 선점 — 탈퇴 커밋 뒤 404 이고 비운 lease 가 되살아나지 않는다")
-    void claimDisplay() throws Exception {
-        UUID w = actor();
-        UUID session = settledSessionWith(w, null);
-
-        Throwable thrown = writerRacingWithdrawal(w, () -> resultAcks.claimDisplay(w, session, null));
-
-        assertUserNotFound(thrown);
-        assertThat(jdbc.queryForMap("select display_claim_token, display_claimed_at from"
-                + " group_challenge_bet_participants where session_id=? and user_id=?", session, w))
-                .containsEntry("display_claim_token", null).containsEntry("display_claimed_at", null);
-    }
-
-    @Test
-    @DisplayName("결과 확인 — 탈퇴 커밋 뒤 404 이고 비운 확인 시각이 되살아나지 않는다")
-    void acknowledgeResult() throws Exception {
-        UUID w = actor();
-        UUID token = UUID.randomUUID();
-        UUID session = settledSessionWith(w, token);
-
-        Throwable thrown = writerRacingWithdrawal(w, () -> resultAcks.acknowledge(w, session, token));
-
-        assertUserNotFound(thrown);
-        assertThat(jdbc.queryForMap("select acknowledged_at from group_challenge_bet_participants"
-                + " where session_id=? and user_id=?", session, w)).containsEntry("acknowledged_at", null);
-    }
-
-    @Test
-    @DisplayName("리그 순위 스냅샷 — 탈퇴한 사용자의 줄만 빠지고 파기한 스냅샷이 되살아나지 않는다")
-    void rankSnapshotUpsert() throws Exception {
-        UUID w = actor();
-        UUID c = actor();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        inTx(() -> em.persist(LeagueRankSnapshot.builder().userId(w).rank(5).createdAt(today).build()));
-
-        Throwable thrown = writerRacingWithdrawal(w, () -> snapshots.upsertAll(today,
-                List.of(new SnapshotRank(w, 1), new SnapshotRank(c, 2))));
-
-        assertThat(thrown).isNull();
-        assertThat(count("select count(*) from league_rank_snapshots where user_id=?", w)).isZero();
-        assertThat(count("select count(*) from league_rank_snapshots where user_id=? and rank=2", c)).isEqualTo(1L);
-    }
-
-    @Test
-    @DisplayName("리그 주간 결과 확인 — 탈퇴 커밋 뒤 404 이고 완료 마커의 확인 시각이 비어 있다")
-    void acknowledgeWeeklyResult() throws Exception {
-        UUID w = actor();
-        Instant week = Instant.now().minus(7, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
-        inTx(() -> em.persist(LeagueWeeklyResult.builder().user(user(w)).weekStartAt(week).previousTierLevel(1)
-                .newTierLevel(2).result(LeagueWeeklyResultType.PROMOTED).focusSeconds(3600).build()));
-
-        Throwable thrown = writerRacingWithdrawal(w, () -> league.acknowledgeLastResult(w, week));
-
-        assertUserNotFound(thrown);
-        assertThat(jdbc.queryForMap("select acknowledged_at, result from league_weekly_results where user_id=?", w))
-                .containsEntry("acknowledged_at", null).containsEntry("result", null);
-    }
-
-    @Test
-    @DisplayName("친구 알림 기록(탈퇴자가 수신자) — 푸시 뒤 탈퇴가 커밋되면 발송 이력을 남기지 않는다")
-    void friendNotificationLogForWithdrawnRecipient() throws Exception {
-        UUID w = actor();
-        UUID c = actor();
-        reachable(w);
-        reachable(c);
-
-        Throwable thrown = writerRacingWithdrawal(w, () -> friendNotifications.notifyFriendAccepted(w, c));
-
-        assertThat(thrown).isNull();
-        assertThat(count("select count(*) from notification_sent_logs where user_id=?", w)).isZero();
-    }
-
-    @Test
-    @DisplayName("친구 알림 기록(탈퇴자가 상대) — 푸시 뒤 탈퇴가 커밋되면 탈퇴자를 가리키는 이력을 남기지 않는다")
-    void friendNotificationLogAboutWithdrawnCounterpart() throws Exception {
-        UUID w = actor();
-        UUID c = actor();
-        reachable(w);
-        reachable(c);
-
-        Throwable thrown = writerRacingWithdrawal(w, () -> friendNotifications.notifyFriendAccepted(c, w));
-
-        assertThat(thrown).isNull();
-        assertThat(count("select count(*) from notification_sent_logs where target_user_id=?", w)).isZero();
-    }
-
-    @Test
-    @DisplayName("집중 태그 이름 변경 — 탈퇴 커밋 뒤 404 이고 파기한 채택 행이 되살아나지 않는다")
-    void updateFocusTag() throws Exception {
-        UUID w = actor();
-        UUID tag = inTx(() -> {
-            DefaultTag name = DefaultTag.builder().name("태그" + suffix()).build();
-            em.persist(name);
-            UserFocusTag adopted = UserFocusTag.builder().user(user(w)).defaultTag(name).build();
-            em.persist(adopted);
-            return adopted.getId();
-        });
-
-        Throwable thrown = writerRacingWithdrawal(w,
-                () -> focus.updateFocusTag(w, new FocusTagUpdateRequest(tag, "새이름" + suffix())));
-
-        assertUserNotFound(thrown);
-        assertThat(count("select count(*) from user_focus_tags where user_id=?", w)).isZero();
     }
 
     // ---------------------------------------------------------------- 경합 재현
@@ -268,43 +139,7 @@ class WithdrawalWriterFenceIntegrationTest {
     // ---------------------------------------------------------------- 픽스처
 
     private UUID actor() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
-    }
-
-    /** 푸시가 실제로 나가는 상태 — 기기 토큰과 문구에 들어갈 닉네임. */
-    private void reachable(UUID userId) {
-        inTx(() -> {
-            User user = user(userId);
-            user.setNickname("알림" + suffix());
-            user.setDeviceToken("token-" + userId);
-            return null;
-        });
-    }
-
-    /** 정산 끝난 회차에 참가 행 하나. {@code claimToken} 이 있으면 그 토큰으로 선점된 상태다. */
-    private UUID settledSessionWith(UUID userId, UUID claimToken) {
-        return inTx(() -> {
-            Instant past = Instant.now().minusSeconds(7200);
-            Group group = Group.builder().name("선점" + suffix()).maxMembers(10).build();
-            em.persist(group);
-            GroupChallenge challenge = GroupChallenge.builder().group(group).category(MissionCategory.SCREEN_TIME)
-                    .type(MissionType.TIME_WINDOW).build();
-            em.persist(challenge);
-            GroupChallengeBet bet = GroupChallengeBet.builder().group(group).challenge(challenge).stake(100)
-                    .enabled(true).build();
-            em.persist(bet);
-            GroupChallengeBetSession session = GroupChallengeBetSession.builder().bet(bet).group(group)
-                    .challenge(challenge).sessionDate(LocalDate.now(ZoneOffset.UTC).minusDays(1)).stake(100)
-                    .goalMinutes(30).missionCategory(MissionCategory.SCREEN_TIME).missionType(MissionType.TIME_WINDOW)
-                    .status(GroupBetStatus.SETTLED).settledAt(past)
-                    .startsAt(past.minusSeconds(3600)).joinClosesAt(past).closesAt(past).settleAfter(past).build();
-            em.persist(session);
-            em.persist(GroupChallengeBetParticipant.builder().session(session).user(user(userId))
-                    .achieved(true).payout(200).progressMinutes(10)
-                    .displayClaimToken(claimToken).displayClaimedAt(claimToken == null ? null : Instant.now())
-                    .build());
-            return session.getId();
-        });
+        return jwt.extractUserId(auth.guestSession(UUID.randomUUID().toString()).accessToken());
     }
 
     private User user(UUID id) {
@@ -328,7 +163,4 @@ class WithdrawalWriterFenceIntegrationTest {
         assertThat(((UserException) thrown).getErrorCode()).isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
-    private static String suffix() {
-        return UUID.randomUUID().toString().substring(0, 6);
-    }
 }

@@ -20,6 +20,8 @@ spring:
   # → 기동 시 no-op 검증만 수행 = 마이그레이션 드리프트 가드
   flyway:
     enabled: true
+    locations: classpath:db/v0
+    baseline-on-migrate: false
 
 jwt:
   secret: ${JWT_SECRET}     # GCP Secret Manager(loadtest-jwt-secret) 주입 — AWS dev 시크릿과 무관
@@ -89,12 +91,9 @@ logging:
     org.springframework.web.servlet.DispatcherServlet: WARN
     org.springframework.web.filter: WARN
 
-# 초대 링크 — 부하 시나리오가 /l/* 를 때리지 않아도 컨텍스트 기동에 필요하다.
+# 섬 초대 공유 URL의 도메인.
 link:
   base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
-  match-window-hours: ${LINK_MATCH_WINDOW_HOURS:3}
-  ip-salt: ${LINK_IP_SALT:loadtest-salt}
-  store-ios-url: ${LINK_STORE_IOS_URL:https://apps.apple.com/kr/app/gromo-grow-motivation/id6774498679}
 
 # 게스트 생성 레이트리밋(GROMO-1510) — 부하 시나리오(k6 recipes/auth_guestLogin.json)는 소수의
 # 러너 IP 에서 대량 호출하므로 운영 기본값(1시간당 IP 10회·전역 300회)이면 429 만 재는 꼴이 된다.
@@ -107,10 +106,6 @@ auth:
 
 # 계정당 시간 한도(GROMO-1934) — 부하 시나리오는 소수 계정으로 친구 요청·편지를 반복하므로 운영
 # 기본값(게스트 친구 요청 20회·편지 50회/시간)이면 429 만 재는 꼴이 된다. 위 게스트 생성과 같은 이유로 해제한다.
-friend:
-  request:
-    rate-limit:
-      guest-max-per-hour: ${FRIEND_REQUEST_RATE_LIMIT_GUEST_MAX:1000000}
 letter:
   send:
     rate-limit:

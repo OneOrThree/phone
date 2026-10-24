@@ -74,6 +74,13 @@ class OpenApiGroupBoundaryTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("Data API는 폐기한 /api/v1 경로를 제공하지 않는다")
+    void retiredPublicApiIsAbsent() throws IOException {
+        assertThat(allControllerRoutes("com.oneorthree.phone"))
+                .noneMatch(route -> route.startsWith("/api/v1"));
+    }
+
     /** 클래스·메서드 레벨 매핑을 조합해 컨트롤러가 서빙하는 전체 경로를 만든다. */
     private List<String> allControllerRoutes(String basePackage) throws IOException {
         List<String> all = new ArrayList<>();

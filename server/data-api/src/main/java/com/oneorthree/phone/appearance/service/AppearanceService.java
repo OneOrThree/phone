@@ -18,7 +18,6 @@ import com.oneorthree.phone.appearance.repository.CatalogAssetRepository;
 import com.oneorthree.phone.appearance.repository.IslandAppearanceRepository;
 import com.oneorthree.phone.appearance.repository.OwnedProductRepository;
 import com.oneorthree.phone.appearance.repository.PersonalAppearanceRepository;
-import com.oneorthree.phone.appearance.repository.SeaFocusTotalRepository;
 import com.oneorthree.phone.appearance.repository.domain.CatalogAsset;
 import com.oneorthree.phone.appearance.repository.domain.IslandAppearance;
 import com.oneorthree.phone.appearance.repository.domain.OwnedProduct;
@@ -66,7 +65,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 외양 도메인 — 개인 인벤토리/외양과 공동 인벤토리/외양의 네 계약을 한 서비스가 처리한다
  * (island-appearance LLD). 개인 축과 섬 축은 별개 행·별개 버전이다.
  *
- * <p>잠금 순서 — caller → receipt(command_outbox) → (섬: groups → membership(ForShare)) →
+ * <p>잠금 순서 — caller → receipt(command_outbox) → (섬: islands → membership(ForShare)) →
  * 카탈로그 정의(불변, 잠금 없는 읽기) → 제출 상품의 보유 행(ForShare) → 외양 행(ForUpdate).
  * 보유 행을 외양 행보다 먼저 공유로 잡아 두므로, 보유 행을 지우고 외양을 해제하는 회수 writer 와
  * 같은 순서로 줄을 서며(교착 없음) 회수가 방금 장착한 상품을 놓치는 stale-equip 창이 닫힌다.
@@ -93,8 +92,6 @@ public class AppearanceService implements IslandAppearancePort {
     private final CatalogAssetRepository catalogAssets;
     private final OwnedProductRepository ownedProducts;
     private final PersonalAppearanceRepository personalAppearances;
-    /** 옛 바다 집중 누적(GROMO-2274) — 표가 남아 있는 동안 탈퇴 파기만 한다(GROMO-2301). */
-    private final SeaFocusTotalRepository seaFocusTotals;
     private final IslandAppearanceRepository islandAppearances;
     private final PublicCommandService publicCommands;
     private final AggregateVersionRepository aggregateVersions;
@@ -263,16 +260,11 @@ public class AppearanceService implements IslandAppearancePort {
      * 계정 탈퇴 파기 (GROMO-1950, 계정 LLD §4) — 개인 외양 행과 개인 소유(ownerType=user) 보유 행을 지운다.
      * 섬 소유 보유품·섬 외양은 섬의 자산이라 남긴다. 개인 외양 writer 는 users 배타 잠금부터 잡으므로
      * 같은 잠금을 쥔 탈퇴 TX 와 직렬화되고, 탈퇴 뒤엔 404 로 막혀 행을 다시 만들지 못한다.
-     *
-     * <p>옛 바다 집중 누적({@code sea_focus_totals}, GROMO-2274 · 계약 §0 N42)도 개인 이력이라 여기서 지운다 — 사용자
-     * 행은 익명화만 되고 삭제되지 않아 V117 의 {@code ON DELETE CASCADE} 가 돌지 않는다. 그 엔진은 GROMO-2301 에서
-     * 지웠고 표는 DROP 전까지 남는다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void eraseWithdrawnUser(UUID userId) {
         personalAppearances.deleteByUserId(userId);
         ownedProducts.deleteUserOwnedOf(userId);
-        seaFocusTotals.deleteAllOfUser(userId);
     }
 
     // ---------------------------------------------------------------- 개인 명령 본체

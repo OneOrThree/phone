@@ -1,7 +1,7 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.auth.dto.req.LogoutRequest;
-import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
+import com.oneorthree.phone.auth.service.SessionLogoutService;
+import com.oneorthree.phone.auth.service.AuthService.LoginSessionResult;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.service.AuthService;
@@ -16,9 +16,7 @@ import com.oneorthree.phone.outbox.repository.CommandIdempotencyRepository;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
-import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.exception.UserException;
-import com.oneorthree.phone.user.service.UserService;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,7 +26,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -74,7 +71,7 @@ class NotificationSettingsCommandIntegrationTest {
     @Autowired
     JwtProvider jwt;
     @Autowired
-    UserService legacy;
+    SessionLogoutService logoutService;
     @Autowired
     AccountWithdrawalService withdrawal;
     @Autowired
@@ -204,7 +201,7 @@ class NotificationSettingsCommandIntegrationTest {
         var follower = new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<?>>();
         try {
             tx().executeWithoutResult(status -> {
-                auth.logout(new LogoutRequest(actor.login().refreshToken()));
+                logoutService.logout(actor.login().refreshToken(), actor.login().accessToken());
                 follower.set(executor.submit(() -> tx().executeWithoutResult(other -> {
                     pid.set(jdbc.queryForObject("select pg_backend_pid()", Integer.class));
                     started.countDown();
@@ -219,28 +216,6 @@ class NotificationSettingsCommandIntegrationTest {
         } finally {
             executor.shutdownNow();
         }
-    }
-
-    @Test
-    @DisplayName("legacy 전체 교체도 outbox를 남기고 부분 변경은 소리/심야의 실제 값을 보존한다")
-    void legacyFullAndPartialShareMirrorAndVersion() {
-        var actor = actor();
-        NotificationSettingsRequest full = fullSettings(false, false, true, "22:00", "07:00");
-        legacy.updateNotificationSettings(actor.userId(), full);
-        var fullSnapshot = service.snapshot(actor.userId(), proof(actor));
-        var partial = service.patch(actor.userId(), request(actor, true), UUID.randomUUID());
-        assertThat(partial.version()).isGreaterThan(fullSnapshot.version());
-        assertThat(partial.baseline().soundEnabled()).isFalse();
-        assertThat(partial.baseline().nightModeEnabled()).isTrue();
-        assertThat(partial.baseline().nightStartTime()).isEqualTo("22:00");
-        legacy.updateNotificationSettings(actor.userId(), fullSettings(false, true, false, null, null));
-        var finalSnapshot = service.snapshot(actor.userId(), proof(actor));
-        assertThat(finalSnapshot.version()).isGreaterThan(partial.version());
-        assertThat(finalSnapshot.settings().notificationEnabled()).isFalse();
-        assertThat(finalSnapshot.settings().nightStartTime()).isNull();
-        assertThat(finalSnapshot.settings().nightEndTime()).isNull();
-        assertThat(settingsEvents(actor)).hasSize(3);
-        assertThat(settingsEvents(actor).get(0).getParams()).containsKey("authGeneration");
     }
 
     @Test
@@ -286,7 +261,7 @@ class NotificationSettingsCommandIntegrationTest {
                     .isInstanceOf(AuthException.class).extracting("errorCode")
                     .isEqualTo(AuthErrorCode.SESSION_NOT_ACTIVE);
         }
-        auth.logout(new LogoutRequest(actor.login().refreshToken()));
+        logoutService.logout(actor.login().refreshToken(), actor.login().accessToken());
         assertThatThrownBy(() -> service.patch(actor.userId(), request(actor, false), key))
                 .isInstanceOf(AuthException.class);
         assertThatThrownBy(() -> service.snapshot(actor.userId(), proof(actor))).isInstanceOf(AuthException.class);
@@ -294,7 +269,7 @@ class NotificationSettingsCommandIntegrationTest {
     }
 
     @Test
-    @DisplayName("실제 탈퇴 후 신규 snapshot/명령 재생과 legacy writer는 설정 행을 부활시키지 않는다")
+    @DisplayName("실제 탈퇴 후 신규 snapshot과 명령 재생은 설정 행을 부활시키지 않는다")
     void withdrawalBlocksAllSettingsWritersAndReplay() {
         var actor = actor();
         UUID key = UUID.randomUUID();
@@ -303,15 +278,13 @@ class NotificationSettingsCommandIntegrationTest {
         assertThatThrownBy(() -> service.patch(actor.userId(), request(actor, false), key))
                 .isInstanceOf(UserException.class);
         assertThatThrownBy(() -> service.snapshot(actor.userId(), proof(actor))).isInstanceOf(UserException.class);
-        assertThatThrownBy(() -> legacy.updateNotificationSettings(actor.userId(),
-                fullSettings(true, true, false, null, null))).isInstanceOf(UserException.class);
         assertThat(jdbc.queryForObject("select count(*) from user_notification_settings where user_id=?",
                 Long.class, actor.userId())).isZero();
     }
 
     private Actor actor() {
-        var login = auth.guestLogin();
-        return new Actor(jwt.extractUserId(login.accessToken()), login.sessionId(), login);
+        var login = auth.guestSession(java.util.UUID.randomUUID().toString());
+        return new Actor(jwt.extractUserId(login.accessToken()), jwt.extractSessionId(login.accessToken()), login);
     }
 
     private static NotificationSettingsPatchRequest request(Actor actor, boolean enabled) {
@@ -340,17 +313,6 @@ class NotificationSettingsCommandIntegrationTest {
         return receipts.findAll().stream().filter(row -> actor.userId().equals(row.getUserId())).count();
     }
 
-    private static NotificationSettingsRequest fullSettings(boolean enabled, boolean sound, boolean night,
-                                                            String start, String end) {
-        var request = new NotificationSettingsRequest();
-        ReflectionTestUtils.setField(request, "notificationEnabled", enabled);
-        ReflectionTestUtils.setField(request, "soundEnabled", sound);
-        ReflectionTestUtils.setField(request, "nightModeEnabled", night);
-        ReflectionTestUtils.setField(request, "nightStartTime", start);
-        ReflectionTestUtils.setField(request, "nightEndTime", end);
-        return request;
-    }
-
     private TransactionTemplate tx() {
         return new TransactionTemplate(transactions);
     }
@@ -377,6 +339,6 @@ class NotificationSettingsCommandIntegrationTest {
         throw new AssertionError("실제 PostgreSQL 행 잠금 대기가 관측되지 않았습니다.");
     }
 
-    private record Actor(UUID userId, UUID sessionId, GuestLoginResponse login) {
+    private record Actor(UUID userId, UUID sessionId, LoginSessionResult login) {
     }
 }

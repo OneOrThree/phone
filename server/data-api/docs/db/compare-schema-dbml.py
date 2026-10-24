@@ -12,8 +12,9 @@
   맞다는 뜻은 아니다. 축을 늘릴 때는 dbml 쪽 표기 규약부터 정해야 한다 — 읽기만 하고
   비교하지 않는 값을 남기면 검사한다는 «착각»만 남는다(ON DELETE 가 실제로 그랬다).
 
-이 도구가 «검사»하는 dbml 규약 — schema.dbml 머리의 6·7번과 짝이다
-  한 컬럼에는 Ref 를 하나만 적는다 · 관계는 항상 단독 `Ref:` 줄로 적는다.
+이 도구가 «검사»하는 dbml 규약 — schema.dbml 머리의 관계 표기 원칙과 짝이다
+  같은 자식 컬럼 묶음의 Ref는 한 번만 적는다 · 관계는 단독 `Ref:` 줄로 적는다.
+  복합 FK의 컬럼 순서와 묶음을 보존하며, 단일 FK와 컬럼을 공유할 수 있다.
   둘 다 위반을 드리프트로 낸다. 전제를 주석으로만 두면 「적어 뒀으니 지키겠지」가 되는데,
   이 도구가 쌓은 신뢰는 «본다고 말한 건 실제로 본다»는 것 하나뿐이라 그 예외를 두지 않는다.
 
@@ -21,8 +22,7 @@
   SCRATCH   : real_columns.txt · real_fks.txt 가 있는 디렉터리
   DBML_PATH : schema.dbml 경로
 
-종료 코드는 «드리프트 건수»가 아니라 0/1 이다 — 표기 규약은 드리프트가 아니므로
-사람이 읽고 판단해야 한다(아래 «표기 규약» 참조).
+종료 코드는 드리프트 또는 규약 위반이 있으면 1, 없으면 0이다.
 """
 import collections
 import os
@@ -40,13 +40,13 @@ for line in (SCRATCH / "real_columns.txt").read_text().splitlines():
         t, c, ty, nul, dflt = line.split("|", 4)
         real_cols[t][c] = (ty, nul == "YES")
 
-# 한 컬럼이 FK 에 «두 번 이상» 낄 수 있다(복합 FK + 단일 FK). (t, c) 에 한 값씩만 담으면
-# 뒤엣것이 앞엣것을 조용히 덮어써 «검사되지 않은 FK» 가 생긴다 — 그래서 대상별로 담는다.
+# 복합 FK는 순서 있는 컬럼 묶음으로 비교한다. 각 컬럼을 독립 FK로 쪼개면
+# 복합 제약과 서로 다른 단일 제약을 구별하지 못한다.
 real_fks = collections.defaultdict(dict)
 for line in (SCRATCH / "real_fks.txt").read_text().splitlines():
     if line.strip():
         t, c, pt, pc, rule = line.split("|", 4)
-        real_fks[(t, c)][(pt, pc)] = rule.strip().upper()
+        real_fks[(t, tuple(c.split(",")))][(pt, tuple(pc.split(",")))] = rule.strip().upper()
 
 real_tables = set(real_cols)
 
@@ -82,16 +82,19 @@ def strip_comments(s):
 # 이 부분을 `^Table\s+(\w+)\s*\{` 로 쓰면 58개 중 3개만 잡힌다(실제로 그랬다).
 dbml_cols = collections.defaultdict(dict)
 inline_refs = []
+parse_errors = []
 for m in re.finditer(r'^Table\s+(\w+)[^\n{]*\{(.*?)^\}', text, re.S | re.M):
     table, body = m.group(1), m.group(2)
+    if re.search(r"^Table\s", body, re.M):
+        parse_errors.append(f"{table}: 닫는 중괄호 전에 다른 Table이 시작한다")
     for raw in body.splitlines():
         line = strip_comments(raw).rstrip()
         if not line.strip() or line.strip().startswith(("Note", "indexes", "}", "{", "(")):
             continue
-        mm = re.match(r'\s+(\w+)\s+([A-Za-z][\w()\[\], ]*?)\s*(\[.*\])?\s*$', line)
+        mm = re.match(r'\s+(\w+)\s+("[^"]+"|[A-Za-z][\w()\[\], ]*?)\s*(\[.*\])?\s*$', line)
         if not mm:
             continue
-        col, ty, attrs = mm.group(1), mm.group(2).strip(), (mm.group(3) or "")
+        col, ty, attrs = mm.group(1), mm.group(2).strip().strip('"'), (mm.group(3) or "")
         tokens = attr_tokens(attrs)
         dbml_cols[table][col] = (ty, not (tokens & NOT_NULL_ATTRS))
         # 규약 7 — 인라인 `[ref: > a.b]` 로 적힌 관계는 아래 `^Ref:` 스캔이 «아예 안 읽는다».
@@ -105,15 +108,39 @@ ref_line_counts = collections.Counter()
 # 컬럼 줄은 `//` 를 먼저 잘라내고 `[...]` 를 통째로 잡는데, Ref 줄만 «첫 `]` 에서 멈추는» 정규식을
 # 쓰고 있었다. 같은 파일을 읽는 두 경로가 다른 규칙을 쓰면 한쪽에서만 조용히 새므로 맞춘다.
 ref_text = strip_comments(text)
-for m in re.finditer(
-        r'^Ref:\s*(\w+)\.(\w+)\s*[<>-]\s*(\w+)\.(\w+)\s*(\[.*\])?', ref_text, re.M):
-    child, ccol, parent, pcol, attrs = m.groups()
+COLUMN_GROUP = r"(?:\w+|\(\s*\w+(?:\s*,\s*\w+)*\s*\))"
+REF = re.compile(
+    rf"^Ref:\s*(\w+)\.({COLUMN_GROUP})\s*([<>-])\s*(\w+)\.({COLUMN_GROUP})\s*(\[.*\])?\s*$")
+
+
+def columns(value):
+    return tuple(part.strip() for part in value.strip("()").split(","))
+
+
+def endpoint(table, cols):
+    return f"{table}.{cols[0]}" if len(cols) == 1 else f"{table}.({', '.join(cols)})"
+
+
+for line in ref_text.splitlines():
+    if not line.startswith("Ref:"):
+        continue
+    match = REF.fullmatch(line)
+    if not match:
+        parse_errors.append(f"해석할 수 없는 Ref: {line}")
+        continue
+    child, ccols, direction, parent, pcols, attrs = match.groups()
+    ccols, pcols = columns(ccols), columns(pcols)
+    if direction == "<":
+        child, ccols, parent, pcols = parent, pcols, child, ccols
+    if len(ccols) != len(pcols):
+        parse_errors.append(f"컬럼 개수가 다른 Ref: {line}")
+        continue
     rule = "NO ACTION"
     for tok in attr_tokens(attrs or ""):
         if tok.startswith("delete:"):
             rule = tok.split(":", 1)[1].strip().upper()
-    dbml_fks[(child, ccol)][(parent, pcol)] = rule
-    ref_line_counts[(child, ccol)] += 1
+    dbml_fks[(child, ccols)][(parent, pcols)] = rule
+    ref_line_counts[(child, ccols)] += 1
 
 dbml_tables = set(dbml_cols)
 # dbml 이 선언한 Enum — 컬럼 타입이 이 이름이면 «논리 타입 표기»이지 드리프트가 아니다.
@@ -123,6 +150,16 @@ enums = set(re.findall(r'^Enum\s+(\w+)\s*\{', text, re.M))
 drift = 0
 notation = 0
 convention = 0
+
+
+def normalize_type(value):
+    """PostgreSQL 별칭과 기본 timestamp 정밀도만 정규화한다. numeric·배열·time 정밀도는 비교한다."""
+    value = re.sub(r"\s*,\s*", ",", value)
+    value = re.sub(r"timestamp(?:\(6\))? with time zone", "timestamptz", value)
+    value = re.sub(r"timestamp(?:\(6\))? without time zone", "timestamp", value)
+    value = re.sub(r"timestamp\((\d+)\) with time zone", r"timestamptz(\1)", value)
+    value = re.sub(r"timestamp\((\d+)\) without time zone", r"timestamp(\1)", value)
+    return value.replace("time without time zone", "time").replace(" without time zone", "")
 
 
 def say(msg):
@@ -149,7 +186,9 @@ print(f"실제 테이블 {len(real_tables)} · dbml 테이블 {len(dbml_tables)}
 # 전제가 깨지면 위 대조 결과 자체를 믿을 수 없으므로 같은 드리프트 카운터로 낸다.
 for (child, ccol), n in sorted(ref_line_counts.items()):
     if n > 1:
-        flag(f"❌ 규약 6 위반: {child}.{ccol} 에 Ref 줄이 {n}개 — 한 컬럼에는 하나만 적는다")
+        flag(f"❌ 규약 6 위반: {endpoint(child, ccol)} 에 Ref 줄이 {n}개 — 같은 컬럼 묶음은 한 번만 적는다")
+for error in parse_errors:
+    flag(f"❌ DBML 해석 오류: {error}")
 for where in sorted(set(inline_refs)):
     flag(f"❌ 규약 7 위반: {where} 가 인라인 ref 를 쓴다 — 관계는 단독 `Ref:` 줄로 적는다")
 
@@ -166,6 +205,7 @@ for t in sorted(real_tables & dbml_tables):
     for c in sorted(set(real_cols[t]) & set(dbml_cols[t])):
         rty, rnul = real_cols[t][c]
         dty, dnul = dbml_cols[t][c]
+        rty, dty = normalize_type(rty), normalize_type(dty)
         if rty != dty:
             if dty in enums or rty.replace(" without time zone", "") == dty:
                 notation += 1          # 표기 규약 — 드리프트가 아니다
@@ -180,17 +220,17 @@ for k in sorted(set(real_fks) | set(dbml_fks)):
     t, c = k
     real, dbml = real_fks.get(k, {}), dbml_fks.get(k, {})
     for tgt in sorted(set(real) - set(dbml)):
-        say(f"❌ 실제 FK 인데 dbml 에 Ref 가 없다: {t}.{c} → {tgt[0]}.{tgt[1]} ({real[tgt]})")
+        say(f"❌ 실제 FK 인데 dbml 에 Ref 가 없다: {endpoint(t, c)} → {endpoint(*tgt)} ({real[tgt]})")
     for tgt in sorted(set(dbml) - set(real)):
         if real:
             # 실제 FK 가 있는 컬럼인데 dbml 이 «다른 대상»을 가리킨다 — 논리 관계가 아니다.
-            actual = ", ".join(f"{a}.{b}" for a, b in sorted(real))
-            say(f"❌ Ref 대상: {t}.{c} dbml→{tgt[0]}.{tgt[1]} 실제→{actual}")
+            actual = ", ".join(endpoint(a, b) for a, b in sorted(real))
+            say(f"❌ Ref 대상: {endpoint(t, c)} dbml→{endpoint(*tgt)} 실제→{actual}")
         else:
             logical += 1               # 논리 관계 — DB 제약이 없을 뿐 관계는 사실이다
     for tgt in sorted(set(real) & set(dbml)):
         if real[tgt] != dbml[tgt]:
-            say(f"❌ ON DELETE: {t}.{c} → {tgt[0]}.{tgt[1]} "
+            say(f"❌ ON DELETE: {endpoint(t, c)} → {endpoint(*tgt)} "
                 f"실제={real[tgt]} dbml={dbml[tgt]}")
 
 extra = f"(그중 규약 위반 {convention}건)" if convention else ""

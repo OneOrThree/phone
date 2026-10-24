@@ -48,6 +48,20 @@ class InternalSeaAllowlistTest {
         assertThat(allows(allow, "DELETE /internal/users/" + ID + "/friends/ids")).isFalse();
     }
 
+    @Test
+    @DisplayName("Realtime 소속 조회는 GET 목록만 허용하고 섬 생성·탈퇴·하위 경로는 열지 않는다")
+    void realtimeMembershipLookupIsReadOnlyAndScoped() throws IOException {
+        List<String> allow = allow("application-realtime-authorization.yml", "realtime");
+        String path = "/internal/users/" + ID + "/islands";
+
+        assertThat(allows(allow, "GET " + path)).isTrue();
+        assertThat(allows(allow, "POST " + path)).isFalse();
+        assertThat(allows(allow, "DELETE " + path + "/" + ID + "/membership")).isFalse();
+        assertThat(allows(allow, "GET " + path + "/" + ID)).isFalse();
+        assertThat(allows(allow, "GET /internal/users/" + ID)).isFalse();
+        assertThat(allows(allow("application-satellites.yml", "notification"), "GET " + path)).isFalse();
+    }
+
     private static List<String> allow(String file, String caller) throws IOException {
         List<String> result = new ArrayList<>();
         for (PropertySource<?> source : new YamlPropertySourceLoader().load(file, new ClassPathResource(file))) {

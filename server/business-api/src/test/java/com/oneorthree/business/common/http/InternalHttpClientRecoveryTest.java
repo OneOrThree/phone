@@ -47,7 +47,7 @@ class InternalHttpClientRecoveryTest {
         });
         server.start();
         // 운영 설정의 양수 제약을 유지하며 짧은 차단 창을 실제 503으로 연다.
-        client = new InternalHttpClient(UpstreamTarget.LINK,
+        client = new InternalHttpClient(UpstreamTarget.NOTIFICATION,
                 new UpstreamProperties("http://127.0.0.1:" + server.getAddress().getPort(), "synthetic-token",
                         Duration.ofSeconds(1), Duration.ofSeconds(1), 1, Duration.ofMillis(1)), new ObjectMapper());
         assertThatThrownBy(() -> client.execute(call(), Deadline.unbounded()))

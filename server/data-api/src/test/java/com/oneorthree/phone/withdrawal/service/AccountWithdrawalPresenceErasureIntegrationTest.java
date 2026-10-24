@@ -94,7 +94,7 @@ class AccountWithdrawalPresenceErasureIntegrationTest {
     }
 
     private UUID guest() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(UUID.randomUUID().toString()).accessToken());
     }
 
     private int presenceKeys(UUID userId) {

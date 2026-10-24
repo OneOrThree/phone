@@ -5,6 +5,7 @@ import {
   FIT_REVEAL_FALLBACK_MS,
   IslandPopup,
   IslandSheet,
+  SheetGroup,
   SheetRow,
 } from '@/screens/island/IslandSheet';
 
@@ -239,4 +240,18 @@ describe('fit 시트 측정 주기(GROMO-2412)', () => {
     });
     expect(box()).toMatchObject({ top: 100, opacity: 1 });
   });
+});
+
+test('SheetGroup 은 행이 없으면 아무것도 그리지 않는다 — 빈 안내 아래 갈색 막대가 남지 않는다(GROMO-2409)', async () => {
+  const empty = await render(<SheetGroup>{[]}</SheetGroup>);
+  expect(empty.toJSON()).toBeNull();
+  const filled = await render(
+    <SheetGroup>
+      {[1, 2].map((n) => (
+        <SheetRow key={n} title={`${n}위`} />
+      ))}
+    </SheetGroup>,
+  );
+  expect(filled.getByText('1위')).toBeTruthy();
+  expect(filled.getByText('2위')).toBeTruthy();
 });

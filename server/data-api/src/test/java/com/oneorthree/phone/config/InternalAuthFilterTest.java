@@ -46,7 +46,7 @@ class InternalAuthFilterTest {
         properties.getCallers().put("business", business);
         InternalApiProperties.Caller notification = new InternalApiProperties.Caller();
         notification.setToken(NOTI_TOKEN);
-        notification.setAllow(List.of("GET /internal/users/*/result-ack"));
+        notification.setAllow(List.of("GET /internal/users/notification-snapshot"));
         properties.getCallers().put("notification", notification);
         return properties;
     }
@@ -108,6 +108,25 @@ class InternalAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
         assertThat(response.getContentAsString()).isEmpty();
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    @DisplayName("토큰이 빈 caller 는 등록되지 않는다 — `Bearer ` 뒤가 빈 요청이 그 caller 로 통과하지 못한다")
+    void blankTokenCallerIsNeverMatched() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        InternalApiProperties.Caller ops = new InternalApiProperties.Caller();
+        ops.setToken("");
+        ops.setOptional(true);
+        ops.setAllow(List.of("POST /internal/admin/island-focus-averages/snapshots"));
+        properties.getCallers().put("ops", ops);
+        MockHttpServletRequest request = request("POST", "/internal/admin/island-focus-averages/snapshots");
+        request.addHeader("Authorization", "Bearer ");
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
         assertThat(chain.getRequest()).isNull();
     }
 

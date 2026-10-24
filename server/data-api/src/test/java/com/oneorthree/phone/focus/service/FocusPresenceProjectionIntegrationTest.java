@@ -134,7 +134,7 @@ class FocusPresenceProjectionIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private long count(String sql, Object... args) {

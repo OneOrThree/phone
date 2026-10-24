@@ -2,22 +2,14 @@ package com.oneorthree.phone.notification.listener;
 
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
-import com.oneorthree.phone.group.event.GroupBetSessionClosedEvent;
-import com.oneorthree.phone.group.event.GroupBetWonEvent;
-import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
-import com.oneorthree.phone.group.event.IslandKickedEvent;
 import com.oneorthree.phone.group.event.MainIslandTransferredEvent;
-import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
-import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.group.event.IslandKickedEvent;
+import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
-import com.oneorthree.phone.notification.service.BetEventNotificationService;
-import com.oneorthree.phone.notification.service.BetWonNotificationService;
-import com.oneorthree.phone.notification.service.ChallengeCreatedNotificationService;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
 import com.oneorthree.phone.notification.service.IslandKickNotificationService;
 import com.oneorthree.phone.notification.service.MainIslandNotificationService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -32,144 +24,36 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 요청형 알림 사건을 <b>원 도메인 트랜잭션 안에서</b> outbox 에 적는다 (A21 · 계약 §3).
- *
- * <h2>{@code AFTER_COMMIT} 이 남기는 유실 구간</h2>
- * 구 리스너 넷은 전부 {@code @TransactionalEventListener(AFTER_COMMIT)} + {@code @Async} 다.
- * 커밋은 끝났는데 리스너가 돌기 전에 프로세스가 죽으면 <b>그 알림은 아무 흔적 없이 사라진다</b> —
- * 도메인 데이터는 남았는데 알림만 없어서, 나중에 어디를 봐도 「나갔어야 했다」를 알 수 없다.
- * 내기 결과만 15분 재훑기가 회수하고, 친구 요청·챌린지 개설·승리 확정은 회수 경로 자체가 없다.
- *
- * <p><b>{@code afterCommit} 안에서 outbox 만 적는 것으로도 안 된다</b> — 그 시점의 트랜잭션은
- * 이미 커밋됐으므로 새 트랜잭션이 열리고, 그 새 트랜잭션이 실패하면 같은 유실이 그대로 남는다.
- * 원자성은 <b>같은 트랜잭션</b>에서만 나온다.
- *
- * <h2>그래서 {@code BEFORE_COMMIT} 이다</h2>
- * 이 단계는 <b>발행 트랜잭션 안에서 동기로</b> 돈다. 그래서 {@code OutboxCommandPort.append}
- * 의 {@code MANDATORY} 가 성립하고, 도메인이 롤백되면 사건도 함께 사라진다(반대 방향 유실도 없다).
- *
- * <p>대가는 <b>여기서 나는 예외가 커밋을 되돌린다</b>는 것이다. 그건 의도다 — 사건을 적지 못했다면
- * 그 도메인 변경은 「알림이 나갈 것」이라는 약속을 지킬 수 없고, 조용히 커밋하면 유실이 된다.
- * 구 경로가 예외를 삼켰던 것은 «이미 커밋된 뒤»라 되돌릴 수가 없어서였다.
- *
- * <h2>한 트랜잭션의 사건은 모아서 한 번에 적는다 (GROMO-893)</h2>
- * 사건 하나가 수신자 USER 행을 트랜잭션 끝까지 잠근다. 챌린지 삭제는 OPEN 회차마다
- * {@code GroupBetSessionClosedEvent} 를 따로 내므로, 사건마다 곧장 적으면 회차 A 의 참가자를 잠근 뒤 회차
- * B 의 참가자를 잠그는 식으로 <b>트랜잭션 전체</b>의 잠금 순서가 회차 순서에 끌려간다 — 회차 안에서만
- * 정렬해도 같은 사용자를 다른 순서로 잡는 트랜잭션과 교착한다.
- *
- * <p>그래서 두 단계로 나눈다. 모든 사건의 {@code BEFORE_COMMIT} 동기화는 발행 시점에 등록되고 커밋 직전에
- * {@code @Order} 순으로 정렬돼 돈다. ① 가장 앞({@link Ordered#HIGHEST_PRECEDENCE})에서 사건을 이
- * 트랜잭션의 대기열에 담기만 하고, ② 가장 뒤({@link Ordered#LOWEST_PRECEDENCE})의 첫 호출이 대기열 전체를
- * 판정해 수신자 <b>합집합</b>을 정본 순서로 잠근 뒤 적는다. 이후 호출은 빈 대기열을 보고 돌아간다.
- *
- * <h2>구 경로와 동시에 돌지 않는다</h2>
- * {@code LEGACY} 모드에서는 여기서 아무 일도 하지 않고, {@code OUTBOX} 모드에서는 구
- * {@code AFTER_COMMIT} 리스너들이 각자 건너뛴다. 두 경로가 겹쳐 돌면 같은 사건이 FCM 으로도 가고 Kafka 로도 간다.
+ * 친구·메인 섬 이전·강퇴 사건을 커밋 직전에 outbox에 기록한다.
+ * 한 트랜잭션의 사건을 먼저 모아 모든 수신자 잠금을 정본 순서로 잡는다.
+ * 요청 조립과 적기에서 새 도메인 사건을 발행하지 않아야 한다.
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class NotificationRequestOutboxListener {
-
-    private final NotificationDispatcher notificationDispatcher;
-    private final BetEventNotificationService betEventNotificationService;
-    private final BetWonNotificationService betWonNotificationService;
-    private final ChallengeCreatedNotificationService challengeCreatedNotificationService;
+    private final NotificationOutboxProducer producer;
     private final FriendNotificationService friendNotificationService;
     private final MainIslandNotificationService mainIslandNotificationService;
     private final IslandKickNotificationService islandKickNotificationService;
 
-    /** @param event 종료된 회차 — 대기열에 담는다 */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.HIGHEST_PRECEDENCE)
-    public void collectSessionClosed(GroupBetSessionClosedEvent event) {
-        collect(event);
-    }
-
-    /** @param event 승리가 확정된 참가자 — 대기열에 담는다 */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.HIGHEST_PRECEDENCE)
-    public void collectBetWon(GroupBetWonEvent event) {
-        collect(event);
-    }
-
-    /** @param event 개설된 챌린지 — 대기열에 담는다 */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.HIGHEST_PRECEDENCE)
-    public void collectChallengeCreated(GroupChallengeCreatedEvent event) {
-        collect(event);
-    }
-
-    /** @param event 방금 만들어진 친구 요청 — 대기열에 담는다 */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public void collectFriendRequestSent(FriendRequestSentEvent event) {
-        collect(event);
+        PendingEvents.current().events.add(event);
     }
 
-    /** @param event 방금 성사된 수락 — 대기열에 담는다 */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public void collectFriendRequestAccepted(FriendRequestAcceptedEvent event) {
-        collect(event);
+        PendingEvents.current().events.add(event);
     }
 
-    /** @param event 메인 섬을 잃어 옮겨진 사람 — 대기열에 담는다 */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public void collectMainIslandTransferred(MainIslandTransferredEvent event) {
-        collect(event);
+        PendingEvents.current().events.add(event);
     }
 
-    /** @param event 섬에서 강퇴된 사람 — 대기열에 담는다 */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.HIGHEST_PRECEDENCE)
-    public void collectIslandKicked(IslandKickedEvent event) {
-        collect(event);
-    }
-
-    /**
-     * 회차 종료 — 참가자 전원의 결과·환불 사건. 이 트랜잭션의 대기열 전체와 함께 적는다.
-     *
-     * @param event 종료된 회차
-     */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.LOWEST_PRECEDENCE)
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void onSessionClosed(GroupBetSessionClosedEvent event) {
-        flush();
-    }
-
-    /**
-     * 개인 승리 조기 확정 — 본인 1명.
-     *
-     * @param event 승리가 확정된 참가자
-     */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.LOWEST_PRECEDENCE)
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void onBetWon(GroupBetWonEvent event) {
-        flush();
-    }
-
-    /**
-     * 챌린지 개설 — 개설자를 뺀 그룹원 전원.
-     *
-     * @param event 개설된 챌린지
-     */
-    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
-    @Order(Ordered.LOWEST_PRECEDENCE)
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void onChallengeCreated(GroupChallengeCreatedEvent event) {
-        flush();
-    }
-
-    /**
-     * 친구 요청 도착 — 받은 쪽.
-     *
-     * @param event 방금 만들어진 친구 요청
-     */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.LOWEST_PRECEDENCE)
     @Transactional(propagation = Propagation.MANDATORY)
@@ -177,11 +61,6 @@ public class NotificationRequestOutboxListener {
         flush();
     }
 
-    /**
-     * 친구 요청 수락 — 먼저 요청했던 쪽.
-     *
-     * @param event 방금 성사된 수락
-     */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.LOWEST_PRECEDENCE)
     @Transactional(propagation = Propagation.MANDATORY)
@@ -189,12 +68,6 @@ public class NotificationRequestOutboxListener {
         flush();
     }
 
-    /**
-     * 메인 섬 자동 이전 — 옮겨진 본인 1명. 같은 트랜잭션이 여러 번 옮길 수 있어
-     * ({@code detachWithdrawnUser} 의 멤버십 루프) 판정은 커밋될 최종 상태와 대조한다.
-     *
-     * @param event 이전 사건
-     */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.LOWEST_PRECEDENCE)
     @Transactional(propagation = Propagation.MANDATORY)
@@ -202,11 +75,12 @@ public class NotificationRequestOutboxListener {
         flush();
     }
 
-    /**
-     * 섬 강퇴 — 강퇴된 본인 1명 (GROMO-2315).
-     *
-     * @param event 강퇴 사건
-     */
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void collectIslandKicked(IslandKickedEvent event) {
+        PendingEvents.current().events.add(event);
+    }
+
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.LOWEST_PRECEDENCE)
     @Transactional(propagation = Propagation.MANDATORY)
@@ -214,27 +88,7 @@ public class NotificationRequestOutboxListener {
         flush();
     }
 
-    private void collect(Object event) {
-        if (!notificationDispatcher.isOutboxMode()) {
-            return;
-        }
-        PendingEvents.current().events.add(event);
-    }
-
-    /**
-     * 대기열 전체를 판정하고 수신자 합집합을 한 번에 적는다 — 두 번째 호출부터는 빈 대기열이다.
-     *
-     * <h2>불변식: 이 판정·적기 중에는 도메인 사건을 발행하지 않는다</h2>
-     * 이 메서드는 커밋 직전 단계에서 돈다. 스프링은 그 단계를 시작할 때 동기화 목록의 «복사본»을 순회하므로
-     * ({@code TransactionSynchronizationUtils#triggerBeforeCommit}), 여기서 새로 발행한 사건의
-     * {@code BEFORE_COMMIT} 동기화는 수집도 flush 도 되지 않는다. 대기열도 이미 비웠다. 그래서 {@link #requestsOf} 의
-     * 요청 조립과 이어지는 적기 경로가 {@code GroupBetSessionClosedEvent} 같은 사건을 발행하면 그 알림은 예외 없이
-     * <b>조용히 사라진다</b>. 지금은 그런 경로가 없다 — 새로 붙이는 요청 조립은 읽기와 outbox 적기만 해야 한다.
-     */
     private void flush() {
-        if (!notificationDispatcher.isOutboxMode()) {
-            return;
-        }
         List<Object> events = PendingEvents.current().drain();
         if (events.isEmpty()) {
             return;
@@ -243,22 +97,10 @@ public class NotificationRequestOutboxListener {
         for (Object event : events) {
             requests.addAll(requestsOf(event));
         }
-        long queued = notificationDispatcher.enqueueAll(requests).stream()
-                .filter(NotificationDispatchOutcome.QUEUED::equals)
-                .count();
-        log.debug("요청형 알림 사건 적재 — 도메인 사건 {}건, 요청 {}건, 신규 {}건", events.size(), requests.size(), queued);
+        producer.appendAll(requests);
     }
 
     private List<NotificationRequest> requestsOf(Object event) {
-        if (event instanceof GroupBetSessionClosedEvent closed) {
-            return betEventNotificationService.closedSessionRequests(closed.sessionId());
-        }
-        if (event instanceof GroupBetWonEvent won) {
-            return List.of(betWonNotificationService.wonRequest(won));
-        }
-        if (event instanceof GroupChallengeCreatedEvent created) {
-            return challengeCreatedNotificationService.createdRequests(created);
-        }
         if (event instanceof FriendRequestSentEvent sent) {
             return friendNotificationService.friendRequestRequest(sent.requestId(), sent.receiverUserId(),
                     sent.senderUserId()).stream().toList();
@@ -276,14 +118,7 @@ public class NotificationRequestOutboxListener {
         throw new IllegalStateException("모르는 요청형 알림 사건입니다: " + event.getClass().getName());
     }
 
-    /**
-     * 한 트랜잭션에서 아직 적지 않은 도메인 사건.
-     *
-     * <p>트랜잭션의 동기화 목록에 등록한 객체로 둔다. 스프링은 {@code REQUIRES_NEW} 에서 바깥 목록을 떼어 두었다가
-     * ({@code AbstractPlatformTransactionManager#suspend}) 안쪽이 끝나면 비우고 되돌리며({@code cleanupAfterCompletion}·
-     * {@code doResumeSynchronization}), 트랜잭션이 끝나면 목록을 비운다. 그래서 대기열은 자기 트랜잭션과 함께 생기고
-     * 사라진다 — 안쪽 트랜잭션(정산은 {@code REQUIRES_NEW})은 빈 대기열로 시작하고, 따로 바인드·해제·정리할 코드가 없다.
-     */
+    /** 트랜잭션 동기화 목록에 보관해 REQUIRES_NEW의 대기열도 독립시킨다. */
     private static final class PendingEvents implements TransactionSynchronization {
 
         private final List<Object> events = new ArrayList<>();

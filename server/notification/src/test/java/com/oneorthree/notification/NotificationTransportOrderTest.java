@@ -49,7 +49,7 @@ class NotificationTransportOrderTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,user_fences,settings,projections CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=false,active_migration_id=NULL");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=false");
         store.update("INSERT INTO kinds(id,quiet_policy) VALUES('TRANSPORT_ORDER','BYPASS') ON CONFLICT DO NOTHING");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
                 + " VALUES('TRANSPORT_ORDER.ko','TRANSPORT_ORDER','ko','알림','내용') ON CONFLICT DO NOTHING");

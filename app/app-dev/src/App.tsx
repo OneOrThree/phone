@@ -684,8 +684,25 @@ function Gromo() {
   routeRef.current = route;
   const goRef = useRef(go);
   goRef.current = go;
+  const resetRef = useRef(reset);
+  resetRef.current = reset;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
+  // 소비한 링크 번호 — 섬 이동 응답이 늦게 와도 그 사이 더 새 링크를 열었으면 화면을 덮지 않는다.
+  const linkSeq = useRef(0);
+  // 화면 위치(라우트·상세·이동 기록 길이) — 섬 이동 응답을 기다리는 사이 사용자가 직접 옮겼는지 가린다.
+  const navKeyRef = useRef('');
+  navKeyRef.current = `${route}|${detail}|${history.length}`;
+  // 링크가 시작한 섬 이동이 진행 중인 세션 세대(없으면 null — 세대 0 과 구분한다), 그 사이 도착해 REQUEST_IN_PROGRESS 로
+  // 거절된 «가장 최근» 섬 링크 하나. 둘 다 세대를 달아, 이전 세션의 늦은 응답이 새 세션의 값을 건드리지 못하게 한다.
+  const islandsSynced = !!state.serverIslands;
+  const linkSwitching = useRef<number | null>(null);
+  const queuedIslandLink = useRef<{
+    islandId: string;
+    seq: number;
+    navKey: string;
+    generation: number;
+  } | null>(null);
   useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
   useEffect(() => {
     if (!loaded || !incomingAppLink) return;
@@ -703,22 +720,117 @@ function Gromo() {
     // 지원하지 않는 초대·그룹 링크도 같은 guard 뒤에서 홈 이동과 안내를 함께 처리한다.
     // 첫 안내 초반(3단계 이하)의 홈은 튜토리얼 effect 가 같은 렌더에서 guide 로 되돌린다. 여기서 링크를
     // 소비하면 목적지 이동이 덮여 링크가 사라지므로 안내 화면과 같이 보관한다.
+    // 현재 섬 유무(state.onboarded)는 계정 온보딩과 별개다 — 계정 온보딩(character)은 위 보관 화면이 이미 막는다.
+    // 호 읽기는 소속 섬이 없는 바다에서도 열려서(seaMagazine) 현재 섬을 요구하지 않는다. 그 밖의 링크는 현재 섬이 있어야 한다
+    // (섬 이동은 첫 섬 안내 대기(awaiting-first-island)를 건너뛰지 않게 onboarded 로 막는다).
+    // 다만 잡지는 섬/바다를 serverIslands 로 가르므로 섬 동기화(ISLAND_SYNC)를 한 번이라도 마친 뒤에 연다. 부팅(decideBootRoute)과
+    // 로그인 채택(navigate)은 동기화 뒤에 loaded·화면 이동을 하니 성공하면 항상 채워져 있다 — 비는 것은 동기화가 실패한 경우뿐이다.
     const tutorialForcesGuide = route === 'home' && !!state.tutorial && state.tutorial.step <= 3;
+    // 건물·휴식 전환 애니메이션이 도는 동안에도 보관한다 — 끝날 때 부르는 navigate 가 링크 목적지를 덮는다.
+    // 전환을 취소하지 않고, 끝나면(phase idle) 이 effect 가 다시 돌아 그때 연다.
     if (
       !hasServerSession ||
-      !state.onboarded ||
+      (target.kind === 'magazine' ? !islandsSynced : !state.onboarded) ||
       DEEP_LINK_HOLD_ROUTES.includes(route) ||
-      tutorialForcesGuide
+      tutorialForcesGuide ||
+      fireTransition.phase !== 'idle'
     )
       return;
     setIncomingAppLink(null);
+    const seq = ++linkSeq.current;
+    // 서버 섬 구경 중에는 SERVER_VISIT_ROUTES 만 열려 홈·잡지·친구가 «주민만 이용할 수 있어요» 로 막힌다.
+    // 구경을 먼저 끝내고(END_VISIT + reset — endServerVisit·뒤로가기와 같은 짝) 연다. reset 은 구경 화면 기록도 비운다.
+    const open = (r: Route, id = '', clearHistory = false) => {
+      const visiting = !!stateRef.current.visitingIslandId;
+      if (visiting) dispatch({ type: 'END_VISIT' });
+      if (visiting || clearHistory) resetRef.current(r, id);
+      else goRef.current(r, id);
+    };
     if (target.kind === 'unsupported') {
-      goRef.current('home');
+      open('home');
       notifyRef.current(t('app.linkUnsupported'));
       return;
     }
-    goRef.current(target.route);
-  }, [loaded, incomingAppLink, hasServerSession, state.onboarded, state.tutorial, route]);
+    if (target.kind === 'magazine') {
+      // 소속 섬이 있으면 섬에서, 없으면 바다에서 펼친다(둘 다 호가 없으면 리더가 «사라진 호»로 안내한다).
+      open(
+        stateRef.current.serverIslands?.currentIslandId ? 'magazine' : 'seaMagazine',
+        target.issueId,
+      );
+      return;
+    }
+    if (target.kind === 'island') {
+      // 불변식: 보관(queuedIslandLink)은 followsAnother — 같은 세대의 링크 전환이 아직 진행 중일 때 — 에만 일어난다. 보관분을
+      // 다시 열 때는 앞선 전환이 끝나 linkSwitching 이 비었으니 followsAnother=false 라 다시 보관되지 않는다(무한 재시도 없음).
+      // 재개가 가능한 전제: islandCommands.ts 의 selection 잠금이 finally 에서 풀린 뒤에야 switchCurrent 가 resolve/reject 한다.
+      const openIsland = (islandId: string, order: number, navKey: string) => {
+        const unavailable = () => {
+          open('home');
+          notifyRef.current(t('app.linkIslandUnavailable'));
+        };
+        // 소속 여부는 로컬 스냅샷이 아니라 서버가 판정한다 — 다른 기기에서 방금 가입·승인된 섬일 수 있다. 소속이 아니면 서버 거절이
+        // 아래 실패 경로로 같은 안내를 낸다. 캐시가 «이미 현재 섬» 이어도 서버에 확인한다(다른 기기에서 바꿨을 수 있고, 같은 섬 PUT 은
+        // 멱등 200 상태확인이며 집중 세션 가드도 걸지 않는다 — IslandMembershipService.switchCurrentIsland).
+        // 다른 섬으로 옮기는데 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 보내지 않는다.
+        if (
+          stateRef.current.session &&
+          islandId !== stateRef.current.serverIslands?.currentIslandId
+        )
+          return unavailable();
+        const generation = sessionGeneration();
+        // 응답 전에 더 새 링크를 열었거나(번호 변경) 사용자가 직접 다른 화면으로 옮겼으면(위치 변경) 화면을 건드리지 않는다.
+        // 이동을 막지는 않는다. 계정이 바뀐(세대 변경) 응답은 settle 맨 앞에서 통째로 버린다.
+        const latest = () => linkSeq.current === order && navKeyRef.current === navKey;
+        const followsAnother = linkSwitching.current === generation;
+        linkSwitching.current = generation;
+        const settle = (ok: boolean, thrown?: unknown) => {
+          // 이전 세션의 늦은 응답은 새 세션의 진행 표시·보관 링크를 지우지 않는다.
+          if (sessionGeneration() !== generation) return;
+          if (
+            !ok &&
+            followsAnother &&
+            (thrown as { code?: string } | undefined)?.code === 'REQUEST_IN_PROGRESS'
+          ) {
+            // 앞선 링크의 섬 이동이 아직 끝나지 않았다 — 가장 최근 목적지 하나만 보관했다가 그 이동이 끝나면 다시 연다.
+            if (linkSeq.current === order)
+              queuedIslandLink.current = { islandId, seq: order, navKey, generation };
+            return;
+          }
+          linkSwitching.current = null;
+          // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
+          if (latest()) {
+            if (ok) open('home', '', true);
+            else unavailable();
+          }
+          const queued = queuedIslandLink.current;
+          queuedIslandLink.current = null;
+          if (
+            queued &&
+            queued.generation === generation &&
+            queued.seq === linkSeq.current &&
+            queued.navKey === navKeyRef.current
+          )
+            openIsland(queued.islandId, queued.seq, queued.navKey);
+        };
+        islandCmds.current!.commands.switchCurrent(islandId).then(
+          () => settle(true),
+          (thrown) => settle(false, thrown),
+        );
+      };
+      openIsland(target.islandId, seq, navKeyRef.current);
+      return;
+    }
+    open(target.route);
+  }, [
+    loaded,
+    incomingAppLink,
+    hasServerSession,
+    state.onboarded,
+    islandsSynced,
+    state.tutorial,
+    route,
+    fireTransition.phase,
+  ]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
     dispatch,
@@ -795,6 +907,8 @@ function Gromo() {
       'product',
       'orders',
       'sound',
+      // 잡지 배경이 섬 홈이고 섬장만 끝 쪽 안내를 본다 — 링크로 바로 열어도 홈 스냅샷을 받아야 한다. 바다 잡지(seaMagazine)는 홈이 없다.
+      'magazine',
     ].includes(route);
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,

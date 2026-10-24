@@ -85,7 +85,7 @@ class MagazineReportPreviewIntegrationTest {
     @Autowired
     UserRepository users;
     @Autowired
-    GroupRepository groups;
+    GroupRepository islands;
     @Autowired
     GroupMemberRepository members;
     @Autowired
@@ -184,7 +184,7 @@ class MagazineReportPreviewIntegrationTest {
         Island island = island("대상섬", false);
         Island other = island("다른섬", false);
         Island hidden = island("닫힌섬", false);
-        jdbc.update("update groups set deleted_at = now() where id = ?", hidden.id);
+        jdbc.update("update islands set deleted_at = now() where id = ?", hidden.id);
         UUID published = promotion(island, date);
         UUID skipped = promotion(hidden, date);
         UUID tomorrow = promotion(island, date.plusDays(1));
@@ -309,7 +309,7 @@ class MagazineReportPreviewIntegrationTest {
 
     private Island island(String name, boolean isPrivate) {
         User owner = user();
-        Group group = groups.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
+        Group group = islands.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
         members.save(GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build());
         return new Island(group.getId(), group, owner);
     }

@@ -147,7 +147,7 @@ class IslandRecordsIntegrationTest {
                 GroupErrorCode.MEMBER_ONLY);
 
         Island open = island(true);
-        jdbc.update("UPDATE groups SET status = 'ENDED' WHERE id = ?", open.id);
+        jdbc.update("UPDATE islands SET status = 'ENDED' WHERE id = ?", open.id);
         assertGroupError(() -> service.screenTime(open.owner.getId(), open.id, D, D, "me"),
                 GroupErrorCode.GROUP_NOT_FOUND);
     }
@@ -533,12 +533,12 @@ class IslandRecordsIntegrationTest {
 
     /** 게스트 로그인으로 실제 세션을 열고 도서관 섬 주민으로 넣는다. */
     private Device device() {
-        var login = auth.guestLogin();
+        var login = auth.guestSession(java.util.UUID.randomUUID().toString());
         UUID userId = jwt.extractUserId(login.accessToken());
         Island island = island(true);
         User user = users.findById(userId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island.group).role(GroupMemberRole.MEMBER).build());
-        return new Device(userId, login.sessionId(), island);
+        return new Device(userId, jwt.extractSessionId(login.accessToken()), island);
     }
 
     private void observe(User user, UUID deviceId, LocalDate date, String time, Integer minutes, String status) {

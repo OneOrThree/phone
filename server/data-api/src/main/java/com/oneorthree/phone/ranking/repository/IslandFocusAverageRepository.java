@@ -30,7 +30,7 @@ public interface IslandFocusAverageRepository
      * 섬을 닫고 {@code IslandPurgeService} 가 이 표의 그 섬 행을 지운 <b>뒤에</b> 이 INSERT 가 커밋되면 닫힌 섬의
      * 행이 되살아나 영영 치워지지 않는다 — 섬은 묘비만 남겨 FK {@code ON DELETE CASCADE} 가 돌지 않고, 다음 배치는
      * 죽은 섬을 건너뛴다. 그래서 {@code alive} CTE 가 넘겨받은 섬 중 <b>지금도</b> 미삭제·미종료인 섬의
-     * {@code groups} 행을 id 오름차순으로 {@code FOR SHARE} 잠그고, 그 행에만 INSERT 를 건다. 삭제는 섬 행 잠금
+     * {@code islands} 행을 id 오름차순으로 {@code FOR SHARE} 잠그고, 그 행에만 INSERT 를 건다. 삭제는 섬 행 잠금
      * (JPA {@code PESSIMISTIC_WRITE} — PostgreSQL 에선 {@code FOR NO KEY UPDATE})을 쥔 채 지우므로
      * ({@code IslandPurgePort} 계약) 둘이 이 잠금에서 직렬화된다. INSERT 의 FK 검사가 쥐는 {@code FOR KEY SHARE} 는
      * 그 잠금과 <b>충돌하지 않아</b> INSERT 만으로는 직렬화되지 않는다 — {@code FOR SHARE} 를 걷어내면 이 보호가 사라진다.
@@ -55,7 +55,7 @@ public interface IslandFocusAverageRepository
      */
     @Modifying
     @Query(value = "WITH alive AS MATERIALIZED ("
-            + "SELECT g.id FROM groups g "
+            + "SELECT g.id FROM islands g "
             + "WHERE g.id = ANY(CAST(:islandIds AS uuid[])) "
             + "AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
             + "ORDER BY g.id FOR SHARE) "
@@ -85,4 +85,19 @@ public interface IslandFocusAverageRepository
             + "WHERE a.island_id IN (:islandIds) "
             + "ORDER BY a.island_id, a.snapshot_date DESC", nativeQuery = true)
     List<IslandFocusAverage> findLatestByIslandIds(@Param("islandIds") Collection<UUID> islandIds);
+
+    /**
+     * {@code cutoff} 보다 오래된 행을 지우되 <b>섬마다 가장 최근 행은 남긴다</b> (GROMO-2280) — cutoff 보다 오래됐어도.
+     * 읽기({@link #findLatestByIslandIds})가 «섬의 최신 행» 을 답으로 주므로 그 행을 지우면 한동안 새 행이 없던 섬의
+     * 값이 사라진다. 판정은 섬 단위라 다른 섬의 행은 영향을 주지 않는다. {@code (island_id, snapshot_date DESC)} 인덱스가
+     * {@code EXISTS} 를 받친다. 트랜잭션 경계는 호출부({@code IslandFocusAverageSnapshotService})가 소유한다.
+     *
+     * @param cutoff 이 날짜 «미만» 의 행이 지울 후보다(그날 행은 남는다)
+     * @return 지운 행 수
+     */
+    @Modifying
+    @Query(value = "DELETE FROM island_focus_averages a WHERE a.snapshot_date < CAST(:cutoff AS date) "
+            + "AND EXISTS (SELECT 1 FROM island_focus_averages b "
+            + "WHERE b.island_id = a.island_id AND b.snapshot_date > a.snapshot_date)", nativeQuery = true)
+    int deleteOlderThanKeepingLatest(@Param("cutoff") LocalDate cutoff);
 }

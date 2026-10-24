@@ -31,9 +31,7 @@ import java.util.UUID;
  * 페이지 사이의 변경은 <b>{@code version} 으로 수렴</b>시킨다(항목 주석 참조). 격리 수준을 올려도
  * 그 성질이 생기지 않는다는 것을 분명히 해 두려고 이 주석을 남긴다.
  *
- * <h2>봇은 뺀다</h2>
- * A5 에서 봇 발송이 폐기됐다. 스냅샷에 남기면 알림 서버가 «기기도 설정도 없는 유저»를 잔뜩 투영하고,
- * 나중에 그 행이 무엇이었는지 아무도 모른다.
+ * <p>기기 토큰은 알림 서버가 소유한다. 기기 토큰 여부는 스냅샷에 포함하지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -51,7 +49,6 @@ public class NotificationSnapshotService {
                    u.auth_generation,
                    u.nickname,
                    u.language,
-                   (u.device_token IS NOT NULL) AS has_device_token,
                    (s.user_id IS NOT NULL) AS settings_present,
                    s.notification_enabled,
                    s.sound_enabled,
@@ -66,8 +63,7 @@ public class NotificationSnapshotService {
               LEFT JOIN aggregate_versions av
                      ON av.aggregate_type = :aggregateType
                     AND av.aggregate_id = CAST(u.id AS varchar)
-             WHERE u.is_bot = false
-               AND (CAST(:cursor AS uuid) IS NULL OR u.id > CAST(:cursor AS uuid))
+             WHERE (CAST(:cursor AS uuid) IS NULL OR u.id > CAST(:cursor AS uuid))
              ORDER BY u.id
              LIMIT :limit
             """;
@@ -127,22 +123,21 @@ public class NotificationSnapshotService {
      * @return 항목
      */
     private static NotificationSnapshotItem toItem(Object[] row) {
-        boolean settingsPresent = toBoolean(row[6]);
+        boolean settingsPresent = toBoolean(row[5]);
         return new NotificationSnapshotItem(
                 toUuid(row[0]),
                 toBoolean(row[1]),
                 ((Number) row[2]).longValue(),
                 (String) row[3],
                 (String) row[4],
-                toBoolean(row[5]),
                 settingsPresent,
+                settingsPresent ? toBoolean(row[6]) : null,
                 settingsPresent ? toBoolean(row[7]) : null,
                 settingsPresent ? toBoolean(row[8]) : null,
-                settingsPresent ? toBoolean(row[9]) : null,
+                toLocalTime(row[9]),
                 toLocalTime(row[10]),
-                toLocalTime(row[11]),
-                toInstant(row[12]),
-                row[13] == null ? 0L : ((Number) row[13]).longValue());
+                toInstant(row[11]),
+                row[12] == null ? 0L : ((Number) row[12]).longValue());
     }
 
     private static UUID toUuid(Object value) {

@@ -1,39 +1,27 @@
 package com.oneorthree.phone.friend.service;
 
-import com.fasterxml.uuid.Generators;
-import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.MainIslandNamePort;
-import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
-import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
-import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
-import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
-import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
-import com.oneorthree.phone.friend.repository.domain.PinnedUser;
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.service.search.SearchType;
-import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.service.UserBlockService;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,32 +35,22 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * 친구 요청·수락·거절·삭제와 핀, 그리고 친구 검색을 묶은 서비스.
+ * 친구 요청·수락·거절·삭제와 친구 검색을 묶은 서비스.
  *
  * <p>이 도메인의 어려움은 대부분 <b>행 재사용</b>에서 온다. friendships 는 (from, to) 방향당 한 행만
  * 허용하고 거절·삭제도 행을 남기므로, 재요청은 새로 넣는 대신 남은 행을 되살린다. 그래서 여기 있는
  * 판정 순서(삭제 행 복원 → REJECTED 재전환 → 신규 insert)는 취향이 아니라 유니크 제약을 피하려는 필수 순서다.
  *
- * <p>목록 조회는 상대 유저가 여럿이라 티어·집중 라이브·캐릭터를 전부 <b>배치 조회</b>로 모은다(N+1 방지).
+ * <p>목록 조회는 상대 유저가 여럿이라 집중 라이브·메인 섬 이름을 <b>배치 조회</b>로 모은다(N+1 방지).
  * 알림은 여기서 직접 보내지 않고 이벤트만 발행해, 트랜잭션이 롤백되면 알림도 나가지 않게 한다.
  */
 @Service
 @Transactional(readOnly = true)
 public class FriendService {
 
-    /**
-     * pinned_users.id 직접 생성용 (네이티브 INSERT는 @GeneratedUuidV7를 안 타므로 직접 발급)
-     */
-    private static final NoArgGenerator UUID_V7 = Generators.timeBasedEpochRandomGenerator();
-
     private final FriendshipRepository friendshipRepository;
     private final UserQueryService userQueryService;
-    private final PinnedUserRepository pinnedUserRepository;
-    private final DailyFocusStatRepository dailyFocusStatRepository;
-    private final FocusSessionRepository focusSessionRepository;
-    private final CharacterEquipmentRepository characterEquipmentRepository;
     private final UserActivityEventLogger userActivityEventLogger;
-    private final UserTierLookup userTierLookup;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final FriendRelationLookup friendRelationLookup;
     private final MainIslandNamePort mainIslandNamePort;
@@ -89,8 +67,6 @@ public class FriendService {
      */
     private final ApplicationEventPublisher eventPublisher;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
-    /** GROMO-1934: 게스트 계정의 친구 요청 시간 한도 — 정회원은 세지 않는다. */
-    private final PerUserHourlyLimiter guestRequestLimiter;
 
     /**
      * 검색 전략은 AuthService의 Map&lt;Provider, SocialLoginClient>와 동일하게
@@ -98,47 +74,29 @@ public class FriendService {
      *
      * @param friendshipRepository        관계 행의 조회·정리 창구
      * @param userQueryService            id 로 하는 User 조회 — 활성 검증·락 선택을 계층이 맡는다
-     * @param pinnedUserRepository        핀 설정·해제·조회
-     * @param dailyFocusStatRepository    핀 목록의 "오늘 집중분" 집계 소스
-     * @param focusSessionRepository      핀 목록의 "지금 집중 중" 판정 소스(끝나지 않은 세션)
-     * @param characterEquipmentRepository 핀 목록에 실을 캐릭터 장착 표시정보
      * @param userActivityEventLogger     요청·수락 사실을 커밋과 무관하게 즉시 남기는 활동 로그
-     * @param userTierLookup              상대들의 티어를 한 번에 뽑는 배치 조회기
      * @param focusLiveInfoLookup         상대들의 집중 라이브 정보를 한 번에 뽑는 배치 조회기
-     * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
+     * @param friendRelationLookup        검색 결과의 관계 배지 판정
      * @param mainIslandNamePort          상대들의 메인 섬 이름을 한 번에 뽑는 포트(GROMO-1971) — 섬은
      *                                    group(L5) 데이터라 friend(L3)가 직접 부르면 레이어 역행이다
      * @param letterRepository            친구 삭제에 딸린 미확인 편지 정리(GROMO-2002)
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
      * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
      *                                    키가 겹치면 기동 시점에 터진다
-     * @param guestRequestLimiter         게스트 친구 요청 스팸 방어(GROMO-1934) — 레거시·내부 두 표면이 모두
-     *                                    {@link #createRequest} 로 모이므로 여기 한 곳에서 센다
      */
     public FriendService(FriendshipRepository friendshipRepository,
                          UserQueryService userQueryService,
-                         PinnedUserRepository pinnedUserRepository,
-                         DailyFocusStatRepository dailyFocusStatRepository,
-                         FocusSessionRepository focusSessionRepository,
-                         CharacterEquipmentRepository characterEquipmentRepository,
                          UserActivityEventLogger userActivityEventLogger,
-                         UserTierLookup userTierLookup,
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
                          MainIslandNamePort mainIslandNamePort,
                          LetterRepository letterRepository,
                          UserBlockService userBlockService,
                          ApplicationEventPublisher eventPublisher,
-                         List<FriendSearchStrategy> searchStrategies,
-                         @Qualifier("friendRequestRateLimiter") PerUserHourlyLimiter guestRequestLimiter) {
+                         List<FriendSearchStrategy> searchStrategies) {
         this.friendshipRepository = friendshipRepository;
         this.userQueryService = userQueryService;
-        this.pinnedUserRepository = pinnedUserRepository;
-        this.dailyFocusStatRepository = dailyFocusStatRepository;
-        this.focusSessionRepository = focusSessionRepository;
-        this.characterEquipmentRepository = characterEquipmentRepository;
         this.userActivityEventLogger = userActivityEventLogger;
-        this.userTierLookup = userTierLookup;
         this.focusLiveInfoLookup = focusLiveInfoLookup;
         this.friendRelationLookup = friendRelationLookup;
         this.mainIslandNamePort = mainIslandNamePort;
@@ -147,7 +105,6 @@ public class FriendService {
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
-        this.guestRequestLimiter = guestRequestLimiter;
     }
 
     /**
@@ -172,8 +129,7 @@ public class FriendService {
      *
      * @param me           요청을 보내는 유저
      * @param targetUserId 요청을 받을 유저. 자기 자신이면 SELF_REQUEST, 탈퇴자면 유저 없음으로 떨어진다
-     * @return 이번 요청 사이클의 요청 행 id — 복원·재전환이면 되살린 행, 아니면 새 행 (GROMO-1894 내부 표면이
-     *         결과 상태를 돌려주는 데 쓴다. 레거시 컨트롤러는 무시한다)
+     * @return 이번 요청 사이클의 요청 행 id — 복원·재전환이면 되살린 행, 아니면 새 행
      */
     @Transactional
     public UUID createRequest(UUID me, UUID targetUserId) {
@@ -196,11 +152,6 @@ public class FriendService {
             if (f.getStatus() == FriendshipStatus.PENDING) {
                 throw new FriendException(FriendErrorCode.REQUEST_ALREADY_EXISTS);
             }
-        }
-        // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 이미 친구·중복 요청 같은 거절까지 세면
-        // 앱 재시도 몇 번에 정상 게스트가 한 시간 막힌다. 게스트만 센다(오너 확정).
-        if (fromUser.isGuest()) {
-            guestRequestLimiter.acquire(me);
         }
 
         // unique(from,to) 충돌 회피 1: 내가 보냈던 (me→target) soft delete 행이 있으면 복원해 재사용 (GROMO-719).
@@ -348,15 +299,9 @@ public class FriendService {
      * 커밋되고 그 «다음에» 편지가 꽂혀 「관계는 끊겼는데 미확인 편지가 남는」 상태가 만들어진다 —
      * 앞 절반과 뒤 절반이 각각은 맞는데 합쳐서 틀리는 자리다.
      *
-     * <p>정리를 «여기»에 둔 것은 의도다. 레거시 {@code friend.FriendController} 와 내부 표면
-     * {@code InternalFriendController} 두 표면이 모두 이 메서드로 모이므로, 상위(internal, L10)에
-     * 올려 두면 레거시 경로만 정책을 어기게 된다. 레이어도 맞다 — {@code letter} 는 L2, {@code friend} 는
-     * L3 이라 참조가 아래로 간다. {@code DomainLayerRulesTest} 의 letter 층 주석이 「친구 삭제 후 편지
-     * 정리가 결정되면 friend 가 letter 를 참조해야 한다」며 미리 비워 둔 자리다.
-     *
      * @param me           끊는 쪽
      * @param friendUserId 끊을 상대. 이미 탈퇴한 유저여도 허용한다 — 아니면 잔존 관계를 영영 못 끊는다
-     * @return 끊은 관계 행 id (GROMO-1894 내부 표면이 결과를 돌려주는 데 쓴다. 레거시 컨트롤러는 무시한다)
+     * @return 끊은 관계 행 id
      */
     @Transactional
     public UUID deleteFriend(UUID me, UUID friendUserId) {
@@ -381,7 +326,7 @@ public class FriendService {
     }
 
     /**
-     * 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑. isPinned는 내 핀 친구 집합으로 결정.
+     * 친구 목록 — ACCEPTED·미삭제 관계를 상대 유저로 매핑.
      *
      * @param me   목록의 주인
      * @param date 집중분을 집계할 날짜. 서버 판정 축(KST 고정)의 오늘이며 기기 로컬 날짜가 아니다
@@ -389,19 +334,14 @@ public class FriendService {
      */
     public List<FriendResponse> getFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
-        Set<UUID> pinnedIds = pinnedUserRepository.findByUser(meUser).stream()
-                .map(p -> p.getPinnedUser().getId())
-                .collect(Collectors.toSet());
         Set<UUID> blockedIds = userBlockService.blockedIds(me);
         List<User> others = friendshipRepository.findAcceptedByUser(meUser).stream()
                 .map(f -> counterpart(f, me))
                 .filter(other -> !blockedIds.contains(other.getId()))
                 .toList();
         List<UUID> otherIds = others.stream().map(User::getId).toList();
-        // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
-        Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(otherIds);
         // GROMO-822: 상대 userId 들의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 1회 배치 조회(N+1 방지).
-        // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(/pins 와 동일). 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
+        // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘. 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
         Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(otherIds, date);
         // GROMO-1971: 메인 섬 «이름»도 한 번에 모은다(N+1 방지) — 섬은 group(L5) 데이터라 포트로 묻는다.
         // 소속이 없는 친구는 맵에 키가 없어 아래에서 null 이 된다.
@@ -412,9 +352,6 @@ public class FriendService {
                     return FriendResponse.builder()
                             .userId(other.getId())
                             .nickname(other.getNickname())
-                            .occupation(other.getOccupation() != null ? other.getOccupation().name() : null)
-                            .tierLevel(tierLevels.get(other.getId()))
-                            .isPinned(pinnedIds.contains(other.getId()))
                             .isFocusing(info != null && info.isFocusing())
                             .focusTimeMinutes(info != null ? info.focusTimeMinutes() : 0)
                             .focusStartedAt(info != null ? info.focusStartedAt() : null)
@@ -422,82 +359,6 @@ public class FriendService {
                             .mainIslandName(mainIslandNames.get(other.getId()))
                             .build();
                 })
-                .toList();
-    }
-
-    /**
-     * 유저 핀 설정 — 친구 아닌 임의 유저도 핀 가능(user 핀 통일, GROMO-609). 대상 존재만 검증 후 멱등 insert.
-     *
-     * @param me           핀을 거는 유저
-     * @param friendUserId 핀 대상. 자기 자신이면 SELF_PIN, 활성 유저가 아니면 유저 없음으로 떨어진다
-     */
-    @Transactional
-    public void pinFriend(UUID me, UUID friendUserId) {
-        if (me.equals(friendUserId)) {
-            throw new FriendException(FriendErrorCode.SELF_PIN);
-        }
-        // 양쪽 다 활성 검증 + 탈퇴와 직렬화 (GROMO-801) — 없으면 FK 위반 500 대신 NOT_FOUND(404)
-        getCallerParticipant(me);
-        getRelationParticipant(friendUserId);
-        // ON CONFLICT DO NOTHING — 동시 핀 요청에도 멱등(중복은 무시), 500 없음.
-        pinnedUserRepository.insertIgnoreConflict(UUID_V7.generate(), me, friendUserId);
-    }
-
-    /**
-     * 친구 핀 해제 — 있으면 삭제, 없으면 멱등(204).
-     *
-     * @param me           핀을 건 유저
-     * @param friendUserId 핀을 뗄 대상. 탈퇴자여도 해제할 수 있다
-     */
-    @Transactional
-    public void unpinFriend(UUID me, UUID friendUserId) {
-        getUser(me);
-        getAnyUser(friendUserId);   // 탈퇴자 핀도 해제 가능해야 한다 (GROMO-801)
-        // 벌크 DELETE — 조회 후 remove 하면 탈퇴의 핀 정리와 겹칠 때 0 행 DELETE 로 StaleStateException(500).
-        // 0 행 = 이미 없음이므로 그대로 멱등 성공(204).
-        pinnedUserRepository.deletePin(me, friendUserId);
-    }
-
-    /**
-     * 내가 핀한 친구 조회 — 각 친구의 캐릭터 표시정보 + 오늘 집중분 + 진행중 여부 매핑(GROMO-369 재사용).
-     *
-     * @param me   핀을 건 유저
-     * @param date 집중분을 집계할 날짜. DailyFocusStat 의 저장 버킷과 같은 축(KST 고정)이어야 값이 맞는다
-     * @return 핀한 유저 목록. 핀이 하나도 없으면 배치 조회를 아예 건너뛰고 빈 리스트를 돌려준다
-     */
-    public List<PinnedUserResponse> getPinnedFriends(UUID me, LocalDate date) {
-        User meUser = getUser(me);
-        // 내가 차단한 친구는 핀이 남아 있어도 보이지 않는다 (GROMO-2185) — getFriends 와 같은 blocker 방향 필터.
-        // 핀 행은 지우지 않으므로 차단을 해제하면 다시 보인다(policy D3 「기존 관계는 자동 삭제하지 않고 숨긴다」).
-        Set<UUID> blockedIds = userBlockService.blockedIds(me);
-        List<User> friends = pinnedUserRepository.findByUser(meUser).stream()
-                .map(PinnedUser::getPinnedUser)
-                .filter(pinned -> !blockedIds.contains(pinned.getId()))
-                .toList();
-        if (friends.isEmpty()) {
-            return List.of();
-        }
-
-        // GROMO-643·1259: 서버 판정 축(KST 고정) 날짜(date)로 오늘 집계 조회 (DailyFocusStat 저장 버킷과 동일 축)
-        Map<UUID, Integer> focusMap = dailyFocusStatRepository.findByUserInAndDate(friends, date).stream()
-                // GROMO-642: 초 저장 → 분 환산
-                .collect(Collectors.toMap(s -> s.getUser().getId(), s -> s.getTotalFocusSeconds() / 60));
-        Set<UUID> focusingIds = focusSessionRepository.findByUserInAndEndedAtIsNull(friends).stream()
-                .map(s -> s.getUser().getId())
-                .collect(Collectors.toSet());
-        Map<UUID, List<CharacterEquipmentResponse>> equipMap =
-                characterEquipmentRepository.findByUserIn(friends).stream()
-                        .collect(Collectors.groupingBy(e -> e.getUser().getId(),
-                                Collectors.mapping(CharacterEquipmentResponse::from, Collectors.toList())));
-
-        return friends.stream()
-                .map(f -> PinnedUserResponse.builder()
-                        .userId(f.getId())
-                        .nickname(f.getNickname())
-                        .character(equipMap.getOrDefault(f.getId(), List.of()))
-                        .focusTimeMinutes(focusMap.getOrDefault(f.getId(), 0))
-                        .isFocusing(focusingIds.contains(f.getId()))
-                        .build())
                 .toList();
     }
 
@@ -522,10 +383,6 @@ public class FriendService {
                 .filter(f -> !blockedIds.contains((received ? f.getFromUser() : f.getToUser()).getId()))
                 .toList();
 
-        // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
-        Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(requests.stream()
-                .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
-                .toList());
         return requests.stream()
                 .map(f -> {
                     User other = received ? f.getFromUser() : f.getToUser();
@@ -533,7 +390,6 @@ public class FriendService {
                             .requestId(f.getId())
                             .userId(other.getId())
                             .nickname(other.getNickname())
-                            .tierLevel(tierLevels.get(other.getId()))
                             // 요청 시각의 소스는 updatedAt — 행 재사용(복원·재전환) 시 createdAt 은 원래
                             // 관계의 시각이 남는다(@CreationTimestamp 가 insert 생성이라 갱신 불가,
                             // Friendship.reopen() 주석). 이 목록은 PENDING 만 실으므로 마지막 변경 시각이
@@ -553,20 +409,12 @@ public class FriendService {
 
     /**
      * 친구 검색 — type 전략에 위임 후 자기자신 제외 + 기존 관계(relation) 표기.
-     * relation 판정은 {@link FriendRelationLookup} 공유 컴포넌트에 위임한다 (GROMO-1631 — 프로필과 공유).
-     *
-     * <p><b>비친구에게는 티어·준비 시험을 주지 않는다</b> (GROMO-1996). 검색은 닉네임만 알면 누구나
-     * 칠 수 있는 표면이라, 모르는 사람의 프로필 정보를 여기서 흘리면 친구 수락이라는 관문이 무의미해진다.
-     * 남기는 셋({@code userId}·{@code nickname}·{@code relation})은 「이 사람에게 친구 요청을 보낼까」를
-     * 그리는 데 필요한 최소값이다 — 더 보려면 친구가 되고 나서 프로필로 간다.
-     *
-     * <p>가리는 자리가 «여기» 인 것은 의도다: relation 이 이미 계산돼 있으므로 전략은 아무것도 몰라도
-     * 되고, 검색 수단이 늘어도 가림 규칙은 한 곳에 남는다.
+     * relation 판정은 {@link FriendRelationLookup} 에 위임한다.
      *
      * @param me    검색하는 유저 — 결과에서 제외되고, 관계 배지 판정의 기준이 된다
      * @param type  검색 수단. 등록된 전략이 없으면 {@link IllegalArgumentException} 을 던져 400 이 된다
      * @param query 검색어. 해석은 전략 몫이다
-     * @return 관계 배지까지 채운 검색 결과. 친구가 아닌 건의 {@code tierLevel}·{@code occupation} 은 null 이다
+     * @return 관계 배지까지 채운 검색 결과
      */
     public List<FriendSearchResultResponse> search(UUID me, SearchType type, String query) {
         FriendSearchStrategy strategy = searchStrategies.get(type);
@@ -584,13 +432,9 @@ public class FriendService {
                 .map(r -> {
                     FriendRelation relation =
                             friendRelationLookup.resolveRelation(r.getUserId(), friendIds, pendingIds);
-                    boolean friend = relation == FriendRelation.FRIEND;
                     return FriendSearchResultResponse.builder()
                             .userId(r.getUserId())
                             .nickname(r.getNickname())
-                            // PENDING(요청중)도 아직 친구가 아니다 — 수락 전에 미리 보여 주지 않는다.
-                            .tierLevel(friend ? r.getTierLevel() : null)
-                            .occupation(friend ? r.getOccupation() : null)
                             .relation(relation)
                             .build();
                 })
@@ -608,7 +452,7 @@ public class FriendService {
     }
 
     /**
-     * 관계 '생성'(친구 요청·핀)에 참여하는 유저 조회 (GROMO-801) — 활성 검증 + 공유 락.
+     * 관계 '생성'(친구 요청)에 참여하는 유저 조회 (GROMO-801) — 활성 검증 + 공유 락.
      * 활성 검증: findById 를 쓰면 탈퇴자에게 요청이 걸리고, friendships 에 남은 (from,to) 유니크 제약과
      * 충돌해 500 이 난다.
      * 공유 락: 탈퇴 트랜잭션의 배타 락과 직렬화해, 정리가 끝난 뒤 새 관계가 끼어드는 레이스를 막는다.
@@ -630,7 +474,7 @@ public class FriendService {
     }
 
     /**
-     * 관계 '해제'(친구 삭제·핀 해제) 대상 조회 (GROMO-801) — 탈퇴 여부를 보지 않는다.
+     * 관계 '해제'(친구 삭제) 대상 조회 (GROMO-801) — 탈퇴 여부를 보지 않는다.
      * 활성 검증을 걸면 상대가 탈퇴한 순간 잔존 관계를 영구히 못 지운다. 특히 이 변경 배포 전에 탈퇴해
      * 정리되지 않은 관계는 사용자가 직접 끊는 것이 유일한 해소 수단이다(백필을 하지 않으므로).
      * 해제는 관계를 줄이는 방향이라 탈퇴자를 대상으로 허용해도 유령이 늘지 않는다.
@@ -678,10 +522,10 @@ public class FriendService {
 
 
     /**
-     * 탈퇴자의 친구 관계와 핀을 파기한다 (GROMO-801 · 이동 GROMO-1656 · 하드 삭제 GROMO-1801).
+     * 탈퇴자의 친구 관계를 파기한다 (GROMO-801 · 이동 GROMO-1656 · 하드 삭제 GROMO-1801).
      *
      * <p><b>둘 다 하드 삭제</b>다(계정 LLD §4). 활성 조회 필터나 soft delete 는 파기가 아니다 — 요청·수락·거절
-     * 상태와 시각이 탈퇴자 UUID 에 계속 묶인다. 두 활성 사용자끼리의 관계·핀은 건드리지 않는다.
+     * 상태와 시각이 탈퇴자 UUID 에 계속 묶인다. 두 활성 사용자끼리의 관계는 건드리지 않는다.
      *
      * <p><b>호출 순서</b>: 벌크 DELETE 가 {@code friendships} 행을 잠그므로 관계와 무관한 정리를 먼저 끝내
      * 락 보유 구간을 줄인다 — 호출부가 이 메서드를 늦게 부르는 이유다.
@@ -691,7 +535,6 @@ public class FriendService {
     @Transactional
     public void detachWithdrawnUser(UUID userId) {
         friendshipRepository.deleteAllInvolving(userId);
-        pinnedUserRepository.deleteAllInvolving(userId);
     }
 
 }

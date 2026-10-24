@@ -19,13 +19,6 @@ auth:
     # 비어 있음 = 카탈로그 미확정(정책 Q05). 형식만 보고 원문을 원장에 기록한다.
     accepted-versions: ""
 
-link:
-  # ⚠️ 운영 salt 가 아니다. 운영 값을 바꾸면 매치가 전멸하므로(A22 ⓕ) 테스트는 자기 값을 쓴다.
-  ip-salt: ci-test-ip-salt
-  trusted-ip-headers: X-Link-Client-IP
-  # 빈 값 = 공유 비밀 겹을 적용하지 않는다. 그 겹이 «켜졌을 때»의 동작은 별도 테스트가 값을 넣어 본다.
-  proxy-secret: ""
-
 business:
   upstream:
     data:
@@ -43,11 +36,6 @@ business:
       service-token: ci-token-realtime
       read-timeout: 300ms
       connect-timeout: 200ms
-    link:
-      base-url: http://localhost:1
-      service-token: ci-token-link
-      read-timeout: 300ms
-      connect-timeout: 200ms
   cursor:
     # 목록 커서 서명키 — 운영 키가 아니다. JWT 키와 «독립» 이어야 한다는 규칙을 테스트에서도 지킨다.
     # dev/prod 는 이 블록을 환경변수로 주입해야 /islands·/islands/discover 의 페이징이 산다.
@@ -55,13 +43,11 @@ business:
     active-key: ci
     keys:
       ci: Y2ktY3Vyc29yLXNpZ25pbmcta2V5LTAxMjM0NTY3ODlhYg==
-  compat:
-    match-handler-enabled: true
-    import-contract-ready: false
-    migration-id: ci-migration
-    match-budget: 3s
-    claim-budget: 3s
-
 logging:
   level:
     com.oneorthree.business: DEBUG
+
+# 게스트 로그인 IP 제한에 사용하는 신뢰 프록시 계약.
+link:
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:X-Link-Client-IP}
+  proxy-secret: ci-proxy-secret

@@ -139,7 +139,7 @@ class SeaSessionAggregateExclusionIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private void backdate(UUID sessionId, long seconds) {

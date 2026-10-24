@@ -13,9 +13,6 @@ import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
-import com.oneorthree.phone.group.dto.CreateGroupRequest;
-import com.oneorthree.phone.group.dto.JoinGroupRequest;
-import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandLeftView;
@@ -111,8 +108,6 @@ class IslandArrivalIntegrationTest {
     InternalLetterService letters;
     @Autowired
     AccountWithdrawalService withdrawal;
-    @Autowired
-    GroupService legacyGroups;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -242,23 +237,8 @@ class IslandArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("동결된 1.x 경로(/api/v1/groups)의 생성·참여도 «가 본 섬» 이다 — 2.0 즉시 이동이 막히지 않는다")
-    void legacyCreateAndJoinRecordArrivals() {
-        UUID creator = newUser();
-        UUID created = legacyGroups.createGroup(creator,
-                CreateGroupRequest.builder().name("옛날섬").maxMembers(10).build()).groupId();
-        assertThat(arrivedBefore(islands.myIslands(creator), created)).isTrue();
-
-        UUID joiner = newUser();
-        legacyGroups.joinGroup(created, joiner, JoinGroupRequest.builder().build());
-        assertThat(arrivedBefore(islands.myIslands(joiner), created)).isTrue();
-        assertThat(islands.switchCurrentIsland(joiner, created, UUID.randomUUID()).currentIslandId())
-                .as("ISLAND_NOT_ARRIVED 로 막히지 않는다").isEqualTo(created);
-    }
-
-    @Test
-    @DisplayName("소속 2개인 사람의 1.x 동시 참여 둘은 상한 3을 넘지 못한다 — 한쪽만 성공, 다른 쪽은 409")
-    void concurrentLegacyJoinsRespectTheCap() throws Exception {
+    @DisplayName("소속 2개인 사람의 동시 참여 둘은 상한 3을 넘지 못한다 — 한쪽만 성공, 다른 쪽은 409")
+    void concurrentJoinsRespectTheCap() throws Exception {
         UUID user = newUser();
         joinAs(user, island("하나섬", false, false), GroupMemberRole.MEMBER);
         joinAs(user, island("둘섬", false, false), GroupMemberRole.MEMBER);
@@ -267,11 +247,11 @@ class IslandArrivalIntegrationTest {
 
         List<Throwable> failures = race(
                 () -> {
-                    legacyGroups.joinGroup(left, user, JoinGroupRequest.builder().build());
+                    joins.join(user, left, null, UUID.randomUUID());
                     return null;
                 },
                 () -> {
-                    legacyGroups.joinGroup(right, user, JoinGroupRequest.builder().build());
+                    joins.join(user, right, null, UUID.randomUUID());
                     return null;
                 });
 
@@ -413,7 +393,7 @@ class IslandArrivalIntegrationTest {
 
         management.leave(host, islandId, UUID.randomUUID());
 
-        assertThat(count("select count(*) from groups where id=? and deleted_at is not null", islandId))
+        assertThat(count("select count(*) from islands where id=? and deleted_at is not null", islandId))
                 .as("삭제 묘비 — 하드 삭제가 아니라 CASCADE 가 돌지 않는다").isEqualTo(1);
         assertThat(count("select count(*) from island_arrivals where island_id=?", islandId)).isZero();
         assertThat(arrived(visitor, other)).as("다른 섬의 기록은 그대로").isTrue();
@@ -850,7 +830,7 @@ class IslandArrivalIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID island(String name, boolean isPrivate, boolean approvalRequired) {

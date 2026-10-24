@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;

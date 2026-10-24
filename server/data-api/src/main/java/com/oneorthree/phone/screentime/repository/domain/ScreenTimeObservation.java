@@ -21,7 +21,7 @@ import java.util.UUID;
  * 기기 하나가 한 UTC 날짜에 대해 보낸 스크린타임 관측 하나 (GROMO-1769, 회관 기록 LLD §4). 불변 행이다 —
  * 같은 (사용자, 기기, 날짜) 의 최신 선택은 {@code measuredAt} 최댓값이고, 더 오래된 관측은 그 선택을 바꾸지 않는다.
  *
- * <p>legacy {@code daily_screen_time_stats}(KST 라벨, 보상 판정용)와 별개다 — 새 PUT 이 그쪽을 alias 하지 않는다(LLD §5).
+ * <p>측정 날짜는 UTC 기준이며 관측 기록은 보상 판정과 분리한다(LLD §5).
  * {@code minutes} 는 {@code authorized} 일 때만 있다(측정된 0 만 0, RC-P06).
  */
 @Entity

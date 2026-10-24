@@ -18,13 +18,8 @@ import java.util.regex.Pattern;
  * 같은 정규화, 같은 코드로 거절된다.
  *
  * <h2>왜 DTO 애노테이션이 아니라 서비스가 부르는가</h2>
- * ① 같은 컬럼에 쓰는 입구가 둘이다 — 2.0 내부 표면({@code IslandNoticeService}·{@code IslandMembershipService}
- * ·{@code IslandManagementService})과 레거시 {@code /api/v1}({@code GroupService}·{@code GroupAnnouncementService})
- * 이 같은 {@code groups}·{@code group_announcements} 행을 만든다. 한쪽 DTO 에만 붙이면 다른 입구가
- * 그대로 우회로가 된다. ② 그 입구 중 {@code InternalAccountController}(닉네임)·
- * {@code InternalIslandManagementController}(섬 수정) 는 {@code @Valid} 자체가 없어 애노테이션이 아예 안 돈다.
- * ③ 6종이 bean validation · {@code @JsonCreator} · 서비스 도메인 코드 세 갈래로 흩어져 있어, 규칙을
- * 저장 직전 한 층에 모으는 편이 갈라지지 않는다({@code UserService} 의 닉네임 길이 규칙과 같은 판단).
+ * 입력별 검증이 bean validation · {@code @JsonCreator} · 서비스 도메인 코드로 나뉘므로
+ * 저장 직전 서비스에서 공통 판정을 호출한다. 생성과 수정에도 같은 규칙을 적용한다.
  *
  * <h2>왜 {@code common/support} 인가</h2>
  * 소비자가 {@code user}(L0) · {@code letter}(L2) · {@code group}(L5) · {@code internal}(L10) 에 걸쳐 있다.
@@ -33,8 +28,7 @@ import java.util.regex.Pattern;
  * 패키지({@code moderation} 등)를 만들면 「모든 도메인 패키지가 레이어 표에 있다」가 즉시 실패한다.
  *
  * <h2>목록은 리소스 파일이고, 기동 때 한 번 읽는다</h2>
- * 자바 상수로 박으면 목록을 고칠 때마다 코드 리뷰·재컴파일이 붙는다. 읽기는 {@code LandingRenderer} 의
- * 관례 그대로 <b>생성자에서 한 번</b>이다 — 파일이 없거나 비면 첫 요청이 아니라 <b>기동</b> 때 죽는다.
+ * 목록은 <b>생성자에서 한 번</b> 읽는다 — 파일이 없거나 비면 첫 요청이 아니라 <b>기동</b> 때 실패한다.
  * 필터가 조용히 꺼진 서버가 심사에 올라가는 것이 이 티켓이 막으려는 바로 그 사고다.
  *
  * <h2>판정은 «정규화 부분 일치 − 허용어 상쇄» 다</h2>

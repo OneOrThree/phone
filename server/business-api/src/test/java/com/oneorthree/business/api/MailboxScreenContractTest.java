@@ -37,13 +37,15 @@ class MailboxScreenContractTest extends ScreenContractTestBase {
     private static final String LETTERS = "{\"content\":[{\"id\":\"" + LETTER + "\",\"counterpartUserId\":\"" + PEER
             + "\",\"counterpartNickname\":\"짝꿍\",\"content\":\"안녕\",\"isRead\":false,"
             + "\"createdAt\":\"2026-09-18T01:00:00Z\"}],\"size\":20,\"hasNext\":false,\"nextCursor\":null}";
-    private static final String FRIENDS = "[{\"userId\":\"" + PEER + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
-            + "\"occupation\":null,\"isPinned\":false,\"isFocusing\":false,\"focusTimeMinutes\":0,"
+    private static final String FRIENDS = "[{\"userId\":\"" + PEER + "\",\"nickname\":\"짝꿍\","
+            + "\"isFocusing\":false,\"focusTimeMinutes\":0,"
             + "\"focusStartedAt\":null,\"focusTagName\":null}]";
 
+    /** {@code sender} 가 null 이면 JSON null — 실시간이 tombstone 뒤 탈퇴 발신자에게 주는 모양이다. */
     private static String rtMessage(UUID id, UUID sender, String content) {
-        return "{\"messageId\":\"" + id + "\",\"groupId\":\"" + ISLAND + "\",\"senderId\":\"" + sender
-                + "\",\"content\":\"" + content + "\",\"sentAt\":\"2026-09-18T09:10:00Z\",\"clientMessageId\":\""
+        return "{\"messageId\":\"" + id + "\",\"groupId\":\"" + ISLAND + "\",\"senderId\":"
+                + (sender == null ? "null" : "\"" + sender + "\"")
+                + ",\"content\":\"" + content + "\",\"sentAt\":\"2026-09-18T09:10:00Z\",\"clientMessageId\":\""
                 + UUID.randomUUID() + "\"}";
     }
 
@@ -143,6 +145,24 @@ class MailboxScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.messages.items").isEmpty())
                 .andExpect(jsonPath("$.data.messages.nextCursor").value(nullValue()));
         assertThat(DATA.hits(DATA_AUTHORS)).isZero();
+    }
+
+    @Test
+    @DisplayName("탈퇴 발신자가 섞인 편지방도 화면은 200 — 그 편지는 userId·name 이 null 이다(GROMO-2208)")
+    void withdrawnSenderInRoomDoesNotFailScreen() throws Exception {
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}]}"));
+        REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(M2, USER, "두 번째") + ","
+                + rtMessage(M1, null, "탈퇴자 편지") + "],\"nextCursor\":\"" + M1 + "\",\"hasMore\":true}"));
+        mockMvc.perform(auth(get("/screens/mailbox")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.messages.items.length()").value(2))
+                .andExpect(jsonPath("$.data.messages.items[0].id").value(M1.toString()))
+                .andExpect(jsonPath("$.data.messages.items[0].userId").value(nullValue()))
+                .andExpect(jsonPath("$.data.messages.items[0].name").value(nullValue()))
+                .andExpect(jsonPath("$.data.messages.items[1].id").value(M2.toString()))
+                .andExpect(jsonPath("$.data.messages.items[1].name").value("수빈"))
+                .andExpect(jsonPath("$.data.messages.nextCursor").isString());
+        assertThat(DATA.receivedFor(DATA_AUTHORS).get(0).body()).contains(USER.toString()).doesNotContain("null");
     }
 
     @Test

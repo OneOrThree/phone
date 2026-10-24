@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * 건설 완공 스윕 (GROMO-1767) — {@code completesAt} 가 지난 BUILDING 행을 쓸어 COMPLETED 로
- * 전이한다. 기존 {@code GroupBetScheduler} 와 같은 @Scheduled + @SchedulerLock 패턴이다.
+ * 전이한다. @Scheduled + @SchedulerLock으로 주기 실행을 직렬화한다.
  *
  * <p>이 클래스 자체는 <b>의도적으로 무트랜잭션</b>이다 — 행마다
  * {@link IslandFacilityCompletionService#completeOne} 이 자기 트랜잭션으로 돌아 한 시설의

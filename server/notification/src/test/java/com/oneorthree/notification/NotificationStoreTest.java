@@ -62,7 +62,6 @@ class NotificationStoreTest {
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired SettingsService settings;
-    @Autowired AckService ack;
     @Autowired DispatchService dispatch;
     @Autowired JobRegistry jobs;
     @Autowired SnapshotReconciler snapshots;
@@ -74,13 +73,13 @@ class NotificationStoreTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
-                + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
+                + "user_fences,settings,projections,templates,deeplinks,kinds CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false");
         store.update("DELETE FROM job_runs");
         store.update("UPDATE jobs SET enabled=false");
-        store.update("INSERT INTO kinds(id,quiet_policy,eligibility_required) VALUES('BET_RESULT','DEFER',true)");
+        store.update("INSERT INTO kinds(id,quiet_policy,eligibility_required) VALUES('FRIEND_REQUEST','DEFER',true)");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
-                + " VALUES('BET_RESULT.ko','BET_RESULT','ko','결과','내기 {count}건')");
+                + " VALUES('FRIEND_REQUEST.ko','FRIEND_REQUEST','ko','결과','내기 {count}건')");
         reset(transport, data, clock);
         when(clock.instant()).thenReturn(DAY);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
@@ -120,18 +119,18 @@ class NotificationStoreTest {
     void registryDoesNotCompleteClosedGateReplayAndActuallyRunsAfterOpening() {
         register(USER, "device", "bootstrap", "register");
         inbound.accept(event("scheduled", "notification.requested", USER, 1, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "count", 1)));
-        store.update("UPDATE jobs SET enabled=true WHERE id='bundle-flush'");
-        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('bundle-flush',?)",
+                Map.of("kind", "FRIEND_REQUEST", "count", 1)));
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
                 java.sql.Timestamp.from(DAY.minusSeconds(60)));
         jobs.tick();
-        assertThat(store.one("SELECT completed_at FROM job_runs WHERE job_id='bundle-flush'"))
+        assertThat(store.one("SELECT completed_at FROM job_runs WHERE job_id='delivery-dispatch'"))
                 .containsEntry("completed_at", null);
         verifyNoInteractions(transport);
         store.update("UPDATE dispatch_control SET enabled=true");
         jobs.tick();
         assertThat(status(delivery("scheduled"))).isEqualTo("SENT");
-        assertThat(store.one("SELECT completed_at FROM job_runs WHERE job_id='bundle-flush'").get("completed_at"))
+        assertThat(store.one("SELECT completed_at FROM job_runs WHERE job_id='delivery-dispatch'").get("completed_at"))
                 .isNotNull();
     }
 
@@ -144,20 +143,20 @@ class NotificationStoreTest {
     @Test
     void oneUnrenderableCandidateIsBackedOffAndTheRestOfTheQueueStillGoesOut() {
         register(USER, "device", "bootstrap", "register");
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('CHALLENGE_CREATED','BYPASS')");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('MAIN_ISLAND_TRANSFERRED','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body,enabled)"
-                + " VALUES('CHALLENGE_CREATED.ko','CHALLENGE_CREATED','ko','모집','열렸습니다',false)");
+                + " VALUES('MAIN_ISLAND_TRANSFERRED.ko','MAIN_ISLAND_TRANSFERRED','ko','모집','열렸습니다',false)");
         inbound.accept(event("blocked", "notification.requested", USER, 1, null,
-                Map.of("kind", "CHALLENGE_CREATED")));
+                Map.of("kind", "MAIN_ISLAND_TRANSFERRED")));
         inbound.accept(event("healthy", "notification.requested", USER, 2, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "count", 1)));
+                Map.of("kind", "FRIEND_REQUEST", "count", 1)));
         // 막힌 건이 후보 정렬(next_attempt_at,id)의 맨 앞에 서게 만든다.
         store.update("UPDATE deliveries SET next_attempt_at=? WHERE event_id='blocked'",
                 java.sql.Timestamp.from(DAY.minusSeconds(600)));
         assertThat(dispatch.candidates().get(0)).isEqualTo(delivery("blocked"));
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
-        store.update("UPDATE jobs SET enabled=true WHERE id='bundle-flush'");
-        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('bundle-flush',?)",
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
                 java.sql.Timestamp.from(DAY.minusSeconds(60)));
         jobs.tick();
         // 뒤에 있던 정상 알림은 같은 회차에 나갔다.
@@ -174,7 +173,7 @@ class NotificationStoreTest {
         assertThat(dispatch.candidates()).doesNotContain(delivery("blocked"));
         // 회차는 완료되고 사유만 남는다. 잡 전체가 실패로 접히면 뒤의 회차도 계속 밀린다.
         Map<String, Object> run = store.one("SELECT completed_at,error FROM job_runs"
-                + " WHERE job_id='bundle-flush' AND scheduled_at=?",
+                + " WHERE job_id='delivery-dispatch' AND scheduled_at=?",
                 java.sql.Timestamp.from(DAY.minusSeconds(60)));
         assertThat(run.get("completed_at")).isNotNull();
         assertThat(run).containsEntry("error", "TEMPLATE_UNAVAILABLE");
@@ -185,30 +184,6 @@ class NotificationStoreTest {
      * Idempotency-Key» 로 재시도한다. 과거 응답만 재생하면 실제 보류 없이 Data ack 가 커밋되고
      * 그 사이에 낀 flush 가 「이미 확인한 결과」를 푸시한다(A22 ⓓ).
      */
-    @Test
-    void aPrepareReplayAfterTheHoldWasReleasedHoldsAgainInsteadOfReplayingTheOldAnswer() {
-        register(USER, "device", "bootstrap", "register");
-        UUID session = UUID.randomUUID();
-        assertThat(ack.command(USER, session, "prepare", "same-key")).containsEntry("state", "HELD");
-        inbound.accept(event("held", "notification.requested", USER, 1, session.toString(),
-                Map.of("kind", "BET_RESULT", "count", 1)));
-        UUID id = delivery("held");
-        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
-        // 30초 만료 → 리컨실이 Data 의 «미확인» 을 읽어 보류를 푼다.
-        when(clock.instant()).thenReturn(DAY.plusSeconds(31));
-        doReturn(false).when(data).acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any());
-        ack.reconcile();
-        assertThat(ackState(session)).isEqualTo("RELEASED");
-        assertThat(ack.command(USER, session, "prepare", "same-key")).containsEntry("state", "HELD");
-        assertThat(ackState(session)).isEqualTo("HELD");
-        assertThat(((java.sql.Timestamp) store.one("SELECT held_until FROM result_ack"
-                + " WHERE user_id=? AND session_id=?", USER, session).get("held_until")).toInstant())
-                .isEqualTo(DAY.plusSeconds(61));
-        // 재확보한 보류가 실제로 발송을 막는다.
-        dispatch.dispatch(id);
-        verifyNoInteractions(transport);
-        assertThat(status(id)).isEqualTo("PENDING");
-    }
 
     @Test
     void reconcileKeepsSatellitePreferencesAndAppliesWithdrawalWithoutResurrection() {
@@ -245,7 +220,7 @@ class NotificationStoreTest {
     void closedGateBuffersAndOpenDispatchesOnce() {
         register(USER, "device", "bootstrap", "register");
         Map<String, Object> event = event("one", "notification.requested", USER, 1, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "count", 1));
+                Map.of("kind", "FRIEND_REQUEST", "count", 1));
         inbound.accept(event);
         inbound.accept(event);
         UUID id = delivery("one");
@@ -263,9 +238,9 @@ class NotificationStoreTest {
     void independentSubjectsIgnoreUnrelatedHighVersion() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        inbound.accept(event("new", "participation.updated", USER, 100, first.toString(), Map.of("active", true)));
-        inbound.accept(event("old-other", "participation.updated", USER, 1, second.toString(), Map.of("active", true)));
-        inbound.accept(event("old-same", "participation.updated", USER, 2, first.toString(), Map.of("active", false)));
+        inbound.accept(event("new", "friend.request.resolved", USER, 100, first.toString(), Map.of("active", true)));
+        inbound.accept(event("old-other", "friend.request.resolved", USER, 1, second.toString(), Map.of("active", true)));
+        inbound.accept(event("old-same", "friend.request.resolved", USER, 2, first.toString(), Map.of("active", false)));
         assertThat(store.rows("SELECT * FROM projections")).hasSize(2);
         assertThat(Json.map(store.one("SELECT payload::text FROM projections WHERE subject_id=?", first.toString())
                 .get("payload"))).containsEntry("active", true);
@@ -301,28 +276,6 @@ class NotificationStoreTest {
                 .hasMessage("IDEMPOTENCY_KEY_CONFLICT");
     }
 
-    @Test
-    void prepareBeforeDeliveryAndExpiredHoldStayClosedUntilCoreAckIsKnown() {
-        register(USER, "device", "bootstrap", "register");
-        UUID session = UUID.randomUUID();
-        ack.command(USER, session, "prepare", "prepare");
-        inbound.accept(event("held", "notification.requested", USER, 1, session.toString(),
-                Map.of("kind", "BET_RESULT", "count", 1)));
-        UUID id = delivery("held");
-        store.update("UPDATE dispatch_control SET enabled=true");
-        when(clock.instant()).thenReturn(DAY.plusSeconds(31));
-        when(data.acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any())).thenThrow(new IllegalStateException("Data unavailable"));
-        assertThatThrownBy(ack::reconcile).isInstanceOf(IllegalStateException.class);
-        dispatch.dispatch(id);
-        verifyNoInteractions(transport);
-        doReturn(true).when(data).acknowledged(org.mockito.ArgumentMatchers.eq(USER), org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.any());
-        when(clock.instant()).thenReturn(DAY.plusSeconds(61));
-        ack.reconcile();
-        assertThat(status(id)).isEqualTo("SUPPRESSED");
-        ack.command(USER, session, "abort", "late-abort");
-        assertThat(store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?", USER, session)
-                .get("state")).isEqualTo("CONFIRMED");
-    }
 
     @Test
     void outOfOrderSettingsKeepLatestIncludingNullQuietTimes() {
@@ -341,57 +294,7 @@ class NotificationStoreTest {
         assertThat(store.rows("SELECT * FROM inbound_events")).isEmpty();
     }
 
-    @Test
-    void mixedResultBundleSendsOnceAndPreservesEveryUnderlyingEvent() {
-        register(USER, "device", "bootstrap", "register");
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_VOID_REFUND','DEFER'),('BET_MIXED_BUNDLE','DEFER')");
-        store.update("INSERT INTO templates(id,kind,locale,title,body)"
-                + " VALUES('BET_MIXED_BUNDLE.ko','BET_MIXED_BUNDLE','ko','내기 소식',"
-                + "'결과 {resultCount}건 · 환불 {refundCount}건')");
-        UUID group = UUID.randomUUID();
-        String slot = DAY.minusSeconds(900).toString();
-        inbound.accept(event("result", "notification.requested", USER, 1, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "groupId", group.toString(), "slotAt", slot, "count", 1)));
-        inbound.accept(event("refund", "notification.requested", USER, 2, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_VOID_REFUND", "groupId", group.toString(), "slotAt", slot)));
-        store.update("UPDATE dispatch_control SET enabled=true");
-        inbound.accept(event("seal", "notification.resultBundle.closed", USER, 3, group.toString(),
-                Map.of("groupId", group.toString(), "slotAt", slot, "eventIds", List.of("result", "refund"))));
-        dispatch.dispatch(delivery("result"));
-        dispatch.dispatch(delivery("refund"));
-        var rendered = org.mockito.ArgumentCaptor.forClass(RenderedPush.class);
-        verify(transport).send(anyString(), rendered.capture(), anyBoolean(), anyString());
-        assertThat(rendered.getValue().body()).isEqualTo("결과 1건 · 환불 1건");
-        assertThat(rendered.getValue().data()).doesNotContainKey("challengeId");
-        assertThat(status(delivery("result"))).isEqualTo("SENT");
-        assertThat(status(delivery("refund"))).isEqualTo("SENT");
-        assertThat(store.rows("SELECT * FROM delivery_devices")).hasSize(2);
-    }
 
-    @Test
-    void openResultSlotWaitsAndQuietDeferralKeepsOriginalSlot() {
-        register(USER, "device", "bootstrap", "register");
-        String slot = DAY.toString();
-        UUID group = UUID.randomUUID();
-        inbound.accept(event("slot", "notification.requested", USER, 1, UUID.randomUUID().toString(),
-                Map.of("kind", "BET_RESULT", "count", 1, "groupId", group.toString(), "slotAt", slot)));
-        UUID id = delivery("slot");
-        store.update("UPDATE dispatch_control SET enabled=true");
-        dispatch.dispatch(id);
-        verifyNoInteractions(transport);
-        inbound.accept(event("slot-seal", "notification.resultBundle.closed", USER, 2, group.toString(),
-                Map.of("groupId", group.toString(), "slotAt", slot, "eventIds", List.of("slot"))));
-        when(clock.instant()).thenReturn(Instant.parse("2026-09-11T15:00:00Z")); // 다음날 00:00 KST
-        dispatch.dispatch(id);
-        assertThat(status(id)).isEqualTo("DEFERRED");
-        var row = store.one("SELECT slot_at,next_attempt_at FROM deliveries WHERE id=?", id);
-        assertThat(((java.sql.Timestamp) row.get("slot_at")).toInstant()).isEqualTo(DAY);
-        assertThat(((java.sql.Timestamp) row.get("next_attempt_at")).toInstant())
-                .isEqualTo(Instant.parse("2026-09-11T22:00:00Z"));
-        when(clock.instant()).thenReturn(Instant.parse("2026-09-11T22:00:00Z"));
-        dispatch.dispatch(id);
-        assertThat(status(id)).isEqualTo("SENT");
-    }
 
     @Test
     void deleteBeforeFirstLegacyRegistrationLeavesTombstoneButFreshLoginCanTransfer() {
@@ -502,7 +405,7 @@ class NotificationStoreTest {
             assertThat(settings.patch(USER, settingsPatch(false), 1, "same-user-off"))
                     .containsEntry("applied", true);
             inbound.accept(event("after-opt-out", "notification.requested", USER, 2,
-                    UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
+                    UUID.randomUUID().toString(), Map.of("kind", "FRIEND_REQUEST", "count", 1)));
             UUID next = delivery("after-opt-out");
             dispatch.dispatch(next);
             assertThat(status(next)).isEqualTo("SUPPRESSED");
@@ -527,7 +430,7 @@ class NotificationStoreTest {
     private UUID prepareSettingsRaceDelivery() {
         register(USER, "settings-race-device", "settings-race-bootstrap", "settings-race-register");
         inbound.accept(event("settings-race-delivery", "notification.requested", USER, 1,
-                UUID.randomUUID().toString(), Map.of("kind", "BET_RESULT", "count", 1)));
+                UUID.randomUUID().toString(), Map.of("kind", "FRIEND_REQUEST", "count", 1)));
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
         return delivery("settings-race-delivery");
     }
@@ -686,10 +589,6 @@ class NotificationStoreTest {
     }
     private String status(UUID id) {
         return store.one("SELECT status FROM deliveries WHERE id=?", id).get("status").toString();
-    }
-    private String ackState(UUID session) {
-        return store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?", USER, session)
-                .get("state").toString();
     }
     static Map<String, Object> preferences(boolean enabled) {
         Map<String, Object> values = new LinkedHashMap<>();

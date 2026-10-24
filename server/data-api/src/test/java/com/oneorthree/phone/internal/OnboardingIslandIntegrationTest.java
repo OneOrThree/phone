@@ -6,8 +6,6 @@ import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.dto.session.SeaFocusSessionStartCommandRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.service.GroupService;
-import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
@@ -58,15 +56,13 @@ class OnboardingIslandIntegrationTest {
     @Autowired
     JdbcTemplate jdbc;
     @Autowired
-    GroupService legacyGroups;
-    @Autowired
     IslandJoinService joins;
     @Autowired
     AccountWithdrawalService withdrawal;
 
     @BeforeEach
     void isolate() {
-        jdbc.update("update groups set deleted_at = now() where deleted_at is null");
+        jdbc.update("update islands set deleted_at = now() where deleted_at is null");
     }
 
     @Test
@@ -84,7 +80,7 @@ class OnboardingIslandIntegrationTest {
         assertThat(telescope.list(user).items()).isEqualTo(first);
         assertThat(telescope.list(user, Instant.now().plusSeconds(7200)).items()).isEqualTo(first);
         assertThat(count("select count(*) from group_members where user_id=?", user)).isZero();
-        assertThat(jdbc.queryForObject("select is_private from groups where id=?", Boolean.class, island)).isTrue();
+        assertThat(jdbc.queryForObject("select is_private from islands where id=?", Boolean.class, island)).isTrue();
         assertThat(telescope.list(user()).items().get(0).islandId()).isNotEqualTo(island);
     }
 
@@ -113,7 +109,7 @@ class OnboardingIslandIntegrationTest {
         assertThat(telescope.list(visitor).items()).extracting(item -> item.islandId()).containsExactly(island);
         assertThat(count("select count(*) from onboarding_islands where user_id=?", visitor)).isZero();
         assertThat(telescope.list(owner).items()).extracting(item -> item.islandId()).containsExactly(island);
-        jdbc.update("update groups set max_members=1 where id=?", island);
+        jdbc.update("update islands set max_members=1 where id=?", island);
         assertThat(telescope.list(visitor).items().get(0).memberCount()).isZero();
         assertThat(count("select count(*) from onboarding_islands where user_id=?", visitor)).isEqualTo(1);
     }
@@ -127,10 +123,6 @@ class OnboardingIslandIntegrationTest {
                 .isInstanceOf(GroupException.class)
                 .hasMessage(GroupErrorCode.ISLAND_NOT_ARRIVED.getMessage());
         assertThatThrownBy(() -> islands.arrive(user(), island, UUID.randomUUID()))
-                .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.GROUP_NOT_FOUND.getMessage());
-        assertThatThrownBy(() -> legacyGroups.joinGroup(island, user(), new JoinGroupRequest(null)))
-                .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.GROUP_NOT_FOUND.getMessage());
-        assertThatThrownBy(() -> legacyGroups.joinGroup(island, user, new JoinGroupRequest(null)))
                 .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.GROUP_NOT_FOUND.getMessage());
         assertThatThrownBy(() -> joins.join(user, island, null, UUID.randomUUID()))
                 .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.INVITATION_REQUIRED.getMessage());
@@ -167,7 +159,7 @@ class OnboardingIslandIntegrationTest {
         assertThat(jdbc.queryForObject("select role from group_members where user_id=? and group_id=?",
                 String.class, user, island)).isEqualTo("OWNER");
         assertThat(count("select count(*) from onboarding_islands where user_id=?", user)).isZero();
-        assertThat(jdbc.queryForObject("select is_private from groups where id=?", Boolean.class, island)).isFalse();
+        assertThat(jdbc.queryForObject("select is_private from islands where id=?", Boolean.class, island)).isFalse();
         assertThat(telescope.list(user).items().get(0).membershipStatus()).isEqualTo("active");
     }
 
@@ -178,9 +170,9 @@ class OnboardingIslandIntegrationTest {
         UUID island = telescope.list(user).items().get(0).islandId();
         withdrawal.withdraw(user);
         assertThat(count("select count(*) from onboarding_islands where user_id=?", user)).isZero();
-        assertThat(jdbc.queryForObject("select status from groups where id=?", String.class, island))
+        assertThat(jdbc.queryForObject("select status from islands where id=?", String.class, island))
                 .isEqualTo("ENDED");
-        assertThat(count("select count(*) from groups where id=? and deleted_at is null", island)).isZero();
+        assertThat(count("select count(*) from islands where id=? and deleted_at is null", island)).isZero();
     }
 
     @Test
@@ -201,12 +193,12 @@ class OnboardingIslandIntegrationTest {
         assertThatThrownBy(() -> islands.arrive(user, island, UUID.randomUUID()))
                 .isInstanceOf(GroupException.class).hasMessage(GroupErrorCode.ISLAND_JOIN_UNAVAILABLE.getMessage());
         assertThat(count("select count(*) from group_members where user_id=? and group_id=?", user, island)).isZero();
-        assertThat(jdbc.queryForObject("select is_private from groups where id=?", Boolean.class, island)).isTrue();
+        assertThat(jdbc.queryForObject("select is_private from islands where id=?", Boolean.class, island)).isTrue();
         assertThat(count("select count(*) from onboarding_islands where user_id=?", user)).isEqualTo(1);
     }
 
     private UUID user() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private long count(String sql, Object... args) {

@@ -1,12 +1,17 @@
 package com.oneorthree.realtime.event;
 
+import com.oneorthree.realtime.common.redis.RedisKeys;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.redis.connection.DefaultMessage;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -16,7 +21,9 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * 수신 집합 보관소의 <b>만료 정리</b> — 전달 경로에 얹힌 유일한 상태다.
@@ -32,7 +39,7 @@ class RealtimeEventDeliveryTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final MovableClock clock = new MovableClock(START);
     private final RealtimeEventDelivery delivery = new RealtimeEventDelivery(
-            mock(SimpMessagingTemplate.class), mock(StringRedisTemplate.class), mapper, clock, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+            mock(SimpMessagingTemplate.class), mock(StringRedisTemplate.class), mapper, clock, new SimpleMeterRegistry());
 
     @Test
     @DisplayName("만료가 지나면 보관 건수와 무관하게 다음 삽입 한 번으로 전부 걷힌다")
@@ -86,6 +93,63 @@ class RealtimeEventDeliveryTest {
                 event(UUID.randomUUID(), RealtimeEventType.FOCUS_MEMBER_UPDATED), Set.of());
 
         assertThat(delivery.retainedEvents()).isZero();
+    }
+
+    @Test
+    @DisplayName("응원은 다른 replica 의 상대에게도 열린다 — 팬아웃을 건너도 수신 집합이 살아 있어야 다른 기기에서 보인다 (GROMO-2160)")
+    void emoteRecipientsSurviveFanoutToAnotherReplica() {
+        UUID sender = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        RealtimeEventDelivery replica = newDelivery(mock(StringRedisTemplate.class));
+
+        // B 인스턴스는 아직 이 사건을 모른다 — 모르면 거절(fail-closed)이라 다른 기기에서 응원이 조용히 사라진다.
+        assertThat(replica.mayReceive(eventId, other)).as("팬아웃 전에는 모른다").isFalse();
+
+        fanOutEmote(eventId, Set.of(sender, other), replica);
+
+        // 수신 집합이 그대로 건너왔다 — 두 사람은 열리고 남은 닫힌 채다.
+        assertThat(replica.mayReceive(eventId, other)).as("상대의 다른 기기").isTrue();
+        assertThat(replica.mayReceive(eventId, sender)).as("보낸 사람 본인의 다른 기기").isTrue();
+        assertThat(replica.mayReceive(eventId, UUID.randomUUID())).as("수신 집합 밖의 사람").isFalse();
+    }
+
+    @Test
+    @DisplayName("팬아웃으로 건너온 응원도 같은 보관 기간을 따른다 — 만료가 지나면 다른 replica 에서도 걷힌다 (GROMO-2160)")
+    void fannedOutEmoteExpiresLikeALocalOne() {
+        UUID other = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        RealtimeEventDelivery replica = newDelivery(mock(StringRedisTemplate.class));
+
+        fanOutEmote(eventId, Set.of(UUID.randomUUID(), other), replica);
+        assertThat(replica.mayReceive(eventId, other)).as("건너온 직후에는 열려 있다").isTrue();
+
+        clock.advance(Duration.ofSeconds(31));
+
+        assertThat(replica.mayReceive(eventId, other)).as("31초 지나면 replica 에서도 닫힌다").isFalse();
+    }
+
+    /**
+     * 응원 한 건을 A 인스턴스에서 전달하고, 팬아웃 채널로 나간 «실제 wire 문자열»을 B({@code replica})의
+     * 구독자에게 먹인다. 로컬 전달과 Redis 발행은 {@code deliver()} 한 번에 일어난다.
+     */
+    private void fanOutEmote(UUID eventId, Set<UUID> recipients, RealtimeEventDelivery replica) {
+        StringRedisTemplate originRedis = mock(StringRedisTemplate.class);
+        RealtimeEventEnvelope emote = event(eventId, RealtimeEventType.FOCUS_EMOTE);
+        newDelivery(originRedis).deliver(emote, new RealtimeAudience.IslandAudience(emote.islandId(), recipients),
+                "/topic/islands/" + emote.islandId() + "/emotes");
+
+        ArgumentCaptor<String> wire = ArgumentCaptor.forClass(String.class);
+        verify(originRedis).convertAndSend(eq(RedisKeys.EVENT_FANOUT_CHANNEL), wire.capture());
+
+        new RealtimeEventFanoutSubscriber(replica, mock(InboundEventService.class), mapper).onMessage(
+                new DefaultMessage(RedisKeys.EVENT_FANOUT_CHANNEL.getBytes(StandardCharsets.UTF_8),
+                        wire.getValue().getBytes(StandardCharsets.UTF_8)), null);
+    }
+
+    private RealtimeEventDelivery newDelivery(StringRedisTemplate redis) {
+        return new RealtimeEventDelivery(mock(SimpMessagingTemplate.class), redis, mapper, clock,
+                new SimpleMeterRegistry());
     }
 
     private void deliverEmote(UUID eventId, UUID... recipients) {

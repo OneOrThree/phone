@@ -34,6 +34,8 @@ import com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepositor
 import com.oneorthree.phone.screentime.repository.domain.ScreenTimeObservation;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import jakarta.persistence.EntityManager;
+import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,15 +46,25 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,6 +124,12 @@ class IslandQuestIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     ObjectMapper mapper;
+    @Autowired
+    PlatformTransactionManager transactionManager;
+    @Autowired
+    EntityManager entityManager;
+    @Autowired
+    DataSource dataSource;
 
     @BeforeEach
     void controlClock() {
@@ -173,7 +191,7 @@ class IslandQuestIntegrationTest {
         // 방문자도 미완공 게시판은 403, 종료된 섬은 404 다.
         Island noBoard = island(false);
         assertQuestError(() -> service.current(noBoard.id, visitor.getId()), QuestErrorCode.QUEST_BOARD_LOCKED);
-        jdbc.update("UPDATE groups SET status = 'ENDED' WHERE id = ?", a.id);
+        jdbc.update("UPDATE islands SET status = 'ENDED' WHERE id = ?", a.id);
         assertThatThrownBy(() -> service.current(a.id, visitor.getId()))
                 .isInstanceOfSatisfying(GroupException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.GROUP_NOT_FOUND));
@@ -226,6 +244,38 @@ class IslandQuestIntegrationTest {
                         org.assertj.core.groups.Tuple.tuple(D.plusDays(1).toString(), 40, "저녁 40분 집중"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_occurrences WHERE quest_id = ?",
                 Integer.class, questId)).as("같은 날 두 번 돌려도 회차는 하나").isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("회차 개설이 섬 잠금을 기다리는 사이 방장 수정이 커밋되면, 풀려난 개설은 수정 뒤 정의로 스냅샷한다")
+    void openingWaitingOnIslandLockSnapshotsRevisedDefinition() throws Exception {
+        Island a = island(true);
+        UUID questId = createFocus(a, a.owner, "18:00", "23:00", 30).id();
+        at(D.plusDays(1), "00:00:30");
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            // 운영의 수정 경로(update)와 같은 순서 — 섬 행 FOR UPDATE → 정의 revise → 커밋.
+            Future<Boolean> opening = new TransactionTemplate(transactionManager).execute(status -> {
+                groups.findByIdForUpdate(a.id).orElseThrow();
+                int holder = backendPid();
+                // 개설은 이 잠금에서 기다린다 — 고치기 전에는 그 전에 이미 옛 정의를 영속성 컨텍스트에 읽어 둔다.
+                Future<Boolean> inFlight = pool.submit(() -> service.openTodayIfMissing(questId));
+                awaitBlockedBy(holder);
+                quests.findById(questId).orElseThrow().revise("저녁 40분 집중", 40);
+                return inFlight;
+            });
+
+            assertThat(opening.get(60, TimeUnit.SECONDS)).isTrue();
+            assertThat(jdbc.queryForMap("SELECT definition_revision, title, target_minutes "
+                    + "FROM island_quest_occurrences WHERE quest_id = ? AND occurrence_date = ?",
+                    questId, D.plusDays(1)))
+                    .as("잠금 전에 읽은 정의(revision 1·저녁 30분·30)가 아니라 잠금 뒤 정의로 스냅샷")
+                    .containsEntry("definition_revision", 2)
+                    .containsEntry("title", "저녁 40분 집중")
+                    .containsEntry("target_minutes", 40);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
@@ -772,6 +822,40 @@ class IslandQuestIntegrationTest {
 
     private static QuestViews.Member member(QuestViews.Progress progress, User user) {
         return progress.members().stream().filter(m -> m.userId().equals(user.getId())).findFirst().orElseThrow();
+    }
+
+    /** 지금 트랜잭션이 쥔 커넥션의 PostgreSQL 백엔드 pid. */
+    private int backendPid() {
+        return ((Number) entityManager.createNativeQuery("SELECT pg_backend_pid()").getSingleResult()).intValue();
+    }
+
+    /**
+     * {@code holderPid} 백엔드가 쥔 잠금에 막힌 백엔드가 생길 때까지 기다린다 — 스레드 타이밍을 추측하지 않고 서버
+     * 상태로 순서를 맞춘다(관찰은 당사자가 아닌 별도 연결로 한다). 트랜잭션 콜백 안에서 부르므로 검사 예외를 던지지 않는다.
+     * IslandFocusAverageSnapshotIntegrationTest 의 같은 이름 도구를 옮겨 왔다.
+     */
+    private void awaitBlockedBy(int holderPid) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        try (Connection observer = dataSource.getConnection();
+                PreparedStatement query = observer.prepareStatement(
+                        "SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))")) {
+            while (System.nanoTime() < deadline) {
+                query.setInt(1, holderPid);
+                try (ResultSet row = query.executeQuery()) {
+                    row.next();
+                    if (row.getInt(1) > 0) {
+                        return;
+                    }
+                }
+                TimeUnit.MILLISECONDS.sleep(20);
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
+        throw new AssertionError("pid " + holderPid + " 가 쥔 잠금에 막힌 백엔드가 없다 — 경합 창에 들어가지 못했다");
     }
 
     private static void assertQuestError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call,

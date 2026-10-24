@@ -75,8 +75,8 @@ class AdminTemplateFreshnessTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,user_fences,settings,projections,"
-                + "result_ack,templates,deeplinks,kinds,admin_audit CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=true,active_migration_id=NULL");
+                + "templates,deeplinks,kinds,admin_audit CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=true");
         reset(transport, clock);
         NOW.set(CREATED);
         when(clock.instant()).thenAnswer(ignored -> NOW.get());

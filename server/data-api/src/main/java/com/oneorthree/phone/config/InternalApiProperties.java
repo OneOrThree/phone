@@ -55,13 +55,26 @@ public class InternalApiProperties {
          * 다른 하위 경로를 삼키지 않는다. {@code **} 를 쓰면 그 아래가 통째로 열리니 꼭 필요한 곳에만 쓴다.
          */
         private List<String> allow = new ArrayList<>();
+
+        /**
+         * 선택 caller 인가(GROMO-2280, 기본 {@code false}). {@code true} 면 토큰이 비어 있을 때 기동을 막지 않고 이 caller 를
+         * «없는 것» 으로 둔다 — 토큰을 SM 에 넣기 전에도 배포가 뜨게 하려는 것이다. 필수 caller 의 빈 토큰은 종전대로
+         * 기동 실패다.
+         */
+        private boolean optional;
+
+        /** 토큰이 실제로 채워져 있는가. 비어 있는 caller 는 {@code InternalAuthFilter} 가 아예 등록하지 않는다. */
+        boolean hasToken() {
+            return token != null && !token.isBlank();
+        }
     }
 
     /**
      * 켜진 경우에만 검증한다 — 꺼져 있으면 아무 값도 요구하지 않는다.
      *
      * <p>여기서 죽는 편이 낫다: 토큰이 빈 채로 켜지면 「빈 문자열 토큰」이 통과하는 구멍이 되고,
-     * 허용목록이 빈 caller 는 아무것도 못 하면서 자격만 들고 있는 상태라 둘 다 배선 사고다.
+     * 허용목록이 빈 caller 는 아무것도 못 하면서 자격만 들고 있는 상태라 둘 다 배선 사고다. 예외는
+     * 선택 caller({@code optional})의 빈 토큰 하나다 — 그 caller 만 비활성으로 두고 건너뛴다.
      *
      * @throws IllegalStateException 필수값이 비었거나 허용 항목의 형식이 어긋날 때
      */
@@ -73,16 +86,21 @@ public class InternalApiProperties {
             throw new IllegalStateException(
                     "internal.api.enabled=true 인데 caller 가 하나도 없습니다 — 켤 이유가 없는 설정입니다.");
         }
+        List<String> activeTokens = new ArrayList<>();
         callers.forEach((name, caller) -> {
+            if (caller.isOptional() && !caller.hasToken()) {
+                // 토큰이 빈 선택 caller 는 비활성이다 — 허용목록도 보지 않는다. 필터도 빈 토큰을 등록하지 않는다.
+                return;
+            }
             requireResolvedSecret("internal.api.callers." + name + ".token", caller.getToken());
             if (caller.getAllow() == null || caller.getAllow().isEmpty()) {
                 throw new IllegalStateException(
                         "internal.api.callers." + name + ".allow 가 비었습니다 — 허용목록 없는 자격은 만들지 않습니다.");
             }
             caller.getAllow().forEach(entry -> validateAllowEntry(name, entry));
+            activeTokens.add(caller.getToken());
         });
-        long distinctTokens = callers.values().stream().map(Caller::getToken).distinct().count();
-        if (distinctTokens != callers.size()) {
+        if (activeTokens.stream().distinct().count() != activeTokens.size()) {
             // 토큰이 겹치면 먼저 매칭된 caller 의 허용목록이 적용돼, 둘의 권한이 사실상 합쳐진다(㊀).
             throw new IllegalStateException("internal.api 의 caller 토큰이 서로 겹칩니다 — caller 별로 분리해야 합니다.");
         }
