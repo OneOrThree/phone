@@ -1164,18 +1164,23 @@ describe('큰 글자·배치', () => {
     [componentTokens.telescope.largeTextThreshold - 0.01, false],
     [componentTokens.telescope.largeTextThreshold, true],
     [3, true],
-  ])('글자 배율 %s — 뒤로·다시 시도 작은 버튼의 높이 가변은 %s', async (scale, grows) => {
-    mockFontScale = scale;
-    mockGet.mockRejectedValueOnce(networkError());
-    const screen = await render(<Telescope e={env()} />);
-    await screen.findByText('네트워크에 연결할 수 없어요.');
-    for (const label of ['뒤로', '다시 시도']) {
-      const button = screen.getByLabelText(label);
+  ])(
+    '글자 배율 %s — 다시 시도 작은 버튼의 높이 가변은 %s, 뒤로 동그라미는 늘 44',
+    async (scale, grows) => {
+      mockFontScale = scale;
+      mockGet.mockRejectedValueOnce(networkError());
+      const screen = await render(<Telescope e={env()} />);
+      await screen.findByText('네트워크에 연결할 수 없어요.');
+      const retry = screen.getByLabelText('다시 시도');
       // 보통 글자에서는 작은 버튼의 38pt 모양을 그대로 둔다(터치 영역은 부모 44pt)
-      if (grows) dynamic(button);
-      else expect(flat(button).height).toBe(38);
-    }
-  });
+      if (grows) dynamic(retry);
+      else expect(flat(retry).height).toBe(38);
+      // 뒤로는 글자 없는 공용 NavBtn — 글자 배율과 상관없이 누르는 자리 44
+      const back = flat(screen.getByLabelText('뒤로'));
+      expect(back.width).toBe(semanticTokens.size.tapMin);
+      expect(back.height).toBe(semanticTokens.size.tapMin);
+    },
+  );
 
   test.each([
     [1, 1],

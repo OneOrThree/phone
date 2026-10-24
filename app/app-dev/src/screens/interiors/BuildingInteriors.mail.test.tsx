@@ -11,7 +11,7 @@ import {
   revalidateBlockedUsers,
 } from '@/services/blockedUsers';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
-import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
+import { InteriorRoute, InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
   getLetter,
@@ -239,6 +239,23 @@ test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이�
   await waitFor(() => assert.ok(ui.getByText('민지')));
   assert.ok(ui.getByTestId('received-letter-0'));
   assert.equal(screenMock.mock.calls.length, 1);
+  await ui.unmount();
+});
+
+test('우체통은 장면을 k배 키워 그려도 뒤로 동그라미는 1/k 로 줄여 다른 건물과 같은 화면 자리·크기다', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  const ui = await render(<InteriorRoute e={makeE()} />);
+  const back = await ui.findByTestId('scene-back');
+  // 402×874 창 → 316×686 시안을 k 배(작은 쪽 비율)로 키운다
+  const k = Math.min(402 / 316, 874 / 686);
+  const style = StyleSheet.flatten(back.props.style);
+  expect(style.transform).toEqual([{ scale: 1 / k }]);
+  expect(style.transformOrigin).toBe('left top');
+  // 장면 좌표 × k = 화면 좌표. 게시판(k = 1)과 같은 왼쪽 9 · 위 31(안전 영역 52 이하)에 상자 모서리가 온다
+  expect(style.left * k).toBeCloseTo(9);
+  expect(style.top * k).toBeCloseTo(31);
+  // 상자는 장면 좌표 44 를 k 배 키운 장면 안에서 1/k 로 줄이므로 화면에서도 44 다
+  expect(style.width).toBe(44);
   await ui.unmount();
 });
 

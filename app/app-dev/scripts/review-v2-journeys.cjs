@@ -59,7 +59,7 @@ let activeBrowser, activePage;
     await p.waitForFunction(() => window.__gromoReview.route === 'visitIslandFocus');
     await p.getByText('민지', { exact: true }).waitFor();
     assert.equal(await p.getByRole('button', { name: '휴식하기', exact: true }).count(), 0);
-    await p.getByRole('button', { name: '돌아가기', exact: true }).click();
+    await p.getByRole('button', { name: '섬으로 돌아가기', exact: true }).click();
     assert.equal(await route(), 'visitIsland');
     assert.equal(await p.getByRole('button', { name: '집중하기', exact: true }).count(), 0);
     await p.getByRole('button', { name: '원래 섬으로', exact: true }).click();
@@ -96,7 +96,7 @@ let activeBrowser, activePage;
     assert.equal(await p.getByText('수아', { exact: true }).count(), 0);
     assert.equal(await p.getByRole('button', { name: '휴식하기', exact: true }).count(), 0);
     assert.equal(await p.getByRole('button', { name: '집중 종료', exact: true }).count(), 0);
-    await p.getByRole('button', { name: '닫기', exact: true }).click();
+    await p.getByRole('button', { name: '섬으로 돌아가기', exact: true }).click();
     assert.equal(await route(), 'home');
     assert.equal((await state()).session, null);
     const emptyFocus = JSON.parse(JSON.stringify(fixture));
@@ -109,7 +109,7 @@ let activeBrowser, activePage;
     await p.getByText('지금 낚시 중인 주민이 없어요', { exact: true }).waitFor();
     await p
       .getByRole('button', {
-        name: orientation === 'landscape' ? '닫기' : '뗏목 · 우리 섬으로 돌아가기',
+        name: orientation === 'landscape' ? '섬으로 돌아가기' : '뗏목 · 우리 섬으로 돌아가기',
         exact: true,
       })
       .click();

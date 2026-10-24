@@ -139,6 +139,8 @@ export function Btn({
   accessibilityLabel,
   // 제목만으로 안 읽히는 «누르면 일어날 일»을 덧붙인다(예: 흐리게 보이지만 누를 수 있는 버튼이 왜 확인창을 여는지)
   accessibilityHint,
+  // 여럿 중 고른 것(뗏목의 마지막 목적지)을 보조기기에도 알린다
+  selected,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -162,7 +164,7 @@ export function Btn({
         hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
         disabled={disabled || !onPress}
-        accessibilityState={{ disabled: disabled || !onPress }}
+        accessibilityState={{ disabled: disabled || !onPress, selected }}
         onPress={onPress}
         onPressIn={() => {
           if (!reduce)
@@ -247,6 +249,67 @@ export function Btn({
     </Animated.View>
   );
 }
+// 뒤로(‹)·닫기(×) 동그라미 — 건물 안·시트·패널·종이·망원경·일기장이 모두 이 하나를 쓴다(DESIGN §7.14).
+// 장면을 떠나거나 한 단계 위로 가면 ‹, 장면 위에 뜬 시트·패널·종이를 닫으면 close(×). 원은 34, 누르는 자리는 44 상자.
+// 나머지 Pressable 속성(testID·ref·접근성 숨김)은 그대로 넘긴다.
+const NAV_ICON = { back: 'M15 5L8 12L15 19', close: 'M6 6L18 18M18 6L6 18' };
+export const NavBtn = React.forwardRef<View, any>(function NavBtn(
+  { label, close = false, disabled = false, style, ...rest },
+  ref,
+) {
+  const n = componentTokens.navButton;
+  return (
+    <Pressable
+      ref={ref}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      {...rest}
+      style={({ pressed }) => [
+        {
+          width: semanticTokens.size.tapMin,
+          height: semanticTokens.size.tapMin,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: disabled
+            ? componentTokens.button.disabledOpacity
+            : pressed
+              ? n.pressedOpacity
+              : 1,
+        },
+        style,
+      ]}
+    >
+      <View
+        style={{
+          width: n.size,
+          height: n.size,
+          borderRadius: semanticTokens.radius.full,
+          borderWidth: n.borderWidth,
+          borderColor: semanticTokens.color.outline,
+          backgroundColor: semanticTokens.color.surface,
+          boxShadow: disabled
+            ? 'none'
+            : `0px ${n.shadowOffset}px 0px ${semanticTokens.color.outline}`,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Svg width={n.iconSize} height={n.iconSize} viewBox="0 0 24 24">
+          <Path
+            d={NAV_ICON[close ? 'close' : 'back']}
+            stroke={semanticTokens.color.text}
+            strokeWidth={n.iconStroke}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </Svg>
+      </View>
+    </Pressable>
+  );
+});
 export function Group({ children, flat = false, style }: any) {
   return (
     <View style={[k.group, flat && { boxShadow: 'none' }, style]}>

@@ -61,12 +61,22 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
   };
 }
 
-test.each(['뒤로', '책 덮기'])('일기장의 %s는 기존 경로를 pop한다', async (label) => {
+test('일기장의 뒤로는 기존 경로를 pop하고, 같은 일을 하던 책 덮기(×)는 두지 않는다', async () => {
   const e = environment();
   const screen = await render(<Library e={e} />);
-  await fireEvent.press(screen.getByLabelText(label));
+  expect(screen.queryByLabelText('책 덮기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('뒤로'));
   expect(e.back).toHaveBeenCalledTimes(1);
   expect(e.go).not.toHaveBeenCalled();
+});
+
+test('도서관 방의 ‹ 는 건물 안과 같은 「섬으로 돌아가기」로 읽히고 섬으로 간다', async () => {
+  const e = { ...environment(), route: 'library' };
+  const screen = await render(<Library e={e} />);
+  expect(screen.queryByLabelText('닫기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
+  expect(e.home).toHaveBeenCalledTimes(1);
+  expect(e.back).not.toHaveBeenCalled();
 });
 
 test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초기화한다', async () => {
@@ -75,8 +85,11 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
   await fireEvent.press(screen.getByTestId('diary-member-minji'));
   scrollTo.mockClear();
 
-  await fireEvent.press(screen.getByLabelText('뒤로'));
+  // 이웃 상세의 ‹ 는 목적지(이웃 목록)를 읽는다
+  await fireEvent.press(screen.getByLabelText('이웃들의 일기장으로 돌아가기'));
   expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
+  // 목록으로 돌아오면 다시 들어온 화면으로 가는 「뒤로」다
+  expect(screen.getByLabelText('뒤로')).toBeTruthy();
   expect(screen.getByTestId('diary-member-minji')).toBeTruthy();
   scrollTo.mockRestore();
 });

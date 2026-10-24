@@ -50,6 +50,7 @@ import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { errorTextOr, localized, t } from '@/i18n';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { Btn, NavBtn } from '@/design-system/patterns';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import type { MagazineToday } from '@/services/api/magazine';
@@ -830,9 +831,9 @@ export function InteriorScreen({
         };
   const boardScrollOffset = boardScrollScene ? Math.max(0, bg.height - height) * 0.38 : 0;
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
-  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
-    chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
+  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52);
   const sceneBackBlocked = building.id === 'board' && (boardModalOpen || higherModalOpen);
+  const navScale = React.useContext(NavScale);
 
   useEffect(() => {
     if (Platform.OS === 'web') setBoardBackgroundInert(sceneBackRef.current, sceneBackBlocked);
@@ -910,42 +911,25 @@ export function InteriorScreen({
           <Text style={statusText}>● ● ▰</Text>
         </View>
       )}
-      <Pressable
+      <NavBtn
         testID="scene-back"
         ref={sceneBackRef as any}
         disabled={sceneBackBlocked}
         accessibilityElementsHidden={sceneBackBlocked}
         {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
-        accessibilityLabel="섬으로 돌아가기"
+        label="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
+        // 원(34)이 예전 자리(왼쪽 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
+        // 장면을 키워 그리는 우체통(navScale = 1/k)도 왼쪽 위 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
         style={{
           position: 'absolute',
           zIndex: 12,
-          left: 14 + chromeLeft,
-          top: 36 + chromeTop,
-          width: 34,
-          height: 34,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: isHall ? 2 : 1.5,
-          borderColor: isHall ? '#8B6956' : OUTLINE,
-          borderRadius: isHall ? 999 : 17,
-          backgroundColor: exact(isHall ? '#FFF7EB' : '#fff8eddb'),
-          boxShadow: isHall ? '0 3px 0 #8B6956' : `0 2px 0 ${OUTLINE}`,
+          left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+          top: navScale * (31 + Math.max(0, (insets?.top ?? 0) / navScale - 52)),
+          transformOrigin: 'left top',
+          transform: [{ scale: navScale }],
         }}
-      >
-        <Text
-          style={{
-            fontFamily: GOWUN,
-            fontSize: 23,
-            lineHeight: 23,
-            color: INK,
-            fontWeight: isHall ? '800' : '400',
-          }}
-        >
-          ‹
-        </Text>
-      </Pressable>
+      />
       {/* 가로에서 키보드가 올라와 화면이 아주 낮아지면 간판이 입력 종이를 가리지 않게 뺀다 */}
       {height >= 260 && (
         <View
@@ -1089,6 +1073,10 @@ const statusText = {
 
 // 앱 라우트에서 게시판(board·notice·noticeEdit·quest·questEdit)과
 // 우체통(mail·chat·friendMail)을 건물 안 장면으로 그린다. 크기는 실제 화면(키보드로 줄어든 높이 포함)을 따른다
+// 장면을 통째로 키운 우체통 안에서 뒤로 동그라미를 다른 건물과 같은 크기(원 34 · 누르는 자리 44)로 되돌리는 배율.
+// InteriorRoute 가 1/k 를 넣고, 그 밖(시안 비교 화면·테스트)은 1 이다
+const NavScale = React.createContext(1);
+
 export function InteriorRoute({
   e,
   modalAboveBoard = false,
@@ -1134,17 +1122,19 @@ export function InteriorRoute({
       {/* 글꼴을 못 불러와도 기본 글꼴로 계속 그린다 */}
       {(fontsLoaded || fontError) && (
         <View style={{ transformOrigin: 'left top', transform: [{ scale: k }] }}>
-          <InteriorScreen
-            buildingIndex={mail ? 3 : 1}
-            conceptIndex={conceptIndex}
-            width={width / k}
-            height={height / k}
-            reduceMotion={e.state.settings.reduceMotion}
-            e={e}
-            insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
-            sceneHeight={Math.max(height, layout.height) / k}
-            higherModalOpen={modalAboveBoard}
-          />
+          <NavScale.Provider value={1 / k}>
+            <InteriorScreen
+              buildingIndex={mail ? 3 : 1}
+              conceptIndex={conceptIndex}
+              width={width / k}
+              height={height / k}
+              reduceMotion={e.state.settings.reduceMotion}
+              e={e}
+              insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
+              sceneHeight={Math.max(height, layout.height) / k}
+              higherModalOpen={modalAboveBoard}
+            />
+          </NavScale.Provider>
         </View>
       )}
     </View>
@@ -3325,51 +3315,6 @@ function BoardPill({
   );
 }
 
-// .notice-list-back
-function Back({
-  label,
-  onPress,
-  testID,
-  style,
-}: {
-  label: string;
-  onPress: () => void;
-  testID: string;
-  style?: any;
-}) {
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[
-        {
-          minHeight: 40,
-          justifyContent: 'center',
-          paddingVertical: 5,
-          paddingHorizontal: 12,
-          borderWidth: 2,
-          borderColor: '#8b6956',
-          borderRadius: 999,
-          backgroundColor: '#fffdfa',
-          boxShadow: '0 3px 0 #8b6956',
-        },
-        style,
-      ]}
-    >
-      <Text
-        style={[
-          boardFont(14, 1.6, '700'),
-          { textAlign: 'center' },
-          webOnly({ whiteSpace: 'nowrap' }),
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 // .board-text (밑줄 글자 버튼)
 function Link({
   label,
@@ -4988,10 +4933,12 @@ export function Board({
   const formError = s.error !== '' && (
     <Text style={boardFont(13, 1.45, '400', '#a35952')}>{s.error}</Text>
   );
+  // 종이 안 한 단계 뒤로(‹ 동그라미). 원 왼쪽 끝을 종이 글자 줄에 맞추게 누르는 상자 여백(5)만큼 당긴다
   const detailHead = (back: React.ReactNode) => (
     <View
       style={{
         minHeight: 44,
+        marginLeft: -5,
         marginBottom: 8,
         paddingRight: 30,
         flexDirection: 'row',
@@ -5025,9 +4972,7 @@ export function Board({
               {notices.length}
             </Text>
           </Text>
-          {owner && (
-            <PaperAction testID="board-notice-new" label="+ 새 공지" onPress={nav.newNotice} />
-          )}
+          {owner && <Btn small id="board-notice-new" title="+ 새 공지" onPress={nav.newNotice} />}
         </View>
       </View>
       <View>
@@ -5116,7 +5061,11 @@ export function Board({
       return (
         <View>
           {detailHead(
-            <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+            <NavBtn
+              testID="board-notice-back"
+              label="공지 목록으로 돌아가기"
+              onPress={nav.backToNotices}
+            />,
           )}
           <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
             {apiMessage(board.detailError, '불러오지 못했어요.')}
@@ -5132,7 +5081,11 @@ export function Board({
       return (
         <View>
           {detailHead(
-            <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+            <NavBtn
+              testID="board-notice-back"
+              label="공지 목록으로 돌아가기"
+              onPress={nav.backToNotices}
+            />,
           )}
           {/* 요청을 냈고 로딩도 끝났는데 detail 이 없으면 종결 — 삭제로 비워진 공지다. */}
           <Text style={muted({ marginTop: 4 })}>
@@ -5147,7 +5100,11 @@ export function Board({
     return (
       <View>
         {detailHead(
-          <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+          <NavBtn
+            testID="board-notice-back"
+            label="공지 목록으로 돌아가기"
+            onPress={nav.backToNotices}
+          />,
         )}
         <Text
           style={[
@@ -5323,9 +5280,9 @@ export function Board({
     return (
       <View>
         {detailHead(
-          <PaperAction
+          <NavBtn
             testID="board-notice-cancel"
-            label={s.editing ? '← 공지' : '← 목록'}
+            label={s.editing ? '공지로 돌아가기' : '공지 목록으로 돌아가기'}
             onPress={nav.cancelEditor}
           />,
         )}
@@ -5406,12 +5363,12 @@ export function Board({
     }
   };
 
-  const questBack = (
-    <Back
+  const questBack = detailHead(
+    <NavBtn
       testID="board-quest-back"
-      label={s.editing ? '‹ 퀘스트' : '‹ 퀘스트 목록'}
+      label={s.editing ? '퀘스트로 돌아가기' : '퀘스트 목록으로 돌아가기'}
       onPress={nav.backToQuests}
-    />
+    />,
   );
 
   // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
@@ -5437,7 +5394,11 @@ export function Board({
       return (
         <>
           {detailHead(
-            <PaperAction testID="board-quest-back" label="← 목록" onPress={nav.backToQuests} />,
+            <NavBtn
+              testID="board-quest-back"
+              label="퀘스트 목록으로 돌아가기"
+              onPress={nav.backToQuests}
+            />,
           )}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 4 }]}>
             {progress?.title ?? quest.title}
@@ -5722,9 +5683,7 @@ export function Board({
                 {quests.length}
               </Text>
             </Text>
-            {owner && (
-              <PaperAction testID="board-quest-new" label="+ 만들기" onPress={nav.newQuest} />
-            )}
+            {owner && <Btn small id="board-quest-new" title="+ 만들기" onPress={nav.newQuest} />}
           </View>
         </View>
         <View
@@ -6628,44 +6587,17 @@ export function Board({
               marginBottom: 8,
             }}
           >
-            <Pressable
-              testID="board-panel-close"
-              accessibilityRole="button"
-              accessibilityLabel="게시판 닫기"
-              onPress={nav.closePanel}
-              style={{
-                width: 44,
-                height: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text allowFontScaling={false} style={boardFont(22, 1, '400', '#76503c')}>
-                ×
-              </Text>
-            </Pressable>
+            <NavBtn close testID="board-panel-close" label="게시판 닫기" onPress={nav.closePanel} />
           </View>
         )}
         {s.panel === 'blueprint' && (
-          <Pressable
+          <NavBtn
+            close
             testID="board-drawer-close"
-            accessibilityRole="button"
-            accessibilityLabel="내용 닫기"
+            label="내용 닫기"
             onPress={nav.closePanel}
-            style={({ pressed }) => ({
-              position: 'absolute',
-              zIndex: 3,
-              top: 8,
-              right: 8,
-              width: 44,
-              height: 44,
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: pressed ? 0.45 : 1,
-            })}
-          >
-            <Text style={[boardFont(21, 1.4, '400', '#dff7ff'), { textAlign: 'center' }]}>×</Text>
-          </Pressable>
+            style={{ position: 'absolute', zIndex: 3, top: 8, right: 8 }}
+          />
         )}
         {s.panel === 'notice' && (
           <Scroll
@@ -7673,6 +7605,7 @@ const chatTime = (at: number, now: number) => {
 };
 
 function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps) {
+  const navScale = React.useContext(NavScale);
   const mailFont = (
     fontSize: number,
     factor: number,
@@ -7959,25 +7892,13 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const header = (title: string, note: string, to: MailRoute = 'home') => (
     <View style={{ marginBottom: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 7 }}>
-        <Pressable
+        <NavBtn
           testID="mail-back"
-          accessibilityRole="button"
-          accessibilityLabel="이전 화면으로 돌아가기"
-          hitSlop={9}
+          label="이전 화면으로 돌아가기"
           onPress={() => back(to)}
-          style={{
-            width: 27,
-            height: 27,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderWidth: 1.2,
-            borderColor: '#795642',
-            borderRadius: 14,
-            backgroundColor: '#fff8e8',
-          }}
-        >
-          <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: 19, color: INK }}>‹</Text>
-        </Pressable>
+          // 누르는 상자(44)의 여백만큼 당겨 제목 줄 높이를 예전처럼 둔다
+          style={{ margin: -5, transform: [{ scale: navScale }] }}
+        />
         <View style={{ flex: 1 }}>
           <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: lh(21), color: INK }}>
             {title}
@@ -8006,7 +7927,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         borderWidth: 1.5,
         borderColor: OUTLINE,
         borderRadius: 9,
-        backgroundColor: '#f1c46f',
+        // 우체통의 주 버튼(편지 쓰기·접어서 보내기)은 Pink(DESIGN §7.2)
+        backgroundColor: componentTokens.button.background,
         boxShadow: `0 2px 0 ${OUTLINE}`,
       }}
     >
@@ -8440,7 +8362,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           }
         />
         <View style={{ alignSelf: 'flex-end', minWidth: 74 }}>
-          {paperButton(groupSent ? '남겼어요 ✓' : '편지 남기기', sendGroup, groupSent)}
+          {paperButton(groupSent ? '남겼어요 ✓' : '보내기', sendGroup, groupSent)}
         </View>
       </View>
     </>
@@ -8620,7 +8542,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             borderWidth: 1.5,
             borderColor: '#7b493f',
             borderRadius: 9,
-            backgroundColor: '#f1c46f',
+            backgroundColor: componentTokens.button.background,
             boxShadow: '0 2px 0 #7b493f',
           }}
         >

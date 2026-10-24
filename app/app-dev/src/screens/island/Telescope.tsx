@@ -12,7 +12,7 @@ import {
   type ImageStyle,
 } from 'react-native';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
-import { Badge, Btn, Pic, Txt } from '@/design-system/patterns';
+import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
 import { Card } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
@@ -811,14 +811,8 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
               },
             ]}
           >
-            {/* 바다 위 보조 버튼 — 공용 Btn glass(DESIGN §7.2), 실제 터치 영역은 44 이상. 큰 글자에서는 38pt 에서 최소 52pt 로 커지고 글자를 따라 더 늘어난다 */}
-            <Btn
-              small
-              kind="glass"
-              dynamicHeight={largeText}
-              title={t('telescope.back')}
-              onPress={e.back}
-            />
+            {/* 뒤로는 건물 안과 같은 ‹ 동그라미(DESIGN §7.14) — 글자가 없어 큰 글자에서도 크기가 같다 */}
+            <NavBtn label={t('telescope.back')} onPress={e.back} />
             {hasPendingRequest && (
               <Btn
                 small
