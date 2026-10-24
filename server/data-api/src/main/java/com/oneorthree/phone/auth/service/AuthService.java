@@ -212,20 +212,15 @@ public class AuthService {
     /**
      * 선택 AT 의 세션 폐기 판정 — <b>호출 트랜잭션 안에서만</b> 부른다 (GROMO-1929).
      *
-     * <p>{@code LoginAttemptService#gateOptionalSession} (GROMO-1908, 계정 LLD §2.1) 과 <b>같은
-     * 술어</b>다 — auth 는 internal 을 참조할 수 없어(도메인 높이) 여기에 둔다. 주체 활성
+     * <p>{@code LoginAttemptService#gateOptionalSession} (GROMO-1908, 계정 LLD §2.1) 과 판정은
+     * {@link AuthSessionService#requireActive} 하나다 (GROMO-2450). 주체 활성
      * (비활성 404)은 호출부가 caller 를 resolve 할 때 이미 거른 뒤고, 여기선 sid·세대(없거나
      * 어긋나면 거절) → 세션 행 활성 순으로 판정한다. 서명·만료·타입은 {@code resolveCaller} 의 몫.
      *
      * @throws AuthException 403 {@code SESSION_NOT_ACTIVE} — Business가 공개 401로 매핑한다
      */
     private void checkCallerSessionActive(User caller, UUID sessionId, Long authGeneration) {
-        if (sessionId == null || authGeneration == null
-                || authGeneration.longValue() != caller.getAuthGeneration()
-                || authSessionService.verifySession(caller.getId(), sessionId)
-                        .filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(caller.getId(), caller.getAuthGeneration(), sessionId, authGeneration);
     }
 
     /**

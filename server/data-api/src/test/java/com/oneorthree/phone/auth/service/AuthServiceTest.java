@@ -6,7 +6,6 @@ import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
-import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.user.repository.domain.Provider;
@@ -43,6 +42,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -95,12 +95,11 @@ class AuthServiceTest {
         lenient().when(authSessionService.findByRefreshToken(anyString()))
                 .thenReturn(java.util.Optional.empty());
         // 선택 AT 세션 관문(GROMO-1929) 통과 기본값 — AT 를 싣는 기존 테스트가 관문에 막히지 않게
-        // 세대 일치(gen=0)·활성 세션을 기본으로 둔다. 관문 자체를 검증하는 테스트는 개별로 덮어쓴다.
+        // 세대 일치(gen=0)를 기본으로 둔다. requireActive 는 void 라 스텁이 없으면 통과다 (GROMO-2450).
+        // 관문 자체를 검증하는 테스트는 rejectSession 으로 거절을 세운다.
         lenient().when(jwtProvider.extractSessionId(anyString())).thenReturn(SESSION_ID);
         lenient().when(jwtProvider.extractAuthGeneration(anyString())).thenReturn(0L);
         lenient().when(userQueryService.getCaller(any())).thenReturn(User.builder().build());
-        lenient().when(authSessionService.verifySession(any(), any()))
-                .thenReturn(Optional.of(AuthSession.builder().id(SESSION_ID).build()));
         authService = new AuthService(
                 userRepository, userQueryService, userNotificationSettingsRepository,
                 socialAccountRepository, jwtProvider, userActivityEventLogger,
@@ -141,7 +140,7 @@ class AuthServiceTest {
         verify(socialAccountRepository).save(any(SocialAccount.class));
         verify(appleClient, never()).getProviderId(anyString());              // 라우팅: kakao만 호출
         // 헤더 없음 = 유일한 익명 경로 — 선택 AT 관문을 타지 않는다 (GROMO-1929)
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService, never()).requireActive(any(), anyLong(), any(), any());
         verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", true, "method", "kakao"));
     }
@@ -350,7 +349,7 @@ class AuthServiceTest {
         verify(userRepository, never()).save(any(User.class));            // 새 User 생성 금지(재활용)
         verify(socialAccountRepository).save(any(SocialAccount.class));    // 소셜 연동만 새로 부착
         // 선택 AT 관문이 실제로 탔다 — sid·세대 일치·활성 세션이라 통과 (GROMO-1929)
-        verify(authSessionService).verifySession(GUEST_ID, SESSION_ID);
+        verify(authSessionService).requireActive(GUEST_ID, 0L, SESSION_ID, 0L);
         // createUserSideRows 미호출 — 부속 row 는 게스트 생성 시 이미 존재(중복 방지)
 
         verify(userNotificationSettingsRepository, never()).save(any());
@@ -491,6 +490,12 @@ class AuthServiceTest {
                 .willReturn(User.builder().id(GUEST_ID).build());
     }
 
+    /** 세션 관문 거절 스텁 — 판정은 {@code AuthSessionService#requireActive} 의 몫이다 (GROMO-2450). */
+    private void rejectSession(UUID sessionId, Long claimedGeneration) {
+        willThrow(new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE))
+                .given(authSessionService).requireActive(GUEST_ID, 0L, sessionId, claimedGeneration);
+    }
+
     @Test
     @DisplayName("폐기된 세션의 AT → 401 SESSION_NOT_ACTIVE — 서명이 멀쩡해도 승격 자격이 아니다")
     void revokedSessionCallerIsRejected() {
@@ -499,9 +504,7 @@ class AuthServiceTest {
         given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         stubCallerLock();
-        given(authSessionService.verifySession(GUEST_ID, SESSION_ID))
-                .willReturn(Optional.of(AuthSession.builder().id(SESSION_ID).userId(GUEST_ID)
-                        .revokedAt(Instant.now()).build()));
+        rejectSession(SESSION_ID, 0L);
 
         assertThatThrownBy(() ->
                 login(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
@@ -515,14 +518,14 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("세션 행이 없거나 남의 것이면 401 SESSION_NOT_ACTIVE — verifySession 이 비어 온다")
+    @DisplayName("세션 행이 없거나 남의 것이면 401 SESSION_NOT_ACTIVE — requireActive 가 거절한다")
     void missingSessionCallerIsRejected() {
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
         given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         stubCallerLock();
-        given(authSessionService.verifySession(GUEST_ID, SESSION_ID)).willReturn(Optional.empty());
+        rejectSession(SESSION_ID, 0L);
 
         assertThatThrownBy(() ->
                 login(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
@@ -533,7 +536,7 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("authGeneration 불일치는 401 SESSION_NOT_ACTIVE — 세션 조회 전에 끊는다")
+    @DisplayName("authGeneration 불일치는 401 SESSION_NOT_ACTIVE — AT 의 세대를 requireActive 에 그대로 넘겨 거절한다")
     void generationMismatchCallerIsRejected() {
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
@@ -541,12 +544,13 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractAuthGeneration("guest-jwt")).willReturn(9L);   // DB 세대는 0
         stubCallerLock();
+        rejectSession(SESSION_ID, 9L);
 
         assertThatThrownBy(() ->
                 login(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService).requireActive(GUEST_ID, 0L, SESSION_ID, 9L);
         verify(userRepository, never()).save(any(User.class));
         verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
     }
@@ -560,12 +564,13 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("old-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractSessionId("old-jwt")).willReturn(null);
         stubCallerLock();
+        rejectSession(null, 0L);
 
         assertThatThrownBy(() ->
                 login(Provider.KAKAO, "kakao-token", "Bearer old-jwt"))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService).requireActive(GUEST_ID, 0L, null, 0L);
         verify(userRepository, never()).save(any(User.class));
         verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
     }
@@ -585,7 +590,7 @@ class AuthServiceTest {
                 login(Provider.KAKAO, "kakao-token", "Bearer deleted-guest-jwt"))
                 .isInstanceOf(UserException.class)
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService, never()).requireActive(any(), anyLong(), any(), any());
         verify(userRepository, never()).save(any(User.class));
         verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
     }
@@ -606,9 +611,7 @@ class AuthServiceTest {
         given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
-        given(authSessionService.verifySession(GUEST_ID, SESSION_ID))
-                .willReturn(Optional.of(AuthSession.builder().id(SESSION_ID).userId(GUEST_ID)
-                        .revokedAt(Instant.now()).build()));
+        rejectSession(SESSION_ID, 0L);
 
         assertThatThrownBy(() ->
                 login(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
@@ -639,13 +642,13 @@ class AuthServiceTest {
                 login(Provider.KAKAO, "kakao-token", "Bearer guest-jwt");
 
         assertThat(response.isNewUser()).isFalse();
-        // 락·판정 순서: users(게스트 승격 락) → auth_sessions(verifySession 배타 락, 관문 ①)
+        // 락·판정 순서: users(게스트 승격 락) → auth_sessions(requireActive 의 세션 행 배타 락, 관문 ①)
         // → 소셜 연동 저장(mutation) → users(탈퇴 직렬화 락) → 토큰 발급 — 관문이 발급과 같은
         // TX 안에서 mutation 보다 먼저 탐을 순서로 고정한다
         InOrder order = inOrder(userRepository, socialAccountRepository, userQueryService,
                 authSessionService, jwtProvider);
         order.verify(userRepository).findActiveGuestByIdForUpdate(GUEST_ID);
-        order.verify(authSessionService).verifySession(GUEST_ID, SESSION_ID);
+        order.verify(authSessionService).requireActive(GUEST_ID, 0L, SESSION_ID, 0L);
         order.verify(socialAccountRepository).save(any(SocialAccount.class));
         order.verify(userQueryService).getCallerForUpdate(GUEST_ID);
         order.verify(jwtProvider).generateAccessToken(eq(GUEST_ID), eq(false), anyLong(), any());

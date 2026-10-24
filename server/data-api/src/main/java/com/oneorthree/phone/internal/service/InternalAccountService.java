@@ -2,9 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.auth.exception.AuthErrorCode;
-import com.oneorthree.phone.auth.exception.AuthException;
-import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.group.service.MainIslandService;
 import com.oneorthree.phone.internal.dto.AccountMeView;
@@ -151,10 +148,7 @@ public class InternalAccountService {
     }
 
     private User requireSession(User user, UUID sessionId, long authGeneration) {
-        if (authGeneration != user.getAuthGeneration()
-                || sessions.verifySession(user.getId(), sessionId).filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        sessions.requireActive(user.getId(), user.getAuthGeneration(), sessionId, authGeneration);
         return user;
     }
 
