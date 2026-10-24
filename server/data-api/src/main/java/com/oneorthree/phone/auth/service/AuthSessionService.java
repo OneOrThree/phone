@@ -230,7 +230,7 @@ public class AuthSessionService {
      *
      * <p>호출자가 {@code users} 행을 읽은 TX 안에서 부른다(MANDATORY). 로그아웃과 직렬화해야 하는 쓰기 경로는
      * {@code users} 행을 {@code FOR UPDATE} 로 먼저 잠근다 — 로그아웃도 같은 행을 먼저 잠그므로
-     * (users → auth_sessions) 둘이 직렬화된다. 탈퇴 조회는 {@code FOR SHARE}, 선택 AT 관문
+     * (users → auth_sessions) 둘이 직렬화된다. 계정 조회({@code InternalAccountService#me})는 {@code FOR SHARE}, 선택 AT 관문
      * ({@code LoginAttemptService#gateOptionalSession})은 잠금 없이 부른다 — {@code users} 잠금 수준은
      * 호출자가 정하고, 이 메서드는 세션 행 배타 락만 건다 (GROMO-2450). 단일 로그아웃은 세대를 올리지 않으므로
      * 세션 행 검사가 반드시 필요하고, 같은 사용자의 다른 활성 세션은 영향받지 않는다.
