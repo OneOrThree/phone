@@ -10,7 +10,6 @@ import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
-import com.oneorthree.phone.user.repository.domain.User;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -233,15 +232,20 @@ public class AuthSessionService {
      * 잠그므로(users → auth_sessions) 둘이 직렬화된다. 단일 로그아웃은 세대를 올리지 않으므로 세션 행 검사가
      * 반드시 필요하고, 같은 사용자의 다른 활성 세션은 영향받지 않는다.
      *
-     * @param user           잠근 활성 사용자
-     * @param sessionId      AT 의 {@code sid}
-     * @param authGeneration AT 의 {@code gen}
+     * <p>잠근 {@code users} 행은 호출자(L10 internal)가 읽어 id·세대를 값으로 넘긴다 — {@code auth} 가
+     * {@code user.repository} 를 직접 참조하지 않게 하기 위해서다 (GROMO-2198 규칙).
+     *
+     * @param userId                 잠근 활성 사용자의 id
+     * @param currentAuthGeneration  잠근 사용자 행의 현재 인증 세대
+     * @param sessionId              AT 의 {@code sid}
+     * @param claimedAuthGeneration  AT 의 {@code gen}
      * @throws AuthException 하나라도 없거나 어긋나면 {@link AuthErrorCode#SESSION_NOT_ACTIVE}
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void requireActive(User user, UUID sessionId, Long authGeneration) {
-        if (sessionId == null || authGeneration == null || authGeneration != user.getAuthGeneration()
-                || verifySession(user.getId(), sessionId).filter(AuthSession::isActive).isEmpty()) {
+    public void requireActive(UUID userId, long currentAuthGeneration, UUID sessionId, Long claimedAuthGeneration) {
+        if (sessionId == null || claimedAuthGeneration == null
+                || claimedAuthGeneration.longValue() != currentAuthGeneration
+                || verifySession(userId, sessionId).filter(AuthSession::isActive).isEmpty()) {
             throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
         }
     }
