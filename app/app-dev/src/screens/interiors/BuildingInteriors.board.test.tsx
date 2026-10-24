@@ -680,6 +680,32 @@ test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고
   assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
 });
 
+test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 없이 내용만큼만 그린다(GROMO-2412)', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  assert.equal(drawer.height, undefined);
+  assert.equal(drawer.minHeight, undefined);
+  // 넘치면 스크롤하도록 위 한도는 남긴다
+  assert.equal(typeof drawer.maxHeight, 'number');
+});
+
+test('고른 목표가 있으면 청사진 상자는 지금처럼 고정 높이다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  assert.equal(typeof drawer.height, 'number');
+  assert.equal(drawer.height, drawer.maxHeight);
+});
+
 test('게시판 장면에는 건물 그림을 덧붙이지 않고 청사진을 연 뒤에만 미리보기를 보여준다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   getConstructionOptionsMock.mockResolvedValue(

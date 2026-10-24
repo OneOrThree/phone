@@ -345,6 +345,23 @@ test('바다 잡지(seaMagazine) 라우트는 소속 섬이 없어도 섬 가드
   await screen.unmount();
 });
 
+test('소속 섬 없이 주민 화면을 열면 「가입한 섬이 없어요」 안내가 회색 단색이 아니라 바다 장면 위에 뜬다(GROMO-2412)', async () => {
+  const state = serverFocusState();
+  state.session = null;
+  state.serverIslands = { ...state.serverIslands!, currentIslandId: null };
+  const reset = jest.fn();
+  const screen = await mount('hall', state, { reset });
+  expect(screen.getByText('가입한 섬이 없어요')).toBeTruthy();
+  expect(screen.getByTestId('no-island-background', { includeHiddenElements: true })).toBeTruthy();
+  // 장식 그림 — Overlay 가 background 를 숨김 View 로 감싸 스크린리더에서 빠진다
+  expect(screen.queryByTestId('no-island-background')).toBeNull();
+  // 버튼이 갈 곳을 말하므로 부연 문장은 두지 않는다
+  expect(screen.queryByText('바다에서 머물 섬을 찾아보세요.')).toBeNull();
+  await fireEvent.press(screen.getByText('바다로 가기'));
+  expect(reset).toHaveBeenCalledWith('sea');
+  await screen.unmount();
+});
+
 // 같은 잡지 라우트에서 호 id(detail)만 바뀌면(딥링크로 다른 호를 열 때) 리더를 새로 마운트해야 이전 호의 확대 모달·쪽 위치가 남지 않는다.
 test.each(['magazine', 'seaMagazine'] as const)(
   '%s 라우트는 호 id 가 바뀌면 잡지 리더를 새로 마운트한다',

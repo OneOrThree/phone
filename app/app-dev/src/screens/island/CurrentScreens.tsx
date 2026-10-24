@@ -595,11 +595,21 @@ function CurrentScreensContent({ e }: any) {
         }
       />
     );
+  // 섬 없음 안내는 회색 단색 대신 바다 장면 위에 띄운다(GROMO-2412). 버튼이 갈 곳을 말하니 부연 문장은 두지 않는다
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
-      <Overlay close={() => e.reset('sea')}>
+      <Overlay
+        close={() => e.reset('sea')}
+        background={
+          <Image
+            testID="no-island-background"
+            source={seaAssets.background}
+            resizeMode="cover"
+            style={noIslandScene.fill}
+          />
+        }
+      >
         <Txt kind="h17">가입한 섬이 없어요</Txt>
-        <Txt kind="meta">바다에서 머물 섬을 찾아보세요.</Txt>
         <Btn title="바다로 가기" onPress={() => e.reset('sea')} />
       </Overlay>
     );
@@ -1395,6 +1405,8 @@ function Travel({ e }: any) {
   );
 }
 const visitScene = StyleSheet.create({ fill: { flex: 1 } });
+// 웹 Image 는 크기를 안 주면 원본 크기로 그린다 — 오버레이 배경 칸을 꽉 채운다
+const noIslandScene = StyleSheet.create({ fill: { width: '100%', height: '100%' } });
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;

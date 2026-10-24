@@ -112,6 +112,41 @@ test('옛 서버 인벤토리(head/neck/shoes 키 없음)면 새 슬롯 섹션�
   expect(screen.queryByText('옷')).toBeNull();
 });
 
+test('가진 꾸미기가 하나도 없으면 빈 상태 한 줄, 보유품을 받기 전이나 하나라도 있으면 없다(GROMO-2412)', async () => {
+  mockShopApi = api({});
+  const empty = await render(<Harness />);
+  expect(empty.getByTestId('wardrobe-empty')).toBeTruthy();
+  expect(empty.getByText('아직 가진 꾸미기가 없어요')).toBeTruthy();
+  await empty.unmount();
+
+  mockShopApi = { ...api({}), my: null };
+  const loading = await render(<Harness />);
+  expect(loading.queryByTestId('wardrobe-empty')).toBeNull();
+  await loading.unmount();
+
+  mockShopApi = api({ head: ['cap'] });
+  const some = await render(<Harness />);
+  expect(some.queryByTestId('wardrobe-empty')).toBeNull();
+  expect(some.getByLabelText('cap-제목')).toBeTruthy();
+});
+
+test('옷장에 칸이 없는 옷(clothes)만 가졌거나 입고 있어도 빈 상태를 띄우지 않고, 선체 상수는 보유로 세지 않는다(GROMO-2412)', async () => {
+  mockShopApi = api({ clothes: ['scarf'] });
+  const owns = await render(<Harness />);
+  expect(owns.queryByTestId('wardrobe-empty')).toBeNull();
+  await owns.unmount();
+
+  mockShopApi = api({});
+  const wears = await render(<Harness equipped={{ clothes: 'scarf' }} />);
+  expect(wears.queryByTestId('wardrobe-empty')).toBeNull();
+  await wears.unmount();
+
+  // 서버 hulls 는 모두에게 같은 ["raft"] — 이것만 있으면 여전히 빈 옷장이다
+  mockShopApi = api({ hulls: ['raft'] });
+  const raftOnly = await render(<Harness />);
+  expect(raftOnly.getByTestId('wardrobe-empty')).toBeTruthy();
+});
+
 test('결과창에서 처음 받은 꾸미기는 옷장 칸에 NEW! — 한 번 누르면 사라지고 기존 보유품엔 없다 (GROMO-2382)', async () => {
   resetUnseenOutfitsForTest();
   await AsyncStorage.setItem(

@@ -683,6 +683,14 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.strong,
     shadow: `0px 6px 0px ${semanticTokens.color.outline}`,
   },
+  // 빈 상태(GROMO-2412) — 그림 한 장과 한 줄. scene 은 장면 그림을 상자에 깔고 한 줄을 그 위 카드에 둔다
+  emptyState: {
+    art: 96,
+    gap: space[3],
+    padding: space[6],
+    // 최소 높이 — 가로 폰·큰 글자에서 카드 글줄이 길어지면 상자가 따라 늘어난다
+    sceneMinHeight: 240,
+  },
 } as const;
 
 /** 기존 화면의 C.* 사용처를 깨지 않고 semantic token으로 연결하는 호환 별칭. */
