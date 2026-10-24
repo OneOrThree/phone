@@ -94,7 +94,8 @@ import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { Ticking } from '@/hooks/useNow';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
-import { assets } from '@/constants/assets';
+import { assets, cat } from '@/constants/assets';
+import { seaLoaf, telescopeSea } from '@/screens/sea/seaAssets';
 import {
   BUNDLED_AUDIO_TRACK_IDS,
   DEFAULT_FREE_AUDIO_TRACK_IDS,
@@ -134,6 +135,7 @@ import {
   Overlay,
   Wheel,
   Graph,
+  EmptyState,
   NavBtn,
 } from '@/design-system/patterns';
 import {
@@ -2048,7 +2050,14 @@ export function RedesignScreens({ e }: any) {
               {t('onboarding.joinIsland.searchingPublicIslands')}
             </Txt>
           ) : (
-            !serverError && <Txt>{t('onboarding.joinIsland.noPublicIslands')}</Txt>
+            !serverError && (
+              <EmptyState
+                scene
+                testID="join-island-empty"
+                art={telescopeSea.source}
+                title={t('onboarding.joinIsland.noPublicIslands')}
+              />
+            )
           ))}
       </Onboard>
     );
@@ -2229,7 +2238,12 @@ export function RedesignScreens({ e }: any) {
             )}
           </>
         ) : (
-          <Txt>{t('onboarding.joinIsland.noPublicIslands')}</Txt>
+          <EmptyState
+            scene
+            testID="join-island-empty"
+            art={telescopeSea.source}
+            title={t('onboarding.joinIsland.noPublicIslands')}
+          />
         )}
       </Onboard>
     );
@@ -4881,6 +4895,18 @@ export function RedesignScreens({ e }: any) {
               불러오는 중…
             </Txt>
           ) : null}
+          {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
+          {!items.length &&
+            (!server ||
+              (shopApi.itemsCategory === (mine ? 'personal' : 'island') &&
+                !shopApi.loading &&
+                !shopApi.error)) && (
+              <EmptyState
+                testID="shop-empty"
+                art={cat(state.color, 'side')}
+                title={t('emptyState.shop')}
+              />
+            )}
           {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
           <View style={{ gap: layout.compact ? 10 : 12 }}>
             {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
@@ -4916,7 +4942,7 @@ export function RedesignScreens({ e }: any) {
           sign="dog"
           signKind="npc"
           title="상품 상세"
-          tall
+          fit
           onBack={back}
           onClose={home}
         >
@@ -5059,7 +5085,7 @@ export function RedesignScreens({ e }: any) {
         sign={audio ? 'bld/gramophone' : 'dog'}
         signKind={audio ? '' : 'npc'}
         title={audio ? '음원 사기' : '상품 상세'}
-        tall
+        fit
         onBack={back}
         onClose={home}
         footer={cta}
@@ -5593,6 +5619,16 @@ export function RedesignScreens({ e }: any) {
       if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
       return slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
     };
+    // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
+    const shelf = (slot: WardrobeSlot) =>
+      slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === slotWorn(slot));
+    const slots = (['decor', 'head', 'neck', 'shoes'] as const).filter(
+      (slot) => shelf(slot).length > 0 || slotWorn(slot),
+    );
+    // 옷장에 칸을 그리지 않는 옷(clothes)도 가졌거나 입고 있으면 «없음»이 아니다.
+    // hulls 는 보유가 아니라 모두에게 같은 상수(["raft"])라 세지 않는다
+    const hasClothes =
+      !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
     return (
       <IslandSheet
         bg="dock"
@@ -5604,11 +5640,16 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        {(['decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
-          const worn = slotWorn(slot);
-          // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
-          const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
-          if (ids.length === 0 && !worn) return null;
+        {/* 서버는 보유품을 받은 뒤에만 «없음»을 말한다 */}
+        {!slots.length && !hasClothes && (!server || shopApi.my) && (
+          <EmptyState
+            testID="wardrobe-empty"
+            art={seaLoaf[state.color]}
+            title={t('emptyState.wardrobe')}
+          />
+        )}
+        {slots.map((slot) => {
+          const ids = shelf(slot);
           return (
             <View key={slot} style={{ gap: 10 }}>
               <Txt kind="section" style={st.sec}>
@@ -5972,6 +6013,13 @@ export function RedesignScreens({ e }: any) {
                 <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
               )}
             </View>
+          ) : !query && !receivedRows.length && !sentRows.length && !friendRows.length ? (
+            // 받은·보낸 요청과 친구가 모두 없으면 빈 칸 셋 대신 빈 안내 하나
+            <EmptyState
+              testID="friends-empty"
+              art={assets['characters/pelican/npc/idle.png']}
+              title={t('emptyState.friends')}
+            />
           ) : (
             <View
               style={

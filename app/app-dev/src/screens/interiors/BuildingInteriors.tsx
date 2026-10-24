@@ -6235,6 +6235,11 @@ export function Board({
           none: 236,
         }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
+  // 청사진 대신 안내 한 줄(불러오는 중·실패·목표 없음·전체 완공)만 있으면 상자를 내용 높이로 줄인다(GROMO-2412)
+  const blueprintMessageOnly =
+    (serverBoard && construction.status !== 'ready') ||
+    allBuildingsComplete ||
+    blueprintView.state === 'none';
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
@@ -6522,8 +6527,9 @@ export function Board({
               ? {
                   ...(land ? landBlueprint : { left: 14, right: 14 }),
                   top: blueprintPanelTop,
-                  height: blueprintPanelHeight,
-                  maxHeight: blueprintPanelHeight,
+                  ...(blueprintMessageOnly
+                    ? { maxHeight: blueprintPanelHeight }
+                    : { height: blueprintPanelHeight, maxHeight: blueprintPanelHeight }),
                   borderRadius: 18,
                 }
               : {
@@ -6654,10 +6660,11 @@ export function Board({
           <Scroll
             style={[
               {
-                flex: 1,
+                ...(blueprintMessageOnly
+                  ? { flexGrow: 0, flexShrink: 1 }
+                  : { flex: 1, minHeight: Math.min(241, blueprintPanelHeight) }),
                 margin: -16,
                 padding: 16,
-                minHeight: Math.min(241, blueprintPanelHeight),
                 maxHeight: blueprintPanelHeight,
                 borderWidth: 2,
                 borderColor: '#d9f3f7',

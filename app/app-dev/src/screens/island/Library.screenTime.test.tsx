@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, ScrollView } from 'react-native';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
 import { RedesignScreens } from './Screens';
@@ -545,4 +545,34 @@ test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고�
   await fireEvent.press(screen.getByLabelText('일'));
   await waitFor(() => expect(screen.getByText('1마리')).toBeTruthy());
   expect(screen.queryByText('이날은 기록이 없어요')).toBeNull();
+});
+
+test('이웃 일기장은 내용이 짧으면 책을 내용 높이까지만 펼치고, 길면 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  // 402×874 · 위 안전 영역 52: 내용 칸은 174~(874−78) = 622 — 남는 382 만큼 책이 줄어든다
+  expect(book().height).toBe(full - (622 - 240));
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 2000);
+  expect(book().height).toBe(full);
+});
+
+test('내 일기장은 내용 높이와 관계없이 책을 끝까지 편다', async () => {
+  const screen = await render(<Library e={environment()} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBe(full);
+});
+
+test('내 일기장으로 갔다 이웃 일기장으로 돌아오면 다시 잴 때까지 책을 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBeLessThan(full);
+  await screen.rerender(<Library e={environment()} />);
+  await screen.rerender(<Library e={environment({ neighbors: true })} />);
+  expect(book().height).toBe(full);
 });

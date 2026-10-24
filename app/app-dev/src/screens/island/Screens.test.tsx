@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, Keyboard, Linking, StyleSheet, View } from 'react-native';
+import { telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -562,6 +563,29 @@ test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시�
   await fireEvent.press(s.getByText('다시 불러오기'));
   await waitFor(() => s.getByText('바람 섬'));
   assert.equal(calls, 2);
+});
+
+test('서버 섬 찾기에서 공개 섬이 0건이면 바다 장면 위 카드 한 줄로 알린다(GROMO-2412)', async () => {
+  const api = (dispatch: any) => ({
+    explore: jest.fn(async () => {
+      dispatch({ type: 'ISLAND_CANDIDATES', items: [], nextCursor: null, reset: true });
+      return { items: [], nextCursor: null };
+    }),
+  });
+  const s = await render(<Harness route="joinIsland" api={api} />);
+  const empty = await waitFor(() => s.getByTestId('join-island-empty'));
+  within(empty).getByText('지금 참여할 수 있는 공개 섬이 없어요.');
+  assert.equal(
+    s.getByTestId('join-island-empty-art', { includeHiddenElements: true }).props.source,
+    telescopeSea.source,
+  );
+});
+
+test('목업 섬 찾기도 공개 섬이 없으면 같은 장면 빈 안내를 쓴다(GROMO-2412)', async () => {
+  const initial = { ...initialState(false), name: '수빈', profileNames: ['수빈'] };
+  initial.islands = initial.islands.map((i) => ({ ...i, visibility: 'private' as const }));
+  const s = await render(<Harness route="joinIsland" initial={initial} />);
+  within(s.getByTestId('join-island-empty')).getByText('지금 참여할 수 있는 공개 섬이 없어요.');
 });
 
 test('active 가입은 서버 응답 뒤 성공 확인 카드를 보여주고 arrival로 가지 않는다', async () => {
