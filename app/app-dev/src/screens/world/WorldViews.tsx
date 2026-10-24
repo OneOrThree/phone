@@ -17,6 +17,7 @@ import { useGowun } from '@/screens/island/sceneKit';
 import { State, currentIsland } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { componentTokens } from '@/design-system/tokens';
+import { telescopeSea } from '@/screens/sea/seaAssets';
 import { C, T, H, Button, useScreenInsets } from '@/design-system/primitives';
 import { CatSprite } from '@/components/CatSprite';
 import { PolicyLinks } from '@/components/PolicyLink';
@@ -83,7 +84,7 @@ function SeaDrift({
     </Animated.View>
   );
 }
-// 움직임 줄이기: 구름·물결을 시안(v2 항해 화면, sailing.html 3.03초 프레임)과 같은 자리에 멈춘다
+// 움직임 줄이기: 물결을 시안(v2 항해 화면, sailing.html 3.03초 프레임)과 같은 자리에 멈춘다
 const FROZEN_MS = 3030;
 function FrozenDrift({
   children,
@@ -203,6 +204,20 @@ export function voyageTable(totalSec: number) {
   }
   return tr;
 }
+// 뗏목 그림(원본 1024px 상자)에서 판자는 48~976px, LAB 600px 이 판자 928px 이다. 출항 뒷걸음(LAB −159)부터 정박(+150)까지
+// 쓸고 가는 폭 = 판자 928px + 이동 309 LAB px. 이 폭이 좌우 여백 8 안에 다 들어오게 뗏목을 줄이고 가운데 둔다 — 줄이지 않으면
+// 세로 폰에서 출항 첫 프레임의 뗏목이 왼쪽 화면 밖으로 잘린다(GROMO-2414)
+const RAFT_SWEEP = 928 + (309 * 928) / 600;
+const RAFT_MARGIN = 8;
+export function sailingRaftFrame(width: number, height: number, land: boolean) {
+  // 가로 폰은 v2 L/sail 합성과 같이 배 300px · 수평선(49%)에 걸침
+  const size = Math.min(
+    land ? Math.min(300, height * 0.75) : Math.min(width * 0.8, height * 0.68, 600),
+    ((width - 2 * RAFT_MARGIN) * 1024) / RAFT_SWEEP,
+  );
+  // 기준점 = 이동 구간 가운데(LAB 480, 움직임 줄이기 정지점) — 화면 가운데
+  return { size, parkX: (width - size) / 2 };
+}
 const rad = (a: number[]) => a.map((v) => `${v}rad`);
 const scaled = (a: number[], k: number, plus = 0) => a.map((v) => v * k + plus);
 export function Sailing({
@@ -225,7 +240,7 @@ export function Sailing({
     hull: 'raft',
   }).current;
   const x = useRef(new Animated.Value(0)).current;
-  const [width, setWidth] = useState(390),
+  const [{ width, height }, setBox] = useState({ width: 390, height: layout.height }),
     callback = useRef(onArrive);
   callback.current = onArrive;
   const reduced = state.settings.reduceMotion,
@@ -267,10 +282,7 @@ export function Sailing({
       elapsed.current = Math.min(duration, done + Date.now() - began);
     };
   }, [x, duration, reduced, paused]);
-  // 가로 폰은 v2 L/sail 합성과 같이 배 300px · 수평선(49%)에 걸침
-  const size = land
-      ? Math.min(300, layout.height * 0.75)
-      : Math.min(width * 0.8, layout.height * 0.68, 600),
+  const { size, parkX } = sailingRaftFrame(width, layout.height, land),
     sc = size / 1024,
     cs = 310 * sc;
   const spec = (
@@ -282,9 +294,13 @@ export function Sailing({
     stillLand = reduced && land;
   // LAB 뗏목 600px 은 원본 928px(48~976) — LAB 1px = 928/600 원본 px
   const k = (928 / 600) * sc;
-  // 기준점 = 이동 구간 가운데(LAB 480, 움직임 줄이기 정지점). LAB 처럼 화면 가운데에 두되, 정박(+150 LAB)한
-  // 뗏목 오른쪽 끝(원본 976)이 화면 밖으로 나가지 않게 당긴다 — 세로 폰은 시안 프레임 위치와 같아진다
-  const parkX = Math.min((width - size) / 2, width - 8 - 976 * sc - 150 * k);
+  // 바다 장면 그림(망원경 바다)을 깔고 그림의 수평선을 장면 수평선(세로 49%)에 맞춘다 — 화면을 다 덮는 가장 작은 배율
+  const horizonY = height * 0.49,
+    seaScale = Math.max(
+      width / telescopeSea.width,
+      horizonY / telescopeSea.horizon,
+      (height - horizonY) / (telescopeSea.height - telescopeSea.horizon),
+    );
   const motion = useMemo(() => {
     if (reduced) return null;
     const VOYAGE = voyageTable(duration / 1000);
@@ -334,91 +350,20 @@ export function Sailing({
   return (
     <View
       style={{ flex: 1, backgroundColor: '#f0f2df', overflow: 'hidden' }}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      onLayout={(e) => setBox(e.nativeEvent.layout)}
     >
-      <View
-        pointerEvents="none"
+      <Image
+        testID="sailing-sea"
+        source={telescopeSea.source}
+        accessible={false}
         style={{
           position: 'absolute',
-          left: 0,
-          right: 0,
-          top: 0,
-          height: '51%',
+          width: telescopeSea.width * seaScale,
+          height: telescopeSea.height * seaScale,
+          left: (width - telescopeSea.width * seaScale) / 2,
+          top: horizonY - telescopeSea.horizon * seaScale,
         }}
-      >
-        {(stillLand
-          ? [
-              { top: '23.5%', left: '78%', w: 96, ms: 0, phase: 0, opacity: 1 },
-              { top: '58.8%', left: '16%', w: 80, ms: 0, phase: 0, opacity: 1 },
-            ]
-          : [
-              {
-                top: '19%',
-                left: '88%',
-                w: 96,
-                ms: 26000,
-                phase: 0,
-                opacity: 0.85,
-              },
-              {
-                top: '69%',
-                left: '115%',
-                w: 80,
-                ms: 32000,
-                phase: 13 / 32,
-                opacity: 0.55,
-              },
-            ]
-        ).map((c, i) => (
-          <Drift
-            key={i}
-            width={stillLand ? 0 : 660}
-            duration={c.ms || 1}
-            phase={c.phase}
-            style={
-              {
-                position: 'absolute',
-                top: c.top,
-                left: c.left,
-                width: c.w,
-                height: 15,
-                opacity: c.opacity,
-              } as any
-            }
-          >
-            <View
-              style={{
-                width: c.w,
-                height: 15,
-                borderRadius: 50,
-                backgroundColor: '#fffdf3',
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                left: 15,
-                bottom: 2,
-                width: 40,
-                height: 24,
-                borderRadius: 50,
-                backgroundColor: '#fffdf3',
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                left: 38,
-                bottom: 2,
-                width: 50,
-                height: 31,
-                borderRadius: 50,
-                backgroundColor: '#fffdf3',
-              }}
-            />
-          </Drift>
-        ))}
-      </View>
+      />
       <View
         pointerEvents="none"
         style={{
@@ -427,9 +372,6 @@ export function Sailing({
           bottom: 0,
           left: 0,
           right: 0,
-          backgroundColor: '#a0cccd',
-          borderTopWidth: 3,
-          borderTopColor: '#e1ebdc70',
           overflow: 'hidden',
         }}
       >

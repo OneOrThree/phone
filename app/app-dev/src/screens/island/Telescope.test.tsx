@@ -2,12 +2,12 @@
 // API(getTelescope·arriveAtIsland)와 도착 영상(VideoCutscene)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
 // 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
 import React from 'react';
-import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Animated, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
+import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { Telescope } from '@/screens/island/Telescope';
-import { raftTelescope } from '@/screens/sea/seaAssets';
+import { Telescope, telescopeSeaTiles } from '@/screens/island/Telescope';
+import { raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
 import { applyLocalePref } from '@/i18n';
 import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
@@ -356,7 +356,8 @@ describe('섬 그림·이름 알약·뗏목 (GROMO-2317 v5)', () => {
     expect(screen.queryByTestId('telescope-raft', { includeHiddenElements: true })).toBeNull();
   });
 
-  describe('섬 띠는 바다 그림의 수평선 18pt 위에 섬 칸 위쪽을 맞춘다', () => {
+  describe('섬 띠는 바다 그림의 수평선 horizonGap 위에 섬 칸 위쪽을 맞춘다', () => {
+    const gap = componentTokens.telescope.horizonGap;
     const bandTop = (screen: any) =>
       StyleSheet.flatten(screen.getByTestId('telescope-band').props.style).marginTop;
     const flagRoom = (screen: any) =>
@@ -370,21 +371,27 @@ describe('섬 그림·이름 알약·뗏목 (GROMO-2317 v5)', () => {
     test('onLayout 전에도 창 크기·보통 위 막대 높이로 제자리에 그린다(첫 화면이 튀지 않는다)', async () => {
       const { screen } = await open([item('r1')]);
       // 창 402×874 → 수평선 310pt. 위 막대 = 안전 영역 52 + 여백 8 + 작은 버튼 터치 44 = 104
-      expect(104 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(292, 0);
+      expect(104 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(310 - gap, 0);
     });
 
-    test('세로 폰 402×874 — 시안 T1 처럼 섬 칸 위쪽 292 = 수평선 310 − 18', async () => {
+    test('세로 폰 402×874 — 섬 칸 위쪽 = 수평선 310 − horizonGap, 섬 그림이 수평선에 걸쳐 하늘로 솟는다', async () => {
       const { screen } = await open([item('r1')]);
       await layout(screen, 'telescope', 402, 874);
       await layout(screen, 'telescope-top-bar', 402, 98);
-      expect(98 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(292, 0);
+      const cellTop = 98 + bandTop(screen) + flagRoom(screen);
+      expect(cellTop).toBeCloseTo(310 - gap, 0);
+      // 빈 하늘을 줄이는 배치(GROMO-2414) — 짝수 번째 섬 그림 위쪽은 수평선 위, 아래쪽은 수평선 아래(바다 위에 떠 있다)
+      const { islandArtTop, islandArtWidth } = componentTokens.telescope;
+      const artTop = cellTop + islandArtTop;
+      expect(artTop).toBeLessThan(310);
+      expect(artTop + islandArtWidth / ISLAND_ART_ASPECT).toBeGreaterThan(310);
     });
 
     test('세로 태블릿 1024×1366 — 그림이 위아래로 85pt 씩 잘려 수평선은 460pt', async () => {
       const { screen } = await open([item('r1')]);
       await layout(screen, 'telescope', 1024, 1366);
       await layout(screen, 'telescope-top-bar', 1024, 98);
-      expect(98 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(460 - 18, 0);
+      expect(98 + bandTop(screen) + flagRoom(screen)).toBeCloseTo(460 - gap, 0);
     });
 
     test('큰 글자로 위 막대가 수평선 아래까지 길어지면 겹치지 않게 기본 여백만 둔다', async () => {
@@ -455,6 +462,115 @@ test('말풍선을 닫아도 그 사이 다른 곳이 걸어 둔 뒤로가기 �
   await fireEvent.press(screen.getByLabelText('닫기'));
   expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
   expect(e.backOverride.current).toBe(other);
+});
+
+describe('파노라마 바다(GROMO-2414) — 섬을 밀면 바다도 같이 밀린다', () => {
+  const flat = (node: any) => StyleSheet.flatten(node.props.style);
+
+  test('바다 그림은 파노라마 가로 스크롤 오프셋만큼 같은 속도로 따라가고(UI 스레드 이벤트), 뗏목 고양이는 고정이다', async () => {
+    // 앱은 네이티브 드라이버(UI 스레드)로 잇는다. 테스트 런타임에는 네이티브 값이 JS 로 돌아오지 않아,
+    // 설정을 확인한 뒤 같은 매핑을 JS 드라이버로 돌려 스크롤 → 바다 이동을 본다
+    const real = Animated.event;
+    const event = jest
+      .spyOn(Animated, 'event')
+      .mockImplementation((mapping, config) =>
+        real(mapping, { ...config, useNativeDriver: false }),
+      );
+    try {
+      const { screen } = await open([item('r1'), item('r2'), item('r3'), item('r4')]);
+      expect(event).toHaveBeenCalledWith(
+        [{ nativeEvent: { contentOffset: { x: expect.any(Animated.Value) } } }],
+        { useNativeDriver: true },
+      );
+      const panorama = screen.getByTestId('telescope-panorama');
+      expect(panorama.props.scrollEventThrottle).toBe(16);
+      const seaX = () =>
+        flat(screen.getByTestId('telescope-sea', { includeHiddenElements: true })).transform[0]
+          .translateX;
+      const raft = () =>
+        flat(screen.getByTestId('telescope-raft', { includeHiddenElements: true }));
+      expect(seaX()).toBeCloseTo(0, 6); // −0
+      const raftBefore = raft();
+      await fireEvent.scroll(panorama, { nativeEvent: { contentOffset: { x: 240, y: 0 } } });
+      expect(seaX()).toBe(-240);
+      await fireEvent.scroll(panorama, { nativeEvent: { contentOffset: { x: 90, y: 0 } } });
+      expect(seaX()).toBe(-90);
+      expect(raft()).toEqual(raftBefore);
+    } finally {
+      event.mockRestore();
+    }
+  });
+
+  test('목록 → 빈 목록 → 목록이 되면 다시 생긴 파노라마와 함께 바다도 스크롤 0 자리에서 시작한다', async () => {
+    jest.useFakeTimers();
+    // 위 테스트처럼 같은 매핑을 JS 드라이버로 돌린다
+    const real = Animated.event;
+    const event = jest
+      .spyOn(Animated, 'event')
+      .mockImplementation((mapping, config) =>
+        real(mapping, { ...config, useNativeDriver: false }),
+      );
+    try {
+      mockGet
+        .mockResolvedValueOnce(wire([item('r1'), item('r2'), item('r3'), item('r4')], 1))
+        .mockResolvedValueOnce(wire([], 1))
+        .mockResolvedValueOnce(wire([item('r5'), item('r6'), item('r7')], 30));
+      const screen = await render(<Telescope e={env()} />);
+      await screen.findByTestId('telescope-island-r1');
+      const seaX = () =>
+        flat(screen.getByTestId('telescope-sea', { includeHiddenElements: true })).transform[0]
+          .translateX;
+      await fireEvent.scroll(screen.getByTestId('telescope-panorama'), {
+        nativeEvent: { contentOffset: { x: 240, y: 0 } },
+      });
+      expect(seaX()).toBe(-240);
+      // 1분 뒤 다시 읽은 목록이 비어 파노라마가 사라진다
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+      await screen.findByText('지금은 보이는 섬이 없어요');
+      expect(seaX()).toBeCloseTo(0, 6);
+      // 다시 섬이 생기면 새 파노라마(스크롤 0)와 바다가 같은 자리다 — 옛 오프셋 −240 에 남지 않는다
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+      await screen.findByTestId('telescope-island-r5');
+      expect(seaX()).toBeCloseTo(0, 6);
+    } finally {
+      event.mockRestore();
+    }
+  });
+
+  test.each([
+    [402, 874, 1228],
+    [874, 402, 874],
+    [1024, 1366, 1600],
+  ])(
+    '%s×%s — 이어 붙인 바다는 수평선 높이 그대로, 반전 장을 번갈아 빈틈 없이 스크롤 끝·튕김까지 덮는다',
+    (w, h, content) => {
+      const sea = telescopeSeaTiles(w, h, content);
+      const scale = Math.max(w / telescopeSea.width, h / telescopeSea.height);
+      // 한 장은 예전 cover 가운데 맞춤과 같은 크기·높이 — 수평선이 그대로다
+      expect(sea.width).toBeCloseTo(telescopeSea.width * scale, 6);
+      expect(sea.top + telescopeSea.horizon * scale).toBeCloseTo(
+        (h - telescopeSea.height * scale) / 2 + telescopeSea.horizon * scale,
+        6,
+      );
+      const zero = sea.tiles.find((tile) => tile.n === 0)!;
+      expect(zero.left).toBeCloseTo((w - sea.width) / 2, 6);
+      expect(zero.mirror).toBe(false);
+      sea.tiles.forEach((tile, i) => {
+        if (i === 0) return;
+        const prev = sea.tiles[i - 1];
+        // 맞닿고, 반전이 번갈아 든다(맞닿는 가장자리가 같은 픽셀 줄이라 이음매가 안 보인다)
+        expect(tile.left).toBeCloseTo(prev.left + sea.width, 6);
+        expect(tile.mirror).toBe(!prev.mirror);
+      });
+      // 스크롤 0~끝(content − w)과 양쪽 한 화면 튕김까지 화면이 늘 바다로 덮인다
+      expect(sea.tiles[0].left).toBeLessThanOrEqual(-w);
+      expect(sea.tiles.at(-1)!.left + sea.width).toBeGreaterThanOrEqual(content + w);
+    },
+  );
 });
 
 describe('버튼 상태', () => {
@@ -840,25 +956,25 @@ describe('돌아가기', () => {
 });
 
 describe('카운트다운', () => {
-  test('「새 섬까지 N분」이 1분마다 줄고 0 이 되면 목록을 다시 읽는다', async () => {
+  test('「N분 뒤 새 섬」이 1분마다 줄고 0 이 되면 목록을 다시 읽는다', async () => {
     jest.useFakeTimers();
     mockGet
       .mockResolvedValueOnce(wire([item('r1')], 2))
       .mockResolvedValueOnce(wire([item('r2')], 60));
     const screen = await render(<Telescope e={env()} />);
-    await screen.findByText('새 섬까지 2분');
+    await screen.findByText('2분 뒤 새 섬');
     expect(mockGet).toHaveBeenCalledTimes(1);
     await act(async () => {
       jest.advanceTimersByTime(60_000);
     });
-    screen.getByText('새 섬까지 1분');
+    screen.getByText('1분 뒤 새 섬');
     expect(mockGet).toHaveBeenCalledTimes(1);
     await act(async () => {
       jest.advanceTimersByTime(60_000);
     });
     // 0분에 다시 읽고, 새 목록의 남은 시간으로 다시 시작한다
     expect(mockGet).toHaveBeenCalledTimes(2);
-    await screen.findByText('새 섬까지 60분');
+    await screen.findByText('60분 뒤 새 섬');
     screen.getByTestId('telescope-island-r2');
     expect(screen.queryByTestId('telescope-island-r1')).toBeNull();
   });
@@ -870,7 +986,7 @@ describe('카운트다운', () => {
       .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'x', 0))
       .mockResolvedValueOnce(wire([item('r2')], 30));
     const screen = await render(<Telescope e={env()} />);
-    await screen.findByText('새 섬까지 1분');
+    await screen.findByText('1분 뒤 새 섬');
     await act(async () => {
       jest.advanceTimersByTime(60_000);
     });
@@ -890,13 +1006,13 @@ describe('카운트다운', () => {
       .mockResolvedValueOnce(wire([item('r1')], 30))
       .mockResolvedValueOnce(wire([item('r2')], 45));
     const screen = await render(<Telescope e={env()} />);
-    await screen.findByText('새 섬까지 30분');
+    await screen.findByText('30분 뒤 새 섬');
     // 10분 건너뛰고 첫 틱(1분) — 11분이 흐른 셈이다
     jest.setSystemTime(Date.now() + 10 * 60_000);
     await act(async () => {
       jest.advanceTimersByTime(60_000);
     });
-    screen.getByText('새 섬까지 19분');
+    screen.getByText('19분 뒤 새 섬');
     expect(mockGet).toHaveBeenCalledTimes(1);
     // 한 시간이 지난 뒤 돌아오면 다음 틱에 곧바로 다시 읽는다
     jest.setSystemTime(Date.now() + 60 * 60_000);
@@ -904,14 +1020,14 @@ describe('카운트다운', () => {
       jest.advanceTimersByTime(60_000);
     });
     expect(mockGet).toHaveBeenCalledTimes(2);
-    await screen.findByText('새 섬까지 45분');
+    await screen.findByText('45분 뒤 새 섬');
     screen.getByTestId('telescope-island-r2');
   });
 
   test('서버가 0 이하를 줘도 최소 1분으로 시작해 다시 읽기 고리에 갇히지 않는다', async () => {
     mockGet.mockImplementation(async () => wire([item('r1')], 0));
     const screen = await render(<Telescope e={env()} />);
-    await screen.findByText('새 섬까지 1분');
+    await screen.findByText('1분 뒤 새 섬');
     expect(mockGet).toHaveBeenCalledTimes(1);
   });
 });
@@ -922,11 +1038,11 @@ describe('로딩·빈 목록·오류', () => {
     mockGet.mockReturnValue(new Promise((r) => (resolve = r)));
     const screen = await render(<Telescope e={env()} />);
     screen.getByText('섬을 찾고 있어요');
-    expect(screen.queryByText(/새 섬까지/)).toBeNull();
+    expect(screen.queryByText(/뒤 새 섬/)).toBeNull();
     await act(async () => resolve(wire([], 12)));
     // 빈 목록 안내는 섬이 놓일 띠(수평선) 자리에 한 줄이다
     within(screen.getByTestId('telescope-band')).getByText('지금은 보이는 섬이 없어요');
-    screen.getByText('새 섬까지 12분');
+    screen.getByText('12분 뒤 새 섬');
     expect(screen.queryByText('섬을 찾고 있어요')).toBeNull();
   });
 
@@ -970,7 +1086,7 @@ test('영어 — 말풍선 정보·버튼·카운트다운이 번역된다', asy
   applyLocalePref('en');
   mockGet.mockImplementation(async () => wire([item('r1', { name: 'Maple', intro: 'Hi' })], 37));
   const screen = await render(<Telescope e={env()} />);
-  await screen.findByText('New islands in 37 min');
+  await screen.findByText('Islands change in 37 min');
   await press(screen, 'r1');
   screen.getByText('Residents 3/15');
   screen.getByText('Average 1h 23m');

@@ -693,7 +693,7 @@
   },
   "telescope": {
     "back": "뒤로",
-    "nextIslands": "새 섬까지 {{minutes}}분",
+    "nextIslands": "{{minutes}}분 뒤 새 섬",
     "loading": "섬을 찾고 있어요",
     "empty": "지금은 보이는 섬이 없어요",
     "loadFailed": "섬을 불러오지 못했어요.",
