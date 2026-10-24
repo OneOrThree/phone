@@ -310,25 +310,17 @@ export function LoginScreen({
           {providerError}
         </Txt>
       )}
+      {/* 소셜 로그인 아래 보조 행동 — Btn Secondary(DESIGN §7.2), 소셜 버튼과 같은 폭 */}
       {!!onGuestPress && (
-        <Pressable
-          testID="login-guest"
-          accessibilityRole="button"
+        <Btn
+          kind="sec"
+          id="login-guest"
+          title={guestBusy ? t('login.guestOpening') : t('login.guestStart')}
           accessibilityLabel={t('login.guestStart')}
-          accessibilityState={{ disabled: busy || !termsAccepted }}
           disabled={busy || !termsAccepted}
           onPress={onGuestPress}
-          style={{
-            minHeight: semanticTokens.size.tapMin,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: busy || !termsAccepted ? 0.45 : 1,
-          }}
-        >
-          <Txt style={{ fontWeight: '700', textDecorationLine: 'underline' }}>
-            {guestBusy ? t('login.guestOpening') : t('login.guestStart')}
-          </Txt>
-        </Pressable>
+          style={{ width: '100%', maxWidth: 360, alignSelf: 'center' }}
+        />
       )}
       {!!guestError && (
         <Txt

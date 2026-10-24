@@ -94,7 +94,8 @@ import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { Ticking } from '@/hooks/useNow';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
-import { assets } from '@/constants/assets';
+import { assets, cat } from '@/constants/assets';
+import { seaLoaf, telescopeSea } from '@/screens/sea/seaAssets';
 import {
   BUNDLED_AUDIO_TRACK_IDS,
   DEFAULT_FREE_AUDIO_TRACK_IDS,
@@ -134,6 +135,8 @@ import {
   Overlay,
   Wheel,
   Graph,
+  EmptyState,
+  NavBtn,
 } from '@/design-system/patterns';
 import {
   IslandSheet,
@@ -1387,7 +1390,7 @@ export function RedesignScreens({ e }: any) {
             },
           ]}
         >
-          GROMO
+          {t('onboardingStory.brand')}
         </Txt>
         <Txt style={[shade, { fontSize: 15, lineHeight: 21.75, fontWeight: '700' }]}>
           {t('login.tagline')}
@@ -2047,7 +2050,14 @@ export function RedesignScreens({ e }: any) {
               {t('onboarding.joinIsland.searchingPublicIslands')}
             </Txt>
           ) : (
-            !serverError && <Txt>{t('onboarding.joinIsland.noPublicIslands')}</Txt>
+            !serverError && (
+              <EmptyState
+                scene
+                testID="join-island-empty"
+                art={telescopeSea.source}
+                title={t('onboarding.joinIsland.noPublicIslands')}
+              />
+            )
           ))}
       </Onboard>
     );
@@ -2228,7 +2238,12 @@ export function RedesignScreens({ e }: any) {
             )}
           </>
         ) : (
-          <Txt>{t('onboarding.joinIsland.noPublicIslands')}</Txt>
+          <EmptyState
+            scene
+            testID="join-island-empty"
+            art={telescopeSea.source}
+            title={t('onboarding.joinIsland.noPublicIslands')}
+          />
         )}
       </Onboard>
     );
@@ -2700,9 +2715,8 @@ export function RedesignScreens({ e }: any) {
           >
             {scene ? focusScene : <Pic id="interior/gram" w="100%" h="100%" cover />}
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
+          <NavBtn
+            label={
               state.session?.status === 'paused'
                 ? '휴식으로 돌아가기'
                 : scene
@@ -2710,24 +2724,8 @@ export function RedesignScreens({ e }: any) {
                   : '섬으로 돌아가기'
             }
             onPress={back}
-            style={{
-              position: 'absolute',
-              left: 20 + ins.left,
-              top: 16 + ins.top,
-              width: gramophone.touchMin,
-              height: gramophone.touchMin,
-              borderRadius: gramophone.touchMin / 2,
-              borderWidth: 1.5,
-              borderColor: C.brown,
-              backgroundColor: C.paper,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Txt tabletScale={1} style={{ fontSize: 28, lineHeight: 31 }}>
-              ‹
-            </Txt>
-          </Pressable>
+            style={{ position: 'absolute', left: 20 + ins.left, top: 16 + ins.top }}
+          />
           {!scene && (
             <View
               style={[
@@ -2871,10 +2869,13 @@ export function RedesignScreens({ e }: any) {
                   </View>
                 </View>
                 <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
-                  <View testID="sound-current-track" style={{ minHeight: 36, flexShrink: 0 }}>
+                  <View
+                    testID="sound-current-track"
+                    style={{ minHeight: gramophone.currentTrackMinHeight, flexShrink: 0 }}
+                  >
                     <Txt
                       tabletScale={1}
-                      style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
+                      style={{ color: gramophone.foreground, ...gramophone.titleText }}
                     >
                       {hasCurrentTrack
                         ? trackLabel(currentTrack!)
@@ -2884,7 +2885,7 @@ export function RedesignScreens({ e }: any) {
                     </Txt>
                     <Txt
                       tabletScale={1}
-                      style={{ color: gramophone.foregroundMuted, fontSize: 11, lineHeight: 14 }}
+                      style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
                     >
                       {hasCurrentTrack
                         ? island.playing
@@ -2954,7 +2955,7 @@ export function RedesignScreens({ e }: any) {
                             <Txt
                               testID={`sound-track-title-${id}`}
                               tabletScale={1}
-                              style={{ fontSize: 11, lineHeight: 14, flexShrink: 1 }}
+                              style={{ ...gramophone.rowTitleText, flexShrink: 1 }}
                             >
                               {trackLabel(id)}
                             </Txt>
@@ -2967,8 +2968,7 @@ export function RedesignScreens({ e }: any) {
                               flexShrink: 1,
                               textAlign: 'right',
                               color: gramophone.rowForeground,
-                              fontSize: 9,
-                              lineHeight: 12,
+                              ...gramophone.rowStatusText,
                             }}
                           >
                             {selected && island.playing ? '재생 중' : status}
@@ -4575,9 +4575,6 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         <SearchField value={search} onChange={setSearch} placeholder="섬 이름이나 초대 코드" />
-        <Txt kind="meta" style={st.meta}>
-          섬 이름이나 초대 코드를 입력해요. 이미 참가한 섬은 소속됨으로 표시돼요.
-        </Txt>
         {results.length ? (
           <SheetGroup>
             {results.map((i) => (
@@ -4878,17 +4875,13 @@ export function RedesignScreens({ e }: any) {
             value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
             onChange={setTab}
           />
-          {mine ? (
+          {mine && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Pic id="dog" w={56} />
               <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
                 어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
               </Txt>
             </View>
-          ) : (
-            <Txt kind="meta" style={st.meta}>
-              섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
-            </Txt>
           )}
           {server && shopApi.error ? (
             <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
@@ -4902,6 +4895,18 @@ export function RedesignScreens({ e }: any) {
               불러오는 중…
             </Txt>
           ) : null}
+          {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
+          {!items.length &&
+            (!server ||
+              (shopApi.itemsCategory === (mine ? 'personal' : 'island') &&
+                !shopApi.loading &&
+                !shopApi.error)) && (
+              <EmptyState
+                testID="shop-empty"
+                art={cat(state.color, 'side')}
+                title={t('emptyState.shop')}
+              />
+            )}
           {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
           <View style={{ gap: layout.compact ? 10 : 12 }}>
             {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
@@ -4937,7 +4942,7 @@ export function RedesignScreens({ e }: any) {
           sign="dog"
           signKind="npc"
           title="상품 상세"
-          tall
+          fit
           onBack={back}
           onClose={home}
         >
@@ -5080,7 +5085,7 @@ export function RedesignScreens({ e }: any) {
         sign={audio ? 'bld/gramophone' : 'dog'}
         signKind={audio ? '' : 'npc'}
         title={audio ? '음원 사기' : '상품 상세'}
-        tall
+        fit
         onBack={back}
         onClose={home}
         footer={cta}
@@ -5279,7 +5284,8 @@ export function RedesignScreens({ e }: any) {
                 fontSize: 13,
                 lineHeight: 19,
                 fontWeight: '600',
-                color: '#9A4C3E',
+                // 위험 행동이 아니라 Danger 색을 쓰지 않는다(DESIGN §7.2)
+                color: semanticTokens.color.text,
               }}
             >
               {t('account.boat.changeMain')}
@@ -5416,8 +5422,7 @@ export function RedesignScreens({ e }: any) {
             대표로 보여줄 섬을 골라 주세요
           </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
-            친구 목록과 프로필에 표시되는 대표 섬이에요.{`\n`}
-            집중하거나 접속 중인 섬은 바뀌지 않아요.
+            {t('islandPicker.mainDescription')}
           </Txt>
         </View>
         <View
@@ -5614,6 +5619,16 @@ export function RedesignScreens({ e }: any) {
       if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
       return slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
     };
+    // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
+    const shelf = (slot: WardrobeSlot) =>
+      slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === slotWorn(slot));
+    const slots = (['decor', 'head', 'neck', 'shoes'] as const).filter(
+      (slot) => shelf(slot).length > 0 || slotWorn(slot),
+    );
+    // 옷장에 칸을 그리지 않는 옷(clothes)도 가졌거나 입고 있으면 «없음»이 아니다.
+    // hulls 는 보유가 아니라 모두에게 같은 상수(["raft"])라 세지 않는다
+    const hasClothes =
+      !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
     return (
       <IslandSheet
         bg="dock"
@@ -5625,11 +5640,16 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        {(['decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
-          const worn = slotWorn(slot);
-          // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
-          const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
-          if (ids.length === 0 && !worn) return null;
+        {/* 서버는 보유품을 받은 뒤에만 «없음»을 말한다 */}
+        {!slots.length && !hasClothes && (!server || shopApi.my) && (
+          <EmptyState
+            testID="wardrobe-empty"
+            art={seaLoaf[state.color]}
+            title={t('emptyState.wardrobe')}
+          />
+        )}
+        {slots.map((slot) => {
+          const ids = shelf(slot);
           return (
             <View key={slot} style={{ gap: 10 }}>
               <Txt kind="section" style={st.sec}>
@@ -5993,6 +6013,13 @@ export function RedesignScreens({ e }: any) {
                 <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
               )}
             </View>
+          ) : !query && !receivedRows.length && !sentRows.length && !friendRows.length ? (
+            // 받은·보낸 요청과 친구가 모두 없으면 빈 칸 셋 대신 빈 안내 하나
+            <EmptyState
+              testID="friends-empty"
+              art={assets['characters/pelican/npc/idle.png']}
+              title={t('emptyState.friends')}
+            />
           ) : (
             <View
               style={
@@ -6330,7 +6357,7 @@ export function RedesignScreens({ e }: any) {
           />
         </SheetGroup>
         <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
-          catus {Application.nativeApplicationVersion ?? appManifest.version}
+          {t('onboardingStory.brand')} {Application.nativeApplicationVersion ?? appManifest.version}
         </Txt>
       </IslandSheet>
     );
@@ -6399,7 +6426,7 @@ export function RedesignScreens({ e }: any) {
     );
   }
   return (
-    <Page title="GROMO" back={home}>
+    <Page title={t('onboardingStory.brand')} back={home}>
       <Btn title="섬으로 돌아가기" onPress={home} />
     </Page>
   );

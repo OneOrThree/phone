@@ -201,8 +201,6 @@ export function AdCell({
                 numberOfLines={fit.bodyLines}
                 adjustsFontSizeToFit
                 minimumFontScale={0.7}
-                // 한글이 단어 중간(「친구/들」)에서 꺾이지 않게 — 잡지의 다른 글과 같다
-                lineBreakStrategyIOS="hangul-word"
                 onTextLayout={
                   bodyInput
                     ? (ev: NativeSyntheticEvent<TextLayoutEventData>) => {

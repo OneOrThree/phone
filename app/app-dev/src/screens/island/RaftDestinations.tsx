@@ -6,7 +6,7 @@ import { RaftDestinationScene } from './RaftDestinationScene';
 import { getLocale, t } from '@/i18n';
 import { SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { useIslandSailing } from '@/screens/island/useIslandSailing';
-import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { SeaDeparture } from '@/screens/sea/SeaDeparture';
 import { currentIsland, serverVisit, viewIsland, type State } from '@/services/model';
 
@@ -42,36 +42,8 @@ export function RaftDestinations({ e }: { e: any }) {
     viewIsland(s, visit?.island.id ?? s.visitingIslandId),
     e.notify,
   );
-  const confirmLeave = (action: () => void) => {
-    // 이미 가입 신청을 낸 사람(join === 'cancel')은 「가입하지 않고 떠나는」 사람이 아니므로 묻지 않는다.
-    // membershipStatus 가 아직 'none' 인 프레임에도 확인창의 「취소」가 하단 「신청 취소」와 헷갈리지 않게 한다.
-    if (
-      visit &&
-      visit.island.membershipStatus === 'none' &&
-      visitorJoin.join !== 'cancel' &&
-      !s.visitLeaveAsked
-    ) {
-      e.dispatch({ type: 'VISIT_LEAVE_ASKED' });
-      // 가입할 수 있는 섬이면 취소 자리에 가입 버튼을 둬 떠나는 순간 한 번에 가입하게 한다.
-      // 즉시 가입이면 훅이 구경을 끝내고 홈으로 보내므로 떠나기 동작(action)은 돌리지 않는다.
-      // 정원이 찼거나 막혔으면 기본 「취소」다.
-      const canJoin = !visitorJoin.disabled;
-      e.confirm(
-        t('islandVisit.leaveWithoutJoinTitle'),
-        t('islandVisit.leaveWithoutJoinBody'),
-        action,
-        {
-          ok: t('islandVisit.leaveWithoutJoinLeave'),
-          ...(canJoin && {
-            cancel: visitorJoin.label,
-            onCancel: () => void visitorJoin.serverJoin(),
-          }),
-        },
-      );
-      return;
-    }
-    action();
-  };
+  // 가입하지 않고 떠나는 확인은 방문 지도의 「다시 바다로」와 같은 규칙(useVisitorJoin.confirmLeaveVisit)
+  const confirmLeave = (action: () => void) => confirmLeaveVisit(e, s, visit, visitorJoin, action);
 
   useEffect(() => {
     if (!membersOpen || sail.busy || !e.backOverride || e.backOverride.current) return;

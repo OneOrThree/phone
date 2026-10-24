@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -11,7 +11,7 @@ import {
   revalidateBlockedUsers,
 } from '@/services/blockedUsers';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
-import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
+import { InteriorRoute, InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
   getLetter,
@@ -218,6 +218,20 @@ beforeEach(async () => {
   blockedUsersMock.mockResolvedValue([]);
 });
 
+test('우체통 첫 칸 — 글자는 덮개 그림 아래에서 시작하고(새 편지 줄이 붙어도), 네이티브 채팅방 종이에 줄이 있다(GROMO-2409)', async () => {
+  // 앱 문맥 없이 시안(우체통 첫 화면)으로 그린다 — 네이티브 경로의 줄 종이를 본다
+  const ui = await renderMail(null);
+  // 글자 칸은 가운데 정렬이라 줄이 늘면 위로 올라온다 — 시작선(paddingTop)이 그림 바닥보다 아래여야 덮개에 안 가린다
+  for (const i of [0, 1, 2]) {
+    const card = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}`).props.style);
+    const art = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}-art`).props.style);
+    assert.ok(card.paddingTop > art.top + art.height, `칸 ${i}: 글자 시작이 그림 바닥 아래`);
+  }
+  // 줄 종이 66 높이에 12 간격 줄 다섯 개(웹 repeating-linear-gradient 와 같은 자리)
+  assert.equal(ui.getByTestId('mail-home-0-art').props.children.filter(Boolean).length, 5);
+  await ui.unmount();
+});
+
 test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이름이 보인다', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   const ui = await renderMail(makeE());
@@ -225,6 +239,23 @@ test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이�
   await waitFor(() => assert.ok(ui.getByText('민지')));
   assert.ok(ui.getByTestId('received-letter-0'));
   assert.equal(screenMock.mock.calls.length, 1);
+  await ui.unmount();
+});
+
+test('우체통은 장면을 k배 키워 그려도 뒤로 동그라미는 1/k 로 줄여 다른 건물과 같은 화면 자리·크기다', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  const ui = await render(<InteriorRoute e={makeE()} />);
+  const back = await ui.findByTestId('scene-back');
+  // 402×874 창 → 316×686 시안을 k 배(작은 쪽 비율)로 키운다
+  const k = Math.min(402 / 316, 874 / 686);
+  const style = StyleSheet.flatten(back.props.style);
+  expect(style.transform).toEqual([{ scale: 1 / k }]);
+  expect(style.transformOrigin).toBe('left top');
+  // 장면 좌표 × k = 화면 좌표. 게시판(k = 1)과 같은 왼쪽 9 · 위 31(안전 영역 52 이하)에 상자 모서리가 온다
+  expect(style.left * k).toBeCloseTo(9);
+  expect(style.top * k).toBeCloseTo(31);
+  // 상자는 장면 좌표 44 를 k 배 키운 장면 안에서 1/k 로 줄이므로 화면에서도 44 다
+  expect(style.width).toBe(44);
   await ui.unmount();
 });
 
@@ -533,6 +564,13 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
       '고양이 잡지 보기 19호, 아직 안 읽음',
     );
     assert.ok(ui.getByTestId('mail-home-magazine-dot'));
+    // 빨간 점은 알약 테두리에 걸치지 않고 안쪽에 있다(GROMO-2409)
+    const dot = StyleSheet.flatten(ui.getByTestId('mail-home-magazine-dot').props.style);
+    assert.ok(dot.top >= 0 && dot.right >= 0);
+    // 잡지 꽂이는 잡지 보기 옆에서 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 이면 웹에서 세로로 접힌다
+    const rack = StyleSheet.flatten(ui.getByTestId('mail-home-rack').props.style);
+    assert.equal(rack.flexShrink, 0);
+    assert.equal(rack.flex, undefined);
     await fireEvent.press(ui.getByTestId('mail-home-rack'));
     await waitFor(() => assert.ok(ui.getByTestId('magazine-rack-13')));
     await fireEvent.press(ui.getByTestId('magazine-rack-17'));

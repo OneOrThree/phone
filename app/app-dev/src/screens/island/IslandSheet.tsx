@@ -9,7 +9,6 @@ import {
   ScrollView,
   Image,
   StyleSheet,
-  StyleProp,
   ViewStyle,
   ImageStyle,
   TextStyle,
@@ -28,7 +27,7 @@ import Svg, {
   Image as SvgImage,
 } from 'react-native-svg';
 import { useGowun } from './sceneKit';
-import { C, art, k, Txt, Pic, Btn, Gear } from '@/design-system/patterns';
+import { C, art, k, Txt, Pic, Btn, Gear, NavBtn } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
@@ -69,45 +68,6 @@ function Backdrop({ bg, onClose }: { bg?: IslandBgKey; onClose: () => void }) {
   );
 }
 
-// × 닫기 동그라미 버튼
-function CloseX({
-  onPress,
-  size,
-  font,
-  style,
-}: {
-  onPress: () => void;
-  size: number;
-  font: number;
-  style?: StyleProp<ViewStyle>;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={t('common.close')}
-      onPress={onPress}
-      hitSlop={6}
-      style={[
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: 1.5,
-          borderColor: C.brown,
-          backgroundColor: C.paper,
-          alignItems: 'center',
-          justifyContent: 'center',
-        },
-        style,
-      ]}
-    >
-      <Txt tabletScale={1} style={{ fontSize: font, lineHeight: font * 1.2, color: C.ink }}>
-        ×
-      </Txt>
-    </Pressable>
-  );
-}
-
 // 간판·헤더·스크롤 수치. sheet = 세로 .gsheet(태블릿 카드도 같이), panel = 가로 폰 .lpanel
 const GEO = {
   sheet: {
@@ -132,6 +92,8 @@ const GEO = {
   },
 };
 
+// fit 시트가 내용 높이를 기다리는 최대 시간
+export const FIT_REVEAL_FALLBACK_MS = 300;
 export function IslandSheet({
   bg,
   sign,
@@ -148,6 +110,7 @@ export function IslandSheet({
   scrollRef,
   onScroll,
   keepOnBackdrop = false,
+  fit = false,
   children,
 }: {
   bg: IslandBgKey;
@@ -169,6 +132,8 @@ export function IslandSheet({
   onScroll?: React.ComponentProps<typeof ScrollView>['onScroll'];
   // 글을 쓰는 시트는 바깥(스크림)을 눌러도 닫지 않는다. 작성 중인 글 보호용, × 닫기는 그대로
   keepOnBackdrop?: boolean;
+  // 세로 폰 아래 시트를 내용 높이까지만 올린다(내용이 길면 tall 과 같다). 짧은 상세의 설명~아래 버튼 사이 빈 공간을 없앤다(GROMO-2412)
+  fit?: boolean;
   children?: React.ReactNode;
 }) {
   const L = useAppLayout();
@@ -178,8 +143,41 @@ export function IslandSheet({
   const top = panel ? ins.top : 0;
   // 알림(.toast)은 아래 버튼 줄 바로 위에 뜬다(세로 48 · 가로 14 간격)
   const [footH, setFootH] = useState(0);
+  const [contentH, setContentH] = useState(0);
+  const hasFooter = !!footer;
+  // 버튼 줄이 빠지면 잰 높이도 버린다 — 다시 붙으면(로딩 → 상품 상세) 새로 잴 때까지 «아직 못 잼»이다
+  useEffect(() => {
+    if (!hasFooter) setFootH(0);
+  }, [hasFooter]);
+  // fit: 내용·버튼 줄 높이를 다 잰 동안만 그 높이로 자리를 잡는다(위 여백 + 위 테두리 2 + 내용 + 버튼 줄)
+  const fitTop =
+    fit && contentH > 0 && (!hasFooter || footH > 0)
+      ? Math.max(100, L.height - (g.body + 2 + contentH + (hasFooter ? footH : 0)))
+      : null;
+  // 마지막으로 보인 자리 — 한 번 보인 뒤 다시 재는 동안은 숨기지 않고 이 자리에 둔 채 다 재면 높이만 바꾼다
+  const [shownTop, setShownTop] = useState<number | null>(null);
+  useEffect(() => {
+    if (fitTop != null) setShownTop(fitTop);
+  }, [fitTop]);
+  // 재는 주기마다 안전장치 — FIT_REVEAL_FALLBACK_MS 안에 못 재면 tall 높이로 보인다. 다 재면 타이머를 끄고 초기화한다
+  const fitMeasuring = fit && fitTop == null;
+  const [fitGaveUp, setFitGaveUp] = useState(false);
+  useEffect(() => {
+    if (!fitMeasuring) {
+      setFitGaveUp(false);
+      return;
+    }
+    const timer = setTimeout(() => setFitGaveUp(true), FIT_REVEAL_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [fitMeasuring]);
+  // 처음 다 재기 전에는 숨긴다(높은 시트가 번쩍였다 줄어들지 않게)
+  const sheetTop = fit ? (fitTop ?? (fitGaveUp ? 100 : (shownTop ?? 100))) : tall ? 100 : 210;
+  const sheetHidden = fit && fitTop == null && shownTop == null && !fitGaveUp;
   const endPad = panel ? Math.max(22, ins.bottom) : L.tablet ? 18 : ins.bottom + 12;
-  const cardH = Math.min(L.height * (tall ? 0.9 : 0.76), L.height - ins.top - ins.bottom - 72);
+  const cardH = Math.min(
+    L.height * (tall || fit ? 0.9 : 0.76),
+    L.height - ins.top - ins.bottom - 72,
+  );
   // 가로 폰은 오른쪽 안전영역까지 패널이 덮고, 내용은 그만큼 안쪽으로(iOS 가로 인셋은 좌우 대칭)
   const right = panel ? ins.right : 0;
   // 상자: 세로 폰 = 아래 시트(76% top 210 / 90% top 100), 가로 폰 = 오른쪽 540 패널, 태블릿 = 가운데 카드
@@ -208,7 +206,8 @@ export function IslandSheet({
           left: 0,
           right: 0,
           bottom: 0,
-          top: tall ? 100 : 210,
+          top: sheetTop,
+          opacity: sheetHidden ? 0 : 1,
           borderTopWidth: 2,
           borderTopLeftRadius: 30,
           borderTopRightRadius: 30,
@@ -219,6 +218,7 @@ export function IslandSheet({
       <Backdrop bg={bg} onClose={keepOnBackdrop ? () => {} : onClose} />
       {/* 키보드는 App 최상단 KeyboardAvoidingView가 루트를 줄여 주므로 시트도 따라 줄어든다 */}
       <View
+        testID="island-sheet-box"
         style={[
           {
             position: 'absolute',
@@ -284,31 +284,8 @@ export function IslandSheet({
             gap: 6,
           }}
         >
-          {onBack && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="뒤로"
-              onPress={onBack}
-              style={{
-                width: 34,
-                height: 34,
-                marginLeft: -10,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Svg width={22} height={22} viewBox="0 0 24 24">
-                <Path
-                  d="M15 5l-7 7 7 7"
-                  stroke={C.ink}
-                  strokeWidth={2.4}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-              </Svg>
-            </Pressable>
-          )}
+          {/* 뒤로 ‹·닫기 × 는 공용 NavBtn(DESIGN §7.14). 뒤로는 한 단계 위, 닫기는 시트를 접고 섬으로 */}
+          {onBack && <NavBtn label="뒤로" onPress={onBack} style={{ marginLeft: -10 }} />}
           <Txt
             accessibilityRole="header"
             numberOfLines={1}
@@ -336,7 +313,7 @@ export function IslandSheet({
               )}
             </Pressable>
           )}
-          <CloseX onPress={onClose} size={34} font={19} />
+          <NavBtn close label={t('common.close')} onPress={onClose} />
         </View>
         <View
           testID="island-sheet-content-clip"
@@ -351,6 +328,7 @@ export function IslandSheet({
             ref={scrollRef}
             testID="island-sheet-scroll"
             onScroll={onScroll}
+            onContentSizeChange={fit ? (_, h) => setContentH(h) : undefined}
             scrollEventThrottle={16}
             style={{ flex: 1 }}
             keyboardShouldPersistTaps="handled"
@@ -367,6 +345,7 @@ export function IslandSheet({
           </ScrollView>
           {!!footer && (
             <View
+              testID="island-sheet-footer"
               onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
               style={{
                 gap: 8,
@@ -467,11 +446,11 @@ export function IslandPopup({
             boxShadow: `0px 6px 0px ${C.brown}`,
           }}
         >
-          <CloseX
+          <NavBtn
+            close
+            label={t('common.close')}
             onPress={onClose}
-            size={32}
-            font={18}
-            style={{ position: 'absolute', right: 14, top: 14, zIndex: 1 }}
+            style={{ position: 'absolute', right: 9, top: 9, zIndex: 1 }}
           />
           <ScrollView
             style={{ flexGrow: 0, flexShrink: 1 }}
@@ -671,16 +650,11 @@ export function WoodBoard({
               <Txt tabletScale={1} accessibilityRole="header" style={[title, { color: '#FFF3DF' }]}>
                 게시판
               </Txt>
-              <CloseX
+              <NavBtn
+                close
+                label={t('common.close')}
                 onPress={onClose}
-                size={32 * s}
-                font={19 * s}
-                style={{
-                  position: 'absolute',
-                  right: 6 * s,
-                  top: -12 * s,
-                  boxShadow: `0px ${2 * s}px 0px ${C.brown}`,
-                }}
+                style={{ position: 'absolute', right: 6 * s, top: -12 * s }}
               />
             </View>
             <View
@@ -1136,6 +1110,9 @@ export function SheetGroup({
   flat?: boolean;
   children?: React.ReactNode;
 }) {
+  const rows = React.Children.toArray(children).filter(React.isValidElement);
+  // 행이 하나도 없으면 테두리·그림자만 남아 빈 안내 아래 갈색 막대가 된다 — 묶음 자체를 그리지 않는다
+  if (!rows.length) return null;
   return (
     <View
       style={{
@@ -1147,9 +1124,7 @@ export function SheetGroup({
         boxShadow: flat ? 'none' : `0px 4px 0px ${C.brown}`,
       }}
     >
-      {React.Children.toArray(children)
-        .filter(React.isValidElement)
-        .map((c: any, i) => React.cloneElement(c, { divider: i > 0 }))}
+      {rows.map((c: any, i) => React.cloneElement(c, { divider: i > 0 }))}
     </View>
   );
 }

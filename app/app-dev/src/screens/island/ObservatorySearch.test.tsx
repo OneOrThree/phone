@@ -101,14 +101,13 @@ const type = async (screen: any, query: string) => {
   });
 };
 
-test('처음에는 안내만 보이고 서버를 부르지 않는다(공개 섬 탐색 discover 도 없다)', async () => {
+test('처음에는 입력칸만 보이고 서버를 부르지 않는다(공개 섬 탐색 discover 도 없다)', async () => {
   const screen = await render(<ObservatorySearch e={env()} />);
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS * 3);
   });
   screen.getByText('섬 찾기'); // 제목
   screen.getByLabelText('섬 이름'); // 입력 — 초대 코드가 아니라 섬 이름만 받는다
-  screen.getByText(/섬 이름을 입력해요/);
   expect(screen.queryByTestId('observatory-search-loading')).toBeNull();
   expect(screen.queryByTestId('observatory-search-empty')).toBeNull();
   expect(searchMock).not.toHaveBeenCalled();

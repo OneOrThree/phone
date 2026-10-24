@@ -10,7 +10,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { Btn, C, Txt } from '@/design-system/patterns';
+import { Btn, C, NavBtn, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { blockUser } from '@/services/api/safety';
 import { errorTextOr, t } from '@/i18n';
@@ -168,21 +168,7 @@ export function UserSafetySheet(props: Props) {
               }}
             >
               <Txt kind="title">{mode === 'menu' ? props.targetName : t('safety.blockTitle')}</Txt>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('common.close')}
-                accessibilityState={{ disabled: busy }}
-                disabled={busy}
-                onPress={close}
-                style={{
-                  width: semanticTokens.size.tapMin,
-                  height: semanticTokens.size.tapMin,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Txt style={{ fontSize: 22, fontWeight: '800' }}>×</Txt>
-              </Pressable>
+              <NavBtn close label={t('common.close')} disabled={busy} onPress={close} />
             </View>
 
             <ScrollView

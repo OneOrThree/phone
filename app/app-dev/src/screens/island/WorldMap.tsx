@@ -74,6 +74,7 @@ import {
   type TilesetFile,
 } from '@/services/mapAssets';
 import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
+import { keepLabelInView } from '@/utils/island-camera';
 import {
   loadNav,
   MS_PER_UNIT,
@@ -1335,8 +1336,17 @@ function FinalIslandScene({
   onReturnFromVisit?: () => void;
   /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
   visitHud?: { focusCount: number | null; onFocusPress: () => void; todayMinutes?: number };
-  /** 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. */
-  visitJoin?: { label: string; disabled: boolean; onPress: () => void };
+  /**
+   * 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. `onLeave` 가 있으면 왼쪽에
+   * 「다시 바다로」(GROMO-2405)를 나란히 두고, `leaveDisabled` 면(가입 요청 진행 중) 그 버튼을 막는다.
+   */
+  visitJoin?: {
+    label: string;
+    disabled: boolean;
+    onPress: () => void;
+    onLeave?: () => void;
+    leaveDisabled?: boolean;
+  };
   mapAssets?: MapAssetSource;
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
@@ -2196,7 +2206,15 @@ function FinalIslandScene({
                   position: 'absolute',
                   zIndex: 2001,
                   ...signBoxes[id],
-                  left: screenOrigin.x + signBoxes[id].left,
+                  // 화면 가장자리에 걸친 팻말이 반쯤 잘리지 않게 민다 — 건물이 화면 안이면(기본 카메라의 우체통) 안으로, 밖이면 밖으로
+                  left:
+                    keepLabelInView(
+                      screenOrigin.x + signBoxes[id].left + signBoxes[id].width / 2,
+                      signBoxes[id].width,
+                      L.insets.left,
+                      L.width - L.insets.right,
+                    ) -
+                    signBoxes[id].width / 2,
                   top: screenOrigin.y + signBoxes[id].top,
                 }}
               >
@@ -2398,6 +2416,9 @@ function FinalIslandScene({
     hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
     hudAvailable = Math.max(0, L.width - hudLeft - hudRight),
     hudMax = visiting ? Math.min(L.width / 2, hudAvailable) : hudAvailable,
+    // 구경 중 하단 「다시 바다로」·가입 버튼(GROMO-2405) — 큰 글자(1.3배 이상)면 세로로 쌓고, 가로일 때만 폭을 나눈다
+    stackedActions = (L.fontScale ?? 1) >= 1.3,
+    actionStyle = stackedActions ? undefined : { flex: 1 },
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -2492,7 +2513,13 @@ function FinalIslandScene({
                 maxWidth: hudMax,
               }}
             >
-              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+              {/* 긴 섬 이름은 한 줄로 가운데를 줄여 「구경 중」을 남긴다(GROMO-2405). 스크린리더는 잘려도 전체 글자를 읽는다 */}
+              <Txt
+                kind="meta"
+                numberOfLines={1}
+                ellipsizeMode="middle"
+                style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
+              >
                 {t('home.hud.visiting', { name: i.name })}
               </Txt>
               {visitHud?.todayMinutes != null && (
@@ -2643,13 +2670,40 @@ function FinalIslandScene({
             }}
           >
             {visiting && visitJoin ? (
-              <Btn
-                kind="butter"
-                title={visitJoin.label}
-                id="visit-join"
-                disabled={visitJoin.disabled}
-                onPress={visitJoin.onPress}
-              />
+              // 두 버튼이 가용 폭을 나눠 쓰고(가로일 때만 flex: 1 — 세로에서는 높이가 auto 라 flex 가 공간을 보장하지
+              // 않는다) 글자에 맞춰 높이가 늘며, 큰 글자(1.3배 이상)에서는 세로로 쌓아 320pt 폭·영문에서도 화면 밖으로
+              // 밀리지 않는다. 좌우 여백은 안전 영역(가로 노치)을 더한다
+              <View
+                testID="visit-actions"
+                style={{
+                  alignSelf: 'stretch',
+                  paddingLeft: L.insets.left + primitiveTokens.space[5],
+                  paddingRight: L.insets.right + primitiveTokens.space[5],
+                  flexDirection: stackedActions ? 'column' : 'row',
+                  gap: primitiveTokens.space[3],
+                }}
+              >
+                {visitJoin.onLeave && (
+                  <Btn
+                    kind="glass"
+                    dynamicHeight
+                    title={t('islandVisit.backToSea')}
+                    id="visit-leave"
+                    disabled={visitJoin.leaveDisabled}
+                    onPress={visitJoin.onLeave}
+                    style={actionStyle}
+                  />
+                )}
+                <Btn
+                  kind="butter"
+                  dynamicHeight
+                  title={visitJoin.label}
+                  id="visit-join"
+                  disabled={visitJoin.disabled}
+                  onPress={visitJoin.onPress}
+                  style={actionStyle}
+                />
+              </View>
             ) : visiting ? (
               <Btn
                 kind="butter"

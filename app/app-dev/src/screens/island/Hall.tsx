@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
-import { art, CharCount, Wheel } from '@/design-system/patterns';
+import { art, CharCount, NavBtn, Wheel } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
@@ -96,8 +96,8 @@ const grid = ['library', 'tower', 'mail', 'gram', 'shop'] as const satisfies rea
 const cardDesc: Record<string, string> = {
   hall: '주민이 모이는 곳',
   board: '섬 공지와 퀘스트',
-  library: '집중·스크린타임 기록',
-  tower: '다른 섬 랭킹과 탐색',
+  library: '집중과 스크린타임',
+  tower: '섬 랭킹과 탐색',
   mail: '주민·친구 편지',
   gram: '공동 음원 재생',
   shop: '의상·섬 테마 구매',
@@ -328,6 +328,8 @@ export function Hall({ e }: any) {
   });
   const [mockMonth, setMockMonth] = useState(0);
   const [mockTab, setMockTab] = useState<LedgerTab>('balance');
+  // 가계부 제목표·책갈피 줄이 두 줄로 접혀 위로 늘어난 높이 — 그만큼 책을 내려 제목표를 제자리에 둔다(onLayout 으로 잰다)
+  const [ledgerHeadingExtra, setLedgerHeadingExtra] = useState(0);
   // 모크 모드용 로컬 view model — 서버 모델과 같은 모양으로 맞춰 아래 렌더를 공유한다.
   // reason 자리에는 표시용 로컬 제목(l.title)을 싣는다(아래 렌더가 mockLedger 면 그대로 그린다).
   const mockLedgerState = useMemo<LedgerScreenState>(() => {
@@ -437,10 +439,10 @@ export function Hall({ e }: any) {
       )}
     </>
   );
-  const back = (onPress: () => void) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="뒤로"
+  // 목적지가 정해진 ‹ 는 목적지를 읽고(책상 → 섬), 이전 화면으로 가는 ‹ 는 「뒤로」다(DESIGN §7.14)
+  const back = (onPress: () => void, label = '뒤로') => (
+    <NavBtn
+      label={label}
       testID="hall-back"
       onPress={onPress}
       style={{
@@ -448,19 +450,8 @@ export function Hall({ e }: any) {
         zIndex: 12,
         left: (land ? 56 : 18) + off.left,
         top: (land ? 14 : 46.5) + off.top,
-        width: 43.9,
-        height: 43.9,
-        borderRadius: 22,
-        borderWidth: 2.6,
-        borderColor: BROWN,
-        backgroundColor: '#fff7eb',
-        boxShadow: `0px 3.9px 0px ${BROWN}`,
-        alignItems: 'center',
-        justifyContent: 'center',
       }}
-    >
-      <T style={g(29.7, 29.7, { fontWeight: '800' })}>‹</T>
-    </Pressable>
+    />
   );
   const toastView = toast !== '' && (
     <View
@@ -560,10 +551,11 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
+                  // 주 행동은 Pink(DESIGN §7.2), 위험 행동만 빨강
                   backgroundColor: ok
                     ? dialog.danger
                       ? '#e9a49d'
-                      : semanticTokens.color.accent
+                      : componentTokens.button.background
                     : undefined,
                 }}
               >
@@ -582,7 +574,7 @@ export function Hall({ e }: any) {
       </View>
     </>
   );
-  const shell = (children: React.ReactNode, backPress?: () => void) => (
+  const shell = (children: React.ReactNode, backPress?: () => void, backLabel?: string) => (
     <View style={{ flex: 1 }}>
       {/* 확인창이 열린 동안 뒤 장면은 보조기기에서 숨긴다 */}
       <View
@@ -592,7 +584,7 @@ export function Hall({ e }: any) {
         importantForAccessibility={dialog ? 'no-hide-descendants' : 'auto'}
       >
         {scene}
-        {backPress && back(backPress)}
+        {backPress && back(backPress, backLabel)}
         {children}
       </View>
       {dialogView}
@@ -715,6 +707,7 @@ export function Hall({ e }: any) {
         ))}
       </>,
       e.home,
+      '섬으로 돌아가기',
     );
   }
 
@@ -782,7 +775,10 @@ export function Hall({ e }: any) {
           onPress={() => ledger.setTab(key)}
           style={[
             {
-              width: 72.3,
+              // 시안 폭 72.3까지만 커지고, 제목표 옆에 남는 폭이 모자라면 셋이 똑같이 줄어든다(최소 터치 폭 44)
+              flex: 1,
+              minWidth: semanticTokens.size.tapMin,
+              maxWidth: 72.3,
               height: 51.6,
               alignItems: 'center',
               justifyContent: 'center',
@@ -793,14 +789,21 @@ export function Hall({ e }: any) {
             on && web({ filter: 'brightness(1.04)' }),
           ]}
         >
-          {/* 아래가 제비꼬리로 파인 책갈피. 테두리는 위·양옆만 */}
-          <Svg width={72.3} height={51.6} style={{ position: 'absolute', left: 0, top: 0 }}>
+          {/* 아래가 제비꼬리로 파인 책갈피. 테두리는 위·양옆만. 폭이 줄면 모양만 가로로 눌리고 선 굵기는 그대로 */}
+          <Svg
+            width="100%"
+            height={51.6}
+            viewBox="0 0 72.3 51.6"
+            preserveAspectRatio="none"
+            style={{ position: 'absolute', left: 0, top: 0 }}
+          >
             <Path d="M0 0H72.3V51.6L36.15 41.28L0 51.6Z" fill={color} />
             <Path
               d="M0.95 51.6V6.15Q0.95 0.95 6.15 0.95H66.15Q71.35 0.95 71.35 6.15V51.6"
               fill="none"
               stroke="#775846"
               strokeWidth={1.9}
+              vectorEffect="non-scaling-stroke"
             />
           </Svg>
           <T style={g(15.5, 19.375, { fontWeight: '800' })}>{label}</T>
@@ -1045,16 +1048,20 @@ export function Hall({ e }: any) {
         </Pressable>
       );
     };
+    // 한 줄일 때 제목표·책갈피 줄 높이: 제목표 윗변(책 위 43.9) ~ 책갈피 아랫변(책 위 22 + 책갈피 51.6)
+    const headingRow = 43.9 - 22 + 51.6;
     return shell(
       <View
+        testID="ledger-book"
         style={[
           {
             position: 'absolute',
             zIndex: 7,
             left: land ? side : 18.1,
             right: land ? 18 : 18.1,
-            // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
-            top: land ? 46 : Math.max(L.insets.top + 94, H - 28.4 - 635.3),
+            // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작.
+            // 제목표·책갈피가 두 줄로 접히면 늘어난 높이만큼 내려 제목표가 뒤로 버튼 쪽으로 올라가지 않게 한다
+            top: (land ? 46 : Math.max(L.insets.top + 94, H - 28.4 - 635.3)) + ledgerHeadingExtra,
             bottom: land ? 12 : 28.4,
           },
           web({ filter: 'drop-shadow(rgba(60, 38, 27, 0.384) 0px 14.2px 15.5px)' }),
@@ -1172,56 +1179,86 @@ export function Hall({ e }: any) {
             </ScrollView>
           )}
         </View>
+        {/* 제목표와 책갈피를 한 줄에 둔다 — 따로 절대 배치하면 좁은 화면·큰 글자에서 책갈피가 제목을 덮는다.
+            책갈피가 44 아래로 줄어야 할 만큼 좁으면 책갈피 묶음이 제목표 아래 줄로 내려간다(flexWrap). 줄은 책갈피
+            아랫변(책 안 headingRow − 43.9)에 붙여 위로 쌓으므로 책갈피는 늘 책 위 같은 자리에 걸린다 */}
         <View
-          style={[
-            {
-              position: 'absolute',
-              zIndex: 4,
-              left: 12.9,
-              top: -43.9,
-              minWidth: 133,
-              paddingTop: 7.7,
-              paddingHorizontal: 19.4,
-              paddingBottom: 9,
-              borderWidth: 1.9,
-              borderColor: '#68482f',
-              borderTopLeftRadius: 7.7,
-              borderTopRightRadius: 7.7,
-              borderBottomLeftRadius: 11.6,
-              borderBottomRightRadius: 11.6,
-              backgroundColor: '#c78e58',
-              boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
-              transform: [{ rotate: '-1deg' }],
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
-            }),
-          ]}
-        >
-          <T
-            style={g(19.4, 23.28, {
-              color: '#fff8e8',
-              textAlign: 'center',
-              textShadowColor: 'rgb(102, 68, 46)',
-              textShadowOffset: { width: 0, height: 1.3 },
-              textShadowRadius: 0,
-            })}
-          >
-            공동 가계부
-          </T>
-        </View>
-        <View
+          pointerEvents="box-none"
           style={{
             position: 'absolute',
             zIndex: 5,
+            left: 12.9,
             right: 19.4,
-            top: -22,
-            flexDirection: 'row',
-            gap: 3.9,
+            top: headingRow - 43.9,
+            height: 0,
           }}
         >
-          {(['잔액', '적립', '지출'] as const).map(bookmark)}
+          <View
+            testID="ledger-heading"
+            onLayout={(ev) =>
+              setLedgerHeadingExtra(Math.max(0, ev.nativeEvent.layout.height - headingRow))
+            }
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              columnGap: semanticTokens.spacing.control,
+            }}
+          >
+            <View
+              style={[
+                {
+                  minWidth: 133,
+                  paddingTop: 7.7,
+                  paddingHorizontal: 19.4,
+                  paddingBottom: 9,
+                  borderWidth: 1.9,
+                  borderColor: '#68482f',
+                  borderTopLeftRadius: 7.7,
+                  borderTopRightRadius: 7.7,
+                  borderBottomLeftRadius: 11.6,
+                  borderBottomRightRadius: 11.6,
+                  backgroundColor: '#c78e58',
+                  boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
+                  transform: [{ rotate: '-1deg' }],
+                },
+                web({
+                  backgroundImage:
+                    'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
+                }),
+              ]}
+            >
+              <T
+                style={g(19.4, 23.28, {
+                  color: '#fff8e8',
+                  textAlign: 'center',
+                  textShadowColor: 'rgb(102, 68, 46)',
+                  textShadowOffset: { width: 0, height: 1.3 },
+                  textShadowRadius: 0,
+                })}
+              >
+                공동 가계부
+              </T>
+            </View>
+            {/* 책갈피 윗변은 시안대로 책 위 22(제목표 윗변보다 43.9 − 22 아래). 셋 다 44 를 지킬 폭이 없으면 다음 줄로 */}
+            <View
+              testID="ledger-tabs"
+              style={{
+                flexGrow: 1,
+                minWidth: 3 * semanticTokens.size.tapMin + 2 * 3.9,
+                flexDirection: 'row',
+                justifyContent: 'flex-end',
+                gap: 3.9,
+                marginTop: 43.9 - 22,
+              }}
+            >
+              {(['잔액', '적립', '지출'] as const).map(bookmark)}
+            </View>
+          </View>
         </View>
       </View>,
       e.back,
@@ -1329,7 +1366,7 @@ export function Hall({ e }: any) {
                     borderWidth: 2.6,
                     borderColor: BROWN,
                     borderRadius: 999,
-                    backgroundColor: '#ffa6bc',
+                    backgroundColor: componentTokens.button.background,
                     boxShadow: `0px 5.2px 0px ${BROWN}`,
                   }}
                 >
@@ -1373,10 +1410,9 @@ export function Hall({ e }: any) {
             transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
-          {cards.map((b, n) => {
+          {cards.map((b) => {
             const st = status(b),
               off = dim(b),
-              wide = n === cards.length - 1 && n % 2 === 0,
               item = liveConstruction ? liveItem(b) : undefined,
               cardName = item?.name ?? buildingNames[b];
             // 흐린 카드도 눌러서 잠금 사유·공사 상태 패널을 본다
@@ -1392,8 +1428,8 @@ export function Hall({ e }: any) {
                 disabled={!tappable}
                 onPress={() => setPlan(b)}
                 style={{
-                  // 홀수 마지막 카드는 세로 두 칸 전체, 가로 두 칸을 차지한다
-                  width: wide ? (cols === 3 ? cardW * 2 + gap : gridW) : cardW,
+                  // 홀수 마지막 카드(상점)도 같은 폭 — 혼자 한 줄 전체를 차지하지 않는다
+                  width: cardW,
                   gap: 3.9,
                   minHeight: land ? 100 : 113.6,
                   paddingVertical: 9,
@@ -1455,8 +1491,10 @@ export function Hall({ e }: any) {
                   />
                   <View style={{ flex: 1, minWidth: 0, gap: 2.6 }}>
                     <T style={g(18.1, 23.53, { fontWeight: '800' })}>{cardName}</T>
+                    {/* 설명은 두 줄까지 — 좁은 폰(375)에서도 단어가 한 줄에 들도록 라벨 크기(sm 14)로 둔다 */}
                     <T
-                      style={g(15.5, 21.7, {
+                      numberOfLines={2}
+                      style={g(semanticTokens.typography.label, 19.6, {
                         color: MUTED,
                         ...(land ? web({ wordBreak: 'keep-all' }) : null),
                       })}
@@ -1561,7 +1599,7 @@ export function Hall({ e }: any) {
             borderWidth: 2.6,
             borderColor: BROWN,
             borderRadius: 999,
-            backgroundColor: '#ffa6bc',
+            backgroundColor: componentTokens.button.background,
             boxShadow: `0px 5.2px 0px ${BROWN}`,
           }}
         >
@@ -1936,6 +1974,7 @@ export function Hall({ e }: any) {
         {planView}
       </>,
       plan ? () => setPlan(null) : e.back,
+      plan ? '건물 목록으로 돌아가기' : undefined,
     );
   }
 
@@ -2060,10 +2099,8 @@ export function Hall({ e }: any) {
       const islandName = management.detail?.name ?? '';
       setDialog({
         title: `${eul(islandName)} 떠날까요?`,
-        text: liveSolo
-          ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
-          : '내가 모은 물고기와 기록은 섬에 남아요.',
-        detail: '계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.',
+        text: t(liveSolo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
+        detail: t('hall.leave.detail'),
         ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
         danger: true,
         onOk: () =>
@@ -2080,17 +2117,9 @@ export function Hall({ e }: any) {
     const solo = !i.members.length;
     setDialog({
       title: `${eul(i.name)} 떠날까요?`,
-      text: solo
-        ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
-        : '내가 모은 물고기와 기록은 섬에 남아요.',
-      detail: next ? (
-        <>
-          이후 <T style={g(14, 20.3, { color: CARD_INK, fontWeight: '700' })}>{next.name}</T>
-          {ro(next.name).slice(next.name.length)} 이동해요.
-        </>
-      ) : (
-        '이후 「혼자 시작 / 기존 섬 참여」 화면으로 이동해요.\n계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.'
-      ),
+      // 서버 경로와 같은 문구 — 행선지(다른 소속 섬·바다)는 약속하지 않는다.
+      text: t(solo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
+      detail: t('hall.leave.detail'),
       ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
       danger: true,
       onOk: () => {
@@ -2101,18 +2130,7 @@ export function Hall({ e }: any) {
     });
   };
   const close = (onPress: () => void, style?: object) => (
-    <Pressable
-      testID="hall-close"
-      accessibilityRole="button"
-      accessibilityLabel="닫기"
-      onPress={onPress}
-      style={[
-        { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-        style,
-      ]}
-    >
-      <T style={{ fontSize: 27, lineHeight: 27, color: '#5e4d42' }}>×</T>
-    </Pressable>
+    <NavBtn close testID="hall-close" label="닫기" onPress={onPress} style={style} />
   );
   const person = (
     m: { id: string; name: string; color: string; outfit?: Outfit },
@@ -2609,7 +2627,7 @@ export function Hall({ e }: any) {
           borderWidth: 2,
           borderColor: BROWN,
           borderRadius: 99,
-          backgroundColor: semanticTokens.color.accent,
+          backgroundColor: componentTokens.button.background,
           boxShadow: `0px 3px 0px ${BROWN}`,
           opacity: draft.name.trim() ? 1 : 0.5,
         }}
@@ -2902,7 +2920,7 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: semanticTokens.color.accent,
+                  backgroundColor: componentTokens.button.background,
                 }}
               >
                 <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>승인</T>

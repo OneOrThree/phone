@@ -10,7 +10,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
   ViewStyle,
@@ -51,6 +50,7 @@ import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { errorTextOr, localized, t } from '@/i18n';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { Btn, NavBtn } from '@/design-system/patterns';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import type { MagazineToday } from '@/services/api/magazine';
@@ -64,6 +64,12 @@ import { Guestbook } from './Guestbook';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { Text as TypeText } from '@/design-system/typography';
+
+// 건물 안 장면은 시안 크기로 그린 뒤 통째로 키우므로 태블릿 글자 배율은 끄고, 공용 글자의 한국어 줄바꿈 기본값만 받는다
+const Text = (props: React.ComponentProps<typeof TypeText>) => (
+  <TypeText tabletScale={1} {...props} />
+);
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -825,9 +831,9 @@ export function InteriorScreen({
         };
   const boardScrollOffset = boardScrollScene ? Math.max(0, bg.height - height) * 0.38 : 0;
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
-  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
-    chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
+  const chromeTop = Math.max(0, (insets?.top ?? 0) - 52);
   const sceneBackBlocked = building.id === 'board' && (boardModalOpen || higherModalOpen);
+  const navScale = React.useContext(NavScale);
 
   useEffect(() => {
     if (Platform.OS === 'web') setBoardBackgroundInert(sceneBackRef.current, sceneBackBlocked);
@@ -905,42 +911,25 @@ export function InteriorScreen({
           <Text style={statusText}>● ● ▰</Text>
         </View>
       )}
-      <Pressable
+      <NavBtn
         testID="scene-back"
         ref={sceneBackRef as any}
         disabled={sceneBackBlocked}
         accessibilityElementsHidden={sceneBackBlocked}
         {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
-        accessibilityLabel="섬으로 돌아가기"
+        label="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
+        // 원(34)이 예전 자리(왼쪽 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
+        // 장면을 키워 그리는 우체통(navScale = 1/k)도 왼쪽 위 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
         style={{
           position: 'absolute',
           zIndex: 12,
-          left: 14 + chromeLeft,
-          top: 36 + chromeTop,
-          width: 34,
-          height: 34,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderWidth: isHall ? 2 : 1.5,
-          borderColor: isHall ? '#8B6956' : OUTLINE,
-          borderRadius: isHall ? 999 : 17,
-          backgroundColor: exact(isHall ? '#FFF7EB' : '#fff8eddb'),
-          boxShadow: isHall ? '0 3px 0 #8B6956' : `0 2px 0 ${OUTLINE}`,
+          left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+          top: navScale * (31 + Math.max(0, (insets?.top ?? 0) / navScale - 52)),
+          transformOrigin: 'left top',
+          transform: [{ scale: navScale }],
         }}
-      >
-        <Text
-          style={{
-            fontFamily: GOWUN,
-            fontSize: 23,
-            lineHeight: 23,
-            color: INK,
-            fontWeight: isHall ? '800' : '400',
-          }}
-        >
-          ‹
-        </Text>
-      </Pressable>
+      />
       {/* 가로에서 키보드가 올라와 화면이 아주 낮아지면 간판이 입력 종이를 가리지 않게 뺀다 */}
       {height >= 260 && (
         <View
@@ -1084,6 +1073,10 @@ const statusText = {
 
 // 앱 라우트에서 게시판(board·notice·noticeEdit·quest·questEdit)과
 // 우체통(mail·chat·friendMail)을 건물 안 장면으로 그린다. 크기는 실제 화면(키보드로 줄어든 높이 포함)을 따른다
+// 장면을 통째로 키운 우체통 안에서 뒤로 동그라미를 다른 건물과 같은 크기(원 34 · 누르는 자리 44)로 되돌리는 배율.
+// InteriorRoute 가 1/k 를 넣고, 그 밖(시안 비교 화면·테스트)은 1 이다
+const NavScale = React.createContext(1);
+
 export function InteriorRoute({
   e,
   modalAboveBoard = false,
@@ -1129,17 +1122,19 @@ export function InteriorRoute({
       {/* 글꼴을 못 불러와도 기본 글꼴로 계속 그린다 */}
       {(fontsLoaded || fontError) && (
         <View style={{ transformOrigin: 'left top', transform: [{ scale: k }] }}>
-          <InteriorScreen
-            buildingIndex={mail ? 3 : 1}
-            conceptIndex={conceptIndex}
-            width={width / k}
-            height={height / k}
-            reduceMotion={e.state.settings.reduceMotion}
-            e={e}
-            insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
-            sceneHeight={Math.max(height, layout.height) / k}
-            higherModalOpen={modalAboveBoard}
-          />
+          <NavScale.Provider value={1 / k}>
+            <InteriorScreen
+              buildingIndex={mail ? 3 : 1}
+              conceptIndex={conceptIndex}
+              width={width / k}
+              height={height / k}
+              reduceMotion={e.state.settings.reduceMotion}
+              e={e}
+              insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
+              sceneHeight={Math.max(height, layout.height) / k}
+              higherModalOpen={modalAboveBoard}
+            />
+          </NavScale.Provider>
         </View>
       )}
     </View>
@@ -3320,51 +3315,6 @@ function BoardPill({
   );
 }
 
-// .notice-list-back
-function Back({
-  label,
-  onPress,
-  testID,
-  style,
-}: {
-  label: string;
-  onPress: () => void;
-  testID: string;
-  style?: any;
-}) {
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[
-        {
-          minHeight: 40,
-          justifyContent: 'center',
-          paddingVertical: 5,
-          paddingHorizontal: 12,
-          borderWidth: 2,
-          borderColor: '#8b6956',
-          borderRadius: 999,
-          backgroundColor: '#fffdfa',
-          boxShadow: '0 3px 0 #8b6956',
-        },
-        style,
-      ]}
-    >
-      <Text
-        style={[
-          boardFont(14, 1.6, '700'),
-          { textAlign: 'center' },
-          webOnly({ whiteSpace: 'nowrap' }),
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 // .board-text (밑줄 글자 버튼)
 function Link({
   label,
@@ -3521,9 +3471,12 @@ function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
   }, [impact, reduceMotion]);
   return (
     <Animated.View
+      testID="board-blueprint-ready-stamp"
       style={{
-        width: 126,
-        height: 126,
+        // 시안 크기 126까지, 좁은 화면에서는 들어 있는 그림 칸 폭만큼 줄어든다(정사각형 유지)
+        width: '100%',
+        maxWidth: 126,
+        aspectRatio: 1,
         opacity: impact,
         transform: [
           { scale: impact.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1.65, 0.94, 1] }) },
@@ -4980,10 +4933,12 @@ export function Board({
   const formError = s.error !== '' && (
     <Text style={boardFont(13, 1.45, '400', '#a35952')}>{s.error}</Text>
   );
+  // 종이 안 한 단계 뒤로(‹ 동그라미). 원 왼쪽 끝을 종이 글자 줄에 맞추게 누르는 상자 여백(5)만큼 당긴다
   const detailHead = (back: React.ReactNode) => (
     <View
       style={{
         minHeight: 44,
+        marginLeft: -5,
         marginBottom: 8,
         paddingRight: 30,
         flexDirection: 'row',
@@ -5017,9 +4972,7 @@ export function Board({
               {notices.length}
             </Text>
           </Text>
-          {owner && (
-            <PaperAction testID="board-notice-new" label="+ 새 공지" onPress={nav.newNotice} />
-          )}
+          {owner && <Btn small id="board-notice-new" title="+ 새 공지" onPress={nav.newNotice} />}
         </View>
       </View>
       <View>
@@ -5054,10 +5007,7 @@ export function Board({
                 backgroundColor: pressed ? exact('#b67c4d14') : 'transparent',
               })}
             >
-              <Text
-                style={[boardFont(17, 1.25, '700', INK), webOnly({ wordBreak: 'keep-all' })]}
-                lineBreakStrategyIOS="hangul-word"
-              >
+              <Text style={[boardFont(17, 1.25, '700', INK), webOnly({ wordBreak: 'keep-all' })]}>
                 {notice.title}
               </Text>
               <View
@@ -5111,7 +5061,11 @@ export function Board({
       return (
         <View>
           {detailHead(
-            <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+            <NavBtn
+              testID="board-notice-back"
+              label="공지 목록으로 돌아가기"
+              onPress={nav.backToNotices}
+            />,
           )}
           <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
             {apiMessage(board.detailError, '불러오지 못했어요.')}
@@ -5127,7 +5081,11 @@ export function Board({
       return (
         <View>
           {detailHead(
-            <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+            <NavBtn
+              testID="board-notice-back"
+              label="공지 목록으로 돌아가기"
+              onPress={nav.backToNotices}
+            />,
           )}
           {/* 요청을 냈고 로딩도 끝났는데 detail 이 없으면 종결 — 삭제로 비워진 공지다. */}
           <Text style={muted({ marginTop: 4 })}>
@@ -5142,7 +5100,11 @@ export function Board({
     return (
       <View>
         {detailHead(
-          <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+          <NavBtn
+            testID="board-notice-back"
+            label="공지 목록으로 돌아가기"
+            onPress={nav.backToNotices}
+          />,
         )}
         <Text
           style={[
@@ -5150,7 +5112,6 @@ export function Board({
             { marginTop: 4, marginBottom: 3 },
             webOnly({ wordBreak: 'keep-all', textWrap: 'pretty' }),
           ]}
-          lineBreakStrategyIOS="hangul-word"
         >
           {notice.title}
         </Text>
@@ -5319,9 +5280,9 @@ export function Board({
     return (
       <View>
         {detailHead(
-          <PaperAction
+          <NavBtn
             testID="board-notice-cancel"
-            label={s.editing ? '← 공지' : '← 목록'}
+            label={s.editing ? '공지로 돌아가기' : '공지 목록으로 돌아가기'}
             onPress={nav.cancelEditor}
           />,
         )}
@@ -5402,12 +5363,12 @@ export function Board({
     }
   };
 
-  const questBack = (
-    <Back
+  const questBack = detailHead(
+    <NavBtn
       testID="board-quest-back"
-      label={s.editing ? '‹ 퀘스트' : '‹ 퀘스트 목록'}
+      label={s.editing ? '퀘스트로 돌아가기' : '퀘스트 목록으로 돌아가기'}
       onPress={nav.backToQuests}
-    />
+    />,
   );
 
   // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
@@ -5433,7 +5394,11 @@ export function Board({
       return (
         <>
           {detailHead(
-            <PaperAction testID="board-quest-back" label="← 목록" onPress={nav.backToQuests} />,
+            <NavBtn
+              testID="board-quest-back"
+              label="퀘스트 목록으로 돌아가기"
+              onPress={nav.backToQuests}
+            />,
           )}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 4 }]}>
             {progress?.title ?? quest.title}
@@ -5683,7 +5648,6 @@ export function Board({
                 muted({ marginTop: 4, marginBottom: 14 }),
                 webOnly({ wordBreak: 'keep-all' }),
               ]}
-              lineBreakStrategyIOS="hangul-word"
             >
               {form.type === 'focus'
                 ? '설정한 시간 안에서 목표 집중 시간을 채워요. 매일 00시에 새 회차로 시작해요.'
@@ -5719,9 +5683,7 @@ export function Board({
                 {quests.length}
               </Text>
             </Text>
-            {owner && (
-              <PaperAction testID="board-quest-new" label="+ 만들기" onPress={nav.newQuest} />
-            )}
+            {owner && <Btn small id="board-quest-new" title="+ 만들기" onPress={nav.newQuest} />}
           </View>
         </View>
         <View
@@ -5832,6 +5794,7 @@ export function Board({
             style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
           >
             <View
+              testID="board-blueprint-preview"
               style={{
                 width: '36%',
                 minHeight: 142,
@@ -5904,8 +5867,31 @@ export function Board({
               >
                 예상 모습
               </Text>
+              {/* 도장은 이 그림 칸 안 가운데에 찍는다 — 칸 폭을 넘지 않게 줄어 옆 글자 칸(가격·공사 시간)을 가리지 않고,
+                  칸이 overflow hidden 이라 찍히는 순간 커지는 연출도 칸 밖으로 나가지 않는다 */}
+              {stamp && (
+                <View
+                  testID="board-blueprint-stamp-area"
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    zIndex: 2,
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
+                </View>
+              )}
             </View>
-            <View style={{ position: 'relative', flex: 1, minWidth: 0, alignSelf: 'center' }}>
+            <View
+              testID="board-blueprint-copy"
+              style={{ flex: 1, minWidth: 0, alignSelf: 'center' }}
+            >
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
                 {bp.name}
               </Text>
@@ -5920,21 +5906,6 @@ export function Board({
               >
                 {bp.detail}
               </Text>
-              {stamp && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    zIndex: 2,
-                    left: '50%',
-                    top: '50%',
-                    marginLeft: -63,
-                    marginTop: -63,
-                  }}
-                >
-                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
-                </View>
-              )}
             </View>
           </View>
         </View>
@@ -6118,7 +6089,6 @@ export function Board({
                 boardFont(12, 1.45, '400', '#e8faff'),
                 { marginTop: 10, textAlign: 'center' },
               ]}
-              lineBreakStrategyIOS="hangul-word"
             >
               주민 전원이 요구량을 채워야 건설할 수 있어요.
             </Text>
@@ -6265,6 +6235,11 @@ export function Board({
           none: 236,
         }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
+  // 청사진 대신 안내 한 줄(불러오는 중·실패·목표 없음·전체 완공)만 있으면 상자를 내용 높이로 줄인다(GROMO-2412)
+  const blueprintMessageOnly =
+    (serverBoard && construction.status !== 'ready') ||
+    allBuildingsComplete ||
+    blueprintView.state === 'none';
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
@@ -6534,6 +6509,11 @@ export function Board({
         testID="board-drawer"
         ref={boardDrawerRef as any}
         {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+        // 상세 종이가 떠 있어 감춘(opacity 0) 목록 종이는 누를 수도, 읽을 수도 없게 한다 — opacity 0 은 터치와
+        // 안드로이드 TalkBack 을 막지 않는다(iOS 는 상세의 accessibilityViewIsModal, 웹은 aria-hidden·inert 가 막는다)
+        pointerEvents={boardOverlayOpen ? 'none' : 'auto'}
+        accessibilityElementsHidden={boardOverlayOpen}
+        importantForAccessibility={boardOverlayOpen ? 'no-hide-descendants' : 'auto'}
         style={[
           {
             position: 'absolute',
@@ -6547,8 +6527,9 @@ export function Board({
               ? {
                   ...(land ? landBlueprint : { left: 14, right: 14 }),
                   top: blueprintPanelTop,
-                  height: blueprintPanelHeight,
-                  maxHeight: blueprintPanelHeight,
+                  ...(blueprintMessageOnly
+                    ? { maxHeight: blueprintPanelHeight }
+                    : { height: blueprintPanelHeight, maxHeight: blueprintPanelHeight }),
                   borderRadius: 18,
                 }
               : {
@@ -6579,6 +6560,9 @@ export function Board({
             backgroundColor: 'transparent',
             boxShadow: 'none',
           },
+          // 공지 상세·쓰기·퀘스트 상세 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 상세 종이보다 넓고 길어
+          // 아래·옆으로 날짜·댓글 줄이 삐져나온다. 닫으면 스크롤 위치 그대로 다시 보인다(터치·스크린리더는 위 prop 이 막는다)
+          boardOverlayOpen && { opacity: 0 },
         ]}
       >
         {paperPanel && (
@@ -6603,44 +6587,17 @@ export function Board({
               marginBottom: 8,
             }}
           >
-            <Pressable
-              testID="board-panel-close"
-              accessibilityRole="button"
-              accessibilityLabel="게시판 닫기"
-              onPress={nav.closePanel}
-              style={{
-                width: 44,
-                height: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text allowFontScaling={false} style={boardFont(22, 1, '400', '#76503c')}>
-                ×
-              </Text>
-            </Pressable>
+            <NavBtn close testID="board-panel-close" label="게시판 닫기" onPress={nav.closePanel} />
           </View>
         )}
         {s.panel === 'blueprint' && (
-          <Pressable
+          <NavBtn
+            close
             testID="board-drawer-close"
-            accessibilityRole="button"
-            accessibilityLabel="내용 닫기"
+            label="내용 닫기"
             onPress={nav.closePanel}
-            style={({ pressed }) => ({
-              position: 'absolute',
-              zIndex: 3,
-              top: 8,
-              right: 8,
-              width: 44,
-              height: 44,
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: pressed ? 0.45 : 1,
-            })}
-          >
-            <Text style={[boardFont(21, 1.4, '400', '#dff7ff'), { textAlign: 'center' }]}>×</Text>
-          </Pressable>
+            style={{ position: 'absolute', zIndex: 3, top: 8, right: 8 }}
+          />
         )}
         {s.panel === 'notice' && (
           <Scroll
@@ -6703,10 +6660,11 @@ export function Board({
           <Scroll
             style={[
               {
-                flex: 1,
+                ...(blueprintMessageOnly
+                  ? { flexGrow: 0, flexShrink: 1 }
+                  : { flex: 1, minHeight: Math.min(241, blueprintPanelHeight) }),
                 margin: -16,
                 padding: 16,
-                minHeight: Math.min(241, blueprintPanelHeight),
                 maxHeight: blueprintPanelHeight,
                 borderWidth: 2,
                 borderColor: '#d9f3f7',
@@ -6868,6 +6826,10 @@ const boardArtifacts: Record<string, ArtifactRenderer> = {
 // 전망대·우체통 기능 화면: observatory-desk · island-ranking · old-map · mail-home · island-room · friend-mail
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// 우체통 첫 화면 「우리 섬 채팅방」 칸의 줄 종이 — 웹 repeating-linear-gradient 와 네이티브 1px 줄(View)이 같은 값을 쓴다.
+// pitch 간격마다 마지막 1px 이 줄이다
+const MAIL_RULED_PAPER = { sheet: '#fffaf0', rule: '#d7c5a3', pitch: 12 } as const;
 
 // 본문 글꼴 스택 한 벌 (font-size · line-height 배수)
 const obsFont = (
@@ -7643,6 +7605,7 @@ const chatTime = (at: number, now: number) => {
 };
 
 function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps) {
+  const navScale = React.useContext(NavScale);
   const mailFont = (
     fontSize: number,
     factor: number,
@@ -7929,30 +7892,21 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const header = (title: string, note: string, to: MailRoute = 'home') => (
     <View style={{ marginBottom: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 7 }}>
-        <Pressable
+        <NavBtn
           testID="mail-back"
-          accessibilityRole="button"
-          accessibilityLabel="이전 화면으로 돌아가기"
-          hitSlop={9}
+          label="이전 화면으로 돌아가기"
           onPress={() => back(to)}
-          style={{
-            width: 27,
-            height: 27,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderWidth: 1.2,
-            borderColor: '#795642',
-            borderRadius: 14,
-            backgroundColor: '#fff8e8',
-          }}
-        >
-          <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: 19, color: INK }}>‹</Text>
-        </Pressable>
+          // 누르는 상자(44)의 여백만큼 당겨 제목 줄 높이를 예전처럼 둔다
+          style={{ margin: -5, transform: [{ scale: navScale }] }}
+        />
         <View style={{ flex: 1 }}>
           <Text style={{ fontFamily: GOWUN, fontSize: 17, lineHeight: lh(21), color: INK }}>
             {title}
           </Text>
-          {note ? <Text style={mailFont(6.5, 1.35, '#826c5b')}>{note}</Text> : null}
+          {/* 부제는 글자 크기 단계(xs 12)로 — 시안 6.5 를 1.3 배 해도 8 이라 읽기 어려웠다 */}
+          {note ? (
+            <Text style={obsFont(primitiveTokens.fontSize.xs, 1.35, '#826c5b')}>{note}</Text>
+          ) : null}
         </View>
       </View>
     </View>
@@ -7973,7 +7927,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         borderWidth: 1.5,
         borderColor: OUTLINE,
         borderRadius: 9,
-        backgroundColor: '#f1c46f',
+        // 우체통의 주 버튼(편지 쓰기·접어서 보내기)은 Pink(DESIGN §7.2)
+        backgroundColor: componentTokens.button.background,
         boxShadow: `0 2px 0 ${OUTLINE}`,
       }}
     >
@@ -8001,6 +7956,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     const routes: MailRoute[] = ['island', 'inbox', 'friend-select'];
     const colors = ['#dce8c1', '#bddde0', '#efbcc4'];
     const [title, note] = homeItems[i];
+    // 칸 위쪽 그림 자리(첫 칸은 줄 종이, 나머지는 봉투 덮개). 글자는 가운데 정렬이라 「새 편지 N통」 줄이 붙으면 위로 올라온다 —
+    // 글자 시작(paddingTop)을 그림 바닥 + 5(첫 칸과 같은 틈)로 둬 덮개가 제목을 가리지 않게 한다
+    const art = first ? { top: 17, height: 66 } : { top: 8, height: 25 };
     return (
       <Pressable
         key={title}
@@ -8011,7 +7969,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         style={[
           {
             minHeight: first ? 151 : 72,
-            paddingTop: first ? 88 : 29,
+            paddingTop: art.top + art.height + 5,
             paddingHorizontal: 7,
             paddingBottom: 9,
             justifyContent: 'center',
@@ -8034,28 +7992,46 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           </Text>
         ) : null}
         <View
+          testID={`mail-home-${i}-art`}
           style={[
             {
               position: 'absolute',
               left: 8,
               right: 8,
-              top: first ? 17 : 8,
-              height: first ? 66 : 25,
+              top: art.top,
+              height: art.height,
             },
             first
               ? [
                   webOnly({
-                    backgroundImage: 'repeating-linear-gradient(#fffaf0 0 11px,#d7c5a3 12px)',
+                    backgroundImage: `repeating-linear-gradient(${MAIL_RULED_PAPER.sheet} 0 ${MAIL_RULED_PAPER.pitch - 1}px,${MAIL_RULED_PAPER.rule} ${MAIL_RULED_PAPER.pitch}px)`,
                     clipPath: 'polygon(4% 0,96% 3%,100% 95%,1% 100%)',
                   }),
-                  Platform.OS !== 'web' && { backgroundColor: '#fffaf0' },
+                  Platform.OS !== 'web' && { backgroundColor: MAIL_RULED_PAPER.sheet },
                 ]
               : gradient(
                   'linear-gradient(145deg,transparent 49%,#ccb176 50%),linear-gradient(215deg,transparent 49%,#ead69f 50%)',
                 ),
             webOnly({ filter: 'drop-shadow(0 2px 1px #65402a33)' }),
           ]}
-        />
+        >
+          {/* 네이티브는 repeating-linear-gradient 를 못 그려 흰 사각형만 남는다 — 웹과 같은 12px 간격 줄을 긋는다 */}
+          {first &&
+            Platform.OS !== 'web' &&
+            Array.from({ length: Math.floor(art.height / MAIL_RULED_PAPER.pitch) }, (_, n) => (
+              <View
+                key={n}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: (n + 1) * MAIL_RULED_PAPER.pitch - 1,
+                  height: 1,
+                  backgroundColor: MAIL_RULED_PAPER.rule,
+                }}
+              />
+            ))}
+        </View>
       </Pressable>
     );
   };
@@ -8095,12 +8071,18 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 {t('magazine.mail.open', { no: magazineIssue.issueNo })}
               </Text>
               {magazineUnreadDot && (
+                // 알약 오른쪽 위 둥근 끝 안쪽에 둔다 — 점 중심이 모서리 원 중심 바로 위라 테두리에 닿지 않는다
                 <View
                   testID="mail-home-magazine-dot"
                   style={{
                     position: 'absolute',
-                    top: -componentTokens.mailboxAction.dotSize / 3,
-                    right: componentTokens.mailboxAction.dotSize / 2,
+                    top:
+                      (componentTokens.mailboxAction.pillRadius -
+                        componentTokens.mailboxAction.dotSize) /
+                      2,
+                    right:
+                      componentTokens.mailboxAction.pillRadius -
+                      componentTokens.mailboxAction.dotSize / 2,
                     width: componentTokens.mailboxAction.dotSize,
                     height: componentTokens.mailboxAction.dotSize,
                     borderRadius: componentTokens.mailboxAction.dotSize / 2,
@@ -8118,7 +8100,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             accessibilityLabel={t('magazine.rack.open')}
             onPress={() => setMagazineRack(true)}
             style={{
-              flex: magazineIssue ? 0 : 1,
+              // 잡지 보기 옆에서는 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 은 웹에서 기준 폭 0 이라 한 글자씩 세로로 접힌다
+              flexGrow: magazineIssue ? 0 : 1,
+              flexShrink: 0,
               minHeight: semanticTokens.size.tapMin,
               paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
               justifyContent: 'center',
@@ -8378,7 +8362,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           }
         />
         <View style={{ alignSelf: 'flex-end', minWidth: 74 }}>
-          {paperButton(groupSent ? '남겼어요 ✓' : '편지 남기기', sendGroup, groupSent)}
+          {paperButton(groupSent ? '남겼어요 ✓' : '보내기', sendGroup, groupSent)}
         </View>
       </View>
     </>
@@ -8476,11 +8460,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           ) : null}
         </View>
       ),
-    foot: (
-      <Text style={[mailFont(5.8, 1.4, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
-        받은 편지는 열었다가 닫으면 사라져요.
-      </Text>
-    ),
+    foot: null,
   };
 
   const letter: Pane | undefined = openedLetter && {
@@ -8562,7 +8542,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             borderWidth: 1.5,
             borderColor: '#7b493f',
             borderRadius: 9,
-            backgroundColor: '#f1c46f',
+            backgroundColor: componentTokens.button.background,
             boxShadow: '0 2px 0 #7b493f',
           }}
         >
@@ -8709,8 +8689,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     e.notify(`${composeTo.name}에게 편지를 보냈어요`);
     e.reset('mail');
   };
-  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼·안내가 약 213)
-  const letterInput = Math.max(64, Math.min(210, height - 14 - 213));
+  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼이 약 197)
+  const letterInput = Math.max(64, Math.min(210, height - 14 - 197));
   const compose: Pane | undefined = composeTo && {
     head: header('친구에게 편지 쓰기', `${composeTo.name} · ${composeTo.island}`, 'friend-select'),
     body: (
@@ -8776,11 +8756,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           <View style={{ alignItems: 'center' }}>
             {failedLine('letter-retry', retryLetter, 'center')}
           </View>
-        ) : (
-          <Text style={[mailFont(5.8, 1.35, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
-            친구의 섬에 우체통이 없어도 배달돼요.
-          </Text>
-        )}
+        ) : null}
       </>
     ),
   };

@@ -680,6 +680,32 @@ test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고
   assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
 });
 
+test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 없이 내용만큼만 그린다(GROMO-2412)', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  assert.equal(drawer.height, undefined);
+  assert.equal(drawer.minHeight, undefined);
+  // 넘치면 스크롤하도록 위 한도는 남긴다
+  assert.equal(typeof drawer.maxHeight, 'number');
+});
+
+test('고른 목표가 있으면 청사진 상자는 지금처럼 고정 높이다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  assert.equal(typeof drawer.height, 'number');
+  assert.equal(drawer.height, drawer.maxHeight);
+});
+
 test('게시판 장면에는 건물 그림을 덧붙이지 않고 청사진을 연 뒤에만 미리보기를 보여준다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   getConstructionOptionsMock.mockResolvedValue(
@@ -824,6 +850,68 @@ test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 
     ),
   );
 });
+
+test('준비 완료 도장은 예상 모습 그림 칸 안에서 칸 폭을 넘지 않아 가격·시간을 가리지 않는다(GROMO-2409)', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });
+  options.items[0] = { ...options.items[0], buildable: true, blockedReason: null };
+  getConstructionOptionsMock.mockResolvedValue(options);
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+  await waitFor(() => assert.ok(screen.getByLabelText('준비 완료 도장')));
+
+  // 도장은 왼쪽 그림 칸의 자식이고, 가격·시간이 적힌 글자 칸에는 없다
+  const preview = screen.getByTestId('board-blueprint-preview');
+  assert.ok(within(preview).getByLabelText('준비 완료 도장'));
+  const copy = screen.getByTestId('board-blueprint-copy');
+  assert.ok(within(copy).getByText('총 37마리'));
+  expect(within(copy).queryByLabelText('준비 완료 도장')).toBeNull();
+  // 칸을 꽉 채우는 자리(absolute 0) 가운데에, 칸 폭(100%)과 시안 크기 126 중 작은 쪽 정사각형으로 찍힌다
+  const area = StyleSheet.flatten(
+    within(preview).getByTestId('board-blueprint-stamp-area').props.style,
+  );
+  assert.deepEqual(
+    [area.position, area.left, area.right, area.top, area.bottom],
+    ['absolute', 0, 0, 0, 0],
+  );
+  const stamp = StyleSheet.flatten(screen.getByTestId('board-blueprint-ready-stamp').props.style);
+  assert.equal(stamp.width, '100%');
+  assert.equal(stamp.maxWidth, 126);
+  assert.equal(stamp.aspectRatio, 1);
+  // 그림 칸은 자르기(overflow hidden)만 하고 그림자는 두지 않는다(DESIGN.md §6.3)
+  const column = StyleSheet.flatten(preview.props.style);
+  assert.equal(column.overflow, 'hidden');
+  assert.equal(column.boxShadow, undefined);
+});
+
+test.each([
+  ['공지 상세', { boardPanel: 'notice', boardView: 'detail' }],
+  ['공지 쓰기', { boardPanel: 'notice', boardView: 'write' }],
+  ['퀘스트 상세', { boardPanel: 'quest', boardView: 'detail-focus' }],
+] as const)(
+  '%s 종이가 떠 있는 동안 뒤 목록 종이를 감춘다 — 날짜·댓글 줄이 삐져나오지 않는다(GROMO-2409)',
+  async (_name, over) => {
+    const screen = await renderBoard(null, concept(over));
+    // 상세가 떠 있으면 목록 종이는 보이지도, 눌리지도, 읽히지도(안드로이드 TalkBack 포함) 않는다
+    const hidden = screen.getByTestId('board-drawer', { includeHiddenElements: true });
+    assert.equal(StyleSheet.flatten(hidden.props.style).opacity, 0);
+    assert.equal(hidden.props.pointerEvents, 'none');
+    assert.equal(hidden.props.accessibilityElementsHidden, true);
+    assert.equal(hidden.props.importantForAccessibility, 'no-hide-descendants');
+    await screen.unmount();
+
+    // 목록만 볼 때는 그대로 보이고 누를 수 있다
+    const list = await renderBoard(
+      null,
+      concept({ boardPanel: over.boardPanel, boardView: 'list' }),
+    );
+    const shown = list.getByTestId('board-drawer');
+    assert.notEqual(StyleSheet.flatten(shown.props.style).opacity, 0);
+    assert.equal(shown.props.pointerEvents, 'auto');
+    assert.equal(shown.props.accessibilityElementsHidden, false);
+    assert.equal(shown.props.importantForAccessibility, 'auto');
+    await list.unmount();
+  },
+);
 
 test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시도로 복구한다', async () => {
   getBoardMock.mockResolvedValue(page([]));
