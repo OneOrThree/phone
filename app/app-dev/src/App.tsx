@@ -72,7 +72,7 @@ import { assets, cat } from '@/constants/assets';
 import { Flag, BoatPortrait, IslandDecor, IslandPreview } from '@/screens/cosmetics/Cosmetics';
 import { IslandDiscovery } from '@/screens/discovery/IslandDiscovery';
 import { IslandHome } from '@/screens/island/IslandHome';
-import { Welcome, SceneHero, RestWorld, Sailing } from '@/screens/world/WorldViews';
+import { SceneHero, RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import {
   initialState,

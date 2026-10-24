@@ -8531,11 +8531,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           ) : null}
         </View>
       ),
-    foot: (
-      <Text style={[mailFont(5.8, 1.4, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
-        받은 편지는 열었다가 닫으면 사라져요.
-      </Text>
-    ),
+    foot: null,
   };
 
   const letter: Pane | undefined = openedLetter && {
@@ -8764,8 +8760,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     e.notify(`${composeTo.name}에게 편지를 보냈어요`);
     e.reset('mail');
   };
-  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼·안내가 약 213)
-  const letterInput = Math.max(64, Math.min(210, height - 14 - 213));
+  // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼이 약 197)
+  const letterInput = Math.max(64, Math.min(210, height - 14 - 197));
   const compose: Pane | undefined = composeTo && {
     head: header('친구에게 편지 쓰기', `${composeTo.name} · ${composeTo.island}`, 'friend-select'),
     body: (
@@ -8831,11 +8827,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           <View style={{ alignItems: 'center' }}>
             {failedLine('letter-retry', retryLetter, 'center')}
           </View>
-        ) : (
-          <Text style={[mailFont(5.8, 1.35, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
-            친구의 섬에 우체통이 없어도 배달돼요.
-          </Text>
-        )}
+        ) : null}
       </>
     ),
   };

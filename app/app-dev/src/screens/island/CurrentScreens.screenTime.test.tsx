@@ -98,7 +98,7 @@ test('요청 취소 후 notDetermined가 유지돼도 재시도 안내를 표시
   const view = await render(<CurrentScreens e={e} />);
   await fireEvent.press(await view.findByText('스크린타임 연결하기'));
   await view.findByText('권한 다시 요청하기');
-  expect(view.getByText(/거절했거나 요청을 닫았어도/)).toBeTruthy();
+  expect(view.getByText('허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.')).toBeTruthy();
   expect(e.back).not.toHaveBeenCalled();
   expect(e.dispatch).not.toHaveBeenCalledWith({ type: 'SETTING', key: 'permission', value: true });
 });
