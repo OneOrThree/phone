@@ -456,6 +456,24 @@
             }
           },
           {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": true,
@@ -2588,6 +2606,24 @@
             }
           },
           {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": true,
@@ -2846,6 +2882,37 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/DeviceSessionVerifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/island-focus-averages/snapshots": {
+      "post": {
+        "tags": [
+          "internal-island-focus-average-controller"
+        ],
+        "operationId": "snapshot",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFocusAverageSnapshotView"
                 }
               }
             }
@@ -5639,6 +5706,24 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -7851,6 +7936,19 @@
         "required": [
           "deviceBootstrap"
         ]
+      },
+      "IslandFocusAverageSnapshotView": {
+        "type": "object",
+        "properties": {
+          "snapshotDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "inserted": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "AccountPatchRequest": {
         "type": "object",
