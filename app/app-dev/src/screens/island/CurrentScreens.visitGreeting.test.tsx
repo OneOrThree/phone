@@ -78,6 +78,8 @@ const backOverride: { current: (() => boolean) | null } = { current: null };
 // 리듀서에 실제로 연결한 하네스 — 화면이 다시 마운트돼도(key) 상태는 이어진다. 보낸 액션 종류도 적어 둔다.
 let latest: { state: State; dispatch: (action: any) => void };
 let actionTypes: string[] = [];
+const confirmMock = jest.fn();
+const resetMock = jest.fn();
 function Harness({ initial, mounts = 0 }: { initial: State; mounts?: number }) {
   const [state, reduce] = useReducer(reducer, initial);
   const dispatch = (action: any) => {
@@ -96,11 +98,12 @@ function Harness({ initial, mounts = 0 }: { initial: State; mounts?: number }) {
         dispatch,
         go: jest.fn(),
         replace: jest.fn(),
-        reset: jest.fn(),
+        reset: resetMock,
         home: jest.fn(),
         back: jest.fn(),
         backOverride,
         notify: jest.fn(),
+        confirm: confirmMock,
         text: '',
         setText: jest.fn(),
         islands: { join: jest.fn(), cancel: jest.fn() },
@@ -265,4 +268,18 @@ test('인사말이 없는 방문은 뒤 장면을 숨기지 않고 뒤로 가기
   expect(scene.props.importantForAccessibility).toBe('auto');
   expect(isHiddenFromAccessibility(screen.getByTestId('visit-join'))).toBe(false);
   expect(backOverride.current).toBeNull();
+});
+
+test('「다시 바다로」는 가입하지 않은 방문자에게 한 번 묻고, 떠나면 구경을 끝내고 바다로 간다(GROMO-2405)', async () => {
+  const initial = visitState();
+  const screen = await render(<Harness initial={initial} />);
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(confirmMock).toHaveBeenCalledTimes(1);
+  const [title, , leave] = confirmMock.mock.calls[0];
+  expect(title).toBe('가입하지 않고 떠날까요?');
+  expect(actionTypes).not.toContain('END_VISIT');
+  await act(async () => leave());
+  expect(actionTypes).toContain('END_VISIT');
+  expect(latest.state.visitingIslandId).toBeNull();
+  expect(resetMock).toHaveBeenCalledWith('sea');
 });
