@@ -161,6 +161,8 @@ export function useFishingPeerActors({
   // 예약은 정원(PEER_SPOTS 15칸)만큼만 — 만석이면 퇴장이 자리를 반납할 때까지 보류한다.
   // reuse 는 곧 반납할 이전 예약을 넘겨받는 것이라 정원에 세지 않고 충돌 검사에서도 뺀다.
   // seatOnly 면 서버 자리를 그대로 쓸 수 있을 때만 예약하고, 아니면 아무것도 바꾸지 않고 null(스냅숏 1단계).
+  // alloc 은 slots·displacedByMine 를 바꾸고 setActors updater(스냅숏·내 자리 변경·전이 effect) 안에서 불린다 — StrictMode
+  // 가 updater 를 두 번 돌려도 같은 결과가 나오게 updater 는 멱등이어야 한다(예약을 지운 뒤 alloc). 비멱등 분기 금지.
   const alloc = useCallback((key: string, seat?: Point | null, reuse?: Spot, seatOnly = false) => {
     const existing = slots.current.get(key);
     if (existing) return existing;

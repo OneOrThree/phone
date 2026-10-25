@@ -1632,8 +1632,15 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
   };
   expect(at('golden-self')).toEqual([60.2, 44.1]);
   expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
-  // 세션 완료 — 서버가 내 항목을 지우고 결과 화면으로 넘어가도 이번 세션 seat 에 그대로 앉아 있다
+  // 다른 기기에서 끝내 SESSION_SYNC 가 세션을 먼저 지움 — 아직 집중 화면이고 결과 id 도 없어도 seat 에 그대로 앉아 있다
   mockPresenceFocus = mockPresenceFocus.filter((member) => member.userId !== 'me');
+  state.session = null;
+  await screen.rerender(
+    screenElement(state, 'focus', undefined, undefined, undefined, undefined, { islands: {} }),
+  );
+  expect(at('golden-self')).toEqual([60.2, 44.1]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  // 세션 완료 — 서버가 내 항목을 지우고 결과 화면으로 넘어가도 이번 세션 seat 에 그대로 앉아 있다
   state.lastResult = {
     id: 's-me',
     islandId: 'soda',

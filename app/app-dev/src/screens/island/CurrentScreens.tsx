@@ -2365,14 +2365,19 @@ function FocusFlow({ e: environment }: any) {
   const liveSeat = s.session
     ? live.focus.find((m) => m.userId === myId && m.sessionId === s.session?.id)?.seat
     : null;
-  // 결과 화면에선 서버가 완료한 내 항목을 지우므로 이번 세션에서 마지막으로 받은 seat 를 이어 쓴다(세션이 다르면 무효)
+  // 결과 화면·다른 기기 종료(SESSION_SYNC 가 세션을 먼저 지움)에선 서버가 내 항목을 지우므로 이번 세션에서 마지막으로
+  // 받은 seat 를 이어 쓴다. 세션 id 를 알면 일치할 때만, 모르면(세션·결과 id 없음) 그대로 — 새 세션은 자리 고르기·준비를
+  // 거치며 비운다
   const lastServerSeat = useRef<{ sessionId: string; seat: Point } | null>(null);
+  // 서버는 0~100 범위만 검사하므로 물 위 seat 는 쓰지 않고 로컬 focusSpot/LANDING 으로 대체한다
   if (s.session && liveSeat && onLand(fishingGrid, liveSeat))
     lastServerSeat.current = { sessionId: s.session.id, seat: liveSeat };
   else if (r === 'focusSetup' || r === 'fishingArrival') lastServerSeat.current = null;
-  const serverSeat =
+  const knownSessionId = s.session?.id ?? resultSessionId,
+    serverSeat =
       (r === 'focus' || r === 'rest' || r === 'focusResult') &&
-      lastServerSeat.current?.sessionId === (s.session?.id ?? resultSessionId)
+      lastServerSeat.current &&
+      (knownSessionId == null || lastServerSeat.current.sessionId === knownSessionId)
         ? lastServerSeat.current.seat
         : null,
     minePoint =
