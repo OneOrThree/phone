@@ -37,8 +37,6 @@ const { islandTerrain } = require('./IslandOcean') as typeof import('./IslandOce
 
 beforeEach(() => {
   jest.useFakeTimers();
-  // 떠돌이 고양이 행선지를 고정한다.
-  jest.spyOn(Math, 'random').mockReturnValue(0.5);
   // 걸음 하나를 95ms 타이머로 끝내 실제처럼 세그먼트마다 콜백이 따로 돈다.
   jest.spyOn(Animated, 'timing').mockImplementation(
     (value, config) =>
