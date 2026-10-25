@@ -1803,11 +1803,23 @@ test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 
     <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
-  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  for (const value of [
+    ' 구 름 이 ',
+    '구\t름\n이',
+    '구\u3000름이',
+    '구\u00a0름이',
+    '구\u0085름이',
+    '구\ufeff름이',
+    '구\u2028름이',
+    '구\u202f름이',
+  ]) {
+    await fireEvent.changeText(s.getByLabelText('닉네임'), value);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  }
   await fireEvent.press(s.getByText('저장'));
   await fireEvent.press(s.getByText('저장'));
   assert.equal(mockUpdateProfile.mock.calls.length, 1);
-  // 본문은 trim 된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
+  // 입력 시 공백이 제거된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
   assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '구름이', catColor: 'black' });
   assert.ok(!exposed.actions.includes('PROFILE'));
 
@@ -1847,6 +1859,62 @@ test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서
   await fireEvent.press(s.getByText('저장'));
   await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
   assert.equal(mockUpdateProfile.mock.calls[0][1], mockUpdateProfile.mock.calls[1][1]);
+});
+
+test('닉네임 형식 거절은 서버 메시지를 칸 아래에 표시하고 편집하면 지운다', async () => {
+  let exposed: any;
+  const message = '서버가 보낸 닉네임 형식 안내';
+  mockUpdateProfile.mockRejectedValue(new ApiError('NICKNAME_INVALID', message, 400));
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+
+  expect(await s.findByText(message)).toBeTruthy();
+  expect(s.getByRole('alert')).toBeTruthy();
+  expect(exposed.actions).not.toContain('PROFILE');
+  expect(backMock).not.toHaveBeenCalled();
+  expect(notifyMock.mock.calls.some((call) => call[0] === message)).toBe(false);
+  await waitFor(() => expect(s.getByLabelText('닉네임').props.editable).toBe(true));
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '새 이름');
+  expect(s.getByLabelText('닉네임').props.value).toBe('새이름');
+  expect(s.queryByText(message)).toBeNull();
+});
+
+test('다시 연 프로필에 이전 저장 요청의 늦은 닉네임 오류를 표시하지 않는다', async () => {
+  let rejectRequest: (reason: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(
+    () => new Promise((_resolve, reject) => (rejectRequest = reject)),
+  );
+  const api = () => ({});
+  const s = await render(<Harness route="profile" full api={api} />);
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+  await s.rerender(<Harness route="settings" full api={api} />);
+  await s.rerender(<Harness route="profile" full api={api} />);
+  await act(async () => rejectRequest(new ApiError('NICKNAME_INVALID', '이전 요청의 오류', 400)));
+  await waitFor(() => expect(s.getByLabelText('닉네임').props.editable).toBe(true));
+
+  expect(s.queryByText('이전 요청의 오류')).toBeNull();
+  expect(s.getByLabelText('닉네임').props.value).toBe('수빈');
+});
+
+test('기존 공백 닉네임은 저장 요청과 저장 응답 반영 후에도 원문을 유지한다', async () => {
+  const legacy = '\u00a0검은 고양이\ufeff';
+  const initial = { ...initialState(true), name: legacy, profileNames: [legacy] };
+  mockUpdateProfile.mockResolvedValue({ name: legacy, catColor: 'black' });
+  const s = await render(<Harness route="profile" full initial={initial} api={() => ({})} />);
+  expect(s.getByLabelText('닉네임').props.value).toBe(legacy);
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => expect(backMock).toHaveBeenCalledTimes(1));
+
+  expect(mockUpdateProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ name: legacy }),
+    expect.any(String),
+  );
+  expect(s.getByLabelText('닉네임').props.value).toBe(legacy);
 });
 
 test('프로필 저장 중에는 후속 편집을 받지 않는다', async () => {
