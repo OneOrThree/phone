@@ -68,32 +68,50 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
   mockFacts.current = null;
   const go = jest.fn();
   const state = initialState(true);
-  const screen = await render(<Island state={state} go={go} build={jest.fn()} />);
-  const nodes: { props: Record<string, unknown>; children: unknown[] | null }[] = [];
-  const walk = (n: any) => {
-    if (!n || typeof n === 'string') return;
-    if (Array.isArray(n)) return n.forEach(walk);
-    nodes.push(n);
-    (n.children ?? []).forEach(walk);
-  };
-  walk(screen.toJSON());
-  const hour = new Date().getHours();
-  const base = terrain[hour >= 6 && hour < 18 ? 'day' : 'night'];
-  expect(nodes.some((n) => n.props.source === base)).toBe(true);
-  expect(screen.queryByTestId('tile-terrain')).toBeNull();
-  expect(screen.getByTestId('image-terrain-facilities')).toBeTruthy();
-  for (const id of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
-    expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
+  // 낮/밤 바닥은 로컬 시각으로 갈린다 — 테스트가 시계에 기대지 않도록 한낮으로 고정한다(GROMO-2253).
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  try {
+    const screen = await render(<Island state={state} go={go} build={jest.fn()} />);
+    const nodes: { props: Record<string, unknown>; children: unknown[] | null }[] = [];
+    const walk = (n: any) => {
+      if (!n || typeof n === 'string') return;
+      if (Array.isArray(n)) return n.forEach(walk);
+      nodes.push(n);
+      (n.children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+    const base = terrain.day;
+    expect(nodes.some((n) => n.props.source === base)).toBe(true);
+    expect(screen.queryByTestId('tile-terrain')).toBeNull();
+    expect(screen.getByTestId('image-terrain-facilities')).toBeTruthy();
+    for (const id of [
+      'hall',
+      'board',
+      'gram',
+      'library',
+      'mail',
+      'tower',
+      'shop',
+      'fire',
+      'raft',
+    ]) {
+      expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
+    }
+    expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
+    expect(screen.getByTestId('building-name-gram')).toBeTruthy();
+    const raft = screen.getByTestId('building-name-raft');
+    const initialMatrix = screen.getByTestId('image-terrain-facility-raft').props.matrix;
+    await fireEvent(raft, 'pressIn');
+    expect(screen.getByTestId('image-terrain-facility-raft').props.matrix).not.toEqual(
+      initialMatrix,
+    );
+    expect(screen.getByTestId('image-terrain-facility-raft').props.matrix[0]).toBeCloseTo(0.97);
+    await fireEvent(raft, 'pressOut');
+    expect(screen.getByTestId('image-terrain-facility-raft').props.matrix).toEqual(initialMatrix);
+    await fireEvent.press(raft);
+    expect(go).toHaveBeenCalledWith('raft');
+  } finally {
+    jest.useRealTimers();
   }
-  expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
-  expect(screen.getByTestId('building-name-gram')).toBeTruthy();
-  const raft = screen.getByTestId('building-name-raft');
-  const initialMatrix = screen.getByTestId('image-terrain-facility-raft').props.matrix;
-  await fireEvent(raft, 'pressIn');
-  expect(screen.getByTestId('image-terrain-facility-raft').props.matrix).not.toEqual(initialMatrix);
-  expect(screen.getByTestId('image-terrain-facility-raft').props.matrix[0]).toBeCloseTo(0.97);
-  await fireEvent(raft, 'pressOut');
-  expect(screen.getByTestId('image-terrain-facility-raft').props.matrix).toEqual(initialMatrix);
-  await fireEvent.press(raft);
-  expect(go).toHaveBeenCalledWith('raft');
 });
