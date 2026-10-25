@@ -2402,7 +2402,7 @@ const guestbookEntry = (id: string) => ({
   mine: false,
 });
 
-test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·차단 두 버튼을 본다', async () => {
+test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기만 본다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host'));
   getGuestbookMock.mockResolvedValue({
     boardBuilt: true,
@@ -2425,10 +2425,10 @@ test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·
   assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
   assert.ok(screen.getByText('g2 놀러 왔어요'));
   assert.equal(screen.getAllByText('지우기').length, 2);
-  assert.equal(screen.getAllByText('차단').length, 2);
+  assert.equal(screen.queryByText('차단'), null);
   assert.equal(screen.queryByText('신고'), null);
   assert.ok(screen.getByTestId('guestbook-delete-g1'));
-  assert.ok(screen.getByTestId('guestbook-block-g2'));
+  assert.equal(screen.queryByTestId('guestbook-block-g2'), null);
   // 방명록도 전환 화살표 없이 닫기만 제공한다.
   expect(screen.queryByTestId('board-panel-switch')).toBeNull();
   await fireEvent.press(screen.getByTestId('board-panel-close'));
