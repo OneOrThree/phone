@@ -203,3 +203,28 @@ test('다시 연 화면의 새 친구·받은 요청과 검색의 친구 표시�
   assert.equal(screen.queryByText('친구 요청'), null);
   assert.equal(getMock.mock.calls.length, 2);
 });
+
+test('검색 뒤 친구 관리를 닫았다 열면 입력과 검색 결과 영역이 비어 있다', async () => {
+  const getMock = jest.mocked(getFriendsScreen);
+  const searchMock = jest.mocked(searchFriends);
+  getMock.mockReset().mockResolvedValue(screenState([]).data);
+  searchMock
+    .mockReset()
+    .mockResolvedValue([
+      { userId: 'old', nickname: '이전결과', relation: 'NONE', tierLevel: null, occupation: null },
+    ]);
+  const screen = await render(<LiveHarness open />);
+  await screen.findByText('아직 친구가 없어요');
+  await fireEvent.changeText(screen.getByPlaceholderText('닉네임으로 친구 찾기'), 'ㅊㅊ');
+  await screen.findByText('이전결과');
+  assert.ok(screen.getByText('검색 결과'));
+
+  await screen.rerender(<LiveHarness open={false} />);
+  await screen.rerender(<LiveHarness open />);
+  await waitFor(() => assert.equal(getMock.mock.calls.length, 2));
+  await screen.findByText('아직 친구가 없어요');
+  assert.equal(screen.getByPlaceholderText('닉네임으로 친구 찾기').props.value, '');
+  assert.equal(screen.queryByText('검색 결과'), null);
+  assert.equal(screen.queryByText('이전결과'), null);
+  assert.equal(searchMock.mock.calls.length, 1);
+});
