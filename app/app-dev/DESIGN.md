@@ -31,7 +31,7 @@
 - `Btn.icon`은 기존 버튼 색/터치/접근성 규칙을 유지하는 52pt 아이콘 버튼이다. `title`이 접근성 이름이다.
 - `Overlay.maxWidth`, `contentStyle`, `frameStyle`은 공용 모달의 폭·내용 간격·외곽 그림자를 조정한다.
   결과창은 최대 354pt, 안쪽 24pt, 요소 간 20pt, Brown y=6 그림자를 사용한다. 작은 화면에서는 내부 스크롤한다.
-- 먼바다 장면·HUD·패널·입력·버튼·준비창·도착 결과창의 글꼴은 고운돋움(`sceneKit.useGowun`) 하나다. 버튼 글자는 공용 `Btn`의 선택 prop `font`로 넘긴다. 홈과 같이 쓰는 위쪽 HUD 부품(`HudAvatarButton`·`HudActions`)과 공용 `Badge`(「NEW!」)는 공용 글꼴 그대로다(2026-10-26, GROMO-2334).
+- 먼바다 장면·HUD·패널·입력·버튼·준비창·도착 결과창의 글꼴은 고운돋움(`sceneKit.useGowun`) 하나다. 버튼 글자는 공용 `Btn`의 선택 prop `font`로, 홈과 같이 쓰는 위쪽 HUD 의 받은 요청 수 배지는 `HudActions`의 선택 prop `font`로 넘긴다(아바타 버튼엔 글자가 없다). 공용 `Badge`(「NEW!」)만 공용 글꼴 그대로다(2026-10-26, GROMO-2334).
 
 > 기준일: 2026-09-21<br>
 > 대상: `app/app-dev` 활성 2.0 앱<br>

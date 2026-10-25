@@ -7,6 +7,7 @@ import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel'
 import { duckPreviewArt } from './seaRewardCatalog';
 import { SeaRaft } from './SeaRaft';
 import { applyLocalePref } from '@/i18n';
+import { GOWUN } from '@/screens/island/sceneKit';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('./SeaRaft', () => ({ SeaRaft: jest.fn(() => null) }));
@@ -614,12 +615,15 @@ test('먼바다 장면·집중 HUD·버튼·한마디 입력 글자는 고운돋
   const font = (node: { props: { style?: StyleProp<TextStyle> } }) =>
     StyleSheet.flatten(node.props.style)?.fontFamily;
   const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
-  // jest 는 iOS 라 sceneKit.GOWUN 의 iOS 가족 이름이다
-  expect(font(screen.getByTestId('sea-focus-clock'))).toBe('Gowun Dodum');
-  expect(font(screen.getByTestId('sea-self-clock'))).toBe('Gowun Dodum');
-  expect(font(screen.getByText('고양이1'))).toBe('Gowun Dodum');
-  expect(font(screen.getByText('섬에 내리기'))).toBe('Gowun Dodum');
+  // 플랫폼별 이름은 sceneKit.GOWUN 이 안다(jest 는 iOS)
+  expect(font(screen.getByTestId('sea-focus-clock'))).toBe(GOWUN);
+  expect(font(screen.getByTestId('sea-self-clock'))).toBe(GOWUN);
+  expect(font(screen.getByText('고양이1'))).toBe(GOWUN);
+  expect(font(screen.getByText('섬에 내리기'))).toBe(GOWUN);
   await fireEvent.press(screen.getByTestId('sea-focus-message'));
-  expect(font(screen.getByLabelText('한마디 쓰기'))).toBe('Gowun Dodum');
-  expect(font(screen.getByText('닫기'))).toBe('Gowun Dodum');
+  expect(font(screen.getByLabelText('한마디 쓰기'))).toBe(GOWUN);
+  expect(font(screen.getByText('닫기'))).toBe(GOWUN);
+  // 표류 중 위쪽 HUD 의 받은 요청 수 배지도 같은 글꼴
+  const drift = await render(<SeaScreen {...props()} hud={{ requests: 2, go: jest.fn() }} />);
+  expect(font(drift.getByText('2'))).toBe(GOWUN);
 });

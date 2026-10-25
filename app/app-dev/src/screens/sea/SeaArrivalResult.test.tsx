@@ -3,6 +3,7 @@ import { render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import type { CatalogEntry } from '@/services/customizationCatalog';
 import { SeaArrivalResult } from './SeaArrivalResult';
+import { GOWUN } from '@/screens/island/sceneKit';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -129,5 +130,5 @@ test('결과창 제목·시간·버튼 글자는 고운돋움이다(GROMO-2334)'
     <SeaArrivalResult result={result(['cust.neck.bell'])} pending={false} onExplore={jest.fn()} />,
   );
   for (const text of ['별고래섬', '30분 0초', '버터 방울 목걸이', '섬 둘러보기'])
-    expect(StyleSheet.flatten(screen.getByText(text).props.style).fontFamily).toBe('Gowun Dodum');
+    expect(StyleSheet.flatten(screen.getByText(text).props.style).fontFamily).toBe(GOWUN);
 });

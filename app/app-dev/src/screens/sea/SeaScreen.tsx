@@ -306,7 +306,7 @@ export function SeaScreen(props: SeaScreenProps) {
             ]}
           >
             <HudAvatarButton color={self.color} outfit={self.outfit} go={props.hud.go} />
-            <HudActions requests={props.hud.requests} go={props.hud.go} />
+            <HudActions requests={props.hud.requests} go={props.hud.go} font={gowun} />
           </View>
         )}
         <View
