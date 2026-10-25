@@ -4387,8 +4387,11 @@ export function RedesignScreens({ e }: any) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '나만 미리듣기'}
+              disabled={!player.playbackAllowed}
+              accessibilityState={{ disabled: !player.playbackAllowed }}
               onPress={() => {
                 try {
+                  if (!player.playbackAllowed) return;
                   if (previewAudio) {
                     player.pause();
                     setPreviewAudio(false);
@@ -4396,8 +4399,7 @@ export function RedesignScreens({ e }: any) {
                     player.replace(assets['audio/' + p.id + '.wav']);
                     // 미리듣기는 한 번만(끝나면 재생 종료 이벤트로 버튼을 되돌린다)
                     player.loop = false;
-                    player.play();
-                    setPreviewAudio(true);
+                    setPreviewAudio(player.play());
                   }
                 } catch {
                   notify('음원을 불러오지 못했어요.');

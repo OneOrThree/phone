@@ -533,7 +533,15 @@ function Gromo() {
         !island.nextBuilding &&
         !island.completed),
     record = state.lastResult;
-  const player = useSoundPlayer((message) => notify(message));
+  // 공용 곡 선택과 기기의 실제 재생은 별개다. 축음기를 열어도 집중 밖에서는 듣지 않는다.
+  const islandAudioOn =
+    loaded &&
+    state.session?.status === 'active' &&
+    island.playing &&
+    bundledAudioSource(island.track) !== null &&
+    state.settings.sound &&
+    (state.settings.volume ?? 0.55) > 0;
+  const player = useSoundPlayer((message) => notify(message), islandAudioOn);
   const notify = (s: string) => {
     setToast(s);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -2121,8 +2129,6 @@ function Gromo() {
     );
     return () => subscription.remove();
   }, [history, route, modal, state.visitingIslandId, island.id]);
-  // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
-  const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;
   // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
@@ -2159,8 +2165,8 @@ function Gromo() {
     } catch {}
   }, [island.id, island.playbackReset]);
   useEffect(() => {
-    if (route !== 'product') setPreviewAudio(false);
-  }, [route]);
+    if (route !== 'product' || !islandAudioOn) setPreviewAudio(false);
+  }, [route, islandAudioOn]);
   // GROMO-1839 시작·가입 화면만 세로로 고정하고 나머지는 기기 방향을 따른다
   useRouteOrientation(route);
   useEffect(() => {
