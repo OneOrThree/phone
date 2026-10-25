@@ -8,6 +8,7 @@
     "save": "저장",
     "later": "나중에",
     "manageIsland": "섬 관리",
+    "clearSearch": "검색어 지우기",
     "readyStampA11y": "준비 완료 도장",
     "caughtItem": "낚은 아이템",
     "newBadge": "NEW!"
@@ -402,7 +403,7 @@
       "ok": "알겠어"
     },
     "lock": {
-      "missing": "아직 {{building}}이 없어요",
+      "missing": "아직 {{building}} 없어요",
       "libraryLocked": "도서관을 짓기 전에는 지난 기록을 볼 수 없어요.",
       "lockedGeneric": "완공 후 이용할 수 있어요.",
       "viewNext": "회관에서 다음 건물 보기"

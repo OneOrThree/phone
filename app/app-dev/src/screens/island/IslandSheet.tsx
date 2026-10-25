@@ -29,7 +29,7 @@ import Svg, {
 import { useGowun } from './sceneKit';
 import { C, art, k, Txt, Pic, Btn, Gear, NavBtn } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
 import { CatAvatar } from '@/components/CatAvatar';
 import type { Outfit } from '@/components/CatOutfitLayers';
@@ -304,7 +304,14 @@ export function IslandSheet({
               accessibilityRole="button"
               accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
               onPress={actionPress}
-              style={{ paddingVertical: 6, paddingHorizontal: 4 }}
+              // 뒤로·닫기 NavBtn 과 같은 44 상자 — 보이는 아이콘·글자는 가운데에 그대로 둔다
+              style={{
+                minWidth: semanticTokens.size.tapMin,
+                minHeight: semanticTokens.size.tapMin,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 4,
+              }}
             >
               {action === '⚙' ? (
                 <Gear />
@@ -1356,7 +1363,7 @@ export function SearchField({
         {!!value && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="검색어 지우기"
+            accessibilityLabel={t('common.clearSearch')}
             onPress={() => onChange('')}
             style={{
               position: 'absolute',

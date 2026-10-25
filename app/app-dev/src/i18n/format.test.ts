@@ -50,4 +50,5 @@ test('islandTitle — en 은 ` Island` 를 붙이고, 이미 Island 로 끝나�
   applyLocalePref('en');
   expect(islandTitle('Sea')).toBe('Sea Island');
   expect(islandTitle('Sea Island')).toBe('Sea Island');
+  expect(islandTitle('Maple island')).toBe('Maple island');
 });
