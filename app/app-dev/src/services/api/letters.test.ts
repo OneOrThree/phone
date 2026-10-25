@@ -7,6 +7,7 @@ import {
   getMailboxScreen,
   listIslandMessages,
   listLetters,
+  listSystemLetters,
   sendIslandMessage,
   sendLetter,
 } from '@/services/api/letters';
@@ -111,6 +112,13 @@ test('GET /letters — type 을 싣고 cursor 는 있을 때만 인코딩해 붙
     calls[1].url,
     `${API_URL}/letters?type=sent&cursor=${encodeURIComponent('cur/1+2=')}`,
   );
+});
+
+test('GET /letters?kind=system — 시스템 편지 전용 URL 이다(위 type 목록 URL 은 불변)', async () => {
+  stub(200, { data: { content: [], size: 20, hasNext: false, nextCursor: null } });
+  await listSystemLetters();
+  assert.equal(calls[0].url, `${API_URL}/letters?kind=system`);
+  assert.equal(calls[0].init.method, 'GET');
 });
 
 test('GET /letters/{id} — 읽기다. 닫기(DELETE)가 아니며 본문·키를 싣지 않는다', async () => {

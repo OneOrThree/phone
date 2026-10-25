@@ -160,6 +160,7 @@
       "appleNoCredential": "Couldn't get your Apple sign-in info. Please try again.",
       "googleCancelled": "Google sign-in cancelled",
       "googleNoCredential": "Couldn't get your Google sign-in info. Please try again.",
+      "googleNotConfigured": "Google sign-in isn't available in this build.",
       "guestFailed": "Couldn't open a guest account. Please try again in a moment.",
       "socialFailed": "Couldn't finish signing in. Please try again."
     }
@@ -781,6 +782,9 @@
     "pinnedEvicted": "{{name}} was removed from your telescope",
     "pinForbidden": "You can't add this island",
     "pinAlreadyMember": "This is already one of your islands"
+  },
+  "mailbox": {
+    "systemSender": "Island notice"
   },
   "magazine": {
     "islandTitle": "{{name}} Island",

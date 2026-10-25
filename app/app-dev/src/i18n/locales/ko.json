@@ -160,6 +160,7 @@
       "appleNoCredential": "Apple 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
       "googleCancelled": "Google 로그인 취소",
       "googleNoCredential": "Google 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
+      "googleNotConfigured": "이 빌드에서는 Google 로그인을 쓸 수 없어요.",
       "guestFailed": "게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
       "socialFailed": "로그인을 완료하지 못했어요. 다시 시도해 주세요."
     }
@@ -751,6 +752,9 @@
     "pinnedEvicted": "{{name}}이 망원경에서 빠졌어요",
     "pinForbidden": "이 섬에는 넣을 수 없어요",
     "pinAlreadyMember": "이미 내가 속한 섬이에요"
+  },
+  "mailbox": {
+    "systemSender": "섬 알림"
   },
   "magazine": {
     "islandTitle": "{{name}}섬",

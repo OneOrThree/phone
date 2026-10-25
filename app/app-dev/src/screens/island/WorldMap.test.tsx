@@ -1419,6 +1419,37 @@ test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 �
   }
 });
 
+// 위 테스트는 기존 마을(팻말) 경로다. 새 마을 장면에는 팻말이 없고 문 Pressable 의 접근성 라벨만 건물명을 싣는다 —
+// 장면 경로에서도 라벨이 언어 전환을 따라가는지 따로 본다(GROMO-2253).
+test('마을 장면 경로에서도 언어를 바꾸면 문 라벨이 새 언어로 바뀐다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const id of ['hall', 'tower'] as const)
+    if (!island.buildings.includes(id)) island.buildings.push(id);
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  try {
+    const screen = await render(home());
+    await fireEvent.press(screen.getByTestId('village-preview-toggle'));
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 장면에는 팻말이 없다
+    expect(screen.getByRole('button', { name: '전망대' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '마을회관' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '모닥불' })).toBeTruthy();
+
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByTestId('village-preview-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 리렌더 뒤에도 장면이 유지된다
+    expect(screen.getByRole('button', { name: 'Lookout Tower' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Town Hall' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Campfire' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '전망대' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '모닥불' })).toBeNull();
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
 test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
   const createPan = jest.spyOn(PanResponder, 'create');
   const screen = await render(
