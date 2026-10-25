@@ -87,7 +87,15 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class IslandPromotionService {
 
-    /** 홍보비 — 고정 60마리다(결정 N1). 설정값이 아니다. */
+    /**
+     * 홍보비 — 고정 60마리다(결정 N1). 설정값이 아니다.
+     *
+     * <p>값을 바꾸면 함께 갱신한다 — 앱 {@code app/app-dev/src/i18n/locales/{ko,en}.json} 의
+     * {@code magazine.news.promotion}·{@code magazine.news.promotionYesterday}·{@code magazine.news.promotionRow}
+     * (문구에 60 이 박혀 있다), 앱 {@code src/services/api/magazineMock.ts} 의 body 문자열·{@code feeFish: 60}·잔액 차감(60),
+     * 서버 테스트 {@code IslandPromotionIntegrationTest}·{@code IslandNewsV116MigrationTest}, business-api
+     * {@code IslandPromotionContractTest} 의 문구.
+     */
     public static final int PROMOTION_FEE_FISH = 60;
 
     /** 소식 목록 상한 — 기본값(20)은 Business 의 몫이다. */
