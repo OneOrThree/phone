@@ -1,5 +1,5 @@
 import { hoursMinutes } from '@/services/model';
-import { formatDuration, islandTitle } from './format';
+import { formatDuration, islandTitle, josa } from './format';
 import { applyLocalePref } from './index';
 
 afterEach(() => applyLocalePref('system'));
@@ -51,4 +51,14 @@ test('islandTitle — en 은 ` Island` 를 붙이고, 이미 Island 로 끝나�
   expect(islandTitle('Sea')).toBe('Sea Island');
   expect(islandTitle('Sea Island')).toBe('Sea Island');
   expect(islandTitle('Maple island')).toBe('Maple island');
+});
+
+test('josa — 받침 있음/없음/ㄹ받침 로/한글 아님', () => {
+  expect(josa('도서관', '이', '가')).toBe('도서관이');
+  expect(josa('학교', '이', '가')).toBe('학교가');
+  expect(josa('도서관', '으로', '로')).toBe('도서관으로');
+  expect(josa('항구', '으로', '로')).toBe('항구로');
+  expect(josa('서울', '으로', '로')).toBe('서울로'); // ㄹ받침
+  expect(josa('서울', '을', '를')).toBe('서울을'); // ㄹ받침도 로 예외는 '로' 에만
+  expect(josa('Hall', '이', '가')).toBe('Hall가');
 });

@@ -124,7 +124,7 @@ whitelist (GROMO-735).
 - **PR의 DB 변경 항목에 스키마 변경을 명시한다**. 기존 loadtest seed의 V0 비호환과
   전환 도구의 적용 범위도 [DB 전환 절차](docs/db/README.md)에 정리되어 있다.
 - **기본 데이터**: `db/seed/insert.sql`을 빌드 시 `db/v0/afterMigrate__defaults.sql`로 복사한다.
-  신규 DB와 재배포의 Flyway migrate 완료 후 누락된 기본 행을 보완하며 version 0을 유지한다.
+  신규 DB와 재배포의 Flyway migrate 완료 후 누락된 기본 행을 보완하며 Flyway 이력(V0 체인 — V0·V1 …)에 행을 더하지 않는다.
 - **Read models**: `island_weekly_focus` (V130) is the weekly island-ranking numerator. Session completion
   (`FocusSessionLifecycleService.settle`) adds to it in the same transaction and the Sunday freeze cron recomputes
   the finished week (`IslandWeeklyFocusService.recompute`). A fixture that inserts COMPLETED sessions directly must

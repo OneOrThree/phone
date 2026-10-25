@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.service;
 
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
@@ -40,9 +41,12 @@ public class FocusMemberEvents {
 
     private final OutboxCommandPort outbox;
 
-    /** 집중 목록의 한 주민 상태가 바뀌었다. */
+    /**
+     * 집중 목록의 한 주민 상태가 바뀌었다. {@code seat}(GROMO-2477)는 키를 유지한다 — 자리 없이 시작했거나 목록에서
+     * 지우는 completed 면 null 이다. 스냅샷 뒤에 시작한 주민은 이 사건으로만 알려지므로 자리도 여기 실어야 한다.
+     */
     public EventEnvelope focusUpdated(UUID userId, UUID islandId, UUID sessionId, String status, String subject,
-                                      long activeSeconds, Instant serverNow, long sessionVersion) {
+                                      long activeSeconds, Instant serverNow, long sessionVersion, FocusSeat seat) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("userId", userId.toString());
         params.put("sessionId", sessionId.toString());
@@ -51,6 +55,7 @@ public class FocusMemberEvents {
         params.put("activeSeconds", activeSeconds);
         params.put("serverNow", serverNow.toString());
         params.put("sessionVersion", sessionVersion);
+        params.put("seat", seat);
         return append(FOCUS_EVENT_TYPE, FOCUS_AGGREGATE_TYPE, userId, islandId, params);
     }
 
