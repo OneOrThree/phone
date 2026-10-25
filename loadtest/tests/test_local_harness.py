@@ -156,7 +156,13 @@ class LocalHarnessTest(unittest.TestCase):
                 self.assertEqual([row['verdict'] for row in rows],['PASS','PASS'])
             self.assertTrue(json.loads((root/'results/ws/chat.json').read_text())['sloPassed'])
             # 증거 디렉터리(결과·메타·로그·k6 진단)에 토큰·Bearer 값이 남지 않아야 한다.
-            leaked=[str(f) for f in (root/'results').rglob('*') if f.is_file() and any(u['token'] in f.read_text(errors='ignore') or 'Bearer ' in f.read_text(errors='ignore') for u in users[:5]+users[300:301])]
+            # fixture 전체 사용자의 토큰·userId 와 Bearer 가 결과 파일 어디에도 없어야 한다(파일은 한 번만 읽는다).
+            secrets=[u['token'] for u in users]+[u['userId'] for u in users]+['Bearer ']
+            leaked=[]
+            for f in (root/'results').rglob('*'):
+                if f.is_file():
+                    text=f.read_text(errors='ignore')
+                    if any(x in text for x in secrets): leaked.append(str(f))
             self.assertEqual(leaked,[])
 
     def test_chat_sends_first_message_right_after_phase_delay(self):

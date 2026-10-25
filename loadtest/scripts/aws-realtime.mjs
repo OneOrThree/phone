@@ -40,7 +40,7 @@ const p95LimitMs = number('p95-limit-ms', 500, 1, 60000, false);
 const minBudget = count * connectGapMs + readyTimeoutMs + seconds * 1000 + drainMs + 2000;
 if (minBudget > runtimeSeconds * 1000) throw new Error('runtime-seconds가 연결·준비·측정·정리 예산보다 작음');
 const fixture = readFileSync(args.users);
-const users = JSON.parse(fixture).slice(offset, offset + count);
+const users = (() => { try { return JSON.parse(fixture); } catch { throw new Error('FIXTURE_PARSE_ERROR'); } })().slice(offset, offset + count);
 if (users.length !== count || new Set(users.map(u => u.userId)).size !== count || users.some(u => !u.islandId || !u.token)) throw new Error('고유 계정·islandId·token fixture 부족');
 const expiry = users.map(user => {
   try {
@@ -69,6 +69,7 @@ let stopping = false, finished = false, aborted = null, peakRss = 0;
 let measurementStart = null, measurementEnd = null, eventStart = Infinity, eventEnd = Infinity;
 const errorCodes = {}, messageTypes = {};
 const closeEvents = [], errorEvents = [];
+let closeCount = 0;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const frame = (command, headers = {}, body = '') => `${command}\n${Object.entries(headers).map(([k, v]) => `${k}:${v}`).join('\n')}\n\n${body}\0`;
 const stopSends = () => { for (const client of clients) { clearTimeout(client.startTimer); clearInterval(client.sendTimer); } };
@@ -168,6 +169,7 @@ function connect(user, index) {
     error('WEBSOCKET_ERROR');
   });
   client.ws.addEventListener('close', event => {
+    closeCount++;
     if (closeEvents.length < 10) closeEvents.push({ runId, connectionId: client.connectionId, at: new Date().toISOString(), connectionIndex: index,
       elapsedMs: Math.round((performance.now() - wallStart) * 1000) / 1000,
       ...closeEvidence(event, client.closeInitiated), duringShutdown: stopping });
@@ -184,8 +186,8 @@ const guard = setInterval(() => {
   if (first && performance.now() - first.at > maxPendingMs) abort('DELIVERY_TIMEOUT');
   for (const client of clients) if (!client.ready && !client.closed && performance.now() - client.start > readyTimeoutMs) abort('CLIENT_READY_TIMEOUT');
 }, 100);
-process.once('SIGINT', () => abort('SIGINT'));
-process.once('SIGTERM', () => abort('SIGTERM'));
+process.on('SIGINT', () => abort('SIGINT'));
+process.on('SIGTERM', () => abort('SIGTERM'));
 const stats = values => {
   values.sort((a, b) => a - b);
   const quantile = p => values.length ? values[Math.max(0, Math.ceil(values.length * p) - 1)] : null;
@@ -198,6 +200,7 @@ async function finish(force = false) {
   const ready = clients.filter(client => client.ready && !client.closed).length;
   for (const client of clients) {
     if (client.closed) continue;
+    // 한계: 서버 close 프레임 처리 중이라도 readyState 가 OPEN 이면 CLIENT 로 기록될 수 있다(경합).
     client.closeInitiated = client.ws.readyState === WebSocket.OPEN;
     try { client.ws.close(1000, aborted ? 'LOADTEST_ABORT' : 'LOADTEST_COMPLETE'); } catch {}
   }
@@ -226,7 +229,7 @@ async function finish(force = false) {
     goodputPerSecond: measurementMs ? fullyDelivered / (measurementMs / 1000) : null,
     shutdownCloseUnconfirmed,
     correlationNote: 'runId/connectionId는 클라이언트 UUID 상관관계 힌트다. PEER는 nginx/서버 중 어느 쪽인지 확정하지 않으며 선언된 사유도 실제 원인 검증을 대체하지 않는다.',
-    errors, rejected, errorCodes, closeEvents, errorEvents, messageTypes, frames, snapshots, receivedBytes, sentBytes,
+    errors, rejected, errorCodes, closeEvents, closeCount, errorEvents, messageTypes, frames, snapshots, receivedBytes, sentBytes,
     connectMs: stats(connectLatency), readyMs: stats(readyLatency), deliveryMs,
     latestCommandConfirmed: clients.filter(client => client.lastAcceptedSeq === client.seq).length,
     eventWindowStart: Number.isFinite(eventStart) ? eventStart : null, eventWindowEnd: eventEnd,

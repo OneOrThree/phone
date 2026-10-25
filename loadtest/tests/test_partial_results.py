@@ -84,6 +84,18 @@ class RecoveryTest(unittest.TestCase):
         self.assertIsNone(result['commonWindowThroughput'])
         self.assertIsNone(measurement_windows({'home':[],'focus':[other]}, {})['commonMeasurementOverlapSeconds'])
 
+    def test_common_window_compares_mixed_iso_formats_as_datetimes(self):
+        # 소수부·Z·오프셋 표기가 섞이면 문자열 비교는 시각 순서와 어긋난다.
+        def row(start,end): return {'phase':'measurement','measurementStartAt':start,'measurementEndAt':end,'measuredSeconds':10}
+        home=row('2026-01-01T09:00:03+09:00','2026-01-01T09:00:20+09:00')  # 00:00:03Z ~ 00:00:20Z
+        focus=row('2026-01-01T00:00:05.500000Z','2026-01-01T00:00:30Z')
+        epoch=1767225600000  # 2026-01-01T00:00:00Z
+        chat={'eventWindowStart':epoch+2000,'eventWindowEnd':epoch+40000,'measurementMs':38000}
+        result=measurement_windows({'home':[home],'focus':[focus]},chat)
+        self.assertEqual(result['commonMeasurementStartAt'],'2026-01-01T00:00:05.500000Z')
+        self.assertEqual(result['commonMeasurementEndAt'],'2026-01-01T09:00:20+09:00')
+        self.assertAlmostEqual(result['commonMeasurementOverlapSeconds'],14.5)
+
 
 class VerdictTest(unittest.TestCase):
     def test_component_pass_cannot_hide_short_common_window(self):
