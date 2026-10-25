@@ -2,8 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.auth.exception.AuthErrorCode;
-import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.internal.dto.NotificationSettingsCommandResponse;
 import com.oneorthree.phone.internal.dto.NotificationSettingsPatchRequest;
@@ -96,10 +94,7 @@ public class InternalNotificationSettingsService {
 
     private User authorize(UUID userId, UUID sessionId, Long authGeneration) {
         User user = users.getCallerForUpdate(userId);
-        if (sessionId == null || authGeneration == null || authGeneration != user.getAuthGeneration()
-                || sessions.verifySession(userId, sessionId).filter(row -> row.isActive()).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        sessions.requireActive(userId, user.getAuthGeneration(), sessionId, authGeneration);
         return user;
     }
 

@@ -524,6 +524,25 @@ test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 �
   expect(p.onMessage).not.toHaveBeenCalled();
 });
 
+test('표류 중 「＋ 한마디 쓰기」 칩은 내 뗏목 크기에 비례해 내려와 내 고양이 머리 위에 붙고, 뗏목보다 위라 눌린다(GROMO-2414)', async () => {
+  const screen = await render(<SeaScreen {...props()} />);
+  // 내 뗏목은 장면에서 마지막으로 그린 SeaRaft 다(참가자 페이지 뒤)
+  const selfRaft = () => jest.mocked(SeaRaft).mock.calls.at(-1)![0].size;
+  const chip = () => StyleSheet.flatten(screen.getByTestId('sea-message-chip').props.style);
+  // 세로 402 폭 — 뗏목 160, 상자 위 빈 띠 160×152/512 ≈ 48 만큼 겹친다(예전 고정 20 은 칩이 남의 뗏목 줄에 떠 보였다)
+  expect(selfRaft()).toBe(160);
+  expect(chip().marginBottom).toBe(-48);
+  expect(chip().zIndex).toBeGreaterThan(0);
+  // 가로 compact — 작은 뗏목에 맞춰 덜 겹친다
+  const layout = { x: 0, y: 0, width: 874, height: 402 };
+  await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
+  await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
+  expect(selfRaft()).toBeLessThan(160);
+  expect(chip().marginBottom).toBe(-Math.round((selfRaft() * 152) / 512));
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
+});
+
 test('뗏목 위 잡지(GROMO-2314) — 세로는 고양이 오른쪽에 얹고, 가로 compact 는 뗏목 크기에 비례해 줄여 옆에 나란히 둔다', async () => {
   const onOpen = jest.fn();
   const magazine = {

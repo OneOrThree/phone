@@ -18,7 +18,7 @@ import java.util.Optional;
 import java.util.TreeMap;
 
 /**
- * v0.3 세션 구간의 순수 시간 계산 (GROMO-1764, LLD §4). 주입이 없는 순수 계산기라 {@code support/}다.
+ * 세션 구간의 순수 시간 계산 (GROMO-1764, LLD §4). 주입이 없는 순수 계산기라 {@code support/}다.
  *
  * <p>ACTIVE 길이는 <b>마이크로초로 합산한 뒤 마지막에 한 번만</b> 초로 내린다 — pause마다 초 단위로
  * 잘라 반복 pause로 시간이 유실되지 않게 한다는 LLD §4 원칙 그대로다. 열린 구간은 {@code now}로

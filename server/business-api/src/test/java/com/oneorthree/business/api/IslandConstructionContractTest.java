@@ -68,13 +68,15 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 주체
 
     @Test
-    @DisplayName("주체는 서명된 세션에서만 오고 공격자가 넣은 X-User-Id 는 버려진다")
+    @DisplayName("주체·세션·세대는 서명된 세션에서만 오고 공격자가 넣은 X-User-Id·X-Session-Id·X-Auth-Generation 은 버려진다")
     void forwardsOnlyTheSignedSubjectAndNeverTheAttackerHeader() throws Exception {
         DATA.on(DATA_BUILD, request -> ok(BUILD_BODY));
 
         mockMvc.perform(write(post("/islands/" + ISLAND + "/constructions"),
                         "{\"buildingId\":\"gram\",\"expectedVersion\":4,\"expectedCostPolicyVersion\":1}")
                         .header("X-User-Id", OTHER)
+                        .header("X-Session-Id", OTHER)
+                        .header("X-Auth-Generation", "99")
                         .header("X-Service-Token", "stolen"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.buildingId").value("gram"))
@@ -82,6 +84,9 @@ class IslandConstructionContractTest extends UpstreamTestBase {
 
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_BUILD).get(0);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+        // GROMO-2207 — Data 가 사용자 잠금 경계에서 이 세션·세대를 재검사한다.
+        assertThat(forwarded.header("X-Session-Id")).isEqualTo(SESSION.toString());
+        assertThat(forwarded.header("X-Auth-Generation")).isEqualTo("3");
         assertThat(forwarded.header("Authorization")).isEqualTo("Bearer ci-token-data");
         assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(forwarded.header("X-Service-Token")).isNull();
@@ -108,6 +113,8 @@ class IslandConstructionContractTest extends UpstreamTestBase {
 
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_OPTIONS).get(0);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(forwarded.header("X-Session-Id")).isEqualTo(SESSION.toString());
+        assertThat(forwarded.header("X-Auth-Generation")).isEqualTo("3");
         assertThat(forwarded.query()).as("조회에는 질의 문자열이 없다").isNull();
     }
 
@@ -147,6 +154,8 @@ class IslandConstructionContractTest extends UpstreamTestBase {
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_TARGET).get(0);
         assertThat(forwarded.body()).isEqualTo("{\"buildingId\":\"gram\",\"expectedVersion\":4}");
         assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+        assertThat(forwarded.header("X-Session-Id")).isEqualTo(SESSION.toString());
+        assertThat(forwarded.header("X-Auth-Generation")).isEqualTo("3");
     }
 
     @Test
@@ -253,6 +262,8 @@ class IslandConstructionContractTest extends UpstreamTestBase {
         assertThat(DATA.receivedFor(DATA_OPTIONS)).hasSize(1);
         assertThat(DATA.receivedFor(DATA_OPTIONS).get(0).header("X-User-Id"))
                 .isEqualTo(USER.toString());
+        assertThat(DATA.receivedFor(DATA_OPTIONS).get(0).header("X-Session-Id"))
+                .isEqualTo(SESSION.toString());
     }
 
     @Test
@@ -308,6 +319,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
             "409,STATE_CONFLICT,409,STATE_CONFLICT,buildingId",
             "409,INSUFFICIENT_FUNDS,409,INSUFFICIENT_FUNDS,buildingId",
             "422,OUT_OF_RANGE,422,OUT_OF_RANGE,buildingId",
+            "403,SESSION_NOT_ACTIVE,401,UNAUTHORIZED,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
             "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
             "403,STATE_CONFLICT,400,UPSTREAM_CONTRACT_ERROR,",
@@ -324,6 +336,22 @@ class IslandConstructionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.field").value(field)).andReturn();
         assertThat(result.getResponse().getContentAsString())
                 .as("상류의 내부 문구가 공개 응답에 새지 않는다").doesNotContain("private detail");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("폐기된 세션(403 SESSION_NOT_ACTIVE)은 GET 옵션·POST 건설 모두 401 UNAUTHORIZED 다 — 재생 receipt 도 없다")
+    void revokedSessionIsUnauthorizedOnGetAndPost(boolean command) throws Exception {
+        DATA.on(DATA_OPTIONS, request -> error(403, "SESSION_NOT_ACTIVE"));
+        DATA.on(DATA_BUILD, request -> error(403, "SESSION_NOT_ACTIVE"));
+        var request = command ? write(post("/islands/" + ISLAND + "/constructions"),
+                "{\"buildingId\":\"gram\",\"expectedVersion\":4,\"expectedCostPolicyVersion\":1}")
+                : auth(get("/islands/" + ISLAND + "/construction-options"));
+
+        mockMvc.perform(request)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test

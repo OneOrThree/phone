@@ -72,8 +72,8 @@ services:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 30s
+      retries: ${APP_HEALTH_RETRIES:-30}
+      start_period: ${APP_HEALTH_START_PERIOD:-30s}
     labels:
       com.datadoghq.tags.env: ${DEPLOY_ENV:-dev}
       com.datadoghq.tags.service: gromo-business-${DEPLOY_ENV:-dev}
@@ -111,8 +111,8 @@ services:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8082/health"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 30s
+      retries: ${APP_HEALTH_RETRIES:-30}
+      start_period: ${APP_HEALTH_START_PERIOD:-30s}
     labels:
       com.datadoghq.tags.env: ${DEPLOY_ENV:-dev}
       com.datadoghq.tags.service: gromo-notification-${DEPLOY_ENV:-dev}

@@ -502,7 +502,7 @@ test('영어에서도 두 목적지와 소속 섬 선택 창을 연다', async (
     expect(screen.getByLabelText('Start focusing')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('My islands'));
     expect(screen.getByText('Which island?')).toBeTruthy();
-    expect(screen.getByText('To 둘')).toBeTruthy();
+    expect(screen.getByText('To 둘 Island')).toBeTruthy();
   } finally {
     applyLocalePref('ko');
   }
@@ -519,10 +519,10 @@ test('지금 소속 섬을 고르면 다시 항해하지 않고 섬 홈으로 �
 
 test('섬 이름에 이미 섬이 들어 있으면 도착 문구에 중복해서 붙이지 않는다', async () => {
   const e = env();
-  e.state.serverIslands!.memberships[1].name = '구름섬';
+  e.state.serverIslands!.memberships[1].name = '단풍섬';
   const screen = await renderMembers(e);
-  expect(screen.getByText('구름섬으로')).toBeTruthy();
-  expect(screen.queryByText('구름섬섬으로')).toBeNull();
+  expect(screen.getByText('단풍섬으로')).toBeTruthy();
+  expect(screen.queryByText('단풍섬섬으로')).toBeNull();
 });
 
 test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길은 유지한다', async () => {

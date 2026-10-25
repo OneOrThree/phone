@@ -3,9 +3,7 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -94,8 +92,6 @@ class IslandInvitationArrivalIntegrationTest {
     IslandJoinService joins;
     @Autowired
     IslandMembershipService islands;
-    @Autowired
-    FocusService legacyFocus;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -501,7 +497,7 @@ class IslandInvitationArrivalIntegrationTest {
         // 발급 뒤 발급자의 세대가 바뀌면(이탈·재가입) 그 코드는 폐기다 — 섬 종결도 같은 410 이다.
         jdbc.update("update group_members set membership_epoch=membership_epoch+1"
                 + " where group_id=? and user_id=?", stale, host);
-        jdbc.update("update groups set status='ENDED' where id=?", closed);
+        jdbc.update("update islands set status='ENDED' where id=?", closed);
         UUID user = newUser();
         long staleEvents = islandEvents(stale);
         long closedEvents = islandEvents(closed);
@@ -528,7 +524,8 @@ class IslandInvitationArrivalIntegrationTest {
         UUID user = newUser();
         UUID home = islands.create(user, new CreateIslandCommandRequest("집중섬", null, false, null),
                 UUID.randomUUID()).id();
-        legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null));
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
+                UUID.randomUUID(), user);
         long islandEvents = islandEvents(islandId);
 
         assertThatThrownBy(() -> resolve(user, code))
@@ -657,7 +654,7 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID island(String name, boolean isPrivate, boolean approvalRequired) {

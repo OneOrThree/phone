@@ -16,7 +16,7 @@ import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandJoinRequestEvents;
 import com.oneorthree.phone.group.service.IslandMembershipEvents;
-import com.oneorthree.phone.group.service.LinkMembershipEventService;
+import com.oneorthree.phone.group.service.IslandMembershipTransitions;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.JoinIslandResultView;
@@ -61,7 +61,7 @@ import java.util.UUID;
  * 섬 가입·가입 요청 조회·취소 (GROMO-1760 · 섬 소속 LLD §3.7~§3.9).
  *
  * <h2>잠금 순서</h2>
- * {@code users → context → groups → memberships → join_request} — 1759 가 고정한 축과 같다.
+ * {@code users → context → islands → memberships → join_request} — 1759 가 고정한 축과 같다.
  * pending 생성은 컨텍스트를 쓰지 않지만 같은 순서로 잠근다 — 즉시 가입이 context 를 잡아야 하고,
  * 분기마다 순서가 갈리면 언젠가 역순 교착이 생긴다.
  *
@@ -92,7 +92,7 @@ public class IslandJoinService {
     private final GroupInviteLinkRepository inviteLinkRepository;
     private final IslandMembershipEvents membershipEvents;
     private final IslandJoinRequestEvents joinRequestEvents;
-    private final LinkMembershipEventService linkMembershipEventService;
+    private final IslandMembershipTransitions membershipTransitions;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
     private final IslandArrivalRepository arrivals;
@@ -210,10 +210,6 @@ public class IslandJoinService {
                         arrivals.recordArrival(userId, islandId, clock.instant(), true);
                     }
                     EventEnvelope members = membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId);
-                    if (invitation != null) {
-                        linkMembershipEventService.recordJoinAttribution(islandId, userId,
-                                invitation.getSlug(), "invite", membership.getMembershipEpoch());
-                    }
                     return new PublicCommandResult(200, InternalJson.tree(
                             JoinIslandResultView.active(islandId, context.getCurrentIslandId(), members.version())),
                             InternalJson.tree(List.of(members)));
@@ -320,7 +316,7 @@ public class IslandJoinService {
     /**
      * 방장이 가입 요청을 승인·거절한다 (GROMO-1802, 섬 관리 LLD §3.4).
      *
-     * <p><b>잠금 순서는 가입과 같다</b> — {@code users → groups → join_request}. 신청자 users 행은
+     * <p><b>잠금 순서는 가입과 같다</b> — {@code users → islands → join_request}. 신청자 users 행은
      * <b>배타</b>로 잡는다: 신청자의 소속 상한은 신청자 본인의 가입·섬 생성·다른 섬 승인과 경합하는데
      * 그 경로들이 전부 신청자 행을 배타로 잡기 때문이다(처리자 방장만 잠그면 동시 다른 섬 가입을 못 막는다,
      * LLD §4). 두 users 행은 UUID 순서로 잡아 서로 다른 섬의 방장이 서로를 승인하는 교차에서 교착하지 않는다.
@@ -396,10 +392,6 @@ public class IslandJoinService {
                         // memberUserId 는 신청자(applicant)다 — actorId(userId) 는 승인한 방장이라, 방장 id 를
                         // 주면 Realtime 이 엉뚱한 사람의 캐시를 지운다(GROMO-2140).
                         events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", applicant.getId()));
-                        if (invitation != null) {
-                            linkMembershipEventService.recordJoinAttribution(islandId, applicant.getId(),
-                                    invitation.getSlug(), "invite", membership.getMembershipEpoch());
-                        }
                         memberId = applicant.getId();
                     } else {
                         request.reject();
@@ -436,7 +428,7 @@ public class IslandJoinService {
             GroupMember membership = prior.get();
             membership.rejoin(clock.instant());
             // 재가입은 새 세대 — 이 사람이 발급한 옛 초대 코드는 이 전이로 폐기된다.
-            linkMembershipEventService.recordMembershipRejoined(membership);
+            membershipTransitions.recordMembershipRejoined(membership);
             return membership;
         }
         return groupMemberRepository.save(GroupMember.builder()
@@ -493,9 +485,8 @@ public class IslandJoinService {
      * 정원 판정 (GROMO-1993) — 「정원에는 방장을 포함한 현재 주민만 센다. 승인 대기 중인 가입 신청과
      * NPC 는 세지 않는다」. 모수는 {@code group_members} 의 활성 행이라 신청은 자연히 빠진다.
      *
-     * <p><b>동시성</b>: 호출자가 이미 {@code membershipLocks.lockGroup} 으로 groups 행을
-     * {@code FOR UPDATE} 잡은 뒤다. 그 섬에 멤버십을 넣는 모든 경로(즉시 가입·승인·레거시
-     * {@code GroupService.joinGroup})가 같은 잠금을 먼저 지나므로 count → insert 가 섬 단위로
+     * <p><b>동시성</b>: 호출자가 이미 {@code membershipLocks.lockGroup} 으로 islands 행을
+     * {@code FOR UPDATE} 잡은 뒤다. 즉시 가입과 가입 승인 모두 같은 잠금을 먼저 지나므로 count → insert가 섬 단위로
      * 직렬화된다 — 정책 「마지막 한 자리에 동시에 가입하면 한 명만 성공한다」가 이것으로 성립한다.
      */
     private void requireCapacity(Group island) {

@@ -31,7 +31,7 @@ export function FocusResultSummary({
   /** 처음 받은 상품이면 NEW! — 옷장의 안 본 새 꾸미기에도 넣는다. */
   rewardNew?: boolean;
 }) {
-  const largeText = useWindowDimensions().fontScale > 1.3;
+  const largeText = useWindowDimensions().fontScale > semanticTokens.typography.largeTextThreshold;
   const catalog = useCustomizationCatalog();
   const item = rewardId ? catalog[rewardId] : undefined;
   useEffect(() => {

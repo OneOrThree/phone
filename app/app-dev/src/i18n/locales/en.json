@@ -8,6 +8,7 @@
     "save": "Save",
     "later": "Later",
     "manageIsland": "Manage island",
+    "clearSearch": "Clear search",
     "readyStampA11y": "Ready stamp",
     "caughtItem": "Caught item",
     "newBadge": "NEW!"
@@ -111,14 +112,14 @@
     "report": {
       "title": "Report center",
       "sub": "Report by email",
-      "subject": "[catus report] Report center",
+      "subject": "[{{brand}} report] Report center",
       "body": "What happened:\n\nNickname or island name:\n\nWhen it happened:\n\nPlease attach screenshots to this email, if available.",
       "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
     },
     "feedback": {
       "title": "Contact us",
       "sub": "Report a bug or suggest a feature",
-      "subject": "[catus feedback] Bug report · Feature suggestion",
+      "subject": "[{{brand}} feedback] Bug report · Feature suggestion",
       "body": "Type (bug / suggestion):\n\nDetails:\n\nPlease attach screenshots to this email, if available.\n\nApp version: {{version}}\nDevice: {{os}}",
       "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
     },
@@ -144,7 +145,7 @@
     "guestStart": "Start as a guest",
     "guestOpening": "Opening your guest account…",
     "guestHint": "You can start with a guest account first.",
-    "fallbackStart": "Start GROMO",
+    "fallbackStart": "Get started",
     "heroTitle": "Focus a little at a time,\nand grow together.",
     "heroSubtitle": "A focus habit that starts on your little raft.",
     "policy": {
@@ -159,6 +160,7 @@
       "appleNoCredential": "Couldn't get your Apple sign-in info. Please try again.",
       "googleCancelled": "Google sign-in cancelled",
       "googleNoCredential": "Couldn't get your Google sign-in info. Please try again.",
+      "googleNotConfigured": "Google sign-in isn't available in this build.",
       "guestFailed": "Couldn't open a guest account. Please try again in a moment.",
       "socialFailed": "Couldn't finish signing in. Please try again."
     }
@@ -193,7 +195,7 @@
       "nickname": "Nickname",
       "nicknamePlaceholder": "Enter a nickname",
       "linkedAccount": "Linked Account",
-      "accountSummary": "{{name}}'s GROMO account · {{providers}}",
+      "accountSummary": "{{name}}'s account · {{providers}}",
       "noLinkedAccount": "No linked account",
       "providers": {
         "google": "Google",
@@ -220,7 +222,7 @@
     },
     "switch": {
       "title": "This Account Is Already Linked",
-      "body": "This social account is linked to another GROMO account. Switching to the existing account deletes this guest's cat, island, and records, and this can't be undone. Switch anyway?",
+      "body": "Switching to the existing account deletes this guest's cat, island, and records, and this can't be undone. Switch anyway?",
       "confirm": "Switch"
     },
     "blocked": {
@@ -271,7 +273,6 @@
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
       "submit": "Create Island",
-      "capacityRangeError": "Capacity must be between {{min}} and {{max}}.",
       "doneTitle": "Island Created!",
       "doneSub": "\"{{island}}\" is now your island.",
       "nameLabel": "Island Name",
@@ -313,6 +314,7 @@
     "finishFocusTitle": "Finish focusing?",
     "finishFocusBody": "This will save your focus session.",
     "linkUnsupported": "This invite or group link isn't supported in this version, so we took you home.",
+    "linkIslandUnavailable": "That island can't be opened right now.",
     "storageRetrying": "A device storage issue is delaying your save. We'll keep retrying automatically.",
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",
@@ -496,6 +498,11 @@
       "shoes": "Shoes"
     }
   },
+  "emptyState": {
+    "shop": "Nothing for sale yet",
+    "wardrobe": "No outfits yet",
+    "friends": "No friends yet"
+  },
   "focusFlow": {
     "visitorCheered": "A visitor cheered you on 🎉",
     "memberArrived": "{{name}} has arrived",
@@ -631,7 +638,7 @@
     "chooseJoined": "Choose an island you joined",
     "mainTitle": "Change Main Island",
     "currentTitle": "Change Current Island",
-    "mainDescription": "Choose the island to show on your profile and friends list. Your current island will stay the same.",
+    "mainDescription": "This island shows on your profile and friends list.",
     "currentDescription": "Choose one of your islands to enter. Your main island will stay the same.",
     "loading": "Loading your islands…",
     "members": "Residents {{count}}/{{max}}",
@@ -649,6 +656,7 @@
     "leaveWithoutJoinTitle": "Leave without joining?",
     "leaveWithoutJoinBody": "Become a resident to focus together here.",
     "leaveWithoutJoinLeave": "Leave",
+    "backToSea": "Back to sea",
     "visitorJoin": {
       "join": "Join This Island",
       "apply": "Request to Join",
@@ -696,7 +704,12 @@
   },
   "hall": {
     "greeting": "Greeting",
-    "greetingPlaceholder": "Leave blank to use the default greeting"
+    "greetingPlaceholder": "Leave blank to use the default greeting",
+    "leave": {
+      "soloText": "You're the only one left, so all shared island data will be deleted.",
+      "memberText": "The fish and records you collected stay on the island.",
+      "detail": "Your account, cat, friends, and items stay with you."
+    }
   },
   "guestbook": {
     "title": "Guestbook",
@@ -722,7 +735,7 @@
   },
   "telescope": {
     "back": "Back",
-    "nextIslands": "New islands in {{minutes}} min",
+    "nextIslands": "Islands change in {{minutes}} min",
     "loading": "Looking for islands…",
     "empty": "No islands in sight right now",
     "loadFailed": "Couldn't load the islands.",
@@ -759,7 +772,6 @@
   "observatory": {
     "searchTitle": "Find islands",
     "searchPlaceholder": "Island name",
-    "searchGuide": "Type an island name. Islands you've joined are marked Joined; add any other island to your telescope to sail there again.",
     "searchEmpty": "No islands found. Check the island name and try again.",
     "searchFailed": "Couldn't search for islands.",
     "searchMore": "There are more islands. Type more of the name to narrow it down.",
@@ -770,6 +782,9 @@
     "pinnedEvicted": "{{name}} was removed from your telescope",
     "pinForbidden": "You can't add this island",
     "pinAlreadyMember": "This is already one of your islands"
+  },
+  "mailbox": {
+    "systemSender": "Island notice"
   },
   "magazine": {
     "islandTitle": "{{name}} Island",
@@ -850,7 +865,9 @@
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
-      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue"
+      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue",
+      "title": "Island news",
+      "promotionRow": "The host spent 60 fish on a magazine promotion"
     },
     "reader": {
       "title": "Nyaong",

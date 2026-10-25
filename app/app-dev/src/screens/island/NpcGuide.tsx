@@ -67,11 +67,7 @@ export function GuideBox({
             style={styles.mongdol}
           />
         )}
-        <Txt
-          lineBreakStrategyIOS="hangul-word"
-          style={styles.text}
-          accessibilityLiveRegion="polite"
-        >
+        <Txt style={styles.text} accessibilityLiveRegion="polite">
           {text}
         </Txt>
       </View>

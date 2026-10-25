@@ -39,6 +39,7 @@ const mockCheckSession = jest.fn();
 const mockRestoreSession = jest.fn();
 const mockDecideBootRoute = jest.fn();
 const mockSyncIslands = jest.fn();
+const mockSwitchCurrent = jest.fn();
 const mockRecoverFocus = jest.fn();
 const mockPrepareLogout = jest.fn();
 const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
@@ -148,6 +149,7 @@ jest.mock('@/services/islandCommands', () => {
         commands: {
           ...created.commands,
           sync: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
+          switchCurrent: (...switchArgs: unknown[]) => mockSwitchCurrent(...switchArgs),
         },
       };
     },
@@ -199,6 +201,8 @@ beforeEach(async () => {
   mockDecideBootRoute.mockImplementation(async () => mockBootRoute);
   mockSyncIslands.mockReset();
   mockSyncIslands.mockResolvedValue({ currentIslandId: null, items: [] });
+  mockSwitchCurrent.mockReset();
+  mockSwitchCurrent.mockResolvedValue(undefined);
   mockRecoverFocus.mockResolvedValue(null);
   mockAppDispatch = undefined;
   mockRememberOverride = undefined;
@@ -1612,6 +1616,579 @@ test('미인증 상태의 지원 불가 레거시 링크는 로그인 화면을 
   await waitFor(() => assert.ok(screen.getByText(/지원하지 않아 홈으로 이동했어요/)));
   assert.equal(captured.route, 'home');
 });
+
+const LINK_ISLAND_A = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const LINK_ISLAND_B = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+const LINK_ISLAND_C = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d88';
+const LINK_ISLAND_STRANGER = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
+const LINK_ISSUE = '0197e0c3-9a10-7c3d-8e21-5a6b7c8d9e0f';
+const LINK_TOAST = /지금은 열 수 없는 섬이에요/;
+
+// 로그인·온보딩을 마친 앱을 설정 화면(소속 섬이 없으면 바다 등 `startRoute`)에 세워 둔다 — 링크가 열려 «옮겨 가는» 것이 route 로 보이게 한다.
+const renderLinkedApp = async (
+  currentIslandId: string | null,
+  memberIds: string[],
+  startRoute: Route = 'settings',
+  synced = true,
+) => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.ok(mockEmitAppLink));
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    if (synced)
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: memberIds.map((id) => ({ id })),
+          nextCursor: null,
+          currentIslandId,
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: currentIslandId,
+      });
+    captured.reset(startRoute);
+  });
+  await waitFor(() => assert.equal(captured.route, startRoute));
+};
+
+test('group 링크는 소속 섬이면 현재 섬을 옮기고 홈으로 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockImplementation(async (islandId: string) => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }],
+        nextCursor: null,
+        currentIslandId: islandId,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    });
+  });
+
+  await act(async () =>
+    mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}&challenge=${LINK_ISSUE}`),
+  );
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(mockSwitchCurrent.mock.calls[0][0], LINK_ISLAND_B);
+  assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_B);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+// 이 앱의 캐시가 현재 섬이라고 해도 다른 기기에서 바꿨을 수 있다 — 서버의 같은 섬 PUT(멱등 200 상태확인)으로 확정한다.
+test('캐시상 현재 섬을 가리키는 group 링크도 서버에 확인한 뒤 홈으로 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_A}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(mockSwitchCurrent.mock.calls[0][0], LINK_ISLAND_A);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('캐시상 현재 섬인 group 링크를 서버가 거절하면(다른 기기에서 옮김) 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockRejectedValue(new ApiError('STATE_CONFLICT', '집중 중이에요.', 409));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_A}`));
+  await waitFor(() => assert.ok(screen.getByText(LINK_TOAST)));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(captured.route, 'home');
+});
+
+// 소속 여부는 서버가 판정한다 — 비소속 섬이면 서버 거절(MEMBER_ONLY)이 같은 안내를 낸다.
+test('group 링크가 소속이 아닌 섬이면 서버가 거절해 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockRejectedValue(new ApiError('MEMBER_ONLY', '소속이 아니에요.', 403));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_STRANGER}`));
+  await waitFor(() => assert.ok(screen.getByText(LINK_TOAST)));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(mockSwitchCurrent.mock.calls[0][0], LINK_ISLAND_STRANGER);
+  assert.equal(captured.route, 'home');
+  assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_A);
+});
+
+// 다른 기기에서 방금 가입·승인된 섬은 이 앱의 로컬 스냅샷에 아직 없다 — 서버가 받아 주면 열어야 한다.
+test('로컬 소속 스냅샷에 없는 섬도 서버가 받아 주면 옮기고 홈으로 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockImplementation(async (islandId: string) => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: islandId }],
+        nextCursor: null,
+        currentIslandId: islandId,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    });
+  });
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_STRANGER}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_STRANGER);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('집중 중에 받은 group 링크는 섬을 옮기지 않고 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  await act(async () =>
+    captured.dispatch({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'session-1',
+        islandId: LINK_ISLAND_A,
+        subject: '집중',
+        startedAt: Date.now(),
+        seconds: 0,
+        status: 'active',
+        intervals: [],
+      },
+    }),
+  );
+  assert.ok(captured.state.session);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.ok(screen.getByText(LINK_TOAST));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 0);
+});
+
+test('집중 중에도 현재 섬을 가리키는 group 링크는 서버 상태확인으로 홈에 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  await act(async () =>
+    captured.dispatch({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'session-1',
+        islandId: LINK_ISLAND_A,
+        subject: '집중',
+        startedAt: Date.now(),
+        seconds: 0,
+        status: 'active',
+        intervals: [],
+      },
+    }),
+  );
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_A}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('현재 섬을 옮기지 못하면 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockRejectedValue(new ApiError('MEMBER_ONLY', '소속이 아니에요.', 403));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await waitFor(() => assert.ok(screen.getByText(LINK_TOAST)));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(captured.route, 'home');
+});
+
+test('magazine 링크는 소속 섬이 있으면 섬 잡지로, 없으면 바다 잡지로 호 id 와 함께 연다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A]);
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+test('소속 섬이 없는 계정(ISLAND_SYNC 소속 0)의 magazine 링크는 바다 잡지로 열고 group 링크는 보관한다', async () => {
+  await renderLinkedApp(null, [], 'sea');
+  // 계정 온보딩은 끝났지만 현재 섬이 없는 실제 상태다 — ISLAND_SYNC 가 onboarded(현재 섬 유무)를 false 로 둔다.
+  assert.equal(captured.state.onboarded, false);
+  assert.equal(captured.state.serverIslands.currentIslandId, null);
+
+  // 섬 이동은 현재 섬 맥락이 필요해 그대로 보관한다.
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  assert.equal(captured.route, 'sea');
+  assert.equal(mockSwitchCurrent.mock.calls.length, 0);
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'seaMagazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+// 섬/바다 잡지는 serverIslands 로 가른다 — 동기화가 실패해 비어 있는 동안에는 바다 잡지로 잘못 열지 않고 보관한다.
+test('섬 동기화 전에 받은 magazine 링크는 보관했다가 동기화 뒤 섬 잡지로 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'sea', false);
+  assert.ok(!captured.state.serverIslands);
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'sea');
+
+  await act(async () =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }],
+        nextCursor: null,
+        currentIslandId: LINK_ISLAND_A,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    }),
+  );
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+// 잡지 배경은 섬 홈이고 섬장 여부(끝 쪽 안내)도 홈 스냅샷으로 정해진다 — 링크로 곧장 열어도 홈을 조회해야 한다.
+test('홈 스냅샷이 없는 상태에서 magazine 링크로 들어가면 홈 스냅샷을 조회한다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A]);
+  assert.ok(!captured.state.serverIslands.home);
+  // 홈 조회는 홈 위젯 갱신도 부른다 — 링크로 잡지에 들어간 뒤 조회가 더 늘어나는지 본다.
+  const before = mockLoadHomeSnapshot.mock.calls.length;
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  await waitFor(() => assert.ok(mockLoadHomeSnapshot!.mock.calls.length > before));
+});
+
+// 집중 → 휴식 전환 애니메이션이 도는 동안 받은 링크는 전환이 끝난 뒤에 열린다 — 끝날 때 부르는 navigate 가 덮어쓰지 않게.
+test('집중 → 휴식 전환 중에 받은 링크는 전환이 끝난 뒤에 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'focus');
+  await act(async () => captured.go('rest'));
+  // 전환(620ms)이 도는 동안은 화면이 그대로다
+  assert.equal(captured.route, 'focus');
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'focus');
+
+  await waitFor(() => assert.equal(captured.route, 'magazine'), { timeout: 3000 });
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+// 두 보류가 겹친다 — 전환이 끝나도 섬 동기화 전이면 링크는 계속 보관되고, 동기화가 들어오는 순간 한 번만 열린다.
+test('휴식 전환 중에 섬 동기화 전 magazine 링크가 오면 전환이 끝나도 보관하다 동기화 뒤 한 번만 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'focus', false);
+  assert.ok(!captured.state.serverIslands);
+  await act(async () => captured.go('rest'));
+  assert.equal(captured.route, 'focus');
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'focus');
+
+  // 전환(620ms)이 끝나 목적지 rest 에 닿아도 동기화 전이라 링크는 열리지 않는다
+  await waitFor(() => assert.equal(captured.route, 'rest'), { timeout: 3000 });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.equal(captured.route, 'rest');
+
+  await act(async () =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }],
+        nextCursor: null,
+        currentIslandId: LINK_ISLAND_A,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    }),
+  );
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+
+  // 한 번 소비한 링크는 사라진다 — 사용자가 다른 화면으로 옮겨도 다시 열리지 않는다
+  await act(async () => captured.go('friends'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.equal(captured.route, 'friends');
+});
+
+// 구경 중에는 SERVER_VISIT_ROUTES 만 열려 목적지가 막힌다 — 링크가 구경을 먼저 끝내고 연다.
+test.each([
+  ['현재 섬을 가리키는 group', `gromo://group?g=${LINK_ISLAND_A}`, 'home', '', 1],
+  ['magazine', `gromo://magazine?issue=${LINK_ISSUE}`, 'magazine', LINK_ISSUE, 0],
+  ['friends', 'gromo://friends', 'friends', '', 0],
+  ['지원하지 않는 join', `gromo://join?g=${LINK_ISLAND_B}`, 'home', '', 0],
+] as const)(
+  '서버 섬 구경 중 받은 %s 링크는 구경을 끝내고 목적지를 연다',
+  async (_name, url, route, detail, switches) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    await act(async () => {
+      captured.dispatch({ type: 'ISLAND_VISIT', visit: { island: { id: LINK_ISLAND_STRANGER } } });
+      captured.dispatch({ type: 'SERVER_VISITING', islandId: LINK_ISLAND_STRANGER });
+      captured.reset('visitIsland', LINK_ISLAND_STRANGER);
+    });
+    assert.equal(captured.state.visitingIslandId, LINK_ISLAND_STRANGER);
+
+    await act(async () => mockEmitAppLink!(url));
+    await waitFor(() => assert.equal(captured.route, route));
+    assert.equal(captured.state.visitingIslandId, null);
+    assert.equal(captured.detail, detail);
+    assert.equal(mockSwitchCurrent.mock.calls.length, switches);
+  },
+);
+
+test.each(['성공', '실패'] as const)(
+  '섬 이동 응답이 오기 전에 더 새 링크를 열었으면 늦은 %s 응답이 화면을 덮지 않는다',
+  async (outcome) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    let settle!: () => void;
+    mockSwitchCurrent.mockReturnValue(
+      new Promise<void>((resolve, reject) => {
+        settle = () => {
+          if (outcome === '실패') return reject(new ApiError('STATE_CONFLICT', '충돌', 409));
+          mockAppDispatch!({
+            type: 'ISLAND_SYNC',
+            memberships: {
+              items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }],
+              nextCursor: null,
+              currentIslandId: LINK_ISLAND_B,
+              lossReason: null,
+            },
+            requests: [],
+            mainIslandId: LINK_ISLAND_A,
+          });
+          resolve();
+        };
+      }),
+    );
+
+    await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+    assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+    await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+    await waitFor(() => assert.equal(captured.route, 'magazine'));
+
+    await act(async () => {
+      settle();
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    assert.equal(captured.route, 'magazine');
+    assert.equal(captured.detail, LINK_ISSUE);
+    assert.ok(!screen.queryByText(LINK_TOAST));
+  },
+);
+
+// 진짜 selection 잠금(islandCommands.ts)처럼 이동 중인 동안 다른 switchCurrent 를 REQUEST_IN_PROGRESS 로 거절하는 서버 흉내.
+const gatedSwitch = (hold: string) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let busy = false;
+  mockSwitchCurrent.mockImplementation(async (islandId: string) => {
+    if (busy)
+      throw new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요. 잠시 기다려 주세요.', 409);
+    busy = true;
+    try {
+      if (islandId === hold) await gate;
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: LINK_ISLAND_C }],
+          nextCursor: null,
+          currentIslandId: islandId,
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: LINK_ISLAND_A,
+      });
+    } finally {
+      busy = false;
+    }
+  });
+  return release;
+};
+
+test('섬 이동 중에 다른 섬 링크가 오면 거절된 최신 목적지 하나를 이동이 끝난 뒤 이어서 연다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  const release = gatedSwitch(LINK_ISLAND_B);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  // C 는 REQUEST_IN_PROGRESS 로 거절됐지만 사라지거나 «열 수 없는 섬» 안내로 끝나지 않는다.
+  assert.equal(mockSwitchCurrent.mock.calls.length, 2);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+  assert.equal(captured.route, 'settings');
+
+  await act(async () => {
+    release();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_C));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(
+    mockSwitchCurrent.mock.calls.map(([id]) => id).join(),
+    [LINK_ISLAND_B, LINK_ISLAND_C, LINK_ISLAND_C].join(),
+  );
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('보관한 섬 링크는 그 뒤에 더 새 링크가 오면 버린다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  const release = gatedSwitch(LINK_ISLAND_B);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+
+  await act(async () => {
+    release();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  assert.equal(captured.route, 'magazine');
+  assert.equal(mockSwitchCurrent.mock.calls.length, 2);
+});
+
+// 요청 중 이동을 막지는 않는다 — 사용자가 직접 다른 화면으로 옮겼다면 늦은 응답이 그 화면을 덮지 않는다.
+// 세션 A 의 늦은 응답이 세션 B 에서 보관해 둔 링크를 지우면 안 된다(세대 격리).
+test('이전 세션의 늦은 섬 이동 응답은 새 세션이 보관한 섬 링크를 지우지 않는다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  let staleSession!: () => void;
+  let finishFirst!: () => void;
+  const syncTo = (islandId: string) =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: LINK_ISLAND_C }],
+        nextCursor: null,
+        currentIslandId: islandId,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    });
+  mockSwitchCurrent
+    // 세션 A 의 요청 — 재로그인 뒤에야 CLIENT_STALE_SESSION 으로 끝난다
+    .mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        staleSession = () => reject(new ApiError('CLIENT_STALE_SESSION', '세션이 바뀌었어요.', 0));
+      }),
+    )
+    // 세션 B 의 첫 링크 — 응답을 붙잡아 둔다
+    .mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishFirst = () => {
+          syncTo(LINK_ISLAND_B);
+          resolve();
+        };
+      }),
+    )
+    // 세션 B 의 둘째 링크 — 첫 이동의 잠금에 거절된다
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요.', 409))
+    // 보관분을 다시 보낸다
+    .mockImplementationOnce(async (islandId: string) => syncTo(islandId));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  const generationA = sessionGeneration();
+  await act(async () => {
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+  });
+  assert.notEqual(sessionGeneration(), generationA);
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 3);
+
+  await act(async () => {
+    staleSession();
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await act(async () => {
+    finishFirst();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_C));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(
+    mockSwitchCurrent.mock.calls.map(([id]) => id).join(),
+    [LINK_ISLAND_B, LINK_ISLAND_B, LINK_ISLAND_C, LINK_ISLAND_C].join(),
+  );
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+// REQUEST_IN_PROGRESS 가 아닌 오류(비소속 거절)로 끝난 앞선 전환도 보관한 링크를 이어서 연다.
+test('앞선 섬 이동이 MEMBER_ONLY 로 거절돼도 그 사이 보관한 링크로 이어서 옮긴다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  let rejectFirst!: () => void;
+  mockSwitchCurrent
+    // 링크 B — 응답을 붙잡아 둔다
+    .mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectFirst = () => reject(new ApiError('MEMBER_ONLY', '소속이 아니에요.', 403));
+      }),
+    )
+    // 링크 C — B 의 잠금에 거절돼 보관된다
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요.', 409))
+    // 보관분 재개
+    .mockImplementationOnce(async (islandId: string) =>
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: LINK_ISLAND_C }],
+          nextCursor: null,
+          currentIslandId: islandId,
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: LINK_ISLAND_A,
+      }),
+    );
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 2);
+
+  await act(async () => {
+    rejectFirst();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_C));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(
+    mockSwitchCurrent.mock.calls.map(([id]) => id).join(),
+    [LINK_ISLAND_B, LINK_ISLAND_C, LINK_ISLAND_C].join(),
+  );
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test.each(['성공', '실패'] as const)(
+  '섬 이동 응답을 기다리는 사이 사용자가 직접 화면을 옮겼으면 늦은 %s 응답이 덮지 않는다',
+  async (outcome) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    let settle!: () => void;
+    mockSwitchCurrent.mockReturnValue(
+      new Promise<void>((resolve, reject) => {
+        settle = () =>
+          outcome === '실패' ? reject(new ApiError('STATE_CONFLICT', '충돌', 409)) : resolve();
+      }),
+    );
+
+    await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+    assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+    await act(async () => captured.go('friends'));
+    await waitFor(() => assert.equal(captured.route, 'friends'));
+
+    await act(async () => {
+      settle();
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    assert.equal(captured.route, 'friends');
+    assert.ok(!screen.queryByText(LINK_TOAST));
+  },
+);
 
 test.each([
   ['focus', 11, 'active', 11],

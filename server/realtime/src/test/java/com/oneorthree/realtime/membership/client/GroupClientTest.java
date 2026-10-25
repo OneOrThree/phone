@@ -1,10 +1,12 @@
 package com.oneorthree.realtime.membership.client;
 
-import com.oneorthree.realtime.common.exception.CommonErrorCode;
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,38 +16,38 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * 상류 응답을 <b>실제 HTTP</b> 로 받아 본다 — JDK 내장 서버라 새 의존성이 없다.
- *
- * <p>이 클래스에서 확인하려는 것은 「어느 실패를 «아니오»로 접고 어느 실패를 «모르겠다»로 올리는가」다.
- * 그 갈림은 RestClient 가 <b>언제 본문을 읽는지</b>에 달려 있어서, 목으로는 한 글자도 검증되지 않는다:
- * 401 의 본문은 에러 봉투인데 그걸 {@code List<GroupRef>} 로 읽으려 들면 변환이 터지고, 그 예외를
- * 뭉뚱그려 잡으면 <b>「판정 완료(비멤버)」가 「판정 불가(503)」로 뒤집힌다.</b>
- */
+/** 실제 HTTP로 내부 섬 목록의 자격·본문·오류 계약을 검증한다. */
 class GroupClientTest {
 
-    private static final String BEARER = "Bearer test-token";
+    private static final String JWT_SECRET = "group-client-test-secret-key-at-least-256-bits-long";
+    private static final String SERVICE_TOKEN = "test-realtime-to-data";
+    private static final UUID USER_ID = UUID.randomUUID();
+    private static final String BEARER = bearer("access", Instant.now().plusSeconds(3600));
 
     private HttpServer server;
     private GroupClient groupClient;
     private final AtomicReference<Responder> responder = new AtomicReference<>();
     private final AtomicReference<String> lastAuthorization = new AtomicReference<>();
+    private final AtomicReference<String> lastUserId = new AtomicReference<>();
 
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/api/v1/groups", exchange -> {
+        server.createContext("/internal/users/" + USER_ID + "/islands", exchange -> {
             lastAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            lastUserId.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             responder.get().respond(exchange);
         });
         server.start();
-        groupClient = new GroupClient("http://127.0.0.1:" + server.getAddress().getPort(), 1000);
+        groupClient = new GroupClient(baseUrl(), 1000, SERVICE_TOKEN, new JwtValidator(JWT_SECRET));
     }
 
     @AfterEach
@@ -54,157 +56,129 @@ class GroupClientTest {
     }
 
     @Test
-    @DisplayName("헤더만 보내고 본문이 멈추면 타임아웃 안에 실패한다 — 본문 읽기도 무한 대기가 아니다")
-    void stalledBodyFailsWithinReadTimeout() {
-        respondWith(exchange -> {
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, 100);
-            exchange.getResponseBody().write('[');
-            exchange.getResponseBody().flush();
-            try {
-                Thread.sleep(6000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        long started = System.nanoTime();
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> groupClient.fetchMyGroupIds("Bearer t"))
-                .isInstanceOf(com.oneorthree.realtime.common.exception.UpstreamUnavailableException.class);
-        assertThat(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(3000L);
+    @DisplayName("내부 섬 목록의 items.id를 읽고 사용자 AT 대신 서비스 자격과 검증된 주체를 보낸다")
+    void fetchesCurrentIslandsWithServiceCredential() {
+        UUID islandId = UUID.randomUUID();
+        respondWith(200, "{\"items\":[{\"id\":\"" + islandId
+                + "\",\"name\":\"우리 섬\",\"membershipStatus\":\"active\"}],"
+                + "\"currentIslandId\":null,\"lossReason\":null}");
+
+        GroupClient.Membership membership = groupClient.fetchMyGroupIds(BEARER);
+
+        assertThat(membership.groupIds()).containsExactly(islandId);
+        assertThat(membership.cacheable()).isTrue();
+        assertThat(lastAuthorization.get()).isEqualTo("Bearer " + SERVICE_TOKEN).isNotEqualTo(BEARER);
+        assertThat(lastUserId.get()).isEqualTo(USER_ID.toString());
     }
 
     @Test
-    @DisplayName("200 이면 groupId 만 뽑는다 — 나머지 필드는 몰라도 된다")
-    void extractsGroupIdsOnly() {
-        UUID groupId = UUID.randomUUID();
-        // 상류의 실제 응답 모양(GroupSummaryResponse)에는 필드가 더 많다. 채팅이 아는 게 적을수록
-        // 상류가 자유롭게 바뀔 수 있다는 계약을 여기서 확인한다.
-        respondWith(200, "[{\"groupId\":\"" + groupId + "\",\"name\":\"우리 섬\",\"currentMembers\":3,"
-                + "\"role\":\"MEMBER\",\"isPrivate\":false}]");
-
-        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).containsExactly(groupId);
-    }
-
-    @Test
-    @DisplayName("Authorization 헤더를 «통째로» 전달한다 — 접두를 떼면 상류가 401 을 준다")
-    void forwardsAuthorizationHeaderVerbatim() {
-        respondWith(200, "[]");
-
-        groupClient.fetchMyGroupIds(BEARER);
-
-        assertThat(lastAuthorization.get()).isEqualTo(BEARER);
-    }
-
-    @Test
-    @DisplayName("빈 배열은 「아무 섬에도 안 속함」이다 — 예외가 아니고, 캐시해도 되는 답이다")
+    @DisplayName("items가 빈 배열이면 무소속이며 캐시할 수 있다")
     void emptyMembershipIsNotAnError() {
-        respondWith(200, "[]");
+        respondWith(200, "{\"items\":[],\"currentIslandId\":null,\"lossReason\":\"LEFT\"}");
 
-        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
-        assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isTrue();
+        GroupClient.Membership membership = groupClient.fetchMyGroupIds(BEARER);
+
+        assertThat(membership.groupIds()).isEmpty();
+        assertThat(membership.cacheable()).isTrue();
     }
 
     @Test
-    @DisplayName("본문 없음(204·빈 200)·groupId 없는 항목은 «소속 없음»이 아니다 — 캐시 불가로 돌린다(GROMO-2258)")
+    @DisplayName("본문·items·id 누락은 무소속이 아니며 방문자 자격으로 캐시할 수 없다")
     void malformedSuccessIsNotAnEmptyMembership() {
-        // 빈 배열 [] 만이 정상 «아무 섬에도 없음»이다. 나머지를 빈 집합으로 캐시하면 주민이 «방문자»가 된다.
-        UUID groupId = UUID.randomUUID();
         for (Responder malformed : new Responder[] {
                 exchange -> exchange.sendResponseHeaders(204, -1),
                 exchange -> exchange.sendResponseHeaders(200, -1),
-                json(200, "[{\"name\":\"이름만\"},{\"groupId\":\"" + groupId + "\"}]"),
-                json(200, "[null]")}) {
+                json(200, "{}"), json(200, "{\"items\":null}"),
+                json(200, "{\"items\":[{\"name\":\"이름만\"}]}"),
+                json(200, "{\"items\":[null]}")}) {
             respondWith(malformed);
 
             GroupClient.Membership membership = groupClient.fetchMyGroupIds(BEARER);
+
             assertThat(membership.groupIds()).isEmpty();
             assertThat(membership.cacheable()).isFalse();
         }
     }
 
     @Test
-    @DisplayName("401 은 «비멤버»가 아니다 — UNAUTHORIZED 로 올려 앱이 토큰을 갱신하게 한다")
-    void unauthorizedSurfacesAsUnauthorized() {
-        // 이 본문이 핵심이다. List<GroupRef> 로 읽으려 들면 변환이 터지고, 그러면 503 으로 뒤집힌다.
-        respondWith(401, "{\"code\":\"UNAUTHORIZED\",\"message\":\"인증이 필요합니다.\"}");
-
-        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
-                .isInstanceOf(UpstreamRejectedCredentialException.class)
-                .extracting(e -> ((UpstreamRejectedCredentialException) e).getErrorCode())
-                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+    @DisplayName("무효·만료·refresh 자격은 내부 호출 전에 거절한다")
+    void invalidAccessCredentialDoesNotReachData() {
+        for (String invalid : new String[] {null, "not-bearer", "Bearer invalid",
+                bearer("access", Instant.now().minusSeconds(60)),
+                bearer("refresh", Instant.now().plusSeconds(3600))}) {
+            assertThatThrownBy(() -> groupClient.fetchMyGroupIds(invalid))
+                    .isInstanceOf(UpstreamRejectedCredentialException.class);
+        }
+        assertThat(lastAuthorization.get()).isNull();
     }
 
     @Test
-    @DisplayName("401 을 «판정 불가»(503)로 뒤집지 않는다 — 본문이 에러 봉투여도 그물에 안 걸린다")
-    void unauthorizedIsNotFlippedToUpstreamUnavailable() {
-        respondWith(401, "{\"code\":\"UNAUTHORIZED\",\"message\":\"인증이 필요합니다.\"}");
+    @DisplayName("Data의 USER_NOT_FOUND만 사용자 자격 거절로 전달한다")
+    void withdrawnUserCannotBeTreatedAsAVisitor() {
+        respondWith(404, "{\"code\":\"USER_NOT_FOUND\",\"message\":\"사용자가 없습니다\"}");
 
         assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
-                .isNotInstanceOf(UpstreamUnavailableException.class);
+                .isInstanceOf(UpstreamRejectedCredentialException.class);
     }
 
     @Test
-    @DisplayName("403 은 판정이라 빈 집합으로 접는다 — 갱신해도 달라지지 않으니 UNAUTHORIZED 가 아니다")
-    void forbiddenFoldsToEmpty() {
-        respondWith(403, "{\"code\":\"FORBIDDEN\",\"message\":\"권한이 없습니다.\"}");
-
-        assertThat(groupClient.fetchMyGroupIds(BEARER).groupIds()).isEmpty();
-        // 「이 사람의 소속」에 대한 사실이 아니므로 캐시하지 않는다.
-        assertThat(groupClient.fetchMyGroupIds(BEARER).cacheable()).isFalse();
+    @DisplayName("내부 서비스 401·403 및 경로 404·5xx는 사용자 판정이 아닌 상류 장애다")
+    void serviceErrorsCannotBeCachedOrTriggerUserRefresh() {
+        for (int status : new int[] {400, 401, 403, 404, 500, 503}) {
+            respondWith(status, "{\"code\":\"INTERNAL_ERROR\"}");
+            assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                    .isInstanceOf(UpstreamUnavailableException.class);
+        }
     }
 
     @Test
-    @DisplayName("400·404 는 접지 않는다 — 이 유저에 대한 판정이 아니라 «우리 쪽이 어긋났다»는 신호다")
-    void otherClientErrorsAreNotSilentDenial() {
-        // 401/403 과 «같은 4xx» 라는 이유로 함께 접으면, 배선 사고(엔드포인트 이동·요청 형식 변경)가
-        // 「전원 비멤버」라는 조용한 차단으로 나타난다.
-        respondWith(404, "{\"code\":\"NOT_FOUND\"}");
-        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
-                .isInstanceOf(UpstreamUnavailableException.class);
-
-        respondWith(400, "{\"code\":\"INVALID_REQUEST\"}");
-        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
-                .isInstanceOf(UpstreamUnavailableException.class);
-    }
-
-    @Test
-    @DisplayName("5xx 는 «모르겠다»다 — 빈 집합으로 접으면 장애가 조용한 전원 차단이 된다")
-    void serverErrorIsNotSilentDenial() {
-        respondWith(500, "{\"code\":\"INTERNAL_ERROR\"}");
-
-        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
-                .isInstanceOf(UpstreamUnavailableException.class);
-    }
-
-    @Test
-    @DisplayName("200 인데 본문이 깨졌으면 그것도 «모르겠다»다")
+    @DisplayName("깨진 성공 본문과 옛 공개 API 배열은 현재 섬 목록이 아니다")
     void brokenSuccessBodyIsNotSilentDenial() {
-        respondWith(200, "not json at all");
-
-        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
-                .isInstanceOf(UpstreamUnavailableException.class);
+        for (String body : new String[] {"not json at all", "[]"}) {
+            respondWith(200, body);
+            assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                    .isInstanceOf(UpstreamUnavailableException.class);
+        }
     }
 
     @Test
-    @DisplayName("상류가 답하지 않으면 타임아웃 뒤 «모르겠다» — 채널 스레드가 영영 잠기지 않는다")
-    void timesOut() {
+    @DisplayName("비어 있거나 치환되지 않은 서비스 자격으로는 기동하지 않는다")
+    void rejectsMissingServiceCredential() {
+        for (String invalid : new String[] {null, "", " ", "${SVC_TOKEN_REALTIME_TO_DATA}", "line\nbreak"}) {
+            assertThatThrownBy(() -> new GroupClient(baseUrl(), 1000, invalid, new JwtValidator(JWT_SECRET)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("헤더 뒤 본문이 멈춰도 읽기 타임아웃 안에 실패한다")
+    void stalledBodyFailsWithinReadTimeout() {
         respondWith(exchange -> {
-            try {
-                Thread.sleep(3000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, 100);
+            exchange.getResponseBody().write('{');
+            exchange.getResponseBody().flush();
+            pause(6000);
         });
-
-        long startedAt = System.currentTimeMillis();
+        long started = System.nanoTime();
         assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
                 .isInstanceOf(UpstreamUnavailableException.class);
-        // 무제한이었다면 3초를 다 기다렸을 것이다. 타임아웃 1초 + 여유.
-        assertThat(System.currentTimeMillis() - startedAt).isLessThan(2500);
+        assertThat(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(3000L);
     }
 
     @Test
-    @DisplayName("상류가 아예 없으면(연결 거부) «모르겠다»")
+    @DisplayName("상류가 응답하지 않으면 채널 스레드를 무한 대기시키지 않는다")
+    void timesOut() {
+        respondWith(exchange -> pause(3000));
+
+        long started = System.currentTimeMillis();
+        assertThatThrownBy(() -> groupClient.fetchMyGroupIds(BEARER))
+                .isInstanceOf(UpstreamUnavailableException.class);
+        assertThat(System.currentTimeMillis() - started).isLessThan(2500);
+    }
+
+    @Test
+    @DisplayName("연결 거부는 무소속이 아닌 상류 장애다")
     void connectionRefusedIsNotSilentDenial() {
         server.stop(0);
 
@@ -212,7 +186,23 @@ class GroupClientTest {
                 .isInstanceOf(UpstreamUnavailableException.class);
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────
+    private String baseUrl() {
+        return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
+    private static String bearer(String type, Instant expiresAt) {
+        return "Bearer " + Jwts.builder().subject(USER_ID.toString()).claim("type", type)
+                .expiration(Date.from(expiresAt))
+                .signWith(Keys.hmacShaKeyFor(JWT_SECRET.getBytes(StandardCharsets.UTF_8))).compact();
+    }
+
+    private static void pause(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private void respondWith(int status, String body) {
         respondWith(json(status, body));

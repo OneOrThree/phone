@@ -9,11 +9,8 @@ import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
-import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
-import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,12 +55,6 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
     @Autowired
     SocialAccountRepository socialAccountRepository;
     @Autowired
-    UserWalletRepository userWalletRepository;
-    @Autowired
-    UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
-    @Autowired
-    UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
-    @Autowired
     UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Autowired
     AuthSessionRepository authSessionRepository;
@@ -83,7 +74,6 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
         guestId = userRepository.save(User.builder().isGuest(true).build()).getId();
         sessionId = authSessionRepository.save(AuthSession.builder()
                 .userId(guestId)
-                .refreshTokenHash("race-1229")
                 .sessionEpoch(1L)
                 .build()).getId();
     }
@@ -153,9 +143,7 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
     }
 
     private void deleteUserWithSideRows(UUID userId) {
-        userWalletRepository.deleteById(userId);
-        userScreenTimeSettingsRepository.deleteById(userId);
-        userFocusTimeSettingsRepository.deleteById(userId);
+
         userNotificationSettingsRepository.deleteById(userId);
         userRepository.deleteById(userId);
     }

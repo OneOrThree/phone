@@ -23,7 +23,7 @@ import java.util.UUID;
 /**
  * 봉투 하나의 <b>한 대상</b>에 대한 전달 상태 (A21, V51).
  *
- * <p>relay 는 「전달 표시가 비어 있는 대상만」 재시도한다. 그래서 Kafka 는 갔는데 링크 HTTP 가
+ * <p>relay 는 「전달 표시가 비어 있는 대상만」 재시도한다. 그래서 Kafka 는 갔는데 realtime HTTP 가
  * 실패한 사건이 Kafka 로 다시 가지 않는다.
  *
  * <p><b>순서 축 세 컬럼({@code aggregateType}·{@code aggregateId}·{@code aggregateVersion})은
@@ -64,7 +64,7 @@ public class EventOutboxDelivery {
 
     /**
      * 이 대상에 실제로 보낼 본문. Kafka 는 정본 봉투 그대로, HTTP 대상은 그 명령의 본문이다 —
-     * 링크 폐기의 {@code linkVersion}·{@code membershipEpoch} 처럼 대상에만 필요한 값이 여기 든다(ⓑ″).
+     * 알림 설정 명령처럼 대상에만 필요한 값이 여기 든다.
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false)

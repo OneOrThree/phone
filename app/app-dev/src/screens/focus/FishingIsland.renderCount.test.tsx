@@ -6,11 +6,12 @@ import React from 'react';
 import { Animated, PanResponder, StyleSheet } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -31,7 +32,7 @@ jest.mock('@/screens/island/IslandOcean', () => {
     },
   };
 });
-const { FishingIsland, fishingCamera } =
+const { FishingActor, FishingIsland, fishingCamera } =
   require('./FishingIsland') as typeof import('./FishingIsland');
 
 afterEach(() => jest.restoreAllMocks());
@@ -104,4 +105,57 @@ test('집중섬 지도를 두 손가락으로 집어도 손을 뗄 때 한 번�
   expect(map().width).toBeCloseTo(zoomed.size);
   expect(map().left).toBeCloseTo(zoomed.left);
   await screen.unmount();
+});
+
+test('화면 가장자리 자리의 머리 위 말풍선·이름은 보이는 범위 안으로 밀린다(GROMO-2409)', async () => {
+  const actor = (x: number, name: string) => (size: number, sizeY: number) => (
+    <FishingActor
+      key={name}
+      spot={{ x, y: 40, face: 1 }}
+      size={size}
+      sizeY={sizeY}
+      color="white"
+      name={name}
+      subject="수학"
+      seconds={60}
+      reduce
+    />
+  );
+  const screen = await render(
+    <FishingIsland focus={{ x: 50, y: 50 }} spots={[]} onRaft={jest.fn()}>
+      {(size, sizeY) => [actor(20, '민지')(size, sizeY), actor(50, '두부')(size, sizeY)]}
+    </FishingIsland>,
+  );
+  const view = fishingCamera(402, 874, 1, { x: 50, y: 50 });
+  const a = view.size * 0.077,
+    centered = a / 2 - 100,
+    left = (id: string) =>
+      screen.getAllByTestId(id).map((node) => StyleSheet.flatten(node.props.style).left);
+  const [edgeLabel, middleLabel] = left('fishing-actor-label');
+  const [edgeName, middleName] = left('fishing-actor-name');
+  // 가운데 자리는 그대로
+  expect(middleLabel).toBe(centered);
+  expect(middleName).toBe(centered);
+  // 왼쪽 가장자리 자리: 말풍선(폭 66) 왼쪽 끝이 화면 왼쪽(지도 x = sx)에 맞고, 이름도 안쪽으로 밀린다
+  const labelCenter = (view.size * 20) / 100 + edgeLabel - centered;
+  expect(labelCenter - 33).toBeCloseTo(view.sx);
+  expect(edgeName).toBeGreaterThan(centered);
+  await screen.unmount();
+
+  // 접근성 글자 배율만큼 이름이 넓어지므로 더 많이 민다
+  mockFontScale = 2;
+  try {
+    const large = await render(
+      <FishingIsland focus={{ x: 50, y: 50 }} spots={[]} onRaft={jest.fn()}>
+        {(size, sizeY) => [actor(20, '민지')(size, sizeY)]}
+      </FishingIsland>,
+    );
+    const [largeName] = large
+      .getAllByTestId('fishing-actor-name')
+      .map((node) => StyleSheet.flatten(node.props.style).left);
+    expect(largeName).toBeGreaterThan(edgeName);
+    await large.unmount();
+  } finally {
+    mockFontScale = 1;
+  }
 });

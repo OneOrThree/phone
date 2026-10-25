@@ -156,15 +156,9 @@ jobs:
       - name: Business 테스트 도구 이미지 정리
         if: always() && matrix.service == 'business-api' && fromJSON(needs.changes.outputs.services)[matrix.service]
         run: docker image rm "business-api-test:${GITHUB_RUN_ID}" || true
-      - name: 변경 없는 Notification은 체크섬 검사에 필요한 JAR만 생성
-        if: matrix.service == 'notification' && !fromJSON(needs.changes.outputs.services)[matrix.service]
-        run: ./gradlew bootJar --no-daemon --stacktrace
       - name: Notification 실제 테스트 · 정적 검사 · bootJar
         if: matrix.service == 'notification' && fromJSON(needs.changes.outputs.services)[matrix.service]
         run: ./gradlew build --stacktrace
-      - name: Data export와 실제 Noti Jackson 체크섬 대조
-        if: matrix.service == 'notification'
-        run: python3 ../../.github/scripts/check-migration-checksum.py
       - uses: ./.github/actions/ci-jar
         if: fromJSON(needs.changes.outputs.services)[matrix.service]
         with:

@@ -81,55 +81,19 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * 집중 세션 수명주기 API 6종 (GROMO-1764) — {@code POST /focus-sessions}(start) ·
- * {@code GET /focus-sessions/current} · {@code .../pause} · {@code .../resume} ·
- * {@code .../finish} · {@code GET /me/focus-summary}. 설계 정본은
- * {@code docs/prd/fishcat/focus-rest-session/low-level-design.md}.
+ * 집중 세션의 시작·휴식·재개·종료와 현재 상태·결과 조회를 처리한다.
+ * Business의 공개 API는 {@code InternalFocusSessionController}를 통해 이 서비스에 위임한다.
  *
- * <p><b>이 클래스가 여는 것은 공개 경로가 아니다.</b> 위 경로는 Business 의 공개 표면이고, data-api 는
- * {@code InternalFocusSessionController} 의 {@code /internal/users/{userId}/…} 위임만 받는다 — nginx 가
- * 무접두 {@code /focus-sessions}·{@code /me} 를 Business 로 보내기 때문이다. 아래 메서드 주석의 경로는
- * 「이 메서드가 구현하는 LLD §2 계약의 이름」이지 data-api 의 매핑이 아니다.
+ * <p>시작은 사용자 행을 배타 잠가 중복 생성을 막는다. 기존 세션의 전이는 사용자 공유 잠금 이후
+ * 섬·멤버십·상세 순서로 잠그며, 강퇴와의 경합도 이 순서를 따른다. 잠금 전에 필요한 소유 정보는
+ * {@link FocusSessionOwnership}으로 읽는다.
  *
- * <p>태그 5종({@link FocusService}의 태그 메서드)은 건드리지 않는다 — 별개 레거시 폐기 대상이라
- * 이 클래스로 옮기거나 지우지 않는다.
+ * <p>시작에는 {@link FocusSessionStartGate}와 활성 보상 정책이 필요하다. 시작 시 정책 revision을
+ * 고정하고 종료 시 같은 정책으로 정산한다. 정책이 없는 기록은 임의 값으로 정산하지 않는다.
  *
- * <h2>잠금 순서(LLD §3)</h2>
- * start는 아직 진행 마커가 없어 <b>배타</b> 사용자 락({@link #requireActiveUserForUpdate})으로
- * "동시 start 둘 다 마커 없음을 보고 둘 다 INSERT"를 막는다(레거시 {@code startFocusSession}과 같은
- * 이유). pause/resume/finish는 이미 존재하는 상세 행 자체가 잠금 지점이라 <b>공유</b> 사용자 락
- * ({@link #requireActiveUser})만 잡고, {@link FocusSessionDetailRepository#findBySessionIdForUpdate}로
- * 그 행을 배타 잠근다(레거시 {@code endFocusSession}과 같은 결).
- *
- * <p><b>섬·멤버십을 상세보다 «먼저» 잠근다</b>(GROMO-1924, 선행 조건 #8). 순서는 LLD §3 그대로
- * 사용자 → (receipt) → 섬 행 배타 → 그 섬의 활성 멤버십 공유 → 상세 배타 → 구간이다. 강퇴
- * ({@code GroupMemberService.kickMember})가 사용자 공유 → 섬 행 배타 → 멤버십 배타 순으로 잡으므로,
- * 전이와 강퇴는 섬 행에서 줄을 서고 둘 중 먼저 온 쪽이 끝난 뒤에 나머지가 판정한다 — 강퇴가 이기면
- * 전이는 멤버십 없음(403)을 보고, 전이가 이기면 강퇴는 그 전이가 남긴 상태를 보고 종결한다. 멤버십을
- * 잠그지 않던 종전 순서에서는 강퇴가 «먼저» 커밋돼도 이미 검사를 통과한 전이가 outbox 까지 남겼다.
- * 상세를 먼저 잠그면 반대로 {@code pause} 의 섬 잠금과 강퇴가 서로를 기다린다 — 그래서 어느 섬을
- * 잠글지는 잠그지 않는 프로젝션({@link FocusSessionOwnership})으로 먼저 알아낸다.
- *
- * <h2>게이트와 보상 정책</h2>
- * {@link #start}는 {@link FocusSessionStartGate}(배포 설정)를 가장 앞에서 보고, 현재 보상 정책
- * revision({@link FocusRewardPolicy})이 없으면 열지 않는다 — 정책 없는 세션을 시작시켰다가 finish 에서
- * 영구히 막는 일을 만들지 않는다(LLD §2 start). 세션은 시작한 revision 을 고정하고, {@link #finish}는 그
- * revision 으로 정산한다. revision 이 없는 세션(이 티켓 이전 행)의 finish 는
- * {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE} 이다 — 값을 지어내 「성공 정산」을 만들지 않는다.
- * 선행 조건 목록과 해소 근거는 {@link FocusSessionStartGate}의 javadoc에 있다.
- *
- * <h2>기본 마커 외부 종료 방어</h2>
- * 진행 중 상세를 집는 세 지점({@link #start}·{@link #current}·{@link #authorizeSession})은
- * {@link #abandonIfMarkerClosed}로 「상세가 진행 중이면 기본 {@code focus_sessions.ended_at}이 null」
- * 이라는 불변식을 되본다 — 레거시 start가 그 사용자의 열린 마커를 전부 닫기 때문이다. 그래서
- * {@link FocusSessionLifecycle#ABANDONED}는 지급 게이트와 무관하게 관측될 수 있다.
- *
- * <h2>휴식 1시간 자동 종료(GROMO-1998)</h2>
- * {@link #autoCloseTimedOutRest} 가 {@link #REST_AUTO_CLOSE_AFTER} 를 넘긴 휴식을
- * <b>{@code finish} 와 같은 {@link #settle}</b> 로 끝낸다 — 정책이 「정상 종료와 같게 집중 기록·퀘스트
- * 진행에 반영」이라고 정했으므로 별도 종결 경로를 만들지 않는다. 포기({@code ABANDONED})·소속 상실
- * ({@code MEMBERSHIP_LOST})과 달리 <b>정산 행이 남는다</b>. 그 결과는
- * {@link #pendingResult} 가 다음 접속에 돌려주고 {@link #acknowledgeResult} 가 한 번만 소비한다.
+ * <p>기본 세션이 이미 닫혔는데 상세만 진행 중인 기록은 {@link #abandonIfMarkerClosed}로 정리한다.
+ * 1시간 이상 휴식한 세션은 {@link #autoCloseTimedOutRest}가 일반 종료와 같은 정산을 수행하고,
+ * 결과를 {@link #pendingResult}로 제공해 {@link #acknowledgeResult}로 한 번만 소비한다.
  */
 @Service
 @Slf4j
@@ -140,11 +104,7 @@ public class FocusSessionLifecycleService {
     private static final int MAX_SUBJECT_LENGTH = 200;
 
     /**
-     * 휴식 자동 종료 유예 (GROMO-1998) — 정책 정본
-     * ({@code planning-document/policy-2026-09-14.md} 「집중·휴식·도서관」)의
-     * 「휴식하기를 누른 순간부터 1시간」이다. 세션 없이 방치된 마커를 회수하는 레거시
-     * {@code FocusService.ORPHAN_TIMEOUT} 과 같은 결로 코드 상수에 둔다 — 보상 산식(60·480 등)과 달리
-     * 운영이 흔드는 값이 아니라 제품 정책의 고정 수치다.
+     * 휴식 시작부터 자동 종료까지의 유예 시간. 제품 정책에 따라 1시간으로 고정한다.
      */
     public static final Duration REST_AUTO_CLOSE_AFTER = Duration.ofHours(1);
     /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
@@ -179,13 +139,9 @@ public class FocusSessionLifecycleService {
     /** 바다 방 사건 {@code sea.member.updated} — 스위치가 꺼져 있으면 적지 않는다. */
     private final SeaSessionEvents seaSessionEvents;
     /**
-     * 섬 focus/rest 투영과 집중 프레즌스 리스를 <b>한 자리에서</b> 적는 포트(선행 조건 #5 ·
-     * LLD §6 「하나의 Data projection 포트」, GROMO-2003). 레거시와 같은 포트·같은 키를 쓴다.
+     * 섬의 집중·휴식 투영과 공유 프레즌스 리스를 함께 갱신한다.
      *
-     * <p>pause/resume 도 여기를 거친다 — 리스 값이 {@code active}/{@code paused} 를 구분하게 되면서
-     * 휴식 전이도 반영돼야 값이 정본과 어긋나지 않기 때문이다. <b>키는 세션이 끝날 때까지 남으므로
-     * 채팅 차단 판정은 그대로다</b>(휴식 중 채팅 허용은 미결 제품 결정 FR-D04 이고, 그 결정이 나면
-     * 바뀌는 것은 읽는 쪽의 매핑이지 이 쓰기가 아니다).
+     * <p>휴식·재개도 절대 상태를 기록한다. 리스는 세션 종료까지 유지하고 만료 기준은 시작 시각이다.
      */
     private final FocusPresenceProjection focusPresenceProjection;
     private final Clock clock;
@@ -279,7 +235,7 @@ public class FocusSessionLifecycleService {
                 ignored -> requireActiveUserForUpdate(userId),
                 () -> {
                     User user = requireActiveUserForUpdate(userId);
-                    // 새/구 프로토콜을 가리지 않는다 — v0.3 진행 세션도 기본 행이 endedAt=null이다.
+                    // 상세 유무와 관계없이 기본 행이 열려 있으면 진행 중 마커다.
                     if (focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user)
                             .isPresent()) {
                         throw new FocusException(FocusErrorCode.SESSION_IN_PROGRESS);
@@ -717,8 +673,7 @@ public class FocusSessionLifecycleService {
         // 호출도 적립하지 않았으므로 0 이다.
         int earned = Math.toIntExact(focusRewardAccrualRepository.sumEarnedFishOfSession(sessionId));
 
-        // 일 집계는 KST 날짜 축(date-axis 규약)의 순수 초 — 목표 코인·스트릭 같은 레거시 부수효과는 붙이지
-        // 않는다(LLD §4 「recordCompletion 을 그대로 호출해 코인 보너스를 중복 지급하지 않는다」).
+        // 일 집계에는 휴식을 제외한 집중 초를 KST 날짜별로 기록한다.
         NavigableMap<LocalDate, Integer> secondsByDate =
                 FocusIntervalMath.activeSecondsByDate(intervals, ZonePolicy.KST);
         recordDailyStats(user, secondsByDate, FocusIntervalMath.sessionStartedAt(intervals));
@@ -780,7 +735,7 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * 날짜별 순수 초를 일 집계에 더한다 — 세션 1건은 시작일에만 센다(레거시 recordCompletion 과 같은 관례).
+     * 날짜별 순수 집중 초를 일 집계에 더한다. 세션 수는 시작일에만 더한다.
      * 0초인 세션은 행을 만들지 않는다.
      */
     private void recordDailyStats(User user, NavigableMap<LocalDate, Integer> secondsByDate, Instant startedAt) {
@@ -1010,24 +965,14 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * 불변식 검사·정리 — 「상세 lifecycle이 ACTIVE/PAUSED면 그 세션의 {@code focus_sessions.ended_at}은
-     * null이어야 한다」. 진행 중 상세를 집는 세 지점(current·{@link #authorizeSession}·{@link #start})이
-     * 전부 이걸 통과해야 한다.
+     * 진행 중 상세의 기본 세션이 이미 종료됐는지 확인하고 어긋난 기록을 {@code ABANDONED}로 정리한다.
      *
-     * <p>깨지는 이유는 하나다 — 레거시 {@code FocusService.startFocusSession}이
-     * {@code autoCloseOpenMarkersOf}로 그 사용자의 열린 마커를 조건 없이 전부 닫는다(v0.3 세션의
-     * 기본 행 포함). 레거시는 고치지 않는다(1.x 앱 동작·「열린 마커 1개」 관례가 바뀐다) — 방어는
-     * 새 경로인 여기서 한다.
+     * <p>현재 상태 조회·시작·전이 권한 확인에서 사용한다. 정산은 추가하지 않고 섬 투영과 리스를
+     * 종결하며 경고를 남긴다. 전이 권한 확인은 이후 409를 던지므로 그 트랜잭션의 정리도 롤백된다.
+     * 실제로 저장되는 정리는 정상 반환하는 현재 상태 조회와 시작 경로가 맡는다.
      *
-     * <p>{@code log.warn}으로 남기는 것은 필수다. 조용히 고치면 레거시·신규 경로가 한 사용자에게
-     * 섞여 쓰이는 빈도를 아무도 알 수 없다.
-     *
-     * <p><b>한계</b>: {@link #authorizeSession} 경로에서는 곧바로 409를 던져 트랜잭션이 롤백되므로
-     * 여기서 건 전이는 남지 않는다(경고 로그만 남는다). 실제로 커밋되는 정리는 {@code current}와
-     * {@code start}가 한다 — 영구 500을 푸는 자리는 {@code start}고, 앱은 current를 늘 먼저 부른다.
-     *
-     * @param detail 진행 중일 수 있는 상세(호출측이 잠갔거나 잠그지 않았을 수 있다)
-     * @return 어긋나 있어 {@code ABANDONED}로 내렸으면 {@code true}
+     * @param detail 확인할 상세
+     * @return 어긋난 진행 상태를 정리했으면 {@code true}
      */
     private boolean abandonIfMarkerClosed(FocusSessionDetail detail) {
         if (!PROGRESSING.contains(detail.getLifecycle())) {

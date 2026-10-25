@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import { formatDuration } from '@/i18n/format';
+import { formatDuration, islandTitle } from '@/i18n/format';
 import { T, useGowun } from '@/screens/island/sceneKit';
 import {
   DEFAULT_FRAME_ID,
@@ -23,7 +23,6 @@ import {
   islandStage,
 } from '@/constants/magazineAssets';
 import { CELL_ASPECT, PromotionLayout, cellTextFit, stickerRect } from './layout';
-import { islandTitle } from './islandTitle';
 
 /**
  * 섬 프로필 원 지름 대비 섬 그림 상자 크기. 섬만 잘라 둔 그림(1.8:1)을 원 폭의 1.3배로 그려 양옆 물가가 조금 잘리고,
@@ -201,8 +200,6 @@ export function AdCell({
                 numberOfLines={fit.bodyLines}
                 adjustsFontSizeToFit
                 minimumFontScale={0.7}
-                // 한글이 단어 중간(「친구/들」)에서 꺾이지 않게 — 잡지의 다른 글과 같다
-                lineBreakStrategyIOS="hangul-word"
                 onTextLayout={
                   bodyInput
                     ? (ev: NativeSyntheticEvent<TextLayoutEventData>) => {

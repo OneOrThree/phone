@@ -15,7 +15,7 @@ import java.util.UUID;
  *
  * <p>이 행을 바꾸는 모든 경로는 호출측이 users 행을 배타 락
  * ({@code UserQueryService#getCallerForUpdate})으로 <b>먼저</b> 쥔 뒤에만 {@link #findByIdForUpdate}
- * 를 써야 한다(island-membership LLD §4 잠금 순서: users/context → groups → memberships/requests).
+ * 를 써야 한다(island-membership LLD §4 잠금 순서: users/context → islands → memberships/requests).
  * 실제 취득은 {@link com.oneorthree.phone.group.service.UserIslandContextLockService} 를 거친다.
  *
  * <p>users 행이 이미 배타 락이므로 이 행의 <b>첫 생성</b> 경합은 없다 — 두 트랜잭션이 동시에 같은

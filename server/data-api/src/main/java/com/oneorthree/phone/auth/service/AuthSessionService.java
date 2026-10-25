@@ -1,5 +1,7 @@
 package com.oneorthree.phone.auth.service;
 
+import com.oneorthree.phone.auth.exception.AuthErrorCode;
+import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.repository.AuthSessionRepository;
 import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
@@ -25,27 +27,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 세션 축의 쓰기 — 개설·회전·폐기와 그 <b>내구 전달</b> (A22 ㋣ · ㋞ · ㊼ · ㊹).
+ * 로그인 세션 개설·폐기와 알림 서버 전달을 같은 트랜잭션에 기록한다.
  *
- * <h2>왜 축을 따로 두는가</h2>
- * 현행은 유저 행에 RT 해시가 하나뿐이라 「개별 기기 로그아웃」을 표현할 자리가 없다. 그래서 전
- * 기기가 같이 끊기거나(그 하나를 지우면) 아무도 안 끊긴다. 세대(유저 축)를 개별 로그아웃에 올리는
- * 대안은 <b>더 나쁘다</b>(㊼) — 로그인 중인 다른 기기의 재등록이 거부돼 그 기기 푸시가 끊긴다.
- *
- * <h2>세션 행이 있으면 그 행이 권위다</h2>
- * {@code users.refresh_token_hash} 는 <b>마지막 로그인 하나</b>만 담는다. 그걸 먼저 보면 B 기기
- * 로그인이 그 값을 덮는 순간 A 기기의 갱신·회전이 전부 실패해, 세션 축을 따로 둔 의미가 사라진다
- * (codex R10 P1). 그래서 <b>세션 행이 있는 RT 는 이 축이 판정·회전</b>하고, 유저 행의 해시는
- * 세션 행이 없는 구 RT 의 판정에만 쓴다.
- *
- * <h2>기존 경로를 깨지 않는다</h2>
- * 그 구 RT 경로는 그대로 산다(㋪ — 곧장 전환하면 최대 RT 수명 동안 구 토큰을 든 사용자가 전부
- * 끊기고, 게스트에게 그것은 계정 소실이다). 승격은 {@link #promoteLegacy} 의 첫 회전에서만 일어난다.
- *
- * <h2>전부 호출자의 트랜잭션 안에서</h2>
- * {@code Propagation.MANDATORY} 다. 세션 행과 outbox 봉투는 <b>로그인·로그아웃 트랜잭션과 같은
- * 커밋</b>이어야 한다 — 따로 커밋되면 「세션은 끊겼는데 알림 서버는 모르는」 구간이 생기고, 그 구간의
- * 지연 등록이 이미 로그아웃한 계정의 토큰을 되살린다.
+ * <p>각 세션의 RT 해시가 자격의 정본이다. 개별 로그아웃은 해당 세션만 폐기하고,
+ * 전 기기 로그아웃·탈퇴는 사용자 세대와 전체 세션을 함께 폐기한다.
  */
 @Slf4j
 @Service
@@ -111,149 +96,20 @@ public class AuthSessionService {
     }
 
     /**
-     * 살아 있는 세션의 RT 회전 — <b>그 세션 행만</b> 갈아끼운다 (A22 ㋣).
-     *
-     * <p>{@code users.refresh_token_hash} 가 아니라 <b>이 행</b>이 회전의 권위다. 유저 행의 해시는
-     * 하나뿐이라 B 기기 로그인이 그 값을 덮으면 A 기기의 회전이 영영 실패한다 — 세션이 여럿이라는
-     * 계약은 세션 행 CAS 위에서만 성립한다(codex R10 P1).
-     *
-     * <p><b>전제</b>: 호출부가 {@code users} 행 배타 락을 쥐고 있고, 넘겨준 세션은 그 락 아래에서
-     * 조회됐다. 같은 유저의 로그인·갱신·로그아웃·탈퇴가 모두 그 락을 선두에서 잡으므로,
-     * 여기서 잡는 {@code aggregate_versions} → {@code auth_sessions} 순서는 다른 auth 경로와
-     * 경합하지 않는다.
-     *
-     * <p>그래도 쓰기는 {@link AuthSessionRepository#rotateIfCurrent} 의 조건부 UPDATE 로 낸다 —
-     * 락 규율이 깨지는 날 엔티티 dirty checking 은 동시 회전 둘을 다 성공시키거나 그 사이의 폐기를
-     * 되살리지만, CAS 는 조용히 덮는 대신 <b>0 을 돌려준다</b>. 대신 벌크 UPDATE 는 영속성 컨텍스트를
-     * 갱신하지 않으므로 <b>넘겨받은 엔티티는 읽기만 하고 고치지 않는다</b>.
-     *
-     * @param session         {@link #findByRefreshToken} 으로 읽은 현재 세션 행
-     * @param oldRefreshToken 회전 전 RT 원문 — CAS 기대값의 재료
-     * @param newRefreshToken 회전 후 RT 원문
-     * @return 회전된 세션의 식별·fencing 값. <b>비어 있으면</b> 동시 회전의 패자이거나 그 사이
-     *     세션이 끊긴 것이므로 호출부가 거절해야 한다
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public Optional<IssuedSession> rotateActive(AuthSession session, String oldRefreshToken,
-                                                String newRefreshToken) {
-        // fencing 값은 유저 축 aggregate 행 잠금 아래 발급한다(㊸) — open() 과 같은 이유다.
-        // 호출부가 users 를 이미 잠갔으므로 여기서의 순서는 aggregate → auth_sessions 이고,
-        // 그것은 로그인(open)·로그아웃(revoke)·탈퇴(revokeAll)가 같은 락 아래에서 쓰는 순서와 같다.
-        long sessionEpoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(session.getUserId()));
-        // 자격이 이미 있으면 «그대로 둔다». 회전마다 새로 발급하면 그 응답이 유실됐을 때 앱이 든
-        // 값이 영구히 낡아, 세션 확인이 되는 기기가 오히려 확인 없는 경로로 떨어진다.
-        String issuedBootstrap = session.getBootstrapNonceHash() == null ? newBootstrapNonce() : null;
-        String nonceHash = issuedBootstrap == null
-                ? session.getBootstrapNonceHash()
-                : TokenHasher.sha256Hex(issuedBootstrap);
-        int rotated = authSessionRepository.rotateIfCurrent(
-                session.getId(),
-                TokenHasher.sha256Hex(oldRefreshToken),
-                TokenHasher.sha256Hex(newRefreshToken),
-                nonceHash,
-                sessionEpoch,
-                clock.instant());
-        if (rotated == 0) {
-            return Optional.empty();
-        }
-        return Optional.of(new IssuedSession(session.getId(), sessionEpoch, issuedBootstrap));
-    }
-
-    /**
-     * 구 RT 승격(백필) — 세션 축에 올리는 <b>유일한</b> 자리다 (㋪).
-     *
-     * <p>구 RT 에는 {@code sessionId} 가 없어 첫 회전에서만 세션 행을 만들 수 있다. 그 행은
-     * {@code legacy=true} 이고, 자격도 이때 처음 발급한다.
-     *
-     * @param userId          세션 주인 — 승격 직전 {@code users} CAS 로 소유가 확인된 유저다
-     * @param newRefreshToken 회전 후 RT 원문
-     * @return 승격된 세션의 식별·fencing 값과 처음 발급한 자격 원문
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public IssuedSession promoteLegacy(UUID userId, String newRefreshToken) {
-        return promoteLegacy(userId, newRefreshToken, null);
-    }
-
-    /** 구 단일 RT의 소유를 검증한 호출자만 당시 기기 토큰을 함께 고정한다. */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public IssuedSession promoteLegacy(UUID userId, String newRefreshToken, String legacyDeviceToken) {
-        long sessionEpoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
-        String bootstrap = newBootstrapNonce();
-        AuthSession promoted = authSessionRepository.save(AuthSession.builder()
-                .userId(userId)
-                .refreshTokenHash(TokenHasher.sha256Hex(newRefreshToken))
-                .bootstrapNonceHash(TokenHasher.sha256Hex(bootstrap))
-                .sessionEpoch(sessionEpoch)
-                .legacy(true)
-                .legacyDeviceToken(legacyDeviceToken)
-                .build());
-        return new IssuedSession(promoted.getId(), sessionEpoch, bootstrap);
-    }
-
-    /**
      * RT 로 세션을 찾는다 — <b>읽기 전용</b>이다. AT 의 {@code sid} claim 을 채우는 데 쓴다.
      *
      * @param refreshToken RT 원문
-     * @return 그 RT 를 인정하는 세션. 구 RT 는 아직 세션 행이 없어 비어 있다(㋪)
+     * @return 그 RT 를 인정하는 세션. 존재하지 않는 해시는 빈 값이다
      */
     @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
     public Optional<AuthSession> findByRefreshToken(String refreshToken) {
         return authSessionRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
     }
 
-    /**
-     * 구 RT 로그아웃도 응답 유실 후 같은 해시로 완료 여부를 찾을 수 있게 세션 원장에 남긴다.
-     * 호출자는 users 행을 잠그고 현재 RT 해시가 일치함을 확인해야 한다. 새 bootstrap 은 발급하지 않는다.
-     *
-     * @param userId 검증된 RT 소유자
-     * @param refreshToken 검증된 구 RT
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void recordLegacyLogoutSession(UUID userId, String refreshToken) {
-        recordLegacyLogoutSession(userId, refreshToken, null);
-    }
-
-    /** RT-only 로그아웃의 원래 기기도 완료 세션에 고정한다. */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void recordLegacyLogoutSession(UUID userId, String refreshToken, String legacyDeviceToken) {
-        long epoch = outboxCommandPort.allocateVersion(AggregateRef.ofUser(userId));
-        authSessionRepository.save(AuthSession.builder().userId(userId)
-                .refreshTokenHash(TokenHasher.sha256Hex(refreshToken)).sessionEpoch(epoch).legacy(true)
-                .legacyDeviceToken(legacyDeviceToken).build());
-    }
-
-    /**
-     * 개별 기기 로그아웃 — <b>그 세션만</b> 폐기하고 알림 서버에 내구 전달한다 (㋞ · ㊼).
-     *
-     * <p>유저 축 세대는 올리지 않는다. 올리면 로그인 중인 다른 기기의 {@code onTokenRefresh} 재등록이
-     * 거부돼 그 기기 푸시가 끊긴다.
-     *
-     * @param refreshToken 로그아웃 요청이 제시한 RT 원문
-     * @return 폐기된 세션. 세션 행이 없는 구 RT 면 비어 있다 — 그 경우도 오류가 아니다
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public Optional<AuthSession> revokeByRefreshToken(String refreshToken) {
-        Optional<AuthSession> found =
-                authSessionRepository.findByRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
-        found.ifPresent(session -> {
-            if (session.revoke(clock.instant(), "LOGOUT")) {
-                appendSessionRevoked(session);
-            }
-        });
-        return found;
-    }
-
     /** users 잠금을 먼저 가진 RT 전용 종료가 정확한 해시의 세션을 잠근다. */
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<AuthSession> findLogoutSessionForUpdate(String hash) {
         return authSessionRepository.findByRefreshTokenHashForUpdate(hash);
-    }
-
-    /** 기존 users 해시로 증명한 sid 없는 RT의 종료행만 만든다. bootstrap은 발급하지 않는다. */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public AuthSession createLegacyLogoutSession(UUID userId, String hash) {
-        return authSessionRepository.save(AuthSession.builder().userId(userId).refreshTokenHash(hash)
-                .sessionEpoch(0L).legacy(true).build());
     }
 
     /** 세션 epoch·종료 증거·bootstrap 폐기 전달을 한 TX에 확정한다. 기기 삭제 명령은 없다. */
@@ -367,6 +223,34 @@ public class AuthSessionService {
             return Optional.empty();
         }
         return authSessionRepository.findByIdAndUserIdForUpdate(sessionId, userId);
+    }
+
+    /**
+     * 서명된 {@code sid}·{@code gen} 이 지금도 이 사용자의 살아 있는 세션인지 확인한다 (GROMO-2207).
+     *
+     * <p>호출자가 {@code users} 행을 읽은 TX 안에서 부른다(MANDATORY). 로그아웃과 직렬화해야 하는 쓰기 경로는
+     * {@code users} 행을 {@code FOR UPDATE} 로 먼저 잠근다 — 로그아웃도 같은 행을 먼저 잠그므로
+     * (users → auth_sessions) 둘이 직렬화된다. 계정 조회({@code InternalAccountService#me})는 {@code FOR SHARE}, 선택 AT 관문
+     * ({@code LoginAttemptService#gateOptionalSession})은 잠금 없이 부른다 — {@code users} 잠금 수준은
+     * 호출자가 정하고, 이 메서드는 세션 행 배타 락만 건다 (GROMO-2450). 단일 로그아웃은 세대를 올리지 않으므로
+     * 세션 행 검사가 반드시 필요하고, 같은 사용자의 다른 활성 세션은 영향받지 않는다.
+     *
+     * <p>{@code users} 행은 호출자(L10 internal 또는 같은 도메인의 {@code AuthService})가 읽어 id·세대를
+     * 값으로 넘긴다 — {@code auth} 가 {@code user.repository} 를 직접 참조하지 않게 하기 위해서다 (GROMO-2198 규칙).
+     *
+     * @param userId                 읽은 활성 사용자의 id
+     * @param currentAuthGeneration  읽은 사용자 행의 현재 인증 세대
+     * @param sessionId              AT 의 {@code sid}
+     * @param claimedAuthGeneration  AT 의 {@code gen}
+     * @throws AuthException 하나라도 없거나 어긋나면 {@link AuthErrorCode#SESSION_NOT_ACTIVE}
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void requireActive(UUID userId, long currentAuthGeneration, UUID sessionId, Long claimedAuthGeneration) {
+        if (sessionId == null || claimedAuthGeneration == null
+                || claimedAuthGeneration.longValue() != currentAuthGeneration
+                || verifySession(userId, sessionId).filter(AuthSession::isActive).isEmpty()) {
+            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
+        }
     }
 
     private void appendSessionRevoked(AuthSession session) {

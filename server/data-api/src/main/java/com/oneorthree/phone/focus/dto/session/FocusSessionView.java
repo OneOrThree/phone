@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 진행 중 v0.3 집중 세션의 공개 표현 (GROMO-1764, LLD §1). start/pause/resume/current가 공유한다.
+ * 진행 중 집중 세션의 공개 표현 (GROMO-1764, LLD §1). start/pause/resume/current가 공유한다.
  *
  * @param id             세션 id(={@code focus_sessions.id}={@code focus_session_details.session_id})
  * @param islandId       소속 섬

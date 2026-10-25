@@ -35,7 +35,7 @@ export function unblockUser(userId: string): Promise<void> {
 
 /** 설정의 단일 신고 접수 진입 — 내용·캡처는 사용자가 기기 메일에서 작성한다. */
 export function reportEmailUrl(): string {
-  return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.report.subject'))}&body=${encodeURIComponent(t('settings.report.body'))}`;
+  return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.report.subject', { brand: t('onboardingStory.brand') }))}&body=${encodeURIComponent(t('settings.report.body'))}`;
 }
 
 export function openReportCenter(): Promise<void> {
@@ -56,7 +56,7 @@ export function feedbackEmailUrl(appVersion: string): string {
           ? `web ${navigator.userAgent}`
           : `${Platform.OS} ${Platform.Version}`,
   });
-  return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.feedback.subject'))}&body=${encodeURIComponent(body)}`;
+  return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.feedback.subject', { brand: t('onboardingStory.brand') }))}&body=${encodeURIComponent(body)}`;
 }
 
 export function openFeedbackMail(appVersion: string): Promise<void> {

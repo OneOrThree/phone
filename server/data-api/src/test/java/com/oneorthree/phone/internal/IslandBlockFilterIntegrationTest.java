@@ -1,6 +1,5 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -8,7 +7,8 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
+import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.dto.MailboxViewerResponse;
 import com.oneorthree.phone.internal.dto.MessageAuthorsResponse;
@@ -55,7 +55,7 @@ class IslandBlockFilterIntegrationTest {
     @Autowired
     IslandNoticeService notices;
     @Autowired
-    GroupAnnouncementService legacy;
+    GroupAnnouncementRepository announcements;
     @Autowired
     InternalIslandMailboxService mailbox;
     @Autowired
@@ -227,7 +227,8 @@ class IslandBlockFilterIntegrationTest {
 
     /** 새 API 는 방장 전용이라, 방장이 아닌 작성자의 공지는 legacy writer(ALLOW 주민)로 심는다. */
     private UUID legacyNotice(UUID islandId, UUID writer, String title) {
-        legacy.createAnnouncement(islandId, writer, new CreateAnnouncementRequest(title, "본문"));
+        announcements.save(GroupAnnouncement.builder().group(groups.findById(islandId).orElseThrow())
+                .user(users.findById(writer).orElseThrow()).title(title).content("본문").build());
         return notices.list(islandId, writer, null, null, PAGE).items().get(0).id();
     }
 

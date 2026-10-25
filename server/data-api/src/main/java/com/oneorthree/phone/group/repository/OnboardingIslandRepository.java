@@ -20,7 +20,7 @@ public interface OnboardingIslandRepository extends JpaRepository<OnboardingIsla
 
     /** 탈퇴 시 아직 주민 없는 비공개 섬도 닫아 개인 목적지가 남지 않게 한다. */
     @Modifying
-    @Query(value = "UPDATE groups SET status = 'ENDED', deleted_at = now() "
+    @Query(value = "UPDATE islands SET status = 'ENDED', deleted_at = now() "
             + "WHERE id IN (SELECT island_id FROM onboarding_islands WHERE user_id = :userId)", nativeQuery = true)
     int closePendingOfUser(@Param("userId") UUID userId);
 

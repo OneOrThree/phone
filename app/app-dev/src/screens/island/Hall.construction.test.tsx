@@ -154,6 +154,15 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+test('회관 책상(첫 화면)의 ‹ 는 섬으로 가니 「섬으로 돌아가기」로 읽는다', async () => {
+  const env = e('hall');
+  const screen = await render(<Hall e={env} />);
+  const back = screen.getByTestId('hall-back');
+  expect(back.props.accessibilityLabel).toBe('섬으로 돌아가기');
+  await fireEvent.press(back);
+  expect(env.home).toHaveBeenCalledTimes(1);
+});
+
 test.each(['done', 'none', 'collect', 'locked', 'build'] as const)(
   '데모 건설 카드는 서버 옵션 없이 설명을 열고 닫는다: %s',
   async (status) => {
@@ -186,8 +195,13 @@ test.each(['done', 'none', 'collect', 'locked', 'build'] as const)(
         await fireEvent.press(screen.getByText('이 건물을 목표로 정하기'));
         expect(env.dispatch).toHaveBeenCalledWith({ type: 'SELECT_BUILDING', building: 'library' });
       }
+      // 청사진이 열려 있으면 ‹ 는 건물 목록으로 가니 그 목적지를 읽고, 닫히면 이전 화면으로 가는 「뒤로」다
+      expect(screen.getByTestId('hall-back').props.accessibilityLabel).toBe(
+        '건물 목록으로 돌아가기',
+      );
       await fireEvent.press(screen.getByTestId('hall-back'));
       expect(screen.queryByTestId('hall-building-plan')).toBeNull();
+      expect(screen.getByTestId('hall-back').props.accessibilityLabel).toBe('뒤로');
       expect(constructionMock.mock.calls.at(-1)[0].active).toBe(false);
     } finally {
       os.restore();
@@ -353,6 +367,10 @@ test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', as
   expect(screen.getByText('건설 현황')).toBeTruthy();
   expect(screen.getByTestId('hall-bld-grid')).toBeTruthy();
   expect(screen.queryByText('모든 건물을 지었어요')).toBeNull();
+  // 홀수 마지막 카드(상점)도 다른 카드와 같은 폭이다(GROMO-2413)
+  const width = (b: string) =>
+    StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+  expect(width('shop')).toBe(width('library'));
   for (const building of ['library', 'tower', 'mail', 'gram', 'shop']) {
     expect(screen.getByTestId(`hall-bld-${building}`)).toBeTruthy();
     expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();

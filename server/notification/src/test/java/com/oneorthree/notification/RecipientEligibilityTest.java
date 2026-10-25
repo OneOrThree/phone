@@ -71,7 +71,6 @@ class RecipientEligibilityTest {
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired DispatchService dispatch;
-    @Autowired AckService ack;
     @Autowired DataClient data;
     @MockitoBean PushTransport transport;
     @MockitoBean Clock clock;
@@ -80,8 +79,8 @@ class RecipientEligibilityTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,user_fences,settings,projections,"
-                + "result_ack,templates,deeplinks,kinds CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true,active_migration_id=NULL");
+                + "templates,deeplinks,kinds CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
         reset(transport, clock);
         when(clock.instant()).thenReturn(NOW);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
@@ -94,9 +93,7 @@ class RecipientEligibilityTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"FRIEND_ACCEPTED", "LEAGUE_WEEKLY_RESULT", "LEAGUE_DEADLINE",
-            "LEAGUE_DEADLINE_D1", "LEAGUE_RELEGATION_WARNING", "LEAGUE_RELEGATION_WARNING_EVENING",
-            "LEAGUE_FINAL_DEADLINE", "INACTIVE_RETURN", "MISSED_FOCUS_TODAY", "STREAK_AT_RISK"})
+    @ValueSource(strings = {"FRIEND_REQUEST", "FRIEND_ACCEPTED", "MAIN_ISLAND_TRANSFERRED"})
     void delayedWithdrawalProjectionCannotAllowDeliveryToAnInactiveRecipient(String kind) {
         UUID id = enqueue(kind);
         // Data에서는 탈퇴가 끝났지만 auth.generation.bumped/user.withdrawn 투영은 아직 도착하지 않았다.
@@ -132,7 +129,7 @@ class RecipientEligibilityTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"FRIEND_ACCEPTED", "LEAGUE_WEEKLY_RESULT", "INACTIVE_RETURN"})
+    @ValueSource(strings = {"FRIEND_REQUEST", "FRIEND_ACCEPTED", "MAIN_ISLAND_TRANSFERRED"})
     void activeRecipientsStillReceiveKindsWithoutSubjectStateChecks(String kind) {
         UUID id = enqueue(kind);
         dispatch.dispatch(id);
@@ -162,47 +159,7 @@ class RecipientEligibilityTest {
         assertThat(state(id)).isEqualTo("SENT");
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"{\"acknowledged\":true}", "{\"acknowledged\":true,\"acknowledgedAt\":null}",
-            "{\"acknowledged\":true,\"acknowledgedAt\":\"\"}",
-            "{\"acknowledged\":true,\"acknowledgedAt\":\"not-a-time\"}",
-            "{\"acknowledged\":true,\"acknowledgedAt\":\"2026-09-12T03:00:00\"}",
-            "{\"acknowledged\":true,\"acknowledgedAt\":42}",
-            "{\"acknowledged\":false,\"acknowledgedAt\":\"2026-09-12T03:00:00Z\"}",
-            "{\"acknowledged\":false,\"acknowledgedAt\":\"\"}",
-            "{\"acknowledged\":false,\"acknowledgedAt\":false}"})
-    void contradictoryAckKeepsTheHoldAndSchedulesARecoverableRetry(String response) {
-        UUID session = UUID.randomUUID();
-        UUID id = enqueue("BET_RESULT");
-        store.update("UPDATE deliveries SET subject_id=? WHERE id=?", session.toString(), id);
-        ack.command(USER, session, "abort", "abort");
-        RESPONSE.set(response);
-        Throwable failure = catchThrowable(ack::reconcile);
-        assertThat(store.one("SELECT state,next_reconcile_at FROM result_ack WHERE user_id=? AND session_id=?",
-                USER, session)).containsEntry("state", "NEEDS_CONFIRM")
-                .containsEntry("next_reconcile_at", java.sql.Timestamp.from(NOW.plusSeconds(30)));
-        assertThat(failure).isInstanceOf(RuntimeException.class);
-        assertThat(state(id)).isEqualTo("PENDING");
-        verifyNoInteractions(transport);
 
-        RESPONSE.set("{\"acknowledged\":true,\"acknowledgedAt\":\"2026-09-12T03:00:00Z\"}");
-        when(clock.instant()).thenReturn(NOW.plusSeconds(30));
-        ack.reconcile();
-        assertThat(store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?", USER, session))
-                .containsEntry("state", "CONFIRMED");
-        assertThat(state(id)).isEqualTo("SUPPRESSED");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"{\"acknowledged\":false}", "{\"acknowledged\":false,\"acknowledgedAt\":null}"})
-    void aValidUnacknowledgedResultReleasesTheHold(String response) {
-        UUID session = UUID.randomUUID();
-        ack.command(USER, session, "abort", "abort");
-        RESPONSE.set(response);
-        ack.reconcile();
-        assertThat(store.one("SELECT state FROM result_ack WHERE user_id=? AND session_id=?", USER, session))
-                .containsEntry("state", "RELEASED");
-    }
 
     @Test
     void adminEligibilityUsesTheSameResponseContractAndAllowsFutureDenialCodes() {
@@ -219,9 +176,9 @@ class RecipientEligibilityTest {
     void aLateEnvelopePreservesOriginalTimingAtTheDataBoundary() {
         // 이 서버의 시계로는 아직 유효해 Data 에 묻는 봉투다. 수신이 늦었어도 Data 가 원시각으로 판정하게 그대로 넘긴다.
         // (원시각의 만료가 이미 지난 봉투는 조회 없이 끝난다 — 아래 테스트)
-        Map<String, Object> timing = Map.of("kind", "LEAGUE_FINAL_DEADLINE",
+        Map<String, Object> timing = Map.of("kind", "FRIEND_REQUEST",
                 "dedupAt", NOW.minusSeconds(3600).toString(), "expiresAt", NOW.plusSeconds(3600).toString());
-        UUID id = enqueue("LEAGUE_FINAL_DEADLINE", timing);
+        UUID id = enqueue("FRIEND_REQUEST", timing);
         RESPONSE.set("{\"eligible\":false,\"reason\":\"EVENT_EXPIRED\"}");
         dispatch.dispatch(id);
         // 봉투 수신 시각이 더 늦어도 저장·조회 경계에서 원시각과 만료를 새 시각으로 바꾸지 않는다.
@@ -238,9 +195,9 @@ class RecipientEligibilityTest {
      */
     @Test
     void anEnvelopeConsumedAfterItsOriginalExpiryEndsWithoutAskingData() {
-        Map<String, Object> timing = Map.of("kind", "LEAGUE_FINAL_DEADLINE",
+        Map<String, Object> timing = Map.of("kind", "FRIEND_REQUEST",
                 "dedupAt", "2026-09-06T13:00:00Z", "expiresAt", "2026-09-06T15:00:00Z");
-        UUID id = enqueue("LEAGUE_FINAL_DEADLINE", timing);
+        UUID id = enqueue("FRIEND_REQUEST", timing);
         dispatch.dispatch(id);
         assertThat(REQUEST.get()).isNull();
         assertThat(Json.map(store.one("SELECT payload FROM deliveries WHERE id=?", id)

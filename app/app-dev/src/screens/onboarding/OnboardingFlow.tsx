@@ -74,7 +74,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
   const width = Math.min(layout.width, ui.maxWidth);
-  const large = (layout.fontScale ?? 1) > 1.3;
+  const large = (layout.fontScale ?? 1) > semanticTokens.typography.largeTextThreshold;
   const height = Math.max(layout.height, large ? 1120 : 740);
   const top = Math.max(layout.insets.top, space[10]);
   const bottom = Math.max(layout.insets.bottom, space[8]);

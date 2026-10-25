@@ -74,7 +74,7 @@ public interface IslandJoinRequestRepository extends JpaRepository<IslandJoinReq
 
     /**
      * 승인 전에 신청자 users 행을 먼저 잠그려고 신청자만 미리 읽는다 — 잠금 순서가
-     * {@code users → groups → join_request} 라 요청 행을 잠근 뒤에는 users 를 잡을 수 없다.
+     * {@code users → islands → join_request} 라 요청 행을 잠근 뒤에는 users 를 잡을 수 없다.
      * 판정 근거가 아니다: 전이는 잠금 아래 다시 읽은 행으로 한다.
      */
     @Query("SELECT r.applicant.id FROM IslandJoinRequest r WHERE r.id = :id AND r.island.id = :islandId")

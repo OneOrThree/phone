@@ -31,11 +31,12 @@ import {
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
 
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -1418,6 +1419,37 @@ test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 �
   }
 });
 
+// 위 테스트는 기존 마을(팻말) 경로다. 새 마을 장면에는 팻말이 없고 문 Pressable 의 접근성 라벨만 건물명을 싣는다 —
+// 장면 경로에서도 라벨이 언어 전환을 따라가는지 따로 본다(GROMO-2253).
+test('마을 장면 경로에서도 언어를 바꾸면 문 라벨이 새 언어로 바뀐다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const id of ['hall', 'tower'] as const)
+    if (!island.buildings.includes(id)) island.buildings.push(id);
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  try {
+    const screen = await render(home());
+    await fireEvent.press(screen.getByTestId('village-preview-toggle'));
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 장면에는 팻말이 없다
+    expect(screen.getByRole('button', { name: '전망대' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '마을회관' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '모닥불' })).toBeTruthy();
+
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByTestId('village-preview-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 리렌더 뒤에도 장면이 유지된다
+    expect(screen.getByRole('button', { name: 'Lookout Tower' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Town Hall' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Campfire' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '전망대' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '모닥불' })).toBeNull();
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
 test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
   const createPan = jest.spyOn(PanResponder, 'create');
   const screen = await render(
@@ -1556,3 +1588,54 @@ test.each(['day', 'night'] as const)(
     await screen.unmount();
   },
 );
+
+test('구경 중 HUD 의 긴 섬 이름은 한 줄로 줄이고 「다시 바다로」 버튼을 가입 버튼 옆에 둔다(GROMO-2405)', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  visited.name = 'smoke-friends-d99a696f-ae05-49bc-8d44-544b2bb984d8';
+  state.visitingIslandId = visited.id;
+  const onLeave = jest.fn();
+  const onPress = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      visitJoin={{ label: '이 섬에 가입', disabled: false, onPress, onLeave }}
+    />,
+  );
+  const name = screen.getByText(`${visited.name} 구경 중`);
+  expect(name.props.numberOfLines).toBe(1);
+  expect(name.props.ellipsizeMode).toBe('middle');
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(onLeave).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByLabelText('이 섬에 가입'));
+  expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+test('구경 중 하단 두 버튼은 폭을 나눠 쓰고, 큰 글자에서는 세로로 쌓는다(GROMO-2405)', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  state.visitingIslandId = visited.id;
+  const join = {
+    label: '이 섬에 가입',
+    disabled: false,
+    onPress: jest.fn(),
+    onLeave: jest.fn(),
+    leaveDisabled: true,
+  };
+  const screen = await render(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
+  );
+  const row = () => Object.assign({}, ...[screen.getByTestId('visit-actions').props.style].flat());
+  expect(row().flexDirection).toBe('row');
+  // 가입 요청 진행 중에는 「다시 바다로」를 누를 수 없다
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(join.onLeave).not.toHaveBeenCalled();
+  mockFontScale = 1.3;
+  await screen.rerender(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
+  );
+  expect(row().flexDirection).toBe('column');
+  mockFontScale = 1;
+});

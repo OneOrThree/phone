@@ -27,22 +27,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 집중 세션 1행 — 라이브 마커와 완료 세션이 같은 테이블을 쓴다. 둘을 가르는 건 {@code endedAt} 이고
- * ({@code null} 이면 아직 도는 중), 그 세션이 통계·보상에 계수되는지는 {@link FocusSessionStatus} 가 가른다.
+ * 집중 세션의 기본 기록. {@code endedAt}이 null이면 진행 중이다.
  *
- * <p>시각 컬럼이 넷인 이유가 이 엔티티의 핵심이다.
- * <ul>
- *   <li>{@code startedAt}/{@code endedAt} — 저장·중복 검사의 기준. {@code endedAt} 은 클라가 보낸 값을
- *       그대로 두어야 재업로드 중복 검사가 성립한다.</li>
- *   <li>{@code clientStartedAt} — 클램프 이전 원시 클라 시각. 마커 순서 판정에만 쓰고 저장·집계에는 쓰지 않는다.</li>
- *   <li>{@code statEndAt} — 통계 귀속용 유효 종료(완료 순간 {@code min(endedAt, now)} 고정). 미래 종료 위조가
- *       시간이 갈수록 더 계수되는 걸 막는다.</li>
- * </ul>
- *
- * <p>상태 전이는 전부 조건부 벌크 UPDATE 가 먼저 성사시키고({@code FocusSessionRepository}), 여기 있는
- * {@link #end}·{@link #cancel}·{@link #autoClose} 는 그 결과에 맞춰 관리 엔티티를 정합시키는 더티 라이트다.
- * 순서를 뒤집어 이 메서드들을 단독으로 쓰면 경합에서 이미 완료된 세션의 종료 시각·상태를 덮어써
- * 통계와 어긋난다.
+ * <p>상세 상태와 구간은 별도 테이블에 두고, 정상 종료 시 확정한 집중 시간과 날짜별 분포를
+ * 이 행에 기록한다. 집계용 종료 시각이 없는 이전 기록은 저장된 종료 시각으로 보완한다.
  */
 @Entity
 @Table(name = "focus_sessions")
@@ -52,8 +40,6 @@ import java.util.UUID;
 @AllArgsConstructor
 public class FocusSession {
 
-    // GROMO-673: focus_tag_id 의 참조 대상을 focus_tags → user_focus_tags 로 재지정한다.
-    // 컬럼명(focus_tag_id)은 유지하고 FK 대상만 user_focus_tags 로 바뀐다.
 
     @Id
     @GeneratedUuidV7
@@ -63,13 +49,6 @@ public class FocusSession {
     @JoinColumn(name = "user_id")
     private User user;
 
-    /**
-     * GROMO-673: 유저가 채택한 태그(user_focus_tags). nullable — 태그 없는 세션 허용.
-     * 참조 태그는 소프트 딜리트(user_focus_tags.deleted_at) 되므로 하드 삭제로 인한 참조 무결성 파손이 없다.
-     */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "focus_tag_id")
-    private UserFocusTag focusTag;
 
     /**
      * GROMO-671(커밋1): 소속 일일 집계(FK → daily_focus_stats). nullable — 진행 중 세션은 미귀속.
@@ -78,7 +57,7 @@ public class FocusSession {
     private UUID dailyFocusStatId;
 
     /**
-     * GROMO-671(커밋1): 세션 생명주기 (deleted_at 대체 예정). 라이브 = ACTIVE.
+     * 기본 세션의 상태. 진행 중 상태는 ACTIVE다.
      */
     @Builder.Default
     @Enumerated(EnumType.STRING)
@@ -103,36 +82,19 @@ public class FocusSession {
     private Instant endedAt;
 
     /**
-     * GROMO-1287: 시작 요청이 실어 보낸 **클램프 이전** 클라 시각 — 마커 순서 판정 전용이다.
-     * startedAt 은 clampToServerNow 를 거쳐 저장되는데, 5분 넘게 백그라운드에 있다 여러 블록을
-     * 리플레이하면 과거 시각들이 **전부 서버 now 로 치환**돼 논리 순서가 지워진다. 그 상태에서
-     * 새 요청의 원시 시각을 저장된(=클램프된) 값과 비교하면 **축이 어긋나** 논리적으로 더 늦은
-     * 블록이 과거로 판정되고, 그 블록이 마커를 못 받아 라이브 표시가 비고 정산 가드까지 풀린다.
-     * 그래서 원시끼리 비교할 수 있도록 이 값을 따로 남긴다.
-     *
-     * ⚠️ 저장·집계·보상에는 절대 쓰지 않는다 — 클라가 보낸 값이라 위조 가능하고, GROMO-1214 의
-     * "클라 시각이 저장·집계에 들어가지 않는다" 계약은 그대로다. 순서 비교에만 쓴다.
-     * 레거시·구버전이 만든 행은 null 이라 판정측이 startedAt 으로 폴백한다(statEndAt 과 같은 관행).
+     * 이전 기록이 보관한 클라이언트 시작 시각. 현재 세션은 서버 시작 시각을 기준으로 처리한다.
      */
     private Instant clientStartedAt;
 
     /**
-     * GROMO-1252(코드리뷰 2차 ②): 통계 귀속용 '유효 종료 시각' = min(endedAt, 완료 시점 서버 now).
-     * endedAt 은 클라가 보낸 값 그대로 저장해야 재업로드 중복 검사(existsByUserAndStartedAtAndEndedAtAndStatus)가
-     * 성립하는데, 미래 endedAt 위조 세션은 조회 시점 now 로 클리핑하는 by-category 가 시간이 갈수록 더 세게 된다
-     * (사전집계 DailyFocusStat 는 완료 시점 클램프라 고정) → 완료 순간의 클램프 결과를 여기 고정 보관해
-     * 모든 조회가 같은 값으로 자르게 한다. 레거시 row 는 null 이라 조회측이 endedAt 으로 폴백한다.
+     * 집계에 사용할 확정 종료 시각. 이전 기록에서 값이 없으면 {@link #statEndOrEndedAt}이
+     * 저장된 종료 시각을 반환한다.
      */
     private Instant statEndAt;
 
     /**
-     * GROMO-1252(코드리뷰 3차 ①): 완료 시점에 확정한 날짜별 집중 초 분포
-     * (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). 앱이 실어 보낸 분포를 날짜별 벽시계 몫으로 클램프한 결과이며,
-     * 앱이 안 보냈으면 벽시계 분할에서 방해 초를 뺀 값이다 — 사전집계 DailyFocusStat 에 가산한 값과 동일하다.
-     * ⚠️ 어느 경로든 **순수 집중 초(net, 일시정지 제외)** 로 통일해 저장한다(GROMO-1214 코드리뷰 3차 ①) —
-     * 읽는 쪽(by-category·앱 복원)이 방해 비율을 다시 빼면 이중 차감이다.
-     * 이걸 안 남기면 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 잘라 사전집계와 어긋난다
-     * (일시정지가 자정을 걸치면 300/300 vs 600/900). 레거시 row 는 null → 조회측이 벽시계로 폴백.
+     * 정상 종료 시 확정한 KST 날짜별 순수 집중 초. 휴식 시간을 다시 차감하지 않는다.
+     * 이전 기록에서는 값이 없을 수 있다.
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "focus_seconds_by_date")
@@ -162,17 +124,12 @@ public class FocusSession {
     private Instant createdAt;
 
     /**
-     * 진행 중 세션에 종료 시각·방해 지표(누적 초)를 채워 완료 처리(더티 체킹).
+     * 잠긴 기본 세션에 종료 시각과 확정된 집중 시간을 기록하고 COMPLETED로 전이한다.
      *
-     * <p>GROMO-733: 완료 전이 시 status 를 COMPLETED 로 세팅한다. 벌크(endSessionIfActive)는 status-agnostic 하게
-     * endedAt 만 원자 세팅하고, COMPLETED 는 이 관리 엔티티 더티 flush 로 정확히 반영한다.
-     *
-     * <p>조건부 UPDATE 가 이미 성사된 뒤에만 부른다 — 단독 호출은 경합에서 이긴 다른 트랜잭션의 결과를 덮는다.
-     *
-     * @param endedAt                 저장할 종료 시각. 중복 검사 전제 때문에 <b>클램프하지 않은</b> 값이 들어간다
-     * @param totalDistractionSeconds 유저가 확정한 누적 방해 초. 통계·보상에서 그대로 차감된다
-     * @param statEndAt               통계 귀속용 유효 종료 = {@code min(endedAt, 완료 시점 서버 now)}
-     * @param focusSecondsByDate      KST 날짜별 <b>순수</b> 집중 초. 읽는 쪽이 방해 비율을 또 빼면 이중 차감이다
+     * @param endedAt 종료 시각
+     * @param totalDistractionSeconds 누적 방해 초
+     * @param statEndAt 집계용 종료 시각
+     * @param focusSecondsByDate KST 날짜별 순수 집중 초
      */
     public void end(Instant endedAt, int totalDistractionSeconds, Instant statEndAt,
                     Map<String, Integer> focusSecondsByDate) {
@@ -184,7 +141,7 @@ public class FocusSession {
     }
 
     /**
-     * 통계 귀속용 유효 종료 시각 — 미기록(레거시 row)이면 endedAt 으로 폴백한다(GROMO-1252).
+     * 통계 귀속용 유효 종료 시각 — 이전 기록에서 값이 없으면 endedAt 으로 폴백한다(GROMO-1252).
      *
      * @return 집계가 세션 꼬리를 자를 때 쓸 종료 시각. 진행 중 세션이면 둘 다 null 이라 null 이 나온다
      */
@@ -193,12 +150,9 @@ public class FocusSession {
     }
 
     /**
-     * 유저 취소(GROMO-733) — status=CANCELED 로 전이하고 취소 시각을 endedAt 에 채운다(더티 체킹).
+     * 기본 세션을 CANCELED로 전이하고 종료 시각을 기록한다.
      *
-     * <p>조건부 원자 UPDATE(cancelSessionIfActive)가 벌크로 CANCELED·endedAt 를 성사시킨 뒤, 관리 엔티티를
-     * 같은 값으로 정합시켜 영속성 컨텍스트의 낡은 상태(ACTIVE)를 제거한다. 통계·스트릭 귀속은 없다.
-     *
-     * @param canceledAt 취소 시각(서버 수신 시각). 종료 시각 자리에 들어가지만 집계에는 쓰이지 않는다
+     * @param canceledAt 서버가 결정한 취소 시각
      */
     public void cancel(Instant canceledAt) {
         this.endedAt = canceledAt;
@@ -206,29 +160,16 @@ public class FocusSession {
     }
 
     /**
-     * GROMO-804: orphan 자동 종료 — 종료 시각을 상한으로 채우고 상태를 AUTO_CLOSED 로 표시한다.
-     * 통계·스트릭 미반영은 호출부(sweepOrphanSessions)가 recordCompletion 을 부르지 않음으로 보장하고,
-     * 이 status 로 by-category 실시간 집계에서도 제외된다. distraction 은 유저 미확정이라 건드리지 않는다.
+     * 기본 세션을 AUTO_CLOSED로 전이하고 종료 시각을 기록한다.
      *
-     * @param endedAt 마감 시각 — 스윕은 {@code startedAt + 12h} 상한, 마커 회전은 새 마커의 시작 시각을 넣는다.
-     *                실제 종료 시각이 아니라 서버가 정한 값이라 통계에 반영하지 않는다
+     * @param endedAt 서버가 결정한 마감 시각
      */
     public void autoClose(Instant endedAt) {
         this.endedAt = endedAt;
         this.status = FocusSessionStatus.AUTO_CLOSED;
     }
 
-    // GROMO-671(커밋3): 소프트딜리트/취소는 deleted_at 대신 status=CANCELED 로 표현한다.
-    // (기존에도 deleted_at 세팅/전환 배선은 후속 티켓이었음 — 여기선 조회 필터만 status 기반으로 전환.)
 
-    /**
-     * 시작 시 미지정한 태그(user_focus_tags)를 종료 시점에 보정.
-     *
-     * @param focusTag 소유 검사를 마친 채택 태그. 이미 태그가 있어도 덮어쓰므로 호출측이 교체 의도를 판단한다
-     */
-    public void applyTag(UserFocusTag focusTag) {
-        this.focusTag = focusTag;
-    }
 
     /**
      * 종료 여부(endedAt 존재).

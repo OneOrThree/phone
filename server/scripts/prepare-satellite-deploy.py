@@ -72,10 +72,10 @@ SHARED_ENV_NAMES = {".env", ".env.prod", ".env.dev", ".env.local"}
 FORBIDDEN_KEYS = {
     "business-api": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD",
                      "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
-                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY", "LINK_CAPABILITY_KEY",
-                     "POSTGRES_PASSWORD", "LINK_MIGRATION_TOKEN"),
+                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY",
+                     "POSTGRES_PASSWORD"),
     "notification": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD", "JWT_SECRET",
-                     "OPENAI_API_KEY", "LINK_CAPABILITY_KEY", "POSTGRES_PASSWORD"),
+                     "OPENAI_API_KEY", "POSTGRES_PASSWORD"),
     "data-api": ("NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD"),
 }
 # 어느 서비스에도 가지 않는 자격 — 관측 백엔드 키와 사람이 쓰는 콘솔 비밀번호.
@@ -236,9 +236,8 @@ def build_plan(args: argparse.Namespace, compose_env: Path, with_data: bool) -> 
         "   /internal/admin/만 Notification에 공개하며 콘솔 전용 Bearer 인증을 유지한다.",
         "# 실패 복구 순서",
         "- 트래픽/신규 쓰기 전이라면 실패한 서비스만 같은 env와 직전 검증 digest로 재기동한다.",
-        "- Link §7.2 3단계 이후에는 Neon이 정본이다. 구 Data 라우팅으로 자동 복귀하지 않는다.",
+        "- Data DB 전환 후 복구는 server/data-api/docs/db/README.md의 백업·검증 절차를 따른다.",
         "- Notification 최초 gate 개방 이후에는 close/drain 후 새 경로를 수정·검증·재개한다.",
-        "- 호환 라우팅은 새 Link 경로로 교체한 뒤 인플라이트를 drain하고 Business 핸들러를 끈다.",
         "- 검증 실패 때 토큰·DB·이관 원장과 서비스별 env 파일을 보존한다.",
         "- 이 도구는 발송 gate나 relay 설정을 변경하지 않는다. 입력 SecretString의 값을 전달한다.",
     ]
@@ -260,7 +259,7 @@ def main() -> None:
     parser.add_argument("--data-image", default=None,
                         help="지정하면 Data 전용 env 와 오버레이까지 준비한다. 생략하면 Data 는 기존 구성 유지")
     parser.add_argument("--data-profiles", default=None,
-                        help="Data 오버레이가 넘길 SPRING_PROFILES_ACTIVE. 기본값은 '<environment>,satellites'")
+                        help="Data 오버레이가 넘길 SPRING_PROFILES_ACTIVE. 기본값은 '<environment>,satellites,realtime-authorization'")
     parser.add_argument("--project-name", default=None,
                         help="compose 프로젝트명. prod 는 필수 — satellites 파일의 name 이 기존 프로젝트를 갈아치우기 때문")
     args = parser.parse_args()
@@ -276,7 +275,7 @@ def main() -> None:
                 "선언하므로, 프로젝트명을 명시하지 않으면 기존 prod 스택과 «다른» 프로젝트에 컨테이너가 "
                 "생기고 기존 컨테이너는 고아가 됩니다(docker compose ls 로 현재 이름을 확인하세요)")
         args.project_name = "phone"
-    profiles = args.data_profiles if args.data_profiles is not None else f"{args.environment},satellites"
+    profiles = args.data_profiles if args.data_profiles is not None else f"{args.environment},satellites,realtime-authorization"
 
     if not args.base_compose.is_file():
         raise PrepareError(f"기존 환경 compose 를 찾을 수 없습니다: {args.base_compose}")
@@ -328,8 +327,10 @@ def main() -> None:
                 "Data 프로파일 불일치: env 파일과 오버레이가 넘길 값이 다릅니다. "
                 "기존 compose 의 app.environment 가 env_file 을 «이깁니다» — 두 값이 갈라지면 "
                 "satellites 프로파일이 조용히 빠진 채로 뜹니다")
-        if "satellites" not in {profile.strip() for profile in (active or "").split(",")}:
-            raise PrepareError("Data 프로파일에 satellites 가 없습니다")
+        active_profiles = {profile.strip() for profile in (active or "").split(",")}
+        for required_profile in writer.DATA_REQUIRED_PROFILES:
+            if required_profile not in active_profiles:
+                raise PrepareError(f"Data 프로파일에 {required_profile} 가 없습니다")
         if "DATA_API_PROFILES" in os.environ and os.environ["DATA_API_PROFILES"] != profiles:
             raise PrepareError("셸 DATA_API_PROFILES가 선택한 Data 프로파일을 덮어씁니다. "
                                "해당 환경변수를 해제하거나 --data-profiles와 같게 지정하세요")

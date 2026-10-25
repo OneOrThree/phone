@@ -1,9 +1,11 @@
 package com.oneorthree.phone.focus.scheduler;
 
 import com.oneorthree.phone.common.port.RedisFocusPresence;
+import com.oneorthree.phone.focus.repository.FocusSessionControlState;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.focus.service.FocusPresenceProjection;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -68,7 +70,8 @@ class FocusPresenceReconcilerRedisTest {
                 RedisFocusPresence presence = new RedisFocusPresence(timeoutAfterExecution,
                         Clock.fixed(now, ZoneOffset.UTC));
                 FocusSessionDetailRepository detailRepository = mock(FocusSessionDetailRepository.class);
-                when(detailRepository.findControlStatesBySessionIdIn(any())).thenReturn(List.of());
+                when(detailRepository.findControlStatesBySessionIdIn(any())).thenReturn(List.of(
+                        new FocusSessionControlState(sessionId, FocusSessionLifecycle.ACTIVE, 0L)));
                 FocusPresenceReconciler reconciler = new FocusPresenceReconciler(repository, detailRepository,
                         new FocusPresenceProjection(mock(FocusMemberEvents.class), presence),
                         TransactionOperations.withoutTransaction(), Runnable::run,

@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.util.UUID;
 
-/** RT로 직접 주체를 증명하는 신규 종료. 기존 AuthService.logout의 호환 동작과 분리한다. */
+/** RT로 직접 주체를 증명하고 해당 로그인 세션을 종료한다. */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -35,23 +35,17 @@ public class SessionLogoutService {
         LogoutToken access = accessToken == null ? null : verify(accessToken, true);
         User user = users.getCallerForUpdate(refresh.userId());
         String hash = TokenHasher.sha256Hex(refreshToken);
-        AuthSession session = sessions.findLogoutSessionForUpdate(hash).orElse(null);
+        AuthSession session = sessions.findLogoutSessionForUpdate(hash)
+                .orElseThrow(SessionLogoutService::invalidRefresh);
         validateRefresh(refresh, user, session, hash);
         validateAccess(access, refresh, user, session);
-        if (session != null && !session.isActive()) {
+        if (!session.isActive()) {
             if (!"LOGOUT".equals(session.getRevokeReason())
                     || !refresh.expiresAt().equals(session.getLogoutRefreshExpiresAt())) {
                 throw invalidRefresh();
             }
             log.info("session_logout outcome=replayed");
             return session.getId();
-        }
-        if (session == null) {
-            session = sessions.createLegacyLogoutSession(user.getId(), hash);
-        }
-        // 늦게 도착한 A의 종료는 B의 최신 users RT 해시를 지우지 않는다.
-        if (hash.equals(user.getRefreshTokenHash())) {
-            user.setRefreshTokenHash(null);
         }
         sessions.completeLogout(session, refresh.expiresAt());
         log.info("session_logout outcome=completed");
@@ -78,11 +72,7 @@ public class SessionLogoutService {
                 || (refresh.generation() != null && refresh.generation() != user.getAuthGeneration())) {
             throw invalidRefresh();
         }
-        if (session == null) {
-            if (refresh.sessionId() != null || !hash.equals(user.getRefreshTokenHash())) {
-                throw invalidRefresh();
-            }
-        } else if (!session.getUserId().equals(user.getId())
+        if (!session.getUserId().equals(user.getId())
                 || !hash.equals(session.getRefreshTokenHash())
                 || (refresh.sessionId() != null && !refresh.sessionId().equals(session.getId()))) {
             throw invalidRefresh();
@@ -92,19 +82,15 @@ public class SessionLogoutService {
     private void validateAccess(LogoutToken access, LogoutToken refresh, User user, AuthSession session) {
         if (access != null && (!clock.instant().isBefore(access.expiresAt())
                 || !access.userId().equals(refresh.userId())
-                || !sameSession(access, refresh, session)
+                || !sameSession(access, session)
                 || (access.generation() != null && access.generation() != user.getAuthGeneration()))) {
             throw new AccessCredentialException();
         }
     }
 
-    /** sid 없는 RT도 정확한 해시로 찾은 세션 행이 있으면 현재 발급기의 sid AT와 결합할 수 있다. */
-    private static boolean sameSession(LogoutToken access, LogoutToken refresh, AuthSession session) {
-        if (access.sessionId() == null) {
-            return refresh.sessionId() == null;
-        }
-        // 사용자 ID 일치만으로 다른 세션을 허용하지 않는다. 세션 행 없는 혼합도 증명 불가다.
-        return session != null && access.sessionId().equals(session.getId());
+    /** 현재 발급 AT의 sid가 RT 해시로 찾은 세션과 일치해야 한다. */
+    private static boolean sameSession(LogoutToken access, AuthSession session) {
+        return access.sessionId() != null && access.sessionId().equals(session.getId());
     }
 
     private static InvalidTokenException invalidRefresh() {

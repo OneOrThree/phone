@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard } from 'react-native';
 import { t } from '@/i18n';
+import { islandTitle } from '@/i18n/format';
 import { ApiError } from '@/services/api/client';
 import { pinToTelescope } from '@/services/api/telescope';
 import { islandErrorMessage } from '@/services/islandErrors';
@@ -54,7 +55,7 @@ export function useTelescopePin(e: any): TelescopePin {
       const result = await pinToTelescope(island.id, 'observatory');
       const lines = [t('observatory.pinned')];
       if (result?.evicted?.name)
-        lines.push(t('observatory.pinnedEvicted', { name: result.evicted.name }));
+        lines.push(t('observatory.pinnedEvicted', { name: islandTitle(result.evicted.name) }));
       // 화면을 떠난 뒤에 끝나도 알린다 — 서버에는 이미 들어갔다.
       e.notify(lines.join('\n'));
     } catch (thrown) {

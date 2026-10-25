@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 
 /**
- * ShedLock 분산 락 (GROMO-1283, policy §E4) — 챌린지·정산·알림 크론의 멀티 인스턴스 중복 실행
+ * ShedLock 분산 락 (GROMO-1283, policy §E4) — 섬 정산·집중 보상 크론의 멀티 인스턴스 중복 실행
  * 차단. 각 {@code @Scheduled} 진입점에 {@code @SchedulerLock(name = …)} 고유 이름을 달면, 같은
  * 이름의 락을 쥔 인스턴스만 실행되고 나머지는 조용히 건너뛴다. 저장소는 V45 의 {@code shedlock}
  * 테이블(표준 스키마) — 별도 인프라 없이 기존 PostgreSQL 로 충분하다.

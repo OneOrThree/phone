@@ -111,7 +111,7 @@ public class IslandInvitationService {
             GroupInviteLink link = findLink(body.code());
             return new InvitationResolvedView(summaryFor(caller, requireLiveInvitation(link)), link.getSlug(), null);
         }
-        // 잠금 순서는 가입과 같다(users → context → groups) — 도착이 가입으로 이어지고 가입이 같은 행을 다시 잠근다.
+        // 잠금 순서는 가입과 같다(users → context → islands) — 도착이 가입으로 이어지고 가입이 같은 행을 다시 잠근다.
         User caller = userQueryService.getCallerForUpdate(userId);
         GroupInviteLink link = findLink(body.code());
         userIslandContextLockService.lock(caller);
@@ -210,8 +210,7 @@ public class IslandInvitationService {
                                 uniqueSlug(), islandId, userId, issuer.getMembershipEpoch()));
                     } else if (link.getIssuanceEpoch() != issuer.getMembershipEpoch()) {
                         // 발급자의 세대가 바뀐 뒤라 옛 슬러그는 폐기 — 같은 행을 새 버전으로 교체한다.
-                        // 그룹 락 밖의 레거시 발급(InviteLinkService)과도 겹칠 수 있어 조건부 UPDATE 로
-                        // 수렴시키고, 이긴 쪽 슬러그로 관리 엔티티를 맞춘다(같은 값이라 flush 는 무해하다).
+                        // 조건부 UPDATE 후 저장된 슬러그로 관리 엔티티를 맞춘다.
                         inviteLinkRepository.reissueIfStale(
                                 link.getId(), uniqueSlug(), issuer.getMembershipEpoch());
                         link.reissue(inviteLinkRepository.findSlugById(link.getId()),

@@ -22,7 +22,7 @@ class RaftScreenContractTest extends ScreenContractTestBase {
 
     private static String requestItem() {
         return "{\"requestId\":\"" + UUID.randomUUID() + "\",\"userId\":\"" + UUID.randomUUID()
-                + "\",\"nickname\":\"짝꿍\",\"tierLevel\":null,\"createdAt\":\"2026-09-18T01:00:00Z\"}";
+                + "\",\"nickname\":\"짝꿍\",\"createdAt\":\"2026-09-18T01:00:00Z\"}";
     }
 
     private void stubAll(String requests) {

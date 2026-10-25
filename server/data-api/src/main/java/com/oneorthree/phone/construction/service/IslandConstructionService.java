@@ -69,7 +69,7 @@ import java.util.stream.Collectors;
  * POST constructions 세 계약의 Data 측 구현이다.
  *
  * <p><b>잠금 순서</b>(LLD §4): 사용자(users 배타) → receipt 선점({@link PublicCommandService}) →
- * 섬(groups 배타) → membership(공유) → 건설 상태 → 시설 → 정책 publication → 지갑. 없는 단계는
+ * 섬(islands 배타) → membership(공유) → 건설 상태 → 시설 → 정책 publication → 지갑. 없는 단계는
  * 건너뛴다. 두 쓰기 계약은 {@code publicCommands.run} 안에서 이 순서를 지키고, 조회는 잠금 없는
  * 일관 읽기다.
  *

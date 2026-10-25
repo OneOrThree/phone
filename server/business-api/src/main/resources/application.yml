@@ -1,4 +1,4 @@
-# 모든 프로파일이 공유하는 설정 — 파일 미리보기(1747)와 Data·알림·링크 조합(1659)이 한 서비스에 있다.
+# 모든 프로파일이 공유하는 설정 — 파일 미리보기(1747)와 Data·알림·실시간 조합(1659)이 한 서비스에 있다.
 #
 # ⚠️ 상류 주소·서비스 토큰은 여기 두지 않는다. 여기에 ${SVC_TOKEN_BIZ_TO_DATA} 같은 플레이스홀더를
 #    두면 ci 프로파일에서도 그 바인딩이 일어나 환경변수가 없다며 부팅이 실패한다. 접속·자격은
@@ -33,8 +33,7 @@ server:
     threads:
       max: 16
       min-spare: 4
-    # 구 앱 match 예산이 5초다. 그 안에서 상류 재시도까지 끝나야 하므로 요청 처리 자체가 늦게 시작되면
-    # 예산이 먼저 마른다 — 커넥션 대기 시간을 짧게 잡아 「대기하다 죽는」 대신 빨리 실패하게 한다.
+    # 상류 재시도 예산을 확보하도록 커넥션 대기 시간을 제한한다.
     connection-timeout: 3s
     # 413 을 내린 뒤 남은 본문을 삼키지 않는다. 삼키면 거절해 놓고도 그 바이트를 다 읽게 된다.
     max-swallow-size: 0
@@ -90,11 +89,6 @@ business:
       read-timeout: 1500ms
       failure-threshold: 5
       open-duration: 10s
-    link:
-      connect-timeout: 500ms
-      read-timeout: 1500ms
-      failure-threshold: 5
-      open-duration: 10s
   # 목록 커서 서명 (GROMO-1759). GET /islands 와 GET /islands/discover «두 목록만» 이 키를 쓴다.
   #
   # ⚠️ «테스트는 통과하는데 배포하면 죽는» 모양을 조심한다. 이 블록에 값이 있는 것은 ci
@@ -108,24 +102,10 @@ business:
   #    켜려면 enabled=true 와 «JWT 와 독립인» 256비트 이상 키가 필요하다.
   cursor:
     enabled: ${BUSINESS_CURSOR_ENABLED:false}
-  compat:
-    # 한시 /l/match 핸들러. 컷오버 후 제거가 계약이므로 기본값은 꺼짐이다(A22 ㊫).
-    match-handler-enabled: false
-    # 구 정지 스냅샷 → Neon 이관 계약이 준비됐는가. 준비 전 구 후보 소진은 임의 이중 소진이다(A22 ㊥).
-    import-contract-ready: false
-    # deferredInvite.ts:100 의 5000ms 보다 안쪽. 상류 재시도까지 이 예산에 들어간다.
-    match-budget: 4500ms
-    # api.ts:215-218 의 전역 15초보다 안쪽.
-    claim-budget: 13000ms
-    # 202 로 접어도 되는가. 기본 꺼짐 — 재개 주체(아래 CLI)가 없을 때의 202 는 영구 대기다.
-    claim-queue-replay-enabled: false
-  # 일회성 재개 CLI. 서빙 프로세스에서는 꺼져 있어야 한다.
-  claim-replay:
-    enabled: false
   # 공개 Drive 메타데이터 조회용. 비어 있으면 Drive 경로만 못 쓰고 나머지 미리보기는 동작한다.
   drive-api-key: ${GOOGLE_DRIVE_API_KEY:}
 
-# legacy issuer(Data API)와 «같은 값»이어야 한다. 전환 기간에 이 서비스는 검증만 한다.
+# JWT 발급자인 Data API와 같은 키로 검증한다.
 # 프로파일별 파일(dev/prod/ci)이 각자 덮어쓰므로, 여기 값은 프로파일 없이 띄우는 로컬 compose 용이다.
 jwt:
   secret: ${JWT_SECRET}

@@ -26,6 +26,7 @@ chat:
     # 테스트는 GroupClient 를 스텁으로 갈아 끼운다. 실제로 호출되면 즉시 실패해야 하므로
     # 닿지 않는 주소를 둔다 — 조용히 어딘가로 나가는 것보다 낫다.
     base-url: http://localhost:1
+    service-token: ci-token-realtime-to-data
     timeout-ms: 200
   membership:
     cache-ttl-seconds: 120

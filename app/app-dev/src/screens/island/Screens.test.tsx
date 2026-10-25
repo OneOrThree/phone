@@ -6,12 +6,13 @@
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, Keyboard, Linking, StyleSheet, View } from 'react-native';
+import { telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { art } from '@/constants/art';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
@@ -430,7 +431,7 @@ test('로그인 직후 터치 차단막이 끝나야 새 온보딩의 고양이 
   try {
     const screen = await render(<Harness route="login" flow />);
     await fireEvent.press(screen.getByRole('checkbox'));
-    await fireEvent.press(screen.getByText('GROMO 시작하기'));
+    await fireEvent.press(screen.getByText('시작하기'));
     expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
     expect(
       screen.getByTestId('route-transition-shield', { includeHiddenElements: true }).props
@@ -562,6 +563,29 @@ test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시�
   await fireEvent.press(s.getByText('다시 불러오기'));
   await waitFor(() => s.getByText('바람 섬'));
   assert.equal(calls, 2);
+});
+
+test('서버 섬 찾기에서 공개 섬이 0건이면 바다 장면 위 카드 한 줄로 알린다(GROMO-2412)', async () => {
+  const api = (dispatch: any) => ({
+    explore: jest.fn(async () => {
+      dispatch({ type: 'ISLAND_CANDIDATES', items: [], nextCursor: null, reset: true });
+      return { items: [], nextCursor: null };
+    }),
+  });
+  const s = await render(<Harness route="joinIsland" api={api} />);
+  const empty = await waitFor(() => s.getByTestId('join-island-empty'));
+  within(empty).getByText('지금 참여할 수 있는 공개 섬이 없어요.');
+  assert.equal(
+    s.getByTestId('join-island-empty-art', { includeHiddenElements: true }).props.source,
+    telescopeSea.source,
+  );
+});
+
+test('목업 섬 찾기도 공개 섬이 없으면 같은 장면 빈 안내를 쓴다(GROMO-2412)', async () => {
+  const initial = { ...initialState(false), name: '수빈', profileNames: ['수빈'] };
+  initial.islands = initial.islands.map((i) => ({ ...i, visibility: 'private' as const }));
+  const s = await render(<Harness route="joinIsland" initial={initial} />);
+  within(s.getByTestId('join-island-empty')).getByText('지금 참여할 수 있는 공개 섬이 없어요.');
 });
 
 test('active 가입은 서버 응답 뒤 성공 확인 카드를 보여주고 arrival로 가지 않는다', async () => {
@@ -975,6 +999,9 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
   const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
   assert.equal(statusStyle.flexShrink, 1);
   assert.equal(statusStyle.maxWidth, '45%');
+  // 곡 행 글자는 글자 크기 단계(12 이상) 안이다(GROMO-2413) — 예전 9·11 은 읽기 어려웠다
+  assert.ok(statusStyle.fontSize >= 12);
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).fontSize >= 12);
 });
 
 test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {
@@ -1758,7 +1785,7 @@ test('프로필은 /me 에서 채택한 연결 제공자들을 표시한다', as
     linkedProviders: ['google', 'kakao', 'line'],
   };
   const s = await render(<Harness route="profile" initial={initial} api={() => ({})} />);
-  assert.ok(s.getByText('수빈님의 GROMO 계정 · Google · 카카오 · LINE'));
+  assert.ok(s.getByText('수빈님의 계정 · Google · 카카오 · LINE'));
 });
 
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
@@ -2297,6 +2324,46 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
   assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
 });
 
+// 정원 휠 선택값은 숫자 상태다 — 라벨은 렌더 시점의 로케일로 만들고 create 에는 그 숫자가 간다.
+const wheelWeight = (label: string, s: any) =>
+  StyleSheet.flatten(s.getByText(label).props.style)?.fontWeight;
+
+test('섬 만들기 정원 휠에서 «3명» 을 고르면 create 에 maxMembers 3 이 간다(ko)', async () => {
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15명', s), '800');
+  await fireEvent.press(s.getByLabelText('정원 3명'));
+  assert.equal(wheelWeight('3명', s), '800');
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+  await fireEvent.press(s.getByLabelText('섬 만들기'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 maxMembers 3 이 간다(en)', async () => {
+  applyLocalePref('en');
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15 residents', s), '800');
+  await fireEvent.press(s.getByLabelText('Capacity 3 residents'));
+  assert.equal(wheelWeight('3 residents', s), '800');
+  await fireEvent.changeText(s.getByLabelText('Island Name'), 'New Island');
+  await fireEvent.press(s.getByLabelText('Create Island'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 화면에서 언어를 바꿔도 고른 정원 항목이 강조된 채 남는다', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await fireEvent.press(s.getByLabelText('정원 7명'));
+  assert.equal(wheelWeight('7명', s), '800');
+  applyLocalePref('en');
+  // 새 엘리먼트로 다시 그린다 — 같은 엘리먼트면 React 가 렌더를 건너뛴다
+  await s.rerender(<Harness route="createIsland" api={() => ({})} />);
+  assert.equal(wheelWeight('7 residents', s), '800');
+  assert.equal(wheelWeight('15 residents', s), '400');
+});
+
 test('대표 섬 선택은 서버 소속만 표시하고 저장 성공 뒤에 닫는다', async () => {
   const initial = reducer(initialState(true), {
     type: 'ISLAND_SYNC',
@@ -2699,8 +2766,8 @@ test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어�
 
 test.each([
   [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, false],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
   '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
@@ -2845,7 +2912,7 @@ test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하�
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
   await fireEvent.press(ui.getByText('문의하기'));
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus 문의]'));
+  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[집중할고양 문의]'));
   open.mockRejectedValue(new Error('no mail'));
   await fireEvent.press(ui.getByText('문의하기'));
   await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
@@ -2861,7 +2928,7 @@ test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메�
   const ui = await render(<Harness route="settings" full localePref="en" />);
   await fireEvent.press(ui.getByText('Report center'));
   assert.ok(
-    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus report] Report center'),
+    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[Focus Cat report] Report center'),
   );
   assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('What happened:'));
   open.mockRestore();

@@ -23,7 +23,6 @@ REQUIRED_KEYS = (
     "APPLE_CLIENT_ID",
     "FCM_PROJECT_ID",
     "FCM_SERVICE_ACCOUNT_JSON",
-    "OPENAI_API_KEY",
 )
 
 # legacy(data-api-cd 가 쓰는 공유 dev.env)가 «있으면 옮기는» 값. 이 파일은 컨테이너 env_file 이 아니라 compose 보간
@@ -39,8 +38,8 @@ LEGACY_OPTIONAL_KEYS = (
     "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
     # docker-compose.realtime.yml — GROMO-1954 Data 사건 수신 · GROMO-1775 우체통 · R-1 Kafka 입구
     "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME",
-    # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상·자격과 차단 필터 스위치.
-    "SVC_TOKEN_REALTIME_TO_DATA", "REALTIME_AUTHORIZATION_DATA_URL", "REALTIME_BLOCKS_FILTER_ENABLED",
+    # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상과 차단 필터 스위치.
+    "REALTIME_AUTHORIZATION_DATA_URL", "REALTIME_BLOCKS_FILTER_ENABLED",
     "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
     # GROMO-2342 채팅 이력 인가 예산 — ON 모드 대기·허용 캐시 TTL, OFF 모드 GroupClient 동시 상한(전부 기본값 있음).
     "REALTIME_AUTHORIZATION_WAIT_TIMEOUT", "REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS", "CHAT_DATA_API_MAX_CONCURRENCY",
@@ -52,22 +51,24 @@ LEGACY_OPTIONAL_KEYS = (
 
 # legacy(dev 전용) 에서 «비면 배포 차단» 으로 올린 값. GROMO-2224.
 # CHAT_WS_ALLOWED_ORIGINS: 비면 realtime 이 앱 접속까지 403 (10/1 Origin 사고, GROMO-2175). dev SM 에 들어간 뒤 필수로 올림.
-LEGACY_REQUIRED_KEYS = REQUIRED_KEYS + ("CHAT_WS_ALLOWED_ORIGINS",)
+# Realtime 섬 멤버십 조회는 내부 API를 쓰므로 서비스 자격도 모든 배포에서 필요하다.
+LEGACY_REQUIRED_KEYS = REQUIRED_KEYS + ("CHAT_WS_ALLOWED_ORIGINS", "SVC_TOKEN_REALTIME_TO_DATA")
+DATA_REQUIRED_PROFILES = ("satellites", "realtime-authorization")
 
 # legacy는 현재 data-api-cd 호출과 호환된다. 신규 서비스는 공유 SecretString을 받아도
 # 자기 허용목록만 내보낸다. prod의 전체 env_file 주입을 새 서비스에 복제하지 않는다.
 SERVICE_REQUIRED_KEYS = {
     "data-api": (
-        "API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD", "OPENAI_API_KEY",
-        "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_NOTI_TO_DATA",
-        "SVC_TOKEN_DATA_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK", "LINK_CAPABILITY_KEY",
-        "LINK_IP_SALT", "LINK_BASE_URL", "NOTIFICATION_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
+        "API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD",
+        "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_NOTI_TO_DATA", "SVC_TOKEN_REALTIME_TO_DATA",
+        "SVC_TOKEN_DATA_TO_NOTI",
+        "LINK_BASE_URL", "NOTIFICATION_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
     ),
     "business-api": (
-        "JWT_SECRET", "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_BIZ_TO_LINK",
-        "LINK_IP_SALT", "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
+        "JWT_SECRET", "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_BIZ_TO_NOTI",
+        "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL",
         "BUSINESS_REDIS_PASSWORD",
-        # GROMO-1775 우체통 — 실시간 서버 주소·전용 토큰(A22 ㊀: Data·알림·링크 토큰과 분리). 빠지면
+        # GROMO-1775 우체통 — 실시간 서버 주소·전용 토큰(A22 ㊀: Data·알림 토큰과 분리). 빠지면
         # InternalHttpClient 가 부팅에서 fail-fast 하므로 env 생성 단계가 먼저 막는다.
         "REALTIME_BASE_URL", "SVC_TOKEN_BIZ_TO_REALTIME",
         # GROMO-1908 로그인 시도 자격 digest 비밀. JWT_SECRET 과 «다른 값»(계정 LLD §3).
@@ -101,7 +102,7 @@ SERVICE_OPTIONAL_KEYS = {
         "FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON",
         "FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
         "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64",
-        "BATCH_ADMIN_KEY", "LINK_IP_SALT", "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
+        "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
         "FOCUS_REWARD_ACCRUAL_ENABLED", "ISLAND_BOARD_WRITES_ENABLED",
         # GROMO-2289 잡지 신청·고치기·발행 스위치 — 지정한 환경만 켜고 없으면 기본 OFF 를 유지한다.
         "MAGAZINE_ENABLED",
@@ -110,27 +111,30 @@ SERVICE_OPTIONAL_KEYS = {
         "NOTIFICATION_BASE_URL", "LINK_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
         "INTERNAL_API_ENABLED", "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
         "OUTBOX_RELAY_LEASE_DURATION", "OUTBOX_RELAY_POLL_INTERVAL", "OUTBOX_RELAY_INITIAL_BACKOFF",
-        "OUTBOX_RELAY_MAX_BACKOFF", "OUTBOX_RELAY_WARNING_ATTEMPTS", "NOTIFICATION_DISPATCH_MODE",
+        "OUTBOX_RELAY_MAX_BACKOFF", "OUTBOX_RELAY_WARNING_ATTEMPTS",
         # GROMO-2338 relay 처리량 손잡이 — yml 기본값(10 · 4 · PT5S)이 있어 비워도 된다.
         "OUTBOX_RELAY_RUN_LENGTH", "OUTBOX_RELAY_WORKER_THREADS", "OUTBOX_RELAY_TICK_BUDGET",
         # GROMO-1954 REALTIME 전달(HTTP 기본 · Kafka 선택). relay 를 켜면 필수다 — 비면 OutboxRelayProperties 가
         # 기동을 거부한다. relay 가 꺼진 지금 필수로 올리면 비밀을 넣기 전 배포가 막혀 선택으로 둔다.
         "REALTIME_BASE_URL", "SVC_TOKEN_DATA_TO_REALTIME", "OUTBOX_RELAY_REALTIME_KAFKA_ENABLED",
-        # GROMO-2182 realtime caller 자격(realtime-authorization 프로필이 읽는다)과 차단 사건 생산 스위치.
-        # 프로필을 켜지 않은 배포에서는 쓰이지 않으므로 선택으로 둔다.
-        "SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
+        # GROMO-2182 차단 사건 생산 스위치. realtime caller 자격은 필수 키다.
+        # 차단 사건은 이 스위치를 켠 배포에서만 생산한다.
+        "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
         # GROMO-2299 바다 방 사건(sea.member.updated) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
         "FOCUS_SEA_REALTIME_EVENTS_ENABLED",
         # GROMO-2350 세션 폐기 사건(auth.session.revoked)의 realtime 전달 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
         "AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED",
         # GROMO-2302 주민 첫 도착 사건(island.member.arrived) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
         "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
+        # GROMO-2349 주간 섬 랭킹 분자 기동 재계산 스위치 — 기본 OFF, 한 번 돌린 뒤 다시 끈다.
+        "RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP",
+        # GROMO-2280 운영자 caller(ops) 토큰 — 비면 ops caller 비활성(기동은 막지 않는다). 섬별 7일 평균 수동 실행용.
+        "SVC_TOKEN_OPS_TO_DATA",
     ),
     "business-api": (
-        "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
-        "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_IP_SALT", "LINK_PROXY_SECRET",
-        "LINK_TRUSTED_IP_HEADERS", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
-        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
+        "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL",
+        "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_PROXY_SECRET",
+        "LINK_TRUSTED_IP_HEADERS",
         "GOOGLE_DRIVE_API_KEY",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
@@ -157,10 +161,10 @@ SERVICE_FORBIDDEN_KEYS = {
                  "SVC_TOKEN_CONSOLE_TO_NOTI", "POSTGRES_PASSWORD"),
     "business-api": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD",
                      "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
-                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY", "LINK_CAPABILITY_KEY",
-                     "POSTGRES_PASSWORD", "LINK_MIGRATION_TOKEN"),
+                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY",
+                     "POSTGRES_PASSWORD"),
     "notification": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD", "JWT_SECRET",
-                     "OPENAI_API_KEY", "LINK_CAPABILITY_KEY", "POSTGRES_PASSWORD",
+                     "OPENAI_API_KEY", "POSTGRES_PASSWORD",
                      "BUSINESS_REDIS_PASSWORD", "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"),
 }
 
@@ -171,7 +175,7 @@ def allowed_keys(service: str) -> set[str]:
         return set(LEGACY_REQUIRED_KEYS) | set(LEGACY_OPTIONAL_KEYS) | {"GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"}
     keys = set(SERVICE_REQUIRED_KEYS[service]) | set(SERVICE_OPTIONAL_KEYS[service]) | set(OBSERVABILITY_KEYS)
     if service == "data-api":
-        keys |= set(TRANSITION_KEYS) | {"LINK_PROXY_SECRET"}
+        keys |= set(TRANSITION_KEYS)
     if service == "business-api":
         keys |= {"LINK_PROXY_SECRET"}
     return keys
@@ -266,6 +270,10 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
     require(secret, LEGACY_REQUIRED_KEYS)
 
     values: list[tuple[str, Any]] = [("APP_IMAGE", app_image)]
+    # 위성 두 서비스(business-api·notification)의 기동 정책은 dev 배포 입력에서만 지정하고, 공용 위성 Compose 의
+    # 운영 기본값(30s·30회)은 유지한다. 시작 유예 240s 의 dev 실측 근거(GROMO-2452)는 server/scripts/README.md 기동 정책 문단.
+    if environment == "dev":
+        values.extend((("APP_HEALTH_START_PERIOD", "240s"), ("APP_HEALTH_RETRIES", "6")))
     values.extend((key, secret[key]) for key in LEGACY_REQUIRED_KEYS)
     values.extend(
         (
@@ -287,10 +295,11 @@ def render_service(secret: dict[str, Any], image: str, service: str,
         raise ValueError("서비스 이미지가 필요합니다")
     profiles = environment
     if service == "data-api":
-        profiles = data_profiles if data_profiles is not None else f"{environment},satellites"
+        profiles = data_profiles if data_profiles is not None else f"{environment},satellites,realtime-authorization"
         items = {profile.strip() for profile in profiles.split(",")}
-        if "satellites" not in items:
-            raise ValueError("Data 프로파일에 satellites 항목이 필요합니다")
+        for required_profile in DATA_REQUIRED_PROFILES:
+            if required_profile not in items:
+                raise ValueError(f"Data 프로파일에 {required_profile} 항목이 필요합니다")
         # 환경과 프로파일이 어긋나면 막음 — dev 에 prod 프로파일이 섞이면 운영 설정으로 뜬다 (옛 data-api CD 검사 이전)
         other = "prod" if environment == "dev" else "dev"
         if environment not in items or other in items:
@@ -368,7 +377,7 @@ def main() -> None:
     parser.add_argument("--phase", choices=("transition", "final"), default="transition")
     parser.add_argument("--environment", choices=("dev", "prod"), default="dev")
     parser.add_argument("--redis-acl-output", type=Path)
-    # data-api 전용. 생략 시 «<환경>,satellites». dev CD 가 realtime-authorization 등을 더할 때 씀 (GROMO-2224)
+    # data-api 전용. 두 내부 API 프로필은 기본값과 명시적 덮어쓰기 모두에 필요하다.
     parser.add_argument("--data-profiles")
     # 배포 전 점검: 파일을 쓰지 않고 legacy·전 서비스의 필수 키·금지 키·토큰 규칙만 검사 (GROMO-2224)
     parser.add_argument("--check", action="store_true")

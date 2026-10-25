@@ -1,8 +1,8 @@
-// Screens.tsx 의 해당 분기는 번역하지 않은 죽은 코드 — 이 가로채기가 사라지면 한국어가 샌다(GROMO-2252).
 // `CurrentScreensContent`(CurrentScreens.tsx)는 'arrival'·'travel'·'focusTravel'·'fishingArrival'·
 // 'focusSetup'·'focus'·'rest'·'focusResult'·'returnTravel' 9개 라우트를 Screens.tsx 의
-// `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로챈다. 이 가로채기가 지워지면
-// 번역되지 않은 `Screens.tsx` 분기가 다시 살아나 한국어 문자열이 영어 빌드에 섞여 나온다.
+// `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로채고, 'manage'·'members' 는 `Hall` 로 보낸다.
+// 옛 번역 안 된 `Screens.tsx` 분기는 GROMO-2254 에서 지웠다 — 이 가로채기가 지워지면 그 라우트가
+// `RedesignScreens` 의 기본 화면으로 떨어지므로 여기서 고정한다(GROMO-2252).
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
@@ -22,6 +22,12 @@ jest.mock('@/screens/world/DepartureStory', () => ({
     );
   },
 }));
+
+// manage·members 는 Hall 이 그린다 — 가짜 Hall 로 도달 여부와 route 만 본다.
+jest.mock('@/screens/island/Hall', () => {
+  const { View } = require('react-native');
+  return { Hall: ({ e }: any) => <View testID="hall-mock" accessibilityLabel={e.route} /> };
+});
 
 // 가로채기 고정 대상: RedesignScreens 를 호출 기록용 가짜로 바꾸되 나머지 export 는 실제 구현을 유지한다.
 jest.mock('@/screens/island/Screens', () => {
@@ -122,6 +128,22 @@ jest.mock('@/services/api/telescope', () => ({
   arriveAtIsland: jest.fn(),
 }));
 
+// 잡지 리더는 실제 구현을 그대로 쓰되 마운트 횟수만 센다 — 호가 바뀔 때 새로 마운트되는지 본다.
+const mockReaderMount = jest.fn();
+jest.mock('@/screens/magazine/MagazineReader', () => {
+  const actual = jest.requireActual('@/screens/magazine/MagazineReader');
+  const React = require('react');
+  return {
+    ...actual,
+    MagazineReader: (props: any) => {
+      React.useEffect(() => {
+        mockReaderMount(props.e.detail);
+      }, []);
+      return React.createElement(actual.MagazineReader, props);
+    },
+  };
+});
+
 const redesignScreensMock = RedesignScreens as unknown as jest.Mock;
 
 // CurrentScreens.kicked.test.tsx 의 serverFocusState 를 그대로 재사용한다(새 대형 픽스처 금지).
@@ -151,29 +173,30 @@ const serverFocusState = (): State => {
   return state;
 };
 
+const screenOf = (route: Route, state: State, extra: object = {}) => (
+  <CurrentScreens
+    e={{
+      state,
+      route,
+      now: Date.now(),
+      dispatch: jest.fn(),
+      go: jest.fn(),
+      replace: jest.fn(),
+      reset: jest.fn(),
+      home: jest.fn(),
+      back: jest.fn(),
+      backOverride: { current: null },
+      notify: jest.fn(),
+      text: '',
+      setText: jest.fn(),
+      setGuideStep: jest.fn(),
+      islands: {},
+      ...extra,
+    }}
+  />
+);
 const mount = async (route: Route, state: State = serverFocusState(), extra: object = {}) =>
-  render(
-    <CurrentScreens
-      e={{
-        state,
-        route,
-        now: Date.now(),
-        dispatch: jest.fn(),
-        go: jest.fn(),
-        replace: jest.fn(),
-        reset: jest.fn(),
-        home: jest.fn(),
-        back: jest.fn(),
-        backOverride: { current: null },
-        notify: jest.fn(),
-        text: '',
-        setText: jest.fn(),
-        setGuideStep: jest.fn(),
-        islands: {},
-        ...extra,
-      }}
-    />,
-  );
+  render(screenOf(route, state, extra));
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -181,8 +204,7 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
 
-// Screens.tsx 의 route === 'arrival'/'travel'·'focusSetup'·'focus'·'rest'·'focusResult' 분기가 번역되지
-// 않은 죽은 코드인 근거가 된 9개 라우트. CurrentScreensContent 가 Travel·FocusFlow 로 먼저 가로챈다.
+// Screens.tsx 에서 분기를 지운 근거가 된 9개 라우트. CurrentScreensContent 가 Travel·FocusFlow 로 먼저 가로챈다.
 const interceptedRoutes: Route[] = [
   'arrival',
   'travel',
@@ -196,9 +218,20 @@ const interceptedRoutes: Route[] = [
 ];
 
 test.each(interceptedRoutes)(
-  '라우트 %s 는 CurrentScreensContent 가 가로채 RedesignScreens(번역 안 된 Screens.tsx 분기)를 부르지 않는다',
+  '라우트 %s 는 CurrentScreensContent 가 가로채 RedesignScreens 를 부르지 않는다',
   async (route) => {
     const screen = await mount(route);
+    expect(redesignScreensMock).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+// manage·members(마을회관 관리·주민)는 로컬 모드에서도 Hall 로 가고 RedesignScreens 는 부르지 않는다.
+test.each(['manage', 'members'] as const)(
+  '로컬 모드 라우트 %s 는 Hall 이 그리고 RedesignScreens 를 부르지 않는다',
+  async (route) => {
+    const screen = await mount(route, initialState(true), { islands: undefined });
+    expect(screen.getByTestId('hall-mock').props.accessibilityLabel).toBe(route);
     expect(redesignScreensMock).not.toHaveBeenCalled();
     await screen.unmount();
   },
@@ -327,3 +360,55 @@ test('바다 잡지(seaMagazine) 라우트는 소속 섬이 없어도 섬 가드
   expect(putMagazineReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA', opened: true });
   await screen.unmount();
 });
+
+test('소속 섬 없이 주민 화면을 열면 「가입한 섬이 없어요」 안내가 회색 단색이 아니라 바다 장면 위에 뜬다(GROMO-2412)', async () => {
+  const state = serverFocusState();
+  state.session = null;
+  state.serverIslands = { ...state.serverIslands!, currentIslandId: null };
+  const reset = jest.fn();
+  const screen = await mount('hall', state, { reset });
+  expect(screen.getByText('가입한 섬이 없어요')).toBeTruthy();
+  expect(screen.getByTestId('no-island-background', { includeHiddenElements: true })).toBeTruthy();
+  // 장식 그림 — Overlay 가 background 를 숨김 View 로 감싸 스크린리더에서 빠진다
+  expect(screen.queryByTestId('no-island-background')).toBeNull();
+  // 버튼이 갈 곳을 말하므로 부연 문장은 두지 않는다
+  expect(screen.queryByText('바다에서 머물 섬을 찾아보세요.')).toBeNull();
+  await fireEvent.press(screen.getByText('바다로 가기'));
+  expect(reset).toHaveBeenCalledWith('sea');
+  await screen.unmount();
+});
+
+// 같은 잡지 라우트에서 호 id(detail)만 바뀌면(딥링크로 다른 호를 열 때) 리더를 새로 마운트해야 이전 호의 확대 모달·쪽 위치가 남지 않는다.
+test.each(['magazine', 'seaMagazine'] as const)(
+  '%s 라우트는 호 id 가 바뀌면 잡지 리더를 새로 마운트한다',
+  async (route) => {
+    (getMagazineIssue as jest.Mock).mockResolvedValue({
+      issue: {
+        issueId: 'iss-20',
+        issueNo: 20,
+        issueDate: '2026-10-20',
+        publishedAt: '2026-10-19T22:00:00Z',
+        current: true,
+      },
+      editorial: null,
+      cells: [],
+      nextCursor: null,
+    });
+    (putMagazineReceipt as jest.Mock).mockResolvedValue({
+      place: route === 'seaMagazine' ? 'SEA' : 'ISLAND',
+      receivedAt: 'a',
+      deferredAt: null,
+      openedAt: 'b',
+    });
+    const state = serverFocusState();
+    state.session = null;
+    const screen = await render(screenOf(route, state, { detail: 'iss-20' }));
+    await screen.findByTestId('magazine-reader');
+    expect(mockReaderMount).toHaveBeenCalledTimes(1);
+
+    await screen.rerender(screenOf(route, state, { detail: 'iss-21' }));
+    expect(mockReaderMount).toHaveBeenCalledTimes(2);
+    expect(mockReaderMount).toHaveBeenLastCalledWith('iss-21');
+    await screen.unmount();
+  },
+);

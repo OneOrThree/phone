@@ -1114,8 +1114,73 @@ describe('startIslandRealtime', () => {
   });
 });
 
+describe('startIslandRealtime 응원 발신 연타 (GROMO-2160)', () => {
+  beforeEach(() => {
+    (Client as any).instances.length = 0;
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const open = () =>
+    startIslandRealtime({
+      islandId: 'i1',
+      emoteSessionId: 's-me',
+      onView: () => {},
+      loadSnapshots: async () => ({ focus: focusSnap([]), rest: restSnap([]) }),
+    });
+
+  test('서버 시도 창(600ms) 안의 연타는 앱이 한 번만 보내고 둘 다 true 를 돌린다 — 실패 토스트 없음', () => {
+    const rt = open();
+    const c = (Client as any).instances.at(-1);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 1);
+    assert.equal(c.published[0].destination, '/app/islands/i1/focus/emotes');
+    rt.dispose();
+  });
+
+  test('700ms 가 지나면 다시 보내고, 보내지 못한 시도는 창을 열지 않는다', () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const rt = open();
+    const c = (Client as any).instances.at(-1);
+    c.connected = false;
+    assert.equal(rt.sendEmote('cheer'), false, '끊긴 연결은 실패');
+    c.connected = true;
+    assert.equal(rt.sendEmote('cheer'), true, '실패한 시도는 창을 열지 않는다');
+    assert.equal(c.published.length, 1);
+    now += 699;
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 1, '699ms — 아직 창 안');
+    now += 1;
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 2, '700ms — 다시 보낸다');
+    rt.dispose();
+  });
+
+  test('시스템 시계가 뒤로 가도(음수 간격) 응원을 막지 않고 보낸 뒤 다시 찍는다', () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const rt = open();
+    const c = (Client as any).instances.at(-1);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 1);
+    now -= 10_000; // 시계가 10초 뒤로 갔다
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 2, '음수 간격은 연타가 아니라 시계 되감김 — 보낸다');
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(c.published.length, 2, '다시 찍었으니 바로 이어 누른 건 거른다');
+    rt.dispose();
+  });
+});
+
 describe('stompIslandChannel', () => {
   const client = () => (Client as any).instances.at(-1);
+  /** 재접속(onConnect)을 흉내 내고 그때 새로 건 구독 목적지를 돌려 준다. */
+  const reconnectDests = (c: any): string[] => {
+    const before = c.subs.length;
+    c.opts.onConnect({});
+    return c.subs.slice(before).map((x: { dest: string }) => x.dest);
+  };
 
   beforeEach(() => {
     (Client as any).instances.length = 0;
@@ -1210,12 +1275,18 @@ describe('stompIslandChannel', () => {
       onError: () => {},
     });
     const c = client();
-    c.opts.onStompError({ headers: { message: '거절' } });
+    c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' } });
+    // 거절된 구독은 재접속에서 다시 걸지 않는다(같은 답이 올 뿐이라 무한 거절 루프가 된다)
+    assert.ok(!reconnectDests(c).includes('/topic/islands/i1/emotes'), '거절 뒤 재구독하지 않는다');
     channel.setEmoteEnabled(false);
     const subscriptions = c.subs.length;
     channel.setEmoteEnabled(true);
     assert.equal(c.subs.length, subscriptions + 1);
     assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
+    assert.ok(
+      reconnectDests(c).includes('/topic/islands/i1/emotes'),
+      '새 세션은 재접속에서도 구독한다',
+    );
   });
 
   // 세션이 이미 끝난 뒤 남은 emotes 재구독이 거절되며 오는 NOT_FOCUSING은 기대된 잡음이라
@@ -1321,7 +1392,7 @@ describe('stompIslandChannel', () => {
     assert.ok(dests.includes('/topic/islands/i1/events'), 'events 구독 유지');
     assert.ok(dests.includes('/topic/islands/i1/movement'), 'movement 구독 유지');
     assert.ok(dests.includes('/topic/islands/i1/emotes'), 'emotes 구독 유지');
-    // 그 뒤 코드 ERROR 는 종전대로 — channel 없는 첫 ERROR 는 events 탓으로 치고(movement 무영향) 토스트한다
+    // 그 뒤 코드 ERROR — channel 헤더가 없으면 응원 몫이라 events·movement 는 무영향이고 토스트만 한다
     c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
     assert.deepEqual(denied, []);
     assert.deepEqual(errors, ['실시간 요청이 거절됐어요.']);
@@ -1349,6 +1420,35 @@ describe('stompIslandChannel', () => {
     const subs = c.subs.length;
     c.opts.onConnect({});
     assert.ok(!c.subs.slice(subs).some((x: { dest: string }) => x.dest.endsWith('/events')));
+  });
+
+  test('ERROR 에 channel 헤더가 없으면 events 탓으로 치지 않는다 — 헤더 없는 UNAUTHORIZED 를 거듭 받아도 events·movement 는 그대로', () => {
+    const denied: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push('m'),
+    });
+    const c = client();
+    // 상한(EVENTS_STRIKE_LIMIT=2)을 넘겨 3번 — 헤더가 없으면 strike 가 0 이라 끄지 않는다
+    for (let conn = 1; conn <= 3; conn += 1) {
+      c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
+      const dests = reconnectDests(c);
+      assert.ok(
+        dests.some((d) => d.endsWith('/events')),
+        `${conn}번째 접속 뒤에도 events 재구독`,
+      );
+      assert.ok(
+        dests.some((d) => d.endsWith('/movement')),
+        `${conn}번째 접속 뒤에도 movement 재구독`,
+      );
+    }
+    assert.deepEqual(denied, []);
   });
 
   test('ERROR 의 channel 헤더가 있으면 그 채널만 센다 — movement', () => {
@@ -1446,6 +1546,252 @@ describe('stompIslandChannel', () => {
     c.opts.onConnect({});
     const dests = c.subs.slice(subs).map((x: { dest: string }) => x.dest);
     assert.ok(dests.includes('/topic/islands/i1/emotes'), 'emotes 구독 유지');
+  });
+
+  test('channel=events 인 UNAUTHORIZED 는 응원 카운트에 들어가지 않는다 — 접속 세 번을 거쳐도 응원은 살아 있고 events 만 strike 2 에서 꺼진다', () => {
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    for (let conn = 1; conn <= 3; conn += 1) {
+      c.opts.onStompError({ headers: { message: 'UNAUTHORIZED', channel: 'events' }, body: '' });
+      const dests = reconnectDests(c);
+      assert.ok(dests.includes('/topic/islands/i1/emotes'), `${conn}번째 접속 뒤에도 응원 재구독`);
+      // 같은 코드 2번(strike 2)부터 events 는 꺼진다
+      assert.equal(
+        dests.includes('/topic/islands/i1/events'),
+        conn < 2,
+        `${conn}번째 접속 뒤 events`,
+      );
+    }
+  });
+
+  test('channel=emotes 헤더의 UPSTREAM_UNAVAILABLE 는 events·movement 를 건드리지 않는다 — 응원만 세 번째에 꺼진다', () => {
+    const denied: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      events: true,
+      movement: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push('m'),
+    });
+    const c = client();
+    const err = (channel: string) =>
+      c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE', channel }, body: '' });
+    for (let conn = 1; conn <= 2; conn += 1) {
+      err('emotes');
+      const dests = reconnectDests(c);
+      assert.ok(dests.includes('/topic/islands/i1/emotes'), `${conn}번째 접속 뒤에도 응원 재구독`);
+      assert.ok(dests.includes('/topic/islands/i1/events'), `${conn}번째 접속 뒤에도 events`);
+      assert.ok(dests.includes('/topic/islands/i1/movement'), `${conn}번째 접속 뒤에도 movement`);
+    }
+    err('emotes');
+    const dests = reconnectDests(c);
+    assert.ok(!dests.includes('/topic/islands/i1/emotes'), '응원만 세 번째에 끈다');
+    assert.ok(dests.includes('/topic/islands/i1/events'), 'events 는 그대로');
+    assert.ok(dests.includes('/topic/islands/i1/movement'), 'movement 는 그대로');
+    assert.deepEqual(denied, []);
+    // events strike 도 0 이다 — 응원 ERROR 가 쌓였다면 같은 코드 한 번으로 상한(2)에 닿아 꺼진다
+    err('events');
+    assert.ok(reconnectDests(c).includes('/topic/islands/i1/events'), 'events strike 는 1 뿐');
+  });
+
+  describe('응원 구독 거절 정책 (GROMO-2160)', () => {
+    afterEach(() => jest.restoreAllMocks());
+    const EMOTES = '/topic/islands/i1/emotes';
+    const open = (over: Partial<IslandChannelOpts> = {}) => {
+      stompIslandChannel({
+        islandId: 'i1',
+        emote: true,
+        onEvent: () => {},
+        onOpen: () => {},
+        onError: () => {},
+        ...over,
+      });
+      return client();
+    };
+
+    // 서버 응원 시도 창은 userId 단위라 두 기기가 600ms 안에 재접속하면 서로 거절하며 ERROR → 종료 → 재접속을 되풀이한다 —
+    // 세지 않으면 이 루프의 상한이 없다. 발신 연타는 700ms 앱 거름이 막는다.
+    test('시도 창(EMOTE_TOO_FREQUENT) ERROR 도 일시 오류처럼 센다 — 두 접속은 재구독, 세 번째에 끈다', () => {
+      const c = open();
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'EMOTE_TOO_FREQUENT' }, body: '' });
+        assert.ok(reconnectDests(c).includes(EMOTES), `${conn}번째 접속 뒤에도 재구독`);
+      }
+      c.opts.onStompError({ headers: { message: 'EMOTE_TOO_FREQUENT' }, body: '' });
+      assert.ok(!reconnectDests(c).includes(EMOTES), '두 기기 충돌 루프는 세 번째에 끊는다');
+    });
+
+    test('channel=emotes 인 EMOTE_TOO_FREQUENT 도 같은 방식으로 센다 (events 구독이 있어도)', () => {
+      const c = open({ events: true });
+      const err = () =>
+        c.opts.onStompError({
+          headers: { message: 'EMOTE_TOO_FREQUENT', channel: 'emotes' },
+          body: '',
+        });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+      err();
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('UNAUTHORIZED 는 응원 구독에선 영구 차단이 아니라 일시 오류다 — 세 번째 접속에서 끈다', () => {
+      const denied: string[] = [];
+      // movement 구독은 channel=movement 헤더가 있을 때만 UNAUTHORIZED 를 영구 차단으로 본다 — 헤더 없는 ERROR 는 응원 몫이다
+      const c = open({ movement: true, onMovementDenied: () => denied.push('m') });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
+        assert.ok(reconnectDests(c).includes(EMOTES), `${conn}번째 접속 뒤에도 재구독`);
+      }
+      assert.deepEqual(denied, [], '헤더 없는 ERROR 는 movement 를 건드리지 않는다');
+      c.opts.onStompError({ headers: { message: 'UNAUTHORIZED' }, body: '' });
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('events 구독이 있어도 헤더 없는 NOT_FOCUSING 은 바로 응원을 끄고 events 는 건드리지 않는다', () => {
+      const c = open({ events: true });
+      c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' }, body: '' });
+      const dests = reconnectDests(c);
+      assert.ok(!dests.includes(EMOTES), '첫 ERROR 로 응원 끔');
+      assert.ok(dests.includes('/topic/islands/i1/events'), 'events 는 무관하니 그대로');
+    });
+
+    test('일시 오류(UPSTREAM_UNAVAILABLE)는 접속당 1번 세어 세 번째 접속에서 끈다', () => {
+      const c = open({ events: false });
+      // 같은 접속의 둘째 ERROR(600ms 시도 창 중복)는 다시 세지 않는다 — 두 번씩 와도 접속 둘은 센 값이 2
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+        assert.ok(reconnectDests(c).includes(EMOTES), `${conn}번째 접속 뒤에도 재구독`);
+      }
+      c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      assert.ok(!reconnectDests(c).includes(EMOTES), '세 번째 접속 ERROR 로 이번 세션 구독을 끈다');
+    });
+
+    test('channel=emotes 헤더의 일시 오류도 같은 방식으로 센다 (events 구독이 있어도)', () => {
+      const c = open({ events: true });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({
+          headers: { message: 'UPSTREAM_UNAVAILABLE', channel: 'emotes' },
+          body: '',
+        });
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+      c.opts.onStompError({
+        headers: { message: 'UPSTREAM_UNAVAILABLE', channel: 'emotes' },
+        body: '',
+      });
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('60초를 넘게 조용했으면 일시 오류 카운트를 새로 센다 — 드문 장애가 쌓여 응원을 영영 잃지 않는다', () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const c = open();
+      const err = () =>
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+      now += 61_000; // 카운트 2 가 쌓인 채 한참 조용했다
+      err(); // 새로 센 1
+      assert.ok(reconnectDests(c).includes(EMOTES), '카운트가 되살아나지 않고 다시 시작');
+      err(); // 2
+      assert.ok(reconnectDests(c).includes(EMOTES));
+      err(); // 3 — 상한은 여전히 동작한다
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('조용한 시간이 60초 이내면 카운트는 그대로 쌓인다', () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const c = open();
+      const err = () =>
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+        now += 60_000;
+      }
+      err();
+      assert.ok(!reconnectDests(c).includes(EMOTES));
+    });
+
+    test('오류를 센 뒤 시계가 뒤로 가면 카운트를 새로 센다 — sendEmote 의 역행 방어와 대칭', () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const c = open();
+      const err = () =>
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        err();
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+      now -= 10_000; // 시계가 10초 뒤로 갔다 — 간격이 음수
+      err(); // 새로 센 1 — 간격만 보면 3 이라 꺼졌을 것
+      assert.ok(reconnectDests(c).includes(EMOTES), '역행은 60초 조용함과 같이 다시 시작');
+    });
+
+    test('channel=events 헤더의 ERROR 는 응원 구독을 건드리지 않는다', () => {
+      const c = open({ events: true });
+      for (let i = 0; i < 5; i += 1) {
+        c.opts.onStompError({
+          headers: { message: 'UPSTREAM_UNAVAILABLE', channel: 'events' },
+          body: '',
+        });
+        assert.ok(reconnectDests(c).includes(EMOTES));
+      }
+    });
+
+    test('events 구독이 있어도 헤더 없는 일시 오류는 처음부터 응원 몫으로 센다 — events 는 건드리지 않는다', () => {
+      const c = open({ events: true });
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+        const dests = reconnectDests(c);
+        assert.ok(dests.includes(EMOTES), `${conn}번째 접속 뒤에도 재구독`);
+        assert.ok(
+          dests.includes('/topic/islands/i1/events'),
+          `${conn}번째 접속 뒤에도 events 재구독`,
+        );
+      }
+      c.opts.onStompError({ headers: { message: 'UPSTREAM_UNAVAILABLE' }, body: '' });
+      const dests = reconnectDests(c);
+      assert.ok(!dests.includes(EMOTES), '응원 몫 3번째에 끈다');
+      assert.ok(dests.includes('/topic/islands/i1/events'), 'events 는 끝까지 유지');
+    });
+
+    test('새 응원 세션(setEmoteEnabled(true))은 쌓인 일시 오류 카운트도 비운다', () => {
+      const channel = stompIslandChannel({
+        islandId: 'i1',
+        emote: true,
+        onEvent: () => {},
+        onOpen: () => {},
+        onError: () => {},
+      });
+      const c = client();
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' }, body: '' });
+        reconnectDests(c);
+      }
+      channel.setEmoteEnabled(false);
+      channel.setEmoteEnabled(true); // 새 세션 — 카운트 0
+      for (let conn = 1; conn <= 2; conn += 1) {
+        c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' }, body: '' });
+        assert.ok(reconnectDests(c).includes(EMOTES), `새 세션 ${conn}번째 접속 뒤에도 재구독`);
+      }
+    });
   });
 
   describe('realtimeClientOptions 재접속 지터', () => {
@@ -1643,7 +1989,7 @@ describe('이동 채널 (GROMO-2248)', () => {
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    c.opts.onStompError({ headers: { message: 'NOT_A_MEMBER' } });
+    c.opts.onStompError({ headers: { message: 'NOT_A_MEMBER', channel: 'movement' } });
     assert.equal(errors.length, 1);
     assert.equal(denied.length, 1);
     c.subs.length = 0;
@@ -1673,7 +2019,7 @@ describe('이동 채널 (GROMO-2248)', () => {
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     assert.equal(denied.length, 0);
     c.subs.length = 0;
     c.activate(); // stompjs 의 5초 재접속
@@ -1688,15 +2034,15 @@ describe('이동 채널 (GROMO-2248)', () => {
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     // 같은 접속의 둘째 ERROR는 카운트되지 않는다 — 재접속해야 다음 1회가 센다.
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     c.activate();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     assert.equal(denied.length, 0);
     c.activate();
-    c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' } });
+    c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR', channel: 'movement' } });
     assert.equal(denied.length, 1);
     c.subs.length = 0;
     c.activate();
@@ -1711,7 +2057,10 @@ describe('이동 채널 (GROMO-2248)', () => {
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    c.opts.onStompError({ headers: {}, body: JSON.stringify({ code: 'NOT_A_MEMBER' }) });
+    c.opts.onStompError({
+      headers: { channel: 'movement' },
+      body: JSON.stringify({ code: 'NOT_A_MEMBER' }),
+    });
     assert.equal(denied.length, 1);
   });
 
@@ -1720,9 +2069,9 @@ describe('이동 채널 (GROMO-2248)', () => {
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     c.activate();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     // FullState 수신 — 연속 실패가 끊겨 카운터가 0으로 돌아간다.
     sub(MOVEMENT).cb({
       body: JSON.stringify({
@@ -1735,12 +2084,12 @@ describe('이동 채널 (GROMO-2248)', () => {
       }),
     });
     c.activate();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     c.activate();
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     assert.equal(denied.length, 0);
     c.activate();
-    c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' } });
+    c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR', channel: 'movement' } });
     assert.equal(denied.length, 1);
   });
 
@@ -1749,7 +2098,7 @@ describe('이동 채널 (GROMO-2248)', () => {
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
-    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'movement' } });
     assert.equal(denied.length, 1);
     c.subs.length = 0;
     c.activate();
@@ -1854,7 +2203,7 @@ describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
     const c = client();
     expect(count(c, '/topic/islands/isl/events')).toBe(1);
     expect(count(c, '/topic/islands/isl/movement')).toBe(1);
-    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT', channel: 'movement' } });
     expect(denied).toEqual([]);
     c.opts.onConnect({});
     expect(count(c, '/topic/islands/isl/events')).toBe(2);
@@ -1871,13 +2220,13 @@ describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
     expect(count(c, '/topic/islands/isl/events')).toBe(3);
   });
 
-  test('구분 불가 코드가 같은 코드로 두 번 거절되면 세 번째 접속에서 /events 를 건너뛰고 이동은 재구독한다', () => {
+  test('channel=events 로 같은 코드가 두 번 거절되면 세 번째 접속에서 /events 를 건너뛰고 이동은 재구독한다', () => {
     const denied: number[] = [];
     open(denied);
     const c = client();
-    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'events' } });
     c.opts.onConnect({});
-    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'events' } });
     c.opts.onConnect({});
     expect(count(c, '/topic/islands/isl/events')).toBe(2);
     expect(count(c, '/topic/islands/isl/movement')).toBe(3);
@@ -1895,11 +2244,11 @@ describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
     });
     const c = client();
     expect(count(c, '/topic/islands/isl/emotes')).toBe(1);
-    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'events' } });
     c.opts.onConnect({});
     expect(count(c, '/topic/islands/isl/emotes')).toBe(2);
     expect(count(c, '/topic/islands/isl/events')).toBe(2);
-    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'events' } });
     c.opts.onConnect({});
     expect(count(c, '/topic/islands/isl/emotes')).toBe(3);
     expect(count(c, '/topic/islands/isl/events')).toBe(2);
@@ -1910,10 +2259,10 @@ describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
     try {
       open();
       const c = client();
-      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // strike 1
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'events' } }); // strike 1
       c.opts.onConnect({});
       jest.advanceTimersByTime(61_000); // 무사히 유지
-      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // 다시 strike 1
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST', channel: 'events' } }); // 다시 strike 1
       c.opts.onConnect({});
       expect(count(c, '/topic/islands/isl/events')).toBe(3);
     } finally {

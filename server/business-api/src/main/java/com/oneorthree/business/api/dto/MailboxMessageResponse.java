@@ -14,7 +14,7 @@ import java.util.UUID;
  *
  * @param id              서버 부여 id(UUID v7). 정렬·커서의 근거
  * @param clientMessageId 앱 멱등 키 — GET items 에도 싣는다(LLD §2 명시 확장: 낙관적 말풍선 병합용)
- * @param userId          작성자
+ * @param userId          작성자. 탈퇴 발신자면 null
  * @param name            표시 이름. 탈퇴·비노출은 null — 키는 항상 실린다
  * @param text            저장된 본문
  * @param createdAt       서버 수신 시각(UTC ISO-8601)

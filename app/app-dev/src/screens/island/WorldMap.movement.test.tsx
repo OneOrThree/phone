@@ -15,6 +15,7 @@ import { loadNav } from '@/utils/nav-path';
 import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
+import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -1188,6 +1189,187 @@ it('이동 채널의 onError(그 외 오류 큐 코드)는 동기화를 끄지 �
   await screen.unmount();
 });
 
+describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', () => {
+  it('이동 보기를 켜면 readout 셋째 줄에 RTT·Snapshot·재접속을 모으고, 껐다 켜면 비운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    await act(async () => jest.advanceTimersByTime(30));
+    await emit(pathAccepted(ME, 1, 1, SPAWN, [{ x: 39.5, y: 46.5 }]));
+    await emit(snapshot(101, [entity(ME, 1, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(50));
+    await emit(snapshot(102, [entity(ME, 1, { x: 39, y: 46 })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    expect(readout()).toContain('RTT 1건 p50 30');
+    expect(readout()).toContain('Snap 1건 p50 50');
+    // stompjs 재접속 = 같은 채널의 두 번째 onOpen.
+    await act(async () => channel().opts.onOpen());
+    await act(async () => channel().opts.onOpen());
+    await act(async () => jest.advanceTimersByTime(500));
+    expect(readout()).toContain('재접속 1');
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(readout()).toContain('RTT 0건');
+    expect(readout()).toContain('재접속 0');
+    await screen.unmount();
+  });
+
+  // AppState 리스너를 모아 run 에 「상태 바꾸기」로 넘긴다 — 위 「앱이 background 로 가면…」 테스트와 같은
+  // defineProperty 패턴이다.
+  const withAppState = async (run: (to: (state: string) => Promise<void>) => Promise<void>) => {
+    const listeners: ((state: string) => void)[] = [];
+    const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+    Object.defineProperty(AppState, 'addEventListener', {
+      configurable: true,
+      value: ((_type: string, listener: (state: string) => void) => {
+        listeners.push(listener);
+        return { remove: jest.fn() };
+      }) as typeof AppState.addEventListener,
+    });
+    try {
+      await run((state) => act(async () => listeners.forEach((listener) => listener(state))));
+    } finally {
+      if (originalAddEventListener) {
+        Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+      }
+    }
+  };
+  // background → active: 채널 effect 가 cleanup 뒤 다시 돌아 새 채널 인스턴스를 열고, 412ms 뒤 FullState 를 받는다.
+  const reopenAfterBackground = async (to: (state: string) => Promise<void>) => {
+    const before = channel();
+    await to('background');
+    await to('active');
+    expect(channel()).not.toBe(before);
+    await act(async () => channel().opts.onOpen());
+    await act(async () => jest.advanceTimersByTime(412));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(500));
+  };
+
+  it('background 복귀로 채널 effect 가 다시 돌아 새 채널이 열려도 재접속으로 세고, 첫 FullState 시간은 첫 값을 지킨다', async () => {
+    jest.useFakeTimers();
+    await withAppState(async (to) => {
+      const screen = await renderHome(nextIsland());
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      await act(async () => channel().opts.onOpen());
+      await act(async () => jest.advanceTimersByTime(96));
+      await emit(fullState([actor(ME, SPAWN)]));
+      await reopenAfterBackground(to);
+      const readout = screen.getByTestId('nav-debug-text').props.children as string;
+      expect(readout).toContain('재접속 1 · FullState 412ms(첫 96ms)');
+      await screen.unmount();
+    });
+  });
+
+  it('채널이 열리고 FullState 까지 받은 뒤 이동 보기를 켜도 다음 열림을 재접속으로 세고, 측정 전 첫 연결은 「—」로 둔다', async () => {
+    jest.useFakeTimers();
+    await withAppState(async (to) => {
+      const screen = await renderHome(nextIsland());
+      // 측정 시작 전 — 채널이 열리고 첫 FullState 까지 받았다(집계는 꺼져 있다).
+      await act(async () => channel().opts.onOpen());
+      await act(async () => jest.advanceTimersByTime(96));
+      await emit(fullState([actor(ME, SPAWN)]));
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      await reopenAfterBackground(to);
+      const readout = screen.getByTestId('nav-debug-text').props.children as string;
+      expect(readout).toContain('재접속 1 · FullState 412ms(첫 —)');
+      await screen.unmount();
+    });
+  });
+
+  it('자동 걷기를 켜면 2초 뒤 탭과 같은 걷기로 intent 를 보내고, 끄면 더 보내지 않는다', async () => {
+    jest.useFakeTimers();
+    // 무작위 셀 = (42,45) 셀(index 45·100 + 42), 지터 = 0.45425 × 50ms ≈ 23ms.
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0.45425);
+    const island = nextIsland();
+    const screen = await renderHome(island);
+    expect(screen.queryByTestId('auto-walk-toggle')).toBeNull();
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await fireEvent.press(screen.getByTestId('auto-walk-toggle'));
+    await act(async () => jest.advanceTimersByTime(2100));
+    expect(channel().send.mock.calls).toEqual([
+      [
+        `/app/islands/${island}/movement/intent`,
+        { commandSeq: 1, navRevision: 1, goalX: 42.5, goalY: 45.5 },
+      ],
+    ]);
+    await fireEvent.press(screen.getByTestId('auto-walk-toggle'));
+    // 다른 셀로 바꿔도 꺼져 있으니 더 보내지 않는다.
+    random.mockReturnValue(0.4639);
+    await act(async () => jest.advanceTimersByTime(6000));
+    expect(channel().send).toHaveBeenCalledTimes(1);
+    random.mockRestore();
+    await screen.unmount();
+  });
+  it('점프 표본은 정지 상태 보정만 — FullState 채택·도착 스냅은 잡지 않는다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await act(async () => channel().opts.onOpen());
+    // FullState 채택 — 옛 격자 스폰과 서버 스폰의 차이(> 0.1 unit)만큼 스냅한다.
+    await emit(fullState([actor(ME, SPAWN)]));
+    // 도착 스냅 — 같은 셀 탭 → 빈 경로 → Arrived 자리에 선다.
+    await tapGround(screen, { x: 38.7, y: 45.3 });
+    await emit(pathAccepted(ME, 1, 1, SPAWN, []));
+    await emit(arrived(ME, 1, { x: 38.7, y: 45.3 }));
+    await act(async () => jest.advanceTimersByTime(500));
+    expect(movementStats.summary().jump.maxScreenPx).toBe(0);
+    // 정지 상태 보정 — 서버 Snapshot 이 2.8 unit 떨어진 정지 위치를 알려 온다(CORRECTION_UNITS 1 초과).
+    await emit(snapshot(140, [entity(ME, 1, { x: 41.5, y: 45.5 }, { state: 'IDLE' })]));
+    const from = worldToImage({ x: 38.7, y: 45.3 }, SIZE),
+      to = worldToImage({ x: 41.5, y: 45.5 }, SIZE);
+    const { jump } = movementStats.summary();
+    expect(jump.maxImagePx).toBeCloseTo(Math.hypot(to.x - from.x, to.y - from.y), 6);
+    expect(jump.maxScreenPx).toBeCloseTo(jump.maxImagePx * jump.scaleAtMax, 6);
+    await screen.unmount();
+  });
+
+  it('__DEV__=false 면(이동 보기가 있는 QA 빌드) 이동 보기를 켜도 자동 걷기 버튼이 없다', async () => {
+    // CAN_PREVIEW_VILLAGE 는 모듈 로드 때(__DEV__ true) 굳어 이동 보기 버튼이 있다 — QA 빌드
+    // (EXPO_PUBLIC_VILLAGE_PREVIEW=1)와 같은 상태다. 자동 걷기는 렌더 때 __DEV__ 를 읽는다.
+    const savedDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+    const screen = await renderHome(nextIsland());
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+    try {
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      expect(screen.getByTestId('nav-debug-text')).toBeTruthy();
+      expect(screen.queryByTestId('auto-walk-toggle')).toBeNull();
+    } finally {
+      if (savedDev === undefined) delete (globalThis as { __DEV__?: boolean }).__DEV__;
+      else (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
+    }
+    await screen.unmount();
+  });
+
+  it('이동 보기가 꺼져 있으면(기본) 집계 1초 인터벌을 만들지 않고 movementStats.format 도 부르지 않는다', async () => {
+    jest.useFakeTimers();
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const format = jest.spyOn(movementStats, 'format');
+    try {
+      const screen = await renderHome(nextIsland());
+      await act(async () => channel().opts.onOpen());
+      await emit(fullState([actor(ME, SPAWN)]));
+      await tapGround(screen, { x: 42.5, y: 45.5 });
+      await emit(pathAccepted(ME, 1, 1, SPAWN, [{ x: 39.5, y: 46.5 }]));
+      await emit(snapshot(101, [entity(ME, 1, SPAWN)]));
+      await act(async () => jest.advanceTimersByTime(3000));
+      expect(screen.queryByTestId('nav-debug-text')).toBeNull();
+      // 마운트 시계 인터벌(낮·밤 등)은 계기와 무관하다 — 집계 Metro 로그 주기의 인터벌만 없으면 된다.
+      expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).not.toContain(STATS_LOG_MS);
+      expect(format).not.toHaveBeenCalled();
+      await screen.unmount();
+    } finally {
+      setIntervalSpy.mockRestore();
+      format.mockRestore();
+    }
+  });
+});
+
 describe('플래그 off·서버 홈 아님', () => {
   // 플래그는 모듈 로드 때 굳으므로 격리 로드한다. 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다.
   const isolatedIsland = (env: Record<string, string | undefined>) => {
@@ -1255,9 +1437,10 @@ describe('플래그 off·서버 홈 아님', () => {
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
     // 컨트롤러가 없으면(동기화 off) server 는 null 이다(항목 2 불변) — 오버레이는 켜졌지만 flush 효과는
-    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다.
+    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다. 토글이 만드는 다른
+    // setInterval 은 GROMO-2250 집계의 1초 Metro 로그 하나뿐이다.
     expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
-    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).toEqual([1000]);
     setIntervalSpy.mockRestore();
     await screen.unmount();
   });

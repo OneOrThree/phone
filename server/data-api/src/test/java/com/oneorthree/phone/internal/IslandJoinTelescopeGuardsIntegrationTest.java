@@ -2,9 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -52,8 +50,6 @@ class IslandJoinTelescopeGuardsIntegrationTest {
     @Autowired
     IslandJoinService joins;
     @Autowired
-    FocusService legacyFocus;
-    @Autowired
     GroupRepository groups;
     @Autowired
     AuthService auth;
@@ -92,7 +88,8 @@ class IslandJoinTelescopeGuardsIntegrationTest {
         // 출발 섬 전망대는 열어 둔다 — 방문 가입을 막는 것이 집중 가드뿐이게 한다.
         jdbc.update("INSERT INTO island_facilities (island_id, building_id, status, cost, cost_revision)"
                 + " VALUES (?, 'tower', 'COMPLETED', 1, 1)", home);
-        legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null));
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
+                UUID.randomUUID(), user);
         UUID target = openIsland("집중중가입섬");
 
         assertThatThrownBy(() -> joins.join(user, target, new JoinIslandCommandRequest(null, "visit"),
@@ -111,7 +108,7 @@ class IslandJoinTelescopeGuardsIntegrationTest {
     // ---------------------------------------------------------------- 도구
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID openIsland(String name) {

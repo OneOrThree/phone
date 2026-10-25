@@ -1,26 +1,14 @@
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
 import { useAppLayout } from '@/utils/layout';
-import { RestGroup } from '@/screens/focus/RestGroup';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  View,
-  Image,
-  Animated,
-  AppState,
-  Easing,
-  Pressable,
-  type AppStateStatus,
-} from 'react-native';
+import { View, Image, Animated, AppState, Easing, type AppStateStatus } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useGowun } from '@/screens/island/sceneKit';
-import { State, currentIsland } from '@/services/model';
+import { State } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { componentTokens } from '@/design-system/tokens';
-import { C, T, H, Button, useScreenInsets } from '@/design-system/primitives';
-import { CatSprite } from '@/components/CatSprite';
-import { PolicyLinks } from '@/components/PolicyLink';
-import { growthStage } from '@/screens/island/IslandHome';
+import { telescopeSea } from '@/screens/sea/seaAssets';
 // Geometry, colors, layers and timing follow preview/motion/sailing.html.
 function SeaDrift({
   children,
@@ -83,7 +71,7 @@ function SeaDrift({
     </Animated.View>
   );
 }
-// 움직임 줄이기: 구름·물결을 시안(v2 항해 화면, sailing.html 3.03초 프레임)과 같은 자리에 멈춘다
+// 움직임 줄이기: 물결을 시안(v2 항해 화면, sailing.html 3.03초 프레임)과 같은 자리에 멈춘다
 const FROZEN_MS = 3030;
 function FrozenDrift({
   children,
@@ -203,6 +191,20 @@ export function voyageTable(totalSec: number) {
   }
   return tr;
 }
+// 뗏목 그림(원본 1024px 상자)에서 판자는 48~976px, LAB 600px 이 판자 928px 이다. 출항 뒷걸음(LAB −159)부터 정박(+150)까지
+// 쓸고 가는 폭 = 판자 928px + 이동 309 LAB px. 이 폭이 좌우 여백 8 안에 다 들어오게 뗏목을 줄이고 가운데 둔다 — 줄이지 않으면
+// 세로 폰에서 출항 첫 프레임의 뗏목이 왼쪽 화면 밖으로 잘린다(GROMO-2414)
+const RAFT_SWEEP = 928 + (309 * 928) / 600;
+const RAFT_MARGIN = 8;
+export function sailingRaftFrame(width: number, height: number, land: boolean) {
+  // 가로 폰은 v2 L/sail 합성과 같이 배 300px · 수평선(49%)에 걸침
+  const size = Math.min(
+    land ? Math.min(300, height * 0.75) : Math.min(width * 0.8, height * 0.68, 600),
+    ((width - 2 * RAFT_MARGIN) * 1024) / RAFT_SWEEP,
+  );
+  // 기준점 = 이동 구간 가운데(LAB 480, 움직임 줄이기 정지점) — 화면 가운데
+  return { size, parkX: (width - size) / 2 };
+}
 const rad = (a: number[]) => a.map((v) => `${v}rad`);
 const scaled = (a: number[], k: number, plus = 0) => a.map((v) => v * k + plus);
 export function Sailing({
@@ -225,7 +227,7 @@ export function Sailing({
     hull: 'raft',
   }).current;
   const x = useRef(new Animated.Value(0)).current;
-  const [width, setWidth] = useState(390),
+  const [{ width, height }, setBox] = useState({ width: 390, height: layout.height }),
     callback = useRef(onArrive);
   callback.current = onArrive;
   const reduced = state.settings.reduceMotion,
@@ -267,10 +269,7 @@ export function Sailing({
       elapsed.current = Math.min(duration, done + Date.now() - began);
     };
   }, [x, duration, reduced, paused]);
-  // 가로 폰은 v2 L/sail 합성과 같이 배 300px · 수평선(49%)에 걸침
-  const size = land
-      ? Math.min(300, layout.height * 0.75)
-      : Math.min(width * 0.8, layout.height * 0.68, 600),
+  const { size, parkX } = sailingRaftFrame(width, layout.height, land),
     sc = size / 1024,
     cs = 310 * sc;
   const spec = (
@@ -282,9 +281,13 @@ export function Sailing({
     stillLand = reduced && land;
   // LAB 뗏목 600px 은 원본 928px(48~976) — LAB 1px = 928/600 원본 px
   const k = (928 / 600) * sc;
-  // 기준점 = 이동 구간 가운데(LAB 480, 움직임 줄이기 정지점). LAB 처럼 화면 가운데에 두되, 정박(+150 LAB)한
-  // 뗏목 오른쪽 끝(원본 976)이 화면 밖으로 나가지 않게 당긴다 — 세로 폰은 시안 프레임 위치와 같아진다
-  const parkX = Math.min((width - size) / 2, width - 8 - 976 * sc - 150 * k);
+  // 바다 장면 그림(망원경 바다)을 깔고 그림의 수평선을 장면 수평선(세로 49%)에 맞춘다 — 화면을 다 덮는 가장 작은 배율
+  const horizonY = height * 0.49,
+    seaScale = Math.max(
+      width / telescopeSea.width,
+      horizonY / telescopeSea.horizon,
+      (height - horizonY) / (telescopeSea.height - telescopeSea.horizon),
+    );
   const motion = useMemo(() => {
     if (reduced) return null;
     const VOYAGE = voyageTable(duration / 1000);
@@ -334,91 +337,20 @@ export function Sailing({
   return (
     <View
       style={{ flex: 1, backgroundColor: '#f0f2df', overflow: 'hidden' }}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      onLayout={(e) => setBox(e.nativeEvent.layout)}
     >
-      <View
-        pointerEvents="none"
+      <Image
+        testID="sailing-sea"
+        source={telescopeSea.source}
+        accessible={false}
         style={{
           position: 'absolute',
-          left: 0,
-          right: 0,
-          top: 0,
-          height: '51%',
+          width: telescopeSea.width * seaScale,
+          height: telescopeSea.height * seaScale,
+          left: (width - telescopeSea.width * seaScale) / 2,
+          top: horizonY - telescopeSea.horizon * seaScale,
         }}
-      >
-        {(stillLand
-          ? [
-              { top: '23.5%', left: '78%', w: 96, ms: 0, phase: 0, opacity: 1 },
-              { top: '58.8%', left: '16%', w: 80, ms: 0, phase: 0, opacity: 1 },
-            ]
-          : [
-              {
-                top: '19%',
-                left: '88%',
-                w: 96,
-                ms: 26000,
-                phase: 0,
-                opacity: 0.85,
-              },
-              {
-                top: '69%',
-                left: '115%',
-                w: 80,
-                ms: 32000,
-                phase: 13 / 32,
-                opacity: 0.55,
-              },
-            ]
-        ).map((c, i) => (
-          <Drift
-            key={i}
-            width={stillLand ? 0 : 660}
-            duration={c.ms || 1}
-            phase={c.phase}
-            style={
-              {
-                position: 'absolute',
-                top: c.top,
-                left: c.left,
-                width: c.w,
-                height: 15,
-                opacity: c.opacity,
-              } as any
-            }
-          >
-            <View
-              style={{
-                width: c.w,
-                height: 15,
-                borderRadius: 50,
-                backgroundColor: '#fffdf3',
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                left: 15,
-                bottom: 2,
-                width: 40,
-                height: 24,
-                borderRadius: 50,
-                backgroundColor: '#fffdf3',
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                left: 38,
-                bottom: 2,
-                width: 50,
-                height: 31,
-                borderRadius: 50,
-                backgroundColor: '#fffdf3',
-              }}
-            />
-          </Drift>
-        ))}
-      </View>
+      />
       <View
         pointerEvents="none"
         style={{
@@ -427,9 +359,6 @@ export function Sailing({
           bottom: 0,
           left: 0,
           right: 0,
-          backgroundColor: '#a0cccd',
-          borderTopWidth: 3,
-          borderTopColor: '#e1ebdc70',
           overflow: 'hidden',
         }}
       >
@@ -616,307 +545,6 @@ export function Sailing({
           </Svg>
         )}
       </Animated.View>
-    </View>
-  );
-}
-export function RestWorld({
-  state,
-  travel,
-  resume,
-  home,
-}: {
-  state: State;
-  travel: boolean;
-  resume: () => void;
-  home: () => void;
-}) {
-  const insets = useScreenInsets();
-  const [phase, setPhase] = useState(travel ? 'sail' : 'read'),
-    [size, setSize] = useState({ w: 390, h: 740 });
-  const snap = useRef({
-    color: state.color,
-    buildings: currentIsland(state).buildings,
-  }).current;
-  const p = useRef(new Animated.ValueXY({ x: 313, y: 1135 })).current,
-    z = useRef(new Animated.Value(travel ? 1 : 1.9)).current;
-  useEffect(() => {
-    if (phase !== 'walk') return;
-    const pts = [
-      { x: 390, y: 1090 },
-      { x: 445, y: 988 },
-      { x: 540, y: 950 },
-      { x: 542, y: 869 },
-      { x: 480, y: 825 },
-      { x: 450, y: 825 },
-    ];
-    const chain = Animated.sequence(
-      pts.map((q) =>
-        Animated.timing(p, {
-          toValue: q,
-          duration: state.settings.reduceMotion ? 1 : 4000 / pts.length,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-      ),
-    );
-    chain.start(({ finished }) => {
-      if (finished) {
-        setPhase('read');
-        Animated.timing(z, {
-          toValue: 1.9,
-          duration: state.settings.reduceMotion ? 1 : 900,
-          useNativeDriver: true,
-        }).start();
-      }
-    });
-    return () => chain.stop();
-  }, [phase]);
-  if (phase === 'sail')
-    return (
-      <Sailing
-        state={state}
-        from="바다"
-        destination="우리 섬"
-        duration={2100}
-        onArrive={() => setPhase('walk')}
-      />
-    );
-  if (phase === 'read') return <RestGroup state={state} resume={resume} home={home} />;
-  const scale = size.w / 820,
-    mapW = 1024 * scale,
-    mapH = 1536 * scale,
-    cx = 520 * scale,
-    cy = 850 * scale;
-  return (
-    <View
-      style={{ flex: 1, backgroundColor: C.sky, overflow: 'hidden' }}
-      onLayout={(e) =>
-        setSize({
-          w: e.nativeEvent.layout.width,
-          h: e.nativeEvent.layout.height,
-        })
-      }
-    >
-      <Animated.View
-        style={{
-          position: 'absolute',
-          left: size.w / 2 - cx,
-          top: size.h * 0.47 - cy,
-          width: mapW,
-          height: mapH,
-          transformOrigin: `${cx}px ${cy}px`,
-          transform: [{ scale: z }],
-        }}
-      >
-        <Image
-          source={assets[`backgrounds/island/growth/${growthStage(snap.buildings)}/day.png`]}
-          style={{
-            position: 'absolute',
-            left: -768 * scale,
-            width: 2560 * scale,
-            height: mapH,
-          }}
-        />
-        <Animated.View
-          style={{
-            position: 'absolute',
-            left: phase === 'read' ? 450 * scale : 0,
-            top: 0,
-            transform:
-              phase === 'read'
-                ? []
-                : [
-                    { translateX: Animated.multiply(p.x, scale) },
-                    { translateY: Animated.multiply(p.y, scale) },
-                  ],
-          }}
-        >
-          <CatSprite
-            color={snap.color}
-            motion="walking"
-            size={126 * scale}
-            left
-            reduce={state.settings.reduceMotion}
-          />
-        </Animated.View>
-      </Animated.View>
-      <View
-        style={{
-          position: 'absolute',
-          top: 22 + insets.top,
-          left: 24,
-          right: 24,
-          alignItems: 'center',
-          gap: 9,
-        }}
-      >
-        <View
-          style={{
-            backgroundColor: C.paper,
-            paddingHorizontal: 18,
-            paddingVertical: 7,
-            borderRadius: 20,
-          }}
-        >
-          <T small>모닥불 · 잠깐의 쉼</T>
-        </View>
-        <H large>모닥불로 가는 길</H>
-      </View>
-      <View
-        style={{
-          position: 'absolute',
-          bottom: 24 + insets.bottom,
-          left: 24,
-          right: 24,
-          gap: 13,
-        }}
-      >
-        <Button
-          fill
-          title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
-          onPress={state.session ? resume : home}
-        />
-      </View>
-    </View>
-  );
-}
-export function SceneHero({
-  art,
-  title,
-  subtitle,
-  tint = C.sky,
-  height = 180,
-}: {
-  art: string;
-  title: string;
-  subtitle?: string;
-  tint?: string;
-  height?: number;
-}) {
-  return (
-    <View
-      style={{
-        minHeight: height,
-        borderRadius: 28,
-        backgroundColor: tint,
-        padding: 22,
-        overflow: 'hidden',
-        justifyContent: 'flex-end',
-        borderWidth: 1.5,
-        borderColor: C.brown,
-      }}
-    >
-      <View
-        style={{
-          position: 'absolute',
-          right: -26,
-          top: -42,
-          width: 180,
-          height: 180,
-          borderRadius: 90,
-          backgroundColor: '#FFFFFF55',
-        }}
-      />
-      <Text
-        style={{
-          position: 'absolute',
-          left: 22,
-          top: 20,
-          color: C.paper,
-          fontSize: 28,
-        }}
-      >
-        ✦
-      </Text>
-      <Image
-        source={assets[art]}
-        style={{
-          position: 'absolute',
-          right: 3,
-          top: -1,
-          width: 160,
-          height: 160,
-        }}
-        resizeMode="contain"
-      />
-      <View style={{ maxWidth: '66%', gap: 6 }}>
-        <H>{title}</H>
-        {subtitle && <T small>{subtitle}</T>}
-      </View>
-    </View>
-  );
-}
-export function Welcome({
-  start,
-  terms,
-  toggle,
-}: {
-  start: () => void;
-  terms: boolean;
-  toggle: () => void;
-}) {
-  return (
-    <View style={{ flex: 1, backgroundColor: C.cream }}>
-      <View
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-          backgroundColor: C.sky,
-          borderBottomLeftRadius: 48,
-          borderBottomRightRadius: 48,
-        }}
-      >
-        <Image
-          source={assets['backgrounds/island/growth/00-start/day.png']}
-          resizeMode="cover"
-          style={{ width: '100%', height: '100%' }}
-        />
-        <View style={{ position: 'absolute', top: 24, left: 27 }}>
-          <Text
-            style={{
-              fontSize: 42,
-              fontWeight: '900',
-              color: C.paper,
-              letterSpacing: 1,
-            }}
-          >
-            GROMO
-          </Text>
-          <Text style={{ fontSize: 16, fontWeight: '700', color: C.paper }}>
-            오늘의 집중이 자라는 곳
-          </Text>
-        </View>
-        <Image
-          source={cat('black', 'idle')}
-          style={{
-            position: 'absolute',
-            width: 150,
-            height: 150,
-            bottom: 0,
-            right: 16,
-          }}
-        />
-      </View>
-      <View style={{ padding: 26, gap: 15 }}>
-        <H large>{'조금씩 집중하고,\n함께 자라요.'}</H>
-        <T>나의 작은 배에서 시작하는 집중 습관.</T>
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: terms }}
-          onPress={toggle}
-          style={{
-            flexDirection: 'row',
-            gap: 9,
-            alignItems: 'center',
-            minHeight: 40,
-          }}
-        >
-          <Text style={{ fontSize: 22, color: C.brown }}>{terms ? '☑' : '☐'}</Text>
-          <T small>이용약관과 개인정보처리방침에 동의해요.</T>
-        </Pressable>
-        <PolicyLinks textStyle={{ fontSize: 13, color: C.brown }} />
-        <Button fill title="GROMO 시작하기" disabled={!terms} onPress={start} />
-      </View>
     </View>
   );
 }

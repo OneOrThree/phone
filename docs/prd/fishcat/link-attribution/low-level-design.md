@@ -696,7 +696,7 @@ SKAN 포스트백은 GA4 로 보내지 않는다.
 | #745 의 것 | 켜면 | 구현 PR 전까지 |
 | --- | --- | --- |
 | nginx 예시(`nginx-satellites.include.conf.example`)의 `/api/v1/groups/{id}/invite-link`·`/api/v1/invite-links/claim` → business | business-api 가 존재하지 않는 링크 서버(`LINK_BASE_URL`)로 발급·claim 을 보내 실패 | 적용하지 않는다. 두 경로는 data-api 공개 컨트롤러에 둔다 |
-| data-api `satellites` 프로필 `outbox.relay.endpoints` 의 `link.*` 7종(→ `${LINK_BASE_URL}/internal/events`) | relay 가 없는 서버로 전달을 반복 시도 | `OUTBOX_RELAY_ENABLED` 를 켜기 전에 link.* 대상을 뺀다. 링크 outbox 행을 적는 조건(`LinkMembershipEventService` 호출부)도 함께 확인 |
+| data-api `satellites` 프로필 `outbox.relay.endpoints` 의 `link.*` 7종(→ `${LINK_BASE_URL}/internal/events`) | relay 가 없는 서버로 전달을 반복 시도 | **완료(GROMO-2407)** — relay endpoint 에서 link.* 7종을 모두 뺐고 기존 LINK 전달 행은 V138 이 지웠다. 링크 outbox 행을 적는 조건(`LinkMembershipEventService` 호출부)은 §9.2 까지 남는다 |
 | data-api `satellites` 의 `link.capability-key: ${LINK_CAPABILITY_KEY}` | 미주입이면 그 프로필이 부팅 실패 | 구현 PR 이 키와 사용처를 지운다 |
 | business-api prod 설정 `link.proxy-secret: ${LINK_PROXY_SECRET}` · `business.upstream.link.*` (기본값 없음) | 미주입이면 부팅 실패 | business-api 를 prod 에 올릴 때 구현 PR 이 먼저 들어가 있지 않으면 자리값 주입이 필요하다 |
 | business-api `link.trusted-ip-headers` 기본 `X-Link-Client-IP` | 링크 경로에서 IP 를 못 읽음 | `X-Real-IP` 로(§4.3) |

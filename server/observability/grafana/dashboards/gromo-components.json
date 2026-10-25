@@ -2558,7 +2558,7 @@
       "id": 55,
       "type": "timeseries",
       "title": "Outbox 미전달 · 재시도 대기",
-      "description": "SCORE는 아직 transport/consumer가 구현되지 않아 의도적으로 보관되는 대상입니다. 다른 전달 대상과 분리해 해석합니다.",
+      "description": "SCORE는 아직 transport/consumer가 구현되지 않아, LINK는 받는 서버가 없어 relay 대상에서 빠져 의도적으로 보관되는 대상입니다. 다른 전달 대상과 분리해 해석합니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2614,7 +2614,7 @@
       "id": 56,
       "type": "timeseries",
       "title": "Outbox 가장 오래된 미전달 (활성 전달 대상)",
-      "description": "미구현 SCORE의 의도적인 보관 시간을 제외해 실제 전송 지연을 볼 수 있게 합니다. SCORE 적체 수는 앞 패널에서 확인합니다.",
+      "description": "미구현 SCORE와 relay 대상에서 뺀 LINK의 의도적인 보관 시간을 제외해 실제 전송 지연을 볼 수 있게 합니다. SCORE·LINK 적체 수는 앞 패널에서 확인합니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2628,7 +2628,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "gromo_outbox_oldest_seconds{target!=\"SCORE\"}",
+          "expr": "gromo_outbox_oldest_seconds{target!~\"SCORE|LINK\"}",
           "legendFormat": "{{target}}",
           "range": true
         }

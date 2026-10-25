@@ -5,11 +5,11 @@ import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
-import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { errorTextOr, t } from '@/i18n';
+import { errorTextOr, getLocale, t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -138,6 +138,7 @@ import {
   Strip,
   Toggle,
   Overlay,
+  NavBtn,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
@@ -150,7 +151,7 @@ import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
-import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
+import { InteriorRoute, josa } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
@@ -582,6 +583,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'seaMagazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         place="SEA"
         background={
@@ -594,11 +596,21 @@ function CurrentScreensContent({ e }: any) {
         }
       />
     );
+  // 섬 없음 안내는 회색 단색 대신 바다 장면 위에 띄운다(GROMO-2412). 버튼이 갈 곳을 말하니 부연 문장은 두지 않는다
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
-      <Overlay close={() => e.reset('sea')}>
+      <Overlay
+        close={() => e.reset('sea')}
+        background={
+          <Image
+            testID="no-island-background"
+            source={seaAssets.background}
+            resizeMode="cover"
+            style={noIslandScene.fill}
+          />
+        }
+      >
         <Txt kind="h17">가입한 섬이 없어요</Txt>
-        <Txt kind="meta">바다에서 머물 섬을 찾아보세요.</Txt>
         <Btn title="바다로 가기" onPress={() => e.reset('sea')} />
       </Overlay>
     );
@@ -696,7 +708,15 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
-        <Txt kind="h17">{t('home.lock.missing', { building: buildingNames[required] })}</Txt>
+        <Txt kind="h17">
+          {t('home.lock.missing', {
+            // 한국어는 건물명 받침에 맞춰 이/가(전망대가·축음기가). 영어 단어에는 조사를 붙이지 않는다
+            building:
+              getLocale() === 'ko'
+                ? josa(buildingNames[required], '이', '가')
+                : buildingNames[required],
+          })}
+        </Txt>
         <Txt kind="meta">
           {required === 'library' ? t('home.lock.libraryLocked') : t('home.lock.lockedGeneric')}
         </Txt>
@@ -786,6 +806,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'magazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         host={host && !state.visitingIslandId}
         background={
@@ -829,8 +850,8 @@ function ScreenTimePermissionHelp() {
   return (
     <Txt kind="meta">
       {Platform.OS === 'android'
-        ? '거절했거나 요청을 닫았어도 다시 연결할 수 있어요. 사용 정보 접근 설정에서 catus를 선택하고 허용해 주세요. 앱으로 돌아오면 권한을 다시 확인해요.'
-        : '거절했거나 요청을 닫았어도 아래에서 다시 요청할 수 있어요. 허용 창에서 승인과 기기 인증을 마쳐 주세요. 창이 열리지 않으면 시스템 설정에서 이 앱의 스크린타임 접근 권한을 확인해 주세요. 해당 항목이 없으면 앱으로 돌아와 다시 요청해 주세요.'}
+        ? '사용 정보 접근 설정에서 이 앱을 허용해 주세요.'
+        : '허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.'}
     </Txt>
   );
 }
@@ -1210,13 +1231,7 @@ function ScreenTimePermission({ e }: any) {
     >
       <Pic id="cat/black/sitting" w={82} />
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
-      <Txt>
-        {Platform.OS === 'android'
-          ? screenTimeNative?.supportsFocusShield === false
-            ? '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록하며, 화면 내용은 읽지 않아요.'
-            : '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
-          : 'catus가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
-      </Txt>
+      <Txt>선택한 앱의 사용 시간만 기록해요.</Txt>
       <Group flat>
         <Row
           title="스크린타임 권한"
@@ -1407,6 +1422,8 @@ function Travel({ e }: any) {
   );
 }
 const visitScene = StyleSheet.create({ fill: { flex: 1 } });
+// 웹 Image 는 크기를 안 주면 원본 크기로 그린다 — 오버레이 배경 칸을 꽉 채운다
+const noIslandScene = StyleSheet.create({ fill: { width: '100%', height: '100%' } });
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
@@ -1479,6 +1496,15 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
                   label: join.label,
                   disabled: join.disabled,
                   onPress: () => void join.serverJoin(),
+                  // 「다시 바다로」(GROMO-2405) — 소속 섬 유무와 관계없이 구경을 끝내고 바다로. 가입하지 않은 사람에겐
+                  // 뗏목 행선지와 같은 확인창을 한 번 띄운다. 소속 섬으로는 뗏목의 「< 소속 섬으로」가 있다.
+                  onLeave: () =>
+                    confirmLeaveVisit(e, s, visit, join, () => {
+                      e.dispatch({ type: 'END_VISIT' });
+                      e.reset('sea');
+                    }),
+                  // 가입 요청이 진행 중이면 떠나지 못하게 — 늦게 성공한 가입이 바다로 간 사용자를 홈으로 끌어오지 않게
+                  leaveDisabled: join.busy,
                 }
               : undefined
           }
@@ -1704,10 +1730,10 @@ function FocusVisit({ e, islandId, onBack }: any) {
           left: Math.max(18, safe.left + 8),
         }}
       >
-        <FiButton
-          small
-          title={visiting ? '돌아가기' : '닫기'}
-          id="close-focus-visit"
+        {/* 건물 안과 같은 ‹ 동그라미(DESIGN §7.14). 내 낚시섬은 홈(e.home), 구경은 그 섬 지도(visitMap)로 — 둘 다 섬으로 돌아간다 */}
+        <NavBtn
+          testID="close-focus-visit"
+          label={t('focusFlow.common.backToIsland')}
           onPress={close}
         />
       </View>

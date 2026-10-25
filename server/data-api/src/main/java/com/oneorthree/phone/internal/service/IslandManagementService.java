@@ -20,7 +20,6 @@ import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandMembershipEvents;
 import com.oneorthree.phone.group.service.IslandStateEvents;
-import com.oneorthree.phone.group.service.LinkMembershipEventService;
 import com.oneorthree.phone.internal.dto.IslandJoinRequestsPageView;
 import com.oneorthree.phone.internal.dto.IslandLeftView;
 import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
@@ -62,7 +61,7 @@ import java.util.UUID;
  * 전용 Realtime 수신·인가 철회·주민 snapshot 복구가 검증되기 전에는 열지 않는다. 조회 둘은 게이트가 없다.
  *
  * <h2>권한은 DB 의 현재 역할로만</h2>
- * Business 의 사전 판정·캐시를 믿지 않는다. 쓰기는 {@code users → groups → memberships} 잠금 아래에서
+ * Business 의 사전 판정·캐시를 믿지 않는다. 쓰기는 {@code users → islands → memberships} 잠금 아래에서
  * 역할을 다시 읽고, 위임 커밋 뒤 이전 방장의 첫 요청은 403 이다(권한 행렬 «동시성 판정»).
  */
 @Service
@@ -83,7 +82,6 @@ public class IslandManagementService {
     private final AggregateVersionRepository aggregateVersions;
     private final GroupMemberService membershipCommands;
     private final IslandStateEvents islandStateEvents;
-    private final LinkMembershipEventService linkMembershipEventService;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
     private final AppearanceService appearances;
@@ -100,7 +98,7 @@ public class IslandManagementService {
      * 섬 정보 수정 — 방장만. 누락 필드는 보존하고 실제로 바뀐 것이 없으면 사건·버전을 만들지 않는다(LLD §2).
      *
      * <p>이름이 실제로 바뀔 때만 같은 트랜잭션에 링크 표시정보 {@code group.renamed} 를 남긴다 — 기존
-     * {@code GroupService.updateGroup} 과 같은 {@code recordGroupRenamed} 이고, 멤버십 세대는 올리지 않는다.
+     * 섬 이름 변경은 멤버십 세대를 바꾸지 않는다.
      * 가입 방식 전환은 이미 열린 요청을 자동 승인·거절하지 않는다.
      *
      * <p><b>정원</b>(GROMO-1993) — 정책 「정원은 마을회관에서 방장이 수정할 수 있다. 현재 주민 수보다
@@ -153,7 +151,6 @@ public class IslandManagementService {
                             && body.approvalRequired() != island.isApprovalRequired();
                     if (renamed) {
                         island.updateName(body.name());
-                        linkMembershipEventService.recordGroupRenamed(island);
                     }
                     if (introChanged) {
                         island.updateDescription(body.intro());
@@ -257,9 +254,9 @@ public class IslandManagementService {
     // ---------------------------------------------------------------- §3.6 kick
 
     /**
-     * 강퇴 — 판정·잠금·이탈 마킹·링크 폐기·주민 사건은 legacy 강퇴({@code GroupMemberService.kickMember})와
-     * 한 경로다. 대상의 진행 중 집중 강제 종료(FR-D03)와 미수령 퀘스트 보상은 이 명령이 다루지 않는다 —
-     * 전자는 참고 티켓 1924, 후자는 정책 대기다(LLD §5). 기존 내기 판돈은 그대로 둔다.
+     * 강퇴 — 판정·잠금·이탈 마킹·초대 폐기·주민 사건은 멤버십 서비스에서 함께 처리한다.
+     * 대상의 진행 중 집중 강제 종료(FR-D03)와 미수령 퀘스트 보상은 이 명령이 다루지 않는다 —
+     * 전자는 참고 티켓 1924, 후자는 정책 대기다(LLD §5).
      *
      * <p>대상에게 강퇴 편지(KICK)를 같은 TX 에서 남긴다(GROMO-2260). 응답에는 대상의 다음 위치를 싣지 않는다 —
      * 받는 사람이 방장이라 대상이 속한 다른 섬이 샌다.
@@ -286,9 +283,8 @@ public class IslandManagementService {
     // ---------------------------------------------------------------- §3.7 leave
 
     /**
-     * 나가기 — 진행 중(active/paused) 집중이 있으면 409 이고, 나머지는 legacy 탈퇴
-     * ({@code GroupMemberService.withdrawGroup})와 한 경로다: 다인 방장은 위임 선행, 마지막 1인은 섬 종료와
-     * pending 전건 cancelled, OPEN 내기 정리·환불이 같은 트랜잭션이다.
+     * 나가기 — 진행 중(active/paused) 집중이 있으면 409다. 다인 섬의 방장은 먼저 위임해야 한다.
+     * 마지막 주민이 나가면 같은 트랜잭션에서 섬을 종료하고 대기 중 가입 신청을 취소한다.
      *
      * <p>집중 가드는 사용자 공유 잠금 아래에서 본다 — 집중 시작은 같은 users 행을 배타로 잡으므로 둘 중
      * 하나만 먼저 커밋된다. 현재 섬 복구는 {@code UserIslandContextRecovery} 가 같은 TX 에서 하고, 응답의

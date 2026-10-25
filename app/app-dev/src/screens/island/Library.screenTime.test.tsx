@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, ScrollView } from 'react-native';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
 import { RedesignScreens } from './Screens';
@@ -61,12 +61,22 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
   };
 }
 
-test.each(['뒤로', '책 덮기'])('일기장의 %s는 기존 경로를 pop한다', async (label) => {
+test('일기장의 뒤로는 기존 경로를 pop하고, 같은 일을 하던 책 덮기(×)는 두지 않는다', async () => {
   const e = environment();
   const screen = await render(<Library e={e} />);
-  await fireEvent.press(screen.getByLabelText(label));
+  expect(screen.queryByLabelText('책 덮기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('뒤로'));
   expect(e.back).toHaveBeenCalledTimes(1);
   expect(e.go).not.toHaveBeenCalled();
+});
+
+test('도서관 방의 ‹ 는 건물 안과 같은 「섬으로 돌아가기」로 읽히고 섬으로 간다', async () => {
+  const e = { ...environment(), route: 'library' };
+  const screen = await render(<Library e={e} />);
+  expect(screen.queryByLabelText('닫기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
+  expect(e.home).toHaveBeenCalledTimes(1);
+  expect(e.back).not.toHaveBeenCalled();
 });
 
 test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초기화한다', async () => {
@@ -75,8 +85,11 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
   await fireEvent.press(screen.getByTestId('diary-member-minji'));
   scrollTo.mockClear();
 
-  await fireEvent.press(screen.getByLabelText('뒤로'));
+  // 이웃 상세의 ‹ 는 목적지(이웃 목록)를 읽는다
+  await fireEvent.press(screen.getByLabelText('이웃들의 일기장으로 돌아가기'));
   expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
+  // 목록으로 돌아오면 다시 들어온 화면으로 가는 「뒤로」다
+  expect(screen.getByLabelText('뒤로')).toBeTruthy();
   expect(screen.getByTestId('diary-member-minji')).toBeTruthy();
   scrollTo.mockRestore();
 });
@@ -532,4 +545,34 @@ test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고�
   await fireEvent.press(screen.getByLabelText('일'));
   await waitFor(() => expect(screen.getByText('1마리')).toBeTruthy());
   expect(screen.queryByText('이날은 기록이 없어요')).toBeNull();
+});
+
+test('이웃 일기장은 내용이 짧으면 책을 내용 높이까지만 펼치고, 길면 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  // 402×874 · 위 안전 영역 52: 내용 칸은 174~(874−78) = 622 — 남는 382 만큼 책이 줄어든다
+  expect(book().height).toBe(full - (622 - 240));
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 2000);
+  expect(book().height).toBe(full);
+});
+
+test('내 일기장은 내용 높이와 관계없이 책을 끝까지 편다', async () => {
+  const screen = await render(<Library e={environment()} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBe(full);
+});
+
+test('내 일기장으로 갔다 이웃 일기장으로 돌아오면 다시 잴 때까지 책을 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBeLessThan(full);
+  await screen.rerender(<Library e={environment()} />);
+  await screen.rerender(<Library e={environment({ neighbors: true })} />);
+  expect(book().height).toBe(full);
 });

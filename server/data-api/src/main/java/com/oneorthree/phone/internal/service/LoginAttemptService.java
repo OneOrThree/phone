@@ -39,25 +39,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 로그인 시도 원장의 조합 지점 (GROMO-1908, 계정 LLD §3).
+ * 로그인 시도 원장과 계정·세션 처리를 조합한다.
  *
- * <h2>왜 {@code internal} 인가</h2>
- * 이 서비스는 {@code auth}(원장·JWT·{@code AuthService})와 {@code user}(온보딩 판정)를 <b>같이</b>
- * 쓴다. {@code auth} 안에 두면 {@code AuthService} 를 옆으로 참조하게 되는데, 도메인 높이 표는 같은
- * 층 사이의 참조를 금지한다({@code DomainLayerRulesTest}). 조합하는 서비스의 자리는 L10 {@code
- * internal} 이다.
- *
- * <h2>조회와 실행을 나눈 이유</h2>
- * LLD §3 은 「제공자 교환 전에 내구 시도를 <b>먼저</b> 조회한다」이고, 재생 분기의 「IdP 교환 횟수는
- * 0」이다. 두 표면을 나누면 그 0 이 <b>호출 횟수로 관측된다</b> — 하나로 합쳐 내부에서 분기하면
- * 「정말 다시 안 불렀는가」를 밖에서 확인할 방법이 없고, 회귀가 조용히 들어온다.
- *
- * <h2>트랜잭션 경계</h2>
- * {@link #execute} 는 <b>트랜잭션이 아니다</b>. 안에서 부르는 {@code AuthService.socialLogin} 이
- * {@code NOT_SUPPORTED} 이고(제공자 네트워크 호출 동안 DB 잠금을 쥐지 않기 위해서다, LLD §3-3),
- * 실제로도 잠금을 들고 IdP 를 기다리면 로그인 하나가 그 사용자의 모든 쓰기를 막는다. 그래서
- * 「선점(TX) → 제공자 호출(TX 밖) → 확정(TX)」 세 조각이고, 조각마다 프록시를 타도록
- * {@code self} 를 거친다({@code AuthService} 의 같은 패턴).
+ * <p>조회는 저장된 결과를 재생하고, 실행은 제공자 인증 후 로그인을 확정한다. {@link #execute}는
+ * 트랜잭션 밖에서 제공자를 호출하며, 선점과 확정은 {@code self} 프록시를 통해 각각 트랜잭션으로
+ * 처리한다. 제공자 응답을 기다리는 동안 DB 잠금을 유지하지 않는다.
  */
 @Slf4j
 @Service
@@ -327,12 +313,8 @@ public class LoginAttemptService {
         if (!source.isGuest()) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
-        if (sourceSessionId == null || sourceGeneration == null
-                || sourceGeneration.longValue() != source.getAuthGeneration()
-                || authSessionService.verifySession(sourceUserId, sourceSessionId)
-                        .filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(sourceUserId, source.getAuthGeneration(),
+                sourceSessionId, sourceGeneration);
 
         // target: IdP 가 확인한 providerId 의 «기존» 연동 행이어야 하고, 그 주인은 활성 회원
         // (비게스트)이어야 한다. owner 는 여기서 쓰지 않으므로 share 잠금까지다 — guest source 만
@@ -391,11 +373,8 @@ public class LoginAttemptService {
         if (!source.isGuest()) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
-        if (source.getAuthGeneration() != attempt.getSwitchSourceAuthGeneration()
-                || authSessionService.verifySession(sourceUserId, attempt.getSwitchSourceSessionId())
-                        .filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(sourceUserId, source.getAuthGeneration(),
+                attempt.getSwitchSourceSessionId(), attempt.getSwitchSourceAuthGeneration());
 
         // target: 저장된 연동 행이 아직 같은 provider·같은 주인을 가리키고 그 주인이 활성
         // 회원이어야 한다 — 폐기 동의의 대상이 바뀌었으면 진행하지 않는다. write 잠금은 없다
@@ -479,30 +458,14 @@ public class LoginAttemptService {
     }
 
     /**
-     * 선택 AT 의 <b>세션 폐기 관문</b> (계정 LLD §2.1 · 「선택 AT의 세션 폐기 관문」).
+     * 로그인 실행에 첨부된 선택 AT의 활성 세션을 확인한다.
      *
-     * <h2>서명 검증만으로 승격 권한을 인정하지 않는다</h2>
-     * Business 는 AT 의 서명·타입·만료까지만 본다. 그것으로 충분하다고 보면 <b>로그아웃한 게스트의
-     * AT</b> 가 남은 만료 시간(운영 AT 3600초) 동안 그대로 승격 자격으로 남는다 — 개별 로그아웃은
-     * 사용자를 비활성화하지도 {@code authGeneration} 을 올리지도 않으므로(LLD §2.4), <b>세션 행의
-     * 폐기 여부가 그 창을 닫는 유일한 울타리다</b>. 그래서 서명으로 증명된 subject·sid 의 세션을
-     * 잠그고 활성·세대 일치를 확인한다.
+     * <p>AT가 없으면 익명 로그인을 진행한다. AT가 있으면 사용자 존재 여부, {@code sid}, 인증 세대,
+     * 세션의 활성 상태를 확인하며, 유효하지 않은 자격을 익명 로그인으로 바꾸지 않는다.
+     * 계정 전환의 결과 재생은 기록된 출발 계정 자격을 {@link #guardSwitchReplay}에서 별도로 확인한다.
      *
-     * <p>{@code sid} 없는 구 AT 는 <b>거절</b>한다 — 어느 세션에서 발급됐는지 증명할 수 없어 폐기
-     * fence 를 적용할 방법이 아예 없기 때문이다(LLD: 「현재 자료로 원 자격의 결합을 입증할 수 없으면
-     * 새 로그인에서 명시 거절」). 이 공개 경로는 신규라 그런 토큰을 보내는 기존 클라이언트가 없다.
-     * 무효 AT 를 익명 로그인으로 조용히 강등하는 {@code AuthService.resolveCaller} 의 legacy 동작을
-     * 여기서 «앞질러» 막는 것이고, legacy {@code /api/v1/auth/*} 경로의 동작은 그대로 둔다(LLD §2.1
-     * 「기존 legacy 경로의 선택 AT 동작은 별도 보존한다」).
-     *
-     * <p>⚠️ 적용 지점은 <b>실행 하나</b>다. 승격이 실제로 일어나는 자리가 여기뿐이기 때문이다.
-     * 전환 시도의 재생에는 선택 AT 가 실려 오지만(GROMO-1992), 그쪽이 요구하는 것은 「기록된 source
-     * 자격인가」이고 활성 세션 여부가 아니라 이 관문과 답이 다르다 — lookup 은
-     * {@link #guardSwitchReplay} 가 본다.
-     *
-     * @throws AuthException 403 {@code SESSION_NOT_ACTIVE} — Business 가 공개 401 로 매핑한다.
-     *                       서비스 자격 거부(401)와 «구분되는» 상태를 쓰는 기존 규율이다
-     *                       ({@code InternalHostTransferService} 와 같다)
+     * @throws AuthException 세션이 유효하지 않을 때 {@code SESSION_NOT_ACTIVE}.
+     *                       Business는 이 내부 403을 공개 401로 매핑한다
      */
     @Transactional
     public void gateOptionalSession(String callerAccessToken) {
@@ -518,13 +481,7 @@ public class LoginAttemptService {
         // 탈퇴한 주체면 여기서 404 다 — 폐기 판정보다 계정 부재가 «먼저»라는 LLD §1 의 순서 그대로.
         User user = userQueryService.getCaller(userId);
 
-        if (sessionId == null || generation == null
-                || generation.longValue() != user.getAuthGeneration()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
-        if (authSessionService.verifySession(userId, sessionId).filter(AuthSession::isActive).isEmpty()) {
-            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
-        }
+        authSessionService.requireActive(userId, user.getAuthGeneration(), sessionId, generation);
     }
 
     /**

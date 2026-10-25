@@ -107,6 +107,9 @@ platform :ios do
 
     # 청중은 lane 이 정한다 — 셸에 GROMO_IOS_AUDIENCE=dev 가 남아 있어도 운영 빌드는 운영 가드(운영 주소 요구)를 탄다
     ENV["GROMO_IOS_AUDIENCE"] = "prod"
+    # GROMO-2226 — JS 는 EXPO_PUBLIC_ENV 로 Google 클라이언트 행을 고른다. 셸에 값이 없으면 Expo 가 .env 를 인라인하므로
+    # .env 의 EXPO_PUBLIC_ENV=dev 가 운영 번들에 섞이지 않게 lane 이 prod 로 고정한다(beta_dev 가 dev 로 고정하는 것과 대칭).
+    ENV["EXPO_PUBLIC_ENV"] = "prod"
     archive_and_upload
   end
 

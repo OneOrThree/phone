@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { art, Seg } from '@/design-system/patterns';
+import { art, NavBtn, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
@@ -48,6 +48,12 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const [selected, setSelected] = useState(today);
   const [memberId, setMemberId] = useState<string | null>(e.body || null);
   const scroll = useRef<ScrollView>(null);
+  // 이웃 일기장 내용 높이 — 짧으면 책을 그만큼 줄여 빈 페이지를 남기지 않는다(GROMO-2412)
+  const [neighborHeight, setNeighborHeight] = useState<number | null>(null);
+  // 내 일기장으로 갔다 돌아오면 새로 잴 때까지 옛 높이로 책을 줄이지 않는다
+  useEffect(() => {
+    if (!neighbors) setNeighborHeight(null);
+  }, [neighbors]);
   const range = neighbors
     ? { from: shiftDate(today, -6), to: today }
     : diaryRange(period, offset, e.now, false);
@@ -503,7 +509,14 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   };
 
   return (
-    <Book title={title} font={font} onBack={back} onClose={close}>
+    <Book
+      title={title}
+      font={font}
+      onBack={back}
+      fitHeight={neighbors ? neighborHeight : null}
+      // 이웃 상세의 ‹ 는 목적지(이웃 목록)가 정해져 있어 그것을 읽고, 그 밖은 들어온 화면으로 가는 「뒤로」다
+      backLabel={neighbors && memberId ? '이웃들의 일기장으로 돌아가기' : '뒤로'}
+    >
       {!neighbors && (
         <View style={styles.controls}>
           <Seg
@@ -548,9 +561,11 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       )}
       <ScrollView
         ref={scroll}
+        testID="diary-scroll"
         style={styles.scroll}
         showsVerticalScrollIndicator
         contentContainerStyle={[styles.content, neighbors && styles.neighborContent]}
+        onContentSizeChange={neighbors ? (_, h) => setNeighborHeight(h) : undefined}
         key={`${neighbors ? 'neighbors' : period}-${state.islandId}`}
       >
         {!neighbors && period !== '월' && tab === '폰 사용' && !state.settings.permission
@@ -565,13 +580,16 @@ function Book({
   title,
   font,
   onBack,
-  onClose,
+  fitHeight = null,
+  backLabel,
   children,
 }: React.PropsWithChildren<{
   title: string;
   font?: string;
   onBack: () => void;
-  onClose: () => void;
+  // 내용 높이를 주면 책을 그 높이까지만 펼친다(화면보다 길면 지금처럼 끝까지)
+  fitHeight?: number | null;
+  backLabel: string;
 }>) {
   const L = useAppLayout();
   const width = Math.min(D.maxWidth, L.width - L.insets.left - L.insets.right);
@@ -579,6 +597,13 @@ function Book({
   const top = Math.max(D.headerTop, L.insets.top);
   const bookTop = L.landscape ? top + D.headerHeight : top + D.bookTop - D.headerTop;
   const contentTop = L.landscape ? bookTop + S.section : top + D.contentTop - D.headerTop;
+  const contentBottom = Math.max(
+    L.insets.bottom + S.component,
+    L.landscape ? S.section : D.contentBottom,
+  );
+  const fullContent = Math.max(0, L.height - contentTop - contentBottom);
+  // 줄인 만큼 책 바닥도 올린다 — 내용 아래 책 여백은 그대로
+  const shrink = fitHeight == null ? 0 : Math.max(0, fullContent - fitHeight);
   return (
     <View style={styles.root}>
       <Image
@@ -588,13 +613,14 @@ function Book({
       />
       <View pointerEvents="none" style={[fill, styles.scrim]} />
       <View
+        testID="diary-book"
         pointerEvents="none"
         style={{
           position: 'absolute',
           left,
           top: bookTop,
           width,
-          height: Math.max(0, L.height - bookTop - S.control),
+          height: Math.max(0, L.height - bookTop - S.control - shrink),
         }}
       >
         <Image source={art['lib/page']} resizeMode="stretch" style={fill} />
@@ -602,11 +628,13 @@ function Book({
       <View
         style={[styles.header, { left: left + D.headerInset, right: left + D.headerInset, top }]}
       >
-        <Arrow label="뒤로" onPress={onBack} glyph="‹" />
+        {/* 뒤로 하나만 둔다(DESIGN §7.14) — 이웃 상세에서는 목록으로, 그 밖에는 도서관으로 */}
+        <NavBtn label={backLabel} onPress={onBack} />
         <T numberOfLines={1} style={[styles.headerTitle, { fontFamily: font }]}>
           {title}
         </T>
-        <Arrow label="책 덮기" onPress={onClose} glyph="×" />
+        {/* 제목을 가운데에 두려고 뒤로 버튼만큼 비운다 */}
+        <View style={styles.headerSpacer} />
       </View>
       <View
         style={{
@@ -614,10 +642,7 @@ function Book({
           left: left + width * D.contentLeftRatio,
           right: left + width * D.contentRightRatio,
           top: contentTop,
-          bottom: Math.max(
-            L.insets.bottom + S.component,
-            L.landscape ? S.section : D.contentBottom,
-          ),
+          bottom: contentBottom + shrink,
         }}
       >
         {children}
@@ -876,6 +901,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: F.body },
+  headerSpacer: { width: semanticTokens.size.tapMin },
   arrow: {
     minWidth: semanticTokens.size.tapMin,
     minHeight: semanticTokens.size.tapMin,
@@ -899,7 +925,8 @@ const styles = StyleSheet.create({
   tabSelected: { borderBottomColor: C.primary },
   scroll: { flex: 1 },
   content: { flexGrow: 1, gap: D.contentGap, paddingBottom: S.section },
-  neighborContent: { gap: S.control },
+  // 이웃 일기장은 내용 높이를 재서 책을 줄이므로 남는 높이를 채우지 않는다
+  neighborContent: { gap: S.control, flexGrow: 0 },
   body: { fontSize: F.label, color: C.text, flexShrink: 1 },
   bold: { fontWeight: F.bold },
   meta: { fontSize: F.caption, color: C.textMuted },

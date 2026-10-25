@@ -29,6 +29,8 @@ type Props = {
 };
 
 const M = c.magazineReader.seaObject;
+/** 뗏목 상자 위쪽 빈 띠 — 뒤 판자 그림(raft back-day 512px)이 152px 부터 시작한다. 내 한마디 칩은 이만큼 내려와 뗏목에 붙는다. */
+const RAFT_TOP = 152 / 512;
 const DOT = c.magazineReader.unreadDot;
 
 export function SeaScene({
@@ -258,13 +260,16 @@ export function SeaScene({
           </Pressable>
         ) : (
           <Pressable
+            testID="sea-message-chip"
             accessibilityRole="button"
             accessibilityLabel={t('openSea.writeMessage')}
             onPress={onMessage}
-            style={styles.messageTouch}
+            // 뗏목 상자 위 빈 띠만큼 내려 내 고양이 머리 위에 꼬리로 붙인다 — 상자 위에 떠 있으면 남의 뗏목 줄에 끼어 보였다(GROMO-2414)
+            style={[styles.messageTouch, { marginBottom: -Math.round(selfRaft * RAFT_TOP) }]}
           >
             <View style={styles.bubble}>
               <Text style={styles.caption}>{self.message || t('openSea.writeMessage')}</Text>
+              <View style={styles.bubbleTail} accessible={false} />
             </View>
           </Pressable>
         )}
@@ -371,7 +376,8 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderTopColor: `${s.color.surface}E6`,
   },
-  caption: { fontSize: s.typography.caption, color: s.color.textMuted, textAlign: 'center' },
+  // 한마디 말풍선·이름표는 라벨·칩 크기(sm 14) — 넓은 바다 위에서 12 는 읽기 어려웠다. 집중 시간(clock)은 캡션 12
+  caption: { fontSize: s.typography.label, color: s.color.textMuted, textAlign: 'center' },
   clock: {
     fontSize: s.typography.caption,
     lineHeight: 16,
@@ -384,18 +390,19 @@ const styles = StyleSheet.create({
   },
   selfSubject: { marginBottom: -p.space[2] },
   name: {
-    fontSize: s.typography.caption,
+    fontSize: s.typography.label,
     color: s.color.text,
     backgroundColor: `${s.color.surface}8C`,
     borderRadius: p.radius.control,
-    lineHeight: 16,
+    lineHeight: 18,
     includeFontPadding: false,
     paddingHorizontal: 2,
     paddingVertical: 0,
     marginTop: -p.space[2],
   },
   me: { color: s.color.text, backgroundColor: s.color.selected },
-  messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', marginBottom: -p.space[5] },
+  // 뗏목 상자와 겹치는 아래쪽도 칩이 눌리게 뗏목(뒤 형제)보다 위에 둔다
+  messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', zIndex: 1 },
   emote: { position: 'absolute', right: 0, top: 0, width: 40, height: 40 },
   besideRaft: { flexDirection: 'row', alignItems: 'center' },
   magazine: { alignItems: 'center', justifyContent: 'center' },

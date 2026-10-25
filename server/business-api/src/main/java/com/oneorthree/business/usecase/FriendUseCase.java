@@ -84,8 +84,6 @@ public class FriendUseCase {
      * <p>결과가 없을 때는 <b>빈 배열</b>이지 404 가 아니다 — 「그런 사람이 없다」는 정상 응답이다.
      * 봉투가 아예 없는 것만 계약 불일치다.
      *
-     * <p>비친구의 {@code tierLevel}·{@code occupation} 가리기는 Data 가 한다 — 여기서 한 번 더 가리면
-     * 두 곳의 판정이 갈린다(게이트 정책을 Data 안에만 두는 {@code LetterUseCase} 와 같은 결).
      */
     public List<SearchView> search(AccessTokenClaims claims, String type, String query, Deadline deadline) {
         List<FriendSearchItem> items = relay(() -> data.searchFriends(claims.userId(), type, query, deadline));
@@ -134,17 +132,14 @@ public class FriendUseCase {
     public record FriendView(
             @JsonProperty(required = true) UUID userId,
             String nickname,
-            Integer tierLevel,
-            String occupation,
-            @JsonProperty(value = "isPinned", required = true) boolean isPinned,
             @JsonProperty(value = "isFocusing", required = true) boolean isFocusing,
             @JsonProperty(required = true) int focusTimeMinutes,
             String focusStartedAt,
             String focusTagName,
             String mainIslandName) {
         private static FriendView from(FriendItem source) {
-            return source == null ? null : new FriendView(source.userId(), source.nickname(), source.tierLevel(),
-                    source.occupation(), source.isPinned(), source.isFocusing(), source.focusTimeMinutes(),
+            return source == null ? null : new FriendView(source.userId(), source.nickname(),
+                    source.isFocusing(), source.focusTimeMinutes(),
                     source.focusStartedAt(), source.focusTagName(), source.mainIslandName());
         }
     }
@@ -153,23 +148,19 @@ public class FriendUseCase {
             @JsonProperty(required = true) UUID requestId,
             @JsonProperty(required = true) UUID userId,
             String nickname,
-            Integer tierLevel,
             @JsonProperty(required = true) String createdAt) {
         private static RequestView from(FriendRequestItem source) {
             return source == null ? null : new RequestView(source.requestId(), source.userId(), source.nickname(),
-                    source.tierLevel(), source.createdAt());
+                    source.createdAt());
         }
     }
 
     public record SearchView(
             @JsonProperty(required = true) UUID userId,
             @JsonProperty(required = true) String nickname,
-            Integer tierLevel,
-            String occupation,
             @JsonProperty(required = true) String relation) {
         private static SearchView from(FriendSearchItem source) {
-            return source == null ? null : new SearchView(source.userId(), source.nickname(), source.tierLevel(),
-                    source.occupation(), source.relation());
+            return source == null ? null : new SearchView(source.userId(), source.nickname(), source.relation());
         }
     }
 

@@ -7,9 +7,8 @@ import java.util.Map;
 /**
  * 봉투 하나가 <b>어느 대상으로</b> 나가야 하는지의 요구 한 건.
  *
- * <p>대상마다 본문이 다를 수 있다 — 링크 폐기는 봉투 params 외에 {@code linkVersion}(폐기 대상)과
- * {@code membershipEpoch}(전이 후)를 <b>함께</b> 실어야 하고(ⓑ″), Kafka 는 정본 봉투 그대로다.
- * {@code payload} 가 {@code null} 이면 정본 봉투를 그대로 보낸다.
+ * <p>대상마다 명령 본문이 다를 수 있다. {@code payload} 가 {@code null} 이면 정본 봉투를 그대로 보낸다.
+ * Kafka에는 정본 봉투를 보낸다.
  *
  * <p><b>{@code endpointKey} 는 URL 이 아니라 논리 키다.</b> 실제 URL·method·caller 토큰은 서버 설정의
  * 허용목록에만 있다 — 저장된 payload 가 목적지를 고를 수 있으면 그 자체가 SSRF 구조가 된다.
@@ -47,14 +46,6 @@ public record OutboxDeliveryRequest(OutboxTarget target, Map<String, Object> pay
         return new OutboxDeliveryRequest(OutboxTarget.SCORE, null, null);
     }
 
-    /**
-     * @param endpointKey 링크 서버 명령의 논리 엔드포인트 키
-     * @param payload     명령 본문. {@code null} 이면 정본 봉투
-     * @return 링크 서버 HTTP 전달 요구
-     */
-    public static OutboxDeliveryRequest toLink(String endpointKey, Map<String, Object> payload) {
-        return new OutboxDeliveryRequest(OutboxTarget.LINK, payload, endpointKey);
-    }
 
     /**
      * @param endpointKey 알림 서버 명령의 논리 엔드포인트 키

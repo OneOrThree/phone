@@ -101,7 +101,7 @@ test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 �
   Platform.OS = 'android';
   native.supportsFocusShield = false;
   const view = await render(<CurrentScreens e={environment()} />);
-  await view.findByText(/선택한 앱의 사용 시간을 기록하며, 화면 내용은 읽지 않아요/);
+  await view.findByText('선택한 앱의 사용 시간만 기록해요.');
   expect(view.queryByText(/집중 중 앱 차단/)).toBeNull();
 });
 
@@ -130,7 +130,7 @@ test('요청 취소 후 notDetermined가 유지돼도 재시도 안내를 표시
   const view = await render(<CurrentScreens e={e} />);
   await fireEvent.press(await view.findByText('스크린타임 연결하기'));
   await view.findByText('권한 다시 요청하기');
-  expect(view.getByText(/거절했거나 요청을 닫았어도/)).toBeTruthy();
+  expect(view.getByText('허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.')).toBeTruthy();
   expect(e.back).not.toHaveBeenCalled();
   expect(e.dispatch).not.toHaveBeenCalledWith({ type: 'SETTING', key: 'permission', value: true });
 });

@@ -32,6 +32,9 @@ import java.time.LocalDate;
  * 둘의 상위인 {@link PessimisticLockingFailureException} 을 잡는다. 두 번째도 끊기면 첫 실패를 suppressed 로 붙여 error
  * 로그 하나(KST 날짜 포함)에 두 원인이 다 보이게 하고 그 예외를 그대로 던진다(그날 행은 없고 읽는 쪽은 전날 값을 준다).
  * 다른 예외는 다시 시도하지 않는다.
+ *
+ * <p><b>스냅샷이 끝나면 같은 락 안에서 오래된 행을 정리한다</b>({@link IslandFocusAverageSnapshotService#cleanup},
+ * GROMO-2280). 재시도까지 실패하면 예외가 그대로 나가 정리는 돌지 않는다 — 다음 날 크론이 지운다.
  */
 @Slf4j
 @Component
@@ -52,6 +55,7 @@ public class IslandFocusAverageScheduler {
             log.warn("섬별 7일 평균 집계가 잠금 경합으로 끊겨 한 번 다시 시도한다 date={}", today, lockFailure);
             retryOnce(today, lockFailure);
         }
+        snapshots.cleanup(today);
     }
 
     private void retryOnce(LocalDate today, RuntimeException firstFailure) {

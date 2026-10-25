@@ -24,6 +24,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -264,16 +265,23 @@ public class IslandMailboxUseCase {
      * 페이지의 sender 집합으로 <b>한 번</b> batch 조회한다(LLD §5). 상류 장애는 그대로 올린다 — 활성 작성자를
      * 「알 수 없음」으로 바꿔 그리지 않는다(LLD §2). 응답에 없는 id 는 계정이 없는 것이고 그때만 null 이다.
      * 같은 응답의 {@code hiddenUserIds} 가 요청자가 차단한 sender 다(GROMO-2181) — 판정은 Data 가 한다.
+     *
+     * <p><b>탈퇴 발신자(senderId null)는 조회 대상이 아니다(GROMO-2208).</b> 실시간 서버는 tombstone 뒤 탈퇴 발신자를
+     * null 로 주고, Data {@code messageAuthors} 는 null 원소·빈 목록을 400 으로 거절한다. 그래서 null 은 모으지
+     * 않고, 전원이 탈퇴라 모을 것이 없으면 Data 를 부르지 않는다. 그 메시지는 이름 없음(userId·name null)으로 나간다.
      */
     private AuthorView authorView(UUID islandId, AccessTokenClaims claims, List<RealtimeMessage> messages,
             Deadline deadline) {
         LinkedHashSet<UUID> senders = new LinkedHashSet<>();
         for (RealtimeMessage message : messages) {
-            senders.add(message.senderId());
+            if (message.senderId() != null) {
+                senders.add(message.senderId());
+            }
         }
         Map<UUID, String> names = new HashMap<>();
         if (senders.isEmpty()) {
-            return new AuthorView(names, Set.of());
+            // Set.of() 는 contains(null) 에 NPE 를 던진다 — 탈퇴 발신자(null)를 묻는 호출부가 있어 null 안전한 집합을 쓴다.
+            return new AuthorView(names, Collections.emptySet());
         }
         MessageAuthors authors = relay(
                 () -> data.messageAuthors(islandId, claims.userId(), List.copyOf(senders), deadline));
@@ -283,7 +291,8 @@ public class IslandMailboxUseCase {
         for (MailboxViewer author : authors.authors()) {
             names.put(author.userId(), author.name());
         }
-        Set<UUID> hidden = authors.hiddenUserIds() == null ? Set.of() : new HashSet<>(authors.hiddenUserIds());
+        Set<UUID> hidden = authors.hiddenUserIds() == null ? Collections.emptySet()
+                : new HashSet<>(authors.hiddenUserIds());
         return new AuthorView(names, hidden);
     }
 

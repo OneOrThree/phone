@@ -1,13 +1,10 @@
 package com.oneorthree.phone.group.repository;
 
+import java.util.List;
+
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupChallenge;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
-import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
@@ -17,7 +14,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,30 +42,12 @@ import static org.mockito.Mockito.verify;
 class GroupQueryServiceTest {
 
     private static final UUID GROUP_ID = UUID.randomUUID();
-    private static final UUID SESSION_ID = UUID.randomUUID();
-    private static final UUID CHALLENGE_ID = UUID.randomUUID();
-    private static final UUID PARTICIPANT_ID = UUID.randomUUID();
 
     @Mock
     private GroupRepository groupRepository;
 
     @Mock
     private GroupMemberRepository groupMemberRepository;
-
-    @Mock
-    private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
-
-    @Mock
-    private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
-
-    @Mock
-    private GroupChallengeWindowRepository groupChallengeWindowRepository;
-
-    @Mock
-    private GroupChallengeDurationRepository groupChallengeDurationRepository;
-
-    @Mock
-    private GroupChallengeRepository groupChallengeRepository;
 
     @InjectMocks
     private GroupQueryService groupQueryService;
@@ -82,12 +60,6 @@ class GroupQueryServiceTest {
 
     @Mock
     private GroupMember groupMember;
-
-    @Mock
-    private GroupChallengeBetSession betSession;
-
-    @Mock
-    private GroupChallenge challenge;
 
     @Test
     @DisplayName("getGroup — 그룹이 없으면 NOT_FOUND")
@@ -192,76 +164,7 @@ class GroupQueryServiceTest {
     }
     // ── 내기 회차 — 배타 락에 get 과 find 가 둘 다 있는 이유 ────────────────
 
-    @Test
-    @DisplayName("getBetSessionForUpdate — 회차가 없으면 BET_NOT_FOUND")
-    void getBetSessionForUpdateThrowsBetNotFound() {
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> groupQueryService.getBetSessionForUpdate(SESSION_ID))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.BET_NOT_FOUND);
-    }
-
-    /**
-     * 같은 배타 락 쿼리인데 한쪽은 던지고 한쪽은 안 던진다. 이 구분이 무너지면 여러 회차를
-     * 훑는 환불·무효화 배치가 이미 정산된 회차 하나에 통째로 죽는다.
-     */
-    @Test
-    @DisplayName("findBetSessionForUpdate — 같은 배타 락인데 부재에 던지지 않는다(배치가 죽으면 안 된다)")
-    void findBetSessionForUpdateDoesNotThrow() {
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID)).willReturn(Optional.empty());
-
-        assertThat(groupQueryService.findBetSessionForUpdate(SESSION_ID)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("회차 배타 락 두 판 모두 ForUpdate 쿼리를 탄다 — 무락으로 내려가면 돈 경합이 열린다")
-    void betSessionLockedReadsUseExclusiveLock() {
-        given(groupChallengeBetSessionRepository.findByIdForUpdate(SESSION_ID))
-                .willReturn(Optional.of(betSession));
-
-        assertThat(groupQueryService.getBetSessionForUpdate(SESSION_ID)).isSameAs(betSession);
-        assertThat(groupQueryService.findBetSessionForUpdate(SESSION_ID)).contains(betSession);
-
-        verify(groupChallengeBetSessionRepository, times(2)).findByIdForUpdate(SESSION_ID);
-        verify(groupChallengeBetSessionRepository, never()).findById(SESSION_ID);
-    }
-
-    @Test
-    @DisplayName("findBetSession — 무락 조회를 타고 부재에 던지지 않는다")
-    void findBetSessionUsesUnlockedRead() {
-        given(groupChallengeBetSessionRepository.findById(SESSION_ID)).willReturn(Optional.empty());
-
-        assertThat(groupQueryService.findBetSession(SESSION_ID)).isEmpty();
-        verify(groupChallengeBetSessionRepository).findById(SESSION_ID);
-        verify(groupChallengeBetSessionRepository, never()).findByIdForUpdate(SESSION_ID);
-    }
-
-    @Test
-    @DisplayName("findBetParticipant — 잠금 뒤 재조회라 부재가 정상이다(취소·탈퇴가 지운 행)")
-    void findBetParticipantDoesNotThrow() {
-        given(groupChallengeBetParticipantRepository.findById(PARTICIPANT_ID)).willReturn(Optional.empty());
-
-        assertThat(groupQueryService.findBetParticipant(PARTICIPANT_ID)).isEmpty();
-        verify(groupChallengeBetParticipantRepository).findById(PARTICIPANT_ID);
-    }
-
     // ── 챌린지 상세 ──────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("창·기간 상세는 던지지 않는다 — 부재는 '그 타입이 아니다'라는 뜻이다")
-    void challengeDetailLookupsDoNotThrow() {
-        given(groupChallengeWindowRepository.findById(CHALLENGE_ID)).willReturn(Optional.empty());
-        given(groupChallengeDurationRepository.findById(CHALLENGE_ID)).willReturn(Optional.empty());
-
-        assertThat(groupQueryService.findChallengeWindow(CHALLENGE_ID)).isEmpty();
-        assertThat(groupQueryService.findChallengeDuration(CHALLENGE_ID)).isEmpty();
-
-        // 둘 다 findById(UUID) 라 서로 바꿔 불러도 컴파일된다 — 창을 물으면 창 저장소를 봐야 한다.
-        verify(groupChallengeWindowRepository).findById(CHALLENGE_ID);
-        verify(groupChallengeDurationRepository).findById(CHALLENGE_ID);
-    }
 
     // ── 다른 도메인이 빌려 가는 조회 — 전부 던지지 않는다 ────────────────
 
@@ -279,26 +182,4 @@ class GroupQueryServiceTest {
         verify(groupRepository, never()).findByIdForUpdate(GROUP_ID);
     }
 
-    @Test
-    @DisplayName("findChallenge — 던지지 않는다 · AFTER_COMMIT 알림이 삭제된 챌린지를 만나는 것은 정상이다")
-    void findChallengeDoesNotThrow() {
-        given(groupChallengeRepository.findById(CHALLENGE_ID)).willReturn(Optional.of(challenge));
-
-        assertThat(groupQueryService.findChallenge(CHALLENGE_ID)).contains(challenge);
-        verify(groupChallengeRepository).findById(CHALLENGE_ID);
-    }
-
-    /**
-     * 배치 조회는 <b>부재분을 조용히 뺀다</b>. 호출부가 맵으로 만들어 {@code get} 이 {@code null} 을
-     * 돌려주는 것을 정상으로 다루므로, 여기서 던지거나 자리를 채우면 그 계약이 깨진다.
-     */
-    @Test
-    @DisplayName("findAllBetSessions — 부재분을 빼고 준다(요청 수와 결과 수가 다를 수 있다)")
-    void findAllBetSessionsDropsMissing() {
-        List<UUID> ids = List.of(SESSION_ID, UUID.randomUUID());
-        given(groupChallengeBetSessionRepository.findAllById(ids)).willReturn(List.of(betSession));
-
-        assertThat(groupQueryService.findAllBetSessions(ids)).containsExactly(betSession);
-        verify(groupChallengeBetSessionRepository).findAllById(ids);
-    }
 }
