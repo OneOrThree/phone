@@ -298,6 +298,9 @@ const DEFAULT_CATCH_RESERVATION: Spot = {
   ...defaultCatchSpot,
   catchPlacement: DEFAULT_CATCH_PLACEMENT,
 };
+// spot 고양이의 물고기 더미(placement)가 other 에 앉은 고양이를 덮는지
+export const catchOverlapsCat = (spot: Point, placement: FishingCatchPlacement, other: Point) =>
+  boundsOverlap(catchBounds(spot, placement), catBounds(other));
 // 내가 DEFAULT_SPOT 에 앉으면 물고기 더미는 주민을 피하지 않는 고정 자리다 — 그 더미가 p 에 앉은 고양이를 덮는지
 export const underDefaultCatch = (p: Point) =>
   DEFAULT_CATCH_PLACEMENT != null &&

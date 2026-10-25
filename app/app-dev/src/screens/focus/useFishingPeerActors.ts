@@ -4,6 +4,7 @@ import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
   castSpot,
+  catchOverlapsCat,
   DEFAULT_CATCH_PLACEMENT,
   DEFAULT_SPOT,
   fishingCatchPlacement,
@@ -86,9 +87,17 @@ const SPARE_SPOTS: Point[] = (() => {
 })();
 // 서버 자리·예비 자리(castSpot)는 PEER_SPOTS 처럼 미리 정한 물고기 자리가 없다 — 다른 주민·내 고양이를 덮지
 // 않게 같은 회피 계산(fishingCatchPlacement)으로 함께 정한다. 앞에서 정한 물고기 자리는 뒤 계산의 장애물이 된다.
-// PEER_SPOTS 칸은 미리 정한 자리 그대로다(내 물고기 자리가 그것을 기준으로 피한다).
+// PEER_SPOTS 칸은 미리 정한 자리 그대로다(내 물고기 자리가 그것을 기준으로 피한다). 다만 그 고정 더미가 서버 자리
+// 주민·내 고양이를 덮으면 고정값을 버리고 같은 회피 계산으로 다시 정한다(PEER_SPOTS 끼리는 겹치지 않아 그대로).
 const withCatchPlacements = (actors: FishingPeerActor[], mine?: Point) => {
-  const spots = actors.map((actor) => actor.spot),
+  const cats = [...actors.map((actor) => actor.spot), ...(mine ? [mine] : [])],
+    spots = actors.map((actor, index) => {
+      const fixed = actor.spot.catchPlacement;
+      return fixed &&
+        cats.some((cat, other) => other !== index && catchOverlapsCat(actor.spot, fixed, cat))
+        ? castSpot(actor.spot)
+        : actor.spot;
+    }),
     // 화면은 내가 DEFAULT_SPOT 에 앉으면 고정 물고기 더미를 쓴다(CurrentScreens 2330) — 주민 더미가 그것도 피하게
     me = mine
       ? [
@@ -97,10 +106,10 @@ const withCatchPlacements = (actors: FishingPeerActor[], mine?: Point) => {
             : castSpot(mine),
         ]
       : [];
-  actors.forEach((actor, index) => {
-    if (Object.prototype.hasOwnProperty.call(actor.spot, 'catchPlacement')) return;
+  spots.forEach((spot, index) => {
+    if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement')) return;
     const others = [...spots.filter((_, other) => other !== index), ...me];
-    spots[index] = { ...actor.spot, catchPlacement: fishingCatchPlacement(actor.spot, others) };
+    spots[index] = { ...spot, catchPlacement: fishingCatchPlacement(spot, others) };
   });
   return new Map(actors.map((actor, index) => [actor.key, spots[index]]));
 };

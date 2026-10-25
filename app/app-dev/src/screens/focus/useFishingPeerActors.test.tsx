@@ -8,6 +8,7 @@ import {
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
   castSpot,
+  catchOverlapsCat,
   DEFAULT_CATCH_PLACEMENT,
   DEFAULT_SPOT,
   fishingCatchPlacement,
@@ -885,4 +886,43 @@ test('재동기화 스냅숏은 좌표 없는 주민이 쥔 칸도 풀어, 그 �
     result.current.actors.map((item) => [item.spot.x, item.spot.y]),
     fresh.result.current.actors.map((item) => [item.spot.x, item.spot.y]),
   );
+});
+
+test('고정 칸(PEER_SPOTS)의 미리 정한 물고기 더미가 서버 자리 주민 고양이를 덮으면 다시 정한다', async () => {
+  const seat = { x: 9, y: 39 },
+    fixed = PEER_SPOTS[0].catchPlacement!;
+  // 고정 칸 0 과는 SEAT_GAP 보다 멀어 둘 다 앉지만, 칸 0 의 미리 정한 더미는 이 seat 고양이를 덮는다
+  assert.ok(onLand(fishingGrid, seat));
+  assert.equal(occupied(seat, [PEER_SPOTS[0]]), false);
+  assert.ok(catchOverlapsCat(PEER_SPOTS[0], fixed, seat));
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({
+      members: [
+        { ...peer, userId: 'a', sessionId: 's-a', seat },
+        { ...peer, userId: 'b', sessionId: 's-b', seat: null },
+      ],
+      ready: true,
+      reduce: false,
+    }),
+  );
+  const [a, b] = result.current.actors;
+  assert.deepEqual([a.spot.x, a.spot.y, b.slot], [seat.x, seat.y, 0]);
+  assert.ok(
+    b.spot.catchPlacement === null || !catchOverlapsCat(b.spot, b.spot.catchPlacement!, a.spot),
+  );
+});
+
+test('서버 자리 주민이 없으면 고정 칸의 물고기 더미는 미리 정한 값 그대로다', async () => {
+  const members = Array.from({ length: PEER_SPOTS.length }, (_, index) => ({
+    ...peer,
+    userId: `u${index}`,
+    sessionId: `s${index}`,
+  }));
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, mine: DEFAULT_SPOT }),
+  );
+  // 내 자리(DEFAULT_SPOT)는 고정 칸과 멀어 정원 15칸이 모두 찬다
+  assert.equal(result.current.actors.length, PEER_SPOTS.length);
+  for (const actor of result.current.actors)
+    assert.equal(actor.spot.catchPlacement, PEER_SPOTS[actor.slot].catchPlacement);
 });
