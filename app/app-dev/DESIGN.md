@@ -395,6 +395,7 @@ Semantic spacing:
 - 글자 수 제한은 칸 아래 `CharCount`(`현재/최대`, 한도에 닿으면 안내 문구)로 보여 준다. 서버가 길이를 **코드포인트**로 세는 칸(인사말 40·방명록 20, 🐟 = 1)은 `TextInput maxLength`(UTF-16)를 쓰지 않고 `onChangeText` 에서 `utils/codePoints.clampCodePoints` 로 자르며 `CharCount codePoints` 로 센다.
 - 숫자 입력은 적절한 키보드 타입을 사용한다.
 - 오류는 색만 바꾸지 않고 원인과 해결 행동을 텍스트로 제공한다.
+- 온보딩 이름·내 정보 닉네임은 입력·붙여넣기 시 모든 공백(탭·개행·전각 공백·NBSP·NEL·BOM 포함)을 제거한다. 서버의 `NICKNAME_INVALID`는 해당 칸 아래에 서버 메시지와 `accessibilityRole="alert"`로 표시하고 다시 편집하면 지운다. 기존 공백 닉네임은 입력을 바꾸지 않으면 저장 요청·응답에서도 원문을 유지하며 색만 변경할 수 있다.
 - 다시 눌러도 서버가 같은 이유로 거절할 쓰기(방명록 하루 1개·게시판 없음)는 토스트에 더해 칸 아래에 `accessibilityLiveRegion="polite"` 안내를 남기고 칸과 제출 버튼을 끈다. 쓰던 글은 지우지 않고, 섬이 바뀌거나 다시 불러오면 풀린다.
 
 ### 7.7 Toggle

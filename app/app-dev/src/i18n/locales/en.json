@@ -20,7 +20,7 @@
     "INVALID_IDEMPOTENCY_KEY": "The request key is invalid.",
     "INVALID_CURSOR": "The list position is invalid.",
     "UNSUPPORTED_PROVIDER": "This social login provider isn't supported.",
-    "NICKNAME_INVALID": "Nicknames must be 2–10 characters, not counting leading or trailing spaces.",
+    "NICKNAME_INVALID": "Nicknames must be 2–10 characters without whitespace.",
     "BANNED_WORD": "It contains words that aren't allowed.",
     "HOST_WITHDRAW": "Hand over your island host role before leaving the island.",
     "REFRESH_TOKEN": "Your login is no longer valid.",
