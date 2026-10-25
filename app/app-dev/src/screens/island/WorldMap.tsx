@@ -1898,8 +1898,6 @@ function FinalIslandScene({
   useEffect(() => {
     if (!syncIslandId || !me) return;
     let channel: IslandChannel | null = null;
-    // 이 채널의 두 번째 이후 onOpen = stompjs 재접속(GROMO-2250 집계).
-    let opened = false;
     const controller = createMovementController({
       me,
       send: (intent) => {
@@ -1936,10 +1934,9 @@ function FinalIslandScene({
           controller.onMessage(body);
         }
       },
-      onOpen: () => {
-        movementStats.opened(opened);
-        opened = true;
-      },
+      // 재접속 판정(GROMO-2250 집계)은 movementStats 가 측정 세션 단위로 한다 — 이 effect 가 다시 돌아 새 채널을
+      // 열어도(background 복귀 등) 이미 한 번 열린 세션이면 재접속으로 센다.
+      onOpen: () => movementStats.opened(),
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
       onMovementDenied: () => {

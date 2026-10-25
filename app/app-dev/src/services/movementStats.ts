@@ -5,7 +5,9 @@
  *  - RTT: intent 송신 → 같은 commandSeq 의 내 PathAccepted. MoveRejected 는 대기만 지운다.
  *  - Snapshot 간격: 직전 Snapshot 에 MOVING entity 가 있었을 때만 잰다(정지 뒤 공백 제외). 연결이 열리면 끊는다.
  *  - FullState: 마지막 연결(onOpen) 이후 첫 FullState 까지.
- *  - 점프: 서버 위치로 맞출 때(place) 이미지 px 거리. 화면 px = 이미지 px × 그때 배율.
+ *  - 재접속: 측정 세션(reset 이후)에서 두 번째 이후 onOpen. 채널 인스턴스가 아니라 이 모듈이 접속 이력을 들고 있어
+ *    background 복귀·섬 전환으로 채널을 새로 열어도 재접속으로 센다. 이력은 reset 때만 지운다.
+ *  - 점프: 서버 위치로 맞출 때(place) 화면 px(= 이미지 px × 그때 배율) 최댓값과 그 표본의 이미지 px·배율.
  */
 type Body = {
   type?: unknown;
@@ -32,6 +34,7 @@ export function createMovementStats(now: () => number = () => Date.now()) {
     snaps: number[] = [],
     lastSnap: { t: number; moving: boolean } | null = null,
     openedAt: number | null = null,
+    openedOnce = false,
     openedReconnect = false,
     reconnects = 0,
     firstFullStateMs: number | null = null,
@@ -69,6 +72,7 @@ export function createMovementStats(now: () => number = () => Date.now()) {
       snaps = [];
       lastSnap = null;
       openedAt = null;
+      openedOnce = false;
       reconnects = 0;
       firstFullStateMs = lastReconnectToFullStateMs = null;
       maxImagePx = maxScreenPx = 0;
@@ -100,19 +104,23 @@ export function createMovementStats(now: () => number = () => Date.now()) {
         if (b.type === 'PathAccepted') rtts.push(t - sentAt);
       }
     },
-    opened(reconnect: boolean) {
+    /** 채널이 (다시) 열렸다 — 이 측정 세션에서 이미 한 번 열렸으면 재접속이다. */
+    opened() {
       if (!enabled) return;
       openedAt = now();
-      openedReconnect = reconnect;
+      openedReconnect = openedOnce;
+      openedOnce = true;
       lastSnap = null;
-      if (reconnect) reconnects++;
+      if (openedReconnect) reconnects++;
     },
     jump(from: Pt, to: Pt, scale: number) {
       if (!enabled) return;
-      const d = Math.hypot(to.x - from.x, to.y - from.y);
-      if (d <= maxImagePx) return; // 0 도 여기서 걸러진다
+      // 화면 px 로 비교한다 — 배율이 바뀌면 이미지 px 최댓값이 화면 최댓값이 아니다.
+      const d = Math.hypot(to.x - from.x, to.y - from.y),
+        screen = d * scale;
+      if (screen <= maxScreenPx) return; // 0 도 여기서 걸러진다
       maxImagePx = d;
-      maxScreenPx = d * scale;
+      maxScreenPx = screen;
       scaleAtMax = scale;
     },
     summary,
@@ -125,7 +133,7 @@ export function createMovementStats(now: () => number = () => Date.now()) {
       const snap = s.snapshot.count
         ? `p50 ${n(s.snapshot.p50)} · p99 ${n(s.snapshot.p99)} · ≥100ms ${((s.snapshot.over100Ratio ?? 0) * 100).toFixed(1)}%`
         : '—';
-      const jump = maxImagePx
+      const jump = maxScreenPx
         ? `max ${Math.round(maxScreenPx)}px(img ${Math.round(maxImagePx)} · z${scaleAtMax.toFixed(2)})`
         : '—';
       const secs = Math.max(0, Math.floor((at - startedAt) / 1000));

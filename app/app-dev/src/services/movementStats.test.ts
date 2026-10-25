@@ -58,12 +58,12 @@ describe('movementStats', () => {
     const c = clock();
     const s = createMovementStats(c.now);
     s.reset();
-    s.opened(false);
+    s.opened();
     c.t = 96;
     s.onMessage({ type: 'FullState' }, ME);
     s.onMessage(snap(true), ME);
     c.t = 1000;
-    s.opened(true);
+    s.opened(); // 같은 측정 세션의 두 번째 열림 = 재접속(새 채널 인스턴스여도)
     c.t = 1050;
     s.onMessage(snap(true), ME); // opened 뒤 첫 스냅샷 — 간격 없음
     c.t = 1412;
@@ -75,27 +75,41 @@ describe('movementStats', () => {
       [r.reconnects, r.firstFullStateMs, r.lastReconnectToFullStateMs, r.snapshot.count],
       [1, 96, 412, 0],
     );
+    // 접속 이력은 reset 때만 지운다 — reset 뒤 첫 열림은 다시 첫 접속이다.
+    s.reset();
+    s.opened();
+    c.t = 1600;
+    s.onMessage({ type: 'FullState' }, ME);
+    const again = s.summary();
+    assert.deepEqual(
+      [again.reconnects, again.firstFullStateMs, again.lastReconnectToFullStateMs],
+      [0, 100, null],
+    );
   });
 
-  test('점프는 이미지 px 최댓값만 갱신하고 그때의 배율로 화면 px 를 남긴다(0 무시)', () => {
+  test('점프는 화면 px(이미지 px × 배율) 최댓값과 그 표본의 이미지 px·배율을 남긴다(0 무시)', () => {
     const s = createMovementStats(() => 0);
     s.reset();
     s.jump({ x: 0, y: 0 }, { x: 0, y: 0 }, 9);
-    assert.equal(s.summary().jump.maxImagePx, 0);
-    s.jump({ x: 0, y: 0 }, { x: 3, y: 4 }, 2);
-    s.jump({ x: 0, y: 0 }, { x: 1, y: 0 }, 10);
-    assert.deepEqual(s.summary().jump, { maxImagePx: 5, maxScreenPx: 10, scaleAtMax: 2 });
+    assert.equal(s.summary().jump.maxScreenPx, 0);
+    // 이미지 100px·배율 0.5(화면 50) 뒤 이미지 80px·배율 1(화면 80) — 화면 최대는 80 이다.
+    s.jump({ x: 0, y: 0 }, { x: 100, y: 0 }, 0.5);
+    s.jump({ x: 0, y: 0 }, { x: 80, y: 0 }, 1);
+    // 이미지 거리는 더 커도 화면 60 이라 최댓값이 아니다.
+    s.jump({ x: 0, y: 0 }, { x: 120, y: 0 }, 0.5);
+    assert.deepEqual(s.summary().jump, { maxImagePx: 80, maxScreenPx: 80, scaleAtMax: 1 });
+    assert.match(s.format(), /점프 max 80px\(img 80 · z1\.00\)/);
   });
 
   test('reset 전·stop 뒤에는 기록하지 않는다', () => {
     const s = createMovementStats(() => 0);
     s.sent(1);
-    s.opened(true);
+    s.opened();
     s.jump({ x: 0, y: 0 }, { x: 5, y: 0 }, 1);
     s.reset();
     s.stop();
     s.sent(2);
-    s.opened(true);
+    s.opened();
     s.jump({ x: 0, y: 0 }, { x: 5, y: 0 }, 1);
     const r = s.summary();
     assert.deepEqual([r.pending, r.reconnects, r.jump.maxImagePx], [0, 0, 0]);
@@ -109,7 +123,7 @@ describe('movementStats', () => {
       s.format(),
       'RTT 0건 — (대기 0) | Snap 0건 —\n점프 — · 재접속 0 · FullState —(첫 —) · 0s',
     );
-    s.opened(false);
+    s.opened();
     s.sent(1);
     s.sent(2);
     s.onMessage(snap(true), ME);

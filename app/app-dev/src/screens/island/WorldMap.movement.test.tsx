@@ -1217,6 +1217,43 @@ describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', (
     await screen.unmount();
   });
 
+  it('background 복귀로 채널 effect 가 다시 돌아 새 채널이 열려도 재접속으로 세고, 첫 FullState 시간은 첫 값을 지킨다', async () => {
+    jest.useFakeTimers();
+    // AppState 리스너 수집은 위 「앱이 background 로 가면…」 테스트와 같은 defineProperty 패턴이다.
+    const listeners: ((state: string) => void)[] = [];
+    const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+    Object.defineProperty(AppState, 'addEventListener', {
+      configurable: true,
+      value: ((_type: string, listener: (state: string) => void) => {
+        listeners.push(listener);
+        return { remove: jest.fn() };
+      }) as typeof AppState.addEventListener,
+    });
+    try {
+      const screen = await renderHome(nextIsland());
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      const first = channel();
+      await act(async () => first.opts.onOpen());
+      await act(async () => jest.advanceTimersByTime(96));
+      await emit(fullState([actor(ME, SPAWN)]));
+      // background → active: 채널 effect 가 cleanup 뒤 다시 돌아 새 채널 인스턴스를 연다.
+      await act(async () => listeners.forEach((listener) => listener('background')));
+      await act(async () => listeners.forEach((listener) => listener('active')));
+      expect(channel()).not.toBe(first);
+      await act(async () => channel().opts.onOpen());
+      await act(async () => jest.advanceTimersByTime(412));
+      await emit(fullState([actor(ME, SPAWN)]));
+      await act(async () => jest.advanceTimersByTime(500));
+      const readout = screen.getByTestId('nav-debug-text').props.children as string;
+      expect(readout).toContain('재접속 1 · FullState 412ms(첫 96ms)');
+      await screen.unmount();
+    } finally {
+      if (originalAddEventListener) {
+        Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+      }
+    }
+  });
+
   it('자동 걷기를 켜면 2초 뒤 탭과 같은 걷기로 intent 를 보내고, 끄면 더 보내지 않는다', async () => {
     jest.useFakeTimers();
     // 무작위 셀 = (42,45) 셀(index 45·100 + 42), 지터 = 0.45425 × 50ms ≈ 23ms.
