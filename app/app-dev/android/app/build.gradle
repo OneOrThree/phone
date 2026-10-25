@@ -137,6 +137,14 @@ gradle.taskGraph.whenReady { taskGraph ->
     }
     // GROMO-2226 — JS 의 Google 클라이언트 행은 EXPO_PUBLIC_ENV 로 고른다. 청중과 어긋나면 빈 prod 행(dev 청중) 또는 dev 행(운영)이 실린다.
     def publicEnv = System.getenv("EXPO_PUBLIC_ENV")
+    if (publicEnv == null) {
+        // 셸에 값이 없으면 Expo 가 번들 때 app-dev/.env 의 EXPO_PUBLIC_* 를 인라인한다 — 가드도 같은 값을 본다(iOS 는 Fastfile beta 가 prod 로 고정).
+        def dotenv = new File(rootDir, "../.env")
+        if (dotenv.exists()) {
+            def m = (dotenv.text =~ /(?m)^\s*EXPO_PUBLIC_ENV\s*=\s*"?([^"\s#]*)"?/)
+            if (m.find()) publicEnv = m.group(1)
+        }
+    }
     if (includesReleaseArtifactTask && devAudience && publicEnv != "dev") {
         throw new GradleException(
             "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_ENV=dev 로 번들해야 합니다(Google 클라이언트 행 선택)."
