@@ -63,7 +63,6 @@ module.exports = {
       runtimeVersion: '2.0.0-no-special-use',
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
       blockedPermissions: [
-        'android.permission.FOREGROUND_SERVICE',
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
       ],
