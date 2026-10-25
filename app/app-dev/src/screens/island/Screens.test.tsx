@@ -1510,16 +1510,26 @@ test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', asyn
   assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
-test('앱 설정은 개인정보처리방침 하나만 남기고 차단 관리를 숨긴다', async () => {
-  const s = await render(<Harness route="settings" full api={() => ({})} />);
+test('앱 설정은 개인정보처리방침 하나만 남기고 안전 첫 줄에서 차단 사용자 목록으로 진입한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
   assert.equal(s.queryByText('개인정보 처리 안내'), null);
-  assert.equal(s.queryByText('차단한 사용자'), null);
   assert.equal(s.getAllByText('개인정보처리방침').length, 1);
   assert.ok(s.getByTestId('settings-app-version'));
+  // 안전 그룹 첫 줄 — 신고센터보다 앞(GROMO-2473). SheetRow 는 읽는 이름에 제목을 넣으므로 버튼 순서로 본다
+  const rows = s
+    .getAllByRole('button')
+    .map((node: any) => String(node.props.accessibilityLabel ?? ''));
+  const blocked = rows.findIndex((label) => label.includes('차단한 사용자'));
+  const report = rows.findIndex((label) => label.includes('신고센터'));
+  assert.ok(blocked >= 0 && blocked < report);
+  await fireEvent.press(s.getByText('차단한 사용자'));
+  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
 
-test('친구 관리에서 차단 사용자 목록으로 진입한다', async () => {
-  let exposed: any;
+test('친구 관리 머리에는 차단한 사용자 진입이 없다', async () => {
   const friendsScreen = {
     data: { friends: [], friendRequests: [], sentFriendRequests: [] },
     status: 'ready',
@@ -1533,16 +1543,9 @@ test('친구 관리에서 차단 사용자 목록으로 진입한다', async () 
     command: jest.fn(),
   };
   const s = await render(
-    <Harness
-      route="friends"
-      full
-      api={() => ({})}
-      friendsScreen={friendsScreen}
-      expose={(value: any) => (exposed = value)}
-    />,
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
   );
-  await fireEvent.press(s.getByText('차단한 사용자'));
-  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
+  assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
 test('앱 설정의 언어 행은 기기 언어 따름이면 그 문구를 보여주고 탭하면 언어 화면으로 이동한다', async () => {
