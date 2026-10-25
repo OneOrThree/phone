@@ -404,9 +404,10 @@ export const componentTokens = {
     innerStroke: primitiveTokens.stroke.subtle,
     frameGap: 2,
     radius: 3,
+    // 오른쪽 여백(건물 목록 아래 여백 겸용)
     inset: space[1],
-    // 바닥에 붙으면 너무 내려가 보여 조금 띄운다(2026-10-26 오스카)
-    bottomInset: space[3],
+    // 바닥에 붙으면 너무 내려가 보여 조금 띄운다(2026-10-26 오스카) — 12 면 이름이 두 줄로 접힐 때 닿아 8
+    bottomInset: space[2],
     labelInset: space[1],
     fontSize: primitiveTokens.fontSize.xs,
     lineHeight: 18,
