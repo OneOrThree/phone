@@ -36,6 +36,7 @@ on:
       - '.github/workflows/app-ios-testflight-dev.yml'
       - '.github/workflows/app-lint.yml'
       - '.github/scripts/wait-app-checks.py'
+      - '.github/ci/app-change-plan.py'
   workflow_dispatch:
 
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
@@ -48,9 +49,22 @@ permissions:
   contents: read
 
 jobs:
+  change-plan:
+    name: iOS 자동 게시 범위 판정
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        run: python3 .github/ci/app-change-plan.py --platform ios
+
   quality-gate:
     name: 동일 SHA 앱 필수 검사 확인
-    if: github.event_name == 'push'
+    needs: change-plan
+    if: github.event_name == 'push' && needs.change-plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -72,12 +86,12 @@ jobs:
     uses: ./.github/workflows/app-lint.yml
 
   testflight-dev:
-    needs: [quality-gate, manual-quality]
+    needs: [quality-gate, manual-quality, change-plan]
     # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
     # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
     if: >-
       !cancelled() &&
-      ((github.event_name == 'push' && needs.quality-gate.result == 'success' && !contains(github.event.head_commit.message, '[skip testflight]')) ||
+      ((github.event_name == 'push' && needs.change-plan.outputs.publish == 'true' && needs.quality-gate.result == 'success' && !contains(github.event.head_commit.message, '[skip testflight]')) ||
        (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success'))
     # main push: 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를
     # 붙여 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
