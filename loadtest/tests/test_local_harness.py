@@ -172,6 +172,21 @@ class LocalHarnessTest(unittest.TestCase):
             self.assertGreaterEqual(data['sent'],n*f*sec-1)
             self.assertLessEqual(data['sentShortfall'],1)
 
+    def test_send_shortfall_beyond_tolerance_is_not_a_pass(self):
+        # 이벤트 루프를 주기적으로 막아 타이머가 계획만큼 못 보내게 한다 → SEND_SHORTFALL, 통과 금지.
+        self.server.behavior='echo'
+        n,f,sec=10,10,3
+        with tempfile.TemporaryDirectory() as temporary:
+            out=Path(temporary);users=out/'users.json';block=out/'block.cjs'
+            block.write_text("setInterval(()=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,120),40);")
+            users.write_text(json.dumps([{'userId':f'synthetic-{i}','islandId':f'island-{i}','token':token(f'synthetic-{i}')} for i in range(n)]))
+            subprocess.run(['node','--require',str(block),str(SCRIPTS/'aws-realtime.mjs'),'--url',f'ws://127.0.0.1:{self.server.server_port}/ws','--users',str(users),'--out',str(out/'result.json'),'--connections',str(n),'--mode','chat','--seconds',str(sec),'--frequency',str(f),'--ready-timeout-ms','5000','--runtime-seconds','30','--drain-ms','200','--max-errors','1000'],capture_output=True,text=True,timeout=40)
+            data=json.loads((out/'result.json').read_text())
+            self.assertGreater(data['sentShortfall'],data['allowedShortfall'])
+            self.assertTrue(data['sendShortfallExceeded'])
+            self.assertEqual(data['failureReason'],'SEND_SHORTFALL')
+            self.assertFalse(data['valid']);self.assertFalse(data['sloPassed'])
+
     def test_node_close_types_over_localhost(self):
         for behavior in ('intentional','early','heartbeat','policy','transport','private','secret-code','secret-nested','secret-reason','secret-type','ignore-close'):
             with self.subTest(behavior=behavior), tempfile.TemporaryDirectory() as temporary:
