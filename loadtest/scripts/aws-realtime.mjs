@@ -208,7 +208,11 @@ async function finish(force = false) {
   const elapsedSeconds = (performance.now() - wallStart) / 1000;
   const cpu = process.cpuUsage(cpuStart), deliveryMs = stats(latency);
   const shutdownCloseUnconfirmed = clients.filter(client => !client.closed).length;
-  const valid = shutdownCloseUnconfirmed === 0 && !aborted && ready === count && errors === 0 && rejected === 0 && duplicate === 0 && (mode === 'idle' || (mode === 'events' ? false : sent > 0 && expected === delivered));
+  // 타이머 지터 클라이언트당 1건 + 계획의 2% 를 넘게 덜 보냈으면 발생기 한계: 설정 부하보다 낮은 부하의 통과를 증거로 남기지 않는다.
+  const allowedShortfall = Math.max(clients.length, Math.ceil(plannedSends * 0.02));
+  const sendShortfallExceeded = plannedSends - sent > allowedShortfall;
+  const failureReason = sendShortfallExceeded ? 'SEND_SHORTFALL' : null;
+  const valid = !sendShortfallExceeded && shutdownCloseUnconfirmed === 0 && !aborted && ready === count && errors === 0 && rejected === 0 && duplicate === 0 && (mode === 'idle' || (mode === 'events' ? false : sent > 0 && expected === delivered));
   const sloPassed = valid && (mode === 'idle' || (deliveryMs.p95 !== null && deliveryMs.p95 <= p95LimitMs));
   const result = {
     runId, mode, startedAt, endedAt: new Date().toISOString(), targets, connections: count, attemptedConnections: clients.length, ready,
@@ -217,7 +221,7 @@ async function finish(force = false) {
     fixtureHash: createHash('sha256').update(fixture).digest('hex'), harnessSha256,
     harnessDependenciesSha256: { 'ws-evidence.mjs': createHash('sha256').update(readFileSync(new URL('./ws-evidence.mjs', import.meta.url))).digest('hex') }, tokenRemainingSeconds, userOffset: offset,
     aborted, valid, sloPassed, p95LimitMs, eventsRequireSourceLedger: mode === 'events', limits: { maxErrors, maxInflight, maxRssMb, maxPendingMs, readyTimeoutMs },
-    sent, plannedSends, sentShortfall: plannedSends - sent, expectedDeliveries: expected, delivered, missing: expected - delivered, duplicate, fullyDeliveredMessages: fullyDelivered,
+    sent, plannedSends, sentShortfall: plannedSends - sent, allowedShortfall, sendShortfallExceeded, failureReason, expectedDeliveries: expected, delivered, missing: expected - delivered, duplicate, fullyDeliveredMessages: fullyDelivered,
     sendPerSecond: measurementMs ? sent / (measurementMs / 1000) : null, deliveryPerSecond: measurementMs ? delivered / (measurementMs / 1000) : null,
     goodputPerSecond: measurementMs ? fullyDelivered / (measurementMs / 1000) : null,
     shutdownCloseUnconfirmed,

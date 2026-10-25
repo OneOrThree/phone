@@ -171,7 +171,7 @@ def main():
                         return name + ':' + row['verdict']
         chat = read_json(out / 'ws/chat.json')
         if isinstance(chat, dict) and (not chat.get('valid') or not chat.get('sloPassed')):
-            return 'chat:RESULT_FAILED'
+            return 'chat:' + (chat.get('failureReason') or 'RESULT_FAILED')
         for name, process in processes.items():
             if process.poll() not in (None, 0):
                 return name + ':EXIT_FAILED'
