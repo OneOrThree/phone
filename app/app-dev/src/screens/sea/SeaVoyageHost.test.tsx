@@ -361,7 +361,7 @@ test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금
   mockRemark.mockRejectedValueOnce(new ApiError('SEA_REMARK_LOCKED', '잠김', 409));
   await write('공부 중');
   expect(e.notify).toHaveBeenCalledWith('한마디는 고친 뒤 5분 동안 바꿀 수 없어요');
-  expect(mockRoom.reconnect).toHaveBeenCalled(); // 표류 정리 뒤면 한마디가 바다 방에 다시 들어간다(GROMO-2484)
+  expect(mockRoom.reconnect).not.toHaveBeenCalled(); // 저장 실패면 다시 들어가지 않는다
   e.conversion.offer.mockReturnValueOnce(true);
   mockRemark.mockRejectedValueOnce(new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403));
   await write('공부 중');
@@ -370,6 +370,8 @@ test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금
   await write('공부 중');
   expect(mockRemark).toHaveBeenLastCalledWith('공부 중');
   expect(screen.getByText('공부 중')).toBeTruthy();
+  // 표류 정리 뒤면 저장 «뒤» 바다 방에 다시 들어간다 — 입장 스냅샷이 새 한마디를 싣는다(GROMO-2484)
+  expect(mockRoom.reconnect).toHaveBeenCalledTimes(1);
 });
 
 test('다른 화면에 갔다가 돌아와도(재마운트) 경과는 세션을 받은 시각부터 이어 센다', async () => {
@@ -474,6 +476,36 @@ test('저장한 한마디는 서버 확인 전 임시값 — 다른 기기에서
   await act(async () => mockRoomOpts.onMembers([me('다른 기기 한마디')]));
   expect(screen.getByText('다른 기기 한마디')).toBeTruthy();
   expect(screen.queryByText('내 새 한마디')).toBeNull();
+});
+
+test('표류 정리로 방이 비었을 때 고친 한마디 — 저장 뒤 늦게 온 옛 한마디 스냅샷이 화면을 되돌리지 않는다 (GROMO-2484)', async () => {
+  const e = env({ state: { name: '나냥', color: 'black', session: null } });
+  const me = (message: string) => ({
+    userId: 'me',
+    name: '나냥',
+    color: 'black',
+    focusing: false,
+    activeSeconds: 0,
+    anchorMs: 0,
+    message,
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await act(async () => mockRoomOpts.onMembers([me('옛 한마디')]));
+  await act(async () => mockRoomOpts.onMembers([])); // sea.room.left{adrift} — 방을 버려 내 서버 값도 모른다
+  mockRemark.mockResolvedValueOnce({ remark: '내 새 한마디' });
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '내 새 한마디');
+  await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
+  await act(async () => {});
+  expect(screen.getByText('내 새 한마디')).toBeTruthy();
+  // 저장 전에 시작된 재입장(직전 이모트 탭 등)의 스냅샷이 저장 뒤 옛 한마디를 싣고 온다
+  await act(async () => mockRoomOpts.onMembers([me('옛 한마디')]));
+  expect(screen.getByText('내 새 한마디')).toBeTruthy();
+  expect(screen.queryByText('옛 한마디')).toBeNull();
+  // 방금 저장한 값이 돌아오면 임시값을 푼다 — 그 뒤 다른 기기 값은 그대로 보인다
+  await act(async () => mockRoomOpts.onMembers([me('내 새 한마디')]));
+  await act(async () => mockRoomOpts.onMembers([me('다른 기기 한마디')]));
+  expect(screen.getByText('다른 기기 한마디')).toBeTruthy();
 });
 
 test('종료 응답을 잃으면 확인 중으로 두고, 재연결·복귀 때 recover 보다 먼저 같은 finish 를 다시 보내 결과창으로 간다', async () => {
