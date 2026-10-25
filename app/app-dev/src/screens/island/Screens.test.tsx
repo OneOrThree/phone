@@ -1518,10 +1518,13 @@ test('앱 설정은 개인정보처리방침 하나만 남기고 안전 첫 줄�
   assert.equal(s.queryByText('개인정보 처리 안내'), null);
   assert.equal(s.getAllByText('개인정보처리방침').length, 1);
   assert.ok(s.getByTestId('settings-app-version'));
-  // 안전 그룹 첫 줄 — 신고센터보다 앞(GROMO-2473). 렌더 트리의 등장 순서로 본다
-  const tree = JSON.stringify(s.toJSON());
-  assert.ok(tree.indexOf('차단한 사용자') > 0);
-  assert.ok(tree.indexOf('차단한 사용자') < tree.indexOf('신고센터'));
+  // 안전 그룹 첫 줄 — 신고센터보다 앞(GROMO-2473). SheetRow 는 읽는 이름에 제목을 넣으므로 버튼 순서로 본다
+  const rows = s
+    .getAllByRole('button')
+    .map((node: any) => String(node.props.accessibilityLabel ?? ''));
+  const blocked = rows.findIndex((label) => label.includes('차단한 사용자'));
+  const report = rows.findIndex((label) => label.includes('신고센터'));
+  assert.ok(blocked >= 0 && blocked < report);
   await fireEvent.press(s.getByText('차단한 사용자'));
   assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
