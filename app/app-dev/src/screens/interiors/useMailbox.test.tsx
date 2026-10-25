@@ -10,6 +10,7 @@ import {
   getMailboxScreen,
   listIslandMessages,
   listLetters,
+  listSystemLetters,
   sendIslandMessage,
   sendLetter,
 } from '@/services/api/letters';
@@ -23,6 +24,7 @@ import {
 jest.mock('@/services/api/letters', () => ({
   getMailboxScreen: jest.fn(),
   listLetters: jest.fn(),
+  listSystemLetters: jest.fn(),
   getLetter: jest.fn(),
   sendLetter: jest.fn(),
   closeLetter: jest.fn(),
@@ -95,6 +97,7 @@ const slice = (content: Record<string, unknown>[], nextCursor: string | null = n
 
 const screenMock = getMailboxScreen as jest.Mock;
 const listLettersMock = listLetters as jest.Mock;
+const listSystemMock = listSystemLetters as jest.Mock;
 const getLetterMock = getLetter as jest.Mock;
 const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
@@ -117,6 +120,7 @@ beforeEach(async () => {
   replaceBlockedUsers([]);
   blockedUsersMock.mockResolvedValue([]);
   screenMock.mockResolvedValue(screen());
+  listSystemMock.mockResolvedValue(slice([]));
 });
 
 test('우체통 진입은 유효한 TTL cache가 있어도 차단 목록을 강제로 재검증한다', async () => {
@@ -475,6 +479,99 @@ test('닫기 실패 — 오류를 던지고 편지를 숨기지 않는다(가짜
   assert.equal(hook.result.current.letters.length, 1);
   assert.equal(listLettersMock.mock.calls.length, 0);
   assert.equal(hook.result.current.closing, false);
+  await hook.unmount();
+});
+
+const systemItem = (over: Record<string, unknown> = {}) =>
+  letterItem({
+    id: 'sys-1',
+    counterpartUserId: null,
+    counterpartNickname: null,
+    content: '섬에서 나가게 됐어요',
+    kind: 'KICK',
+    islandId: 'island-2',
+    ...over,
+  });
+
+test('시스템 편지 — 로드 때 kind=system 을 함께 읽어 systemLetters 에 채우고 letters 는 묶음 그대로다', async () => {
+  // 옛 business 는 kind 를 무시하고 친구함을 돌려준다 — 발신자 있는 항목은 시스템 편지로 받지 않는다.
+  listSystemMock.mockResolvedValue(slice([systemItem(), letterItem({ id: 'friend-in-system' })]));
+
+  const hook = await mount();
+
+  const s = hook.result.current;
+  assert.deepEqual(
+    s.systemLetters.map((l) => l.id),
+    ['sys-1'],
+  );
+  assert.deepEqual(
+    s.letters.map((l) => l.id),
+    [LETTER],
+  );
+  assert.equal(listSystemMock.mock.calls.length, 1);
+  // 친구 편지 목록은 묶음(/screens/mailbox) 그대로 — /letters 는 부르지 않는다.
+  assert.equal(listLettersMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 조회가 실패해도 친구 편지는 정상이고 오류를 올리지 않는다', async () => {
+  listSystemMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
+
+  const hook = await mount();
+
+  const s = hook.result.current;
+  assert.deepEqual(s.systemLetters, []);
+  assert.equal(s.letters.length, 1);
+  assert.equal(s.error, null);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 열면 시스템 목록의 isRead 만 맞추고 친구 편지는 그대로다', async () => {
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(letterView({ id: 'sys-1', senderId: null, receiverId: 'u1' }));
+  const hook = await mount();
+
+  await act(async () => {
+    await hook.result.current.openLetter('sys-1');
+  });
+
+  assert.equal(hook.result.current.detail?.senderId, null);
+  assert.equal(hook.result.current.systemLetters[0].isRead, true);
+  assert.equal(hook.result.current.letters[0].isRead, false);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 닫으면 시스템 목록도 재조회하고 친구 쪽 호출은 그대로 received,sent 다', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
+  const hook = await mount();
+  assert.equal(hook.result.current.systemLetters.length, 1);
+  listLettersMock.mockResolvedValue(slice([]));
+  listSystemMock.mockResolvedValueOnce(slice([]));
+
+  await act(async () => {
+    await hook.result.current.close('sys-1');
+  });
+
+  assert.equal(listSystemMock.mock.calls.length, 2);
+  assert.equal(listLettersMock.mock.calls.map((c) => c[0]).join(','), 'received,sent');
+  assert.equal(hook.result.current.systemLetters.length, 0);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 닫은 뒤 시스템 재조회가 실패해도 닫기는 성공하고 이전 값을 유지한다', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
+  const hook = await mount();
+  listLettersMock.mockResolvedValue(slice([]));
+  listSystemMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
+
+  await act(async () => {
+    await hook.result.current.close(LETTER);
+  });
+
+  assert.equal(hook.result.current.systemLetters.length, 1);
+  assert.equal(hook.result.current.letters.length, 0);
   await hook.unmount();
 });
 

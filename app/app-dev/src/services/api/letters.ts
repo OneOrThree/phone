@@ -7,6 +7,8 @@
  * - GET /screens/mailbox — 현재 섬 + 우체통 낙서(오름차순) + 받은 편지 + 친구 한 묶음.
  * - GET /letters — 받은·보낸 편지 최신순 cursor 슬라이스. 보낸 편지의 열람 여부는
  *   정보라 안 싣는다.
+ * - GET /letters?kind=system — 섬 시스템 편지(강퇴·가입 승인)만. 발신자가 없어
+ *   counterpartUserId·senderId 가 null 이다(GROMO-2275). kind 없는 응답은 그대로다.
  * - GET /letters/{id} — 읽기. 수신자 최초 읽기가 readAt 을 찍지만 편지를 닫지 않는다.
  * - POST /letters — 친구에게만 발송. Idempotency-Key 계약이 없다 — 응답 유실 뒤
  *   재시도하면 중복이 생길 수 있으므로 호출자는 실패를 숨기거나 자동 재시도하지 않는다.
@@ -19,7 +21,8 @@ import { request } from './client';
 
 export type LetterItem = {
   id: string;
-  counterpartUserId: string;
+  /** 시스템 편지(강퇴·가입 승인)는 발신자가 없어 null. */
+  counterpartUserId: string | null;
   counterpartNickname: string | null;
   /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
   catColor?: string | null;
@@ -27,6 +30,10 @@ export type LetterItem = {
   content: string;
   isRead: boolean;
   createdAt: string;
+  /** 시스템 편지에만 온다 — KICK | JOIN_APPROVED. 친구 편지엔 키 자체가 없다. */
+  kind?: string;
+  islandId?: string;
+  readAt?: string | null;
 };
 
 export type LetterSlice = {
@@ -38,7 +45,8 @@ export type LetterSlice = {
 
 export type LetterView = {
   id: string;
-  senderId: string;
+  /** 시스템 편지는 null. */
+  senderId: string | null;
   senderNickname: string | null;
   /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
   catColor?: string | null;
@@ -47,6 +55,8 @@ export type LetterView = {
   content: string;
   createdAt: string;
   readAt: string | null;
+  /** 시스템 편지에만 온다. */
+  kind?: string;
 };
 
 export type MailboxMessage = {
@@ -100,6 +110,9 @@ export const listLetters = (type: 'received' | 'sent', cursor?: string | null) =
   request<LetterSlice>(
     `/letters?type=${type}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
   );
+
+/** 섬 시스템 편지(첫 20통, 페이지네이션 없음) — 친구 편지 목록·안 읽음 수와 섞지 않는다. */
+export const listSystemLetters = () => request<LetterSlice>('/letters?kind=system');
 
 export const getLetter = (letterId: string) => request<LetterView>(`/letters/${letterId}`);
 

@@ -7493,7 +7493,8 @@ type MailRoute = 'home' | 'island' | 'inbox' | 'letter' | 'friend-select' | 'com
 // 화면이 그리는 모양. 목업과 앱 상태(e) 둘 다 이 모양으로 바꿔 넘긴다
 type LetterView = {
   id: string;
-  friendId: string;
+  // 섬 시스템 편지(강퇴·가입 승인)는 발신자가 없어 null — 답장·차단 시트를 그리지 않는다.
+  friendId: string | null;
   from: string;
   island: string;
   color: string | null;
@@ -7652,8 +7653,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     chatActive: e?.route === 'chat',
   });
   // 우체통 낙서 작성자만 서버가 털색·착용을 준다(GROMO-2389) — 친구·편지 상대는 값이 없어 null(중립 gray 로 그린다).
-  const friendIsland = (userId: string) =>
-    mail.friends.find((f) => f.userId === userId)?.mainIslandName ?? '';
+  const friendIsland = (userId: string | null) =>
+    (userId && mail.friends.find((f) => f.userId === userId)?.mainIslandName) || '';
   const friends: FriendView[] = serverMail
     ? mail.friends.map((f) => ({
         id: f.userId,
@@ -7667,18 +7668,25 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           .filter((f) => f.status === 'friend')
           .map((f) => ({ id: f.id, name: f.name, island: f.island, color: f.color }))
       : letterFriends;
+  // 섬 시스템 편지(GROMO-2275)를 친구 편지와 한 목록에 최신순으로 섞는다. sort 는 안정 정렬이라
+  // 서버가 이미 최신순으로 준 친구 편지끼리의 순서는 그대로다. 안 읽음 수는 친구 편지만 센다(아래).
   const letters: LetterView[] = serverMail
-    ? mail.letters.map((l) => ({
-        id: l.id,
-        friendId: l.counterpartUserId,
-        from: l.counterpartNickname ?? '알 수 없음',
-        island: friendIsland(l.counterpartUserId),
-        color: l.catColor ?? null,
-        outfit: appearanceOutfit(l.appearance),
-        time: letterTime(Date.parse(l.createdAt), now),
-        body: l.content,
-        isRead: l.isRead,
-      }))
+    ? [...mail.systemLetters, ...mail.letters]
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+        .map((l) => ({
+          id: l.id,
+          friendId: l.counterpartUserId,
+          from:
+            l.counterpartUserId === null
+              ? t('mailbox.systemSender')
+              : (l.counterpartNickname ?? '알 수 없음'),
+          island: friendIsland(l.counterpartUserId),
+          color: l.catColor ?? null,
+          outfit: appearanceOutfit(l.appearance),
+          time: letterTime(Date.parse(l.createdAt), now),
+          body: l.content,
+          isRead: l.isRead,
+        }))
     : state
       ? unreadLetters(state).map(({ friend, letter }) => ({
           id: letter.id,
@@ -7696,7 +7704,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       ? {
           id: mail.detail.id,
           friendId: mail.detail.senderId,
-          from: mail.detail.senderNickname ?? '알 수 없음',
+          from:
+            mail.detail.senderId === null
+              ? t('mailbox.systemSender')
+              : (mail.detail.senderNickname ?? '알 수 없음'),
           island: friendIsland(mail.detail.senderId),
           color: mail.detail.catColor ?? null,
           outfit: appearanceOutfit(mail.detail.appearance),
@@ -7797,7 +7808,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   // 받은 편지는 여는 순간 읽음 처리한다. 어떤 방법으로 나가도 받은 편지함에서 사라진다 (목업 경로)
   useEffect(() => {
     if (e && !serverMail && route === 'letter' && openedLetter)
-      e.dispatch({ type: 'LETTER_READ', friend: openedLetter.friendId, id: openedLetter.id });
+      e.dispatch({ type: 'LETTER_READ', friend: openedLetter.friendId ?? '', id: openedLetter.id });
   }, [route, e?.detail, serverMail]);
   // 서버 경로 — 라우트가 편지를 가리키면 GET /letters/{id} 상세를 연다(읽음은 서버가 찍는다).
   useEffect(() => {
@@ -8463,6 +8474,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     foot: null,
   };
 
+  // 시스템 편지(발신자 없음)는 답장할 상대가 없다.
+  const replyToId = openedLetter?.friendId ?? null;
   const letter: Pane | undefined = openedLetter && {
     head: header('받은 편지', '읽고 닫으면 이 편지는 사라져요', 'inbox'),
     body: (
@@ -8501,7 +8514,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               {[openedLetter.island, openedLetter.time].filter(Boolean).join(' · ')}
             </Text>
           </View>
-          {serverMail ? (
+          {serverMail && openedLetter.friendId ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${openedLetter.from} 더보기`}
@@ -8525,29 +8538,31 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     ),
     foot: (
       <View style={{ marginTop: 9, flexDirection: 'row', columnGap: 7 }}>
-        <Pressable
-          testID="reply-to-letter"
-          accessibilityRole="button"
-          onPress={() => {
-            if (e) return e.replace('friendMail', openedLetter.friendId);
-            setSelectedFriend(openedLetter.friendId);
-            go('compose', `${openedLetter.from}에게 답장을 써요`);
-          }}
-          style={{
-            minHeight: 34,
-            flex: 1,
-            paddingVertical: 7,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderWidth: 1.5,
-            borderColor: '#7b493f',
-            borderRadius: 9,
-            backgroundColor: componentTokens.button.background,
-            boxShadow: '0 2px 0 #7b493f',
-          }}
-        >
-          <Text style={mailFont(8, 1.4, '#54352f', '900')}>답장하기</Text>
-        </Pressable>
+        {replyToId ? (
+          <Pressable
+            testID="reply-to-letter"
+            accessibilityRole="button"
+            onPress={() => {
+              if (e) return e.replace('friendMail', replyToId);
+              setSelectedFriend(replyToId);
+              go('compose', `${openedLetter.from}에게 답장을 써요`);
+            }}
+            style={{
+              minHeight: 34,
+              flex: 1,
+              paddingVertical: 7,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1.5,
+              borderColor: '#7b493f',
+              borderRadius: 9,
+              backgroundColor: componentTokens.button.background,
+              boxShadow: '0 2px 0 #7b493f',
+            }}
+          >
+            <Text style={mailFont(8, 1.4, '#54352f', '900')}>답장하기</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           testID="close-letter"
           accessibilityRole="button"
@@ -8821,7 +8836,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             )}
           </View>
         </Animated.View>
-        {letterSafetyTarget && serverMail ? (
+        {letterSafetyTarget?.friendId && serverMail ? (
           <UserSafetySheet
             visible
             targetUserId={letterSafetyTarget.friendId}

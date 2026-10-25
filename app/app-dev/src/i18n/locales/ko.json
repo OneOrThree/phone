@@ -752,6 +752,9 @@
     "pinForbidden": "이 섬에는 넣을 수 없어요",
     "pinAlreadyMember": "이미 내가 속한 섬이에요"
   },
+  "mailbox": {
+    "systemSender": "섬 알림"
+  },
   "magazine": {
     "islandTitle": "{{name}}섬",
     "cell": {

@@ -782,6 +782,9 @@
     "pinForbidden": "You can't add this island",
     "pinAlreadyMember": "This is already one of your islands"
   },
+  "mailbox": {
+    "systemSender": "Island notice"
+  },
   "magazine": {
     "islandTitle": "{{name}} Island",
     "cell": {
