@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """main 커밋에 필요한 CI·dev 배포만 기다린다. 배포 잠금은 대기 중 잡지 않는다."""
 import json
+import io
+import zipfile
 from pathlib import Path
 import subprocess
 import os
@@ -69,13 +71,37 @@ def verdict(expected, runs, statuses, revision):
     return 'success', '대상 커밋의 필요한 CI·dev 배포 완료'
 
 
-def write_plan(expected, revision):
+def satellite_services(runs, revision):
+    candidates = [run for run in runs if run.get('path', '').split('@')[0].endswith('/satellite-ci.dev.yml')
+                  and run.get('head_sha') == revision and run.get('event') == 'push'
+                  and run.get('head_branch') == 'main' and run.get('conclusion') == 'success']
+    if not candidates:
+        raise RuntimeError('완료된 위성 CI의 배포 계획을 찾을 수 없습니다.')
+    run = max(candidates, key=lambda item: (item['id'], item.get('run_attempt', 1)))
+    artifacts = pages(f'/actions/runs/{run["id"]}/artifacts', 'artifacts')
+    plans = [item for item in artifacts if item['name'] == 'satellite-deploy-plan' and not item['expired']]
+    if not plans:
+        raise RuntimeError('위성 CI의 배포 계획 산출물이 없습니다.')
+    artifact = max(plans, key=lambda item: item['id'])
+    content = subprocess.check_output(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY']
+                                      + f'/actions/artifacts/{artifact["id"]}/zip'])
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        if archive.namelist() != ['satellite-deploy-plan.json']:
+            raise ValueError('위성 배포 계획 ZIP 형식 오류')
+        plan = json.loads(archive.read('satellite-deploy-plan.json'))
+    if set(plan) != {'business-api', 'notification'} or any(type(value) is not bool for value in plan.values()):
+        raise ValueError('위성 배포 계획의 서비스·형식 오류')
+    return {name for name, enabled in plan.items() if enabled}
+
+
+def write_plan(expected, revision, satellites=None):
     services = set()
     if 'data-api-ci.dev.yml' in expected:
         services.update(('data-api', 'realtime'))
     if 'satellite-ci.dev.yml' in expected:
-        # main 위성 CI는 현재 두 서비스를 함께 발행·배포한다.
-        services.update(('business-api', 'notification'))
+        if satellites is None:
+            raise ValueError('실제 위성 배포 계획이 필요합니다.')
+        services.update(satellites)
     if 'realtime-ci.dev.yml' in expected:
         services.add('realtime')
     plan = {'revision': revision, 'services': sorted(services)}
@@ -204,7 +230,8 @@ def main():
             return 1
         if state == 'success' and time.monotonic() - quiet_since >= quiet_seconds:
             if not satellite_only:
-                write_plan(expected, revision)
+                satellites = satellite_services(runs, revision) if 'satellite-ci.dev.yml' in expected else set()
+                write_plan(expected, revision, satellites)
             return 0
         if time.monotonic() >= deadline:
             print('CI·배포 대기 시간 초과', flush=True)

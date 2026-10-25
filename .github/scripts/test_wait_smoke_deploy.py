@@ -4,6 +4,10 @@ import importlib.util
 from pathlib import Path
 import unittest
 import os
+import io
+import json
+import zipfile
+import tempfile
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('wait', Path(__file__).with_name('wait-smoke-deploy.py'))
@@ -56,6 +60,31 @@ class WaitTests(unittest.TestCase):
         current = {**old, 'description': 'Satellite CI 5/2: success'}
         self.assertEqual(wait.verdict({'satellite-ci.dev.yml'}, runs, [current], SHA)[0], 'success')
         self.assertEqual(wait.verdict({'satellite-ci.dev.yml'}, runs, [{**current, 'state': 'failure'}], SHA)[0], 'failure')
+
+    def test_document_only_satellite_ci_does_not_start_functional_smoke(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'GITHUB_OUTPUT': directory + '/out'}):
+            self.assertEqual(wait.write_plan({'satellite-ci.dev.yml'}, SHA, set())['services'], [])
+            self.assertIn('smoke-needed=false', Path(directory, 'out').read_text())
+        self.assertEqual(wait.write_plan({'satellite-ci.dev.yml'}, SHA, {'notification'})['services'], ['notification'])
+        self.assertEqual(wait.write_plan({'data-api-ci.dev.yml', 'satellite-ci.dev.yml'}, SHA, set())['services'], ['data-api', 'realtime'])
+        with self.assertRaises(ValueError):
+            wait.write_plan({'satellite-ci.dev.yml'}, SHA)
+
+    def test_actual_satellite_plan_artifact_controls_smoke_targets(self):
+        for plan, expected in [({'business-api': False, 'notification': False}, set()),
+                               ({'business-api': False, 'notification': True}, {'notification'}),
+                               ({'business-api': 'false', 'notification': False}, None)]:
+            stream = io.BytesIO()
+            with zipfile.ZipFile(stream, 'w') as archive:
+                archive.writestr('satellite-deploy-plan.json', json.dumps(plan))
+            with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                 patch.object(wait, 'pages', return_value=[{'id': 10, 'name': 'satellite-deploy-plan', 'expired': False}]), \
+                 patch.object(wait.subprocess, 'check_output', return_value=stream.getvalue()):
+                if expected is None:
+                    with self.assertRaises(ValueError):
+                        wait.satellite_services([run('satellite-ci.dev.yml')], SHA)
+                else:
+                    self.assertEqual(wait.satellite_services([run('satellite-ci.dev.yml')], SHA), expected)
 
     def test_no_service_change_needs_no_deploy(self):
         self.assertEqual(wait.verdict(set(), [], [], SHA)[0], 'success')
