@@ -1503,7 +1503,7 @@ export function Hall({ e }: any) {
                     style={{
                       // 오른쪽 아래 — 건물 이름은 가리지 않고 설명 위에 비스듬히 찍힌다(10/26 오스카). 살짝 비쳐 밑 글이 읽힌다
                       position: 'absolute',
-                      bottom: completionStamp.inset,
+                      bottom: completionStamp.bottomInset,
                       right: completionStamp.inset,
                       width: completionStamp.width,
                       height: completionStamp.height,
