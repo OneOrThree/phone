@@ -75,4 +75,10 @@ test('운영 TestFlight 레인과 OTA 발행은 prod 칸이 비면 중단한다'
   expect(guardAt).toBeLessThan(devStart);
 
   expect(read('scripts/ota-update.sh')).toMatch(guard('\\./src/config/googleClientIds\\.json'));
+
+  // Android 운영 release(assemble/bundle/packageRelease)도 같은 가드 — dev 청중(!devAudience 가 거짓)은 통과.
+  const gradle = read('android/app/build.gradle');
+  expect(gradle).toMatch(
+    /if \(includesReleaseArtifactTask && !devAudience\) \{\s*\n\s*def googleIds = new groovy\.json\.JsonSlurper\(\)\.parse\(new File\(rootDir, "\.\.\/src\/config\/googleClientIds\.json"\)\)\s*\n\s*if \(!googleIds\.prod\?\.web\?\.trim\(\)\) \{\s*\n\s*throw new GradleException\(\s*\n\s*"Android release 차단: 운영 Google 클라이언트 id 미발급/,
+  );
 });
