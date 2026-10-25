@@ -50,6 +50,12 @@ def main():
         bundle.mkdir()
         command(['docker', 'cp', package + ':/opt/catus-db/.', str(bundle)])
         command(['docker', 'rm', package])
+        # 기대 체인은 이미지에 번들된 db/v0 의 V*.sql 에서 읽는다 — 후속 migration(V1 = GROMO-2477 …)이 늘어도
+        # 이 검사를 다시 고치지 않는다. 체인의 출발이 V0 인 것만은 고정한다.
+        chain = sorted((path.name[1:].split('__', 1)[0].replace('_', '.')
+                        for path in (bundle / 'src/main/resources/db/v0').glob('V*__*.sql')), key=deploy.version)
+        assert chain[0] == '0', chain
+        latest, history = chain[-1], ','.join(chain)
 
         def sql(database, statement):
             return command(['docker', 'exec', '-i', postgres, 'psql', '-XqAt', '-U', 'audit', '-d', database,
@@ -78,13 +84,13 @@ def main():
 
         create('fresh')
         assert run('fresh', 'preflight')['state'] == 'empty'
-        assert run('fresh')['schema_version'] == '0'
+        assert run('fresh')['schema_version'] == latest
         sql('fresh', "DELETE FROM audio_tracks; UPDATE construction_cost_policies SET cost=999 "
                      "WHERE revision=1 AND building_id='hall';")
         assert run('fresh')['source_state'] == 'current'
         assert sql('fresh', 'SELECT count(*) FROM audio_tracks') == '3'
         assert sql('fresh', "SELECT cost FROM construction_cost_policies WHERE revision=1 AND building_id='hall'") == '999'
-        assert sql('fresh', "SELECT string_agg(version, ',') FROM flyway_schema_history") == '0'
+        assert sql('fresh', "SELECT string_agg(version, ',' ORDER BY installed_rank) FROM flyway_schema_history") == history
         results['empty_current_repeat_seed_restore'] = True
 
         # Flyway가 실제 생성한 history와 두 인덱스를 재사용한다. 사용자 객체는 포함하지 않는다.
@@ -94,7 +100,7 @@ def main():
         sql('empty_history', history_ddl)
         assert sql('empty_history', "SELECT count(*) FROM pg_indexes WHERE tablename='flyway_schema_history'") == '2'
         assert run('empty_history', 'preflight')['state'] == 'empty'
-        assert run('empty_history')['schema_version'] == '0'
+        assert run('empty_history')['schema_version'] == latest
         results['empty_history_indexes_retry'] = True
 
         create('legacy117')
@@ -118,7 +124,8 @@ def main():
                          "VALUES ('01900000-0000-7000-8000-000000000001',true,'kept-user','ko')")
         assert run('legacy117', 'preflight')['source_version'] == '117'
         migrated = run('legacy117')
-        assert migrated['source_state'] == 'legacy' and migrated['schema_version'] == '0'
+        # V138 → V0 전환 뒤 같은 실행이 후속 V1+ 까지 적용한다.
+        assert migrated['source_state'] == 'legacy' and migrated['schema_version'] == latest
         assert len(migrated['backup_paths']) == 1
         backup = Path(migrated['backup_paths'][0])
         assert backup.stat().st_size > 0 and backup.stat().st_mode & 0o777 == 0o600
@@ -134,6 +141,30 @@ def main():
         assert sql('restored_backup', "SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1") == '117'
         results['legacy117_catchup138_rebase0_full_backup_restore'] = True
 
+        # V0 한 행만 있는 현재 DB(후속 migration 이 처음 나가는 dev/prod 의 상태) — 전체 백업 뒤 나머지 체인을 적용하고,
+        # 백업은 V0 그대로 복원된다. 체인이 V0 하나뿐이면 이 경로가 없다.
+        if len(chain) > 1:
+            create('v0only')
+            sql('v0only', history_ddl)
+            v0 = bundle / 'src/main/resources/db/v0/V0__baseline.sql'
+            sql('v0only', 'SET search_path=public,pg_catalog;\n' + v0.read_text()
+                + "\nINSERT INTO public.flyway_schema_history(installed_rank,version,description,type,script,checksum,"
+                + "installed_by,execution_time,success) VALUES (1,'0','baseline','SQL','V0__baseline.sql',"
+                + str(deploy.rebase.checksum(v0)) + ', current_user, 0, true);')
+            pending = run('v0only', 'preflight')
+            assert pending['state'] == 'current' and pending['needs_backup'] is True, pending
+            upgraded = run('v0only')
+            assert upgraded['source_state'] == 'current' and upgraded['schema_version'] == latest, upgraded
+            assert len(upgraded['backup_paths']) == 1
+            assert sql('v0only', "SELECT string_agg(version, ',' ORDER BY installed_rank) "
+                                 "FROM flyway_schema_history") == history
+            create('restored_v0')
+            with Path(upgraded['backup_paths'][0]).open('rb') as stream:
+                subprocess.run(['docker', 'exec', '-i', postgres, 'pg_restore', '-U', 'audit', '-d', 'restored_v0'],
+                               stdin=stream, capture_output=True, check=True)
+            assert sql('restored_v0', "SELECT string_agg(version, ',') FROM flyway_schema_history") == '0'
+            results['current_v0_backup_then_followups_restore'] = True
+
         reader = subprocess.Popen(['docker', 'exec', '--env', 'PGAPPNAME=deployment-connection-fixture', postgres,
                                    'psql', '-U', 'audit', '-d', 'legacy117', '-c', 'SELECT pg_sleep(30)'],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -143,7 +174,8 @@ def main():
                      "application_name='deployment-connection-fixture'\" | grep -q 1; do sleep 0.1; done"])
             rejected = run('legacy117', expected=1)
             assert '모든 연결' in rejected['error']
-            assert sql('legacy117', "SELECT string_agg(version, ',') FROM flyway_schema_history") == '0'
+            assert sql('legacy117', "SELECT string_agg(version, ',' ORDER BY installed_rank) "
+                                    "FROM flyway_schema_history") == history
         finally:
             sql('legacy117', "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
                             "WHERE application_name='deployment-connection-fixture'")
@@ -154,7 +186,7 @@ def main():
         sql('fresh', "DELETE FROM audio_tracks; UPDATE catalog_assets SET title='collision' WHERE product_id='campfire'")
         assert run('fresh', expected=1)['resume_previous_allowed'] is False
         assert sql('fresh', 'SELECT count(*) FROM audio_tracks') == '0'
-        assert sql('fresh', "SELECT string_agg(version, ',') FROM flyway_schema_history") == '0'
+        assert sql('fresh', "SELECT string_agg(version, ',' ORDER BY installed_rank) FROM flyway_schema_history") == history
         state = json.loads((directory / 'fresh-state.json').read_text())
         assert state['status'] == 'failed' and state['active_containers'] == []
         results['seed_conflict_fail_closed_rollback'] = True

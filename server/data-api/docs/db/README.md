@@ -15,8 +15,8 @@ Gromo 봇·리그·챌린지·구 코인·아이템·태그 등 41개 테이블�
 기본 데이터 정본은 `src/main/resources/db/seed/insert.sql` 하나다. Gradle의
 `processResources`가 `db/v0/afterMigrate__defaults.sql`로 복사하므로 새 DB와
 이미 V0인 DB 모두 Flyway migrate 후 실행한다. 신규 migration이 없는 재배포에서도
-누락된 기본 행을 복구한다. 콜백은 migration 이력을 추가하지 않아 숫자 버전은 0,
-`flyway_schema_history`는 V0 한 행으로 유지된다. 원본 SQL을 복사해 별도로 수정하지 않는다.
+누락된 기본 행을 복구한다. 콜백은 migration 이력을 추가하지 않아 `flyway_schema_history`는
+번들된 V0 체인(V0·V1 …)의 행만 가진다. 원본 SQL을 복사해 별도로 수정하지 않는다.
 
 | 테이블 | 기본 행 수 |
 |---|---:|
@@ -183,8 +183,9 @@ server/data-api/docs/db/verify-schema-dbml.sh
 
 빌드한 Data 이미지의 digest로 배포 경로 전체를 로컬에서 재현할 수 있다.
 아래 검사는 전용 PostgreSQL 컨테이너·network를 만들고 종료 시 제거한다.
-이미지에서 추출한 실행기로 빈 DB·반복 배포·V117→V138→V0·백업 복원,
-빈 history 재시도, 잔존 연결 거부, seed 충돌 롤백과 중단된 컨테이너 처리를 확인한다.
+이미지에서 추출한 실행기로 빈 DB·반복 배포·V117→V138→V0(→후속 V1+)·백업 복원,
+V0만 적용된 DB의 백업 후 후속 migration 적용·복원, 빈 history 재시도, 잔존 연결 거부,
+seed 충돌 롤백과 중단된 컨테이너 처리를 확인한다. 기대 체인은 이미지에 번들된 `db/v0`에서 읽는다.
 백업과 검증 JSON은 지정한 artifacts 디렉터리에 남긴다.
 
 ```bash
