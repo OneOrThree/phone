@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
       - '.github/workflows/app-lint.yml'
       - '.github/workflows/app-ios-testflight-dev.yml'
       - '.github/workflows/app-android-ci.yml'
@@ -20,6 +24,10 @@ on:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
     paths:
       - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
       # 이 워크플로 자신도 트리거에 넣는다 (GROMO-1513). 안 넣으면 app-lint.yml 만 고치는 PR 에서
       # 검사가 아예 안 돌아, 워크플로 변경이 맞는지 **머지해 봐야** 알 수 있다.
       # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
