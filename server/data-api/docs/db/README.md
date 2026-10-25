@@ -15,8 +15,8 @@ Gromo 봇·리그·챌린지·구 코인·아이템·태그 등 41개 테이블�
 기본 데이터 정본은 `src/main/resources/db/seed/insert.sql` 하나다. Gradle의
 `processResources`가 `db/v0/afterMigrate__defaults.sql`로 복사하므로 새 DB와
 이미 V0인 DB 모두 Flyway migrate 후 실행한다. 신규 migration이 없는 재배포에서도
-누락된 기본 행을 복구한다. 콜백은 migration 이력을 추가하지 않아 숫자 버전은 0,
-`flyway_schema_history`는 V0 한 행으로 유지된다. 원본 SQL을 복사해 별도로 수정하지 않는다.
+누락된 기본 행을 복구한다. 콜백은 migration 이력을 추가하지 않아 `flyway_schema_history`는
+번들된 V0 체인(V0·V1 …)의 행만 가진다. 원본 SQL을 복사해 별도로 수정하지 않는다.
 
 | 테이블 | 기본 행 수 |
 |---|---:|
@@ -57,8 +57,8 @@ SQL은 하나의 `DO` 문에서 전용 advisory transaction lock과 기본 테�
 | `legacy` | 번들의 원본 migration 이력과 정확히 일치하는 prefix인지 확인하고 전체 custom-format 백업을 만든다. V138 미만이면 불변 원본 체인으로 V138까지 적용하고, V138 구조 지문을 검증한 뒤 V0로 전환한다. |
 | `current` | V0부터 시작하는 현재 migration 이력이 번들의 정확한 prefix인지 확인한다. 미적용 migration이 있으면 전체 백업 후 적용하고, 없으면 기본 데이터 콜백을 다시 실행한다. |
 
-현재 번들의 숫자 버전은 0이다. 향후 V1 이상이 추가되면 자동 실행기도 그 체인의
-미적용 migration을 처리한다. V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
+현재 번들은 V0와 후속 V1(GROMO-2477, `focus_session_details` 자리 좌표)이다. 자동 실행기는 그 체인의
+미적용 migration을 처리한다(V0만 적용된 DB는 전체 백업 후 V1을 적용한다). V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
 후속 V1 이상은 불변 이력·체크섬과 Flyway 검증을 사용한다. 이미지보다 새로운 DB,
 실패 이력, 체크섬 불일치, 이력 없는 사용자 객체, 지원하지 않는 스키마는 자동 수정하지 않는다.
 기존 V125의 핀 만료, V130의 집계 백필, V135·V136의 보상 갱신을 생략하고 V0 이력만 기록하지 않는다.
@@ -183,8 +183,9 @@ server/data-api/docs/db/verify-schema-dbml.sh
 
 빌드한 Data 이미지의 digest로 배포 경로 전체를 로컬에서 재현할 수 있다.
 아래 검사는 전용 PostgreSQL 컨테이너·network를 만들고 종료 시 제거한다.
-이미지에서 추출한 실행기로 빈 DB·반복 배포·V117→V138→V0·백업 복원,
-빈 history 재시도, 잔존 연결 거부, seed 충돌 롤백과 중단된 컨테이너 처리를 확인한다.
+이미지에서 추출한 실행기로 빈 DB·반복 배포·V117→V138→V0(→후속 V1+)·백업 복원,
+V0만 적용된 DB의 백업 후 후속 migration 적용·복원, 빈 history 재시도, 잔존 연결 거부,
+seed 충돌 롤백과 중단된 컨테이너 처리를 확인한다. 기대 체인은 이미지에 번들된 `db/v0`에서 읽는다.
 백업과 검증 JSON은 지정한 artifacts 디렉터리에 남긴다.
 
 ```bash

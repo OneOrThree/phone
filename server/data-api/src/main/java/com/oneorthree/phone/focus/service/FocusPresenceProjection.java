@@ -2,6 +2,7 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.common.port.FocusPresenceState;
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import lombok.RequiredArgsConstructor;
@@ -42,14 +43,15 @@ public class FocusPresenceProjection {
      * 「놓는 시점부터 13시간」으로 잡으면 휴식·재개를 반복할수록 백스톱이 뒤로 밀린다.
      *
      * @param restSeat 휴식 자리. {@code paused} 일 때만 값이 있고 나머지는 {@code null}(= rest 목록에서 제거)
+     * @param seat 집중섬에서 앉은 자리(GROMO-2477) — 시작 때 저장한 값 그대로, 자리 없이 시작했으면 {@code null}
      * @param presenceOrder 그 세션의 {@code focus_sessions.presence_order}
      * @return 호출측이 명령 결과에 실을 사건 둘(focus · rest 순서)
      */
     public List<EventEnvelope> progressing(UUID userId, UUID islandId, FocusSessionView view, Integer restSeat,
-                                           Long presenceOrder) {
+                                           FocusSeat seat, Long presenceOrder) {
         boolean paused = FocusSessionView.STATUS_PAUSED.equals(view.status());
         EventEnvelope focusEvent = focusMemberEvents.focusUpdated(userId, islandId, view.id(), view.status(),
-                view.subject(), view.activeSeconds(), view.serverNow(), view.version());
+                view.subject(), view.activeSeconds(), view.serverNow(), view.version(), seat);
         EventEnvelope restEvent = focusMemberEvents.restUpdated(userId, islandId, view.id(), view.status(),
                 paused ? view.restStartedAt() : null, paused ? restSeat : null, view.serverNow(), view.version());
         focusPresencePort.focusStateChanged(userId, presenceOrder, view.version(),
@@ -73,7 +75,7 @@ public class FocusPresenceProjection {
                                      long activeSeconds, Instant serverNow, long controlVersion,
                                      Long presenceOrder) {
         EventEnvelope focusEvent = focusMemberEvents.focusUpdated(userId, islandId, sessionId,
-                FocusMemberEvents.STATUS_COMPLETED, subject, activeSeconds, serverNow, controlVersion);
+                FocusMemberEvents.STATUS_COMPLETED, subject, activeSeconds, serverNow, controlVersion, null);
         EventEnvelope restEvent = focusMemberEvents.restUpdated(userId, islandId, sessionId,
                 FocusMemberEvents.STATUS_COMPLETED, null, null, serverNow, controlVersion);
         focusPresencePort.focusEnded(userId, presenceOrder);

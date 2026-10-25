@@ -251,7 +251,7 @@ class InternalUserBlockIntegrationTest {
     // ---------------------------------------------------------------- 3. 화면 제외
 
     @Test
-    @DisplayName("차단한 친구는 내 목록과 검색에서 빠지고, 해제하면 다시 보인다 — 관계 행은 남는다")
+    @DisplayName("차단한 친구는 양쪽 목록과 검색에서 빠지고, 해제하면 다시 보인다 — 관계 행은 남는다")
     void blockedFriendDisappearsFromListAndSearchUntilUnblocked() throws Exception {
         UUID a = newUser();
         UUID b = newUser();
@@ -275,10 +275,10 @@ class InternalUserBlockIntegrationTest {
         as(a, get(path(a, "/friend-search")).param("type", "NICKNAME").param("q", "숨을친구"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
-        // 제외는 blocker 관점이다 — 차단당한 쪽의 목록·친구 관계는 그대로다.
+        // 한 방향 차단도 양쪽 목록에서 제외하되 친구 관계는 보존한다.
         as(b, get(path(b, "/friends")).param("date", DATE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(content().json("[]"));
 
         as(a, delete(path(a, "/blocks/" + b))).andExpect(status().isNoContent());
         as(a, get(path(a, "/friends")).param("date", DATE))

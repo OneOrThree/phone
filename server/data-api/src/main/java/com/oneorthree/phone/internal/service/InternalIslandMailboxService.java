@@ -1,6 +1,5 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -45,8 +44,8 @@ import java.util.stream.Collectors;
  * 표시 projection, {@code message.created} outbox 적재. 메시지 정본은 여기 없다({@code gromo_chat}, M02).
  *
  * <h2>인가 술어는 {@link #requireResident} 하나다</h2>
- * 「활성 사용자 · 살아 있는 섬 · 활성 주민 · 우체통 해금」을 한 자리에서 판정한다. 세 입구가 같은 술어를
- * 타므로 나중에 시설 해금이 실제 판정으로 바뀔 때 고칠 곳이 한 곳이다. {@code islandId} 는 곧
+ * 「활성 사용자 · 살아 있는 섬 · 활성 주민」을 한 자리에서 판정한다. 채팅은 우체통 완공 여부와
+ * 무관하며, 일반 편지의 시설 게이트는 {@code InternalLetterService} 에 남긴다. {@code islandId} 는 곧
  * {@code groupId} 다 — 별도 섬 테이블이 없다.
  *
  * <h2>표시 projection 은 {@code name} 뿐이다</h2>
@@ -72,7 +71,6 @@ public class InternalIslandMailboxService {
     private final GroupMemberRepository members;
     private final OutboxCommandPort outbox;
     private final EventOutboxRepository events;
-    private final IslandFacilityQueryService islandFacilityQueryService;
     private final UserBlockService userBlocks;
 
     /** 주민 인가 + 요청자 본인의 표시 projection(POST 응답의 {@code name} 이 된다). */
@@ -159,12 +157,12 @@ public class InternalIslandMailboxService {
     }
 
     /**
-     * 우체통에 들어올 수 있는가 — 세 입구의 유일한 인가 술어.
+     * 채팅 접근·작성자 조회에 쓰는 주민 인가 술어. 시설 완공 여부는 묻지 않는다.
      *
      * @throws UserException {@code USER_NOT_FOUND} — 요청자 본인의 활성 계정이 없다(404, 처방은 재로그인)
      * @throws GroupException {@code MEMBER_ONLY} — 섬이 없거나·끝났거나·활성 주민이 아니다. 셋을 한 코드로
      *     합치는 것은 의도다: 갈라 주면 임의 islandId 로 «그런 섬이 있는가»가 샌다(realtime 의 NOT_A_MEMBER
-     *     와 같은 이유). {@code MAILBOX_LOCKED} — 우체통 미완공(아래 참고, 지금은 나가지 않는다)
+     *     와 같은 이유).
      */
     private User requireResident(UUID islandId, UUID userId) {
         User user = users.findActive(userId)
@@ -175,17 +173,7 @@ public class InternalIslandMailboxService {
         if (!members.existsByGroupIdAndUserId(island.getId(), user.getId())) {
             throw new GroupException(GroupErrorCode.MEMBER_ONLY);
         }
-        requireMailboxUnlocked(island.getId());
         return user;
     }
 
-    /**
-     * 섬의 우체통이 완공됐는지 — 건설 도메인(GROMO-1767)의 {@code island_facilities} 행으로 판정한다.
-     * 우체통이 COMPLETED 가 아니면 403 {@code MAILBOX_LOCKED} → Business 의 {@code FACILITY_LOCKED} 다.
-     */
-    private void requireMailboxUnlocked(UUID islandId) {
-        if (!islandFacilityQueryService.hasMailbox(islandId)) {
-            throw new GroupException(GroupErrorCode.MAILBOX_LOCKED);
-        }
-    }
 }

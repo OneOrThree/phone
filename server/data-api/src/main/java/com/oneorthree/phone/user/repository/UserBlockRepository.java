@@ -77,6 +77,11 @@ public interface UserBlockRepository extends JpaRepository<UserBlock, UUID> {
     @Query("SELECT b.blocked.id FROM UserBlock b WHERE b.blocker.id = :blockerId")
     Set<UUID> findBlockedIdsByBlockerId(@Param("blockerId") UUID blockerId);
 
+    /** 친구 검색·목록에서 숨길 상대 — 어느 방향으로든 차단된 상대를 한 번에 읽는다. */
+    @Query("SELECT DISTINCT CASE WHEN b.blocker.id = :userId THEN b.blocked.id ELSE b.blocker.id END"
+            + " FROM UserBlock b WHERE b.blocker.id = :userId OR b.blocked.id = :userId")
+    Set<UUID> findBlockedEitherIds(@Param("userId") UUID userId);
+
     /**
      * 두 유저 사이에 <b>어느 방향이든</b> 차단이 있는가 (GROMO-2179, policy RP-차단).
      *

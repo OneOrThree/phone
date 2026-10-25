@@ -9,6 +9,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -37,8 +38,9 @@ class V0BaselineMigrationTest {
     @Test
     void 빈_DB는_V0만_적용하고_사용자나_봇을_생성하지_않는다() {
         migrate("classpath:db/v0");
+        // V0 체인 — 후속 V1(GROMO-2477)부터 같은 디렉터리에서 이어 붙는다. 과거 V1~V138 은 섞이지 않는다.
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0");
+                .containsExactly("0", "1");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_tables WHERE schemaname='public' "
                 + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(77);
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.islands') IS NOT NULL", Boolean.class)).isTrue();
@@ -138,6 +140,7 @@ class V0BaselineMigrationTest {
     @Test
     void 다른_스키마의_사용자_FK가_있으면_데이터를_변경하지_않고_거부한다() throws Exception {
         migrate("classpath:db/v0");
+        List<String> history = jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class);
         String guard = Files.readString(Path.of("docs/db/v0-rebase/public-schema.sql"));
         jdbc.execute(guard);
         UUID user = user();
@@ -154,7 +157,7 @@ class V0BaselineMigrationTest {
                     Integer.class)).isOne();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id=?", Integer.class, user)).isOne();
             assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                    .containsExactly("0");
+                    .isEqualTo(history);
             jdbc.execute("DROP TABLE current_business.user_dependency");
             jdbc.execute("CREATE TYPE current_business.state AS ENUM ('ACTIVE')");
             assertThatThrownBy(() -> jdbc.execute(guard)).hasStackTraceContaining("public 밖 사용자 객체");

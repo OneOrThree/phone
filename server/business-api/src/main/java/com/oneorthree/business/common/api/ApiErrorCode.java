@@ -12,7 +12,7 @@ public enum ApiErrorCode implements ErrorCode {
     UNSUPPORTED_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인 제공자입니다.", false),
     // 계정 LLD §5 (GROMO-1801). Data 의 UserErrorCode·GroupErrorCode 와 «이름·상태가 같아야»
     // registeredUpstream 이 붙는다 — 없으면 정상적인 닉네임 거절·방장 탈퇴 거절이 502 로 나간다.
-    NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 앞뒤 공백 제외 2~10자여야 합니다.", false),
+    NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 공백 없이 2~10자여야 합니다.", false),
     // GROMO-1986. Data 의 CommonErrorCode.BANNED_WORD 와 이름·상태가 같아야 registeredUpstream 이 붙는다 —
     // 없으면 「욕설을 걸렀다」는 정상 400 이 502 UPSTREAM_CONTRACT_ERROR 로 나가 서버 장애처럼 보이고,
     // 앱은 사용자에게 왜 막혔는지 안내할 수 없다(NICKNAME_INVALID 와 같은 이유로 여기 둔다).

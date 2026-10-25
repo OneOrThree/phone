@@ -298,7 +298,7 @@ export const componentTokens = {
     markerShadow: `0px 1px 2px ${color.brown}`,
   },
   focusEndHold: {
-    durationMs: 3000,
+    durationMs: 1500,
     hapticIntervalMs: 120,
     fill: color.pink,
   },
