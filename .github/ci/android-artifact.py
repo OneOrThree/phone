@@ -37,8 +37,8 @@ def identity():
 def verify(directory, expected):
     root = Path(directory)
     metadata = json.loads((root / 'metadata.json').read_text())
-    keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'sha256'}
-    if set(metadata) != keys or metadata['schema'] != 1:
+    keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'sha256', 'publish'}
+    if set(metadata) != keys or metadata['schema'] != 2 or type(metadata.get('publish')) is not bool:
         raise ValueError('Android 산출물 메타데이터 형식 오류')
     if any(metadata.get(key) != value for key, value in expected.items()):
         raise ValueError('Android 산출물의 원본 SHA·run·attempt 불일치')
@@ -68,7 +68,7 @@ def main():
             parser.error('--aab 필요')
         args.directory.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(args.aab, args.directory / 'app-release.aab')
-        metadata = {**expected, 'schema': 1, 'version_code': int(os.environ['VERSION_CODE']),
+        metadata = {**expected, 'schema': 2, 'publish': os.environ.get('PUBLISH_ALLOWED') == 'true', 'version_code': int(os.environ['VERSION_CODE']),
                     'sha256': checksum(args.directory / 'app-release.aab')}
         (args.directory / 'metadata.json').write_text(json.dumps(metadata, sort_keys=True) + '\n')
     metadata = verify(args.directory, expected)
@@ -76,6 +76,7 @@ def main():
     if output:
         with open(output, 'a') as file:
             file.write(f'version-code={metadata["version_code"]}\n')
+            file.write(f'publish={str(metadata["publish"]).lower()}\n')
 
 
 if __name__ == '__main__':

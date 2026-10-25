@@ -47,6 +47,23 @@ def main():
     source = validate(run, int(os.environ['GITHUB_REPOSITORY_ID']), workflow_id, expected_attempt)
     if api('/compare/' + source['head_sha'] + '...main').get('status') not in {'ahead', 'identical'}:
         raise ValueError('원본 CI SHA가 현재 main 이력에 없음')
+    # 테스트 전용 변경은 CI가 성공해도 AAB job을 의도적으로 생략한다.
+    # 원본 attempt의 실제 job 결과를 확인하고, 이 경우 CD도 성공적으로 생략한다.
+    builds = []
+    for page in range(1, 101):
+        batch = api(f'/actions/runs/{run_id}/attempts/{source["run_attempt"]}/jobs?per_page=100&page={page}')['jobs']
+        builds.extend(job for job in batch if job['name'] == 'release AAB 빌드')
+        if len(batch) < 100:
+            break
+    else:
+        raise ValueError('Android CI job 페이지 상한 초과')
+    if len(builds) != 1 or builds[0]['conclusion'] not in {'success', 'skipped'}:
+        raise ValueError('원본 CI의 AAB job 결과가 없거나 모호함')
+    if builds[0]['conclusion'] == 'skipped':
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as file:
+            file.write('has-artifact=false\n')
+        print('검증 전용 CI에서 AAB 생략 — Android CD도 생략')
+        return
     name = f'android-ci-{source["id"]}-{source["run_attempt"]}'
     artifacts = []
     for page in range(1, 101):
@@ -59,7 +76,7 @@ def main():
     if len(artifacts) != 1:
         raise ValueError('현재 CI attempt의 AAB 산출물이 없거나 모호함')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as file:
-        for key, value in {'run-id': source['id'], 'attempt': source['run_attempt'],
+        for key, value in {'has-artifact': 'true', 'run-id': source['id'], 'attempt': source['run_attempt'],
                            'revision': source['head_sha'], 'artifact-name': name}.items():
             file.write(f'{key}={value}\n')
 

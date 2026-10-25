@@ -44,6 +44,8 @@ jobs:
       revision: ${{ steps.source.outputs.revision }}
       artifact-name: ${{ steps.source.outputs.artifact-name }}
       version-code: ${{ steps.artifact.outputs.version-code }}
+      publish: ${{ steps.artifact.outputs.publish }}
+      has-artifact: ${{ steps.source.outputs.has-artifact }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -56,12 +58,14 @@ jobs:
           CI_RUN_ID: ${{ inputs.ci-run-id }}
         run: python3 .github/ci/android-cd-source.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.source.outputs.has-artifact == 'true'
         with:
           name: ${{ steps.source.outputs.artifact-name }}
           path: android-ci-input
           run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ github.token }}
       - name: AAB·메타데이터 checksum 검증
+        if: steps.source.outputs.has-artifact == 'true'
         id: artifact
         env:
           SOURCE_REVISION: ${{ steps.source.outputs.revision }}
@@ -72,6 +76,7 @@ jobs:
   sign:
     name: 업로드 키 재서명
     needs: source
+    if: needs.source.outputs.has-artifact == 'true' && (needs.source.outputs.publish == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

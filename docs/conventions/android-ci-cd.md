@@ -48,3 +48,15 @@ Android CI 수동 실행은 빌드까지다. 성공한 main 실행은 자동 CD 
 - [Play Bundle API](https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles) — 게시 AAB의 versionCode·SHA-256
 
 실제 Play 게시와 GitHub Actions 실행은 로컬 회귀 검사와 별도 검증이다.
+
+### 자동 게시 입력
+
+`app-change-plan.py`는 검증용 AAB 생성과 스토어 자동 게시 여부를 별도로 판정한다.
+테스트·Markdown만 변경하면 AAB를 만들지 않고, workflow·CI helper 변경은 AAB를
+검증하되 Play에는 자동 게시하지 않는다. 플랫폼별 네이티브 입력은 해당 플랫폼만,
+공유 소스·asset·의존성·`ios/release-config.sh`는 두 플랫폼의 게시 입력이다.
+
+Android CI 산출물의 schema 2 메타데이터에는 `publish`가 포함된다. CD는 checksum과
+원본 실행을 검증한 뒤 이 값이 true인 경우에만 자동 서명·게시한다. CI를 수동 실행한
+경우에도 자동 게시하지 않으며, 실제 게시 시험은 성공한 main CI 실행 ID로 Android CD를
+명시적으로 수동 실행한다. schema 1의 과거 산출물은 새 CI 실행으로 다시 생성해야 한다.

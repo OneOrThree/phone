@@ -55,7 +55,7 @@ class AndroidPipelineTests(unittest.TestCase):
                 archive.writestr('base/manifest/AndroidManifest.xml', b'manifest fixture')
                 archive.writestr('BundleConfig.pb', b'bundle fixture')
             expected = {'revision': SHA, 'run_id': '12', 'run_attempt': '2'}
-            metadata = {**expected, 'schema': 1, 'version_code': 100, 'sha256': artifact.checksum(root / 'app-release.aab')}
+            metadata = {**expected, 'schema': 2, 'publish': True, 'version_code': 100, 'sha256': artifact.checksum(root / 'app-release.aab')}
             (root / 'metadata.json').write_text(json.dumps(metadata))
             self.assertEqual(artifact.verify(root, expected)['version_code'], 100)
             for key in expected:
@@ -84,6 +84,8 @@ class AndroidPipelineTests(unittest.TestCase):
                     return self.run_record()
                 if path == '/actions/workflows/app-android-ci.yml':
                     return {'id': 90}
+                if '/jobs?' in path:
+                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'success'}]}
                 if path.startswith('/compare/'):
                     return {'status': 'ahead'}
                 return {'artifacts': [{'name': 'android-ci-12-1', 'expired': False},
@@ -95,6 +97,27 @@ class AndroidPipelineTests(unittest.TestCase):
             self.assertIn('artifact-name=android-ci-12-2', output.read_text())
             self.assertIn('revision=' + SHA, output.read_text())
 
+    def test_intentionally_skipped_ci_build_does_not_fail_cd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / 'event.json'
+            event.write_text(json.dumps({'workflow_run': self.run_record()}))
+            output = Path(directory) / 'output'
+            def api(path):
+                if path == '/actions/runs/12':
+                    return self.run_record()
+                if path == '/actions/workflows/app-android-ci.yml':
+                    return {'id': 90}
+                if path.startswith('/compare/'):
+                    return {'status': 'ahead'}
+                if '/jobs?' in path:
+                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'skipped'}]}
+                self.fail('생략된 빌드에서 산출물을 조회하면 안 됨')
+            env = {'GITHUB_EVENT_PATH': str(event), 'GITHUB_REF': 'refs/heads/main',
+                   'GITHUB_EVENT_NAME': 'workflow_run', 'GITHUB_REPOSITORY_ID': '1', 'GITHUB_OUTPUT': str(output)}
+            with patch.dict(os.environ, env), patch.object(source, 'api', api):
+                source.main()
+            self.assertEqual(output.read_text(), 'has-artifact=false\n')
+
     def test_expired_or_missing_source_artifact_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             event = Path(directory) / 'event.json'
@@ -104,6 +127,8 @@ class AndroidPipelineTests(unittest.TestCase):
                     return self.run_record()
                 if path == '/actions/workflows/app-android-ci.yml':
                     return {'id': 90}
+                if '/jobs?' in path:
+                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'success'}]}
                 if path.startswith('/compare/'):
                     return {'status': 'identical'}
                 return {'artifacts': [{'name': 'android-ci-12-2', 'expired': True}]}

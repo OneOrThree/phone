@@ -4,7 +4,7 @@ name: Android CI
 #
 # 검사·AAB 생성은 CI, 서명·Play 게시는 독립 CD 실행이 담당한다.
 # - PR: build 잡만. AAB 끝까지 빌드(JS 번들·Hermes·리소스·서명). 키 안 씀. 일회용 키 서명, 결과 버림.
-# - main: settings → build → AAB+메타데이터 산출물. 성공 이벤트로 Android CD가 시작된다.
+# - main: settings → build → AAB+메타데이터. 앱 배포 입력이 바뀐 경우에만 CD가 자동 게시한다.
 #
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
@@ -38,7 +38,7 @@ on:
   push:
     branches: [main]
     paths: *android_release_paths
-  # 수동 실행도 빌드까지다. 성공한 main 실행만 독립 CD가 받아 게시한다.
+  # 수동 실행은 검증용 빌드까지다. 실제 게시 시험은 성공한 main CI ID로 CD를 수동 실행한다.
   workflow_dispatch:
 
 # PR: 같은 PR 앞 실행 버림.
@@ -58,9 +58,24 @@ env:
   RELEASE_SECRET_ID: gromo/prod/android
 
 jobs:
+  change-plan:
+    name: 앱 빌드·자동 게시 범위 판정
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 실제 변경 입력 판정
+        id: plan
+        run: python3 .github/ci/app-change-plan.py --platform android
+
   quality-gate:
     name: 동일 SHA 앱 필수 검사 확인
-    if: github.event_name == 'push'
+    needs: change-plan
+    if: github.event_name == 'push' && needs.change-plan.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -142,10 +157,10 @@ jobs:
 
   build:
     name: release AAB 빌드
-    needs: [settings, manual-quality, manual-native]
+    needs: [settings, manual-quality, manual-native, change-plan]
     # PR은 settings를 생략하고 빌드만 한다. main은 settings 성공이 필요하다.
     if: >-
-      !cancelled() && (github.event_name == 'pull_request' || needs.settings.result == 'success' ||
+      !cancelled() && needs.change-plan.outputs.build == 'true' && (github.event_name == 'pull_request' || needs.settings.result == 'success' ||
       (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' &&
        needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
@@ -278,6 +293,7 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
           SOURCE_ATTEMPT: ${{ github.run_attempt }}
           VERSION_CODE: ${{ needs.settings.outputs.code }}
+          PUBLISH_ALLOWED: ${{ needs.change-plan.outputs.publish }}
         run: python3 .github/ci/android-artifact.py pack --aab app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
       - name: 독립 CD용 AAB·메타데이터 게시
         if: env.IS_RELEASE == 'true'
