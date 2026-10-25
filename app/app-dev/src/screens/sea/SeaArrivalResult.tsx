@@ -10,6 +10,7 @@ import {
 import { t } from '@/i18n';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { addUnseenOutfits } from '@/services/unseenOutfits';
+import { useGowun } from '@/screens/island/sceneKit';
 import { SeaArrival, seaDuration } from './seaModel';
 import { SeaRewardArt, seaRewardCatalog } from './seaRewardCatalog';
 
@@ -27,6 +28,9 @@ export function SeaArrivalResult({
   catalog?: Readonly<Record<string, SeaRewardArt>>;
 }) {
   const table = useCustomizationCatalog();
+  // 결과창 글자·버튼도 고운돋움(DESIGN.md 그림 장면 위 화면 규칙)
+  const gowun = useGowun();
+  const font = { fontFamily: gowun };
   // 서버 grantedProductIds 순서를 보존한다. 첫 아이템은 대표 그림·이름, 나머지는 이름 목록으로 표시한다.
   // 이름을 모르는 id(카탈로그 미로드·실패)는 상품 id 를 그대로 보이지 않게 거른다 — 전부 모르면 보상 칸을 숨긴다.
   const name = (id: string) => catalog[id]?.title ?? table[id]?.title;
@@ -44,17 +48,17 @@ export function SeaArrivalResult({
     <Overlay maxWidth={354} contentStyle={styles.content} frameStyle={styles.frame}>
       <View accessibilityViewIsModal testID="sea-arrival-result" style={styles.contentInner}>
         <View style={styles.heading}>
-          <Txt accessibilityRole="header" style={styles.title}>
+          <Txt accessibilityRole="header" style={[styles.title, font]}>
             {result.destinationName}
           </Txt>
-          <Txt style={styles.subtitle}>{t('openSea.arrived')}</Txt>
+          <Txt style={[styles.subtitle, font]}>{t('openSea.arrived')}</Txt>
         </View>
         <View style={styles.time}>
-          <Txt style={styles.label}>{t('openSea.voyageTime')}</Txt>
-          <Txt style={styles.value}>{seaDuration(result.activeSeconds)}</Txt>
+          <Txt style={[styles.label, font]}>{t('openSea.voyageTime')}</Txt>
+          <Txt style={[styles.value, font]}>{seaDuration(result.activeSeconds)}</Txt>
         </View>
         <View style={styles.reward}>
-          {showItem && <Txt style={styles.label}>{t('common.caughtItem')}</Txt>}
+          {showItem && <Txt style={[styles.label, font]}>{t('common.caughtItem')}</Txt>}
           {!!primary && fresh.includes(primary) && (
             <Badge small style={styles.newBadge}>
               {t('common.newBadge')}
@@ -87,29 +91,30 @@ export function SeaArrivalResult({
             )
           )}
           {showItem && (
-            <Txt style={styles.value}>
+            <Txt style={[styles.value, font]}>
               {primary
                 ? name(primary)
                 : t(result.rewardsUnknown ? 'openSea.rewardsUnknown' : 'openSea.noReward')}
             </Txt>
           )}
           {rest.length > 0 && (
-            <Txt style={styles.label}>
+            <Txt style={[styles.label, font]}>
               {t('openSea.additionalRewards', { names: rest.map(name).join(', ') })}
             </Txt>
           )}
           {result.minutesToNextTier != null && (
-            <Txt style={styles.label}>
+            <Txt style={[styles.label, font]}>
               {t('openSea.nextTier', { minutes: result.minutesToNextTier })}
             </Txt>
           )}
         </View>
         {!!error && (
-          <Txt accessibilityRole="alert" style={styles.error}>
+          <Txt accessibilityRole="alert" style={[styles.error, font]}>
             {error}
           </Txt>
         )}
         <Btn
+          font={gowun}
           dynamicHeight
           title={pending ? t('openSea.entering') : t('openSea.explore')}
           disabled={pending}

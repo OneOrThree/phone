@@ -297,18 +297,27 @@ function BlackRaftCat({ id, outfit }: { id: string; outfit: Outfit }) {
     </View>
   );
 }
-// mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄. v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
+// mini = 내 정보의 한 줄 3칸 정사각(그림이 칸을 채우고 이름 글자는 읽는 이름으로만, GROMO-2473), six = 가로 온보딩의 6칸 한 줄.
+// v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
 function AvatarGrid({ value, onChange, mini = false, six = false, disabled = false }: any) {
-  const per = mini || six ? 6 : 3,
-    gap = mini ? 6 : six ? 8 : 10,
-    size = mini ? 11 : six ? 12 : 13,
+  const per = six ? 6 : 3,
+    gap = mini ? 12 : six ? 8 : 10,
+    size = six ? 12 : 13,
     [width, setWidth] = useState(0);
-  // 가로 6칸은 칸이 좁아지면(작은 가로 폰) 그림을 칸 안쪽 폭(여백 2·테두리 2)에 맞춰 줄인다
-  const avatarSize = mini ? 40 : six ? (width ? Math.min(54, (width - gap * 5) / 6 - 8) : 54) : 64;
+  // 가로 6칸은 칸이 좁아지면(작은 가로 폰) 그림을 칸 안쪽 폭(여백 2·테두리 2)에 맞춰 줄이고, 3칸 정사각은 칸 폭(테두리 2) 그대로다
+  const avatarSize = mini
+    ? width
+      ? (width - gap * 2) / 3 - 4
+      : 96
+    : six
+      ? width
+        ? Math.min(54, (width - gap * 5) / 6 - 8)
+        : 54
+      : 64;
   return (
     <View
       style={{ gap }}
-      onLayout={six ? (ev) => setWidth(ev.nativeEvent.layout.width) : undefined}
+      onLayout={mini || six ? (ev) => setWidth(ev.nativeEvent.layout.width) : undefined}
     >
       {[colors.slice(0, per), colors.slice(per)]
         .filter((line) => line.length)
@@ -328,10 +337,10 @@ function AvatarGrid({ value, onChange, mini = false, six = false, disabled = fal
                     flex: 1,
                     alignItems: 'center',
                     gap: 6,
-                    paddingTop: mini || six ? 6 : 10,
-                    paddingBottom: mini ? 4 : six ? 6 : 8,
-                    paddingHorizontal: mini || six ? 2 : 6,
-                    borderRadius: mini ? 12 : 18,
+                    paddingTop: mini ? 0 : six ? 6 : 10,
+                    paddingBottom: mini ? 0 : six ? 6 : 8,
+                    paddingHorizontal: mini ? 0 : six ? 2 : 6,
+                    borderRadius: 18,
                     borderWidth: 2,
                     borderColor: on ? C.brown : 'transparent',
                     backgroundColor: on ? C.soft : C.paper,
@@ -341,18 +350,20 @@ function AvatarGrid({ value, onChange, mini = false, six = false, disabled = fal
                   <Pic
                     id={'avatar/' + c}
                     w={avatarSize}
-                    style={{ borderRadius: mini ? 10 : 16, backgroundColor: C.sky }}
+                    style={{ borderRadius: 16, backgroundColor: C.sky }}
                   />
-                  <Txt
-                    style={{
-                      fontSize: size,
-                      lineHeight: size * 1.45,
-                      fontWeight: on ? '700' : '600',
-                      color: on ? C.ink : C.muted,
-                    }}
-                  >
-                    {colorName(colors.indexOf(c))}
-                  </Txt>
+                  {!mini && (
+                    <Txt
+                      style={{
+                        fontSize: size,
+                        lineHeight: size * 1.45,
+                        fontWeight: on ? '700' : '600',
+                        color: on ? C.ink : C.muted,
+                      }}
+                    >
+                      {colorName(colors.indexOf(c))}
+                    </Txt>
+                  )}
                 </Pressable>
               );
             })}
@@ -4272,16 +4283,7 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet
-          bg="dock"
-          sign="boat/raft"
-          title="친구 관리"
-          tall
-          onBack={back}
-          onClose={home}
-          action={serverMode ? t('account.blocked.title') : undefined}
-          actionPress={serverMode ? () => go('blockedUsers') : undefined}
-        >
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -4367,6 +4369,54 @@ export function RedesignScreens({ e }: any) {
     const mustTransferHost = state.islands.some(
       (candidate) => isHost(candidate) && candidate.members.length > 0,
     );
+    // 「저장」은 시트 머리 글자가 아니라 아래 버튼 줄의 가득 폭 Btn 이다(GROMO-2473). 처리 중에는 입력과 같이 막는다.
+    const saveProfile = () => {
+      const name = profileName;
+      setProfileNameError('');
+      if (!name) {
+        notify(t('account.profile.nicknameRequired'));
+        return;
+      }
+      if (!server) {
+        act('PROFILE', { name, color: profileColor });
+        notify(t('account.profile.saved'));
+        back();
+        return;
+      }
+      const signature = JSON.stringify([name, profileColor]);
+      if (profileSaveIntent.current?.signature !== signature) {
+        profileSaveIntent.current = { signature, key: uuid() };
+      }
+      const intent = profileSaveIntent.current;
+      const errorScope = profileErrorScope.current;
+      const gen = sessionGeneration();
+      run(
+        () =>
+          updateProfile({ name, catColor: profileColor }, intent.key)
+            .then((saved) => {
+              if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
+              act('PROFILE', {
+                name: saved.name ?? name,
+                color: saved.catColor ?? profileColor,
+              });
+              notify(t('account.profile.saved'));
+              back();
+            })
+            .catch((thrown) => {
+              if (thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID') {
+                if (
+                  profileErrorScope.current === errorScope &&
+                  routeNowRef.current === 'profile' &&
+                  sessionGeneration() === gen
+                )
+                  setProfileNameError(thrown.message);
+                return;
+              }
+              throw thrown;
+            }),
+        notify,
+      );
+    };
     return (
       <IslandSheet
         bg="dock"
@@ -4376,55 +4426,7 @@ export function RedesignScreens({ e }: any) {
         tall
         onBack={back}
         onClose={home}
-        action={t('common.save')}
-        actionPress={() => {
-          const name = profileName;
-          setProfileNameError('');
-          if (!name) {
-            notify(t('account.profile.nicknameRequired'));
-            return;
-          }
-          if (!server) {
-            act('PROFILE', { name, color: profileColor });
-            notify(t('account.profile.saved'));
-            back();
-            return;
-          }
-          const signature = JSON.stringify([name, profileColor]);
-          if (profileSaveIntent.current?.signature !== signature) {
-            profileSaveIntent.current = { signature, key: uuid() };
-          }
-          const intent = profileSaveIntent.current;
-          const errorScope = profileErrorScope.current;
-          const gen = sessionGeneration();
-          run(
-            () =>
-              updateProfile({ name, catColor: profileColor }, intent.key)
-                .then((saved) => {
-                  if (profileSaveIntent.current?.key === intent.key)
-                    profileSaveIntent.current = null;
-                  act('PROFILE', {
-                    name: saved.name ?? name,
-                    color: saved.catColor ?? profileColor,
-                  });
-                  notify(t('account.profile.saved'));
-                  back();
-                })
-                .catch((thrown) => {
-                  if (thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID') {
-                    if (
-                      profileErrorScope.current === errorScope &&
-                      routeNowRef.current === 'profile' &&
-                      sessionGeneration() === gen
-                    )
-                      setProfileNameError(thrown.message);
-                    return;
-                  }
-                  throw thrown;
-                }),
-            notify,
-          );
-        }}
+        footer={<Btn title={t('common.save')} onPress={saveProfile} disabled={serverBusy} />}
       >
         <View style={{ alignItems: 'center' }}>
           <Avatar color={profileColor} size={96} />
@@ -4629,6 +4631,15 @@ export function RedesignScreens({ e }: any) {
         </SheetGroup>
         {sec(t('settings.safetySection'))}
         <SheetGroup flat>
+          {/* 차단한 사용자 관리는 친구 관리 머리가 아니라 여기(안전 첫 줄)다(GROMO-2473). 목업에는 차단 API 가 없다 */}
+          {server && (
+            <SheetRow
+              title={t('account.blocked.title')}
+              sub={t('settings.blockedUsersSub')}
+              chevron
+              onPress={() => go('blockedUsers')}
+            />
+          )}
           <SheetRow
             title={t('settings.report.title')}
             sub={t('settings.report.sub')}

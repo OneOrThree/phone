@@ -26,9 +26,11 @@ import {
   timetableRows,
   weekday,
   weekdays,
+  weekRange,
   type DiaryRecord,
   type Period,
 } from './diaryData';
+import { WeekLineChart } from './WeekLineChart';
 
 const D = componentTokens.diary;
 const C = semanticTokens.color;
@@ -54,9 +56,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   useEffect(() => {
     if (!neighbors) setNeighborHeight(null);
   }, [neighbors]);
-  const range = neighbors
-    ? { from: shiftDate(today, -6), to: today }
-    : diaryRange(period, offset, e.now, false);
+  // 이웃 상세의 주 이동(GROMO-2488) — 0 이번 주, 음수는 지난주. 다른 이웃을 열면 이번 주로 돌아간다
+  const [weekOffset, setWeekOffset] = useState(0);
+  useEffect(() => setWeekOffset(0), [memberId]);
+  const range = neighbors ? weekRange(today, weekOffset) : diaryRange(period, offset, e.now, false);
   const srv = useLibraryDiary({
     active: server,
     nb: neighbors,
@@ -65,7 +68,8 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     offset,
     combined: neighbors || period === '월',
     focusSummaryOnly: !neighbors && period === '월',
-    rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
+    // 주간이 월~일이라(GROMO-2488) `/screens/library` 의 이번 주 조각(일~토)은 재사용하지 않고 늘 범위를 준다
+    rangeOverride: range,
     islandKey: island.id,
   });
   // 도서관 새 읽을거리 배지는 이 화면이 실제로 표시한 /screens/library 응답으로만 확인 처리한다.
@@ -477,9 +481,18 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           />
           <T style={styles.profileName}>{resident.name}</T>
         </View>
-        <T style={styles.centerMeta}>
-          최근 7일 · {shortDate(range.from)} – {shortDate(range.to)}
-        </T>
+        <DatePicker
+          label={`${shortDate(range.from)} – ${shortDate(range.to)}`}
+          previous={() => {
+            setWeekOffset((n) => n - 1);
+            resetScroll();
+          }}
+          next={() => {
+            setWeekOffset((n) => Math.min(0, n + 1));
+            resetScroll();
+          }}
+          nextDisabled={weekOffset === 0}
+        />
         <T style={styles.centerMeta}>집중</T>
         <T style={styles.total}>{focus == null ? '—' : hm(focus)}</T>
         <View style={styles.row}>
@@ -487,23 +500,14 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           <Metric label="모은 물고기" value={fish == null ? '—' : `${fish}마리`} />
         </View>
         <View style={styles.divider} />
-        <T style={styles.centerTitle}>날짜별 기록</T>
-        <View style={styles.tableRow}>
-          <T style={styles.dateCell}>날짜</T>
-          <T style={styles.tableCell}>집중</T>
-          <T style={styles.tableCell}>폰 사용</T>
-        </View>
-        {[...days].reverse().map((key) => (
-          <View key={key} style={styles.tableRow}>
-            <T style={styles.dateCell}>
-              {shortDate(key)} {weekday(key)}
-            </T>
-            <T style={[styles.tableCell, styles.bold]}>
-              {focusAvailable ? hm(focusSeries.get(key) ?? 0) : '—'}
-            </T>
-            <T style={styles.tableCell}>{usageAllowed ? usageText(usageSeries.get(key)) : '—'}</T>
-          </View>
-        ))}
+        {/* 날짜별 표 대신 그 주의 월~일 선그래프(GROMO-2488). 집중이 아직 없으면 0 선, 폰 사용은 측정 허용 날만 */}
+        <WeekLineChart
+          days={allDays}
+          today={today}
+          focus={focusAvailable ? focusSeries : new Map()}
+          usage={usageSeries}
+          usageAllowed={!!usageAllowed}
+        />
       </>
     );
   };
@@ -563,7 +567,8 @@ export function Diary({ e, font }: { e: any; font?: string }) {
         ref={scroll}
         testID="diary-scroll"
         style={styles.scroll}
-        showsVerticalScrollIndicator
+        // 이웃 상세는 넘칠 때만 책 안에서 밀고 막대는 숨긴다(GROMO-2488)
+        showsVerticalScrollIndicator={!neighbors}
         contentContainerStyle={[styles.content, neighbors && styles.neighborContent]}
         onContentSizeChange={neighbors ? (_, h) => setNeighborHeight(h) : undefined}
         key={`${neighbors ? 'neighbors' : period}-${state.islandId}`}
@@ -932,7 +937,6 @@ const styles = StyleSheet.create({
   meta: { fontSize: F.caption, color: C.textMuted },
   centerMeta: { fontSize: F.caption, color: C.textMuted, textAlign: 'center' },
   sectionTitle: { fontSize: F.body, fontWeight: F.bold },
-  centerTitle: { fontSize: F.body, fontWeight: F.bold, textAlign: 'center' },
   total: {
     fontSize: F.display,
     fontWeight: F.extraBold,
@@ -985,16 +989,6 @@ const styles = StyleSheet.create({
   residentName: { fontSize: F.label, fontWeight: F.bold, textAlign: 'center' },
   profile: { flexDirection: 'row', alignItems: 'center', gap: S.control },
   profileName: { fontSize: F.heading },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: D.tableRowHeight,
-    paddingHorizontal: S.control / 2,
-    borderBottomWidth: semanticTokens.stroke.subtle,
-    borderBottomColor: C.divider,
-  },
-  dateCell: { flex: 0.7, textAlign: 'center', fontSize: F.caption },
-  tableCell: { flex: 1, textAlign: 'center', fontSize: F.label, fontVariant: ['tabular-nums'] },
   chart: { flexDirection: 'row', gap: S.control / 2, paddingVertical: S.component },
   chartColumn: { flex: 1, alignItems: 'center', gap: S.control / 2 },
   chartLabel: { fontSize: F.caption, color: C.textMuted, textAlign: 'center' },

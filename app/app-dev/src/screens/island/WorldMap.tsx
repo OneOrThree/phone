@@ -119,6 +119,7 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { CatInfoPopup } from './CatInfoPopup';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
@@ -397,6 +398,7 @@ function StandingResident({
   s,
   reduce,
   layered,
+  press,
 }: {
   userId: string;
   name: string;
@@ -406,22 +408,50 @@ function StandingResident({
   s: number;
   reduce: boolean;
   layered: boolean;
+  press?: ResidentPress;
 }) {
+  const box = residentBox(70 * s);
   return (
     <View
       testID={`standing-resident-${userId}`}
-      pointerEvents="none"
+      pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
-        left: at.x * s,
-        top: at.y * s,
+        left: at.x * s + box.left,
+        top: at.y * s + box.top,
+        width: box.hit,
+        height: box.hit,
         // 새 마을 미리보기(layered)만 발 높이로 건물과 앞뒤를 가린다(예전 Wanderer 와 같다).
         zIndex: layered ? Math.round(at.y) : undefined,
       }}
     >
-      <CatSprite color={color} size={70 * s} motion="blink" reduce={reduce} outfit={outfit} />
-      <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      <View style={{ position: 'absolute', left: -box.left, top: -box.top }}>
+        <CatSprite color={color} size={70 * s} motion="blink" reduce={reduce} outfit={outfit} />
+        <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      </View>
+      {press && <ResidentTouch press={press} />}
     </View>
+  );
+}
+// 다른 주민 고양이를 누르면 정보창(GROMO-2474) — 홈 주민은 모두 신원(서버 주민·목업 주민)이 있다(GROMO-2476 이 보충 고양이를 뺐다)
+type ResidentPress = { userId: string; name: string; onPress: () => void };
+// 주민 상자 = 내 고양이(home-cat-container)의 터치 영역과 같은 크기·자리 — 발 기준점 위 몸 가운데에 최소 44pt.
+// 부모가 0×0 이면 안드로이드는 부모 경계 밖 터치를 버려 ResidentTouch 가 안 눌린다. 그래서 부모 자체를 이 상자로
+// 두고 발 기준점에서 (left, top) 만큼 옮기며, 그림·이름표는 상자 안 발 기준점(−left, −top)에 다시 놓는다.
+function residentBox(catSize: number) {
+  const hit = Math.max(semanticTokens.size.tapMin, catSize);
+  return { hit, left: -hit / 2, top: -(catSize / 2 + hit / 2) };
+}
+// 누르는 자리는 부모 상자 전체다
+function ResidentTouch({ press }: { press: ResidentPress }) {
+  return (
+    <Pressable
+      testID={`home-resident-${press.userId}`}
+      accessibilityRole="button"
+      accessibilityLabel={t('catInfo.open', { name: press.name })}
+      onPress={press.onPress}
+      style={StyleSheet.absoluteFill}
+    />
   );
 }
 type RemoteListener = (p: Point, moving: boolean, durationMs: number) => void;
@@ -436,6 +466,7 @@ function RemoteResident({
   reduce,
   subscribe,
   outfit,
+  press,
 }: {
   userId: string;
   name: string;
@@ -445,6 +476,7 @@ function RemoteResident({
   s: number;
   reduce: boolean;
   subscribe: (userId: string, listener: RemoteListener) => () => void;
+  press?: ResidentPress;
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
@@ -468,29 +500,36 @@ function RemoteResident({
       xy.stopAnimation();
     };
   }, [userId, subscribe, reduce, xy]);
+  const box = residentBox(70 * s);
   return (
     <Animated.View
       testID={`remote-resident-${userId}`}
-      pointerEvents="none"
+      pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
-        left: 0,
-        top: 0,
+        // 내 고양이처럼 발 기준점 맞춤은 고정 left/top, 이동은 transform(residentBox 주석)
+        left: box.left,
+        top: box.top,
+        width: box.hit,
+        height: box.hit,
         transform: [
           { translateX: Animated.multiply(xy.x, s) },
           { translateY: Animated.multiply(xy.y, s) },
         ],
       }}
     >
-      <CatSprite
-        color={color}
-        size={70 * s}
-        motion={walking ? 'walking' : 'blink'}
-        left={left}
-        reduce={reduce}
-        outfit={outfit}
-      />
-      <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      <View style={{ position: 'absolute', left: -box.left, top: -box.top }}>
+        <CatSprite
+          color={color}
+          size={70 * s}
+          motion={walking ? 'walking' : 'blink'}
+          left={left}
+          reduce={reduce}
+          outfit={outfit}
+        />
+        <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      </View>
+      {press && <ResidentTouch press={press} />}
     </Animated.View>
   );
 }
@@ -1578,6 +1617,27 @@ function FinalIslandScene({
     }
   };
   const scaleRef = useRef(1);
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다
+  const [catInfo, setCatInfo] = useState<{
+    userId: string;
+    name: string;
+    color: Color;
+    outfit?: Outfit;
+  } | null>(null);
+  const residentPress = (
+    userId: string,
+    name: string | null,
+    color: Color,
+    outfit?: Outfit,
+  ): ResidentPress | undefined => {
+    if (!showActions) return undefined;
+    const label = name ?? t('focusFlow.common.resident');
+    return {
+      userId,
+      name: label,
+      onPress: () => setCatInfo({ userId, name: label, color, outfit }),
+    };
+  };
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -2401,6 +2461,7 @@ function FinalIslandScene({
               name={m.name ?? t('focusFlow.common.resident')}
               color={m.color}
               outfit={m.outfit}
+              press={residentPress(m.id, m.name, m.color, m.outfit)}
               start={worldToImage(synced, sizeOf(grid))}
               s={s}
               reduce={state.settings.reduceMotion}
@@ -2413,6 +2474,7 @@ function FinalIslandScene({
               name={m.name ?? t('focusFlow.common.resident')}
               color={m.color}
               outfit={m.outfit}
+              press={residentPress(m.id, m.name, m.color, m.outfit)}
               at={m.spot}
               s={s}
               reduce={state.settings.reduceMotion}
@@ -2538,13 +2600,38 @@ function FinalIslandScene({
     <TutorialScene
       style={{ flex: 1 }}
       onSkip={focusTutorial?.onSkip}
+      // 주민 정보창(GROMO-2474)도 장면 밖 층에 띄우고, 떠 있는 동안 뒤 장면을 스크린리더에서 숨긴다(안드로이드 포함)
+      isolateAccessibility={!focusTutorial && !!catInfo}
       overlay={
-        focusTutorial && (
+        focusTutorial ? (
           <TutorialSpotlight
             target={focusTarget.rect}
             text={focusTutorial.text}
             action={{ title: t('focus.start'), onPress: departFocus }}
           />
+        ) : (
+          catInfo && (
+            <CatInfoPopup
+              key={catInfo.userId}
+              userId={catInfo.userId}
+              name={catInfo.name}
+              catColor={catInfo.color}
+              art={
+                // 홈 고양이와 같은 idle 그림(움직임 없이)
+                <View style={{ width: CAT_INFO, height: CAT_INFO }}>
+                  <CatSprite
+                    color={catInfo.color}
+                    size={CAT_INFO}
+                    motion="idle"
+                    reduce
+                    anchored={false}
+                    outfit={catInfo.outfit}
+                  />
+                </View>
+              }
+              onClose={() => setCatInfo(null)}
+            />
+          )
         )
       }
     >
@@ -2825,6 +2912,7 @@ function FinalIslandScene({
     </TutorialScene>
   );
 }
+const CAT_INFO = componentTokens.catInfoPopup.catSize;
 
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';

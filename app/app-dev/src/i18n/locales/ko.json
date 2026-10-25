@@ -524,6 +524,7 @@
     },
     "door": {
       "mailNewLetter": "우체통, 친구에게 받은 새 편지가 있어요",
+      "inboxNewLetters": "받은 편지 열기, 새 편지 {{count}}통",
       "mailNewMagazine": "우체통, 새 고양이 잡지가 왔어요",
       "newComment": "{{label}}, 새 댓글이 있어요",
       "unreadNotice": "{{label}}, 읽지 않은 새 소식이 있어요",
@@ -1156,11 +1157,17 @@
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
     "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요.",
-    "focusTime": "집중 시간",
-    "requestFriend": "친구 요청",
-    "friendRequested": "친구 요청 보냄",
-    "friendExists": "이미 친구이거나 보낸 요청이 있어요.",
-    "friendUnavailable": "친구 요청을 보낼 수 없는 상대예요."
+    "focusTime": "집중 시간"
+  },
+  "catInfo": {
+    "open": "{{name}} 정보 보기",
+    "todayFocus": "오늘 집중 {{duration}}",
+    "request": "친구 요청",
+    "accept": "친구 요청 수락",
+    "requested": "요청 중",
+    "processing": "처리 중…",
+    "friends": "친구",
+    "failed": "요청을 보내지 못했어요. 다시 눌러 시도해 주세요."
   },
   "safety": {
     "blockTitle": "차단하기",

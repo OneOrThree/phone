@@ -40,6 +40,7 @@ import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -63,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -104,6 +106,7 @@ public class IslandRecordsService {
     private static final Comparator<UUID> UUID_ORDER = Comparator.comparing(UUID::toString);
 
     private final UserQueryService users;
+    private final UserBlockService userBlocks;
     private final GroupQueryService groups;
     private final GroupMemberRepository members;
     private final IslandFacilityQueryService facilities;
@@ -186,7 +189,7 @@ public class IslandRecordsService {
             if (snapshotId != null) {
                 throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
             }
-            return new FocusRead(islandFocus(island, from, to, start, end, zone), null);
+            return new FocusRead(islandFocus(userId, island, from, to, start, end, zone), null);
         }
         requireMe(scope);
         if (snapshotId != null) {
@@ -214,10 +217,10 @@ public class IslandRecordsService {
         return new FocusRead(null, snapshot);
     }
 
-    private FocusStatistics islandFocus(Group island, LocalDate from, LocalDate to, Instant start, Instant end,
-                                        ZoneId zone) {
+    private FocusStatistics islandFocus(UUID userId, Group island, LocalDate from, LocalDate to, Instant start,
+                                        Instant end, ZoneId zone) {
         Instant asOf = clock.instant();
-        List<User> residents = residents(island);
+        List<User> residents = residents(island, userId);
         Map<UUID, TreeMap<LocalDate, Long>> byUser = new LinkedHashMap<>();
         for (Contribution contribution : contributions(details.findOverlappingOnIsland(island.getId(),
                 residents.stream().map(User::getId).toList(), COUNTED, start, end), from, to, asOf, zone)) {
@@ -311,7 +314,7 @@ public class IslandRecordsService {
         Group island = requireLibraryResident(userId, islandId);
         LocalDate today = LocalDate.ofInstant(clock.instant(), zone);
         if (SCOPE_ISLAND.equals(scope)) {
-            List<User> residents = residents(island);
+            List<User> residents = residents(island, userId);
             Map<UUID, List<ScreenTimeObservation>> byUser = observations
                     .findByUserIdInAndMeasuredDateBetweenAndTimezone(
                             residents.stream().map(User::getId).toList(), from, to, timezone).stream()
@@ -482,11 +485,16 @@ public class IslandRecordsService {
         return island;
     }
 
-    /** 현재 활성 주민 — 탈퇴 계정은 빼고 userId 오름차순. 떠난 주민·과거 주민은 싣지 않는다. */
-    private List<User> residents(Group island) {
+    /**
+     * 현재 활성 주민 — 탈퇴 계정은 빼고 userId 오름차순. 떠난 주민·과거 주민은 싣지 않는다. 요청자와 차단 관계(어느
+     * 방향이든)인 주민도 뺀다(GROMO-2469, RP-차단) — 이웃 일기장에 서로의 기록이 보이지 않게. «누구를 보여 주는가»의
+     * 문제라 그 주민의 집중·측정 자체는 바뀌지 않고, 해제하면 다음 조회부터 다시 보인다.
+     */
+    private List<User> residents(Group island, UUID viewerId) {
+        Set<UUID> hidden = userBlocks.blockedEitherIds(viewerId);
         return members.findByGroup(island).stream()
                 .map(member -> member.getUser())
-                .filter(user -> !user.isDeleted())
+                .filter(user -> !user.isDeleted() && !hidden.contains(user.getId()))
                 .sorted(Comparator.comparing(User::getId, UUID_ORDER))
                 .toList();
     }

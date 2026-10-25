@@ -39,7 +39,16 @@ export function HudAvatarButton({
 }
 
 /** 오른쪽 위 친구(받은 요청 수 배지)·설정 둥근 버튼. 홈과 바다 표류가 같이 쓴다. */
-export function HudActions({ requests, go }: { requests: number; go: (route: Route) => void }) {
+export function HudActions({
+  requests,
+  go,
+  // 그림 장면 위 화면(먼바다)이 받은 요청 수 배지도 고운돋움으로 맞출 때만 넘기는 글꼴 이름(GROMO-2334)
+  font,
+}: {
+  requests: number;
+  go: (route: Route) => void;
+  font?: string;
+}) {
   return (
     <View style={styles.actions}>
       <Pressable
@@ -53,7 +62,9 @@ export function HudActions({ requests, go }: { requests: number; go: (route: Rou
         <RowIcon name="group" />
         {requests > 0 && (
           <View style={styles.badge} pointerEvents="none" accessible={false}>
-            <Txt style={styles.badgeText}>{requests > 99 ? '99+' : requests}</Txt>
+            <Txt style={[styles.badgeText, font ? { fontFamily: font } : null]}>
+              {requests > 99 ? '99+' : requests}
+            </Txt>
           </View>
         )}
       </Pressable>

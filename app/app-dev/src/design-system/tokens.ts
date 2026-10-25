@@ -207,6 +207,15 @@ export const componentTokens = {
     cardRaftSize: 192,
     cardMaxWidth: 354,
   },
+  // 다른 고양이 정보창(GROMO-2474) — 홈·집중섬·휴식 고양이 그림, 바다 뗏목 그림, 바다 한마디 말풍선
+  catInfoPopup: {
+    catSize: 112,
+    raftSize: 160,
+    bubbleMaxWidth: 240,
+    tailWidth: space[3],
+    tailHeight: space[2],
+    gap: space[2],
+  },
   homeNavigation: {
     background: `${color.paper}AD`,
     border: `${color.brown}33`,
@@ -404,12 +413,17 @@ export const componentTokens = {
     innerStroke: primitiveTokens.stroke.subtle,
     frameGap: 2,
     radius: 3,
+    // 오른쪽 여백(건물 목록 아래 여백 겸용)
     inset: space[1],
+    // 바닥에 붙으면 너무 내려가 보여 조금 띄운다(2026-10-26 오스카) — 12 면 이름이 두 줄로 접힐 때 닿아 8
+    bottomInset: space[2],
     labelInset: space[1],
     fontSize: primitiveTokens.fontSize.xs,
     lineHeight: 18,
     letterSpacing: 1,
-    rotation: '-8deg',
+    rotation: '-14deg',
+    // 글 위에 겹쳐 찍으므로 밑 글이 비쳐 읽히게 — 잉크 도장의 반투명 느낌(2026-10-26)
+    opacity: 0.85,
   },
   tileFacility: {
     outline: color.cream,
@@ -440,6 +454,11 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     topOffset: -11,
     rightOffset: 21,
+  },
+  // 우체통 안 「받은 편지」 칸 오른쪽 위 모서리에 걸치는 새 편지 배지 자리(GROMO-2489)
+  mailInboxNewBadge: {
+    topOffset: -6,
+    rightOffset: -6,
   },
   villageBuildingThemeTint: {
     color: '#d7829b',

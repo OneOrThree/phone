@@ -89,15 +89,16 @@ public class InternalIslandMailboxService {
      * 이름을 준다: 현재 주민 목록에 없다고 삭제된 계정이라고 추정하지 않는다(LLD §2). 요청 순서를
      * 유지하고 중복 id 는 한 번만 답한다.
      *
-     * <p><b>요청자가 차단한 사람은 {@code hiddenUserIds} 로 따로 답한다</b>(GROMO-2181, character-report policy
+     * <p><b>요청자와 차단 관계인 사람은 {@code hiddenUserIds} 로 따로 답한다</b>(GROMO-2181, character-report policy
      * RP-차단) — 메시지 정본이 {@code gromo_chat} 이라 Data 가 쿼리로 뺄 수 없으므로, 판정만 여기서 하고 Business 가
-     * 그 사람의 메시지를 목록에서 뺀다. 방향 고정(요청자 → 작성자)이고 이름은 싣지 않는다.
+     * 그 사람의 메시지를 목록에서 뺀다. 어느 방향이든(요청자가 차단했든, 요청자를 차단했든) 숨긴다(GROMO-2469 — 2181 은
+     * 요청자가 차단한 쪽만 뺐다). 이름은 싣지 않는다.
      */
     @Transactional(readOnly = true)
     public MessageAuthorsResponse authors(UUID islandId, UUID userId, List<UUID> authorIds) {
         requireResident(islandId, userId);
         LinkedHashSet<UUID> distinct = new LinkedHashSet<>(authorIds);
-        Set<UUID> blocked = userBlocks.blockedIds(userId);
+        Set<UUID> blocked = userBlocks.blockedEitherIds(userId);
         List<UUID> hidden = distinct.stream().filter(blocked::contains).toList();
         distinct.removeAll(blocked);
         Map<UUID, User> found = userRepository.findAllById(distinct).stream()
