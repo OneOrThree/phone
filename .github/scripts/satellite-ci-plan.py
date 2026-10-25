@@ -2,6 +2,7 @@
 """PR 변경 입력으로 위성 전체 검사·이미지를 선택한다. 계약 검사는 별도로 유지한다."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 
@@ -53,6 +54,8 @@ def plan(paths):
     if not paths:
         return {service: True for service in SERVICES}
     for path in paths:
+        if path.endswith(('.md', '.mdx', '.rst', '.txt')):
+            continue
         if path.startswith('server/data-api/'):
             # 실제 Noti bootJar를 이용한 체크섬·공개 명령 계약은 workflow가 계속 검사한다.
             continue
@@ -71,11 +74,17 @@ def plan(paths):
 
 
 def changed_paths(event):
-    pr = event['pull_request']
+    if 'pull_request' in event:
+        pr = event['pull_request']
+        base, head, separator = pr['base']['sha'], pr['head']['sha'], '...'
+    else:
+        base, head, separator = event['before'], event['after'], '..'
+    if any(not re.fullmatch('[0-9a-f]{40}', sha) or sha == '0' * 40 for sha in (base, head)):
+        raise ValueError('변경 범위 SHA 오류')
     # API 파일 목록의 상한 없이 rename 전후·삭제 경로까지 검사한다.
     result = subprocess.check_output([
         'git', 'diff', '--no-renames', '--name-only', '-z',
-        f"{pr['base']['sha']}...{pr['head']['sha']}", '--',
+        base + separator + head, '--',
     ])
     return [p for p in result.decode().split('\0') if p]
 
@@ -84,11 +93,12 @@ def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     selected = {service: True for service in SERVICES}
     reason = 'main/release는 최종 SHA의 두 이미지를 모두 검증·발행한다'
-    if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
+    if (os.environ['GITHUB_EVENT_NAME'] == 'pull_request' or
+            (os.environ['GITHUB_EVENT_NAME'] == 'push' and os.environ.get('GITHUB_REF') == 'refs/heads/main')):
         try:
             paths = changed_paths(event)
             selected = plan(paths)
-            reason = f'PR 변경 경로 {len(paths)}개를 검사했다'
+            reason = f'변경 경로 {len(paths)}개로 필요한 위성만 선택했다'
         except (KeyError, ValueError, UnicodeError, subprocess.CalledProcessError) as error:
             reason = f'변경 범위 판정 실패: 전체 검사 ({type(error).__name__})'
     result = {'services': selected, 'reason': reason}

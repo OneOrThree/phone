@@ -74,7 +74,19 @@ class SatelliteCiPlanTest(unittest.TestCase):
     def test_서비스_안의_같은_이름_파일은_그_서비스를_켠다(self):
         """루트 예외가 서비스 안까지 번지면 그 서비스 빌드가 통째로 빠진다."""
         self.assert_plan(['server/business-api/.gitignore'], True, False)
-        self.assert_plan(['server/notification/README.md'], False, True)
+        self.assert_plan(['server/notification/README.md'], False, False)
+
+    def test_조사에서_발견한_문서와_smoke_변경은_이미지를_만들지_않는다(self):
+        self.assert_plan(['docs/architecture/system-architecture.md', 'server/realtime/CLAUDE.md'], False, False)
+        self.assert_plan(['server/business-api/README.md', 'server/notification/README.md'], False, False)
+        self.assert_plan(['.github/scripts/dev-image-retention.py', '.github/workflows/ops-smoke.dev.yml'], False, False)
+
+    def test_push는_여러_커밋의_before_after_전체를_검사한다(self):
+        from unittest.mock import patch
+        event = {'before': '1' * 40, 'after': '2' * 40}
+        with patch.object(plan_module.subprocess, 'check_output', return_value=b'server/notification/src/Main.java\0') as git:
+            self.assertEqual(plan_module.changed_paths(event), ['server/notification/src/Main.java'])
+        self.assertIn('1' * 40 + '..' + '2' * 40, git.call_args.args[0])
 
     def test_분류하지_않은_경로는_안전한_쪽으로_간다(self):
         self.assert_plan(['server/scripts/docker-compose.dev.yml'], True, True)
