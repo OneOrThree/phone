@@ -229,20 +229,7 @@ export function IslandSheet({
           box,
         ]}
       >
-        {!panel && !L.tablet && (
-          <View
-            style={{
-              position: 'absolute',
-              top: 9,
-              left: '50%',
-              width: 44,
-              height: 5,
-              marginLeft: -22,
-              borderRadius: 3,
-              backgroundColor: '#D9C6B8',
-            }}
-          />
-        )}
+        {/* 시트 위 손잡이 막대는 두지 않는다(GROMO-2473) — 끌어 닫는 동작이 없어 눌리는 것처럼만 보였다 */}
         <View
           style={{
             position: 'absolute',
