@@ -10,6 +10,7 @@ import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, getLocale, t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -3276,7 +3277,7 @@ function FocusFlow({ e: environment }: any) {
                     size={size}
                     sizeY={sizeY}
                     color={s.color}
-                    name={t('focusFlow.common.me')}
+                    name={ownCatName(s.name)}
                     me
                     subject={shown.has('me') ? mySubject : null}
                     seconds={
@@ -3329,6 +3330,7 @@ function FocusFlow({ e: environment }: any) {
                     left={walker.left}
                     reduce={reduce}
                     outfit={myOutfit}
+                    name={ownCatName(s.name)}
                   />
                 )}
               </>

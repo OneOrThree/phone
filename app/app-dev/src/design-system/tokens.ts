@@ -483,6 +483,8 @@ export const componentTokens = {
     wakeRadius: semanticTokens.radius.full,
     ripple: color.sailingRipple,
   },
+  // 고양이 이름표(GROMO-2475) — 모든 화면 공통. 내 이름표만 me. 피그마 확정 전 임시값
+  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#B83D63', shadow: '#FFFDFA' },
   fishingScene: {
     splashDrop: color.fishingSplash,
     splashRing: color.fishingSplashRing,

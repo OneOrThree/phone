@@ -1,5 +1,6 @@
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import React, { useState, useMemo, useRef, useContext } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
@@ -231,7 +232,7 @@ export function RestGroup({
             seat: 1,
             me: true,
             id: getSession()?.userId ?? 'me',
-            name: t('focusFlow.common.me'),
+            name: ownCatName(state.name),
             color: state.color,
             outfit: outfitOf(state),
             restStartedAt: started,

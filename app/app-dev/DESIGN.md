@@ -549,7 +549,7 @@ Semantic spacing:
 - 같은 섬에서 집중 중인 주민에게 이모트로 응원을 보내는 둥근 버튼이다. 주민의 집중 화면(하단 바 왼쪽)에만 둔다. 낚시 구경 화면(방문자)에는 두지 않는다 — 방문자는 응원을 보내지도, 주민의 이모트를 보지도 않는다(2026-10-16 계획 변경).
 - 코드는 `screens/island/CurrentScreens.tsx`의 `EmoteFab`이다. 화면마다 복제하지 않는다.
 - 버튼은 지름 52의 Butter 원이고 2px 선과 `0 4px 0` 스티커 그림자를 두르며 안에 이모트 아이콘을 둔다. 펼침은 버튼 위에 가로로 5종(인사·응원·졸림·웃음·하트뿅뿅)을 늘어놓고, 각각 지름 46의 Paper 원에 같은 선과 그림자를 두르며 간격은 6이다. 두 크기 모두 터치 영역이 44 이상이다.
-- 선·그림자 색은 집중 화면 외곽선 상수 `OUTLINE`(`screens/focus/FishingIsland.tsx`)이다. 토큰 Brown 과 같은 값이지만 토큰을 참조하지는 않는다(§13). 치수 52·46, 간격 6, 선 2px 도 토큰 없이 `EmoteFab` 안에 둔 코드 상수다(선 2px 는 Strong stroke 와 같은 값).
+- 선·그림자 색은 집중 화면 외곽선 상수 `OUTLINE`(`screens/focus/FishingIsland.tsx`)이다. 값은 `componentTokens.nameplate.outline`을 참조한다(토큰 Brown 과 같은 값, §13). 치수 52·46, 간격 6, 선 2px 도 토큰 없이 `EmoteFab` 안에 둔 코드 상수다(선 2px 는 Strong stroke 와 같은 값).
 
 | 상태                            | 외형                                           | 동작·접근성                                                                                        |
 | ------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -558,6 +558,13 @@ Semantic spacing:
 | 비활성(지원만 — 쓰는 화면 없음) | 기본 모양, `disabledOpacity` 0.45, 그림자 없음 | `accessibilityState.disabled`와 이유 `accessibilityHint`. 누르면 펼치지 않고 요청 없이 안내 토스트 |
 
 - 방문자 모드는 쓰지 않는다: 비주민 방문자의 낚시 구경 화면은 `visitor` 없이 presence 만 열어 emotes 채널을 구독하지 않는다. 서버의 방문자 응원 경로(GROMO-2258)와 받은 주민 화면의 「방문자가 응원했어요」 토스트 처리는 계약 호환으로 남겨 두되 앱 화면에서는 보낼 길이 없다. 표의 「비활성」 상태는 `EmoteFab` 의 `disabled` 가 지원하는 모양이며 지금 쓰는 화면은 없다.
+
+#### 고양이 이름표 (GROMO-2475)
+
+- 모든 화면(홈 섬·집중섬·모닥불·먼바다)의 고양이 아래에는 닉네임을 쓴다. 내 이름표도 「나」가 아니라 내 닉네임이고, 닉네임이 비어 있을 때만 「나」/「Me」(`ownCatName`, `i18n/format.ts`)로 대신한다. 다른 주민은 멤버 이름, 없으면 「주민」/「Resident」다.
+- 색은 `componentTokens.nameplate`: 글자 `ink` `#493B39`, 윤곽 `outline` `#8B6956`, 글자 번짐 `shadow` `#FFFDFA`, 내 이름표 강조 `me` `#B83D63`. 내 이름표만 `me`를 쓴다.
+- 글꼴은 `FishingIsland`의 `nameText` 규격(11 / 17.6 / 900, 번짐 반경 5)이다. 발 기준점 아래에 가운데 정렬로 둔다.
+- 피그마 확정 전 임시 값이다. 확정되면 토큰 값만 바꾼다.
 
 ### 8.4 퀘스트
 
@@ -890,7 +897,7 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 - Small 버튼의 시각 높이는 38px이다. 접근성 최소 터치 영역 44pt를 만족하도록 hit area 보완이 필요하다.
 - `components.json`은 13번까지만 등록되어 있지만 실제 폴더에는 14번 마을회관과 15번 화면 세부가 있다. 자동 인덱스를 갱신할 때 두 항목을 포함해야 한다.
 - `components/08-rank-residents/README.md` 제목이 “전망대”로 남아 있다. 폴더 역할은 주민·프로필 목록이며 제목은 오래된 생성 흔적이다.
-- 집중 화면의 `OUTLINE`(`screens/focus/FishingIsland.tsx`)은 토큰 Brown 값을 복제한 상수라 토큰이 바뀌어도 따라가지 않는다. 같은 이름의 `OUTLINE`(`screens/interiors/BuildingInteriors.tsx`, `#7d5f4d`)은 Brown 과 다른 값이므로 둘을 섞어 쓰지 않고, 새 화면은 토큰 `semanticTokens.color.outline`을 참조한다.
+- 집중 화면의 `OUTLINE`(`screens/focus/FishingIsland.tsx`)은 `componentTokens.nameplate.outline`을 참조하지만, 그 값이 토큰 Brown 과 같은 값의 복제라 Brown 이 바뀌어도 따라가지 않는다. 같은 이름의 `OUTLINE`(`screens/interiors/BuildingInteriors.tsx`, `#7d5f4d`)은 Brown 과 다른 값이므로 둘을 섞어 쓰지 않고, 새 화면은 토큰 `semanticTokens.color.outline`을 참조한다.
 
 ## 14. 완료 체크리스트
 

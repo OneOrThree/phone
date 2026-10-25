@@ -12,6 +12,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import {
@@ -33,7 +34,8 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
-import { formatDuration } from '@/i18n/format';
+import { formatDuration, ownCatName } from '@/i18n/format';
+import { nameText } from '@/screens/focus/FishingIsland';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
@@ -361,9 +363,34 @@ function moveCat(
   }
   Animated.timing(xy, { toValue, duration, easing, ...NATIVE }).start(done);
 }
+// 홈 섬 고양이 이름표(GROMO-2475) — 발 기준점 아래, 낚시섬 FishingWalker 와 같은 규격. 가장자리 보정(keepLabelInView)은 움직이는 래퍼 안이라 생략.
+function CatNameplate({
+  name,
+  size,
+  me,
+  testID,
+}: {
+  name: string;
+  size: number;
+  me?: boolean;
+  testID: string;
+}) {
+  return (
+    <View
+      testID={testID}
+      pointerEvents="none"
+      style={{ position: 'absolute', top: size * (0.98 - 0.90625), left: -100, width: 200 }}
+    >
+      <Text numberOfLines={1} style={[nameText(!!me), { textAlign: 'center' }]}>
+        {name}
+      </Text>
+    </View>
+  );
+}
 // 동기화 위치가 없는 주민(GROMO-2476): 고정 자리에 서 있기만 한다 — 이동·타이머 없음(눈 깜빡임은 CatSprite 몫).
 function StandingResident({
   userId,
+  name,
   color,
   outfit,
   at,
@@ -372,6 +399,7 @@ function StandingResident({
   layered,
 }: {
   userId: string;
+  name: string;
   color: Color;
   outfit?: Outfit;
   at: Point;
@@ -392,6 +420,7 @@ function StandingResident({
       }}
     >
       <CatSprite color={color} size={70 * s} motion="blink" reduce={reduce} outfit={outfit} />
+      <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
     </View>
   );
 }
@@ -400,6 +429,7 @@ type RemoteListener = (p: Point, moving: boolean, durationMs: number) => void;
 // 위치는 React state 가 아니라 Animated 값으로만 옮긴다(20Hz setState 금지) — 자세·방향만 바뀔 때 state.
 function RemoteResident({
   userId,
+  name,
   color,
   start,
   s,
@@ -408,6 +438,7 @@ function RemoteResident({
   outfit,
 }: {
   userId: string;
+  name: string;
   color: Color;
   outfit?: Outfit;
   start: Point;
@@ -459,6 +490,7 @@ function RemoteResident({
         reduce={reduce}
         outfit={outfit}
       />
+      <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
     </Animated.View>
   );
 }
@@ -2099,7 +2131,7 @@ function FinalIslandScene({
 
   // 홈 섬 다른 주민(GROMO-2476) — 서버 홈은 facts.members, 목업 섬은 i.members 순서 그대로. 털색을 고른 주민만
   // (catColor null 은 임의 색으로 채우지 않는다). 동기화 위치가 있으면 RemoteResident, 없으면 이 순서의 고정 자리(spot)다.
-  // name 은 이름표(GROMO-2475)가 쓸 자리다.
+  // name 은 홈 섬 이름표(GROMO-2475)에 쓴다.
   const residents = useMemo(() => {
     const myId = getSession()?.userId;
     const others = facts
@@ -2338,6 +2370,7 @@ function FinalIslandScene({
             <RemoteResident
               key={m.id}
               userId={m.id}
+              name={m.name ?? t('focusFlow.common.resident')}
               color={m.color}
               outfit={m.outfit}
               start={worldToImage(synced, sizeOf(grid))}
@@ -2349,6 +2382,7 @@ function FinalIslandScene({
             <StandingResident
               key={m.id}
               userId={m.id}
+              name={m.name ?? t('focusFlow.common.resident')}
               color={m.color}
               outfit={m.outfit}
               at={m.spot}
@@ -2377,7 +2411,7 @@ function FinalIslandScene({
               zIndex: scene ? Math.round(pos.y) : 25,
             }}
           >
-            {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
+            {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 건물 이름표 없음 */}
             <Pressable
               testID="home-cat-actor"
               accessibilityRole="button"
@@ -2407,6 +2441,12 @@ function FinalIslandScene({
                   onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
                   generation={motionGen}
                   outfit={outfitOf(state)}
+                />
+                <CatNameplate
+                  testID="home-cat-name"
+                  name={ownCatName(state.name)}
+                  size={catSize}
+                  me
                 />
               </View>
             </Pressable>

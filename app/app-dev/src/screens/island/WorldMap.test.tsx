@@ -119,6 +119,20 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 });
 
+test('내 고양이 이름표는 닉네임이고 닉네임이 비면 「나」/「Me」다 (GROMO-2475)', async () => {
+  const state = initialState(true);
+  state.name = '  하늘  ';
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('하늘')).toBeTruthy();
+  state.name = '';
+  await screen.rerender(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('나')).toBeTruthy();
+  await applyLocalePref('en');
+  await screen.rerender(<FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('Me')).toBeTruthy();
+  await applyLocalePref('ko');
+});
+
 test('일반 이미지 섬의 새 편지 터치 영역은 펠리컨 전체를 포함하고 팻말 위치는 유지한다', async () => {
   const state = initialState();
   state.islands.find((island) => island.id === state.islandId)!.buildings = ['mail'];

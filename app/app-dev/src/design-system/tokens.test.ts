@@ -66,6 +66,15 @@ describe('design system tokens', () => {
     expect(componentTokens.raftDestinations.largeTextThreshold).toBe(1.2);
   });
 
+  it('고양이 이름표 색은 한 곳이다(GROMO-2475)', () => {
+    expect(componentTokens.nameplate).toEqual({
+      ink: '#493B39',
+      outline: '#8B6956',
+      me: '#B83D63',
+      shadow: '#FFFDFA',
+    });
+  });
+
   it('placeholder는 surface 위 대비 4.5:1 이상의 textMuted를 쓴다', () => {
     expect(componentTokens.input.placeholder).toBe(semanticTokens.color.textMuted);
     expect(

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { t } from '@/i18n';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import { fishingPeerCatchVisible, LANDING, PEER_SPOTS } from '@/screens/focus/FishingIsland';
@@ -40,7 +41,7 @@ const actorKey = (userId: string, sessionId: string) => `${userId}:${sessionId}`
 const fromLive = (member: LiveFocusMember, seconds: number): FishingPeer => ({
   userId: member.userId,
   sessionId: member.sessionId,
-  name: member.name ?? '주민',
+  name: member.name ?? t('focusFlow.common.resident'),
   color: (['black', 'ginger', 'cream', 'gray', 'white', 'calico'].includes(member.catColor ?? '')
     ? member.catColor
     : 'gray') as Color,
