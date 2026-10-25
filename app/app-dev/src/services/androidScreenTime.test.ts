@@ -72,6 +72,7 @@ afterEach(() => {
 
 test('차단 미지원 바이너리는 서버 조회·집중 차단을 생략하고 사용량 보고를 유지한다', async () => {
   const { mod, native, currentFocusSession, report, measurement } = setup();
+  require('react-native').Platform.OS = 'android';
   native.supportsFocusShield = false;
   await expect(
     mod.syncAndroidFocus({ id: 's', version: 1, status: 'active' } as Session, 'black', true),

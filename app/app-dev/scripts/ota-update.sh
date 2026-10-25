@@ -53,10 +53,12 @@ if ! node -e "const g=require('./src/config/googleClientIds.json').prod; process
   exit 1
 fi
 
-RUNTIME="$(node -p "require('./app.config.js').expo.runtimeVersion")"
+# 플랫폼별 runtimeVersion 이 있으면 eas update 가 그 값으로 발행한다(GROMO-2415 — Android 만 분리).
+IOS_RUNTIME="$(node -p "const e=require('./app.config.js').expo; e.ios?.runtimeVersion ?? e.runtimeVersion")"
+ANDROID_RUNTIME="$(node -p "const e=require('./app.config.js').expo; e.android?.runtimeVersion ?? e.runtimeVersion")"
 COMMIT="$(git rev-parse --short HEAD)"
-echo "채널 production · 런타임 ${RUNTIME} · $(git rev-parse --abbrev-ref HEAD)@${COMMIT} · iOS·안드로이드"
-echo "런타임 ${RUNTIME} 운영 앱이 다음 실행부터 이 코드로 바뀝니다."
+echo "채널 production · iOS 런타임 ${IOS_RUNTIME} · Android 런타임 ${ANDROID_RUNTIME} · $(git rev-parse --abbrev-ref HEAD)@${COMMIT}"
+echo "iOS 런타임 ${IOS_RUNTIME} · Android 런타임 ${ANDROID_RUNTIME} 운영 앱이 다음 실행부터 이 코드로 바뀝니다."
 read -r -p "발행할까요? (y/N) " answer
 if [[ "$answer" != "y" ]]; then
   echo "취소했어요."
