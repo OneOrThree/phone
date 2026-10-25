@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { getBlockedUsers } from '@/services/api/safety';
+import * as sessionModule from '@/services/api/session';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   closeLetter,
@@ -499,6 +500,8 @@ test('시스템 편지 — 로드 때 kind=system 을 함께 읽어 systemLetter
 
   const hook = await mount();
 
+  // 시스템 편지는 묶음 뒤에 따로 반영된다 — 기다렸다 본다.
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
   const s = hook.result.current;
   assert.deepEqual(
     s.systemLetters.map((l) => l.id),
@@ -530,6 +533,7 @@ test('시스템 편지 — 열면 시스템 목록의 isRead 만 맞추고 친�
   listSystemMock.mockResolvedValue(slice([systemItem()]));
   getLetterMock.mockResolvedValue(letterView({ id: 'sys-1', senderId: null, receiverId: 'u1' }));
   const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
 
   await act(async () => {
     await hook.result.current.openLetter('sys-1');
@@ -545,17 +549,23 @@ test('시스템 편지 — 닫으면 시스템 목록도 재조회하고 친구 
   closeLetterMock.mockResolvedValue(undefined);
   listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
   const hook = await mount();
-  assert.equal(hook.result.current.systemLetters.length, 1);
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
   listLettersMock.mockResolvedValue(slice([]));
-  listSystemMock.mockResolvedValueOnce(slice([]));
+  // 재조회가 서버 정본이다 — 닫은 편지는 없고 새로 온 편지가 있다.
+  listSystemMock.mockResolvedValueOnce(slice([systemItem({ id: 'sys-2' })]));
 
   await act(async () => {
     await hook.result.current.close('sys-1');
   });
 
-  assert.equal(listSystemMock.mock.calls.length, 2);
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length, 2));
   assert.equal(listLettersMock.mock.calls.map((c) => c[0]).join(','), 'received,sent');
-  assert.equal(hook.result.current.systemLetters.length, 0);
+  await waitFor(() =>
+    assert.deepEqual(
+      hook.result.current.systemLetters.map((l) => l.id),
+      ['sys-2'],
+    ),
+  );
   await hook.unmount();
 });
 
@@ -563,6 +573,7 @@ test('시스템 편지 — 닫은 뒤 시스템 재조회가 실패해도 닫기
   closeLetterMock.mockResolvedValue(undefined);
   listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
   const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
   listLettersMock.mockResolvedValue(slice([]));
   listSystemMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
 
@@ -570,8 +581,89 @@ test('시스템 편지 — 닫은 뒤 시스템 재조회가 실패해도 닫기
     await hook.result.current.close(LETTER);
   });
 
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length, 2));
+  await act(async () => {});
   assert.equal(hook.result.current.systemLetters.length, 1);
   assert.equal(hook.result.current.letters.length, 0);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 닫은 뒤 시스템 재조회가 실패해도 닫은 편지는 목록에서 사라진다(되살아나지 않는다)', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
+  const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  listLettersMock.mockResolvedValue(slice([]));
+  listSystemMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
+
+  await act(async () => {
+    await hook.result.current.close('sys-1');
+  });
+
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length, 2));
+  await act(async () => {});
+  assert.deepEqual(hook.result.current.systemLetters, []);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 조회가 끝나지 않아도 친구 편지가 먼저 뜨고(loading false), 나중에 도착하면 채워진다', async () => {
+  let resolveSystem!: (value: unknown) => void;
+  listSystemMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveSystem = resolve;
+    }),
+  );
+
+  const hook = await mount();
+
+  // 시스템 조회가 미해결이어도 묶음은 적용돼 있다.
+  assert.equal(hook.result.current.loading, false);
+  assert.equal(hook.result.current.letters.length, 1);
+  assert.equal(hook.result.current.friends.length, 1);
+  assert.deepEqual(hook.result.current.systemLetters, []);
+
+  await act(async () => {
+    resolveSystem(slice([systemItem()]));
+  });
+
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  assert.equal(hook.result.current.letters.length, 1);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 세대가 바뀐 뒤 늦게 온 응답은 버린다', async () => {
+  let resolveSystem!: (value: unknown) => void;
+  listSystemMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveSystem = resolve;
+    }),
+  );
+  // 렌더마다 systemLetters 길이를 기록한다 — 버린 응답이 한 번도 그려지지 않았음을 본다(재적재가 뒤에 지워도 잡힌다).
+  const seen: number[] = [];
+  const hook = await renderHook(() => {
+    const mailbox = useMailbox({ active: true, scopeKey: 's1' });
+    seen.push(mailbox.systemLetters.length);
+    return mailbox;
+  });
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+
+  // 세대만 바뀐 상황을 만든다 — 실제 계정 전환은 리렌더로 재적재(epoch 교체)까지 일으켜 세대 검사만 따로 볼 수 없다.
+  const generationSpy = jest
+    .spyOn(sessionModule, 'sessionGeneration')
+    .mockReturnValue(sessionModule.sessionGeneration() + 1);
+  try {
+    await act(async () => {
+      resolveSystem(slice([systemItem()]));
+    });
+  } finally {
+    generationSpy.mockRestore();
+  }
+
+  assert.deepEqual(hook.result.current.systemLetters, []);
+  assert.deepEqual(
+    seen.filter((n) => n !== 0),
+    [],
+  );
   await hook.unmount();
 });
 

@@ -25,8 +25,11 @@
  *
  * 섬 시스템 편지(강퇴·가입 승인, GROMO-2275)는 GET /letters?kind=system 으로 따로 읽어
  * `systemLetters` 에 둔다 — 친구 편지·안 읽음 수·페이지 커서와 섞지 않는다. 조회는 최선
- * 노력이라 실패해도 친구 우체통을 막지 않고(재조회는 이전 값 유지), kind 를 모르는 옛
- * 서버가 친구함을 돌려줘도 발신자 없는(counterpartUserId == null) 항목만 받는다.
+ * 노력이라 기다리지 않는다: 묶음·받은/보낸 목록을 먼저 적용하고 시스템 편지는 뒤따라
+ * 같은 세션·세대(epoch/generation) 검증을 거쳐 반영하므로, 느리거나 실패해도 친구 우체통·
+ * 닫기·발송을 막지 않는다(재조회 실패는 이전 값 유지). 닫기가 확정된 시스템 편지는 재조회
+ * 결과와 무관하게 바로 뺀다. kind 를 모르는 옛 서버가 친구함을 돌려줘도 발신자 없는
+ * (counterpartUserId == null) 항목만 받는다.
  *
  * 권한 상실(401/403)이 읽기 경로에서 오면 화면 캐시(편지·낙서·친구·상세)를 지운다 —
  * 권한을 잃은 뒤 캐시된 편지가 다시 보이면 안 된다. 상세의 403/404 는 그 편지의
@@ -176,13 +179,29 @@ export function useMailbox({
     [],
   );
 
+  // 시스템 편지 조회 순번 — 가장 최근에 시작한 조회의 응답만 반영한다(옛 응답이 닫은 편지를 되살리지 않게).
+  const systemSeq = useRef(0);
+  /** 시스템 편지를 최선 노력으로 읽어 뒤에 반영한다 — 기다리지 않고, 실패하면 이전 값을 둔다. */
+  const loadSystemLetters = useCallback(
+    (e: number, generation: number) => {
+      const seq = ++systemSeq.current;
+      void fetchSystemLetters().then((system) => {
+        if (system && alive(e, generation) && seq === systemSeq.current)
+          set({ systemLetters: system });
+      });
+    },
+    [alive, set],
+  );
+
   const load = useCallback(async () => {
     if (!mounted.current || !active) return;
     const e = ++epoch.current;
     const generation = sessionGeneration();
     set({ ...EMPTY, loading: true });
+    // 묶음과 나란히 시작하되 기다리지 않는다 — 느린 시스템 조회가 친구 우체통 로딩을 묶지 않는다.
+    loadSystemLetters(e, generation);
     try {
-      const [screen, system] = await Promise.all([getMailboxScreen(), fetchSystemLetters()]);
+      const screen = await getMailboxScreen();
       if (!alive(e, generation)) return;
       proven.current = { epoch: e, generation };
       latestReadMessageId.current = screen.messages.items.at(-1)?.id ?? null;
@@ -195,7 +214,6 @@ export function useMailbox({
         messagesCursor: screen.messages.nextCursor,
         letters: screen.letters.content,
         lettersCursor: screen.letters.nextCursor,
-        systemLetters: system ?? [],
         friends: screen.friends,
         loading: false,
         error: null,
@@ -203,11 +221,13 @@ export function useMailbox({
     } catch (error) {
       if (!alive(e, generation)) throw error;
       // 권한 상실이면 캐시를 비운 채 오류만 남긴다 — EMPTY patch 가 데이터를 지운다.
-      if (authLost(error)) set({ ...EMPTY, loading: false, error: error as ApiError });
-      else set({ loading: false, error: error as ApiError });
+      if (authLost(error)) {
+        systemSeq.current += 1; // 뒤늦게 온 시스템 편지가 비운 캐시를 다시 채우지 못하게 한다.
+        set({ ...EMPTY, loading: false, error: error as ApiError });
+      } else set({ loading: false, error: error as ApiError });
       throw error;
     }
-  }, [active, alive, set]);
+  }, [active, alive, loadSystemLetters, set]);
 
   const loadMoreLetters = useCallback(async () => {
     const { lettersCursor, loading, loadingMoreLetters } = stateRef.current;
@@ -234,7 +254,8 @@ export function useMailbox({
       });
     } catch (error) {
       if (!alive(e, generation)) return;
-      if (authLost(error))
+      if (authLost(error)) {
+        systemSeq.current += 1;
         set({
           letters: [],
           lettersCursor: null,
@@ -245,7 +266,7 @@ export function useMailbox({
           loadingMoreLetters: false,
           error: error as ApiError,
         });
-      else set({ loadingMoreLetters: false, error: error as ApiError });
+      } else set({ loadingMoreLetters: false, error: error as ApiError });
     }
   }, [active, alive, cached, set]);
 
@@ -284,23 +305,19 @@ export function useMailbox({
   const refreshLetters = useCallback(
     async (e: number, generation: number) => {
       if (!alive(e, generation)) throw stale();
-      const [received, sent, system] = await Promise.all([
-        listLetters('received'),
-        listLetters('sent'),
-        fetchSystemLetters(),
-      ]);
+      // 시스템 편지는 기다리지 않는다 — 닫기·발송의 성공 판정은 친구 목록 재조회만 본다.
+      loadSystemLetters(e, generation);
+      const [received, sent] = await Promise.all([listLetters('received'), listLetters('sent')]);
       if (!alive(e, generation)) throw stale();
       proven.current = { epoch: e, generation };
       set({
         letters: received.content,
         lettersCursor: received.nextCursor,
-        // 시스템 조회가 실패하면 이전 값을 유지한다 — 친구 편지 닫기·발송은 막지 않는다.
-        ...(system ? { systemLetters: system } : {}),
         sent: sent.content,
         sentCursor: sent.nextCursor,
       });
     },
-    [alive, set],
+    [alive, loadSystemLetters, set],
   );
 
   /**
@@ -376,6 +393,10 @@ export function useMailbox({
           // 404 — 첫 응답이 유실된 재시도거나 다른 곳에서 이미 닫았다. 서버 정본은
           // 「없음」이니 목록 재조회로 같은 상태에 수렴한다.
         }
+        // 닫기가 확정된 시스템 편지는 재조회 결과(실패 포함)와 무관하게 바로 뺀다 — 재조회가
+        // 실패해도 닫은 편지가 되살아나 눌렀다가 404 가 나지 않게.
+        if (alive(e, generation))
+          set({ systemLetters: stateRef.current.systemLetters.filter((l) => l.id !== letterId) });
         await refreshLetters(e, generation);
         if (stateRef.current.detail?.id === letterId) set({ detail: null });
       } finally {
