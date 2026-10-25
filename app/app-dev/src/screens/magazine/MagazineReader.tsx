@@ -25,12 +25,11 @@ import type {
 import { pinToTelescope } from '@/services/api/telescope';
 import { pinErrorText } from '@/screens/island/useTelescopePin';
 import { t } from '@/i18n';
-import { formatDate, formatDuration } from '@/i18n/format';
+import { formatDate, formatDuration, islandTitle } from '@/i18n/format';
 import { T, useGowun } from '@/screens/island/sceneKit';
 import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
 import { useAppLayout } from '@/utils/layout';
 import { AdCell } from './AdCell';
-import { islandTitle } from './islandTitle';
 import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
