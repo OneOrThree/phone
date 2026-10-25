@@ -91,9 +91,9 @@ Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활�
 
 ## 3. ingress와 인가 경계
 
-Business의공개2경로는인증된내부Realtime어댑터로전달한다. 필요한서버 간추가면은 POST `/internal/islands/{islandId}/messages`와 GET 같은경로다(GROMO-1775 로 realtime 에 구현 — `InternalMailboxController`, 자격은 `SVC_TOKEN_BIZ_TO_REALTIME` 하나, 주체는 `X-User-Id`, 인가는 하지 않는다). Data 쪽은 세 경로다: GET `/internal/islands/{islandId}/mailbox-access`(주민·시설 인가 + 요청자 표시), POST `/internal/islands/{islandId}/message-authors`(페이지 sender 집합의 표시 projection), POST `/internal/islands/{islandId}/message-events`(`message.created` 적재). 셋 다 caller=business 허용목록에만 있다. Realtime 수신용 서비스 자격과 caller=business의exact method/path허용목록과검증 주체위임을사용한다. legacy REST/STOMP 클라이언트는내부 어댑터를직접호출할수없다. 이경로추가시gateway/헬스/기존/api/v1의auth예외를넓히지않는다.
+Business의공개2경로는인증된내부Realtime어댑터로전달한다. 필요한서버 간추가면은 POST `/internal/islands/{islandId}/messages`와 GET 같은경로다(GROMO-1775 로 realtime 에 구현 — `InternalMailboxController`, 자격은 `SVC_TOKEN_BIZ_TO_REALTIME` 하나, 주체는 `X-User-Id`, 인가는 하지 않는다). Data 쪽은 세 경로다: GET `/internal/islands/{islandId}/mailbox-access`(활성 사용자·살아 있는 섬·주민 인가 + 요청자 표시, 시설 완공 불필요), POST `/internal/islands/{islandId}/message-authors`(페이지 sender 집합의 표시 projection), POST `/internal/islands/{islandId}/message-events`(`message.created` 적재). 셋 다 caller=business 허용목록에만 있다. Realtime 수신용 서비스 자격과 caller=business의exact method/path허용목록과검증 주체위임을사용한다. legacy REST/STOMP 클라이언트는내부 어댑터를직접호출할수없다. 이경로추가시gateway/헬스/기존/api/v1의auth예외를넓히지않는다.
 
-Realtime은Data의신뢰된 권한 조회어댑터에서현재활성 사용자/세션,해당island주민,우체통완공,승인된집중제한상태와revision을확인한다. Data의기존멤버십TTL캐시만으로허용하지않는다. 이권한어댑터는미통합기반과중복신설하지말고기존service auth/session검증을확장한다. legacyBearer를임의내부위임JWT로신뢰하거나없는sid/gen을DB현재값으로보충하지않는다.
+Realtime은Data의신뢰된 권한 조회어댑터에서현재활성 사용자/세션,해당island주민과revision을확인한다. 채팅 인가에는 우체통 완공을 요구하지 않고 집중·휴식 상태로 막지 않는다(M01·M12). Data의기존멤버십TTL캐시만으로허용하지않는다. 이권한어댑터는미통합기반과중복신설하지말고기존service auth/session검증을확장한다. legacyBearer를임의내부위임JWT로신뢰하거나없는sid/gen을DB현재값으로보충하지않는다.
 
 - history/POST각각의현재 인가조회가해당행위의선형화경계다. 그검사이후Data에서권한이바뀌어이미허용된chat INSERT가완료될수있는분산경계를명시한다. Data와chat저장을같은 TX라고주장하지않는다. 이보다강한“이탈commit후저장0”제품요구가있으면별도입장리스/해지barrier프로토콜이선행돼야하며현재설계가보장하지않는다.
 - read결과전달직전에도권한을재검증하고실패하면성공본문을반환하지않는다. POST후재검증실패는이미저장된메시지를롤백하지못한다. 성공원 결과를보여줄현재권한이없으면403이며,나중에허가받은원키재시도만중복결과를읽는다.
