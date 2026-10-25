@@ -7014,6 +7014,19 @@
           }
         }
       },
+      "FocusSeat": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "FocusSessionStartCommandRequest": {
         "type": "object",
         "properties": {
@@ -7027,6 +7040,9 @@
           "targetMinutes": {
             "type": "integer",
             "format": "int32"
+          },
+          "seat": {
+            "$ref": "#/components/schemas/FocusSeat"
           }
         }
       },

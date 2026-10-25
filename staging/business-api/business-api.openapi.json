@@ -7265,11 +7265,15 @@
           },
           "status": {
             "type": "string"
+          },
+          "seat": {
+            "$ref": "#/components/schemas/FocusSeatView"
           }
         },
         "required": [
           "activeSeconds",
           "name",
+          "seat",
           "sessionId",
           "status",
           "subject",
@@ -7299,6 +7303,23 @@
           "items",
           "serverNow",
           "watermarks"
+        ]
+      },
+      "FocusSeatView": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "x",
+          "y"
         ]
       },
       "ActiveConstruction": {
