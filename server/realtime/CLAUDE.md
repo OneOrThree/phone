@@ -181,8 +181,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   허용의 만료는 그 판정에 **쓴 원본 값의** 만료까지다 — 값과 PTTL 을 한 원자 단위(Lua GET+PTTL, `common/redis/Sourced`)로 읽는다.
   따로 읽으면 그 사이 다른 요청이 원본을 새 값·새 TTL 로 갈아 옛 판정이 새 수명을 얻는다. 멤버십(채팅·`events`)은 관문 판정 뒤
   `OutboundMembershipSource` 가 `cache:chat:member:{userId}` 를 원자 읽기해 그 값도 멤버일 때만 그 만료를 쓰고(비멤버·없음 → 담지 않음),
-  차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 `BlockedUsers.hiddenSourced` 가 판정 집합과 `cache:chat:block:{userId}` 의 PTTL 을
-  함께 준다(MGET 대신 Lua 1회, 정본 재조회면 조회 시작 + TTL). 강퇴 상한은 멤버십 TTL, 차단 백스톱은 `realtime.blocks.cache-ttl-seconds`
+  차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 `BlockedUsers.hiddenSourced` 가 받는 사람 집합(`cache:chat:block:{받는 사람}`)과,
+  거기 없으면 발신자 집합(`cache:chat:block:{발신자}`)까지 읽어 판정과 PTTL 을 함께 준다 — 허용의 만료는 둘 중 이른 쪽(양방향, GROMO-2469;
+  집합마다 MGET 대신 Lua 1회, 정본 재조회면 조회 시작 + TTL). 강퇴 상한은 멤버십 TTL, 차단 백스톱은 `realtime.blocks.cache-ttl-seconds`
   그대로다. **반영 상한 — OFF: 원본 Redis 만료(멤버십 TTL·차단 TTL)가 상한. ON(verifier): 관문 캐시(`CurrentMembershipDecisionCache`
   30s, GROMO-2342)가 상한이고, 이 캐시는 멤버십을 포함한 판정을 담지 않는다**(`OutboundMembershipSource` 가 `EXPIRED` — 겹쳐 쌓으면
   60s 가 된다; ON 의 응원(차단만)은 그대로 담는다). `OutboundAuthzCache` 는 Redis 를 읽지 않는다.

@@ -261,7 +261,7 @@ class IslandBlockFilterIntegrationTest {
     void guestbookKeepsPageSizeAndCursorAfterFiltering() {
         Island is = island();
         UUID viewer = resident(is.id, GroupAnnouncementGrant.DISALLOW);
-        // 하루 한 글이라 작성자를 여럿 둔다 — 홀수 번째는 차단한 사람, 짝수 번째는 보이는 주민.
+        // 하루 한 글이라 작성자를 여럿 둔다 — 반복마다 차단한 사람 1명·보이는 주민 1명이 번갈아 쓴다.
         List<UUID> visible = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
             UUID blockedAuthor = resident(is.id, GroupAnnouncementGrant.DISALLOW);
