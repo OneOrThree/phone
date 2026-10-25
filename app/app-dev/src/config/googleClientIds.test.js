@@ -94,7 +94,10 @@ test('운영 빌드 경로(TestFlight 레인·OTA·Xcode Release 단계·Android
 
   // fastlane beta(운영)는 EXPO_PUBLIC_ENV 를 prod 로 고정한다 — 셸에 값이 없을 때 Expo 가 .env 의 dev 를 인라인하는 틈을 막는다.
   const fastfile = read('ios/fastlane/Fastfile');
-  const betaLane = fastfile.slice(fastfile.indexOf('lane :beta do'), fastfile.indexOf('lane :beta_dev do'));
+  const betaLane = fastfile.slice(
+    fastfile.indexOf('lane :beta do'),
+    fastfile.indexOf('lane :beta_dev do'),
+  );
   expect(betaLane).toContain('ENV["EXPO_PUBLIC_ENV"] = "prod"');
 
   // Android 운영 release(assemble/bundle/packageRelease)도 같은 가드 — dev 청중(!devAudience 가 거짓)은 통과.
