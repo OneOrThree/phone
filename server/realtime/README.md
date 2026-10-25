@@ -80,6 +80,17 @@ cd server/realtime
 
 ### 개발 실행
 
+수신 채널은 heartbeat와 별도 실행기를 사용합니다. `chat.websocket.inbound.threads` 기본값은 4,
+`queue-capacity`는 256입니다. 큐가 차면 제출 스레드가 처리해 입력을 늦추며 프레임을 버리지 않습니다.
+연속 프레임의 처리 순서는 유지하고, 포화 중 재귀 호출로 스택을 소진하지 않도록 같은 스레드에서 이어 처리합니다.
+이 값은 실행기 큐의 예산입니다. 세션별 순서 보존 큐나 전체 동시 연결 수의 상한을 뜻하지 않습니다.
+
+관측 시 `executor.active`·`executor.queued`·`executor.queue.remaining`의
+`name=realtime-inbound`와 `name=realtimeHeartbeatScheduler`를 구분합니다.
+`realtime.inbound.caller.runs`는 포화 또는 종료 시 제출 스레드에서 처리한 **작업** 수입니다.
+하나의 프레임이 여러 처리기에 전달되므로 메시지 수로 해석하지 않습니다.
+기본 예산의 운영 효과는 섬당 10명·70/80/100명·1 Hz 동일 조건 재측정으로 확인해야 합니다.
+
 전용 DB와 Redis를 준비하고 아래 환경변수를 주입합니다. Data와 `JWT_SECRET`이 같아야 합니다.
 
 | 설정 | 용도 |

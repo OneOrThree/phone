@@ -2,6 +2,7 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.movement.stomp.MovementOutboundInterceptor;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -10,6 +11,7 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
@@ -38,12 +40,14 @@ class WebSocketConfigTest {
     private final OutboundAuthzCache authzCache = mock(OutboundAuthzCache.class);
     private final WebSocketConfig config = new WebSocketConfig(mock(StompAuthChannelInterceptor.class),
             mock(ChatStompErrorHandler.class), chatOutbound, sessions, movementSubscriptions, movementOutbound, budget,
-            authzCache);
+            authzCache, new SimpleMeterRegistry());
 
     @Test
     @DisplayName("인바운드는 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
     void interceptorOrderIsTheContract() {
         Interceptors inbound = new Interceptors();
+        ReflectionTestUtils.setField(config, "inboundThreads", 4);
+        ReflectionTestUtils.setField(config, "inboundQueueCapacity", 256);
         config.configureClientInboundChannel(inbound);
         assertThat(inbound.list()).hasSize(2);
         assertThat(inbound.list().get(0).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
