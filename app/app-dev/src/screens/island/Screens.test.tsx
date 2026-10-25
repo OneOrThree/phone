@@ -187,6 +187,8 @@ function Harness({
   friendsScreen,
   conversion,
   playback,
+  soundPlayer,
+  onPreviewAudio,
   localePref = 'system',
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
@@ -281,9 +283,14 @@ function Harness({
         setVisited: jest.fn(),
         guideStep: 0,
         setGuideStep: jest.fn(),
-        player: { addListener: () => ({ remove() {} }), replace() {}, play() {}, pause() {} },
+        player: soundPlayer ?? {
+          addListener: () => ({ remove() {} }),
+          replace() {},
+          play() {},
+          pause() {},
+        },
         previewAudio: false,
-        setPreviewAudio: jest.fn(),
+        setPreviewAudio: onPreviewAudio ?? jest.fn(),
         walkTo: jest.fn(),
         newQuest: jest.fn(),
         walkRequest: null,
@@ -2949,3 +2956,34 @@ test('신규 계정은 여섯 고양이 선택으로 진입하고 출항 완료 
   expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
   expect(screen.queryByLabelText('닉네임')).toBeNull();
 });
+
+test.each([false, true])(
+  '음원 미리듣기는 재생 허용 %s일 때만 음원과 버튼 상태를 바꾼다',
+  async (allowed) => {
+    const player = {
+      playbackAllowed: allowed,
+      replace: jest.fn(),
+      play: jest.fn(() => allowed),
+      pause: jest.fn(),
+      addListener: () => ({ remove() {} }),
+      loop: true,
+    };
+    const onPreviewAudio = jest.fn();
+    const screen = await render(
+      <Harness
+        route="product"
+        detail="rain"
+        full
+        soundPlayer={player}
+        onPreviewAudio={onPreviewAudio}
+      />,
+    );
+    const button = screen.getByLabelText('나만 미리듣기');
+    expect(button.props.accessibilityState.disabled).toBe(!allowed);
+    await fireEvent.press(button);
+    expect(player.replace).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(player.play).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(onPreviewAudio).toHaveBeenCalledWith(true);
+    else expect(onPreviewAudio).not.toHaveBeenCalled();
+  },
+);
