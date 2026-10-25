@@ -446,7 +446,7 @@
     "raft": {
       "title": "뗏목",
       "fishingIsland": "낚시섬",
-      "toIsland": "{{name}}섬으로",
+      "toIsland": "{{name}}으로",
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
@@ -748,7 +748,7 @@
     "pin": "망원경에 넣기",
     "pinBody": "뗏목의 망원경에서 이 섬을 볼 수 있어요. 직접 넣은 섬이 가득 차면 가장 먼저 넣은 섬이 빠져요.",
     "pinned": "망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요",
-    "pinnedEvicted": "{{name}}섬이 망원경에서 빠졌어요",
+    "pinnedEvicted": "{{name}}이 망원경에서 빠졌어요",
     "pinForbidden": "이 섬에는 넣을 수 없어요",
     "pinAlreadyMember": "이미 내가 속한 섬이에요"
   },
