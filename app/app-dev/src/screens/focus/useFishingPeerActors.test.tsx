@@ -810,3 +810,52 @@ test('내가 DEFAULT_SPOT 에 앉으면 서버 자리 주민의 물고기 더미
   assert.ok(spot.catchPlacement);
   assert.equal(overlap(pile(seat, spot.catchPlacement), myPile), false);
 });
+
+test('종료 연출 중인 주민에 막혀 대체 칸에 앉은 seat 주민은 다음 스냅숏에서 서버 자리로 다시 앉는다', async () => {
+  const seat = DEFAULT_SPOT,
+    a = { ...peer, userId: 'a', sessionId: 's-a', seat },
+    b = { ...peer, userId: 'b', sessionId: 's-b', seat },
+    live = (userId: string, sessionId: string) => ({
+      ...member('active'),
+      userId,
+      sessionId,
+      seat,
+    });
+  let members: FishingPeer[] = [a],
+    snapshotVersion = 1;
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, snapshotVersion }),
+  );
+  const actor = (userId: string) => result.current.actors.find((item) => item.userId === userId);
+  // A 가 완료해 종료 연출(finishing)로 자리를 쥔 사이 B 가 같은 seat 로 들어온다 → B 는 대체 칸
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'a',
+      previous: live('a', 's-a'),
+      current: null,
+    } as IslandPresenceTransition),
+  );
+  assert.equal(actor('a')?.phase, 'finishing');
+  members = [b];
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'b',
+      previous: null,
+      current: live('b', 's-b'),
+    } as IslandPresenceTransition),
+  );
+  assert.notDeepEqual([actor('b')?.spot.x, actor('b')?.spot.y], [seat.x, seat.y]);
+  // A 가 퇴장을 마쳐 자리를 반납해도 이벤트 경로는 B 를 다시 앉히지 않는다
+  await act(async () => result.current.stretched('a:s-a', actor('a')!.generation));
+  await act(async () => result.current.leftForComplete('a:s-a', actor('a')!.generation));
+  assert.equal(actor('a'), undefined);
+  // 새 스냅숏(B 만)은 정본 — B 의 예약을 서버 seat 로 재검증한다
+  snapshotVersion = 2;
+  await rerender(undefined);
+  assert.deepEqual([actor('b')?.spot.x, actor('b')?.spot.y], [seat.x, seat.y]);
+});

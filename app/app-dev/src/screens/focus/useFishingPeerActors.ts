@@ -249,14 +249,38 @@ export function useFishingPeerActors({
       for (const key of slots.current.keys()) {
         if (!incomingKeys.has(key)) slots.current.delete(key);
       }
+      // 재검증: seat 가 땅 위인데 지금 예약이 그 seat 가 아니면(예: 종료 연출 중인 주민에 막혀 대체 칸에 앉음) 예약을
+      // 풀어 1단계가 seat 를 다시 시도하게 한다. 스냅숏은 즉시 적용하는 정본이라 자리가 바뀌어도 된다.
+      const incoming = [...snapshotMembers.values()],
+        kept = new Map<string, Spot>();
+      for (const member of incoming) {
+        const key = actorKey(member.userId, member.sessionId),
+          spot = slots.current.get(key);
+        if (
+          spot &&
+          member.seat &&
+          onLand(fishingGrid, member.seat) &&
+          (spot.x !== member.seat.x || spot.y !== member.seat.y)
+        ) {
+          slots.current.delete(key);
+          kept.set(key, spot);
+        }
+      }
       // 1단계: 쓸 수 있고 비어 있는 서버 seat 를 전부 먼저 예약한다 — 좌표 없는·내 자리에 막힌 주민의 대체 칸이
       // 뒤 주민의 정상 seat 를 가로채 기기마다 다른 자리에 그리지 않게. 2단계는 남은 주민을 스냅숏 순서대로 앉힌다.
-      const incoming = [...snapshotMembers.values()];
       for (const member of incoming)
         alloc(actorKey(member.userId, member.sessionId), member.seat, undefined, true);
       return incoming.flatMap((member) => {
         const key = actorKey(member.userId, member.sessionId),
-          spot = alloc(key, member.seat);
+          // seat 가 여전히 막히면 이전 칸이 아직 비어 있을 때 그대로 둔다(불필요한 이동 없이)
+          previous = kept.get(key),
+          reuse =
+            previous &&
+            !occupied(previous, [...slots.current.values()]) &&
+            !blockedByMine(previous, mineRef.current)
+              ? previous
+              : undefined,
+          spot = alloc(key, member.seat, reuse);
         if (!spot) return [];
         return [
           {

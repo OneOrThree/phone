@@ -259,6 +259,26 @@ describe('IslandProjection', () => {
     assert.deepEqual(p.focus()[1].seat, { x: 60, y: 40 });
   });
 
+  test('자리: 명시적 seat null 은 null, seat 키 생략은 같은 세션일 때만 이전 자리를 잇는다 (GROMO-2478)', () => {
+    const p = new IslandProjection('i1'),
+      seat = { x: 34.1, y: 55.9 };
+    p.loadFocus(
+      focusSnap(
+        [focusItem('u1', { seat }), focusItem('u2', { seat })],
+        [wm('focus.member', 'u1', 1), wm('focus.member', 'u2', 1)],
+      ),
+    );
+    // 같은 세션·seat 키 생략(옛 서버 이벤트) → 이전 자리 유지
+    p.apply(focusEvent('u1', 2, { status: 'paused' }));
+    assert.deepEqual(p.focus()[0].seat, seat);
+    // 새 세션의 명시적 null 이 이전 세션 완료보다 먼저 와도 옛 좌표를 잇지 않는다 — null 은 자리 없이 시작
+    p.apply(focusEvent('u1', 3, { sessionId: 's-u1-next', seat: null }));
+    assert.equal(p.focus()[0].seat, null);
+    // 세션이 다르면 seat 키를 생략해도 잇지 않는다
+    p.apply(focusEvent('u2', 2, { sessionId: 's-u2-next' }));
+    assert.equal(p.focus()[1].seat, null);
+  });
+
   test('같은·낮은 버전 이벤트는 중복·역순으로 버린다', () => {
     const p = new IslandProjection('i1');
     p.loadFocus(focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 3)]));
