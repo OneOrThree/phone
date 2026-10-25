@@ -209,7 +209,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // Boot가 유일한 AsyncTaskExecutor인 heartbeat scheduler를 고르는 기본 배선을 명시적으로 덮는다.
         // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
         registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
-        registration.interceptors(new RejectAsErrorFrame(), movementSubscriptions);
+        // 끝난 세션의 늦은 CONNECT·SUBSCRIBE 를 맨 앞에서 버린다 — 포화 중 종료 DISCONNECT 가 그것들을 추월한다.
+        registration.interceptors(new EndedSessionGuard(), new RejectAsErrorFrame(), movementSubscriptions);
     }
 
     /**

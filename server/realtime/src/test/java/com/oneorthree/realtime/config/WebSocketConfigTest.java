@@ -43,15 +43,16 @@ class WebSocketConfigTest {
             authzCache, new SimpleMeterRegistry());
 
     @Test
-    @DisplayName("인바운드는 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
+    @DisplayName("인바운드는 끝난 세션 가드 → 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
     void interceptorOrderIsTheContract() {
         Interceptors inbound = new Interceptors();
         ReflectionTestUtils.setField(config, "inboundThreads", 4);
         ReflectionTestUtils.setField(config, "inboundQueueCapacity", 256);
         config.configureClientInboundChannel(inbound);
-        assertThat(inbound.list()).hasSize(2);
-        assertThat(inbound.list().get(0).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
-        assertThat(inbound.list().get(1)).isSameAs(movementSubscriptions);
+        assertThat(inbound.list()).hasSize(3);
+        assertThat(inbound.list().get(0)).isInstanceOf(EndedSessionGuard.class);
+        assertThat(inbound.list().get(1).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
+        assertThat(inbound.list().get(2)).isSameAs(movementSubscriptions);
 
         Interceptors outbound = new Interceptors();
         config.configureClientOutboundChannel(outbound);
