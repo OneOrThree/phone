@@ -13,7 +13,7 @@ const F = semanticTokens.typography;
 // viewBox 폭은 §7.13 Graph 와 같은 362. 오른쪽 여백은 시간 눈금 글자 자리다
 const VW = 362;
 const PAD_L = 8;
-const PAD_R = 30;
+const PAD_R = 44; // 「2.5h」가 큰 글자에서도 한 줄에 들어가는 폭
 const PAD_TOP = 10;
 const PLOT_W = VW - PAD_L - PAD_R;
 const CHART_H = PAD_TOP + D.chartHeight + 8;
@@ -147,6 +147,7 @@ export function WeekLineChart({
               key={h}
               style={[styles.tick, { top: `${(y(h) / CHART_H) * 100}%` }]}
               allowFontScaling
+              numberOfLines={1}
             >
               {`${h}h`}
             </T>
