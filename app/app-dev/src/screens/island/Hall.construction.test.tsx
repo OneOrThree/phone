@@ -52,9 +52,11 @@ jest.mock('@/screens/island/useLedgerScreen', () => ({
     refresh: jest.fn(),
   }),
 }));
+// 화면 폭은 테스트마다 바꾼다 — 기본 402(iPhone 17), 격자 폭 회귀는 393(iPhone 15)·375(SE)
+let mockLayoutWidth = 402;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
-    width: 402,
+    width: mockLayoutWidth,
     height: 874,
     insets: { top: 52, bottom: 32, left: 0, right: 0 },
     landscape: false,
@@ -367,10 +369,12 @@ test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', as
   expect(screen.getByText('건설 현황')).toBeTruthy();
   expect(screen.getByTestId('hall-bld-grid')).toBeTruthy();
   expect(screen.queryByText('모든 건물을 지었어요')).toBeNull();
-  // 홀수 마지막 카드(상점)도 다른 카드와 같은 폭이다(GROMO-2413)
+  // 마지막 홀수 카드(상점)는 한 줄 전체 폭이고(GROMO-2486), 마을회관·게시판은 목록에 없다
   const width = (b: string) =>
     StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
-  expect(width('shop')).toBe(width('library'));
+  expect(width('shop')).toBeGreaterThan(width('library') * 2);
+  expect(screen.queryByTestId('hall-bld-hall')).toBeNull();
+  expect(screen.queryByTestId('hall-bld-board')).toBeNull();
   for (const building of ['library', 'tower', 'mail', 'gram', 'shop']) {
     expect(screen.getByTestId(`hall-bld-${building}`)).toBeTruthy();
     expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();
@@ -380,6 +384,31 @@ test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', as
   expect(constructionMock().select).not.toHaveBeenCalled();
   expect(constructionMock().build).not.toHaveBeenCalled();
 });
+
+test.each([
+  [393, 318, 152], // iPhone 15: 격자 318 = 393 − 36.2 − 2.6×2 − 33.6, 카드 floor((318 − 12.9) / 2)
+  [375, 300, 143], // iPhone SE
+])(
+  '폭 %i 에서 2열 카드 두 장과 간격이 격자 폭을 넘지 않는다(GROMO-2486)',
+  async (w, gridW, cardW) => {
+    mockLayoutWidth = w;
+    try {
+      constructionMock.mockReturnValue(
+        construction({ options: options({ items: [], selectedBuildingId: null }) }),
+      );
+      const screen = await render(<Hall e={e()} />);
+      const width = (b: string) =>
+        StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+      expect(width('library')).toBe(cardW);
+      expect(width('tower')).toBe(cardW);
+      // 테두리를 4 로 빼던 옛 계산은 cardW 가 1 커서 두 장 + 12.9 가 격자 폭을 넘어 둘째 카드가 다음 줄로 밀렸다
+      expect(cardW * 2 + 12.9).toBeLessThanOrEqual(gridW);
+      expect(width('shop')).toBeCloseTo(gridW, 5);
+    } finally {
+      mockLayoutWidth = 402;
+    }
+  },
+);
 
 test('미완공 카드는 유지하고 서버 옵션에서 빠진 완공 건물에만 도장을 표시한다', async () => {
   const screen = await render(<Hall e={e()} />);

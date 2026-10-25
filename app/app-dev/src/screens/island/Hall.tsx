@@ -1303,8 +1303,9 @@ export function Hall({ e }: any) {
         : st === 'locked' || (!!i.construction && st === 'none');
     };
     const gap = land ? 10 : 12.9,
-      // 격자 폭 = 패널 폭 − 테두리 4 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16)
-      gridW = land ? W - side - 16 - 4 - 32 : W - 36.2 - 4 - 33.6,
+      // 격자 폭 = 패널 폭 − 테두리 2.6×2 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16).
+      // 테두리를 4 로 빼면 393(iPhone 15)·375(SE)에서 두 카드 + 간격이 실제 안쪽 폭을 넘어 둘째 카드가 다음 줄로 밀렸다(GROMO-2486)
+      gridW = land ? W - side - 16 - 5.2 - 32 : W - 36.2 - 5.2 - 33.6,
       // 가로는 카드가 140 이상일 때만 3열
       cols = land && gridW >= 450 ? 3 : 2,
       // 내림: 소수 폭이면 iOS 가 둘째 카드를 다음 줄로 넘긴다
@@ -1414,7 +1415,7 @@ export function Hall({ e }: any) {
             transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
-          {cards.map((b) => {
+          {cards.map((b, idx) => {
             const st = status(b),
               off = dim(b),
               item = liveConstruction ? liveItem(b) : undefined,
@@ -1432,8 +1433,9 @@ export function Hall({ e }: any) {
                 disabled={!tappable}
                 onPress={() => setPlan(b)}
                 style={{
-                  // 홀수 마지막 카드(상점)도 같은 폭 — 혼자 한 줄 전체를 차지하지 않는다
-                  width: cardW,
+                  // 마지막 줄에 혼자 남는 카드(2열의 상점)는 한 줄 전체 폭(GROMO-2486 — 2413 의 같은 폭 규칙을 뒤집음).
+                  // 3열 가로에서는 5장이 3+2 라 혼자 남지 않는다
+                  width: idx === cards.length - 1 && cards.length % cols === 1 ? gridW : cardW,
                   gap: 3.9,
                   minHeight: land ? 100 : 113.6,
                   paddingVertical: 9,
