@@ -63,6 +63,7 @@ module.exports = {
     {
       // 테스트는 시계·시간대에 기대지 않는다 — TZ 의존 호출(getHours·getDay·getDate·toLocale*)은 고정 시각
       // (jest.setSystemTime)으로 쓴다. 제품 코드는 로컬 시각이 본래 뜻이라 테스트에만 건다(GROMO-2253).
+      // ⚠️ 일부만 막는다 — getMonth·getFullYear·getTimezoneOffset·Intl.DateTimeFormat 은 안 잡고, toLocale*( 는 Date 뿐 아니라 숫자(Number#toLocaleString)도 잡는다.
       // ⚠️ override 의 옵션은 base 옵션을 병합하지 않고 대체한다 — 워클릿 셀렉터를 같이 넣어야 테스트 파일에서도 유지된다.
       files: ['*.test.ts', '*.test.tsx', '*.test.js'],
       rules: {

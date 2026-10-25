@@ -124,12 +124,15 @@ const webSearch = (search: string) => {
 test('언어 화면에서 English 를 탭하면 화면·memo 자식 문구가 영문으로 바뀌고 리마운트(언마운트)가 없다', async () => {
   try {
     const screen = await render(<App />);
+    // 화면 쪽 문구만 센다 — probe 는 testID 로 따로 검증하니 제외하고, 제목·행 수 같은 화면 구조에는 기대지 않는다
+    const screenTexts = (text: string) =>
+      screen.queryAllByText(text).filter((node) => node.props.testID !== 'locale-probe');
     await waitFor(() => assert.ok(captured));
     await act(async () => captured.go('language', 'settings'));
 
     // 한국어 기준선 — 화면 제목과 memo probe 가 같은 문구를 그린다
     assert.equal(captured.route, 'language');
-    assert.equal(screen.getAllByText('언어').length, 2);
+    assert.ok(screenTexts('언어').length >= 1);
     assert.equal(
       screen.getByTestId('locale-probe').props.accessibilityLabel,
       'locale-probe-system',
@@ -141,7 +144,7 @@ test('언어 화면에서 English 를 탭하면 화면·memo 자식 문구가 �
     await waitFor(() => assert.equal(captured.localePref, 'en'));
 
     // 화면 제목·행 문구 + memo probe 전부 영문. 한국어 제목은 남지 않는다
-    assert.equal(screen.getAllByText('Language').length, 2);
+    assert.ok(screenTexts('Language').length >= 1);
     assert.ok(screen.getByText('Follow device language'));
     assert.equal(screen.queryByText('언어'), null);
     assert.equal(screen.getByTestId('locale-probe').props.accessibilityLabel, 'locale-probe-en');
@@ -188,6 +191,12 @@ test.each([
     assert.ok(!reads.includes('gromo.locale'), `저장된 언어를 읽었다: ${reads.join(',')}`);
     assert.ok(!reads.includes('gromo:settings:locale'), `1.x 언어 키를 읽었다: ${reads.join(',')}`);
   } finally {
+    // 격리 블록의 doMock 은 블록 밖에도 남는다 — react 는 원래 mock 이 아니라 해제하고, AsyncStorage 는 jest.setup.js 가
+    // mock 이라 dontMock 하면 실제 모듈(네이티브 null 오류)로 바뀌므로 setup 과 같은 팩토리로 다시 건다
+    jest.dontMock('react');
+    jest.doMock('@react-native-async-storage/async-storage', () =>
+      require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+    );
     restoreOS?.();
     restoreLocation();
     delete (globalThis as any).window.__gromoReview;
