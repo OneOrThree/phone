@@ -410,42 +410,47 @@ function StandingResident({
   layered: boolean;
   press?: ResidentPress;
 }) {
+  const box = residentBox(70 * s);
   return (
     <View
       testID={`standing-resident-${userId}`}
       pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
-        left: at.x * s,
-        top: at.y * s,
+        left: at.x * s + box.left,
+        top: at.y * s + box.top,
+        width: box.hit,
+        height: box.hit,
         // 새 마을 미리보기(layered)만 발 높이로 건물과 앞뒤를 가린다(예전 Wanderer 와 같다).
         zIndex: layered ? Math.round(at.y) : undefined,
       }}
     >
-      <CatSprite color={color} size={70 * s} motion="blink" reduce={reduce} outfit={outfit} />
-      <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
-      {press && <ResidentTouch press={press} catSize={70 * s} />}
+      <View style={{ position: 'absolute', left: -box.left, top: -box.top }}>
+        <CatSprite color={color} size={70 * s} motion="blink" reduce={reduce} outfit={outfit} />
+        <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      </View>
+      {press && <ResidentTouch press={press} />}
     </View>
   );
 }
 // 다른 주민 고양이를 누르면 정보창(GROMO-2474) — 홈 주민은 모두 신원(서버 주민·목업 주민)이 있다(GROMO-2476 이 보충 고양이를 뺐다)
 type ResidentPress = { userId: string; name: string; onPress: () => void };
-// 누르는 자리는 내 고양이(home-cat-container)와 같다 — 발 기준점 위 몸 가운데에 최소 44pt
-function ResidentTouch({ press, catSize }: { press: ResidentPress; catSize: number }) {
+// 주민 상자 = 내 고양이(home-cat-container)의 터치 영역과 같은 크기·자리 — 발 기준점 위 몸 가운데에 최소 44pt.
+// 부모가 0×0 이면 안드로이드는 부모 경계 밖 터치를 버려 ResidentTouch 가 안 눌린다. 그래서 부모 자체를 이 상자로
+// 두고 발 기준점에서 (left, top) 만큼 옮기며, 그림·이름표는 상자 안 발 기준점(−left, −top)에 다시 놓는다.
+function residentBox(catSize: number) {
   const hit = Math.max(semanticTokens.size.tapMin, catSize);
+  return { hit, left: -hit / 2, top: -(catSize / 2 + hit / 2) };
+}
+// 누르는 자리는 부모 상자 전체다
+function ResidentTouch({ press }: { press: ResidentPress }) {
   return (
     <Pressable
       testID={`home-resident-${press.userId}`}
       accessibilityRole="button"
       accessibilityLabel={t('catInfo.open', { name: press.name })}
       onPress={press.onPress}
-      style={{
-        position: 'absolute',
-        left: -hit / 2,
-        top: -(catSize / 2 + hit / 2),
-        width: hit,
-        height: hit,
-      }}
+      style={StyleSheet.absoluteFill}
     />
   );
 }
@@ -495,30 +500,36 @@ function RemoteResident({
       xy.stopAnimation();
     };
   }, [userId, subscribe, reduce, xy]);
+  const box = residentBox(70 * s);
   return (
     <Animated.View
       testID={`remote-resident-${userId}`}
       pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
-        left: 0,
-        top: 0,
+        // 내 고양이처럼 발 기준점 맞춤은 고정 left/top, 이동은 transform(residentBox 주석)
+        left: box.left,
+        top: box.top,
+        width: box.hit,
+        height: box.hit,
         transform: [
           { translateX: Animated.multiply(xy.x, s) },
           { translateY: Animated.multiply(xy.y, s) },
         ],
       }}
     >
-      <CatSprite
-        color={color}
-        size={70 * s}
-        motion={walking ? 'walking' : 'blink'}
-        left={left}
-        reduce={reduce}
-        outfit={outfit}
-      />
-      <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
-      {press && <ResidentTouch press={press} catSize={70 * s} />}
+      <View style={{ position: 'absolute', left: -box.left, top: -box.top }}>
+        <CatSprite
+          color={color}
+          size={70 * s}
+          motion={walking ? 'walking' : 'blink'}
+          left={left}
+          reduce={reduce}
+          outfit={outfit}
+        />
+        <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      </View>
+      {press && <ResidentTouch press={press} />}
     </Animated.View>
   );
 }

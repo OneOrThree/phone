@@ -244,6 +244,25 @@ test('닫은 뒤 도착한 성공은 다시 연 정보창을 «요청 중»으�
   error.mockRestore();
 });
 
+test('친구 목록을 처음 읽는 중엔 처리 중(비활성)이고, 도착한 목록이 친구면 친구 배지로 바뀐다', async () => {
+  const loading = screen({}, { status: 'loading', data: null });
+  const view = await render(popup({ friendsScreen: loading }).ui);
+  expect(view.getByLabelText('처리 중…')).toBeDisabled();
+  expect(view.queryByLabelText('친구 요청')).toBeNull();
+  await view.rerender(popup({ friendsScreen: screen({ friends: [item('u1')] }) }).ui);
+  expect(view.getByText('친구')).toBeTruthy();
+  expect(view.queryByTestId('cat-info-action')).toBeNull();
+});
+
+test('친구 목록 조회가 실패하면(error) 종전처럼 [친구 요청]을 누를 수 있다', async () => {
+  send.mockResolvedValue(undefined);
+  const failed = screen({}, { status: 'error', data: null });
+  const view = await render(popup({ friendsScreen: failed }).ui);
+  expect(view.getByLabelText('친구 요청')).toBeEnabled();
+  await fireEvent.press(view.getByLabelText('친구 요청'));
+  expect(send).toHaveBeenCalledWith('u1');
+});
+
 test('받은 요청인데 요청 id 가 없으면 새 요청으로 보내지 않고 실패 안내를 보인다', async () => {
   const view = await render(
     popup({ friendsScreen: screen({ friendRequests: [request('u1', '')] }) }).ui,

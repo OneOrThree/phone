@@ -73,6 +73,9 @@ export function useFriendAction(userId: string, name: string, catColor: Color) {
   // 서버 성공 뒤 재조회가 오기 전까지는 성공한 결과를 보인다. 재조회가 친구라고 하면 그쪽이 정본이다
   const relation: Relation =
     known === 'friend' ? 'friend' : phase === 'sent' || phase === 'friend' ? phase : known;
+  // 첫 친구 목록 조회 중(data 없음)이면 관계를 모른다 — 이미 친구인 고양이에게 [친구 요청]이 뜨지 않게 처리 중으로 둔다.
+  // 조회 실패(error)는 종전처럼 요청 가능이다(중복이면 서버가 막는다)
+  const loading = !data && source.friendsScreen?.status === 'loading';
   const press = () => {
     if (flight.current || relation === 'sent' || relation === 'friend') return;
     const accepting = relation === 'received';
@@ -126,7 +129,7 @@ export function useFriendAction(userId: string, name: string, catColor: Color) {
   };
   return {
     relation,
-    busy: phase === 'busy' || !!source.friendsScreen?.busy,
+    busy: phase === 'busy' || !!source.friendsScreen?.busy || loading,
     failed: phase === 'failed',
     /** 친구 목록의 오늘 집중 분 — 서버가 준 값만. 친구가 아니면 없다. */
     todayMinutes: friend?.focusTimeMinutes ?? null,

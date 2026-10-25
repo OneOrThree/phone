@@ -17,6 +17,7 @@ import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
 import grids from '@/constants/world-v2.json';
+import { semanticTokens } from '@/design-system/tokens';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -237,22 +238,16 @@ const placed = (style: unknown) => {
   st.top += translateY;
   return st;
 };
-// 내 고양이 컨테이너(left = x·s − hit/2, top = y·s − cat/2 − hit/2)에서 월드 좌표를 되돌린다.
-const myCat = (screen: Screen) => {
-  const st = placed(screen.getByTestId('home-cat-container').props.style);
-  return imageToWorld(
-    {
-      x: (st.left + st.width / 2) / SCALE,
-      y: (st.top + (70 * SCALE) / 2 + st.height / 2) / SCALE,
-    },
-    SIZE,
-  );
-};
+// 고양이 상자(left = x·s − hit/2, top = y·s − cat/2 − hit/2)에서 발 기준점(이미지 px)을 되돌린다 — 내 고양이·주민 공통.
+const footOf = (st: Record<string, number>) => ({
+  x: (st.left + st.width / 2) / SCALE,
+  y: (st.top + (70 * SCALE) / 2 + st.height / 2) / SCALE,
+});
+const myCat = (screen: Screen) =>
+  imageToWorld(footOf(placed(screen.getByTestId('home-cat-container').props.style)), SIZE);
 const myMotion = (screen: Screen) => screen.getByTestId('home-cat-sprite').props.testPropMotion;
-const residentAt = (screen: Screen, userId: string) => {
-  const st = placed(screen.getByTestId(`remote-resident-${userId}`).props.style);
-  return imageToWorld({ x: st.left / SCALE, y: st.top / SCALE }, SIZE);
-};
+const residentAt = (screen: Screen, userId: string) =>
+  imageToWorld(footOf(placed(screen.getByTestId(`remote-resident-${userId}`).props.style)), SIZE);
 const residentMotion = (screen: Screen, userId: string) =>
   within(screen.getByTestId(`remote-resident-${userId}`)).getByTestId('mock-cat-sprite').props
     .testPropMotion;
@@ -263,7 +258,7 @@ const residents = (screen: Screen) =>
     .sort();
 // 이름 없는 고양이 스프라이트 = StandingResident 또는 RemoteResident(내 고양이는 home-cat-sprite).
 const otherCats = (screen: Screen) => screen.queryAllByTestId('mock-cat-sprite').length;
-// 동기화 위치가 없어 고정 자리에 선 주민(GROMO-2476) — 이동 없이 left/top 만으로 놓인다.
+// 동기화 위치가 없어 고정 자리에 선 주민(GROMO-2476) — 이동 없이 left/top(상자 기준)만으로 놓인다.
 const standing = (screen: Screen) =>
   screen
     .queryAllByTestId(/^standing-resident-/)
@@ -271,10 +266,10 @@ const standing = (screen: Screen) =>
     .sort();
 // 서버 홈 명단(ME·U1·U2·U3)에서 나와 털색 없는 U3 를 뺀 순서 — U1 이 0번, U2 가 1번 고정 자리다.
 const expectStandingAt = (screen: Screen, userId: string, n: number) => {
-  const st = flat(screen.getByTestId(`standing-resident-${userId}`).props.style);
+  const foot = footOf(flat(screen.getByTestId(`standing-resident-${userId}`).props.style));
   const spot = residentSpot(grids.home, n);
-  expect(st.left / SCALE).toBeCloseTo(spot.x, 6);
-  expect(st.top / SCALE).toBeCloseTo(spot.y, 6);
+  expect(foot.x).toBeCloseTo(spot.x, 6);
+  expect(foot.y).toBeCloseTo(spot.y, 6);
 };
 // 바닥 탭 — 지형 Pressable 은 접근성에서 빠져 있어(accessible=false) 이미지 전체 크기로 찾는다.
 const tapGround = async (screen: Screen, at: WorldPoint) => {
@@ -738,6 +733,21 @@ it('홈 섬 주민 이름표는 멤버 닉네임이고 이름이 없으면 「�
   expect(within(nameIn(`standing-resident-${U2}`)).getByText('주민')).toBeTruthy();
   await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 36.5, y: 45.5 })]));
   expect(within(nameIn(`remote-resident-${U1}`)).getByText('주민-2')).toBeTruthy();
+  await screen.unmount();
+});
+
+it('주민 고양이 부모 뷰는 내 고양이처럼 터치 영역 폭·높이를 갖고 터치 층이 그 안을 채운다 — 안드로이드 부모 경계 (GROMO-2474)', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  const hit = Math.max(semanticTokens.size.tapMin, 70 * SCALE);
+  // U1 은 동기화 위치(RemoteResident), U2 는 고정 자리(StandingResident)
+  for (const testID of [`remote-resident-${U1}`, `standing-resident-${U2}`]) {
+    const parent = screen.getByTestId(testID);
+    expect(flat(parent.props.style)).toMatchObject({ width: hit, height: hit });
+    const touch = within(parent).getByLabelText(/정보 보기$/);
+    expect(flat(touch.props.style)).toMatchObject({ position: 'absolute', left: 0, top: 0 });
+  }
   await screen.unmount();
 });
 
