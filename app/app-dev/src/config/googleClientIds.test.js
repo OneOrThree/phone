@@ -78,14 +78,21 @@ test('운영 빌드 경로(TestFlight 레인·OTA·Xcode Release 단계·Android
 
   // Xcode Release 아카이브 단계(「Check iOS release Apple audience readiness」)에도 같은 가드 — testflight.sh 를 거치지 않는
   // fastlane 직접 실행·Xcode 아카이브를 막는다. dev 청중(GROMO_IOS_AUDIENCE=dev)은 통과.
+  const gradle = read('android/app/build.gradle');
   const pbxproj = read('ios/GROMO.xcodeproj/project.pbxproj');
   expect(pbxproj).toContain(
     '[ \\"${GROMO_IOS_AUDIENCE:-prod}\\" != \\"dev\\" ] && ! \\"${NODE_BINARY:-node}\\" -e \\"const g=require(\'$SRCROOT/../src/config/googleClientIds.json\').prod; process.exit(g.ios && g.web ? 0 : 1)\\"',
   );
   expect(pbxproj).toContain('error: iOS release 차단: 운영 Google 클라이언트 id 미발급');
+  // 청중 ↔ EXPO_PUBLIC_ENV 일치 검사(Xcode 단계는 kakaoAndroidConfig.test 가 실제 sh 로 돈다; gradle 은 문자열로)
+  expect(gradle).toContain(
+    'if (includesReleaseArtifactTask && devAudience && publicEnv != "dev") {',
+  );
+  expect(gradle).toContain(
+    'if (includesReleaseArtifactTask && !devAudience && publicEnv == "dev") {',
+  );
 
   // Android 운영 release(assemble/bundle/packageRelease)도 같은 가드 — dev 청중(!devAudience 가 거짓)은 통과.
-  const gradle = read('android/app/build.gradle');
   expect(gradle).toMatch(
     /if \(includesReleaseArtifactTask && !devAudience\) \{\s*\n\s*def googleIds = new groovy\.json\.JsonSlurper\(\)\.parse\(new File\(rootDir, "\.\.\/src\/config\/googleClientIds\.json"\)\)\s*\n\s*if \(!googleIds\.prod\?\.web\?\.trim\(\)\) \{\s*\n\s*throw new GradleException\(\s*\n\s*"Android release 차단: 운영 Google 클라이언트 id 미발급/,
   );

@@ -20,7 +20,11 @@ JSON 은 주석을 못 쓰므로 `googleClientIds.json` 의 규칙을 여기에 
 
 ## 운영 빌드 가드
 
-`prod.ios`·`prod.web` 중 하나라도 비면 `ios/testflight.sh`(인자 없는 운영 레인)와 `scripts/ota-update.sh` 가 `exit 1` 로 멈춘다.
+`prod.ios`·`prod.web` 중 하나라도 비면 `ios/testflight.sh`(인자 없는 운영 레인)와 `scripts/ota-update.sh` 가 `exit 1` 로 멈춘다. 같은 검사가
+Xcode 「Check iOS release Apple audience readiness」 빌드 단계(Release 구성·운영 청중 — `fastlane beta` 직접 실행·Xcode 아카이브도 지난다)와
+`android/app/build.gradle` 의 release 가드(`assemble/bundle/packageRelease`·운영 청중, `prod.web`)에도 있다.
+두 네이티브 가드는 청중(`GROMO_IOS_AUDIENCE`/`GROMO_ANDROID_AUDIENCE`)과 `EXPO_PUBLIC_ENV` 가 어긋나는 빌드도 막는다 — JS 는
+`EXPO_PUBLIC_ENV` 로 행을 고르므로 dev 청중은 `EXPO_PUBLIC_ENV=dev` 여야 하고, 운영 청중은 `dev` 가 아니어야 한다.
 
 ## prod 발급 뒤 할 일
 

@@ -135,6 +135,18 @@ gradle.taskGraph.whenReady { taskGraph ->
             "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
         )
     }
+    // GROMO-2226 — JS 의 Google 클라이언트 행은 EXPO_PUBLIC_ENV 로 고른다. 청중과 어긋나면 빈 prod 행(dev 청중) 또는 dev 행(운영)이 실린다.
+    def publicEnv = System.getenv("EXPO_PUBLIC_ENV")
+    if (includesReleaseArtifactTask && devAudience && publicEnv != "dev") {
+        throw new GradleException(
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_ENV=dev 로 번들해야 합니다(Google 클라이언트 행 선택)."
+        )
+    }
+    if (includesReleaseArtifactTask && !devAudience && publicEnv == "dev") {
+        throw new GradleException(
+            "Android release 차단: 운영 청중인데 EXPO_PUBLIC_ENV=dev 입니다 — dev Google 클라이언트가 운영 번들에 실립니다."
+        )
+    }
     // GROMO-2226 — 운영 Google 클라이언트 id(prod.web)가 비어 있으면 운영 앱의 유일한 소셜 로그인(Google)이
     // CLIENT_PROVIDER_UNAVAILABLE 로 거절된다. iOS testflight.sh·ota-update.sh 와 같은 가드. dev 청중은 dev 행을 쓰므로 통과.
     if (includesReleaseArtifactTask && !devAudience) {
