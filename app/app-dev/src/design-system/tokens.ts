@@ -207,6 +207,15 @@ export const componentTokens = {
     cardRaftSize: 192,
     cardMaxWidth: 354,
   },
+  // 다른 고양이 정보창(GROMO-2474) — 홈·집중섬·휴식 고양이 그림, 바다 뗏목 그림, 바다 한마디 말풍선
+  catInfoPopup: {
+    catSize: 112,
+    raftSize: 160,
+    bubbleMaxWidth: 240,
+    tailWidth: space[3],
+    tailHeight: space[2],
+    gap: space[2],
+  },
   homeNavigation: {
     background: `${color.paper}AD`,
     border: `${color.brown}33`,

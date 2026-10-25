@@ -100,6 +100,28 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen.unmount();
   });
 
+  it('다른 주민 고양이를 누르면 정보창이 뜨고(GROMO-2474), 내 고양이는 정보창 없이 기존 모션 반응이다', async () => {
+    const state = initialState(true);
+    const screen = await renderWithContext(
+      React.createElement(FinalIsland, { state, go: jest.fn(), build: jest.fn() }),
+    );
+    // 목업 섬 주민(민지·두부)은 신원이 있어 누를 수 있다
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('민지 정보 보기'));
+    });
+    expect(screen.getByTestId('cat-info-name')).toHaveTextContent('민지');
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('닫기'));
+    });
+    expect(screen.queryByTestId('cat-info-name')).toBeNull();
+    await act(async () => {
+      fireEvent(screen.getByTestId('home-cat-actor'), 'press', { nativeEvent: { locationX: 10 } });
+    });
+    expect(screen.queryByTestId('cat-info-name')).toBeNull();
+    expect(screen.getByTestId('home-cat-sprite').props.testPropMotion).toBe('tilt');
+    await screen.unmount();
+  });
+
   it('연속 터치 시 다양한 모션(그루밍, 기지개, 하품 등)이 순환 발동된다', async () => {
     const state = initialState(true);
     const screen = await renderWithContext(

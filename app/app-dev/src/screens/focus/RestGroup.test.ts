@@ -118,6 +118,44 @@ test('집중 세션 없는 모닥불은 본인 휴식과 타이머를 만들지 
   await screen.unmount();
 });
 
+test('다른 주민 식빵을 누르면 정보창이 뜨고(GROMO-2474), 내 고양이는 누를 자리가 없다', async () => {
+  const state = initialState(true);
+  state.session = {
+    id: 'focus-session',
+    islandId: state.islandId,
+    subject: '영어',
+    startedAt: 0,
+    restStartedAt: 123_000,
+    seconds: 60,
+    status: 'paused',
+    intervals: [],
+  };
+  const live = {
+    status: 'ready',
+    clockOffset: 0,
+    rest: [
+      {
+        userId: 'peer',
+        name: '두부',
+        catColor: 'cream',
+        restStartedAt: new Date().toISOString(),
+        restSeat: 1,
+      },
+    ],
+  } as any;
+  const screen = await render(
+    React.createElement(RestGroup, { state, live, home: jest.fn(), resume: jest.fn() }),
+  );
+  // 내 자리(1번 loaf-1)에는 누르는 자리가 없다
+  assert.ok(screen.getByTestId('loaf-1'));
+  assert.equal(screen.queryByTestId('rest-cat-me'), null);
+  await fireEvent.press(screen.getByLabelText('두부 정보 보기'));
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('두부');
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  assert.equal(screen.queryByTestId('cat-info-name'), null);
+  await screen.unmount();
+});
+
 test('영어 모닥불 구경은 서버 휴식 주민만 표시하고 준비 중에는 목업 주민을 쓰지 않는다', async () => {
   applyLocalePref('en');
   try {

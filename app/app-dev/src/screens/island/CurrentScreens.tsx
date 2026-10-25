@@ -75,6 +75,7 @@ import {
   fishingSpotsForActors,
   useFishingPeerActors,
   type FishingPeer,
+  type FishingPeerActor,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
@@ -85,6 +86,7 @@ import {
   FiButton,
   FiModal,
   FishingActor,
+  FishingCatArt,
   FishingIsland,
   FishingPeerActorView,
   FishingWalker,
@@ -111,7 +113,7 @@ import {
 import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { outfitOf } from '@/components/CatOutfitLayers';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import {
   GuideBox,
@@ -156,6 +158,7 @@ import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import { CatInfoPopup, FriendActionContext } from '@/screens/island/CatInfoPopup';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import {
   isScreenTimeAvailable,
@@ -388,7 +391,17 @@ export function CurrentScreens({ e }: any) {
   if (owner && guides.data?.focusDone && e.route === 'guide') return null;
   return (
     <>
-      <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      {/* 다른 고양이 정보창(GROMO-2474)의 친구 행동 — 친구 관리와 같은 서버 상태, 목업은 로컬 친구 목록 */}
+      <FriendActionContext.Provider
+        value={{
+          friendsScreen: serverIslands ? friendsScreen : null,
+          conversion: e.conversion,
+          friends: e.state.friends,
+          dispatch,
+        }}
+      >
+        <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      </FriendActionContext.Provider>
       {pending && !guides.data && (
         <Modal
           transparent
@@ -1665,6 +1678,8 @@ function FocusVisit({ e, islandId, onBack }: any) {
   transitionHandler.current = peerFlow.onTransition;
   const peers = peerFlow.actors.filter((actor) => actor.visible);
   const spots = fishingSpotsForActors(peerFlow.actors);
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다(그 사이 자리를 떠나도 창은 그대로)
+  const [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -1673,6 +1688,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         onRaft={close}
         raftLabel={visiting ? t('focusFlow.common.raftLabelVisiting') : undefined}
         gram={i.buildings.includes('gram')}
+        inert={!!catInfo}
       >
         {(size, sizeY, zoom) => {
           const shown = new Set<string>(),
@@ -1702,28 +1718,33 @@ function FocusVisit({ e, islandId, onBack }: any) {
                 kept.push(box);
                 shown.add(label.id);
               });
-          return peers.map((actor) => (
-            <FishingPeerActorView
-              key={actor.key}
-              actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-              outfit={lookOf(
-                live.looks,
-                actor.userId,
-                live.focus.find((m) => m.userId === actor.userId),
-              )}
-              size={size}
-              sizeY={sizeY}
-              reduce={reduce}
-              onEntered={peerFlow.entered}
-              onCast={peerFlow.cast}
-              onPausedExit={peerFlow.leftForPause}
-              onStretch={peerFlow.stretched}
-              onCompletedExit={peerFlow.leftForComplete}
-            />
-          ));
+          return peers.map((actor) => {
+            const outfit = lookOf(
+              live.looks,
+              actor.userId,
+              live.focus.find((m) => m.userId === actor.userId),
+            );
+            return (
+              <FishingPeerActorView
+                key={actor.key}
+                actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                outfit={outfit}
+                size={size}
+                sizeY={sizeY}
+                reduce={reduce}
+                onEntered={peerFlow.entered}
+                onCast={peerFlow.cast}
+                onPausedExit={peerFlow.leftForPause}
+                onStretch={peerFlow.stretched}
+                onCompletedExit={peerFlow.leftForComplete}
+                onPress={() => setCatInfo({ actor, outfit })}
+              />
+            );
+          });
         }}
       </FishingIsland>
       <View
+        {...a11yHidden(!!catInfo)}
         style={{
           position: 'absolute',
           zIndex: 30,
@@ -1809,7 +1830,35 @@ function FocusVisit({ e, islandId, onBack }: any) {
           </View>
         </View>
       ) : null}
+      {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
     </View>
+  );
+}
+type FishingCatInfoTarget = { actor: FishingPeerActor; outfit?: Outfit };
+/** 집중섬 다른 주민 정보창(GROMO-2474) — 낚시 자리와 같은 낚시 자세로 그린다. 주민 집중·낚시 구경이 같이 쓴다. */
+function FishingCatInfo({
+  target,
+  onClose,
+}: {
+  target: FishingCatInfoTarget;
+  onClose: () => void;
+}) {
+  const { actor, outfit } = target;
+  return (
+    <CatInfoPopup
+      userId={actor.userId}
+      name={actor.name}
+      catColor={actor.color}
+      art={
+        <FishingCatArt
+          spot={actor.spot}
+          color={actor.color}
+          outfit={outfit}
+          size={componentTokens.catInfoPopup.catSize}
+        />
+      }
+      onClose={onClose}
+    />
   );
 }
 function FocusFlow({ e: environment }: any) {
@@ -1852,6 +1901,8 @@ function FocusFlow({ e: environment }: any) {
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
+    // 누른 주민 정보창(GROMO-2474)
+    [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null),
     [error, setError] = useState(''),
     [setupHeight, setSetupHeight] = useState(0),
     // 화면 높이 대신 실제 영역 높이(키보드가 뜨면 줄어듦)로 준비 카드 위치를 잡는다
@@ -1876,6 +1927,8 @@ function FocusFlow({ e: environment }: any) {
   useEffect(() => {
     if (r !== 'fishingArrival') returningFromArrival.current = false;
   }, [r]);
+  // 자리 고르기·집중 화면을 떠나면(준비·휴식·결과) 열린 정보창을 닫는다
+  useEffect(() => setCatInfo(null), [r]);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
@@ -3148,7 +3201,7 @@ function FocusFlow({ e: environment }: any) {
           gram={i.buildings.includes('gram')}
           onGram={focusing ? () => setDialog('music') : undefined}
           seated={seated}
-          inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
+          inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
           overlay={
             r === 'focusSetup'
@@ -3249,28 +3302,36 @@ function FocusFlow({ e: environment }: any) {
                     />
                   );
                 })}
-                {peers.map((actor) => (
-                  <FishingPeerActorView
-                    key={actor.key}
-                    actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-                    outfit={lookOf(
-                      live.looks,
-                      actor.userId,
-                      live.focus.find((m) => m.userId === actor.userId),
-                    )}
-                    size={size}
-                    sizeY={sizeY}
-                    emote={emoteByUser.get(actor.userId) ?? null}
-                    reduce={reduce}
-                    goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
-                    goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
-                    onEntered={peerFlow.entered}
-                    onCast={peerFlow.cast}
-                    onPausedExit={peerFlow.leftForPause}
-                    onStretch={peerFlow.stretched}
-                    onCompletedExit={peerFlow.leftForComplete}
-                  />
-                ))}
+                {peers.map((actor) => {
+                  const outfit = lookOf(
+                    live.looks,
+                    actor.userId,
+                    live.focus.find((m) => m.userId === actor.userId),
+                  );
+                  return (
+                    <FishingPeerActorView
+                      key={actor.key}
+                      actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                      outfit={outfit}
+                      size={size}
+                      sizeY={sizeY}
+                      emote={emoteByUser.get(actor.userId) ?? null}
+                      reduce={reduce}
+                      goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
+                      goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
+                      onEntered={peerFlow.entered}
+                      onCast={peerFlow.cast}
+                      onPausedExit={peerFlow.leftForPause}
+                      onStretch={peerFlow.stretched}
+                      onCompletedExit={peerFlow.leftForComplete}
+                      onPress={
+                        (r === 'focus' || r === 'fishingArrival') && !dialog
+                          ? () => setCatInfo({ actor, outfit })
+                          : undefined
+                      }
+                    />
+                  );
+                })}
                 {seated ? (
                   <FishingActor
                     spot={mine}
@@ -3390,7 +3451,7 @@ function FocusFlow({ e: environment }: any) {
           <>
             <View
               pointerEvents="none"
-              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
                 position: 'absolute',
                 zIndex: 5,
@@ -3422,7 +3483,7 @@ function FocusFlow({ e: environment }: any) {
               </Text>
             </View>
             <View
-              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
                 position: 'absolute',
                 zIndex: 5,
@@ -3513,6 +3574,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}
+        {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
       </View>
       {goldenCutsceneOverlay}
     </TutorialScene>

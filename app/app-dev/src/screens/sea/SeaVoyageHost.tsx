@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { errorTextOr, t } from '@/i18n';
+import { t } from '@/i18n';
 import { VideoCutscene } from '@/components/VideoCutscene';
 import type { FocusFinishView } from '@/services/api/focusSessions';
 import { ApiError, uuid } from '@/services/api/client';
 import { getMyInventory } from '@/services/api/shop';
-import { friendErrorKind, sendFriendRequest } from '@/services/api/friends';
 import { arriveWithOutcome } from '@/screens/island/Telescope';
 import { intentKeyPool } from '@/services/model';
 import { getSession, sessionGeneration } from '@/services/api/session';
@@ -498,33 +497,6 @@ export function SeaVoyageHost({ e }: { e: any }) {
               go: e.go,
             }
           : null
-      }
-      onFriendRequest={
-        e.focus
-          ? async (userId) => {
-              const generation = sessionGeneration();
-              const stale = () => !mounted.current || sessionGeneration() !== generation;
-              try {
-                await sendFriendRequest(userId);
-                if (stale()) return false;
-                eRef.current.friendsScreen?.refresh();
-                return true;
-              } catch (thrown) {
-                if (stale()) return false;
-                if (eRef.current.conversion?.offer(thrown)) return false;
-                const kind = friendErrorKind(thrown);
-                if (kind === 'duplicate') eRef.current.friendsScreen?.refresh();
-                eRef.current.notify(
-                  kind === 'duplicate'
-                    ? t('openSea.friendExists')
-                    : kind === 'privacy'
-                      ? t('openSea.friendUnavailable')
-                      : errorTextOr(thrown, 'openSea.retry'),
-                );
-                return false;
-              }
-            }
-          : undefined
       }
       onMessage={async (text) => {
         if (!(await saveSeaRemark(e, text))) return;
