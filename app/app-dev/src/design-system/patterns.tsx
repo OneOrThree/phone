@@ -141,6 +141,8 @@ export function Btn({
   accessibilityHint,
   // 여럿 중 고른 것(뗏목의 마지막 목적지)을 보조기기에도 알린다
   selected,
+  // 그림 장면 위 화면(먼바다)이 버튼 글자도 고운돋움으로 맞출 때만 넘기는 글꼴 이름. 안 주면 종전 시스템 글꼴
+  font,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -240,6 +242,7 @@ export function Btn({
                       ? C.muted
                       : C.ink,
               textAlign: 'center',
+              ...(font ? { fontFamily: font } : {}),
             }}
           >
             {title}

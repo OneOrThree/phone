@@ -1,12 +1,13 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { StyleProp, StyleSheet, TextStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
 import { duckPreviewArt } from './seaRewardCatalog';
 import { SeaRaft } from './SeaRaft';
 import { applyLocalePref } from '@/i18n';
+import { GOWUN } from '@/screens/island/sceneKit';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('./SeaRaft', () => ({ SeaRaft: jest.fn(() => null) }));
@@ -608,4 +609,21 @@ test('표류 중에는 위쪽에 홈과 같은 친구·설정 버튼과 내 고�
   // 호스트가 HUD 를 주지 않으면(결과창·출항 연출) 그리지 않는다
   await screen.rerender(<SeaScreen {...p} hud={null} />);
   expect(screen.queryByLabelText('설정')).toBeNull();
+});
+
+test('먼바다 장면·집중 HUD·버튼·한마디 입력 글자는 고운돋움 하나다(GROMO-2334)', async () => {
+  const font = (node: { props: { style?: StyleProp<TextStyle> } }) =>
+    StyleSheet.flatten(node.props.style)?.fontFamily;
+  const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
+  // 플랫폼별 이름은 sceneKit.GOWUN 이 안다(jest 는 iOS)
+  expect(font(screen.getByTestId('sea-focus-clock'))).toBe(GOWUN);
+  expect(font(screen.getByTestId('sea-self-clock'))).toBe(GOWUN);
+  expect(font(screen.getByText('고양이1'))).toBe(GOWUN);
+  expect(font(screen.getByText('섬에 내리기'))).toBe(GOWUN);
+  await fireEvent.press(screen.getByTestId('sea-focus-message'));
+  expect(font(screen.getByLabelText('한마디 쓰기'))).toBe(GOWUN);
+  expect(font(screen.getByText('닫기'))).toBe(GOWUN);
+  // 표류 중 위쪽 HUD 의 받은 요청 수 배지도 같은 글꼴
+  const drift = await render(<SeaScreen {...props()} hud={{ requests: 2, go: jest.fn() }} />);
+  expect(font(drift.getByText('2'))).toBe(GOWUN);
 });

@@ -103,6 +103,17 @@ test('Btn selected 는 고른 상태를 accessibilityState 로 알린다', async
   expect(getByLabelText('섬').props.accessibilityState.selected).toBeFalsy();
 });
 
+test('Btn 은 font 를 안 주면 글자에 글꼴을 넣지 않고(종전 그대로), 주면 그 글꼴로 그린다', async () => {
+  const { getByText } = await render(
+    <>
+      <Btn title="평범" onPress={jest.fn()} />
+      <Btn title="바다" font="Gowun Dodum" onPress={jest.fn()} />
+    </>,
+  );
+  expect(StyleSheet.flatten(getByText('평범').props.style)).not.toHaveProperty('fontFamily');
+  expect(StyleSheet.flatten(getByText('바다').props.style).fontFamily).toBe('Gowun Dodum');
+});
+
 test('Badge는 componentTokens.badge의 default/soft를 그대로 쓴다', async () => {
   const { getByText } = await render(
     <>
