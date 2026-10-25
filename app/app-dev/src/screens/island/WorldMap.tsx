@@ -1675,7 +1675,9 @@ function FinalIslandScene({
     stepping = useRef(false),
     walkDone = useRef<(() => void) | undefined>(undefined),
     walkCells = useRef<WorldPoint[]>([]),
-    arrival = useRef<Point | null>(null);
+    arrival = useRef<Point | null>(null),
+    // 이 화면에서 이동 채널이 한 번이라도 열렸는지 — 측정을 그 뒤에 켜도 다음 열림을 재접속으로 센다(GROMO-2250 집계).
+    movementOpened = useRef(false);
   const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
   // 실시간으로 받은 다른 주민의 외양(GROMO-2390) — 홈 응답의 appearance 와 version 으로 합쳐 그린다
   const [looks, setLooks] = useState<Record<string, MemberLook>>({});
@@ -1936,7 +1938,10 @@ function FinalIslandScene({
       },
       // 재접속 판정(GROMO-2250 집계)은 movementStats 가 측정 세션 단위로 한다 — 이 effect 가 다시 돌아 새 채널을
       // 열어도(background 복귀 등) 이미 한 번 열린 세션이면 재접속으로 센다.
-      onOpen: () => movementStats.opened(),
+      onOpen: () => {
+        movementOpened.current = true;
+        movementStats.opened();
+      },
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
       onMovementDenied: () => {
@@ -2061,7 +2066,8 @@ function FinalIslandScene({
   // syncIslandId 를 deps 에 넣지 않는다 — background 복귀(null↔id)로 집계가 비워지지 않게.
   useEffect(() => {
     if (!navDebug || !tileNav) return;
-    movementStats.reset();
+    // 채널이 이미 열린 뒤 「이동 보기」로 켜면 그 채널은 다시 열리지 않는다 — 「이미 연결됨」에서 시작한다.
+    movementStats.reset(movementOpened.current);
     const id = setInterval(() => console.log('[GROMO-2250] ' + movementStats.format()), 1000);
     return () => {
       clearInterval(id);

@@ -6,7 +6,8 @@
  *  - Snapshot 간격: 직전 Snapshot 에 MOVING entity 가 있었을 때만 잰다(정지 뒤 공백 제외). 연결이 열리면 끊는다.
  *  - FullState: 마지막 연결(onOpen) 이후 첫 FullState 까지.
  *  - 재접속: 측정 세션(reset 이후)에서 두 번째 이후 onOpen. 채널 인스턴스가 아니라 이 모듈이 접속 이력을 들고 있어
- *    background 복귀·섬 전환으로 채널을 새로 열어도 재접속으로 센다. 이력은 reset 때만 지운다.
+ *    background 복귀·섬 전환으로 채널을 새로 열어도 재접속으로 센다. 이력은 reset 때만 지운다 — 측정 시작 전에
+ *    채널이 이미 열린 적이 있으면 reset(true) 로 「이미 연결됨」에서 시작해 다음 열림을 재접속으로 센다.
  *  - 점프: 서버 위치로 맞출 때(place) 화면 px(= 이미지 px × 그때 배율) 최댓값과 그 표본의 이미지 px·배율.
  */
 type Body = {
@@ -64,7 +65,12 @@ export function createMovementStats(now: () => number = () => Date.now()) {
   };
 
   return {
-    reset() {
+    /**
+     * 측정 시작. alreadyOpened = 측정 시작 전에 이동 채널이 이미 열린 적이 있다(WorldMap 이 onOpen 으로 기록).
+     * 그때는 첫 연결을 관측하지 못했으니 firstFullStateMs 는 「—」로 남긴다 — 측정 시작 시각부터 재면 다음
+     * FullState(대개 재접속 뒤 것)까지의 시간이 첫 연결 지연으로 잘못 찍힌다. 다음 열림부터는 재접속으로 센다.
+     */
+    reset(alreadyOpened = false) {
       enabled = true;
       startedAt = now();
       pending = new Map();
@@ -72,7 +78,7 @@ export function createMovementStats(now: () => number = () => Date.now()) {
       snaps = [];
       lastSnap = null;
       openedAt = null;
-      openedOnce = false;
+      openedOnce = alreadyOpened;
       reconnects = 0;
       firstFullStateMs = lastReconnectToFullStateMs = null;
       maxImagePx = maxScreenPx = 0;

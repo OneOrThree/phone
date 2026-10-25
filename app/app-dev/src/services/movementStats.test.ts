@@ -87,6 +87,23 @@ describe('movementStats', () => {
     );
   });
 
+  test('reset(true) = 측정 전에 이미 열린 채널 — 다음 opened 가 재접속, 관측 못 한 첫 연결 FullState 는 —', () => {
+    const c = clock();
+    const s = createMovementStats(c.now);
+    s.reset(true);
+    c.t = 10;
+    s.onMessage({ type: 'FullState' }, ME); // 측정 시작 뒤지만 이 측정이 본 열림이 없다 — 무시
+    c.t = 1000;
+    s.opened();
+    c.t = 1412;
+    s.onMessage({ type: 'FullState' }, ME);
+    const r = s.summary();
+    assert.deepEqual(
+      [r.reconnects, r.firstFullStateMs, r.lastReconnectToFullStateMs],
+      [1, null, 412],
+    );
+  });
+
   test('점프는 화면 px(이미지 px × 배율) 최댓값과 그 표본의 이미지 px·배율을 남긴다(0 무시)', () => {
     const s = createMovementStats(() => 0);
     s.reset();
