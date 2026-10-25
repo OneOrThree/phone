@@ -12,6 +12,8 @@ on:
       - '.github/workflows/app-android-cd.yml'
       - '.github/workflows/app-android-build.yml'
       - '.github/scripts/wait-app-checks.py'
+      # Android CI 전용 입력 변경도 업로드 게이트가 기다리는 Lint를 예약한다.
+      - '.github/ci/**'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
   pull_request:
@@ -27,6 +29,8 @@ on:
       - '.github/workflows/app-android-cd.yml'
       - '.github/workflows/app-android-build.yml'
       - '.github/scripts/wait-app-checks.py'
+      # Android CI 전용 입력 변경도 업로드 게이트가 기다리는 Lint를 예약한다.
+      - '.github/ci/**'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
 

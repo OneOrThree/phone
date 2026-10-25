@@ -26,3 +26,17 @@ class GateTests(unittest.TestCase):
         base = {'path': '.github/workflows/app-lint.yml', 'id': 1, 'head_sha': SHA,
                 'head_branch': 'main', 'event': 'push', 'status': 'completed', 'conclusion': 'success'}
         self.assertEqual(gate.checks_verdict({'app-lint.yml'}, [base, {**base, 'run_attempt': 2, 'status': 'in_progress'}], SHA)[0], 'waiting')
+
+    def test_android_ci_helper_changes_schedule_required_lint(self):
+        import yaml
+        root = Path(__file__).parents[1] / 'workflows'
+        android = yaml.load((root / 'app-android-ci.yml').read_text(), Loader=yaml.BaseLoader)
+        lint = yaml.load((root / 'app-lint.yml').read_text(), Loader=yaml.BaseLoader)
+        for event in ('push', 'pull_request'):
+            for path in ('.github/ci/android-artifact.py', '.github/ci/posthog-sdk-config.py',
+                         '.github/ci/android-version-code.gradle'):
+                with self.subTest(event=event, path=path):
+                    self.assertTrue(gate.github.matches_paths([path], android['on'][event]['paths']))
+                    self.assertEqual(gate.required_workflows('android', [path], []), {'app-lint.yml'})
+                    self.assertTrue(gate.github.matches_paths([path], lint['on'][event]['paths']))
+            self.assertFalse(gate.github.matches_paths(['server/data-api/build.gradle'], lint['on'][event]['paths']))
