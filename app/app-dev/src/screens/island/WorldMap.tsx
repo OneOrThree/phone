@@ -1685,7 +1685,8 @@ function FinalIslandScene({
   };
   // 주어진 이미지 px 경로(출발점 포함)를 걷는다. 반환값·done 계약은 walk 그대로다(buildingTransition 이 의존).
   // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
-  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
+  // display 는 표시선만 — 서버 경로로 갈아탈 때 출발점부터의 확정 경로(이동은 path=남은 구간). 없으면 path.
+  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number, display?: Point[]) => {
     const run = ++token.current;
     // 걷는 도중 멈추면 고양이는 구간 중간에 서 있다 — 첫 구간의 보이는 출발점으로 기억한다(livePosition).
     let from = livePosition();
@@ -1695,7 +1696,8 @@ function FinalIslandScene({
     // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
     walkDone.current = path.length ? done : undefined;
     // 새 목적지·서버 경로 갈아타기는 선을 통째로 바꾼다. 갈 곳이 없거나(빈 경로) 같은 칸([from])이면 선이 없다.
-    setWalkRoute(path.length > 1 ? path : null);
+    const route = display ?? path;
+    setWalkRoute(route.length > 1 ? route : null);
     if (!path.length) {
       moving(false);
       return false;
@@ -1840,7 +1842,13 @@ function FinalIslandScene({
         return;
       }
       const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
-      walkPath([here, ...worldPath.map((p) => worldToImage(p, size))], walkDone.current, msPerUnit);
+      walkPath(
+        [here, ...worldPath.map((p) => worldToImage(p, size))],
+        walkDone.current,
+        msPerUnit,
+        // 표시선은 서버가 확정한 경로 전체 — 남은 구간만 쓰면 이미 도착한 모션 줄이기에서 길이 0 선이 된다.
+        [start, ...waypoints].map((p) => worldToImage(p, size)),
+      );
     },
     onMyArrived: (p) => {
       const at = worldToImage(p, sizeOf(grid));

@@ -1690,6 +1690,26 @@ describe('경로선 (GROMO-2479)', () => {
     await screen.unmount();
   });
 
+  it('모션 줄이기: Arrived 전에 목적지를 다시 골라 로컬과 다른 서버 경로로 갈아타도 선은 서버 경로 전체로 남는다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    const next = { x: 40.5, y: 46.5 };
+    await tapGround(screen, next);
+    // 로컬 고양이는 이미 next 에 서 있다 — 서버는 한 줄 위로 돌아가는 다른 경로를 확정했다.
+    const server = [{ x: 39.5, y: 45.5 }, { x: 40.5, y: 45.5 }, next];
+    await emit(pathAccepted(ME, 2, 2, SPAWN, server));
+    const r = route(screen)!;
+    expect(r).toHaveLength(4);
+    [SPAWN, ...server].forEach((p, i) => expectNear(r[i], p));
+    await emit(arrived(ME, 2, next));
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
   it('섬이 바뀌면 걷던 경로선을 지운다', async () => {
     jest.useFakeTimers();
     const screen = await renderHome(nextIsland());
