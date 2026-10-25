@@ -2002,7 +2002,8 @@ export function Hall({ e }: any) {
   );
   // 관리 표면은 server snapshot을 받기 전 로컬 Island를 대체 화면으로 쓰지 않는다.
   if (liveManagement) {
-    if (management.loading && !management.detail) {
+    // 서버 섬 id 가 오기 전(GROMO-2460)에도 같은 로딩 화면 — 빈 카드·초대·탈퇴를 그리지 않는다
+    if (!liveIslandId || (management.loading && !management.detail)) {
       return shell(
         managementFrame(
           <View
@@ -2097,11 +2098,6 @@ export function Hall({ e }: any) {
       return;
     }
     if (liveManagement) {
-      // 서버 섬 id 가 오기 전엔 서버 호출 없이 성공 알림만 뜨지 않게 진입 전에 막는다(GROMO-2460)
-      if (!liveIslandId) {
-        notify('섬 정보를 확인하고 있어요.\n잠시 뒤 다시 시도해 주세요.');
-        return;
-      }
       // 서버 모드(4-06): 확인창은 서버 섬 이름·주민 수로, 탈퇴는 서버 명령으로 보낸다.
       // 탈퇴 뒤 어느 섬이 current 가 될지는 서버 재조회가 정한다 — 이동 목적지를 약속하지 않는다.
       const liveSolo = (management.members?.length ?? 0) <= 1;
