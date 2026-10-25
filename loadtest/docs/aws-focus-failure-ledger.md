@@ -35,6 +35,8 @@ GROMO-2420은 부하 하네스의 관측과 복구를 변경한다. 제품의 `4
 
 기본 집중 SLO 확인은 `--journey-p95-limit 1000`, 한계 탐색은 명시적으로 `--journey-p95-limit 5000`을 사용한다. 공용 CLI 기본 지연값은 기존 500ms를 유지한다. 집중 결과의 `configuredVerdict`와 `baselineVerdict`(1초), `sloProfile`을 함께 읽는다. 5초 탐색 PASS를 1초 기본 SLO PASS로 표시하지 않는다.
 
+`firstFailures`는 k6 여정 단위(`failures === 1`) 플래그이고 `following409SameFixture`는 Python이 시각순으로 계산한 fixture 단위 값이라, 한 fixture에 여정이 여러 개면 두 숫자가 어긋날 수 있다. 사후 정리 요약의 `uncheckedAccounts`는 연속 오류 3회로 중단해 점검하지 못한 계정 수이며, `remainingOwnedActive`가 `null`이면 «미확인»이지 정리 완료가 아니다. `fixtureFingerprint`는 salt 없는 SHA-256이므로 고엔트로피 토큰(실제 JWT)을 전제로 하며, 짧은 합성 토큰이면 결과 공개 시 사전 대입이 가능하다. 지문이나 결과 JSON 을 Jira 코멘트 등 결과 디렉터리 밖으로 옮기기 전에 같은 fixture 파일이 이미 알려진 상황이 아닌지 확인한다. 요약을 만드는 쪽은 `sloProfile=exploratory`일 때 최상위 `verdict`만 읽지 말고 `baselineVerdict`를 함께 표기한다(이 저장소에는 해당 요약 출력부가 없어 문서로 갈음).
+
 ## 서버 원장 대조
 
 `scripts/focus-ledger-audit.sql`은 exact fixture UUID JSON과 run UUID를 입력하는 읽기 전용 PostgreSQL 템플릿이다. 운영에는 자동 실행하지 않는다. 최종 부하 종료·사후 정리 후 같은 실행 범위를 동결해 별도 승인된 읽기 경로로 실행하고, 원장 수치와 함께 보관한다. 이 변경에서 실제 운영 DB/Outbox 대조와 5/8 cycles/s × 60초 × 각 3회 재시험은 수행하지 않았다.

@@ -251,10 +251,10 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
     send = request or http_request(base)
     summary = {'runId': run_id, 'mode': 'preflight' if preflight else 'cleanup', 'checked': 0,
         'finished': 0, 'failed': 0, 'preservedForeign': 0, 'remainingOwnedActive': 0,
-        'unknown': 0, 'complete': True, 'checks': []}
+        'unknown': 0, 'uncheckedAccounts': 0, 'complete': True, 'checks': []}
     summary['fixtureFingerprint'] = fixture_fingerprint(users)
     if not preflight and ledger.get('fixtureFingerprint') != summary['fixtureFingerprint']:
-        summary.update(complete=False, unknown=1, reason='FIXTURE_LEDGER_MISMATCH')
+        summary.update(complete=False, unknown=1, uncheckedAccounts=limit, reason='FIXTURE_LEDGER_MISMATCH')
         return summary
     by_marker = {(row['fixtureAlias'], f"lt:{run_id}:{row['journeyId']}"): row
                  for row in ledger.get('journeys', []) if row.get('startIntent') and not row.get('invalid')}
@@ -329,9 +329,9 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
                 summary['finished'] += 1
             except (ValueError, OSError):
                 row['reason'] = 'FINISH_RESPONSE_UNCONFIRMED'
+            row['remainingOwnedActive'] = None  # 종료 뒤 확인 GET 이 실패하면 «미확인» 이다. True/False 로 단정하지 않는다.
             after = call('GET', '/focus-sessions/current')
             if after is not None and not valid_current_state(after):
-                row['remainingOwnedActive'] = None
                 raise ValueError('CURRENT_BODY_UNCONFIRMED')
             row['remainingOwnedActive'] = isinstance(after, dict) and after.get('id') == current['id']
             if row.get('reason'):  # 종료 실패도 오류 횟수에 넣고, 계정 정리가 성공했을 때만 초기화한다.
@@ -354,5 +354,6 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
             summary['unknown'] += row['remainingOwnedActive'] is None or row.get('reason') is not None
             if checkpoint:
                 checkpoint(summary)
+    summary['uncheckedAccounts'] = len(users[:limit]) - len(summary['checks'])  # 연속 오류로 끊겨 점검하지 못한 계정
     summary['complete'] = summary['complete'] and not (summary['failed'] or summary['unknown'] or summary['remainingOwnedActive'])
     return summary

@@ -1,3 +1,5 @@
+-- 실행 예: psql -v ON_ERROR_STOP=1 -X -v run_id=<UUID> -v fixture_user_ids='[...]' -f focus-ledger-audit.sql
+-- 반드시 읽기 전용 role 로 접속한다(트랜잭션 READ ONLY 는 보조 방어일 뿐이다).
 -- psql 변수 run_id(UUID), fixture_user_ids(exact 전용 UUID의 JSON 배열)가 필요하다.
 -- 운영 자동 실행 없음. 부하 종료 후 스키마/배포 SHA 확인을 거친 읽기 전용 대조 템플릿.
 -- UUID/주제/응답 원문을 결과에 출력하지 않는다. 집중/휴식 투영만 집계한다.

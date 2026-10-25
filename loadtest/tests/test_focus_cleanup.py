@@ -46,6 +46,18 @@ class FocusCleanupTest(unittest.TestCase):
                 self.assertEqual(result['unknown'], 1)
                 self.assertIsNone(result['checks'][0]['remainingOwnedActive'])
 
+    def test_after_get_failure_is_unconfirmed_not_cleaned(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(Path(temporary))
+            initial = {'id': SESSION, 'subject': f'lt:{RUN}:{JOURNEY}', 'islandId': ISLAND,
+                       'version': 1, 'status': 'active', 'startedAt': '2026-10-22T00:00:00Z'}
+            replies = iter([{'status': 200, 'data': initial}, {'status': 200, 'data': {'recordId': SESSION}},
+                            {'status': 503, 'data': None}])
+            result = cleanup_focus('http://localhost', [USER], 1, RUN, ledger, request=lambda *args: next(replies))
+        self.assertIsNone(result['checks'][0]['remainingOwnedActive'])
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['unknown'], 1)
+
     def multi_ledger(self, out, count):
         users = [dict(USER, token=f'token-{i}') for i in range(count)]
         events = [dict(type='focus_request', phase='intent', step='start', runId=RUN,
@@ -98,6 +110,7 @@ class FocusCleanupTest(unittest.TestCase):
             result = cleanup_focus('http://localhost', users, 4, RUN, ledger, request=request)
         self.assertEqual(len(posts), 3)
         self.assertEqual(result['failed'], 3)
+        self.assertEqual(result['uncheckedAccounts'], 1)
         self.assertFalse(result['complete'])
 
     def ledger(self, out, users=None):
