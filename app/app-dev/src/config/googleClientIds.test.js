@@ -13,7 +13,7 @@ const schemeOf = (iosClientId) => `com.googleusercontent.apps.${iosClientId.repl
 const projectOf = (clientId) => clientId.match(/^(\d+)-/)?.[1];
 
 test('Info.plist 의 GoogleSignIn 스킴은 JSON 에 채워진 iOS id 를 뒤집은 값과 정확히 같다', () => {
-  const plist = read('ios/GROMO/Info.plist');
+  const plist = read('ios/Cattus/Info.plist');
   const block = plist.match(
     /<string>GoogleSignIn<\/string>\s*<key>CFBundleURLSchemes<\/key>\s*<array>([\s\S]*?)<\/array>/,
   );
@@ -79,7 +79,7 @@ test('운영 빌드 경로(TestFlight 레인·OTA·Xcode Release 단계·Android
   // Xcode Release 아카이브 단계(「Check iOS release Apple audience readiness」)에도 같은 가드 — testflight.sh 를 거치지 않는
   // fastlane 직접 실행·Xcode 아카이브를 막는다. dev 청중(GROMO_IOS_AUDIENCE=dev)은 통과.
   const gradle = read('android/app/build.gradle');
-  const pbxproj = read('ios/GROMO.xcodeproj/project.pbxproj');
+  const pbxproj = read('ios/Cattus.xcodeproj/project.pbxproj');
   expect(pbxproj).toContain(
     '[ \\"${GROMO_IOS_AUDIENCE:-prod}\\" != \\"dev\\" ] && ! \\"${NODE_BINARY:-node}\\" -e \\"const g=require(\'$SRCROOT/../src/config/googleClientIds.json\').prod; process.exit(g.ios && g.web ? 0 : 1)\\"',
   );
