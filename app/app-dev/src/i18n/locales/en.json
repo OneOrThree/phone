@@ -110,7 +110,7 @@
         "sub": "Only the apps you select are recorded.",
         "row": "Screen Time permission",
         "rowUnavailable": "Not available on this device",
-        "rowDenied": "Permission is off. You can ask again",
+        "rowDenied": "Permission is off. You can request it again.",
         "rowNone": "Not connected yet",
         "openUsage": "Open Usage Access settings",
         "done": "Done",
@@ -118,7 +118,7 @@
         "retry": "Ask for permission again",
         "requesting": "Requesting permission…",
         "openSystem": "Open system settings",
-        "laterBoard": "Later, open the board",
+        "laterBoard": "Skip for now and open the board",
         "openBoard": "Open the board",
         "connectBtn": "Connect Screen Time",
         "note": "Without permission, phone-use quests show “Needs check” instead of 0 minutes."
