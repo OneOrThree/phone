@@ -1448,23 +1448,6 @@ export function Hall({ e }: any) {
                   opacity: off ? 0.6 : 1,
                 }}
               >
-                {st === 'done' && (
-                  <Image
-                    testID={`hall-completion-stamp-${b}`}
-                    source={require('@/assets/ui/construction-complete.png')}
-                    accessible={false}
-                    resizeMode="contain"
-                    fadeDuration={0}
-                    style={{
-                      alignSelf: 'flex-end',
-                      width: completionStamp.width,
-                      height: completionStamp.height,
-                      marginRight: completionStamp.inset,
-                      marginBottom: completionStamp.inset,
-                      transform: [{ rotate: completionStamp.rotation }],
-                    }}
-                  />
-                )}
                 {st === 'build' && (
                   <View
                     style={{
@@ -1509,6 +1492,27 @@ export function Hall({ e }: any) {
                     </T>
                   </View>
                 </View>
+                {/* 완공 도장은 그림·글 위에 겹쳐 찍는다(10/26 오스카) — 흐름에 두면 글이 아래로 밀려 도장 띠가 생긴다 */}
+                {st === 'done' && (
+                  <Image
+                    testID={`hall-completion-stamp-${b}`}
+                    source={require('@/assets/ui/construction-complete.png')}
+                    accessible={false}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                    style={{
+                      // 오른쪽 글 칸 세로 가운데에 걸쳐 이름·설명에 비스듬히 찍힌다. 살짝 비쳐 밑 글이 읽힌다
+                      position: 'absolute',
+                      top: '50%',
+                      marginTop: -completionStamp.height / 2,
+                      right: completionStamp.inset,
+                      width: completionStamp.width,
+                      height: completionStamp.height,
+                      opacity: completionStamp.opacity,
+                      transform: [{ rotate: completionStamp.rotation }],
+                    }}
+                  />
+                )}
               </Pressable>
             );
           })}

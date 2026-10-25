@@ -410,6 +410,8 @@ export const componentTokens = {
     lineHeight: 18,
     letterSpacing: 1,
     rotation: '-8deg',
+    // 글 위에 겹쳐 찍으므로 밑 글이 비쳐 읽히게 — 잉크 도장의 반투명 느낌(2026-10-26)
+    opacity: 0.85,
   },
   tileFacility: {
     outline: color.cream,
