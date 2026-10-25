@@ -6,7 +6,6 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import { AdCell, AdCellData } from './AdCell';
-import { islandTitle } from './islandTitle';
 
 const cell = (over: Partial<AdCellData> = {}): AdCellData => ({
   name: '소다',
@@ -134,14 +133,6 @@ describe('AdCell', () => {
       <AdCell testID="c" width={300} cell={cell({ buildingCount: 6 })} />,
     );
     expect(screen.getByTestId('c-island').props.source).toBe(ISLAND_STAGE_ART.houses5);
-  });
-});
-
-describe('islandTitle', () => {
-  it('「섬」으로 끝나면 그대로, 아니면 붙인다', async () => {
-    expect(islandTitle('바다섬')).toBe('바다섬');
-    expect(islandTitle('바다')).toBe('바다섬');
-    expect(islandTitle(' 소다 ')).toBe('소다섬');
   });
 });
 

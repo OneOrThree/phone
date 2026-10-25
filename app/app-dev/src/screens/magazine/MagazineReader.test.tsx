@@ -481,6 +481,14 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
     expect(e.replace).toHaveBeenCalledWith('telescope');
   });
 
+  test('빠진 섬 이름이 이미 「섬」으로 끝나면 「섬」을 한 번 더 붙이지 않는다', async () => {
+    pin.mockResolvedValue({ item: {}, evicted: { islandId: 'old', name: '단풍섬' } });
+    const { screen, e } = await openSea(cellsOnly([cell(2)]));
+    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
+    expect(e.notify).toHaveBeenCalledTimes(1);
+    expect(e.notify).toHaveBeenCalledWith('단풍섬이 망원경에서 빠져요');
+  });
+
   test('요청 중 다시 눌러도 한 번만 넣는다', async () => {
     let done!: (v: unknown) => void;
     pin.mockReturnValue(new Promise((resolve) => (done = resolve)));

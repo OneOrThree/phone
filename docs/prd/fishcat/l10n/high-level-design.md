@@ -104,7 +104,7 @@ sequenceDiagram
 ```
 
 - 같은 값을 다시 누르거나 저장 중에 겹쳐 누르면 무시한다.
-- **왜 `key` 리마운트가 아닌가**: 화면 트리(`CurrentScreens`)에 ref 30여 개, STOMP 구독, 입력 중인 초안 상태가 있어 리마운트하면 전부 날아간다. App 이 매 렌더 새 `e` 객체를 넘기고 화면에 `React.memo` 가 없어서, 재렌더만으로 모든 `t()` 가 다시 불린다.
+- **왜 `key` 리마운트가 아닌가**: 화면 트리(`CurrentScreens`)에 ref 30여 개, STOMP 구독, 입력 중인 초안 상태가 있어 리마운트하면 전부 날아간다. App 이 매 렌더 새 `e` 객체를 넘기고, i18n 문구를 그리는 화면에는 `React.memo` 가 없어서(memo 컴포넌트 6개는 전부 하드코딩 라벨·접근성 숨김 장식이다), 재렌더만으로 모든 `t()` 가 다시 불린다. memo 로 문구를 그리는 자식을 더한다면 `localePref` 를 prop 으로 받아야 따라 바뀐다(`app/app-dev/README.md`).
 - 그래서 번역 문자열을 `React.memo`·`useMemo` 로 감싸면 언어를 바꿔도 옛 언어가 남는다(`WorldMap.tsx` 의 `doors` 계산 위에 메모이즈 금지 주석이 있다).
 
 ### 4.5 서버 오류 문구
@@ -139,9 +139,9 @@ sequenceDiagram
 1. **모듈 최상위 `t()` 금지.** import 시점 언어로 값이 굳는다. 모듈 상수 표는 읽을 때마다 계산하는 **게터**로 만든다(`buildingNames`·`trackNames`·`legacyDoors`·`constructionPhaseLabels`·딸기 테마 상품).
 2. **게터 + 모듈 최상위 스프레드 = 굳음.** `{ ...coords, get label() { … } }` 를 모듈 최상위에서 만들면 Babel `_objectSpread` 가 게터를 import 시점 값으로 복사한다(main 동기화 때 en 테스트 2건이 잡았다 → 좌표를 필드로 적는 헬퍼로 바꿈). 렌더 중의 스프레드는 그 시점 값이라 괜찮다.
 3. **함수 기본 인자의 `t()` 는 괜찮지만, 호출부가 리터럴을 넘기면 덮인다**(방문 중 관전 화면의 뗏목 라벨 사례).
-4. **`useState` 초기값에 번역 라벨을 넣으면 그 순간 언어로 굳는다**(정원 휠 `capacityPick` — 라우트가 바뀔 때마다 현재 언어로 다시 채워 버틴다. 숫자 상태로 바꾸는 정리는 GROMO-2254).
+4. **`useState` 초기값에 번역 라벨을 넣으면 그 순간 언어로 굳는다.** 정원 휠이 겪었다 — 지금은 `capacityPick` 을 숫자 상태로 두고 휠 항목 라벨은 렌더 시점에 `t()` 로 만든다(GROMO-2254).
 5. **`App.tsx` 의 `titles` 는 번역하지 않는다.** Datadog RUM 뷰 이름이라 번역하면 대시보드가 언어별로 갈라진다.
-6. **화면 파일은 실제 렌더 지점으로 판단한다.** App 은 `CurrentScreens` 를 쓰고 `CurrentScreensContent` 가 arrival·travel·focusSetup·focus·rest·focusResult 등을 먼저 가로챈다. 그래서 `Screens.tsx` 의 같은 이름 분기, `IslandHome.tsx`, `WorldViews.tsx` 의 `RestWorld`·`SceneHero`·`Welcome` 은 렌더되지 않는다 — 번역하지 않았고, `CurrentScreens.routing.test.tsx` 가 가로채기를 고정한다(삭제는 GROMO-2254).
+6. **화면 파일은 실제 렌더 지점으로 판단한다.** App 은 `CurrentScreens` 를 쓰고 `CurrentScreensContent` 가 arrival·travel·focusSetup·focus·rest·focusResult 등을 먼저 가로채며, manage·members 는 `Hall` 로 보낸다. `CurrentScreens.routing.test.tsx` 가 이 가로채기를 고정한다. 번역하기 전에 어느 파일이 실제로 그려지는지 확인한다 — 같은 이름 분기와 옛 `IslandHome.tsx`·`RestWorld`·`SceneHero` 처럼 렌더되지 않던 코드는 GROMO-2254 에서 삭제했다.
 7. **ko 값은 기존 리터럴과 글자까지 같게.** 기존 한국어 단언 테스트가 수정 없이 통과하는 것이 그 증거다.
 8. **확인 팁**: iOS 는 로그인 세션이 키체인에 남아 앱을 지우고 다시 깔아도 온보딩이 다시 나오지 않는다 → 로그아웃 후 «게스트로 시작». 웹은 `?review=1&lang=en`.
 
@@ -161,11 +161,13 @@ sequenceDiagram
 - `src/i18n/index.test.ts`: ko·en 리프 키와 `{{var}}` 집합 동치, 로케일 파일 건전성(빈 값·복수형 one/other·en 값에 한글 없음·줄바꿈 개수), business-api `ApiErrorCode` 전 코드가 `errors` 에 있는지, `resolveLocale`·`applyLocalePref`·`t`·`errorText` 규칙.
 - `src/App.sessionCommands.test.tsx`: 부팅 때 언어 적용(2.0 키 우선·1.x 폴백·읽기 실패는 기기 언어), 로그아웃·탈퇴·계정 전환이 `gromo.locale` 을 지우지 않음.
 - 화면별 en 스모크(로그인·언어 화면·홈·온보딩·튜토리얼 대사·할 일 입력 등)와 `CurrentScreens.routing.test.tsx`.
-- 서버 `ApiErrorCode` 가 늘면 앱 테스트가 깨진다(의도된 안전장치). 다만 `app-lint.yml` 경로 필터 때문에 서버만 바뀐 PR 에서는 돌지 않는다(GROMO-2253).
+- 서버 `ApiErrorCode` 가 늘면 앱 테스트가 깨진다(의도된 안전장치). `app-lint.yml` 의 push·pull_request 경로 필터에 `server/business-api/**/ApiErrorCode.java` 가 들어 있어 서버만 바뀐 PR 에서도 돈다(GROMO-2253).
+- `src/App.locale.test.tsx`: 언어 화면에서 English 를 탭하면 화면 문구와 `localePref` prop 을 받는 memo probe 가 영문으로 바뀌고 CurrentScreens 서브트리 언마운트가 0 임을 단언한다. `?review=1&lang=en` 부팅은 저장된 `gromo.locale` 을 읽지 않고 영문, 파라미터가 없으면 한국어임을 `jest.isolateModules` 로 단언한다(GROMO-2253).
+- `src/screens/island/WorldMap.test.tsx`: 새 마을 장면(팻말 없음)에서도 언어 전환 뒤 문 라벨(전망대·마을회관·모닥불)이 새 언어로 바뀐다(GROMO-2253).
+- `.eslintrc.js` 테스트 override: 테스트 파일의 시간대 의존 호출(`getHours`·`getDay`·`getDate`·`toLocale*`)을 막는다 — 고정 시각(`jest.setSystemTime`)을 쓴다(GROMO-2253).
 
 ## 8. 남은 일
 
 - GROMO-1840: 남은 화면(건물 내부·펠리컨/강아지 안내·퀘스트 보상 모달·방문·스크린타임 권한·소셜)과 네이티브 문자열.
-- GROMO-2253: 언어 전환 재렌더·마을 장면 라벨·`?lang=` 부팅 테스트와 CI 경로 필터.
-- GROMO-2254: 렌더되지 않는 코드 삭제, 정원 휠 숫자 상태.
+- 마을회관(`Hall.tsx`)의 정원 휠은 «N명» 문자열을 직접 이어 붙이고 `parseInt` 로 되돌린다 — 새 섬 만들기 휠처럼 숫자 상태와 `t()` 라벨로 바꾸는 정리는 아직 안 했다.
 - Android 실행 중 기기 언어 변경 반영(`AppState` 복귀 때 다시 적용) — 아직 정하지 않았다.

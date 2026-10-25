@@ -100,7 +100,7 @@ test('로케일 건전성 — 같은 키의 ko·en 값은 줄바꿈(\\n) 개수�
   expect(mismatched).toEqual([]);
 });
 
-// 앱 쪽 변경 시점의 정합 검사다 — app-lint.yml 은 app/app-dev/** 에서만 돌아 서버만 바뀐 PR 은 여기 안 걸린다.
+// 서버 쪽 변경 시점에도 돈다 — app-lint.yml 경로 필터에 이 파일(ApiErrorCode.java)이 들어 있어 서버만 바뀐 PR 도 여기 걸린다(GROMO-2253).
 test('errors 는 business-api ApiErrorCode 의 모든 코드를 가진다 — 서버에 코드가 늘면 여기서 잡힌다', () => {
   const javaPath = path.resolve(
     __dirname,

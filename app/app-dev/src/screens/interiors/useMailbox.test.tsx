@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { getBlockedUsers } from '@/services/api/safety';
+import * as sessionModule from '@/services/api/session';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   closeLetter,
@@ -10,6 +11,7 @@ import {
   getMailboxScreen,
   listIslandMessages,
   listLetters,
+  listSystemLetters,
   sendIslandMessage,
   sendLetter,
 } from '@/services/api/letters';
@@ -21,8 +23,11 @@ import {
 } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/letters', () => ({
+  // 시스템 편지 판별 헬퍼(isSystemLetter·isSystemLetterView)는 실제 구현을 쓴다.
+  ...jest.requireActual('@/services/api/letters'),
   getMailboxScreen: jest.fn(),
   listLetters: jest.fn(),
+  listSystemLetters: jest.fn(),
   getLetter: jest.fn(),
   sendLetter: jest.fn(),
   closeLetter: jest.fn(),
@@ -95,6 +100,7 @@ const slice = (content: Record<string, unknown>[], nextCursor: string | null = n
 
 const screenMock = getMailboxScreen as jest.Mock;
 const listLettersMock = listLetters as jest.Mock;
+const listSystemMock = listSystemLetters as jest.Mock;
 const getLetterMock = getLetter as jest.Mock;
 const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
@@ -117,6 +123,7 @@ beforeEach(async () => {
   replaceBlockedUsers([]);
   blockedUsersMock.mockResolvedValue([]);
   screenMock.mockResolvedValue(screen());
+  listSystemMock.mockResolvedValue(slice([]));
 });
 
 test('우체통 진입은 유효한 TTL cache가 있어도 차단 목록을 강제로 재검증한다', async () => {
@@ -475,6 +482,209 @@ test('닫기 실패 — 오류를 던지고 편지를 숨기지 않는다(가짜
   assert.equal(hook.result.current.letters.length, 1);
   assert.equal(listLettersMock.mock.calls.length, 0);
   assert.equal(hook.result.current.closing, false);
+  await hook.unmount();
+});
+
+const systemItem = (over: Record<string, unknown> = {}) =>
+  letterItem({
+    id: 'sys-1',
+    counterpartUserId: null,
+    counterpartNickname: null,
+    content: '섬에서 나가게 됐어요',
+    kind: 'KICK',
+    islandId: 'island-2',
+    ...over,
+  });
+
+test('시스템 편지 — 로드 때 kind=system 을 함께 읽어 systemLetters 에 채우고 letters 는 묶음 그대로다', async () => {
+  // 옛 business 는 kind 를 무시하고 친구함을 돌려준다 — 발신자 있는 항목은 시스템 편지로 받지 않는다.
+  listSystemMock.mockResolvedValue(slice([systemItem(), letterItem({ id: 'friend-in-system' })]));
+
+  const hook = await mount();
+
+  // 시스템 편지는 묶음 뒤에 따로 반영된다 — 기다렸다 본다.
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  const s = hook.result.current;
+  assert.deepEqual(
+    s.systemLetters.map((l) => l.id),
+    ['sys-1'],
+  );
+  assert.deepEqual(
+    s.letters.map((l) => l.id),
+    [LETTER],
+  );
+  assert.equal(listSystemMock.mock.calls.length, 1);
+  // 친구 편지 목록은 묶음(/screens/mailbox) 그대로 — /letters 는 부르지 않는다.
+  assert.equal(listLettersMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('시스템 편지 — kind 가 있으면 counterpartUserId 가 채워져 있어도 시스템 편지로 받는다', async () => {
+  // 서버가 시스템 편지에 발신자 id 를 채워 보내도 버리지 않는다. kind 없는 옛 친구 항목은 여전히 걸러진다.
+  listSystemMock.mockResolvedValue(
+    slice([
+      systemItem({ counterpartUserId: 'u9', counterpartNickname: '방장' }),
+      letterItem({ id: 'friend-in-system' }),
+    ]),
+  );
+
+  const hook = await mount();
+
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  assert.deepEqual(
+    hook.result.current.systemLetters.map((l) => l.id),
+    ['sys-1'],
+  );
+  await hook.unmount();
+});
+
+test('시스템 편지 — 조회가 실패해도 친구 편지는 정상이고 오류를 올리지 않는다', async () => {
+  listSystemMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
+
+  const hook = await mount();
+
+  const s = hook.result.current;
+  assert.deepEqual(s.systemLetters, []);
+  assert.equal(s.letters.length, 1);
+  assert.equal(s.error, null);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 열면 시스템 목록의 isRead 만 맞추고 친구 편지는 그대로다', async () => {
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(letterView({ id: 'sys-1', senderId: null, receiverId: 'u1' }));
+  const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+
+  await act(async () => {
+    await hook.result.current.openLetter('sys-1');
+  });
+
+  assert.equal(hook.result.current.detail?.senderId, null);
+  assert.equal(hook.result.current.systemLetters[0].isRead, true);
+  assert.equal(hook.result.current.letters[0].isRead, false);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 닫으면 시스템 목록도 재조회하고 친구 쪽 호출은 그대로 received,sent 다', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
+  const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  listLettersMock.mockResolvedValue(slice([]));
+  // 재조회가 서버 정본이다 — 닫은 편지는 없고 새로 온 편지가 있다.
+  listSystemMock.mockResolvedValueOnce(slice([systemItem({ id: 'sys-2' })]));
+
+  await act(async () => {
+    await hook.result.current.close('sys-1');
+  });
+
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length, 2));
+  assert.equal(listLettersMock.mock.calls.map((c) => c[0]).join(','), 'received,sent');
+  await waitFor(() =>
+    assert.deepEqual(
+      hook.result.current.systemLetters.map((l) => l.id),
+      ['sys-2'],
+    ),
+  );
+  await hook.unmount();
+});
+
+test('시스템 편지 — 닫은 뒤 시스템 재조회가 실패해도 닫기는 성공하고 이전 값을 유지한다', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
+  const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  listLettersMock.mockResolvedValue(slice([]));
+  listSystemMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
+
+  await act(async () => {
+    await hook.result.current.close(LETTER);
+  });
+
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length, 2));
+  await act(async () => {});
+  assert.equal(hook.result.current.systemLetters.length, 1);
+  assert.equal(hook.result.current.letters.length, 0);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 닫은 뒤 시스템 재조회가 실패해도 닫은 편지는 목록에서 사라진다(되살아나지 않는다)', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listSystemMock.mockResolvedValueOnce(slice([systemItem()]));
+  const hook = await mount();
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  listLettersMock.mockResolvedValue(slice([]));
+  listSystemMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0));
+
+  await act(async () => {
+    await hook.result.current.close('sys-1');
+  });
+
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length, 2));
+  await act(async () => {});
+  assert.deepEqual(hook.result.current.systemLetters, []);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 조회가 끝나지 않아도 친구 편지가 먼저 뜨고(loading false), 나중에 도착하면 채워진다', async () => {
+  let resolveSystem!: (value: unknown) => void;
+  listSystemMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveSystem = resolve;
+    }),
+  );
+
+  const hook = await mount();
+
+  // 시스템 조회가 미해결이어도 묶음은 적용돼 있다.
+  assert.equal(hook.result.current.loading, false);
+  assert.equal(hook.result.current.letters.length, 1);
+  assert.equal(hook.result.current.friends.length, 1);
+  assert.deepEqual(hook.result.current.systemLetters, []);
+
+  await act(async () => {
+    resolveSystem(slice([systemItem()]));
+  });
+
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  assert.equal(hook.result.current.letters.length, 1);
+  await hook.unmount();
+});
+
+test('시스템 편지 — 세대가 바뀐 뒤 늦게 온 응답은 버린다', async () => {
+  let resolveSystem!: (value: unknown) => void;
+  listSystemMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveSystem = resolve;
+    }),
+  );
+  // 렌더마다 systemLetters 길이를 기록한다 — 버린 응답이 한 번도 그려지지 않았음을 본다(재적재가 뒤에 지워도 잡힌다).
+  const seen: number[] = [];
+  const hook = await renderHook(() => {
+    const mailbox = useMailbox({ active: true, scopeKey: 's1' });
+    seen.push(mailbox.systemLetters.length);
+    return mailbox;
+  });
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+
+  // 세대만 바뀐 상황을 만든다 — 실제 계정 전환은 리렌더로 재적재(epoch 교체)까지 일으켜 세대 검사만 따로 볼 수 없다.
+  const generationSpy = jest
+    .spyOn(sessionModule, 'sessionGeneration')
+    .mockReturnValue(sessionModule.sessionGeneration() + 1);
+  try {
+    await act(async () => {
+      resolveSystem(slice([systemItem()]));
+    });
+  } finally {
+    generationSpy.mockRestore();
+  }
+
+  assert.deepEqual(hook.result.current.systemLetters, []);
+  assert.deepEqual(
+    seen.filter((n) => n !== 0),
+    [],
+  );
   await hook.unmount();
 });
 

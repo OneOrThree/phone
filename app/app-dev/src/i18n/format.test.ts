@@ -1,5 +1,5 @@
 import { hoursMinutes } from '@/services/model';
-import { formatDuration } from './format';
+import { formatDuration, islandTitle } from './format';
 import { applyLocalePref } from './index';
 
 afterEach(() => applyLocalePref('system'));
@@ -38,4 +38,17 @@ test('formatDuration — 음수·NaN·Infinity 입력도 기존 hoursMinutes 와
 test('formatDuration — en 은 m·h 단위', () => {
   applyLocalePref('en');
   expect(minutes.map((m) => formatDuration(m * 60))).toEqual(['0m', '59m', '1h', '1h 5m', '2h']);
+});
+
+test('islandTitle — ko 는 「섬」으로 끝나면 그대로, 아니면 붙인다', () => {
+  expect(islandTitle('바다섬')).toBe('바다섬');
+  expect(islandTitle('바다')).toBe('바다섬');
+  expect(islandTitle(' 소다 ')).toBe('소다섬');
+});
+
+test('islandTitle — en 은 ` Island` 를 붙이고, 이미 Island 로 끝나면 그대로', () => {
+  applyLocalePref('en');
+  expect(islandTitle('Sea')).toBe('Sea Island');
+  expect(islandTitle('Sea Island')).toBe('Sea Island');
+  expect(islandTitle('Maple island')).toBe('Maple island');
 });

@@ -8,6 +8,7 @@
     "save": "저장",
     "later": "나중에",
     "manageIsland": "섬 관리",
+    "clearSearch": "검색어 지우기",
     "readyStampA11y": "준비 완료 도장",
     "caughtItem": "낚은 아이템",
     "newBadge": "NEW!"
@@ -159,6 +160,7 @@
       "appleNoCredential": "Apple 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
       "googleCancelled": "Google 로그인 취소",
       "googleNoCredential": "Google 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
+      "googleNotConfigured": "이 빌드에서는 Google 로그인을 쓸 수 없어요.",
       "guestFailed": "게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
       "socialFailed": "로그인을 완료하지 못했어요. 다시 시도해 주세요."
     }
@@ -265,7 +267,6 @@
       "approvalAfterJoinSub": "방장이 확인한 뒤 주민이 돼요",
       "title": "새 섬 만들기",
       "submit": "섬 만들기",
-      "capacityRangeError": "정원은 {{min}}~{{max}}명이에요.",
       "doneTitle": "섬을 만들었어요",
       "doneSub": "「{{island}}」이 내 섬이 됐어요.",
       "nameLabel": "섬 이름",
@@ -402,7 +403,7 @@
       "ok": "알겠어"
     },
     "lock": {
-      "missing": "아직 {{building}}이 없어요",
+      "missing": "아직 {{building}} 없어요",
       "libraryLocked": "도서관을 짓기 전에는 지난 기록을 볼 수 없어요.",
       "lockedGeneric": "완공 후 이용할 수 있어요.",
       "viewNext": "회관에서 다음 건물 보기"
@@ -446,7 +447,7 @@
     "raft": {
       "title": "뗏목",
       "fishingIsland": "낚시섬",
-      "toIsland": "{{name}}섬으로",
+      "toIsland": "{{name}}으로",
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
@@ -748,9 +749,12 @@
     "pin": "망원경에 넣기",
     "pinBody": "뗏목의 망원경에서 이 섬을 볼 수 있어요. 직접 넣은 섬이 가득 차면 가장 먼저 넣은 섬이 빠져요.",
     "pinned": "망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요",
-    "pinnedEvicted": "{{name}}섬이 망원경에서 빠졌어요",
+    "pinnedEvicted": "{{name}}이 망원경에서 빠졌어요",
     "pinForbidden": "이 섬에는 넣을 수 없어요",
     "pinAlreadyMember": "이미 내가 속한 섬이에요"
+  },
+  "mailbox": {
+    "systemSender": "섬 알림"
   },
   "magazine": {
     "islandTitle": "{{name}}섬",
@@ -831,7 +835,9 @@
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
-      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요"
+      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요",
+      "title": "섬 소식",
+      "promotionRow": "섬장이 잡지 홍보에 60마리를 썼어요"
     },
     "reader": {
       "title": "냐옹",
