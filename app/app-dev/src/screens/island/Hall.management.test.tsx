@@ -396,6 +396,21 @@ test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 �
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
 
+test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조회를 보류하고, 도착하면 한 번 부른다(GROMO-2460)', async () => {
+  const islands = {};
+  const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
+  const screen = await render(<Hall e={{ ...e('manage', pending), islands }} />);
+  await act(async () => {});
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, null);
+  expect(getNewsMock).toHaveBeenCalledTimes(0);
+
+  const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands }} />);
+  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
+  assert.equal(getNewsMock.mock.calls[0][0], 'srv-1');
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
+});
+
 test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave 를 보낸다(4-06)', async () => {
   managementMock.mockReturnValue(management({ role: 'member', requests: null }));
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
