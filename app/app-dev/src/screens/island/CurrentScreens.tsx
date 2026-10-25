@@ -836,6 +836,8 @@ function ScreenTimePermissionHelp() {
 }
 
 function AppPermissionManager({ e }: any) {
+  const supportsFocusShield =
+    Platform.OS !== 'android' || screenTimeNative?.supportsFocusShield !== false;
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
   const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -869,7 +871,7 @@ function AppPermissionManager({ e }: any) {
   useEffect(() => {
     let active = true;
     const syncPermissionState = () => {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === 'android' && supportsFocusShield) {
         void screenTimeNative
           ?.canDrawOverlays?.()
           .then((value) => {
@@ -901,22 +903,24 @@ function AppPermissionManager({ e }: any) {
         })
         .catch(() => active && setSelectionStatus('error'));
     };
-    void screenTime
-      .getFocusAllowSafariWeb()
-      .then((value) => {
-        if (active) setAllowSafari(value);
-      })
-      .catch(() => {
-        if (active) e.notify('Safari 허용 설정을 확인하지 못했어요.');
-      });
-    void screenTime
-      .getAllowedSelectionCounts()
-      .then((value) => {
-        if (active) setAllowedCount(selectionCount(value));
-      })
-      .catch(() => {
-        if (active) e.notify('허용 앱 설정을 확인하지 못했어요.');
-      });
+    if (supportsFocusShield) {
+      void screenTime
+        .getFocusAllowSafariWeb()
+        .then((value) => {
+          if (active) setAllowSafari(value);
+        })
+        .catch(() => {
+          if (active) e.notify('Safari 허용 설정을 확인하지 못했어요.');
+        });
+      void screenTime
+        .getAllowedSelectionCounts()
+        .then((value) => {
+          if (active) setAllowedCount(selectionCount(value));
+        })
+        .catch(() => {
+          if (active) e.notify('허용 앱 설정을 확인하지 못했어요.');
+        });
+    }
     syncPermissionState();
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') syncPermissionState();
@@ -971,7 +975,7 @@ function AppPermissionManager({ e }: any) {
     e.go('screenTimeApps', 'settings');
   };
 
-  if (allowedPicker)
+  if (supportsFocusShield && allowedPicker)
     return (
       <Sheet e={e} title="집중 중 허용 앱">
         <AndroidAppPicker
@@ -1014,56 +1018,60 @@ function AppPermissionManager({ e }: any) {
         />
       </Group>
       <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
-      <Txt kind="section">집중 중 허용</Txt>
-      <Group>
-        <Row
-          title="허용 앱"
-          sub={`${allowedCount}개 선택됨`}
-          chevron
-          disabled={busy}
-          onPress={async () => {
-            if (!(approved || (await requestConnection()))) return;
-            if (Platform.OS === 'android') {
-              setAllowedPicker(true);
-              return;
-            }
-            setBusy(true);
-            try {
-              const picked = await screenTime.presentAllowedAppManager();
-              if (picked) setAllowedCount(selectionCount(picked));
-            } catch {
-              e.notify('허용 앱을 변경하지 못했어요.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-        {Platform.OS === 'ios' && (
-          <Row
-            title="Safari 웹사이트 차단 해제"
-            sub="위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요"
-            tail={
-              <Toggle
-                label="집중 중 Safari 웹사이트 차단 해제"
-                value={allowSafari}
-                disabled={busy || !approved}
-                onChange={async (value: boolean) => {
-                  setBusy(true);
-                  try {
-                    await screenTime.setFocusAllowSafariWeb(value);
-                    setAllowSafari(value);
-                  } catch {
-                    e.notify('Safari 허용 설정을 변경하지 못했어요.');
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+      {supportsFocusShield && (
+        <>
+          <Txt kind="section">집중 중 허용</Txt>
+          <Group>
+            <Row
+              title="허용 앱"
+              sub={`${allowedCount}개 선택됨`}
+              chevron
+              disabled={busy}
+              onPress={async () => {
+                if (!(approved || (await requestConnection()))) return;
+                if (Platform.OS === 'android') {
+                  setAllowedPicker(true);
+                  return;
+                }
+                setBusy(true);
+                try {
+                  const picked = await screenTime.presentAllowedAppManager();
+                  if (picked) setAllowedCount(selectionCount(picked));
+                } catch {
+                  e.notify('허용 앱을 변경하지 못했어요.');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+            {Platform.OS === 'ios' && (
+              <Row
+                title="Safari 웹사이트 차단 해제"
+                sub="위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요"
+                tail={
+                  <Toggle
+                    label="집중 중 Safari 웹사이트 차단 해제"
+                    value={allowSafari}
+                    disabled={busy || !approved}
+                    onChange={async (value: boolean) => {
+                      setBusy(true);
+                      try {
+                        await screenTime.setFocusAllowSafariWeb(value);
+                        setAllowSafari(value);
+                      } catch {
+                        e.notify('Safari 허용 설정을 변경하지 못했어요.');
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                }
               />
-            }
-          />
-        )}
-      </Group>
-      {Platform.OS === 'android' && (
+            )}
+          </Group>
+        </>
+      )}
+      {Platform.OS === 'android' && supportsFocusShield && (
         <Group>
           <Row
             title="다른 앱 위에 표시"
@@ -1204,7 +1212,9 @@ function ScreenTimePermission({ e }: any) {
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
       <Txt>
         {Platform.OS === 'android'
-          ? '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
+          ? screenTimeNative?.supportsFocusShield === false
+            ? '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록하며, 화면 내용은 읽지 않아요.'
+            : '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
           : 'catus가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
       </Txt>
       <Group flat>
