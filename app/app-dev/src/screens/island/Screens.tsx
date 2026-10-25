@@ -26,7 +26,6 @@ import {
   Pressable,
   ScrollView,
   FlatList,
-  Share,
   PanResponder,
   StyleSheet,
   Platform,
@@ -35,7 +34,7 @@ import {
   Keyboard,
   BackHandler,
 } from 'react-native';
-import Svg, { Path, Line } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   islandFocusRecord,
@@ -63,7 +62,6 @@ import {
   hoursMinutes,
   CAPACITY_MIN,
   CAPACITY_MAX,
-  inviteCodeOf,
   findIslandByInviteCode,
   balance,
   dayKey,
@@ -90,10 +88,8 @@ import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/so
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
-import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { Ticking } from '@/hooks/useNow';
-import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets, cat } from '@/constants/assets';
 import { seaLoaf, telescopeSea } from '@/screens/sea/seaAssets';
 import {
@@ -132,7 +128,6 @@ import {
   Badge,
   Strip,
   Page,
-  Overlay,
   Wheel,
   Graph,
   EmptyState,
@@ -140,7 +135,6 @@ import {
 } from '@/design-system/patterns';
 import {
   IslandSheet,
-  IslandPopup,
   WoodBoard,
   QuestNote,
   NoticePaper,
@@ -836,19 +830,12 @@ export function RedesignScreens({ e }: any) {
     newQuest,
   } = e;
   const [period, setPeriod] = useState('주'),
-    [fan, setFan] = useState(false),
-    [emote, setEmote] = useState<string | null>(null),
     [custom, setCustom] = useState(false),
-    [memberMenu, setMemberMenu] = useState<string | null>(null),
     [questHours, setQuestHours] = useState('0시간'),
     [questMins, setQuestMins] = useState('30분'),
     [search, setSearch] = useState(''),
-    // 섬 관리: 이름·소개 편집 모드, 정원 드럼 팝업 / 새 섬 만들기와 같이 쓰는 정원 선택값
-    [editing, setEditing] = useState(false),
-    [capacityOpen, setCapacityOpen] = useState(false),
-    [capacityPick, setCapacityPick] = useState(
-      t('onboarding.createIsland.capacityUnit', { count: 15 }),
-    ),
+    // 새 섬 만들기 정원 선택값. 숫자로 두고 휠 라벨은 렌더 시점에 로케일대로 만든다
+    [capacityPick, setCapacityPick] = useState(15),
     [profileName, setProfileName] = useState(state.name),
     [profileColor, setProfileColor] = useState<Color>(state.color),
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
@@ -876,7 +863,6 @@ export function RedesignScreens({ e }: any) {
     // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
     [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
   const chat = useRef<ScrollView>(null),
-    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     serverWriting = useRef(false),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
@@ -889,12 +875,8 @@ export function RedesignScreens({ e }: any) {
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
-    setFan(false);
-    setMemberMenu(null);
     setSearch('');
-    setEditing(false);
-    setCapacityOpen(false);
-    setCapacityPick(t('onboarding.createIsland.capacityUnit', { count: 15 }));
+    setCapacityPick(15);
     setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
@@ -977,7 +959,7 @@ export function RedesignScreens({ e }: any) {
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
-    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound', 'focus'].includes(route),
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
     islandId: snap?.currentIslandId ?? null,
     route,
     category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
@@ -1146,12 +1128,6 @@ export function RedesignScreens({ e }: any) {
     if (!island.buildings.includes('hall')) setHallGuideOpen(true);
     dispatch({ type: 'HALL_GUIDE_DONE' });
   }, [route, state.hallGuide]);
-  useEffect(
-    () => () => {
-      if (emoteTimer.current) clearTimeout(emoteTimer.current);
-    },
-    [],
-  );
   const act = (type: string, p: any = {}) => dispatch({ type, ...p });
   const host = !island.members.some((m) => m.role === 'host');
   // 이름으로 지금 방장인지(공지 작성자·공동 구매자 표시)
@@ -1171,9 +1147,7 @@ export function RedesignScreens({ e }: any) {
         build={build}
         libraryState={e.buildingIndicators?.libraryState}
         showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
-        showHud={route !== 'focusSetup'}
         showActions={false}
-        motion={route === 'focusSetup' ? 'tilt' : undefined}
         boardStatus={e.boardStatus}
       />
     </View>
@@ -1222,25 +1196,6 @@ export function RedesignScreens({ e }: any) {
     } else go('arrival');
   };
   const setTrack = (value: string) => act('TRACK', { value });
-  const startFocus = () => {
-    if (!island.joined) {
-      notify('섬에 가입한 뒤 집중할 수 있어요.');
-      e.replace('sea');
-      return;
-    }
-    // 카운트업 집중: 목표 시간은 받지 않는다
-    act('START', { subject: text });
-    go('focus');
-  };
-  const endFocus = () =>
-    confirm(
-      '집중을 마칠까요?',
-      `지금까지 집중한 ${Math.floor(sessionSeconds(state.session) / 60)}분 ${Math.floor(sessionSeconds(state.session) % 60)}초를 기록해요.`,
-      () => {
-        act('FINISH');
-        reset('focusResult');
-      },
-    );
   // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
   const [sheetToast, setSheetToast] = useState(''),
     // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
@@ -1634,6 +1589,10 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'createIsland') {
+    // 라벨은 렌더 시점에 현재 로케일로 만든다 — 선택값은 숫자(capacityPick)로만 든다
+    const capacityItems = Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
+      t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
+    );
     const capacityWheel = (
       <View style={{ gap: 6 }}>
         <Txt kind="meta" style={{ fontWeight: '600' }}>
@@ -1644,11 +1603,9 @@ export function RedesignScreens({ e }: any) {
           <Wheel
             a11yLabel={t('onboarding.createIsland.capacityA11y')}
             row={layout.compact ? 24 : 44}
-            items={Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
-              t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
-            )}
-            value={capacityPick}
-            onChange={setCapacityPick}
+            items={capacityItems}
+            value={capacityItems[capacityPick - CAPACITY_MIN]}
+            onChange={(v: string) => setCapacityPick(capacityItems.indexOf(v) + CAPACITY_MIN)}
           />
           <WheelFade h={layout.compact ? 14 : 30} />
         </View>
@@ -1686,22 +1643,12 @@ export function RedesignScreens({ e }: any) {
               onPress={() => {
                 // 서버 모드: 응답만으로 성공 처리하지 않고 App 이 /me/islands 재조회로 확정한다
                 if (server) {
-                  const capacity = parseInt(capacityPick, 10);
-                  if (capacity < CAPACITY_MIN || capacity > CAPACITY_MAX) {
-                    setServerError(
-                      t('onboarding.createIsland.capacityRangeError', {
-                        min: CAPACITY_MIN,
-                        max: CAPACITY_MAX,
-                      }),
-                    );
-                    return;
-                  }
                   run(async () => {
                     await server.create({
                       name: text.trim(),
                       intro: body.trim() || undefined,
                       approvalRequired: approval,
-                      maxMembers: capacity,
+                      maxMembers: capacityPick,
                     });
                     setServerDone(text.trim());
                   });
@@ -1711,7 +1658,7 @@ export function RedesignScreens({ e }: any) {
                   name: text,
                   intro: body,
                   approval,
-                  capacity: parseInt(capacityPick, 10),
+                  capacity: capacityPick,
                 });
                 go('arrival');
               }}
@@ -2248,25 +2195,6 @@ export function RedesignScreens({ e }: any) {
       </Onboard>
     );
   }
-  if (route === 'arrival' || route === 'travel')
-    return (
-      <Sailing
-        state={state}
-        from={route === 'arrival' ? '나의 작은 배' : island.name}
-        destination={
-          route === 'arrival'
-            ? island.name
-            : state.islands.find((i) => i.id === visited)?.name || '새로운 섬'
-        }
-        onArrive={() =>
-          route === 'arrival'
-            ? go('guide')
-            : state.islands.find((i) => i.id === visited)?.joined
-              ? (act('SWITCH_ISLAND', { id: visited }), home())
-              : go('visit', visited)
-        }
-      />
-    );
   if (route === 'guide') {
     const lines = [
       t('onboarding.guide.line1'),
@@ -2400,63 +2328,9 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
-  if (route === 'focusSetup')
-    return (
-      <Overlay close={home} background={backgroundHome}>
-        <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Txt kind="h">집중 준비</Txt>
-            <View style={{ width: 36, height: 36, position: 'relative' }}>
-              <View style={{ position: 'absolute', left: 18, top: 30 }}>
-                <CatSprite
-                  color={state.color}
-                  motion="tilt"
-                  size={36}
-                  reduce={state.settings.reduceMotion}
-                />
-              </View>
-            </View>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="닫기"
-            onPress={home}
-            style={{
-              width: 44,
-              height: 44,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Svg width={22} height={22} viewBox="0 0 22 22">
-              <Line
-                x1={5}
-                y1={5}
-                x2={17}
-                y2={17}
-                stroke={C.ink}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-              />
-              <Line
-                x1={17}
-                y1={5}
-                x2={5}
-                y2={17}
-                stroke={C.ink}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-              />
-            </Svg>
-          </Pressable>
-        </View>
-        <Field label="오늘의 할 일" value={text} onChange={setText} placeholder="수학 문제 풀기" />
-        <Btn title="집중 시작" id="start-focus" disabled={!text.trim()} onPress={startFocus} />
-      </Overlay>
-    );
   const focusScene = (
     <View style={{ flex: 1 }}>
-      <FocusSea state={state} emote={emote} />
+      <FocusSea state={state} emote={null} />
       <View
         pointerEvents="none"
         style={{
@@ -2521,94 +2395,6 @@ export function RedesignScreens({ e }: any) {
       )}
     </View>
   );
-  if (route === 'focus')
-    return (
-      <View style={{ flex: 1 }}>
-        {focusScene}
-        <View
-          style={{
-            position: 'absolute',
-            left: (layout.width - layout.floatingWidth) / 2,
-            width: layout.floatingWidth,
-            bottom: ins.bottom + 12,
-          }}
-        >
-          {fan && (
-            <View
-              style={{
-                position: 'absolute',
-                left: 0,
-                bottom: 64,
-                flexDirection: 'row',
-                gap: 8,
-                padding: 6,
-                borderRadius: 999,
-                borderWidth: 1.5,
-                borderColor: C.brown,
-                backgroundColor: '#FFFDFAD9',
-              }}
-            >
-              {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((v, n) => (
-                <Pressable
-                  key={v}
-                  accessibilityRole="button"
-                  accessibilityLabel={['인사', '응원', '졸림', '웃음', '하트뿅뿅'][n]}
-                  onPress={() => {
-                    setEmote(v);
-                    if (emoteTimer.current) clearTimeout(emoteTimer.current);
-                    emoteTimer.current = setTimeout(() => setEmote(null), 3000);
-                  }}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    backgroundColor: emote === v ? C.soft : undefined,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Pic id={'emote/' + v} w={30} />
-                </Pressable>
-              ))}
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="이모티콘"
-              onPress={() => setFan(!fan)}
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: 26,
-                borderWidth: 2,
-                borderColor: C.brown,
-                backgroundColor: '#FFFDFAD0',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0px 3px 0px ' + C.brown,
-              }}
-            >
-              <Pic id={'emote/' + (emote || 'hello')} w={32} />
-            </Pressable>
-            <Btn title="휴식하기" style={{ flex: 1 }} onPress={() => go('rest')} />
-            <Btn title="종료" kind="glass" onPress={endFocus} />
-          </View>
-        </View>
-      </View>
-    );
-  if (route === 'rest')
-    return (
-      <RestWorld
-        state={state}
-        travel={e.restTravel}
-        resume={() => {
-          act('RESUME');
-          go('focus');
-        }}
-        home={home}
-      />
-    );
   if (route === 'sound') {
     const gramophone = componentTokens.gramophone;
     const scene = !!state.session;
@@ -2632,7 +2418,7 @@ export function RedesignScreens({ e }: any) {
           ...ownedTrackIds,
           ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
         ];
-    const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
+    const largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
     const dialogProduct = soundDialog?.product;
     const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
       if (!server) {
@@ -3092,84 +2878,6 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
-  if (route === 'focusResult') {
-    // 20: 부두로 돌아온 섬 위 팝업. 카운트업이라 목표 배지 없음, 게시판 버튼 없음
-    const r = state.lastResult;
-    return (
-      <IslandPopup
-        bg="dock"
-        onClose={home}
-        side={
-          <>
-            {island.buildings.includes('board') && (
-              <>
-                <Txt kind="section" style={layout.compact ? { marginTop: 0 } : undefined}>
-                  이번 퀘스트
-                </Txt>
-                <Group>
-                  {island.quests.map((q) => {
-                    const rate = questRate(state, q);
-                    return (
-                      <Row
-                        key={q.id}
-                        title={q.title}
-                        sub={<Bar value={rate} />}
-                        tail={rate === 100 ? <CheckDot /> : <Txt kind="meta">진행 중</Txt>}
-                      />
-                    );
-                  })}
-                </Group>
-              </>
-            )}
-            <Btn
-              title="섬으로 돌아가기"
-              onPress={home}
-              style={{ marginTop: layout.compact ? 'auto' : 4 }}
-            />
-          </>
-        }
-      >
-        <View style={[k.row, { alignItems: 'flex-end', gap: 12 }]}>
-          <Pic id="cat/black/sitting" w={96} />
-          <View style={{ flex: 1, gap: 6, paddingBottom: 8 }}>
-            <Txt kind="meta">{r?.subject || '아직 기록이 없어요.'}</Txt>
-            <Txt style={[k.number, { fontSize: 44, lineHeight: 46 }]}>{clock(r?.seconds || 0)}</Txt>
-          </View>
-        </View>
-        <View
-          style={[
-            k.row,
-            {
-              gap: 10,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 16,
-              borderWidth: 1.5,
-              borderColor: C.brown,
-              backgroundColor: '#E3F4FC',
-            },
-          ]}
-        >
-          <Pic id="fish" w={36} />
-          <View style={{ gap: 1 }}>
-            <Txt
-              style={{
-                fontSize: 22,
-                lineHeight: 24,
-                fontWeight: '800',
-                fontVariant: ['tabular-nums'],
-              }}
-            >
-              +{r?.fish || 0}
-            </Txt>
-            <Txt kind="meta" style={{ fontSize: 12, lineHeight: 14 }}>
-              물고기
-            </Txt>
-          </View>
-        </View>
-      </IslandPopup>
-    );
-  }
   if (['hall', 'stats', 'ledger'].includes(route)) {
     const records = state.records.filter(
         (r) =>
@@ -3374,430 +3082,6 @@ export function RedesignScreens({ e }: any) {
           />
         </Group>
       </>,
-    );
-  }
-  if (route === 'manage' || route === 'members') {
-    const shareInvite = () =>
-      Share.share({
-        message: `${island.name}에 함께해요! 초대 코드: ${inviteCodeOf(island)}`,
-      }).catch(() => notify('초대 코드: ' + inviteCodeOf(island)));
-    const saveEdit = () => {
-      act('MANAGE', { name: text || island.name, intro: body || island.intro });
-      setEditing(false);
-      notify('저장했어요.');
-    };
-    const people = [
-      { id: 'me', name: state.name, color: state.color, isHost: host },
-      ...island.members.map((m) => ({
-        id: m.id,
-        name: m.name,
-        color: m.color,
-        isHost: m.role === 'host',
-      })),
-    ];
-    const member = island.members.find((m) => m.id === memberMenu);
-    // 정원은 지금 주민 수보다 작게 줄일 수 없다
-    const minCapacity = Math.max(CAPACITY_MIN, residentCount(island));
-    const capacityItems = Array.from(
-      { length: Math.max(0, CAPACITY_MAX - minCapacity + 1) },
-      (_, n) => n + minCapacity + '명',
-    );
-    const panelW = Math.min(540 + ins.right, layout.width - ins.left - 80);
-    const option = (title: string, onPress: () => void, tone = '') => (
-      <Pressable
-        key={title}
-        accessibilityRole="button"
-        accessibilityLabel={title}
-        onPress={onPress}
-        style={{
-          height: 54,
-          borderRadius: 14,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: tone === 'cancel' ? C.cream : undefined,
-        }}
-      >
-        <Txt
-          style={{
-            fontSize: 17,
-            fontWeight: '700',
-            color: tone === 'red' ? '#B84A32' : tone === 'cancel' ? C.muted : C.ink,
-          }}
-        >
-          {title}
-        </Txt>
-      </Pressable>
-    );
-    // 액션 시트·정원 팝업이 떠 있으면 뒤 시트는 스크린리더에서 숨긴다
-    const covered = !!member || capacityOpen;
-    return (
-      <View style={{ flex: 1 }}>
-        <View
-          style={{ flex: 1 }}
-          accessibilityElementsHidden={covered}
-          importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
-          aria-hidden={covered}
-        >
-          <IslandSheet
-            keepOnBackdrop
-            bg="hall"
-            sign="bld/hall"
-            title="섬 관리"
-            tall
-            onBack={back}
-            onClose={home}
-            action={editing ? '완료' : undefined}
-            actionPress={saveEdit}
-            footer={member ? undefined : footer('친구 초대하기', shareInvite)}
-          >
-            {editing ? (
-              <>
-                <Field
-                  label="섬 이름"
-                  value={text}
-                  onChange={setText}
-                  maxLength={ISLAND_NAME_MAX}
-                />
-                <Field
-                  label="섬 소개"
-                  value={body}
-                  onChange={setBody}
-                  multiline
-                  maxLength={ISLAND_INTRO_MAX}
-                />
-              </>
-            ) : (
-              <>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                  }}
-                >
-                  <Txt kind="h" style={{ flexShrink: 1 }}>
-                    {island.name}
-                  </Txt>
-                  {host && (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="섬 이름·소개 수정"
-                      onPress={() => {
-                        setText(island.name);
-                        setBody(island.intro);
-                        setEditing(true);
-                      }}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 17,
-                        borderWidth: 1.5,
-                        borderColor: C.brown,
-                        backgroundColor: C.paper,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Icon name="pencil" size={16} />
-                    </Pressable>
-                  )}
-                </View>
-                {!!island.intro && (
-                  <Txt kind="meta" style={{ marginTop: -6 }}>
-                    {island.intro}
-                  </Txt>
-                )}
-              </>
-            )}
-            <Group flat>
-              <Row
-                title="승인 후 가입"
-                tail={
-                  <Toggle
-                    label="승인 후 가입"
-                    value={island.approval}
-                    onChange={(v: boolean) =>
-                      host ? act('MANAGE', { approval: v }) : notify('방장만 바꿀 수 있어요.')
-                    }
-                  />
-                }
-              />
-              <Row
-                title="정원"
-                sub={`최대 ${CAPACITY_MAX}명`}
-                right={`${capacityOf(island)}명`}
-                chevron={host}
-                onPress={
-                  host
-                    ? () => {
-                        setCapacityPick(capacityOf(island) + '명');
-                        setCapacityOpen(true);
-                      }
-                    : undefined
-                }
-              />
-            </Group>
-            {host && !island.requestResolved && (
-              <>
-                <Txt kind="section">
-                  가입 요청{' '}
-                  <Txt kind="section" style={{ color: '#D95C7F' }}>
-                    1
-                  </Txt>
-                </Txt>
-                <Group>
-                  <Row
-                    title="새봄"
-                    icon="avatar/white"
-                    sub={'어제 · "같이 집중하고 싶어요"'}
-                    style={{ backgroundColor: '#FFF3CF' }}
-                    tail={
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        <Btn
-                          small
-                          title="승인"
-                          onPress={() =>
-                            isFull(island)
-                              ? notify('정원이 가득 찼어요. 정원을 늘린 뒤 승인해 주세요.')
-                              : act('ADD_MEMBER')
-                          }
-                        />
-                        <Btn
-                          small
-                          kind="sec"
-                          title="거절"
-                          onPress={() =>
-                            confirm('가입 요청을 거절할까요?', '새봄님의 요청을 거절해요.', () =>
-                              act('REJECT_MEMBER'),
-                            )
-                          }
-                        />
-                      </View>
-                    }
-                  />
-                </Group>
-              </>
-            )}
-            <Txt kind="section">주민 {people.length}</Txt>
-            {/* 명부 타일: 고양이 사진 · 방장 왕관 · 나는 분홍. 방장이 다른 주민 타일을 누르면 액션 시트 */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-              {people.map((p) => {
-                const selected = memberMenu === p.id;
-                const tile = (
-                  <>
-                    <View
-                      style={{
-                        width: '100%',
-                        aspectRatio: 1,
-                        borderRadius: 16,
-                        borderWidth: 2,
-                        borderColor: C.brown,
-                        backgroundColor: p.id === 'me' ? C.soft : '#E3F4FC',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0px 3px 0px ' + C.brown,
-                        outlineWidth: selected ? 3 : 0,
-                        outlineStyle: 'solid',
-                        outlineColor: C.pink,
-                        outlineOffset: 2,
-                      }}
-                    >
-                      <Pic id={'cat/' + p.color} w="86%" h="86%" />
-                      {p.isHost && (
-                        <View
-                          style={{
-                            position: 'absolute',
-                            top: -8,
-                            right: -8,
-                            width: 26,
-                            height: 26,
-                            borderRadius: 13,
-                            borderWidth: 1.5,
-                            borderColor: C.brown,
-                            backgroundColor: C.butter,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Icon name="crown" size={14} stroke={2.4} fill={C.butter} />
-                        </View>
-                      )}
-                    </View>
-                    <Txt
-                      numberOfLines={1}
-                      style={{
-                        fontSize: 13,
-                        lineHeight: 18,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {p.name}
-                      {p.id === 'me' ? ' · 나' : ''}
-                    </Txt>
-                  </>
-                );
-                const style = {
-                  width: '22.5%',
-                  alignItems: 'center',
-                  gap: 5,
-                } as const;
-                return host && p.id !== 'me' ? (
-                  <Pressable
-                    key={p.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={p.name + ' 메뉴'}
-                    accessibilityState={{ selected }}
-                    onPress={() => setMemberMenu(p.id)}
-                    style={style}
-                  >
-                    {tile}
-                  </Pressable>
-                ) : (
-                  <View key={p.id} style={style}>
-                    {tile}
-                  </View>
-                );
-              })}
-            </View>
-            <Btn
-              title="섬 탈퇴"
-              kind="danger"
-              style={{ alignSelf: 'center' }}
-              onPress={() =>
-                confirm('섬에서 나갈까요?', '이 섬의 주민 목록에서 나가요.', () => {
-                  const hasOtherIsland = state.islands.some(
-                    (candidate) => candidate.joined && candidate.id !== island.id,
-                  );
-                  act('LEAVE');
-                  if (hasOtherIsland) home();
-                  else reset('sea');
-                })
-              }
-            />
-          </IslandSheet>
-        </View>
-        {member && (
-          // 28: 주민 액션 시트(시트 아래, 가로 폰은 패널 안)
-          <View style={StyleSheet.absoluteFill}>
-            <Pressable
-              accessible={false}
-              importantForAccessibility="no-hide-descendants"
-              onPress={() => setMemberMenu(null)}
-              style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3955' }]}
-            />
-            <View
-              style={[
-                {
-                  position: 'absolute',
-                  bottom: 0,
-                  gap: 6,
-                  paddingTop: 10,
-                  paddingHorizontal: 12,
-                  paddingBottom: ins.bottom + 12,
-                  backgroundColor: C.paper,
-                  borderColor: C.brown,
-                },
-                layout.compact
-                  ? {
-                      right: 0,
-                      width: panelW,
-                      paddingRight: 12 + ins.right,
-                      borderTopWidth: 2,
-                      borderLeftWidth: 2,
-                      borderTopLeftRadius: 26,
-                    }
-                  : layout.tablet
-                    ? {
-                        left: (layout.width - layout.modalWidth) / 2,
-                        width: layout.modalWidth,
-                        bottom: ins.bottom + 24,
-                        borderWidth: 2,
-                        borderRadius: 26,
-                      }
-                    : {
-                        left: 0,
-                        right: 0,
-                        borderTopWidth: 2,
-                        borderTopLeftRadius: 26,
-                        borderTopRightRadius: 26,
-                      },
-              ]}
-            >
-              <Txt kind="meta" style={{ textAlign: 'center', paddingTop: 6, paddingBottom: 4 }}>
-                {member.name}
-              </Txt>
-              {option('방장 위임', () =>
-                confirm('방장을 위임할까요?', `${member.name}님에게 방장 권한을 넘겨요.`, () => {
-                  act('TRANSFER', { id: member.id });
-                  setMemberMenu(null);
-                }),
-              )}
-              {option(
-                '섬에서 내보내기',
-                () =>
-                  confirm('주민을 내보낼까요?', `${member.name}님이 이 섬에서 나가요.`, () => {
-                    act('KICK', { id: member.id });
-                    setMemberMenu(null);
-                  }),
-                'red',
-              )}
-              {option('취소', () => setMemberMenu(null), 'cancel')}
-            </View>
-          </View>
-        )}
-        {capacityOpen && (
-          // 정원 행을 누르면 뜨는 작은 드럼 팝업
-          <View
-            style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
-          >
-            <Pressable
-              accessible={false}
-              importantForAccessibility="no-hide-descendants"
-              onPress={() => setCapacityOpen(false)}
-              style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3955' }]}
-            />
-            <View
-              style={{
-                width: layout.compact ? 400 : layout.modalWidth,
-                gap: 10,
-                paddingTop: 20,
-                paddingHorizontal: 20,
-                paddingBottom: 18,
-                borderRadius: 22,
-                borderWidth: 2,
-                borderColor: C.brown,
-                backgroundColor: C.paper,
-                boxShadow: '0px 6px 0px ' + C.brown,
-              }}
-            >
-              <Txt kind="h17">정원</Txt>
-              <Txt kind="meta">
-                지금 주민 {residentCount(island)}명보다 적게 줄일 수 없어요. 최대 {CAPACITY_MAX}명
-              </Txt>
-              <View style={k.row}>
-                <Wheel
-                  a11yLabel="정원"
-                  items={capacityItems}
-                  value={capacityPick}
-                  onChange={setCapacityPick}
-                />
-              </View>
-              <View style={[k.row, { justifyContent: 'flex-end' }]}>
-                <Btn title="취소" kind="ghost" onPress={() => setCapacityOpen(false)} />
-                <Btn
-                  title="정원 저장"
-                  onPress={() => {
-                    const value = parseInt(capacityPick);
-                    act('CAPACITY', { value });
-                    setCapacityOpen(false);
-                    notify(`정원을 ${value}명으로 바꿨어요.`);
-                  }}
-                />
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
     );
   }
   if (route === 'construction') {
@@ -4388,7 +3672,7 @@ export function RedesignScreens({ e }: any) {
         // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
         joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
         // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
-        largeText = (layout.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
+        largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
       return (
         <IslandSheet
           bg="tower"
@@ -5732,7 +5016,8 @@ export function RedesignScreens({ e }: any) {
       onReject: () => void,
       safetyMenu?: React.ReactNode,
     ) => {
-      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      const stacked =
+        !!safetyMenu && layout.fontScale >= semanticTokens.typography.largeTextThreshold;
       return (
         <View
           testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}

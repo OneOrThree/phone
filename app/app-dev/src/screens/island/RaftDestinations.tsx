@@ -3,7 +3,8 @@ import { Modal, View } from 'react-native';
 import { Btn, Overlay, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { RaftDestinationScene } from './RaftDestinationScene';
-import { getLocale, t } from '@/i18n';
+import { t } from '@/i18n';
+import { islandTitle } from '@/i18n/format';
 import { SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { useIslandSailing } from '@/screens/island/useIslandSailing';
 import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
@@ -137,9 +138,7 @@ export function RaftDestinations({ e }: { e: any }) {
                 {destinations.map((m) => (
                   <SheetRow
                     key={m.id}
-                    title={t('home.raft.toIsland', {
-                      name: getLocale() === 'ko' ? m.name.replace(/섬\s*$/, '') : m.name,
-                    })}
+                    title={t('home.raft.toIsland', { name: islandTitle(m.name) })}
                     sub={t('home.raft.visitedMember')}
                     selected={s.lastRaftDestination === m.id}
                     chevron

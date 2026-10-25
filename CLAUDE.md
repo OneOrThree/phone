@@ -123,7 +123,8 @@ files because their deploy paths differ entirely (dev: compose on the VM runner,
 PR checks live in the dev CI file. Shared steps go in a reusable file without an env suffix
 (`satellite-check.yml`, `be-gradle.yml`). App workflows are not renamed yet.
 
-- **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
+- **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**` (plus
+  `server/business-api/**/ApiErrorCode.java`, which the app's error-code parity test reads — GROMO-2253);
   `app-android-build.yml` — Android build checks on native-affecting paths.
   활성 2.0 앱은 이 두 워크플로가 검증한다. ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는
   CI가 없다.** 1.x 핫픽스는 CI가

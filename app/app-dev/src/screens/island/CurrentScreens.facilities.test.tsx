@@ -7,10 +7,13 @@ import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { getIslandNews } from '@/services/api/magazine';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { t } from '@/i18n';
-import { buildingNames, initialState, reducer } from '@/services/model';
+import { initialState, reducer } from '@/services/model';
 
-jest.mock('@/screens/interiors/BuildingInteriors', () => ({ InteriorRoute: () => null }));
+// 잠금 문구가 받침 조사(josa)를 쓰므로 실제 모듈에서 josa 는 살려 두고 InteriorRoute 만 막는다
+jest.mock('@/screens/interiors/BuildingInteriors', () => ({
+  ...jest.requireActual('@/screens/interiors/BuildingInteriors'),
+  InteriorRoute: () => null,
+}));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
   useFriendsScreen: () => ({ data: null }),
 }));
@@ -185,15 +188,23 @@ test.each(['tower', 'explore'])(
     const screen = await render(
       <CurrentScreens e={env(withBuildings(['hall', 'board']), route)} />,
     );
-    screen.getByText(t('home.lock.missing', { building: buildingNames.tower }));
+    screen.getByText('아직 전망대가 없어요');
     assert.equal(screen.queryByTestId(`redesign-${route}`), null);
   },
 );
 
+// 받침 있는 건물(전망대·축음기)은 «이» 가 아니라 «가» — 건물명 뒤 조사를 받침에 맞춘다(GROMO-2283)
+test('축음기를 짓지 않은 섬에서는 «아직 축음기가 없어요» 로 잠겨 있다', async () => {
+  const screen = await render(
+    <CurrentScreens e={env(withBuildings(['hall', 'board']), 'sound')} />,
+  );
+  screen.getByText('아직 축음기가 없어요');
+});
+
 test.each(['tower', 'explore'])('전망대를 지은 섬에서는 %s 가 열린다', async (route) => {
   const screen = await render(<CurrentScreens e={env(withBuildings(['hall', 'tower']), route)} />);
   screen.getByTestId(`redesign-${route}`);
-  assert.equal(screen.queryByText(t('home.lock.missing', { building: buildingNames.tower })), null);
+  assert.equal(screen.queryByText('아직 전망대가 없어요'), null);
 });
 
 test.each(['tower', 'explore'])(

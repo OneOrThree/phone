@@ -18,13 +18,17 @@ import {
   getMailboxScreen,
   listIslandMessages,
   listLetters,
+  listSystemLetters,
   sendIslandMessage,
   sendLetter,
 } from '@/services/api/letters';
 
 jest.mock('@/services/api/letters', () => ({
+  // 시스템 편지 판별 헬퍼(isSystemLetter·isSystemLetterView)는 실제 구현을 쓴다.
+  ...jest.requireActual('@/services/api/letters'),
   getMailboxScreen: jest.fn(),
   listLetters: jest.fn(),
+  listSystemLetters: jest.fn(),
   getLetter: jest.fn(),
   sendLetter: jest.fn(),
   closeLetter: jest.fn(),
@@ -101,6 +105,27 @@ const letterItem = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// 섬 시스템 편지(강퇴·가입 승인, GROMO-2275) — 발신자가 없어 counterpartUserId 가 null 이다.
+const SYSTEM_LETTER = 'sys-1';
+const systemItem = (over: Record<string, unknown> = {}) => ({
+  id: SYSTEM_LETTER,
+  counterpartUserId: null,
+  counterpartNickname: null,
+  content: '소다 섬에서 나가게 됐어요',
+  isRead: false,
+  createdAt: '2026-09-20T12:00:00Z',
+  kind: 'KICK',
+  islandId: 'island-2',
+  ...over,
+});
+
+const slice = (content: Record<string, unknown>[]) => ({
+  content,
+  size: 20,
+  hasNext: false,
+  nextCursor: null,
+});
+
 const letterView = (over: Record<string, unknown> = {}) => ({
   id: LETTER,
   senderId: 'u2',
@@ -114,6 +139,7 @@ const letterView = (over: Record<string, unknown> = {}) => ({
 
 const screenMock = getMailboxScreen as jest.Mock;
 const listLettersMock = listLetters as jest.Mock;
+const listSystemMock = listSystemLetters as jest.Mock;
 const getLetterMock = getLetter as jest.Mock;
 const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
@@ -216,6 +242,7 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   replaceBlockedUsers([]);
   blockedUsersMock.mockResolvedValue([]);
+  listSystemMock.mockResolvedValue(slice([]));
 });
 
 test('우체통 첫 칸 — 글자는 덮개 그림 아래에서 시작하고(새 편지 줄이 붙어도), 네이티브 채팅방 종이에 줄이 있다(GROMO-2409)', async () => {
@@ -343,6 +370,106 @@ test('받은 편지 상세 더보기는 신고 없이 발신자 차단 시트로
   assert.equal(ui.queryByText('신고하기'), null);
   assert.ok(ui.getByText('차단하기'));
   await ui.unmount();
+});
+
+test('시스템 편지 — 발신자가 없으면 받은함에 「섬 알림」으로 보이고 친구 편지와 최신순으로 섞인다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  const ui = await renderMail(makeE());
+
+  await waitFor(() => assert.ok(ui.getByLabelText('섬 알림의 편지 열기')));
+  assert.equal(listSystemMock.mock.calls.length, 1);
+  // 시스템 편지가 더 최근(12시)이라 맨 위, 친구 편지(11시)가 그 아래다.
+  assert.equal(ui.getByTestId('received-letter-0').props.accessibilityLabel, '섬 알림의 편지 열기');
+  assert.equal(ui.getByTestId('received-letter-1').props.accessibilityLabel, '민지의 편지 열기');
+  await ui.unmount();
+});
+
+test('시스템 편지 상세 — 발신자는 「섬 알림」이고 답장 버튼·더보기(차단)가 없다', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: null,
+      senderNickname: null,
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+
+  await waitFor(() => assert.ok(ui.getByText('소다 섬에서 나가게 됐어요')));
+  assert.ok(ui.getByText('섬 알림'));
+  // 닫기는 남는다 — 시스템 편지도 읽고 닫으면 사라진다.
+  assert.ok(ui.getByTestId('close-letter'));
+  expect(ui.queryByTestId('reply-to-letter')).toBeNull();
+  expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
+  await ui.unmount();
+});
+
+test('시스템 편지 — kind 가 있으면 발신자 id·닉네임이 채워져 와도 「섬 알림」이고 답장·더보기가 없다', async () => {
+  const filled = { counterpartUserId: 'u9', counterpartNickname: '방장' };
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem(filled)]));
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: 'u9',
+      senderNickname: '방장',
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByLabelText('섬 알림의 편지 열기')));
+  expect(ui.queryByLabelText('방장의 편지 열기')).toBeNull();
+
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+
+  await waitFor(() => assert.ok(ui.getByText('소다 섬에서 나가게 됐어요')));
+  assert.ok(ui.getByText('섬 알림'));
+  expect(ui.queryByText('방장')).toBeNull();
+  expect(ui.queryByTestId('reply-to-letter')).toBeNull();
+  expect(ui.queryByLabelText('방장 더보기')).toBeNull();
+  expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
+  await ui.unmount();
+});
+
+test('회귀 — 친구 편지 상세는 답장 버튼과 「민지 더보기」가 그대로 있다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByLabelText('민지의 편지 열기')));
+
+  await fireEvent.press(ui.getByLabelText('민지의 편지 열기'));
+
+  await waitFor(() => assert.ok(ui.getByTestId('reply-to-letter')));
+  assert.ok(ui.getByLabelText('민지 더보기'));
+  await ui.unmount();
+});
+
+test('회귀 — 안 읽은 시스템 편지가 있어도 안 읽음 수는 친구 편지만 센다', async () => {
+  // 안 읽은 시스템 편지 1 + 안 읽은 친구 편지 1 + 읽은 친구 편지 1 → 친구 기준 1통
+  screenMock.mockResolvedValue(
+    screen([letterItem(), letterItem({ id: 'letter-2', isRead: true, content: '읽은 편지' })]),
+  );
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  const inbox = await renderMail(makeE());
+
+  await waitFor(() => assert.ok(inbox.getByText('아직 열지 않은 편지 1통')));
+  assert.equal(inbox.getAllByTestId(/^received-letter-/).length, 3);
+  await inbox.unmount();
+
+  // 첫 화면 「새 편지 N통」도 같다.
+  const home = await renderMail(makeE({ tab: '' }));
+  await waitFor(() => assert.ok(home.getByText('새 편지 1통')));
+  expect(home.queryByText('새 편지 2통')).toBeNull();
+  await home.unmount();
 });
 
 test('편지 더보기의 차단은 유지하고 개별 신고 메일은 열지 않는다', async () => {
@@ -515,6 +642,7 @@ test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async ()
     for (const m of [
       screenMock,
       listLettersMock,
+      listSystemMock,
       getLetterMock,
       sendLetterMock,
       closeLetterMock,

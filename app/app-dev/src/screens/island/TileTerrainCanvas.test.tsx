@@ -118,6 +118,14 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
     expect(navDebugText(null, 'bundle')).toBe('경로 없음 · nav bundle');
   });
 
+  it('navDebugText 셋째 줄: stats(GROMO-2250) 가 있으면 붙이고, 생략·null 이면 기존 문자열 그대로', () => {
+    expect(navDebugText(null, 'bundle', null, 0, 'RTT 0건 —')).toBe(
+      '경로 없음 · nav bundle\n서버 없음\nRTT 0건 —',
+    );
+    expect(navDebugText(null, 'bundle', null, 0, null)).toBe('경로 없음 · nav bundle\n서버 없음');
+    expect(navDebugText(null, 'bundle', null, 0)).toBe('경로 없음 · nav bundle\n서버 없음');
+  });
+
   it('navDebugText 둘째 줄: server 가 null(동기화 off) 이면 「서버 없음」, denied 면 「동기화 거절됨」(보완 2·5)', () => {
     // undefined(생략)와 달리 null 은 "동기화 off 를 명시한 호출" — 둘째 줄에 서버 없음을 보여준다.
     expect(navDebugText(null, 'bundle', null)).toBe('경로 없음 · nav bundle\n서버 없음');

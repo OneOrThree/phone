@@ -47,6 +47,12 @@ export EXPO_PUBLIC_ENV=prod
 # shellcheck disable=SC1091
 source ios/release-config.sh
 
+# GROMO-2226 — 운영 Google 클라이언트 id(prod.ios·prod.web)가 비어 있으면 OTA 로 나간 JS 가 Google 로그인을 거절한다.
+if ! node -e "const g=require('./src/config/googleClientIds.json').prod; process.exit(g.ios && g.web ? 0 : 1)"; then
+  echo "❌ OTA 발행 차단: 운영 Google 클라이언트 id 미발급 — src/config/googleClientIds.json prod 칸을 채운 뒤 다시 실행하세요." >&2
+  exit 1
+fi
+
 RUNTIME="$(node -p "require('./app.config.js').expo.runtimeVersion")"
 COMMIT="$(git rev-parse --short HEAD)"
 echo "채널 production · 런타임 ${RUNTIME} · $(git rev-parse --abbrev-ref HEAD)@${COMMIT} · iOS·안드로이드"

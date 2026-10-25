@@ -23,6 +23,14 @@
  * 키로 보내 서버가 원본을 재생한다(중복 글 없음). 성공 응답의 메시지를 목록 끝에
  * 붙이고 clientMessageId/id 로 중복을 막는다.
  *
+ * 섬 시스템 편지(강퇴·가입 승인, GROMO-2275)는 GET /letters?kind=system 으로 따로 읽어
+ * `systemLetters` 에 둔다 — 친구 편지·안 읽음 수·페이지 커서와 섞지 않는다. 조회는 최선
+ * 노력이라 기다리지 않는다: 묶음·받은/보낸 목록을 먼저 적용하고 시스템 편지는 뒤따라
+ * 같은 세션·세대(epoch/generation) 검증을 거쳐 반영하므로, 느리거나 실패해도 친구 우체통·
+ * 닫기·발송을 막지 않는다(재조회 실패는 이전 값 유지). 닫기가 확정된 시스템 편지는 재조회
+ * 결과와 무관하게 바로 뺀다. kind 를 모르는 옛 서버가 친구함을 돌려줘도 시스템 편지(kind 가
+ * 있거나 발신자가 없는 항목, isSystemLetter)만 받는다.
+ *
  * 권한 상실(401/403)이 읽기 경로에서 오면 화면 캐시(편지·낙서·친구·상세)를 지운다 —
  * 권한을 잃은 뒤 캐시된 편지가 다시 보이면 안 된다. 상세의 403/404 는 그 편지의
  * 목록 항목도 함께 지운다.
@@ -35,8 +43,11 @@ import {
   closeLetter as delLetter,
   getLetter,
   getMailboxScreen,
+  isSystemLetter,
+  isSystemLetterView,
   listIslandMessages,
   listLetters,
+  listSystemLetters,
   sendIslandMessage,
   sendLetter as postLetter,
   type LetterItem,
@@ -59,6 +70,8 @@ export type MailboxState = {
   /** 받은 편지 최신순. */
   letters: LetterItem[];
   lettersCursor: string | null;
+  /** 섬 시스템 편지(발신자 없음) 최신순 — 첫 20통만, 안 읽음 수에 넣지 않는다. */
+  systemLetters: LetterItem[];
   /** 보낸 편지 — 닫기·발송 뒤 양쪽 정본 재조회로만 채운다. */
   sent: LetterItem[];
   sentCursor: string | null;
@@ -84,6 +97,7 @@ const EMPTY: MailboxState = {
   messagesCursor: null,
   letters: [],
   lettersCursor: null,
+  systemLetters: [],
   sent: [],
   sentCursor: null,
   friends: [],
@@ -102,6 +116,15 @@ const EMPTY: MailboxState = {
 /** 읽기 경로의 권한 상실은 캐시 삭제다 — 권한 없는 데이터를 화면에 남기지 않는다. */
 const authLost = (error: unknown) =>
   error instanceof ApiError && (error.status === 401 || error.status === 403);
+
+/** 시스템 편지 최선 노력 조회 — 실패(또는 모양 불일치)는 null, 시스템 편지가 아닌 항목(옛 서버의 친구 항목)은 버린다. */
+const fetchSystemLetters = async (): Promise<LetterItem[] | null> => {
+  try {
+    return (await listSystemLetters()).content.filter(isSystemLetter);
+  } catch {
+    return null;
+  }
+};
 
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
@@ -158,11 +181,27 @@ export function useMailbox({
     [],
   );
 
+  // 시스템 편지 조회 순번 — 가장 최근에 시작한 조회의 응답만 반영한다(옛 응답이 닫은 편지를 되살리지 않게).
+  const systemSeq = useRef(0);
+  /** 시스템 편지를 최선 노력으로 읽어 뒤에 반영한다 — 기다리지 않고, 실패하면 이전 값을 둔다. */
+  const loadSystemLetters = useCallback(
+    (e: number, generation: number) => {
+      const seq = ++systemSeq.current;
+      void fetchSystemLetters().then((system) => {
+        if (system && alive(e, generation) && seq === systemSeq.current)
+          set({ systemLetters: system });
+      });
+    },
+    [alive, set],
+  );
+
   const load = useCallback(async () => {
     if (!mounted.current || !active) return;
     const e = ++epoch.current;
     const generation = sessionGeneration();
     set({ ...EMPTY, loading: true });
+    // 묶음과 나란히 시작하되 기다리지 않는다 — 느린 시스템 조회가 친구 우체통 로딩을 묶지 않는다.
+    loadSystemLetters(e, generation);
     try {
       const screen = await getMailboxScreen();
       if (!alive(e, generation)) return;
@@ -184,11 +223,13 @@ export function useMailbox({
     } catch (error) {
       if (!alive(e, generation)) throw error;
       // 권한 상실이면 캐시를 비운 채 오류만 남긴다 — EMPTY patch 가 데이터를 지운다.
-      if (authLost(error)) set({ ...EMPTY, loading: false, error: error as ApiError });
-      else set({ loading: false, error: error as ApiError });
+      if (authLost(error)) {
+        systemSeq.current += 1; // 뒤늦게 온 시스템 편지가 비운 캐시를 다시 채우지 못하게 한다.
+        set({ ...EMPTY, loading: false, error: error as ApiError });
+      } else set({ loading: false, error: error as ApiError });
       throw error;
     }
-  }, [active, alive, set]);
+  }, [active, alive, loadSystemLetters, set]);
 
   const loadMoreLetters = useCallback(async () => {
     const { lettersCursor, loading, loadingMoreLetters } = stateRef.current;
@@ -215,17 +256,19 @@ export function useMailbox({
       });
     } catch (error) {
       if (!alive(e, generation)) return;
-      if (authLost(error))
+      if (authLost(error)) {
+        systemSeq.current += 1;
         set({
           letters: [],
           lettersCursor: null,
+          systemLetters: [],
           sent: [],
           sentCursor: null,
           detail: null,
           loadingMoreLetters: false,
           error: error as ApiError,
         });
-      else set({ loadingMoreLetters: false, error: error as ApiError });
+      } else set({ loadingMoreLetters: false, error: error as ApiError });
     }
   }, [active, alive, cached, set]);
 
@@ -264,6 +307,8 @@ export function useMailbox({
   const refreshLetters = useCallback(
     async (e: number, generation: number) => {
       if (!alive(e, generation)) throw stale();
+      // 시스템 편지는 기다리지 않는다 — 닫기·발송의 성공 판정은 친구 목록 재조회만 본다.
+      loadSystemLetters(e, generation);
       const [received, sent] = await Promise.all([listLetters('received'), listLetters('sent')]);
       if (!alive(e, generation)) throw stale();
       proven.current = { epoch: e, generation };
@@ -274,7 +319,7 @@ export function useMailbox({
         sentCursor: sent.nextCursor,
       });
     },
-    [alive, set],
+    [alive, loadSystemLetters, set],
   );
 
   /**
@@ -292,12 +337,15 @@ export function useMailbox({
       try {
         const detail = await getLetter(letterId);
         if (!alive(e, generation) || seq !== openSeq.current) return;
+        const markRead = (list: LetterItem[]) =>
+          list.map((l) =>
+            l.id === letterId && detail.readAt !== null ? { ...l, isRead: true } : l,
+          );
         set({
           detail,
           detailLoading: false,
-          letters: stateRef.current.letters.map((l) =>
-            l.id === letterId && detail.readAt !== null ? { ...l, isRead: true } : l,
-          ),
+          letters: markRead(stateRef.current.letters),
+          systemLetters: markRead(stateRef.current.systemLetters),
         });
       } catch (error) {
         if (!alive(e, generation) || seq !== openSeq.current) return;
@@ -311,6 +359,9 @@ export function useMailbox({
           letters: gone
             ? stateRef.current.letters.filter((l) => l.id !== letterId)
             : stateRef.current.letters,
+          systemLetters: gone
+            ? stateRef.current.systemLetters.filter((l) => l.id !== letterId)
+            : stateRef.current.systemLetters,
         });
       }
     },
@@ -343,6 +394,12 @@ export function useMailbox({
           if (!(error instanceof ApiError && error.status === 404)) throw error;
           // 404 — 첫 응답이 유실된 재시도거나 다른 곳에서 이미 닫았다. 서버 정본은
           // 「없음」이니 목록 재조회로 같은 상태에 수렴한다.
+        }
+        // 닫기가 확정된 시스템 편지는 재조회 결과(실패 포함)와 무관하게 바로 뺀다 — 재조회가
+        // 실패해도 닫은 편지가 되살아나 눌렀다가 404 가 나지 않게.
+        if (alive(e, generation)) {
+          systemSeq.current += 1; // 이미 떠 있는 옛 조회 응답이 방금 뺀 편지를 되살리지 못하게 이 줄이 직접 올린다.
+          set({ systemLetters: stateRef.current.systemLetters.filter((l) => l.id !== letterId) });
         }
         await refreshLetters(e, generation);
         if (stateRef.current.detail?.id === letterId) set({ detail: null });
@@ -582,8 +639,11 @@ export function useMailbox({
   ]);
 
   const visibleState = useMemo(() => {
+    // 시스템 편지는 목록처럼 차단 판정 밖이다(발신자 id 가 채워져 와도 사람의 편지가 아니다).
     const counterpart = (detail: LetterView) =>
-      detail.senderId === state.myId ? detail.receiverId : detail.senderId;
+      isSystemLetterView(detail)
+        ? ''
+        : ((detail.senderId === state.myId ? detail.receiverId : detail.senderId) ?? '');
     if (active && blockedUsers.status !== 'ready') {
       const blockedListError =
         blockedUsers.status === 'error'
@@ -595,6 +655,7 @@ export function useMailbox({
         ...state,
         messages: [],
         letters: [],
+        systemLetters: [],
         sent: [],
         friends: [],
         detail: null,
@@ -607,8 +668,8 @@ export function useMailbox({
     return {
       ...state,
       messages: state.messages.filter((message) => !blockedIds.has(message.userId)),
-      letters: state.letters.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
-      sent: state.sent.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
+      letters: state.letters.filter((letter) => !blockedIds.has(letter.counterpartUserId ?? '')),
+      sent: state.sent.filter((letter) => !blockedIds.has(letter.counterpartUserId ?? '')),
       friends: state.friends.filter((friend) => !blockedIds.has(friend.userId)),
       detailBlocked: !!state.detail && blockedIds.has(counterpart(state.detail)),
       detail: state.detail && !blockedIds.has(counterpart(state.detail)) ? state.detail : null,

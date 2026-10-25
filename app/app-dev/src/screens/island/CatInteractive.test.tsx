@@ -3,7 +3,6 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { initialState } from '@/services/model';
 import { FinalIsland } from './WorldMap';
-import { IslandHome } from './IslandHome';
 
 jest.mock('@/components/CatSprite', () => {
   const React = require('react');
@@ -141,37 +140,6 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen.unmount();
   });
 
-  it('IslandHome에서도 좌우 터치 및 모션이 올바르게 전환된다', async () => {
-    const state = initialState(true);
-    const screen = await renderWithContext(
-      React.createElement(IslandHome, {
-        state,
-        go: jest.fn(),
-        build: jest.fn(),
-      }),
-    );
-
-    const catActor = screen.getByTestId('island-cat-actor');
-    const getCat = () => screen.getByTestId('island-cat-sprite').props;
-
-    expect(getCat().testPropMotion).toBe('idle');
-
-    // 왼쪽 터치
-    await act(async () => {
-      fireEvent(catActor, 'press', { nativeEvent: { locationX: 20 } });
-    });
-    expect(getCat().testPropLeft).toBe(true);
-    expect(getCat().testPropMotion).toBe('tilt');
-
-    // tilt 모션 1사이클 + 중립 복귀(1820ms) 경과 후 idle로 복귀
-    await act(async () => {
-      jest.advanceTimersByTime(1820);
-    });
-    expect(getCat().testPropMotion).toBe('idle');
-
-    await screen.unmount();
-  });
-
   it('모션이 동작 프레임과 중립 복귀 프레임 노출을 모두 마친 뒤 종료된다', async () => {
     const state = initialState(true);
     const screen = await renderWithContext(
@@ -254,9 +222,9 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen.unmount();
   });
 
-  it('FinalIsland 및 IslandHome에서 부모 뷰와 액터 모두 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
+  it('FinalIsland에서 부모 뷰와 액터 모두 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
     const state = initialState(true);
-    const screen1 = await renderWithContext(
+    const screen = await renderWithContext(
       React.createElement(FinalIsland, {
         state,
         go: jest.fn(),
@@ -264,29 +232,13 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
       }),
     );
 
-    const homeContainer = screen1.getByTestId('home-cat-container');
-    const homeCat = screen1.getByTestId('home-cat-actor');
+    const homeContainer = screen.getByTestId('home-cat-container');
+    const homeCat = screen.getByTestId('home-cat-actor');
     expect(homeContainer.props.style.width).toBeGreaterThanOrEqual(44);
     expect(homeContainer.props.style.height).toBeGreaterThanOrEqual(44);
     expect(homeCat.props.style.width).toBeGreaterThanOrEqual(44);
     expect(homeCat.props.style.height).toBeGreaterThanOrEqual(44);
-    await screen1.unmount();
-
-    const screen2 = await renderWithContext(
-      React.createElement(IslandHome, {
-        state,
-        go: jest.fn(),
-        build: jest.fn(),
-      }),
-    );
-
-    const islandContainer = screen2.getByTestId('cat-arrived');
-    const islandCat = screen2.getByTestId('island-cat-actor');
-    expect(islandContainer.props.style.width).toBeGreaterThanOrEqual(44);
-    expect(islandContainer.props.style.height).toBeGreaterThanOrEqual(44);
-    expect(islandCat.props.style.width).toBeGreaterThanOrEqual(44);
-    expect(islandCat.props.style.height).toBeGreaterThanOrEqual(44);
-    await screen2.unmount();
+    await screen.unmount();
   });
 
   it('낚시섬 구경하기는 갸웃 모션을 기다리지 않고 바로 화면을 전환한다', async () => {

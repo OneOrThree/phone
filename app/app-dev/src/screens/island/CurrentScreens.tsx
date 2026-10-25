@@ -9,7 +9,7 @@ import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJo
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { errorTextOr, t } from '@/i18n';
+import { errorTextOr, getLocale, t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -151,7 +151,7 @@ import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
-import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
+import { InteriorRoute, josa } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
@@ -708,7 +708,15 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
-        <Txt kind="h17">{t('home.lock.missing', { building: buildingNames[required] })}</Txt>
+        <Txt kind="h17">
+          {t('home.lock.missing', {
+            // 한국어는 건물명 받침에 맞춰 이/가(전망대가·축음기가). 영어 단어에는 조사를 붙이지 않는다
+            building:
+              getLocale() === 'ko'
+                ? josa(buildingNames[required], '이', '가')
+                : buildingNames[required],
+          })}
+        </Txt>
         <Txt kind="meta">
           {required === 'library' ? t('home.lock.libraryLocked') : t('home.lock.lockedGeneric')}
         </Txt>
