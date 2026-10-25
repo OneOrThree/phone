@@ -58,7 +58,7 @@ test('클라이언트 id 리터럴과 Web id env 덮어쓰기는 JSON 밖에 두
   expect(read('app.config.js')).toContain("require('./src/config/googleClientIds.json')");
 });
 
-test('운영 TestFlight 레인과 OTA 발행은 prod 칸이 비면 중단한다', () => {
+test('운영 빌드 경로(TestFlight 레인·OTA·Xcode Release 단계·Android release)는 prod 칸이 비면 중단한다', () => {
   const guard = (cwdRelativeJson) =>
     new RegExp(
       `require\\('${cwdRelativeJson}'\\)\\.prod;[^\\n]*\\n\\s*echo "[^\\n]*운영 Google 클라이언트 id 미발급[^\\n]*\\n\\s*exit 1`,
@@ -75,6 +75,14 @@ test('운영 TestFlight 레인과 OTA 발행은 prod 칸이 비면 중단한다'
   expect(guardAt).toBeLessThan(devStart);
 
   expect(read('scripts/ota-update.sh')).toMatch(guard('\\./src/config/googleClientIds\\.json'));
+
+  // Xcode Release 아카이브 단계(「Check iOS release Apple audience readiness」)에도 같은 가드 — testflight.sh 를 거치지 않는
+  // fastlane 직접 실행·Xcode 아카이브를 막는다. dev 청중(GROMO_IOS_AUDIENCE=dev)은 통과.
+  const pbxproj = read('ios/GROMO.xcodeproj/project.pbxproj');
+  expect(pbxproj).toContain(
+    '[ \\"${GROMO_IOS_AUDIENCE:-prod}\\" != \\"dev\\" ] && ! \\"${NODE_BINARY:-node}\\" -e \\"const g=require(\'$SRCROOT/../src/config/googleClientIds.json\').prod; process.exit(g.ios && g.web ? 0 : 1)\\"',
+  );
+  expect(pbxproj).toContain('error: iOS release 차단: 운영 Google 클라이언트 id 미발급');
 
   // Android 운영 release(assemble/bundle/packageRelease)도 같은 가드 — dev 청중(!devAudience 가 거짓)은 통과.
   const gradle = read('android/app/build.gradle');
