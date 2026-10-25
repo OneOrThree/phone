@@ -3,6 +3,8 @@ import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
   castSpot,
+  DEFAULT_CATCH_PLACEMENT,
+  DEFAULT_SPOT,
   fishingCatchPlacement,
   fishingGrid,
   fishingPeerCatchVisible,
@@ -11,6 +13,7 @@ import {
   nearRaft,
   occupied,
   PEER_SPOTS,
+  underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
 import { onLand, type Point } from '@/utils/world-grid';
 import type { Spot } from '@/screens/focus/FishingIsland';
@@ -50,6 +53,12 @@ export const fishingSpotsForActors = (actors: FishingPeerActor[]) =>
   actors.filter((actor) => actor.visible && actor.phase === 'fishing').map((actor) => actor.spot);
 
 const actorKey = (userId: string, sessionId: string) => `${userId}:${sessionId}`;
+// 내 자리에 막힌 자리인지 — 내 고양이 곁(SEAT_GAP)이거나, 내가 DEFAULT_SPOT 에 앉아 고정 물고기 더미가 덮는 곳.
+// 다른 자리에서는 화면이 내 물고기 더미를 주민을 피해 정하므로(fishingCatchPlacement) 고양이 곁만 본다.
+const blockedByMine = (p: Point, mine?: Point) =>
+  !!mine &&
+  (occupied(p, [mine]) ||
+    (mine.x === DEFAULT_SPOT.x && mine.y === DEFAULT_SPOT.y && underDefaultCatch(p)));
 // 예비 자리: 내 자리·서버 자리가 PEER_SPOTS 칸을 여럿 막아 정원 안 주민이 앉을 칸이 모자랄 때만 쓴다.
 // 네 이웃도 땅인 칸 가운데 축음기·뗏목을 피한 곳을 섬 가운데에 가까운 순서로(기기마다 같은 순서).
 const SPARE_SPOTS: Point[] = (() => {
@@ -79,7 +88,14 @@ const SPARE_SPOTS: Point[] = (() => {
 // PEER_SPOTS 칸은 미리 정한 자리 그대로다(내 물고기 자리가 그것을 기준으로 피한다).
 const withCatchPlacements = (actors: FishingPeerActor[], mine?: Point) => {
   const spots = actors.map((actor) => actor.spot),
-    me = mine ? [castSpot(mine)] : [];
+    // 화면은 내가 DEFAULT_SPOT 에 앉으면 고정 물고기 더미를 쓴다(CurrentScreens 2330) — 주민 더미가 그것도 피하게
+    me = mine
+      ? [
+          mine.x === DEFAULT_SPOT.x && mine.y === DEFAULT_SPOT.y
+            ? { ...castSpot(mine), catchPlacement: DEFAULT_CATCH_PLACEMENT }
+            : castSpot(mine),
+        ]
+      : [];
   actors.forEach((actor, index) => {
     if (Object.prototype.hasOwnProperty.call(actor.spot, 'catchPlacement')) return;
     const others = [...spots.filter((_, other) => other !== index), ...me];
@@ -119,7 +135,7 @@ export function useFishingPeerActors({
   realtime?: boolean;
   snapshotVersion?: number;
   snapshotTransitions?: IslandPresenceTransition[];
-  /** 내 자리 — 슬롯·서버 자리가 이 곁(SEAT_GAP)이면 쓰지 않는다. 방문 관전은 없음. */
+  /** 내 자리 — 슬롯·서버 자리가 이 곁(SEAT_GAP)이거나 내 고정 물고기 더미 아래면 쓰지 않는다. 방문 관전은 없음. */
   mine?: Point;
 }) {
   const [actors, setActors] = useState<FishingPeerActor[]>([]);
@@ -143,19 +159,20 @@ export function useFishingPeerActors({
   // 그것도 없으면 겹치지 않는 첫 빈 칸 → 예비 자리. PEER_SPOTS 끼리는 SEAT_GAP 보다 멀어 예약된 칸 자신만 걸린다.
   // 예약은 정원(PEER_SPOTS 15칸)만큼만 — 만석이면 퇴장이 자리를 반납할 때까지 보류한다.
   // reuse 는 곧 반납할 이전 예약을 넘겨받는 것이라 정원에 세지 않고 충돌 검사에서도 뺀다.
-  const alloc = useCallback((key: string, seat?: Point | null, reuse?: Spot) => {
+  // seatOnly 면 서버 자리를 그대로 쓸 수 있을 때만 예약하고, 아니면 아무것도 바꾸지 않고 null(스냅숏 1단계).
+  const alloc = useCallback((key: string, seat?: Point | null, reuse?: Spot, seatOnly = false) => {
     const existing = slots.current.get(key);
     if (existing) return existing;
     if (!reuse && slots.current.size >= PEER_SPOTS.length) return null;
     const others = [...slots.current.values()].filter((spot) => spot !== reuse),
-      taken = mineRef.current ? [mineRef.current, ...others] : others,
-      free = (p: Point) => !occupied(p, taken),
+      free = (p: Point) => !occupied(p, others) && !blockedByMine(p, mineRef.current),
       spare = () => {
         const p = SPARE_SPOTS.find(free);
         return p && castSpot(p);
       },
       usable = seat && onLand(fishingGrid, seat) && !occupied(seat, others) ? seat : null,
       seatFree = usable && free(usable) ? usable : null;
+    if (seatOnly && !seatFree) return null;
     if (usable && !seatFree) displacedByMine.current.add(key);
     else displacedByMine.current.delete(key);
     const spot = seatFree ? castSpot(seatFree) : (reuse ?? PEER_SPOTS.find(free) ?? spare());
@@ -176,7 +193,7 @@ export function useFishingPeerActors({
       const next = current.map((actor) => {
         // 내 자리가 새로 생기거나 옮겨 이미 앉은(예약한) 주민과 겹치면 그 주민을 비켜 앉힌다 — seat 주민은
         // displacedByMine 에 들어가 내 자리가 풀리면 돌아온다(내가 걷는 사이 같은 자리 사건이 온 경우)
-        const blocked = !!mineNow && occupied(actor.spot, [mineNow]);
+        const blocked = blockedByMine(actor.spot, mineNow);
         if (!blocked && !displacedByMine.current.has(actor.key)) return actor;
         slots.current.delete(actor.key);
         const spot = alloc(actor.key, actor.seat, blocked ? undefined : actor.spot) ?? actor.spot;
@@ -232,21 +249,14 @@ export function useFishingPeerActors({
       for (const key of slots.current.keys()) {
         if (!incomingKeys.has(key)) slots.current.delete(key);
       }
-      // 서버 seat 가 있는 주민부터 예약한다 — 좌표 없는 주민의 대체 칸이 정상 seat 를 밀어내 기기마다 다른 자리에
-      // 그리지 않게. 화면 순서(actors)는 스냅숏 순서 그대로다.
-      const incoming = [...snapshotMembers.values()],
-        landed = (member: FishingPeer) => !!member.seat && onLand(fishingGrid, member.seat),
-        reserved = new Map(
-          [...incoming.filter(landed), ...incoming.filter((member) => !landed(member))].map(
-            (member) => {
-              const key = actorKey(member.userId, member.sessionId);
-              return [key, alloc(key, member.seat)] as const;
-            },
-          ),
-        );
+      // 1단계: 쓸 수 있고 비어 있는 서버 seat 를 전부 먼저 예약한다 — 좌표 없는·내 자리에 막힌 주민의 대체 칸이
+      // 뒤 주민의 정상 seat 를 가로채 기기마다 다른 자리에 그리지 않게. 2단계는 남은 주민을 스냅숏 순서대로 앉힌다.
+      const incoming = [...snapshotMembers.values()];
+      for (const member of incoming)
+        alloc(actorKey(member.userId, member.sessionId), member.seat, undefined, true);
       return incoming.flatMap((member) => {
         const key = actorKey(member.userId, member.sessionId),
-          spot = reserved.get(key);
+          spot = alloc(key, member.seat);
         if (!spot) return [];
         return [
           {

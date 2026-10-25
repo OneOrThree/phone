@@ -8,12 +8,16 @@ import {
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
   castSpot,
+  DEFAULT_CATCH_PLACEMENT,
   DEFAULT_SPOT,
   fishingCatchPlacement,
   PEER_SPOTS,
   LANDING,
+  fishingGrid,
   occupied,
+  underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
+import { onLand } from '@/utils/world-grid';
 
 const peer: FishingPeer = {
   userId: 'u1',
@@ -604,10 +608,10 @@ test('슬롯 배정은 내 자리(SEAT_GAP) 곁 칸을 건너뛰고, 내 자리 
   const { result } = await renderHook(() =>
     useFishingPeerActors({ members, ready: true, reduce: false, mine: PEER_SPOTS[0] }),
   );
-  // 땅 위 seat(u2)를 먼저 예약한다 — 내 자리에 막혀 칸 1, 좌표 없는 u1 은 그다음 칸 2
+  // 칸 0 은 내 자리 곁이라 건너뛴다 — 쓸 수 있는 seat 가 없어 스냅숏 순서대로 u1 은 칸 1, 내 자리에 막힌 u2 는 칸 2
   assert.deepEqual(
     result.current.actors.map((actor) => actor.slot),
-    [2, 1],
+    [1, 2],
   );
 });
 
@@ -720,4 +724,89 @@ test('서버 자리 주민의 물고기 그림은 곁 주민 고양이를 덮지
   assert.deepEqual([a.spot.x, b.spot.x], [first.x, second.x]);
   assert.ok(a.spot.catchPlacement);
   assert.notEqual(fishingCatchPlacement(castSpot(second), [a.spot]), null);
+});
+
+test('스냅숏은 서버 seat 를 전부 먼저 예약한 뒤 내 자리에 막힌 주민의 대체 칸을 정한다', async () => {
+  const seatB = { x: PEER_SPOTS[0].x, y: PEER_SPOTS[0].y },
+    members: FishingPeer[] = [
+      { ...peer, userId: 'a', sessionId: 's-a', seat: DEFAULT_SPOT },
+      { ...peer, userId: 'b', sessionId: 's-b', seat: seatB },
+    ];
+  let mine: { x: number; y: number } | undefined = DEFAULT_SPOT;
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, mine }),
+  );
+  const at = (index: number) => {
+    const spot = result.current.actors[index].spot;
+    return [spot.x, spot.y];
+  };
+  // A 가 내 자리에 막혀 대체 칸(0번)을 먼저 가져가면 B 의 정상 seat 까지 밀려난다
+  assert.deepEqual(at(1), [seatB.x, seatB.y]);
+  assert.equal(occupied(result.current.actors[0].spot, [DEFAULT_SPOT, seatB]), false);
+  mine = undefined;
+  await rerender(undefined);
+  assert.deepEqual(at(0), [DEFAULT_SPOT.x, DEFAULT_SPOT.y]);
+  assert.deepEqual(at(1), [seatB.x, seatB.y]);
+});
+
+test('내가 DEFAULT_SPOT 에 앉으면 고정 물고기 더미 아래 seat 주민은 비켜 앉고, 다른 자리로 옮기면 돌아온다', async () => {
+  // 내 고양이와는 SEAT_GAP 보다 멀어 거리 검사는 통과하지만 고정 더미(DEFAULT_CATCH_PLACEMENT)가 고양이를 덮는 땅 자리
+  const seat = { x: 20, y: 59 },
+    members = [{ ...peer, seat }];
+  assert.ok(onLand(fishingGrid, seat));
+  assert.equal(occupied(seat, [DEFAULT_SPOT]), false);
+  assert.ok(underDefaultCatch(seat));
+  let mine: { x: number; y: number } | undefined = DEFAULT_SPOT;
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, mine }),
+  );
+  const at = () => [result.current.actors[0].spot.x, result.current.actors[0].spot.y];
+  assert.notDeepEqual(at(), [seat.x, seat.y]);
+  assert.equal(underDefaultCatch(result.current.actors[0].spot), false);
+  // DEFAULT_SPOT 이 아닌 땅 자리 — 내 물고기 더미는 화면이 주민을 피해 정한다
+  mine = { x: PEER_SPOTS[1].x, y: PEER_SPOTS[1].y };
+  await rerender(undefined);
+  assert.deepEqual(at(), [seat.x, seat.y]);
+  // 다시 DEFAULT_SPOT 에 앉는 순간 더미 아래 주민을 비켜 앉힌다(내 자리 변경 effect)
+  mine = DEFAULT_SPOT;
+  await rerender(undefined);
+  assert.equal(underDefaultCatch(result.current.actors[0].spot), false);
+});
+
+test('내가 DEFAULT_SPOT 에 앉으면 서버 자리 주민의 물고기 더미는 내 고정 더미를 피한다', async () => {
+  // 물고기 프레임(고양이 크기 1.1배) 영역 — FishingIsland 의 catchBounds 와 같은 식
+  const pile = (spot: { x: number; y: number }, placement: { left: number; top: number }) => {
+      const left = spot.x + (placement.left - 0.5) * 7.7,
+        top = spot.y + (placement.top - 0.90625) * 11.55;
+      return { left, right: left + 8.47, top, bottom: top + 12.705 };
+    },
+    overlap = (a: ReturnType<typeof pile>, b: ReturnType<typeof pile>) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top,
+    myPile = pile(DEFAULT_SPOT, DEFAULT_CATCH_PLACEMENT!),
+    seat = { x: 24, y: 52 };
+  // 땅 위이고 내 고양이 곁도 고정 더미 아래도 아니라 seat 그대로 앉지만, 내 고양이만 피한 더미는 내 고정 더미와 겹친다.
+  // 고정 더미를 피하고도 곁에 더미 놓을 땅이 남는 자리다({x:27,y:46} 처럼 남지 않으면 더미를 숨긴다 — null)
+  assert.ok(onLand(fishingGrid, seat));
+  assert.equal(occupied(seat, [DEFAULT_SPOT]), false);
+  assert.equal(underDefaultCatch(seat), false);
+  const naive = fishingCatchPlacement(castSpot(seat), [castSpot(DEFAULT_SPOT)]);
+  assert.ok(naive && overlap(pile(seat, naive), myPile));
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({
+      members: [{ ...peer, seat }],
+      ready: true,
+      reduce: false,
+      mine: DEFAULT_SPOT,
+    }),
+  );
+  const spot = result.current.actors[0].spot;
+  assert.deepEqual([spot.x, spot.y], [seat.x, seat.y]);
+  assert.deepEqual(
+    spot.catchPlacement,
+    fishingCatchPlacement(castSpot(seat), [
+      { ...castSpot(DEFAULT_SPOT), catchPlacement: DEFAULT_CATCH_PLACEMENT },
+    ]),
+  );
+  assert.ok(spot.catchPlacement);
+  assert.equal(overlap(pile(seat, spot.catchPlacement), myPile), false);
 });
