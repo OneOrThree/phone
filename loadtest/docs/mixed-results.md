@@ -27,7 +27,7 @@ fixture는 최소 `300 + --chat-connections` 명이 필요하다(채팅 300이�
 
 JSON은 같은 디렉터리의 임시 파일에 fsync한 뒤 rename한다. 감독자가 살아 있는 자식에게 먼저 SIGINT를 보내고 유예 후 프로세스 그룹에 SIGTERM/SIGKILL을 보내므로 Python과 k6가 중복 SIGINT로 집계를 잃는 것을 피한다. 정전·커널 패닉에서는 rename 뒤 디렉터리 fsync가 없어 마지막 저장이 사라질 수 있다. 감독자 자체가 SIGKILL되거나 머신이 사라지는 경우 최종 집계 보존은 보장하지 못한다. 남아 있는 체크포인트와 raw를 이용해 회수해야 한다.
 
-> 아래 Realtime 서버 쪽 서술(`server_socket_id`·`cleanup=NOT_OBSERVED`·`WebSocketConnectionDiagnosticsTest`)은 **Realtime 서버 PR(티켓 2417 키, 2419 진단 로그 포함)이 머지된 뒤에만 유효**하다. 머지 순서: Realtime 서버 PR → 이 loadtest PR.
+> 아래 Realtime 서버 쪽 서술(`server_socket_id`·`cleanup=NOT_OBSERVED`·`WebSocketConnectionDiagnosticsTest`)은 **Realtime 서버 PR(티켓 2417 키, 2419 진단 로그 포함)이 머지된 뒤에만 유효**하다. 이 loadtest PR 이 먼저 머지되면 서버 쪽 대조 로그는 Realtime 서버 PR 이 머지·배포된 뒤에 생긴다 — 머지 순서 제약이 아니라 AWS 재실행(30섬×10명) 착수의 선행조건이다.
 
 WebSocket URL에는 `loadtestRunId`와 `loadtestConnectionId` UUID만 추가한다. nginx의 기존 요청 로그와 Realtime의 `websocket_connection` 이벤트를 시간·UUID로 맞출 수 있다. `server_socket_id`는 서버 WebSocket 세션 ID이며 기존 소켓 로그와의 연결에 사용한다. 인증 세션 ID는 기록하지 않는다. `CLOSED`는 종료 콜백을 관측한 시점이고 뒤따르는 정리 완료는 별도 확인한다(`cleanup=NOT_OBSERVED`). 이 값은 클라이언트가 제시한 **상관관계 힌트**이며 인증된 신원이나 원인 증거가 아니다. Realtime는 UUID 둘이 유효할 때만 관측하고 원문 URL·reason·예외 메시지를 기록하지 않는다. `initiator`는 `CLIENT`/`UNKNOWN`/`PEER`뿐이며, `PEER`는 프록시/서버 중 어느 쪽인지 구분하지 않고 1011·1012 같은 서버 오류 종료도 `PEER`로 묶는다. 클라이언트 `finish()`가 서버 close 프레임 처리 중에 겹치면 `CLIENT`로 기록될 수 있다. `closeEvents`는 첫 10개만 남기고 총 종료 수는 `closeCount`에 기록한다. `HEARTBEAT_TIMEOUT` 선언이 없으면 코드·경과 시간만으로 heartbeat 장애라고 단정하지 않는다. 실제 운영 원인은 서버·nginx·kernel 로그와 함께 판정한다.
 

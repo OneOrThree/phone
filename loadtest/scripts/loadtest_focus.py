@@ -254,7 +254,7 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
         'unknown': 0, 'uncheckedAccounts': 0, 'complete': True, 'checks': []}
     summary['fixtureFingerprint'] = fixture_fingerprint(users)
     if not preflight and ledger.get('fixtureFingerprint') != summary['fixtureFingerprint']:
-        summary.update(complete=False, unknown=1, uncheckedAccounts=limit, reason='FIXTURE_LEDGER_MISMATCH')
+        summary.update(complete=False, unknown=1, uncheckedAccounts=len(users[:limit]), reason='FIXTURE_LEDGER_MISMATCH')
         return summary
     by_marker = {(row['fixtureAlias'], f"lt:{run_id}:{row['journeyId']}"): row
                  for row in ledger.get('journeys', []) if row.get('startIntent') and not row.get('invalid')}
