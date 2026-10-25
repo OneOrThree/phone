@@ -6,7 +6,7 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
-import { DEFAULT_SPOT, PEER_SPOTS, LANDING } from '@/screens/focus/FishingIsland';
+import { DEFAULT_SPOT, PEER_SPOTS, LANDING, occupied } from '@/screens/focus/FishingIsland';
 
 const peer: FishingPeer = {
   userId: 'u1',
@@ -600,5 +600,50 @@ test('슬롯 배정은 내 자리(SEAT_GAP) 곁 칸을 건너뛰고, 내 자리 
   assert.deepEqual(
     result.current.actors.map((actor) => actor.slot),
     [1, 2],
+  );
+});
+
+test('내 자리가 고정 칸 둘을 막아도 정원 안 주민 14명은 모두 겹치지 않게 앉는다', async () => {
+  const mine = { x: 75, y: 52 };
+  assert.equal(PEER_SPOTS.filter((spot) => occupied(spot, [mine])).length, 2);
+  const members = Array.from({ length: 14 }, (_, index) => ({
+    ...peer,
+    userId: `u${index}`,
+    sessionId: `s${index}`,
+  }));
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, mine }),
+  );
+  const spots = result.current.actors.map((actor) => actor.spot);
+  assert.equal(spots.length, 14);
+  spots.forEach((spot, index) =>
+    assert.equal(occupied(spot, [mine, ...spots.filter((_, other) => other !== index)]), false),
+  );
+});
+
+test('같은 주민의 세션이 교체되면 이전 자리 곁으로 옮긴 새 seat 를 그대로 쓴다', async () => {
+  const before = { x: 34.1, y: 55.9 },
+    after = { x: 35.1, y: 55.9 };
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members: [{ ...peer, seat: before }], ready: true, reduce: false }),
+  );
+  assert.deepEqual(
+    [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
+    [34.1, 55.9],
+  );
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u1',
+      previous: { ...member('active'), seat: before },
+      current: { ...member('active'), sessionId: 's2', seat: after },
+    } as IslandPresenceTransition),
+  );
+  assert.equal(result.current.actors.length, 1);
+  assert.equal(result.current.actors[0].key, 'u1:s2');
+  assert.deepEqual(
+    [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
+    [35.1, 55.9],
   );
 });

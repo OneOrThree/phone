@@ -2398,7 +2398,12 @@ function FocusFlow({ e: environment }: any) {
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
     snapshotTransitions: live.snapshotTransitions,
-    mine: minePoint,
+    // 내 자리는 이번 흐름에서 고른 뒤(준비·집중·휴식·결과)에만 비켜 준다 — 자리 고르기 중의 focusSpot 은
+    // 지난 세션 좌표라 예약하면 그 자리에 앉은 주민의 seat 가 밀려난다
+    mine:
+      r === 'focusSetup' || r === 'focus' || r === 'rest' || r === 'focusResult'
+        ? minePoint
+        : undefined,
   });
   transitionHandler.current = (transition) => {
     // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로

@@ -6,6 +6,8 @@ import {
   fishingGrid,
   fishingPeerCatchVisible,
   LANDING,
+  nearGram,
+  nearRaft,
   occupied,
   PEER_SPOTS,
 } from '@/screens/focus/FishingIsland';
@@ -47,6 +49,30 @@ export const fishingSpotsForActors = (actors: FishingPeerActor[]) =>
   actors.filter((actor) => actor.visible && actor.phase === 'fishing').map((actor) => actor.spot);
 
 const actorKey = (userId: string, sessionId: string) => `${userId}:${sessionId}`;
+// 예비 자리: 내 자리·서버 자리가 PEER_SPOTS 칸을 여럿 막아 정원 안 주민이 앉을 칸이 모자랄 때만 쓴다.
+// 네 이웃도 땅인 칸 가운데 축음기·뗏목을 피한 곳을 섬 가운데에 가까운 순서로(기기마다 같은 순서).
+const SPARE_SPOTS: Point[] = (() => {
+  const { cols, rows, w, h, cells } = fishingGrid,
+    land = (c: number) => cells[c] === '1',
+    spots: Point[] = [];
+  for (let c = 0; c < cells.length; c++) {
+    const col = c % cols,
+      row = Math.floor(c / cols),
+      p = { x: ((col + 0.5) * w) / cols, y: ((row + 0.5) * h) / rows };
+    if (
+      col &&
+      row &&
+      col < cols - 1 &&
+      row < rows - 1 &&
+      [c, c - 1, c + 1, c - cols, c + cols].every(land) &&
+      !nearGram(p) &&
+      !nearRaft(p)
+    )
+      spots.push(p);
+  }
+  const center = (p: Point) => Math.hypot(p.x - 50, p.y - 50);
+  return spots.sort((a, b) => center(a) - center(b));
+})();
 const fromLive = (member: LiveFocusMember, seconds: number): FishingPeer => ({
   userId: member.userId,
   sessionId: member.sessionId,
@@ -98,15 +124,26 @@ export function useFishingPeerActors({
     .map((member) => `${member.userId}:${member.sessionId}:${member.status}`)
     .join('|');
   // 서버 자리가 땅 위이고 내 자리·예약된 자리와 겹치지 않으면 그 자리, 아니면 reuse(같은 주민의 이전 세션 자리),
-  // 그것도 없으면 겹치지 않는 첫 빈 칸. PEER_SPOTS 끼리는 SEAT_GAP 보다 멀어 예약된 칸 자신만 걸린다.
+  // 그것도 없으면 겹치지 않는 첫 빈 칸 → 예비 자리. PEER_SPOTS 끼리는 SEAT_GAP 보다 멀어 예약된 칸 자신만 걸린다.
+  // 예약은 정원(PEER_SPOTS 15칸)만큼만 — 만석이면 퇴장이 자리를 반납할 때까지 보류한다.
+  // reuse 는 곧 반납할 이전 예약을 넘겨받는 것이라 정원에 세지 않고 충돌 검사에서도 뺀다.
   const alloc = useCallback((key: string, seat?: Point | null, reuse?: Spot) => {
     const existing = slots.current.get(key);
     if (existing) return existing;
-    const taken = [...(mineRef.current ? [mineRef.current] : []), ...slots.current.values()],
+    if (!reuse && slots.current.size >= PEER_SPOTS.length) return null;
+    const taken = [
+        ...(mineRef.current ? [mineRef.current] : []),
+        ...[...slots.current.values()].filter((spot) => spot !== reuse),
+      ],
+      free = (p: Point) => !occupied(p, taken),
+      spare = () => {
+        const p = SPARE_SPOTS.find(free);
+        return p && castSpot(p);
+      },
       spot =
-        seat && onLand(fishingGrid, seat) && !occupied(seat, taken)
+        seat && onLand(fishingGrid, seat) && free(seat)
           ? castSpot(seat)
-          : (reuse ?? PEER_SPOTS.find((candidate) => !occupied(candidate, taken)));
+          : (reuse ?? PEER_SPOTS.find(free) ?? spare());
     if (!spot) return null;
     slots.current.set(key, spot);
     return spot;
