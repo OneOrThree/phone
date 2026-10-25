@@ -112,7 +112,8 @@ def main():
             'runtimeSeconds': args.runtime_seconds, 'fixtureUsers': len(users),
             'fixtureSha256': hashlib.sha256(users_path.read_bytes()).hexdigest(),
             'harnessSha256': {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-                              for path in (Path(__file__), Path(__file__).with_name('loadtest_evidence.py'))},
+                              for path in (Path(__file__), Path(__file__).with_name('loadtest_evidence.py'),
+                                           Path(__file__).with_name('loadtest_focus.py'))},
             'focusUserCount': 60, 'chatUserOffset': 300, 'processes': {}, 'signals': [],
             'notes': ['HTTP 두 여정은 각각120초 기본 계획이고 chat은150초 기본 계획입니다.',
                       '개별 runner의 사전정리·워밍업 시간이 달라 실제 공통 측정창은 별도로 계산합니다.',
@@ -248,15 +249,22 @@ def main():
         previous_alarm = signal.signal(signal.SIGALRM, cleanup_deadline)
         signal.setitimer(signal.ITIMER_REAL, args.cleanup_timeout_seconds)
         try:
-            cleanup = capacity.cleanup_focus(args.url.rstrip('/'), users, 60)
+            ledger = capacity.read_focus_ledger(out / 'focus', args.run_id)
+            atomic_json(out / 'focus-ledger-final.json', ledger)
+            cleanup = capacity.cleanup_focus(args.url.rstrip('/'), users, 60, args.run_id, ledger,
+                checkpoint=lambda progress: atomic_json(out / 'focus-cleanup-final.json', progress))
         except CleanupTimeout:
-            cleanup = {'complete': False, 'errorType': 'CleanupTimeout'}
+            cleanup = read_json(out / 'focus-cleanup-final.json') or {'runId': args.run_id}
+            cleanup.update(complete=False, errorType='CleanupTimeout')
         except Exception as error:
-            cleanup = {'complete': False, 'errorType': type(error).__name__}
+            cleanup = read_json(out / 'focus-cleanup-final.json') or {'runId': args.run_id}
+            cleanup.update(complete=False, errorType=type(error).__name__)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous_alarm)
         atomic_json(out / 'focus-cleanup-final.json', cleanup)
+        atomic_json(out / 'focus-ledger-final.json', capacity.read_focus_ledger(out / 'focus', args.run_id,
+            extra_cleanup_files=[out / 'focus-cleanup-final.json']))
         meta['cleanup'] = cleanup
         if cleanup.get('complete') is not True or cleanup.get('failed', 0):
             meta['statusBeforeCleanupFailure'] = meta['status']

@@ -12,7 +12,12 @@ import unittest
 SCRIPTS=Path(__file__).resolve().parents[1]/'scripts'
 CHILD='''import json, os, signal, sys, time
 from pathlib import Path
-def cleanup_focus(*args): return {'complete':True,'failed':0}
+def cleanup_focus(*args,**kwargs):
+    if os.environ.get('TEST_CLEANUP_TIMEOUT'):
+        kwargs['checkpoint']({'runId':args[3],'complete':False,'checks':[{'idempotencyKey':'00000000-0000-4000-8000-000000000123','expectedVersion':3}]})
+        time.sleep(5)
+    return {'complete':True,'failed':0}
+def read_focus_ledger(*args,**kwargs): return {'runId':args[1],'journeys':[]}
 if __name__=='__main__':
     args=dict(zip(sys.argv[1::2],sys.argv[2::2]));out=Path(args['--out']);out.mkdir(parents=True)
     cp={'runId':args['--run-id'],'key':'stage','case':args['--cases'],'kind':'journey','phase':'measurement','targetRate':1,'plannedSeconds':1,'latencyLimitMs':1000,'startedAt':'2026-01-01T00:00:00+00:00','rawFile':'stage.json'}
@@ -27,7 +32,7 @@ if __name__=='__main__':
 
 class MixedSupervisorTest(unittest.TestCase):
     def test_interrupts_and_child_failure_recover_partial_raw(self):
-        for interruption in ('SIGINT','SIGTERM','CHILD_FAILURE'):
+        for interruption in ('SIGINT','SIGTERM','CHILD_FAILURE','CLEANUP_TIMEOUT'):
             with self.subTest(interruption=interruption),tempfile.TemporaryDirectory() as temporary:
                 root=Path(temporary);scripts=root/'loadtest/scripts';scripts.mkdir(parents=True)
                 (scripts/'aws-capacity.py').write_text(CHILD)
@@ -35,18 +40,25 @@ class MixedSupervisorTest(unittest.TestCase):
                 users=[{'userId':f'synthetic-{i}','islandId':f'island-{i//10}','token':'synthetic'} for i in range(301)]
                 (root/'users.json').write_text(json.dumps(users))
                 env={**os.environ}
-                if interruption=='CHILD_FAILURE':env['TEST_CHILD_FAILURE']='1'
-                process=subprocess.Popen([sys.executable,str(SCRIPTS/'aws-mixed.py'),'--root',str(root),'--url','http://127.0.0.1:1','--ws-url','ws://127.0.0.1:1/ws','--users','users.json','--out','out','--chat-connections','1','--common-seconds','1','--seconds','1','--chat-seconds','1','--runtime-seconds','20','--stop-grace-seconds','1'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+                if interruption in ('CHILD_FAILURE','CLEANUP_TIMEOUT'):env['TEST_CHILD_FAILURE']='1'
+                if interruption=='CLEANUP_TIMEOUT':env['TEST_CLEANUP_TIMEOUT']='1'
+                process=subprocess.Popen([sys.executable,str(SCRIPTS/'aws-mixed.py'),'--root',str(root),'--url','http://127.0.0.1:1','--ws-url','ws://127.0.0.1:1/ws','--users','users.json','--out','out','--chat-connections','1','--common-seconds','1','--seconds','1','--chat-seconds','1','--runtime-seconds','20','--stop-grace-seconds','1','--cleanup-timeout-seconds','1'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
                 try:
                     deadline=time.monotonic()+5
                     while not (root/'out/focus/stage.json').exists() and time.monotonic()<deadline:time.sleep(.02)
                     self.assertTrue((root/'out/focus/stage.json').exists())
-                    if interruption!='CHILD_FAILURE':process.send_signal(getattr(signal,interruption))
+                    if interruption in ('SIGINT','SIGTERM'):process.send_signal(getattr(signal,interruption))
                     process.wait(timeout=8)
                     self.assertNotEqual(process.returncode,0)
                     meta=json.loads((root/'out/mixed-meta.json').read_text())
-                    self.assertEqual(meta['status'],'aborted')
-                    self.assertEqual(meta['stopReason'],'focus:EXIT_FAILED' if interruption=='CHILD_FAILURE' else interruption)
+                    self.assertEqual(meta['status'],'cleanup_failed' if interruption=='CLEANUP_TIMEOUT' else 'aborted')
+                    if interruption=='CLEANUP_TIMEOUT':
+                        cleanup=json.loads((root/'out/focus-cleanup-final.json').read_text())
+                        self.assertFalse(cleanup['complete'])
+                        self.assertEqual(cleanup['errorType'],'CleanupTimeout')
+                        self.assertEqual(cleanup['checks'][0]['idempotencyKey'],'00000000-0000-4000-8000-000000000123')
+                        self.assertEqual(cleanup['checks'][0]['expectedVersion'],3)
+                    self.assertEqual(meta['stopReason'],'focus:EXIT_FAILED' if interruption in ('CHILD_FAILURE','CLEANUP_TIMEOUT') else interruption)
                     self.assertFalse(meta['mixedPassed'])
                     self.assertIsNone(meta['commonMeasurementOverlapSeconds'])
                     for component in ('home','focus'):

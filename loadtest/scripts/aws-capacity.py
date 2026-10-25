@@ -10,14 +10,13 @@ from pathlib import Path
 import platform
 import resource
 import signal
-import ssl
 import subprocess
 import time
 import urllib.parse
-import urllib.request
 import uuid
 
 from loadtest_evidence import atomic_json, normalize_stage, read_json
+from loadtest_focus import assess_focus_stage, cleanup_focus, fixture_fingerprint, read_focus_ledger, validate_focus_fixtures
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'k6/scenarios/aws_capacity.js'
@@ -42,46 +41,6 @@ class StopController:
             time.sleep(min(.1, max(0, deadline - time.monotonic())))
 
 
-def cleanup_focus(base, users, limit):
-    """전용 fixture의 열린 세션만 종료. 장애 중 재시도 폭주를 막기 위해 3회 연속 오류 시 중단."""
-    result = {'checked': 0, 'finished': 0, 'failed': 0, 'complete': True}
-    cafile = os.environ.get('SSL_CERT_FILE')
-    if not cafile and Path('/etc/ssl/cert.pem').is_file():
-        cafile = '/etc/ssl/cert.pem'
-    context = ssl.create_default_context(cafile=cafile)
-
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            return None
-
-    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context))
-    consecutive_errors = 0
-    for user in users[:limit]:
-        try:
-            headers = {'Authorization': 'Bearer ' + user['token'], 'Content-Type': 'application/json',
-                       'User-Agent': 'catus-loadtest/aws-capacity'}
-            request = urllib.request.Request(base + '/focus-sessions/current', headers=headers)
-            with opener.open(request, timeout=5) as response:
-                current = json.load(response).get('data')
-            result['checked'] += 1
-            if current and current.get('id'):
-                headers['Idempotency-Key'] = str(uuid.uuid4())
-                request = urllib.request.Request(
-                    base + '/focus-sessions/' + current['id'] + '/finish', headers=headers,
-                    data=json.dumps({'expectedVersion': current['version']}).encode(), method='POST')
-                with opener.open(request, timeout=5) as response:
-                    response.read()
-                result['finished'] += 1
-            consecutive_errors = 0
-        except Exception as error:
-            result['failed'] += 1
-            result['lastErrorType'] = type(error).__name__
-            consecutive_errors += 1
-            if consecutive_errors >= 3:
-                result['complete'] = False
-                break
-    return result
-
 
 def stage(args, case, rate, seconds, key, out, warmup=False):
     summary_path = out / (key + '.json')
@@ -97,6 +56,8 @@ def stage(args, case, rate, seconds, key, out, warmup=False):
                   'plannedSeconds': seconds, 'maxVusConfigured': args.max_vus, 'startedAt': now(),
                   'latencyLimitMs': args.journey_p95_limit if case['kind'] in ('journey', 'write_journey') else args.p95_limit,
                   'rawFile': summary_path.name, 'diagnosticsFile': diagnostics_path.name}
+    if case['id'] == 'focus_lifecycle':
+        checkpoint['fixtureFingerprint'] = fixture_fingerprint(json.loads(args.users.read_text()))
     write_json(out / (key + '-checkpoint.json'), checkpoint)
     start = time.monotonic()
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -134,7 +95,12 @@ def stage(args, case, rate, seconds, key, out, warmup=False):
         status.update(endedAt=now(), stopReason=status['stopReason'] or args.stop.reason,
                       summaryExists=summary_path.is_file(), loadgenWallSeconds=round(wall, 3),
                       loadgenCpuSeconds=round(cpu, 3), loadgenCpuCores=round(cpu / wall, 4))
-        row = normalize_stage(checkpoint, read_json(summary_path, {}), status)
+        summary = read_json(summary_path, {})
+        row = normalize_stage(checkpoint, summary, status)
+        if case['id'] == 'focus_lifecycle':
+            ledger = read_focus_ledger(out, args.run_id, diagnostics_file=diagnostics_path.name, include_cleanup=False)
+            row = assess_focus_stage(row, summary, ledger)
+            write_json(out / (key + '-focus-ledger.json'), ledger)
         write_json(out / (key + '-status.json'), row)
     print(f'[{row["verdict"]}] {key}: RPS={row["actualRps"]}, TPS={row["completedTps"]}', flush=True)
     return row
@@ -181,8 +147,8 @@ def main():
     users = json.loads(args.users.read_text())
     if not isinstance(users, list) or not users or any(not user.get('token') for user in users):
         parser.error('유효한 전용 사용자 token fixture가 필요합니다')
-    if 'focus_lifecycle' in ids and (len(users) < args.max_vus or any(not u.get('islandId') for u in users[:args.max_vus])):
-        parser.error('focus_lifecycle에는 max-vus 이상의 전용 사용자/islandId가 필요합니다')
+    if 'focus_lifecycle' in ids and not validate_focus_fixtures(users, args.max_vus):
+        parser.error('focus_lifecycle에는 max-vus 이상의 중복 없는 userId/token과 유효한 사용자/섬 UUID가 필요합니다')
     for case in selected:
         pool = [user for user in users if not case.get('role') or user.get('role') == case['role']]
         if not pool or (any('{islandId}' in path for path in case['paths']) and any(not u.get('islandId') for u in pool)):
@@ -213,6 +179,8 @@ def main():
             'harnessSha256': {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                               for path in [Path(__file__).resolve(), SCRIPT, ROOT / 'k6/cases/public.json',
                                            ROOT / 'k6/lib/auth.js', ROOT / 'k6/lib/summary.js',
+                                           ROOT / 'k6/lib/focus-journey.mjs',
+                                           Path(__file__).with_name('loadtest_focus.py'),
                                            Path(__file__).with_name('loadtest_evidence.py')]}}
     rows = []
 
@@ -231,9 +199,10 @@ def main():
             if args.stop.reason:
                 break
             if case['id'] == 'focus_lifecycle':
-                cleanup = cleanup_focus(args.url, users, args.max_vus)
+                cleanup = cleanup_focus(args.url, users, args.max_vus, args.run_id,
+                                        read_focus_ledger(args.out, args.run_id), preflight=True)
                 write_json(args.out / 'focus-cleanup-before.json', cleanup)
-                if cleanup['failed']:
+                if not cleanup['complete']:
                     meta['status'] = 'cleanup_failed'
                     break
             try:
@@ -259,9 +228,14 @@ def main():
             finally:
                 if case['id'] == 'focus_lifecycle':
                     args.stop.wait(args.cooldown)
-                    cleanup = cleanup_focus(args.url, users, args.max_vus)
-                    write_json(args.out / 'focus-cleanup-after.json', cleanup)
-                    if cleanup['failed']:
+                    ledger = read_focus_ledger(args.out, args.run_id)
+                    write_json(args.out / 'focus-ledger.json', ledger)
+                    cleanup_path = args.out / 'focus-cleanup-after.json'
+                    cleanup = cleanup_focus(args.url, users, args.max_vus, args.run_id, ledger,
+                                            checkpoint=lambda progress: write_json(cleanup_path, progress))
+                    write_json(cleanup_path, cleanup)
+                    write_json(args.out / 'focus-ledger.json', read_focus_ledger(args.out, args.run_id))
+                    if not cleanup['complete']:
                         meta['status'] = 'cleanup_failed'
             if meta['status'] != 'running':
                 break

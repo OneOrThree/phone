@@ -7,12 +7,15 @@ import { SharedArray } from 'k6/data';
 import { Rate, Counter, Trend } from 'k6/metrics';
 import { authParams } from '../lib/auth.js';
 import { summarize } from '../lib/summary.js';
+import { runFocusJourney } from '../lib/focus-journey.mjs';
 
 const selected = JSON.parse(open('../cases/public.json')).find(c => c.id === __ENV.CASE);
 if (!selected) throw new Error('알 수 없는 CASE');
 const users = new SharedArray('aws-capacity-users', () =>
   JSON.parse(open(__ENV.USERS_FILE)).filter(u => !selected.role || u.role === selected.role));
 if (!users.length) throw new Error('해당 CASE 전용 fixture 없음');
+const fixtureFingerprint = crypto.sha256(JSON.stringify(Array.from(users, user =>
+  ['userId', 'token', 'islandId', 'role'].map(key => user[key] || null))), 'hex');
 const base = __ENV.BASE_URL;
 const rate = Number(__ENV.RATE);
 const seconds = Number(__ENV.SECONDS);
@@ -21,6 +24,9 @@ const completed = new Counter('completed_journeys');
 const started = new Counter('started_journeys');
 const finished = new Counter('finished_journeys');
 const measurementStart = new Trend('measurement_start_epoch_ms');
+const focusCounters = Object.fromEntries(['cycles_started', 'cycles_finished', 'http_successful_cycles',
+  'acknowledged_finishes', 'unknown_settlements', 'quarantined_cycles'].map(name => [name, new Counter(`focus_${name}`)]));
+let focusQuarantined = false;
 const abort = threshold => ({ threshold, abortOnFail: true, delayAbortEval: '10s' });
 const endpointThresholds = {};
 const endpoints = selected.id === 'focus_lifecycle'
@@ -113,41 +119,39 @@ function uuid() {
   const h = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
-function command(user, path, body, step) {
-  const requestParams = params(user, `focus_${step}`);
-  requestParams.headers['Idempotency-Key'] = uuid();
-  const response = http.post(base + path, JSON.stringify(body), requestParams);
-  let data;
-  try { data = response.json('data'); } catch (_) {}
-  const validBody = step === 'finish' ? !!data?.recordId : !!data?.id && Number.isFinite(data.version);
-  return succeeded(response, validBody, `focus_${step}`) ? data : null;
-}
 function focusJourney() {
   const user = users[vu.idInTest - 1];
   if (!user?.islandId) throw new Error('maxVUs 이상 전용 유저/islandId fixture 필요');
-  const started = command(user, '/focus-sessions', { islandId: user.islandId, subject: 'AWS 부하 조사' }, 'start');
-  if (!started?.id) return;
-  let version = started.version;
-  let allStepsSucceeded = false;
-  try {
-    sleep(0.2);
-    const paused = command(user, `/focus-sessions/${started.id}/pause`, { expectedVersion: version }, 'pause');
-    if (!paused) return;
-    version = paused.version;
-    const resumed = command(user, `/focus-sessions/${started.id}/resume`, { expectedVersion: version }, 'resume');
-    if (!resumed) return;
-    version = resumed.version;
-    allStepsSucceeded = true;
-  } finally {
-    const response = http.get(`${base}/focus-sessions/current`, params(user, 'focus_cleanup_read'));
-    if (succeeded(response, true, 'focus_cleanup_read')) {
-      let current;
-      try { current = response.json('data'); } catch (_) { errors.add(true); }
-      if (current?.id === started.id) version = current.version;
-    }
-    const finished = command(user, `/focus-sessions/${started.id}/finish`, { expectedVersion: version }, 'finish');
-    if (allStepsSucceeded && finished) completed.add(1);
+  for (const counter of Object.values(focusCounters)) counter.add(0);
+  if (focusQuarantined) {
+    focusCounters.quarantined_cycles.add(1);
+    return;
   }
+  focusCounters.cycles_started.add(1);
+  const result = runFocusJourney({ runId: __ENV.RUN_ID, journeyId: uuid(),
+    fixtureAlias: `fixture-${vu.idInTest}`, fixtureFingerprint, islandId: user.islandId, uuid, sleep,
+    emit: event => console.log(JSON.stringify(event)),
+    observe: (response, validBody) => errors.add(!check(response, {
+      '정상 2xx 응답': r => r.status >= 200 && r.status < 300 && validBody,
+    })),
+    request: command => {
+      const p = params(user, command.step === 'current' ? 'focus_cleanup_read' : `focus_${command.step}`);
+      p.headers['X-Request-Id'] = command.requestId;
+      if (command.idempotencyKey) p.headers['Idempotency-Key'] = command.idempotencyKey;
+      const response = command.method === 'GET' ? http.get(base + command.path, p)
+        : http.post(base + command.path, JSON.stringify(command.body), p);
+      let body;
+      try { body = response.json(); } catch (_) {}
+      return { status: response.status, headers: response.headers, k6ErrorCode: response.error_code,
+        data: body?.data, apiErrorCode: body?.error?.code ?? body?.code };
+    },
+  });
+  focusCounters.cycles_finished.add(1);
+  if (result.httpSucceeded) focusCounters.http_successful_cycles.add(1);
+  if (result.finishAcknowledged) focusCounters.acknowledged_finishes.add(1);
+  if (result.needsServerLedger) focusCounters.unknown_settlements.add(1);
+  if (result.journeySucceeded) completed.add(1);
+  focusQuarantined = result.quarantine;
 }
 export function run() {
   completed.add(0); finished.add(0); started.add(1);
