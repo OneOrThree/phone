@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { StyleProp, StyleSheet, TextStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
@@ -608,4 +608,18 @@ test('표류 중에는 위쪽에 홈과 같은 친구·설정 버튼과 내 고�
   // 호스트가 HUD 를 주지 않으면(결과창·출항 연출) 그리지 않는다
   await screen.rerender(<SeaScreen {...p} hud={null} />);
   expect(screen.queryByLabelText('설정')).toBeNull();
+});
+
+test('먼바다 장면·집중 HUD·버튼·한마디 입력 글자는 고운돋움 하나다(GROMO-2334)', async () => {
+  const font = (node: { props: { style?: StyleProp<TextStyle> } }) =>
+    StyleSheet.flatten(node.props.style)?.fontFamily;
+  const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
+  // jest 는 iOS 라 sceneKit.GOWUN 의 iOS 가족 이름이다
+  expect(font(screen.getByTestId('sea-focus-clock'))).toBe('Gowun Dodum');
+  expect(font(screen.getByTestId('sea-self-clock'))).toBe('Gowun Dodum');
+  expect(font(screen.getByText('고양이1'))).toBe('Gowun Dodum');
+  expect(font(screen.getByText('섬에 내리기'))).toBe('Gowun Dodum');
+  await fireEvent.press(screen.getByTestId('sea-focus-message'));
+  expect(font(screen.getByLabelText('한마디 쓰기'))).toBe('Gowun Dodum');
+  expect(font(screen.getByText('닫기'))).toBe('Gowun Dodum');
 });

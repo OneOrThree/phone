@@ -25,6 +25,7 @@ import { SeaMagazineDelivery } from './SeaMagazineDelivery';
 import { SeaRewardArt } from './seaRewardCatalog';
 import { art } from '@/constants/art';
 import { HudActions, HudAvatarButton } from '@/screens/island/HomeNavigationHud';
+import { useGowun } from '@/screens/island/sceneKit';
 import type { Route } from '@/services/model';
 
 export type SeaScreenProps = {
@@ -75,6 +76,9 @@ export function SeaScreen(props: SeaScreenProps) {
   const { self, participants, voyage, result } = props;
   const reduceMotion = useContext(MotionContext);
   const insets = useScreenInsets();
+  // 그림 장면 위 화면은 고운돋움 하나만 쓴다(DESIGN.md) — 글자·입력은 font, 버튼은 Btn.font 로 넘긴다
+  const gowun = useGowun();
+  const font = { fontFamily: gowun };
   const [viewport, setViewport] = useState({ width: 402, height: 788 });
   const [footerHeight, setFooterHeight] = useState(88);
   const compact = viewport.width > viewport.height && viewport.height < 660;
@@ -238,17 +242,17 @@ export function SeaScreen(props: SeaScreenProps) {
                     },
                   ]}
                 >
-                  {!compact && <Txt style={styles.subject}>{voyage.subject}</Txt>}
+                  {!compact && <Txt style={[styles.subject, font]}>{voyage.subject}</Txt>}
                   <Txt
                     testID="sea-focus-clock"
-                    style={[styles.timer, compact && styles.compactTimer]}
+                    style={[styles.timer, compact && styles.compactTimer, font]}
                   >
                     {seaClock(voyage.activeSeconds)}
                   </Txt>
                   <View style={[styles.badge, compact && styles.compactBadge]}>
                     <Txt
                       numberOfLines={compact ? 2 : undefined}
-                      style={[styles.badgeText, compact && styles.compactBadgeText]}
+                      style={[styles.badgeText, compact && styles.compactBadgeText, font]}
                     >
                       {voyage.canDisembark
                         ? t('openSea.destinationReached', { name: voyage.destinationName })
@@ -318,12 +322,13 @@ export function SeaScreen(props: SeaScreenProps) {
           ]}
         >
           {!!error && (
-            <Txt accessibilityRole="alert" style={styles.error}>
+            <Txt accessibilityRole="alert" style={[styles.error, font]}>
               {error}
             </Txt>
           )}
           <View style={styles.actions}>
             <Btn
+              font={gowun}
               title={t('openSea.emotes')}
               icon={art['emote/cheer']}
               kind="butter"
@@ -332,6 +337,7 @@ export function SeaScreen(props: SeaScreenProps) {
               style={styles.emoteButton}
             />
             <Btn
+              font={gowun}
               id="sea-primary-action"
               dynamicHeight
               title={buttonTitle}
@@ -370,17 +376,18 @@ export function SeaScreen(props: SeaScreenProps) {
           <View accessibilityViewIsModal style={styles.panel}>
             {panel === 'stop' && (
               <>
-                <Txt accessibilityRole="header" kind="h">
+                <Txt accessibilityRole="header" kind="h" style={font}>
                   {t(voyage?.canDisembark ? 'openSea.readyTitle' : 'openSea.stopTitle', {
                     name: voyage?.destinationName ?? '',
                   })}
                 </Txt>
-                <Txt>
+                <Txt style={font}>
                   {t(voyage?.canDisembark ? 'openSea.readyBody' : 'openSea.stopBody', {
                     minutes: Math.floor((voyage?.activeSeconds ?? 0) / 60),
                   })}
                 </Txt>
                 <Btn
+                  font={gowun}
                   dynamicHeight
                   title={t(voyage?.canDisembark ? 'openSea.disembark' : 'openSea.stop')}
                   disabled={pending}
@@ -390,7 +397,7 @@ export function SeaScreen(props: SeaScreenProps) {
             )}
             {typeof panel === 'object' && (
               <>
-                <Txt accessibilityRole="header" kind="h">
+                <Txt accessibilityRole="header" kind="h" style={font}>
                   {selected?.name || t('openSea.departed')}
                 </Txt>
                 {selected && (
@@ -404,18 +411,21 @@ export function SeaScreen(props: SeaScreenProps) {
                         reduceMotion={reduceMotion}
                       />
                     </View>
-                    <Txt>
+                    <Txt style={font}>
                       {selected.focusing
                         ? selected.subject || t('openSea.focusing')
                         : t('openSea.floating')}
                     </Txt>
-                    <Txt kind="meta">{t('openSea.focusTime')}</Txt>
-                    <Txt kind="h" style={selected.focusing ? styles.focusClock : undefined}>
+                    <Txt kind="meta" style={font}>
+                      {t('openSea.focusTime')}
+                    </Txt>
+                    <Txt kind="h" style={[font, selected.focusing && styles.focusClock]}>
                       {seaClock(selected.activeSeconds)}
                     </Txt>
-                    {!!selected.message && <Txt>{selected.message}</Txt>}
+                    {!!selected.message && <Txt style={font}>{selected.message}</Txt>}
                     {selected.userId !== self.userId && props.onFriendRequest && (
                       <Btn
+                        font={gowun}
                         dynamicHeight
                         title={t(
                           pending
@@ -444,16 +454,18 @@ export function SeaScreen(props: SeaScreenProps) {
             )}
             {panel === 'message' && (
               <>
-                <Txt accessibilityRole="header" kind="h">
+                <Txt accessibilityRole="header" kind="h" style={font}>
                   {t('openSea.messageTitle')}
                 </Txt>
                 {props.guest ? (
                   <>
-                    <Txt>{t('openSea.signInBody')}</Txt>
-                    <Btn title={t('openSea.signIn')} onPress={props.onSignIn} />
+                    <Txt style={font}>{t('openSea.signInBody')}</Txt>
+                    <Btn font={gowun} title={t('openSea.signIn')} onPress={props.onSignIn} />
                   </>
                 ) : cooldown > 0 ? (
-                  <Txt>{t('openSea.messageWait', { minutes: Math.ceil(cooldown / 60) })}</Txt>
+                  <Txt style={font}>
+                    {t('openSea.messageWait', { minutes: Math.ceil(cooldown / 60) })}
+                  </Txt>
                 ) : (
                   <>
                     <TextInput
@@ -461,11 +473,14 @@ export function SeaScreen(props: SeaScreenProps) {
                       value={message}
                       onChangeText={(value) => setMessage(Array.from(value).slice(0, 20).join(''))}
                       placeholder={t('openSea.messagePlaceholder')}
-                      style={k.field}
+                      style={[k.field, font]}
                       editable={!pending}
                     />
-                    <Txt kind="meta">{Array.from(message).length} / 20</Txt>
+                    <Txt kind="meta" style={font}>
+                      {Array.from(message).length} / 20
+                    </Txt>
                     <Btn
+                      font={gowun}
                       dynamicHeight
                       title={t(
                         self.message?.trim() && !message.trim()
@@ -481,12 +496,13 @@ export function SeaScreen(props: SeaScreenProps) {
             )}
             {panel === 'emote' && (
               <>
-                <Txt accessibilityRole="header" kind="h">
+                <Txt accessibilityRole="header" kind="h" style={font}>
                   {t('openSea.emotes')}
                 </Txt>
                 <View style={styles.emotes}>
                   {seaEmotes.map((emote) => (
                     <Btn
+                      font={gowun}
                       key={emote}
                       title={t(`openSea.emoteNames.${emote}`)}
                       icon={art[`emote/${emote}`]}
@@ -498,11 +514,12 @@ export function SeaScreen(props: SeaScreenProps) {
               </>
             )}
             {!!error && (
-              <Txt accessibilityRole="alert" style={styles.error}>
+              <Txt accessibilityRole="alert" style={[styles.error, font]}>
                 {error}
               </Txt>
             )}
             <Btn
+              font={gowun}
               dynamicHeight
               title={t(panel === 'stop' ? 'openSea.keepFocusing' : 'openSea.close')}
               kind="glass"
