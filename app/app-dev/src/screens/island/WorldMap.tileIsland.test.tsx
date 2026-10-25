@@ -51,10 +51,8 @@ jest.mock('@/utils/island-layout', () => ({
   applyLayout: (...args: [unknown, unknown]) => mockApplyLayout(...args),
 }));
 
-// WorldMap import 전에 process.env.EXPO_PUBLIC_TILE_ISLAND 를 세운다 — 모듈 로드 시 상수로 굳는다.
-// 플래그는 모듈 로드 때 읽는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅돼 env 보다 먼저 돈다).
-// 플래그 off 경로는 기존 WorldMap.test.tsx 가 그대로 덮는다.
-process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
+// iOS·Android 는 늘 타일 섬이다(GROMO-2476 플래그 제거) — jest 기본 Platform.OS(ios)로 그대로 불러온다.
+// 웹(이미지 섬) 경로는 WorldMap.tileIslandOff.test.tsx 가 덮는다.
 const { FinalIsland } = require('./WorldMap') as typeof import('./WorldMap');
 
 type Node = { props: Record<string, unknown>; children: (Node | string)[] | null };
@@ -90,7 +88,7 @@ afterEach(() => {
   delete process.env.EXPO_PUBLIC_VILLAGE_PREVIEW;
 });
 
-it('EXPO_PUBLIC_TILE_ISLAND=1 이면 기존 마을로 시작하고 바닥 Image 대신 Skia 타일 캔버스(낮·밤)를 둔다', async () => {
+it('iOS·Android 면 기존 마을로 시작하고 바닥 Image 대신 Skia 타일 캔버스(낮·밤)를 둔다', async () => {
   // FinalIsland 는 dayNight prop 을 받지 않고 실제 시계로 낮/밤을 읽는다(WorldMap.tsx) — 시계를
   // 밤으로 고정해 시간대와 무관하게 결정적으로 통과시킨다.
   jest.useFakeTimers();
@@ -406,10 +404,12 @@ it.each(allBuildings)('옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문
 });
 
 // 릴리스 빌드(__DEV__=false)에서는 QA 전환 버튼이 없어야 한다. 플래그는 모듈 로드 시 굳으므로 격리 로드한다.
+// web 이면 그 로드 때만 격리 레지스트리의 Platform.OS 를 'web' 으로 두어 웹 빌드(이미지 섬)를 흉내 낸다 —
+// jest 엔 DOM 이 없어 렌더는 기본 OS 로 되돌린 뒤 한다.
 describe('릴리스 빌드의 디버그 버튼', () => {
   afterAll(() => jest.dontMock('react'));
-  const renderIsolated = async (env: Record<string, string | undefined>) => {
-    const keys = ['EXPO_PUBLIC_VILLAGE_PREVIEW', 'EXPO_PUBLIC_TILE_ISLAND'];
+  const renderIsolated = async (env: Record<string, string | undefined>, web = false) => {
+    const keys = ['EXPO_PUBLIC_VILLAGE_PREVIEW'];
     const saved = keys.map((k) => process.env[k]);
     const dev = (globalThis as { __DEV__?: boolean }).__DEV__;
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -419,7 +419,14 @@ describe('릴리스 빌드의 디버그 버튼', () => {
       let Island!: typeof FinalIsland;
       jest.isolateModules(() => {
         jest.doMock('react', () => React);
-        Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+        const platform = (require('react-native') as typeof import('react-native')).Platform;
+        const os = platform.OS;
+        if (web) (platform as { OS: string }).OS = 'web';
+        try {
+          Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+        } finally {
+          (platform as { OS: string }).OS = os;
+        }
       });
       return await render(<Island state={initialState()} go={jest.fn()} build={jest.fn()} />);
     } finally {
@@ -430,13 +437,13 @@ describe('릴리스 빌드의 디버그 버튼', () => {
     }
   };
   it('미리보기 env 없이 __DEV__=false 면 village-preview-toggle·nav-debug-toggle 이 없다', async () => {
-    const screen = await renderIsolated({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const screen = await renderIsolated({});
     expect(screen.queryByTestId('village-preview-toggle')).toBeNull();
     expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
     await screen.unmount();
   });
-  it('미리보기 env 가 켜져도 타일 섬 플래그가 없으면 nav-debug-toggle 은 없다', async () => {
-    const screen = await renderIsolated({ EXPO_PUBLIC_VILLAGE_PREVIEW: '1' });
+  it('미리보기 env 가 켜져도 웹(이미지 섬)이면 nav-debug-toggle 은 없다', async () => {
+    const screen = await renderIsolated({ EXPO_PUBLIC_VILLAGE_PREVIEW: '1' }, true);
     expect(screen.getByTestId('village-preview-toggle')).toBeTruthy();
     expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
     await screen.unmount();
