@@ -1,6 +1,7 @@
 """집중 실행 원장과 소유 검증 후 정리. 자격·사용자 UUID·응답 원문은 결과에 넣지 않는다."""
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -226,19 +227,21 @@ def http_request(base):
         req = urllib.request.Request(base + path, headers=headers, method=method,
             data=json.dumps(body).encode() if body is not None else None)
         try:
-            response = opener.open(req, timeout=5)
-        except urllib.error.HTTPError as error:
-            response = error
-        except (OSError, urllib.error.URLError):
-            return {'status': 0, 'data': None, 'validBody': False}
-        with response:
-            raw = response.read(1024 * 1024 + 1)
             try:
-                parsed = json.loads(raw) if len(raw) <= 1024 * 1024 else {}
-            except (ValueError, UnicodeError):
-                parsed = {}
-            return {'status': response.status, 'data': parsed.get('data') if isinstance(parsed, dict) else None,
-                    'validBody': isinstance(parsed, dict) and 'data' in parsed}
+                response = opener.open(req, timeout=5)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                raw = response.read(1024 * 1024 + 1)  # 본문 수신 중 끊김(IncompleteRead)도 같은 범위에서 잡는다.
+                status = response.status
+        except (OSError, http.client.HTTPException):  # URLError·socket.timeout 은 OSError 하위
+            return {'status': 0, 'data': None, 'validBody': False}
+        try:
+            parsed = json.loads(raw) if len(raw) <= 1024 * 1024 else {}
+        except (ValueError, UnicodeError):
+            parsed = {}
+        return {'status': status, 'data': parsed.get('data') if isinstance(parsed, dict) else None,
+                'validBody': isinstance(parsed, dict) and 'data' in parsed}
     return send
 
 
@@ -278,8 +281,8 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
         try:
             current = call('GET', '/focus-sessions/current')
             summary['checked'] += 1
-            consecutive_errors = 0
             if current is None:
+                consecutive_errors = 0
                 row.update(ownership='NONE', remainingOwnedActive=False)
                 # 종료 응답 미확인 원장은 그대로 UNKNOWN이다. current=null로 정산 완료를 만들지 않는다.
                 unresolved = [item for item in ledger.get('journeys', []) if item['fixtureAlias'] == alias
@@ -296,6 +299,7 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
                 and type(current.get('version')) is int and current['version'] > 0
                 and current.get('status') in ('active', 'paused'))
             if preflight or not valid:
+                consecutive_errors = 0
                 if not preflight and isinstance(current.get('subject'), str) and current['subject'].startswith(f'lt:{run_id}:'):
                     row['reason'] = 'OWNERSHIP_LEDGER_UNCONFIRMED'
                     continue
@@ -326,7 +330,14 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
                 row['remainingOwnedActive'] = None
                 raise ValueError('CURRENT_BODY_UNCONFIRMED')
             row['remainingOwnedActive'] = isinstance(after, dict) and after.get('id') == current['id']
-            consecutive_errors = 0
+            if row.get('reason'):  # 종료 실패도 오류 횟수에 넣고, 계정 정리가 성공했을 때만 초기화한다.
+                summary['failed'] += 1
+                consecutive_errors += 1
+                if consecutive_errors >= 3:
+                    summary['complete'] = False
+                    break
+            else:
+                consecutive_errors = 0
         except (ValueError, OSError, TypeError, KeyError):
             row['reason'] = 'CURRENT_RESPONSE_UNCONFIRMED'
             summary['failed'] += 1

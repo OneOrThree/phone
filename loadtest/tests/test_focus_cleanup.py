@@ -1,8 +1,10 @@
 """전용 fixture라도 현재 실행 소유가 아니면 쓰지 않는 사후 정리 계약."""
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -43,6 +45,60 @@ class FocusCleanupTest(unittest.TestCase):
                 self.assertFalse(result['complete'])
                 self.assertEqual(result['unknown'], 1)
                 self.assertIsNone(result['checks'][0]['remainingOwnedActive'])
+
+    def multi_ledger(self, out, count):
+        users = [dict(USER, token=f'token-{i}') for i in range(count)]
+        events = [dict(type='focus_request', phase='intent', step='start', runId=RUN,
+                       journeyId=f'00000000-0000-4000-8000-1000000000{i:02d}', fixtureAlias=f'fixture-{i + 1}',
+                       fixtureFingerprint=fixture_fingerprint(users)) for i in range(count)]
+        (out / 'stage-http-diagnostics.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in events))
+        return users, read_focus_ledger(out, RUN)
+
+    def test_truncated_chunked_body_is_unknown_and_cleanup_continues(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.server.gets += 1
+                self.wfile.write(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n')
+                if self.server.gets == 1:
+                    self.wfile.write(b'20\r\n{"da')  # 청크 길이만큼 못 채우고 끊김 -> IncompleteRead
+                else:
+                    self.wfile.write(b'd\r\n{"data":null}\r\n0\r\n\r\n')
+                self.close_connection = True
+            def log_message(self, *args):
+                pass
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        server.gets = 0
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                users, ledger = self.multi_ledger(Path(temporary), 2)
+                result = cleanup_focus(f'http://127.0.0.1:{server.server_port}', users, 2, RUN, ledger)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+        self.assertEqual(server.gets, 2)  # 첫 계정 응답 유실 뒤에도 둘째 계정까지 진행
+        self.assertEqual(result['checks'][0]['reason'], 'CURRENT_RESPONSE_UNCONFIRMED')
+        self.assertIsNone(result['checks'][0]['remainingOwnedActive'])
+        self.assertEqual(result['checks'][1]['ownership'], 'NONE')
+        self.assertEqual((result['failed'], result['complete']), (1, False))
+
+    def test_finish_failures_count_toward_consecutive_error_stop(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            users, ledger = self.multi_ledger(Path(temporary), 4)
+            posts = []
+            def request(user, method, path, body, headers):
+                alias = users.index(user)
+                if method == 'GET':
+                    return {'status': 200, 'data': {'id': SESSION, 'subject': f'lt:{RUN}:00000000-0000-4000-8000-1000000000{alias:02d}',
+                        'islandId': ISLAND, 'version': 1, 'status': 'active', 'startedAt': '2026-10-22T00:00:00Z'}}
+                posts.append(alias)
+                return {'status': 503, 'data': None}
+            result = cleanup_focus('http://localhost', users, 4, RUN, ledger, request=request)
+        self.assertEqual(len(posts), 3)
+        self.assertEqual(result['failed'], 3)
+        self.assertFalse(result['complete'])
 
     def ledger(self, out, users=None):
         event = dict(type='focus_request', phase='intent', step='start', runId=RUN,
