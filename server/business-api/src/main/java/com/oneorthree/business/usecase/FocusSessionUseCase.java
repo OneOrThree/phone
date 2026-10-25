@@ -12,6 +12,7 @@ import com.oneorthree.business.upstream.data.DataFocusClient;
 import com.oneorthree.business.upstream.data.dto.ActiveIntervalState;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
+import com.oneorthree.business.upstream.data.dto.FocusSeat;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
@@ -107,10 +108,11 @@ public class FocusSessionUseCase {
     public record TutorialExperienceView(UUID islandId, String status) {
     }
 
+    /** @param seat 집중섬에서 앉은 자리(GROMO-2477) — 선택, 범위는 공개 경계가 이미 걸렀다 */
     public StateView start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
-            UUID key, Deadline deadline) {
+            FocusSeat seat, UUID key, Deadline deadline) {
         return StateView.from(relay(() -> data.startFocusSession(
-                claims.userId(), islandId, subject, targetMinutes, key, deadline)));
+                claims.userId(), islandId, subject, targetMinutes, seat, key, deadline)));
     }
 
     /** 바다 집중 세션 시작 (GROMO-2299) — 목적지·항해 분 판정은 Data 가 망원경 목록으로 한다. */

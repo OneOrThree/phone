@@ -28,6 +28,7 @@ function setup(os = 'ios') {
     bindMeasurementOwner: jest.fn().mockResolvedValue(undefined),
     startFocusShield: jest.fn().mockResolvedValue(true),
     stopFocusShield: jest.fn().mockResolvedValue(undefined),
+    getAuthorizationStatus: jest.fn().mockResolvedValue('approved'),
   };
   const auth = {
     sessionGeneration: jest.fn(() => 1),
@@ -149,4 +150,21 @@ test('iOS 서버 확인 중 계정이 바뀌면 이전 응답으로 차단하지
   await focusShield.syncFocusShield(focus, 'black', true);
   expect(shield.startFocusShield).not.toHaveBeenCalled();
   expect(shield.stopFocusShield).not.toHaveBeenCalled();
+});
+
+test.each([
+  ['approved', true],
+  ['denied', false],
+  ['notDetermined', false],
+  ['unavailable', false],
+])('차단 실패 알림은 스크린타임 권한이 %s 일 때 %s', async (status, expected) => {
+  const { focusShield, shield } = setup();
+  shield.getAuthorizationStatus.mockResolvedValue(status);
+  await expect(focusShield.shouldReportShieldFailure()).resolves.toBe(expected);
+});
+
+test('권한 조회가 실패하면 차단 실패를 알리지 않는다', async () => {
+  const { focusShield, shield } = setup();
+  shield.getAuthorizationStatus.mockRejectedValue(new Error('native'));
+  await expect(focusShield.shouldReportShieldFailure()).resolves.toBe(false);
 });

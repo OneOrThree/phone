@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 
@@ -29,15 +30,27 @@ jest.mock('@/utils/island-layout', () => ({
 }));
 jest.mock('./TileTerrainCanvas', () => ({ TileTerrainCanvas: () => null }));
 
-// WorldMap import 전에 process.env.EXPO_PUBLIC_TILE_ISLAND 를 세운다 — 모듈 로드 시 상수로 굳는다.
-// 플래그는 모듈 로드 때 읽는다 — TILE_ISLAND 는 지우고, 새 마을(layered)은 VILLAGE_PREVIEW 로 켠다.
-// 서버 배치 적용(applyLayout)은 TILE_ISLAND 에 묶여 있어, 플래그 off 면 새 마을 미리보기가 켜져 있어도 적용하지 않는다.
-// (켠 쪽은 WorldMap.tileIsland.test.tsx 가 덮는다. 플래그는 모듈 상수라 한 파일에서 둘을 갈라 볼 수 없다.)
-delete process.env.EXPO_PUBLIC_TILE_ISLAND;
+// 웹 빌드는 이미지 섬이다(GROMO-2476 — iOS·Android 는 늘 타일 섬). TILE_ISLAND 는 모듈 로드 때 Platform.OS 로
+// 굳으므로 그때만 'web' 으로 두고 바로 되돌린다 — jest 엔 DOM 이 없어 웹 전용 런타임 분기(window.location·
+// getBoundingClientRect)는 돌릴 수 없다. 새 마을(layered)은 VILLAGE_PREVIEW 로 켠다.
+// 서버 배치 적용(applyLayout)은 TILE_ISLAND 에 묶여 있어, 웹이면 새 마을 미리보기가 켜져 있어도 적용하지 않는다.
+// (타일 섬 쪽은 WorldMap.tileIsland.test.tsx 가 덮는다. 상수라 한 모듈 인스턴스에서 둘을 갈라 볼 수 없다.)
+const requireAsWeb = <T,>(platform: typeof Platform, load: () => T): T => {
+  const os = platform.OS;
+  (platform as { OS: string }).OS = 'web';
+  try {
+    return load();
+  } finally {
+    (platform as { OS: string }).OS = os;
+  }
+};
 process.env.EXPO_PUBLIC_VILLAGE_PREVIEW = '1';
-const { FinalIsland } = require('./WorldMap') as typeof import('./WorldMap');
+const { FinalIsland } = requireAsWeb(
+  Platform,
+  () => require('./WorldMap') as typeof import('./WorldMap'),
+);
 
-it('타일 섬 플래그 off + 새 마을 미리보기 on 이면 서버 home.layout 이 있어도 applyLayout 을 적용하지 않아 map.json 위치 그대로다', async () => {
+it('웹(이미지 섬) + 새 마을 미리보기 on 이면 서버 home.layout 이 있어도 applyLayout 을 적용하지 않아 map.json 위치 그대로다', async () => {
   const state = initialState();
   mockFacts.current = {
     islandId: state.islands[0].id,
@@ -54,7 +67,7 @@ it('타일 섬 플래그 off + 새 마을 미리보기 on 이면 서버 home.lay
   expect(mockApplyLayout).not.toHaveBeenCalled();
 });
 
-it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 타일 캔버스는 없다', async () => {
+it('웹 + 미리보기 없음이면 기존 바닥 Image 를 그리고 타일 캔버스는 없다', async () => {
   // 미리보기 env 는 모듈 로드 때 굳으므로 격리 로드한다.
   delete process.env.EXPO_PUBLIC_VILLAGE_PREVIEW;
   let Island!: typeof FinalIsland;
@@ -62,7 +75,12 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
   jest.isolateModules(() => {
     // 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다 — 바깥 React 를 그대로 물려준다.
     jest.doMock('react', () => React);
-    Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+    // 격리 레지스트리의 react-native 는 바깥과 다른 인스턴스다 — 그 Platform 으로 웹을 흉내 낸다.
+    const isolatedPlatform = (require('react-native') as typeof import('react-native')).Platform;
+    Island = requireAsWeb(
+      isolatedPlatform,
+      () => require('./WorldMap') as typeof import('./WorldMap'),
+    ).FinalIsland;
     terrain = (require('./IslandOcean') as typeof import('./IslandOcean')).islandTerrain;
   });
   mockFacts.current = null;

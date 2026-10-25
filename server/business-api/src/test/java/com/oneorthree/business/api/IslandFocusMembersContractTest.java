@@ -39,7 +39,7 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
 
     private static final String FOCUS_BODY = "{\"items\":[{\"userId\":\"" + OTHER + "\",\"name\":null,"
             + "\"sessionId\":\"" + SESSION + "\",\"subject\":\"영어 단어\",\"activeSeconds\":1320,"
-            + "\"status\":\"active\"}],\"serverNow\":\"2026-09-11T09:10:00Z\","
+            + "\"status\":\"active\",\"seat\":{\"x\":12.5,\"y\":40.25}}],\"serverNow\":\"2026-09-11T09:10:00Z\","
             + "\"watermarks\":[{\"projection\":\"focus.member\",\"islandId\":\"" + ISLAND + "\","
             + "\"aggregateId\":\"" + OTHER + "\",\"version\":5}]}";
     private static final String REST_BODY = "{\"items\":[{\"userId\":\"" + OTHER + "\",\"name\":\"수아\","
@@ -67,6 +67,8 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].sessionId").value(SESSION.toString()))
                 .andExpect(jsonPath("$.data.items[0].activeSeconds").value(1320))
                 .andExpect(jsonPath("$.data.items[0].status").value("active"))
+                .andExpect(jsonPath("$.data.items[0].seat.x").value(12.5))
+                .andExpect(jsonPath("$.data.items[0].seat.y").value(40.25))
                 .andExpect(jsonPath("$.data.serverNow").value("2026-09-11T09:10:00Z"))
                 .andExpect(jsonPath("$.data.watermarks[0].projection").value("focus.member"))
                 .andExpect(jsonPath("$.data.watermarks[0].aggregateId").value(OTHER.toString()))
@@ -75,6 +77,18 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_FOCUS).get(0);
         assertThat(forwarded.header("X-User-Id")).as("주체는 서명된 세션에서만 온다").isEqualTo(USER.toString());
         assertThat(forwarded.query()).isNull();
+    }
+
+    /** 롤링 배포 중 자리를 모르는 옛 Data(키 없음)도 200 이다 — 공개 응답은 seat:null 키를 싣는다(GROMO-2477). */
+    @Test
+    @DisplayName("상류 항목에 seat 키가 없어도 502 가 아니라 seat:null 로 내린다")
+    void focusMembersWithoutUpstreamSeatKeepANullKey() throws Exception {
+        DATA.on(DATA_FOCUS, request -> ok(FOCUS_BODY.replace(",\"seat\":{\"x\":12.5,\"y\":40.25}", "")));
+
+        String body = mockMvc.perform(auth(get("/islands/" + ISLAND + "/focus-members")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).contains("\"seat\":null").doesNotContain("40.25");
     }
 
     @Test
@@ -154,6 +168,9 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
             watermarks.add(secondWatermark);
             if (shape.equals("nullable")) {
                 ((tools.jackson.databind.node.ObjectNode) items.get(0)).putNull("name");
+                if (route.equals("focus-members")) {
+                    ((tools.jackson.databind.node.ObjectNode) items.get(0)).putNull("seat");
+                }
             }
         }
         var upstream = expected.deepCopy();
@@ -178,8 +195,9 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
     @CsvSource(delimiter = '|', value = {
             "/islands/{islandId}/focus-members|get||items serverNow watermarks|items serverNow watermarks",
             "/islands/{islandId}/rest-members|get||items serverNow watermarks|items serverNow watermarks",
-            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status|userId name sessionId subject activeSeconds status",
+            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status seat|userId name sessionId subject activeSeconds status seat",
             "/islands/{islandId}/rest-members|get|items|userId name restSeat restStartedAt|userId name restSeat restStartedAt",
+            "/islands/{islandId}/focus-members|get|items/seat|x y|x y",
             "/islands/{islandId}/focus-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version",
             "/islands/{islandId}/rest-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version"})
     void publicDocumentationKeepsDistinctMemberFields(String path, String method, String nested,

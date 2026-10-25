@@ -378,6 +378,7 @@ designed fresh.
 
 **바다 앱 계약 보충** (앱 티켓이 되묻는 것 — 근거는 `SeaRooms`·`StompAuthChannelInterceptor`·컨트롤러 코드):
 
+- **같은 방의 차단·해제(티켓 2471)**: `user.blocks.updated` 처리로 차단 세대를 올린 뒤 현재 방 스냅샷을 `chat:sea:v1`로 전파하고, 각 인스턴스는 그 방 구성원의 모든 로컬 세션 `/user/queue/sea`로 전달한다. 전달 직전에 수신자 기준 양방향 차단 관계를 확인해 상대의 `members` 항목을 제외하며 `joined`·`updated`·`emote`도 거른다. 방·집중·항해 상태와 다른 참가자는 유지한다. 어느 방향이든 차단이 남으면 숨기고, 양쪽 모두 해제되면 같은 방의 상대를 즉시 복원한다. 최초 입장 분리와 마찬가지로 이 규칙은 `REALTIME_BLOCKS_FILTER_ENABLED`와 무관하다. 즉시 갱신에는 Data의 차단 사건 생산·relay가 필요하며, 꺼진 환경에서 TTL 복원을 즉시 처리라고 표현하지 않는다. 기존 sync 응답은 요청 세션 한정이며 같은 전달 필터를 사용한다.
 - **`sea.room.left{roomId, reason}`** 는 개인 큐 `/user/queue/sea` 로 그 사용자의 **모든 세션**(발신 세션 포함)에 간다
   (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE·탈퇴 `user.withdrawn`) · `adrift`(10분 정리) ·
   `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은

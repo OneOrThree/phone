@@ -14,7 +14,7 @@
 #   4. 키체인이 백그라운드 서명(codesign)을 허용하게 한다 (맥 비밀번호 입력)
 #   5. 로그인하면 자동으로 뜨는 서비스로 등록하고 시작한다
 #   확인. 레포에 러너가 보이는지 보고, 레포 변수 IOS_DEV_RUNNERS 에 내 아이디를 덧붙인다
-#      (워크플로는 이 변수에 있는 사람만 "러너 있음" 으로 보고, 없으면 오너 맥으로 폴백한다)
+#      (워크플로는 이 변수에 있는 사람만 자동 빌드하고, 없으면 빌드를 건너뛴다)
 #
 # 필요한 것: gh 로그인(레포 admin — 등록 토큰 발급과 러너 목록 조회가 admin 전용 API 다), Xcode,
 # Homebrew 의 cocoapods·ruby(bundler). Node 는 워크플로가 setup-node 로 24 를 직접 깐다.
@@ -132,7 +132,7 @@ FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.name ==
 [ -n "$FOUND" ] || die "레포에 이름 $AGENT, 라벨 macOS,ios,$LOGIN 을 모두 가진 러너가 안 보인다. 라벨이 다르게 등록돼 있으면 ./config.sh remove 뒤 재실행"
 echo "$FOUND"
 # 서비스가 뜬 직후라 GitHub 에 아직 안 붙었을 수 있다 — 30초까지 기다려 online 이 돼야 변수에 넣는다.
-# offline 인 채로 변수에 넣으면 그 사람의 머지가 오너 맥 폴백 대신 죽은 러너를 기다리게 된다.
+# offline 인 채로 변수에 넣으면 그 사람의 머지가 빌드를 건너뛰는 대신 죽은 러너를 기다리게 된다.
 for _ in 1 2 3 4 5 6; do
   case "$FOUND" in *"| online |"*) break ;; esac
   sleep 5

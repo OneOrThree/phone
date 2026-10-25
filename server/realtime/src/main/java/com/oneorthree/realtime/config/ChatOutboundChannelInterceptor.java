@@ -21,9 +21,12 @@ import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -181,7 +184,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             return deliverIslandEvent(message, destination, island.group(1), island.group(2), stamp);
         }
         // 바다 방(GROMO-2300, N21) — JWT + 프레임마다 Redis 방 소속. 다른 인스턴스의 정리가 Redis 에서 사람을 빼도 이
-        // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 판정 불가(Redis 실패)도 보내지 않는다. 차단은 배정 때 분리했다.
+        // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 차단은 배정 이후에도 전달 직전에 양방향으로 검사한다.
         Matcher seaRoom = SEA_ROOM_TOPIC.matcher(destination);
         if (seaRoom.matches()) {
             // 정규식은 36자 모양만 본다 — 손상 값이면 프레임만 버린다(예외가 실행기로 새지 않게).
@@ -204,6 +207,18 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             // 정보가 실린다)는 JWT 와 폐기 sid(GROMO-2350)를 다시 본다 — 종료가 실패해 소켓이 남은 폐기 세션에 나가지 않게.
             if (destination.equals(ERRORS_QUEUE) || destination.startsWith(ERRORS_QUEUE_RESOLVED)) {
                 return message;
+            }
+            if (destination.equals("/user/queue/sea") || destination.startsWith("/queue/sea-user")) {
+                ChatPrincipal principal = stillAuthenticated(message);
+                if (principal == null) {
+                    return null;
+                }
+                try {
+                    return filterSeaVisibility(message, principal.userId());
+                } catch (RuntimeException e) {
+                    log.debug("바다 개인 큐 전달 차단 — 판정 불가. reason={}", e.getClass().getSimpleName());
+                    return null;
+                }
             }
             return stillAuthenticated(message) == null ? null : message;
         }
@@ -298,15 +313,53 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         try {
             if (seaRooms.isMember(principal.userId(), roomId)) {
-                return message;
+                return filterSeaVisibility(message, principal.userId());
             }
             seaDroppedNotMember.increment();
             return null;
         } catch (RuntimeException e) {
             seaDroppedRedis.increment();
-            log.debug("바다 방 전달 차단 — 소속 판정 불가. reason={}", e.getClass().getSimpleName());
+            log.debug("바다 방 전달 차단 — 소속·차단 판정 불가. reason={}", e.getClass().getSimpleName());
             return null;
         }
+    }
+
+    /** 방 상태를 바꾸지 않고 받는 사람마다 상대를 숨긴다. 늦은 스냅샷·갱신도 현재 차단 관계로 거른다. */
+    private Message<?> filterSeaVisibility(Message<?> message, UUID viewer) {
+        JsonNode root = readPayload(message);
+        if (root == null) {
+            return null;
+        }
+        String type = root.path("type").asText(null);
+        JsonNode payload = root.path("payload");
+        if (SeaRooms.SNAPSHOT.equals(type)) {
+            UUID roomId = uuidOrNull(root.path("roomId").stringValue());
+            if (roomId == null || !seaRooms.isMember(viewer, roomId) || !payload.path("members").isArray()) {
+                return null;
+            }
+            ArrayNode visible = objectMapper.createArrayNode();
+            for (JsonNode member : payload.path("members")) {
+                UUID actor = UUID.fromString(member.path("userId").stringValue());
+                if (!blockedUsers.eitherBlocked(viewer, actor)) {
+                    visible.add(member);
+                }
+            }
+            if (visible.size() == payload.path("members").size()) {
+                return message;
+            }
+            ObjectNode filtered = ((ObjectNode) root).deepCopy();
+            ((ObjectNode) filtered.path("payload")).set("members", visible);
+            return MessageBuilder.createMessage(objectMapper.writeValueAsBytes(filtered), message.getHeaders());
+        }
+        JsonNode actor = SeaRooms.MEMBER_JOINED.equals(type) || SeaRooms.MEMBER_UPDATED.equals(type)
+                ? payload.path("member").path("userId")
+                : "sea.emote".equals(type) ? payload.path("userId") : null;
+        if (actor != null && (!actor.isString()
+                || blockedUsers.eitherBlocked(viewer, UUID.fromString(actor.stringValue())))) {
+            return null;
+        }
+        // left 는 이미 보이던 상대를 지우는 멱등 사건이라 차단 중에도 전달한다.
+        return message;
     }
 
     /**

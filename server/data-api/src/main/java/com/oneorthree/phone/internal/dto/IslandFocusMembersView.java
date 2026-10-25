@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,6 +29,7 @@ public record IslandFocusMembersView(List<Item> items, Instant serverNow, List<M
      * @param subject       집중 주제
      * @param activeSeconds serverNow 기준 순수 ACTIVE 초
      * @param status        {@code "active"} 또는 {@code "paused"}
+     * @param seat          집중섬에서 앉은 자리(GROMO-2477, 지도 % 좌표) — 자리 없이 시작했으면 null, 키는 항상 실린다
      */
     public record Item(
             UUID userId,
@@ -35,6 +37,7 @@ public record IslandFocusMembersView(List<Item> items, Instant serverNow, List<M
             UUID sessionId,
             String subject,
             long activeSeconds,
-            String status) {
+            String status,
+            @JsonInclude(JsonInclude.Include.ALWAYS) FocusSeat seat) {
     }
 }

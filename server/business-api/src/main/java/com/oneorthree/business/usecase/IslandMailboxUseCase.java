@@ -73,6 +73,7 @@ public class IslandMailboxUseCase {
     private static final Map<String, PublicFailure> DOMAIN_FAILURES = Map.ofEntries(
             // Data — 주민 인가 술어(InternalIslandMailboxService.requireResident)
             Map.entry("MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "islandId")),
+            // 순차 배포 중 구버전 Data의 시설 거절도 기존 공개 코드로 옮긴다. 현재 Data는 채팅에서 반환하지 않는다.
             Map.entry("MAILBOX_LOCKED", new PublicFailure(403, ApiErrorCode.FACILITY_LOCKED, null)),
             Map.entry("USER_NOT_FOUND", new PublicFailure(404, ApiErrorCode.USER_NOT_FOUND, null)),
             // 실시간 — 같은 키·다른 본문(M05). field 가 헤더가 아니라 본문 필드라 기본 매핑을 쓰지 않는다

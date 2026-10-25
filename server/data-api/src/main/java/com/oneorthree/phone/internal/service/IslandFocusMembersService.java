@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
@@ -109,7 +110,8 @@ public class IslandFocusMembersService {
                         row.getSessionId(), row.getSubject(),
                         FocusIntervalMath.activeSecondsAsOf(bySession.getOrDefault(row.getSessionId(), List.of()), now),
                         row.getLifecycle() == FocusSessionLifecycle.PAUSED
-                                ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE))
+                                ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE,
+                        FocusSeat.of(row.getSeatX(), row.getSeatY())))
                 .toList();
         return new IslandFocusMembersView(items, now, watermarks(MemberWatermark.FOCUS_MEMBER,
                 FocusMemberEvents.FOCUS_AGGREGATE_TYPE, islandId, rows));

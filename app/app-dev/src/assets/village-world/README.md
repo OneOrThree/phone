@@ -61,9 +61,9 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 
 ### 타일 지형 (10/9) — 렌더러(GROMO-2230)
 
-- `EXPO_PUBLIC_TILE_ISLAND=1`(iOS·Android) 이면 기존 마을 홈 섬의 바닥 원화 한 장 대신 `v1/tileset@2x.png`(밤은 `tileset-night@2x.png`) 384 조각을 `TileTerrainCanvas`(Skia `<Atlas>`, 드로우콜 1)로 그린다. 웹은 플래그를 무시하고 기존 Image.
+- iOS·Android 는 늘(플래그 없음, GROMO-2476) 기존 마을 홈 섬의 바닥 원화 한 장 대신 `v1/tileset@2x.png`(밤은 `tileset-night@2x.png`) 384 조각을 `TileTerrainCanvas`(Skia `<Atlas>`, 드로우콜 1)로 그린다. 웹은 기존 Image.
 - 배열은 `v1/tilemap.json` terrain 레이어 + `v1/tileset.json`(margin 1·spacing 2·31열·scale 2)에서 한 번 만든다. 목적지는 1x 이미지 좌표(64px 격자)라 기존 카메라 투영(`base·z`)을 Group transform 하나로 그대로 쓴다.
-- 건물은 지금처럼 기존 레이어 이미지(`backgrounds/island/layers/{day,night}`)·모션이 그린다. 새 마을 미리보기 토글은 플래그와 무관하게 자기 지형 이미지와 `VillageScenery` 를 쓴다. 한 캔버스로 합치기·Reanimated 카메라는 실기기 프레임 측정(p95 ≤ 16.7ms) 뒤 다음 단계.
+- 건물은 지금처럼 기존 레이어 이미지(`backgrounds/island/layers/{day,night}`)·모션이 그린다. 새 마을 미리보기 토글은 타일 섬과 무관하게 자기 지형 이미지와 `VillageScenery` 를 쓴다. 한 캔버스로 합치기·Reanimated 카메라는 실기기 프레임 측정(p95 ≤ 16.7ms) 뒤 다음 단계.
 - 서버 배치(`/screens/home` 의 `layout.buildings[].cell`)는 새 마을 미리보기에서는 `applyLayout` 이 건물 발밑을 셀 중심 px 로 덮어쓴다. 타일 섬(기존 마을)은 건물 레이어가 전체 캔버스 이미지라 자르지 않고 `legacyLayoutOffsets` 로 건물별 평행이동(`셀 중심(서버 cell) − 셀 중심(placement.json rect 발밑에서 유도한 기본 cell)`)을 구해 그 건물의 레이어·모션·알림·공사 스프라이트·문(탭 영역·걷기 목표)·이름표를 같이 옮긴다. 서버 기본 템플릿이면 이동량이 전부 0 이라 화면은 픽셀 동일하다. 앱에서 배치를 편집하는 UI 는 없고, 통행 셀은 정적 `v1/nav.json` 그대로다(서버가 nav 산출물을 가질 때까지 옮긴 건물이 막는 칸은 바뀌지 않는다).
 - 탭·이동(GROMO-2231, 같은 플래그, 기존 마을 홈 섬에서만): 탭(`locationX/scale`=이미지 px) → `imageToWorld`(0~100) → `v1/nav.json` 100×100 위 A*(`utils/nav-path.ts`, HLD §3) → 셀 중심을 `worldToImage` 로 px 로 되돌려 기존 `Animated.timing` 루프에 태운다.
 - 목적지가 다른 연결 영역·바다면 출발 영역 안 최근접 통행 셀(동률 index 작은 쪽)로 보정한다. 대각은 양옆 직교 셀이 모두 통행일 때만.
