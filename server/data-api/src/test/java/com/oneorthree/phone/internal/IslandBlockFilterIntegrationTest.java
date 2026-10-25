@@ -9,11 +9,16 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
+import com.oneorthree.phone.internal.dto.IslandGuestbookViews;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
+import com.oneorthree.phone.internal.dto.IslandRecordViews.FocusMember;
+import com.oneorthree.phone.internal.dto.IslandRecordViews.ScreenMember;
 import com.oneorthree.phone.internal.dto.MailboxViewerResponse;
 import com.oneorthree.phone.internal.dto.MessageAuthorsResponse;
 import com.oneorthree.phone.internal.service.InternalIslandMailboxService;
+import com.oneorthree.phone.internal.service.IslandGuestbookService;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
+import com.oneorthree.phone.internal.service.IslandRecordsService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -26,6 +31,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -34,9 +40,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 섬 편지방·게시판의 차단 제외 (GROMO-2181, character-report policy RP-차단) — 실제 Flyway PostgreSQL 위에서
- * «차단하면 빠진다 → 해제하면 돌아온다 → 방향은 한쪽뿐이다» 세 경우와, 제외가 LIMIT 전에 일어나 쪽 크기·keyset
- * 커서가 그대로라는 것을 본다. 차단·해제는 공개 {@code POST/DELETE /blocks} 가 타는 {@link UserBlockService} 로 건다.
+ * 섬 편지방·게시판·방명록·도서관의 차단 제외 (GROMO-2181 → GROMO-2469, character-report policy RP-차단) — 실제
+ * Flyway PostgreSQL 위에서 «차단하면 빠진다 → 해제하면 돌아온다 → 어느 방향이든 숨긴다» 세 경우와, 제외가 LIMIT 전에
+ * 일어나 쪽 크기·keyset 커서가 그대로라는 것을 본다. 차단·해제는 공개 {@code POST/DELETE /blocks} 가 타는
+ * {@link UserBlockService} 로 건다. 2181 은 요청자가 차단한 쪽만 뺐고, 2469 가 차단당한 쪽에서도 같은 제외를 한다.
  *
  * <p>시설 게이트는 기본값(OFF)이다 — 여기서 보는 것은 인가가 아니라 제외다. 댓글 작성에만 쓰기 스위치를 켠다.
  */
@@ -58,6 +65,10 @@ class IslandBlockFilterIntegrationTest {
     GroupAnnouncementRepository announcements;
     @Autowired
     InternalIslandMailboxService mailbox;
+    @Autowired
+    IslandGuestbookService guestbook;
+    @Autowired
+    IslandRecordsService records;
     @Autowired
     UserBlockService blocks;
     @Autowired
@@ -88,15 +99,21 @@ class IslandBlockFilterIntegrationTest {
     }
 
     @Test
-    @DisplayName("편지방 — 한 방향이다: 차단당한 쪽이 보는 차단한 사람의 메시지는 숨기지 않는다")
-    void mailboxHideIsOneDirectional() {
+    @DisplayName("편지방 — 양방향이다: 차단당한 쪽이 보는 차단한 사람의 메시지도 숨긴다, 해제하면 돌아온다")
+    void mailboxHidesEitherDirection() {
         Island is = island();
         UUID viewer = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID other = resident(is.id, GroupAnnouncementGrant.DISALLOW);
 
         blocks.block(viewer, is.owner);
-        MessageAuthorsResponse ownerView = mailbox.authors(is.id, is.owner, List.of(viewer));
-        assertThat(ownerView.hiddenUserIds()).isEmpty();
-        assertThat(ownerView.authors()).extracting(MailboxViewerResponse::userId).containsExactly(viewer);
+        MessageAuthorsResponse ownerView = mailbox.authors(is.id, is.owner, List.of(viewer, other));
+        assertThat(ownerView.hiddenUserIds()).containsExactly(viewer);
+        assertThat(ownerView.authors()).extracting(MailboxViewerResponse::userId).containsExactly(other);
+        // 제3자에게는 둘 다 보인다 — 차단은 두 사람 사이의 일이다.
+        assertThat(mailbox.authors(is.id, other, List.of(viewer, is.owner)).hiddenUserIds()).isEmpty();
+
+        blocks.unblock(viewer, is.owner);
+        assertThat(mailbox.authors(is.id, is.owner, List.of(viewer)).hiddenUserIds()).isEmpty();
     }
 
     // ---------------------------------------------------------------- 게시판 목록 (GET /islands/{id}/notices)
@@ -153,20 +170,28 @@ class IslandBlockFilterIntegrationTest {
     // ---------------------------------------------------------------- 게시판 상세 (GET /islands/{id}/notices/{nid})
 
     @Test
-    @DisplayName("게시판 상세 — 차단한 작성자의 공지는 id 로 열어도 NOT_FOUND, 해제하면 열린다")
+    @DisplayName("게시판 상세 — 차단 관계인 작성자의 공지는 어느 쪽이 열어도 NOT_FOUND, 해제하면 열린다")
     void noticeDetailOfBlockedAuthorIsNotFoundUntilUnblocked() {
         Island is = island();
         UUID viewer = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID other = resident(is.id, GroupAnnouncementGrant.DISALLOW);
         UUID ownerNotice = notices.create(is.id, is.owner, "방장 공지", "본문", key()).id();
+        UUID viewerNotice = legacyNotice(is.id, viewer, "주민 공지");
 
         blocks.block(viewer, is.owner);
         assertThatThrownBy(() -> notices.detail(is.id, ownerNotice, viewer, null, null, PAGE))
                 .extracting("errorCode").isEqualTo(GroupErrorCode.NOT_FOUND);
-        // 한 방향 — 차단당한 방장 자신과 다른 주민에게는 그대로 보인다.
+        // 양방향 — 차단당한 방장도 차단한 주민의 공지를 열 수 없다. 작성자 본인과 제3자에게는 그대로 보인다.
+        assertThatThrownBy(() -> notices.detail(is.id, viewerNotice, is.owner, null, null, PAGE))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOT_FOUND);
         assertThat(notices.detail(is.id, ownerNotice, is.owner, null, null, PAGE).id()).isEqualTo(ownerNotice);
+        assertThat(notices.detail(is.id, viewerNotice, other, null, null, PAGE).id()).isEqualTo(viewerNotice);
+        assertThat(notices.list(is.id, is.owner, null, null, PAGE).items()).extracting(IslandNoticeViews.Item::id)
+                .containsExactly(ownerNotice);
 
         blocks.unblock(viewer, is.owner);
         assertThat(notices.detail(is.id, ownerNotice, viewer, null, null, PAGE).title()).isEqualTo("방장 공지");
+        assertThat(notices.detail(is.id, viewerNotice, is.owner, null, null, PAGE).title()).isEqualTo("주민 공지");
     }
 
     @Test
@@ -196,12 +221,95 @@ class IslandBlockFilterIntegrationTest {
         seen.addAll(second.comments().stream().map(IslandNoticeViews.Comment::id).toList());
         assertThat(seen).containsExactlyElementsOf(visible);
 
-        // 한 방향 — 차단당한 방장은 차단한 사람의 댓글을 그대로 본다.
-        assertThat(notices.detail(is.id, noticeId, is.owner, null, null, PAGE).comments())
-                .extracting(IslandNoticeViews.Comment::id).contains(viewerComment);
+        // 양방향 — 차단당한 방장에게도 차단한 사람의 댓글이 빠지고(6개), 작성자 본인의 댓글은 남는다.
+        IslandNoticeViews.Detail ownerView = notices.detail(is.id, noticeId, is.owner, null, null, PAGE);
+        assertThat(ownerView.comments()).hasSize(6);
+        assertThat(ownerView.comments()).extracting(IslandNoticeViews.Comment::id).doesNotContain(viewerComment);
 
         blocks.unblock(viewer, is.owner);
         assertThat(notices.detail(is.id, noticeId, viewer, null, null, PAGE).comments()).hasSize(7);
+        assertThat(notices.detail(is.id, noticeId, is.owner, null, null, PAGE).comments()).hasSize(7);
+    }
+
+    // ---------------------------------------------------------------- 방명록 (GET /islands/{id}/guestbook)
+
+    @Test
+    @DisplayName("방명록 — 차단 관계인 작성자의 글은 양쪽 모두에게 빠지고 제3자에게는 보인다, 해제하면 돌아온다")
+    void guestbookHidesBlockedAuthorEitherDirectionUntilUnblocked() {
+        Island is = island();
+        UUID viewer = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID other = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID ownerEntry = guestbook.write(is.id, is.owner, "방장 글").id();
+        UUID viewerEntry = guestbook.write(is.id, viewer, "주민 글").id();
+        UUID otherEntry = guestbook.write(is.id, other, "제3자 글").id();
+
+        blocks.block(viewer, is.owner);
+        assertThat(guestbook.list(is.id, viewer, null, null, PAGE).items()).extracting(IslandGuestbookViews.Item::id)
+                .containsExactly(otherEntry, viewerEntry);
+        assertThat(guestbook.list(is.id, is.owner, null, null, PAGE).items()).extracting(IslandGuestbookViews.Item::id)
+                .containsExactly(otherEntry, ownerEntry);
+        assertThat(guestbook.list(is.id, other, null, null, PAGE).items()).extracting(IslandGuestbookViews.Item::id)
+                .containsExactly(otherEntry, viewerEntry, ownerEntry);
+
+        blocks.unblock(viewer, is.owner);
+        assertThat(guestbook.list(is.id, viewer, null, null, PAGE).items()).hasSize(3);
+        assertThat(guestbook.list(is.id, is.owner, null, null, PAGE).items()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("방명록 — 제외가 LIMIT 전이라 쪽이 꽉 차고 keyset 커서가 빠짐·겹침 없이 이어진다")
+    void guestbookKeepsPageSizeAndCursorAfterFiltering() {
+        Island is = island();
+        UUID viewer = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        // 하루 한 글이라 작성자를 여럿 둔다 — 홀수 번째는 차단한 사람, 짝수 번째는 보이는 주민.
+        List<UUID> visible = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            UUID blockedAuthor = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+            guestbook.write(is.id, blockedAuthor, "숨김 " + i);
+            blocks.block(viewer, blockedAuthor);
+            visible.add(0, guestbook.write(is.id, resident(is.id, GroupAnnouncementGrant.DISALLOW), "보임 " + i).id());
+        }
+
+        IslandGuestbookViews.Page first = guestbook.list(is.id, viewer, null, null, 2);
+        assertThat(first.items()).hasSize(2);
+        assertThat(first.hasMore()).isTrue();
+        IslandGuestbookViews.Item last = first.items().get(1);
+        IslandGuestbookViews.Page second = guestbook.list(is.id, viewer, last.createdAt(), last.id(), 2);
+        assertThat(second.items()).hasSize(1);
+        assertThat(second.hasMore()).isFalse();
+
+        List<UUID> seen = new ArrayList<>(first.items().stream().map(IslandGuestbookViews.Item::id).toList());
+        seen.addAll(second.items().stream().map(IslandGuestbookViews.Item::id).toList());
+        assertThat(seen).containsExactlyElementsOf(visible);
+    }
+
+    // ---------------------------------------------------------------- 도서관 (GET /islands/{id}/records/…?scope=island)
+
+    @Test
+    @DisplayName("도서관 이웃 — 차단 관계인 주민은 집중·스크린타임 목록에서 양쪽 모두에게 빠진다, 해제하면 돌아온다")
+    void libraryNeighborsHideBlockedResidentEitherDirectionUntilUnblocked() {
+        Island is = island();
+        UUID viewer = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID other = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        LocalDate today = LocalDate.now();
+
+        blocks.block(viewer, is.owner);
+        assertThat(records.focus(viewer, is.id, today, today, "island", null, 0).members())
+                .extracting(FocusMember::userId).containsExactlyInAnyOrder(viewer, other);
+        assertThat(records.focus(is.owner, is.id, today, today, "island", null, 0).members())
+                .extracting(FocusMember::userId).containsExactlyInAnyOrder(is.owner, other);
+        assertThat(records.screenTime(viewer, is.id, today, today, "island").members())
+                .extracting(ScreenMember::userId).containsExactlyInAnyOrder(viewer, other);
+        assertThat(records.screenTime(is.owner, is.id, today, today, "island").members())
+                .extracting(ScreenMember::userId).containsExactlyInAnyOrder(is.owner, other);
+        assertThat(records.focus(other, is.id, today, today, "island", null, 0).members())
+                .extracting(FocusMember::userId).containsExactlyInAnyOrder(is.owner, viewer, other);
+
+        blocks.unblock(viewer, is.owner);
+        assertThat(records.focus(viewer, is.id, today, today, "island", null, 0).members())
+                .extracting(FocusMember::userId).containsExactlyInAnyOrder(is.owner, viewer, other);
+        assertThat(records.screenTime(is.owner, is.id, today, today, "island").members())
+                .extracting(ScreenMember::userId).containsExactlyInAnyOrder(is.owner, viewer, other);
     }
 
     // ---------------------------------------------------------------- 도구

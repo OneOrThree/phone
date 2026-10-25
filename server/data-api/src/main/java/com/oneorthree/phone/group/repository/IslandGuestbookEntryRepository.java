@@ -16,16 +16,25 @@ import java.util.UUID;
 /** 섬 방명록 (GROMO-2262, V113). */
 public interface IslandGuestbookEntryRepository extends JpaRepository<IslandGuestbookEntry, UUID> {
 
-    /** 삭제되지 않은 글의 첫 페이지. */
-    @Query("SELECT e FROM IslandGuestbookEntry e WHERE e.islandId = :islandId AND e.deletedAt IS NULL"
-            + " ORDER BY e.createdAt DESC, e.id DESC")
-    List<IslandGuestbookEntry> findFirstPage(@Param("islandId") UUID islandId, Pageable page);
+    /**
+     * 요청자({@code :viewerId})와 작성자 사이에 어느 방향이든 차단이 있으면 글을 빼는 조건 (GROMO-2469) — 공지·댓글과
+     * 같은 규칙이고 LIMIT 전에 걸어 쪽 크기·keyset 경계가 그대로다. 원문은 지우지 않아 해제하면 다시 보인다.
+     */
+    String NOT_BLOCKED_AUTHOR = " AND NOT EXISTS (SELECT 1 FROM UserBlock b"
+            + " WHERE (b.blocker.id = :viewerId AND b.blocked.id = e.authorId)"
+            + " OR (b.blocked.id = :viewerId AND b.blocker.id = e.authorId))";
 
-    /** 마지막 행의 값으로 이어 읽는다 — 경계 글이 삭제되어도 다음 페이지를 읽을 수 있다. */
+    /** 삭제되지 않은 글의 첫 페이지 — 요청자와 차단 관계인 작성자의 글은 뺀다. */
     @Query("SELECT e FROM IslandGuestbookEntry e WHERE e.islandId = :islandId AND e.deletedAt IS NULL"
-            + " AND (e.createdAt < :createdAt OR (e.createdAt = :createdAt AND e.id < :id))"
+            + NOT_BLOCKED_AUTHOR + " ORDER BY e.createdAt DESC, e.id DESC")
+    List<IslandGuestbookEntry> findFirstPage(@Param("islandId") UUID islandId, @Param("viewerId") UUID viewerId,
+            Pageable page);
+
+    /** 마지막 행의 값으로 이어 읽는다 — 경계 글이 삭제되어도 다음 페이지를 읽을 수 있다. 차단 제외는 첫 페이지와 같다. */
+    @Query("SELECT e FROM IslandGuestbookEntry e WHERE e.islandId = :islandId AND e.deletedAt IS NULL"
+            + " AND (e.createdAt < :createdAt OR (e.createdAt = :createdAt AND e.id < :id))" + NOT_BLOCKED_AUTHOR
             + " ORDER BY e.createdAt DESC, e.id DESC")
-    List<IslandGuestbookEntry> findPageAfter(@Param("islandId") UUID islandId,
+    List<IslandGuestbookEntry> findPageAfter(@Param("islandId") UUID islandId, @Param("viewerId") UUID viewerId,
             @Param("createdAt") Instant createdAt, @Param("id") UUID id, Pageable page);
 
     /**
