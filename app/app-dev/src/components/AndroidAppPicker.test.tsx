@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-nati
 import { AndroidAppPicker } from './AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { applyLocalePref } from '@/i18n';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
   screenTimeNative: {
@@ -80,7 +81,26 @@ beforeEach(() => {
   const { syncAndroidMeasurement } = require('@/services/androidScreenTime');
   syncAndroidMeasurement.mockResolvedValue(undefined);
 });
-afterEach(cleanup);
+afterEach(() => {
+  applyLocalePref('system');
+  return cleanup();
+});
+
+test.each(['measured', 'allowed'] as const)(
+  'en 로케일 — %s 피커는 한글 없이 영문이다',
+  async (mode) => {
+    applyLocalePref('en');
+    native.getInstalledApps.mockResolvedValue([{ label: 'Video', packageName: 'video.app' }]);
+    const screen = await render(
+      <AndroidAppPicker mode={mode} notify={jest.fn()} onDone={jest.fn()} />,
+    );
+    await screen.findByText('Video');
+    expect(screen.getByLabelText('Search apps')).toBeTruthy();
+    expect(screen.getByText('Save selection')).toBeTruthy();
+    expect(screen.queryByText(/[가-힣]/)).toBeNull();
+    expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
+  },
+);
 
 test('검색으로 고른 측정 앱을 현재 계정에 저장하고 예약 적용을 알린다', async () => {
   const notify = jest.fn(),
