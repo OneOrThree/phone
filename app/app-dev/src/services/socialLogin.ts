@@ -2,15 +2,18 @@ import { Platform } from 'react-native';
 import type { Provider } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 import { t } from '@/i18n';
+import googleClientIds from '@/config/googleClientIds.json';
 
 const UNAVAILABLE = 'CLIENT_PROVIDER_UNAVAILABLE';
 // GROMO-2215 — 구글 로그인을 2.0 전용 프로젝트(263851348176)로 옮겼다. 구 프로젝트(899365616896)는
 // 1.x 와 공유하던 것이고, 이미 설치된 구 빌드가 보내는 aud 는 서버 허용 목록에 남겨 둔다.
-const GOOGLE_IOS_CLIENT_ID =
-  '263851348176-8ochua7scca7h6ldmdk7v3iqc9uoit50.apps.googleusercontent.com';
-const GOOGLE_WEB_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-  '263851348176-hpndg0cj79f9n0vp78us3cktno7p0h9k.apps.googleusercontent.com';
+// GROMO-2226 — 클라이언트 id 정본은 src/config/googleClientIds.json(규칙은 같은 폴더 googleClientIds.md).
+// 개발 빌드(__DEV__)와 EXPO_PUBLIC_ENV=dev 빌드(TestFlight dev)는 dev 행, 그 밖(운영 TestFlight·OTA)은 prod 행이다.
+// 빈 문자열(.env.example 의 `EXPO_PUBLIC_ENV=`)은 dev 가 아니므로 `??` 기본값을 주지 않는다.
+const GOOGLE_CLIENT_IDS =
+  __DEV__ || (process.env.EXPO_PUBLIC_ENV ?? '').trim() === 'dev'
+    ? googleClientIds.dev
+    : googleClientIds.prod;
 const LINE_CHANNEL_ID = process.env.EXPO_PUBLIC_LINE_CHANNEL_ID || '2011754820';
 let googleConfigured = false;
 let lineConfigured = false;
@@ -58,14 +61,18 @@ export async function socialCredential(
       return credential.identityToken;
     }
     case 'google': {
+      // 고른 행이 비어 있으면(운영 id 미발급) dev id 로 몰래 돌아가지 않고 거절한다.
+      if (!GOOGLE_CLIENT_IDS.ios || !GOOGLE_CLIENT_IDS.web) {
+        unavailable(t('login.error.googleNotConfigured'));
+      }
       const Google = await loaders.google();
       if (!googleConfigured) {
         // 1.x 와 같은 설정이다. 두 플랫폼 모두 webClientId 를 넘겨 ID 토큰 aud 가 웹 클라이언트로
         // 통일된다(Android 는 webClientId 가 필수라 다른 aud 를 받을 수 없다). 서버 GOOGLE_CLIENT_ID 는
         // 웹 클라이언트 ID 여야 iOS·Android 가 모두 통과한다.
         Google.GoogleSignin.configure({
-          webClientId: GOOGLE_WEB_CLIENT_ID,
-          iosClientId: GOOGLE_IOS_CLIENT_ID,
+          webClientId: GOOGLE_CLIENT_IDS.web,
+          iosClientId: GOOGLE_CLIENT_IDS.ios,
           scopes: ['profile', 'email'],
         });
         googleConfigured = true;
