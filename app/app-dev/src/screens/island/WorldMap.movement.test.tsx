@@ -1188,6 +1188,62 @@ it('이동 채널의 onError(그 외 오류 큐 코드)는 동기화를 끄지 �
   await screen.unmount();
 });
 
+describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', () => {
+  it('이동 보기를 켜면 readout 셋째 줄에 RTT·Snapshot·재접속을 모으고, 껐다 켜면 비운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    await act(async () => jest.advanceTimersByTime(30));
+    await emit(pathAccepted(ME, 1, 1, SPAWN, [{ x: 39.5, y: 46.5 }]));
+    await emit(snapshot(101, [entity(ME, 1, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(50));
+    await emit(snapshot(102, [entity(ME, 1, { x: 39, y: 46 })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    expect(readout()).toContain('RTT 1건 p50 30');
+    expect(readout()).toContain('Snap 1건 p50 50');
+    // stompjs 재접속 = 같은 채널의 두 번째 onOpen.
+    await act(async () => channel().opts.onOpen());
+    await act(async () => channel().opts.onOpen());
+    await act(async () => jest.advanceTimersByTime(500));
+    expect(readout()).toContain('재접속 1');
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(readout()).toContain('RTT 0건');
+    expect(readout()).toContain('재접속 0');
+    await screen.unmount();
+  });
+
+  it('자동 걷기를 켜면 2초 뒤 탭과 같은 걷기로 intent 를 보내고, 끄면 더 보내지 않는다', async () => {
+    jest.useFakeTimers();
+    // 무작위 셀 = (42,45) 셀(index 45·100 + 42), 지터 = 0.45425 × 50ms ≈ 23ms.
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0.45425);
+    const island = nextIsland();
+    const screen = await renderHome(island);
+    expect(screen.queryByTestId('auto-walk-toggle')).toBeNull();
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await fireEvent.press(screen.getByTestId('auto-walk-toggle'));
+    await act(async () => jest.advanceTimersByTime(2100));
+    expect(channel().send.mock.calls).toEqual([
+      [
+        `/app/islands/${island}/movement/intent`,
+        { commandSeq: 1, navRevision: 1, goalX: 42.5, goalY: 45.5 },
+      ],
+    ]);
+    await fireEvent.press(screen.getByTestId('auto-walk-toggle'));
+    // 다른 셀로 바꿔도 꺼져 있으니 더 보내지 않는다.
+    random.mockReturnValue(0.4639);
+    await act(async () => jest.advanceTimersByTime(6000));
+    expect(channel().send).toHaveBeenCalledTimes(1);
+    random.mockRestore();
+    await screen.unmount();
+  });
+});
+
 describe('플래그 off·서버 홈 아님', () => {
   // 플래그는 모듈 로드 때 굳으므로 격리 로드한다. 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다.
   const isolatedIsland = (env: Record<string, string | undefined>) => {
@@ -1255,9 +1311,10 @@ describe('플래그 off·서버 홈 아님', () => {
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
     // 컨트롤러가 없으면(동기화 off) server 는 null 이다(항목 2 불변) — 오버레이는 켜졌지만 flush 효과는
-    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다.
+    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다. 토글이 만드는 다른
+    // setInterval 은 GROMO-2250 집계의 1초 Metro 로그 하나뿐이다.
     expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
-    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).toEqual([1000]);
     setIntervalSpy.mockRestore();
     await screen.unmount();
   });

@@ -83,7 +83,13 @@ import {
   tapToWorld,
   tilePath,
 } from '@/utils/nav-path';
-import { imageToWorld, worldToCell, worldToImage, type WorldPoint } from '@/utils/worldCoords';
+import {
+  cellCenterToWorld,
+  imageToWorld,
+  worldToCell,
+  worldToImage,
+  type WorldPoint,
+} from '@/utils/worldCoords';
 import {
   publishMoveIntent,
   memberArrivalFilter,
@@ -100,6 +106,7 @@ import {
   type MovementCallbacks,
   type MovementController,
 } from '@/services/movementSync';
+import { movementStats } from '@/services/movementStats';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -1234,7 +1241,13 @@ export function WorldMap({
             backgroundColor: 'rgba(0,0,0,0.6)',
           }}
         >
-          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
+          {navDebugText(
+            navDebug.walk,
+            mapAssets.kind,
+            navDebug.server,
+            debugNow,
+            movementStats.format(debugNow),
+          )}
         </Txt>
       )}
     </View>
@@ -1307,6 +1320,7 @@ function FinalIslandScene({
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug = false,
+  autoWalk = false,
 }: {
   state: State;
   go: (r: Route, id?: string) => boolean | void;
@@ -1351,6 +1365,8 @@ function FinalIslandScene({
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
   navDebug?: boolean;
+  /** 개발 전용 자동 걷기(GROMO-2250) — 이동 보기·동기화가 켜진 동안 2초마다 무작위 통행 셀로 걷는다. */
+  autoWalk?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -1681,6 +1697,7 @@ function FinalIslandScene({
   };
   // 멈춘 상태에서 서버 위치로 맞춘다(FullState 채택·보정·도착).
   const place = (p: Point) => {
+    movementStats.jump(location.current, p, scaleRef.current);
     xy.setValue(p);
     segment.current = null;
     location.current = p;
@@ -1777,6 +1794,28 @@ function FinalIslandScene({
     }
     return walkPath(path, done);
   };
+  // 바닥 탭 → 걷기. 자동 걷기(GROMO-2250)도 이 함수로 걷는다.
+  const tapWalk = (p: Point) => {
+    if (!buildingEntryPending.current) walk(p);
+  };
+  // 자동 걷기 한 걸음(개발 전용) — 지금 자리와 같은 연결 영역의 무작위 통행 셀(측정 스크립트와 같은 부하 모양).
+  // 렌더마다 최신 클로저로 갈아 끼운다(sync 와 같은 방식). 20회 안에 못 찾으면 이번 턴은 건너뛴다.
+  const autoWalkStep = useRef<() => void>(() => {});
+  autoWalkStep.current = () => {
+    const g = activeNav(mapAssets, navBuildings);
+    const size = sizeOf(grid);
+    const here = imageToWorld(location.current, size);
+    const hc = worldToCell(here);
+    const hereRegion = g.region[hc.cy * g.cols + hc.cx] ?? -1;
+    for (let tries = 0; tries < 20; tries++) {
+      const c = Math.floor(Math.random() * g.cols * g.rows);
+      if (!g.walkable[c] || (hereRegion >= 0 && g.region[c] !== hereRegion)) continue;
+      const to = cellCenterToWorld({ cx: c % g.cols, cy: Math.floor(c / g.cols) });
+      if (!navPath(g, here, to).length) continue;
+      tapWalk(worldToImage(to, size));
+      return;
+    }
+  };
   // 이동 채널 콜백 — 렌더마다 최신 클로저로 갈아 끼운다(채널은 섬이 바뀔 때만 다시 연다).
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
@@ -1859,9 +1898,15 @@ function FinalIslandScene({
   useEffect(() => {
     if (!syncIslandId || !me) return;
     let channel: IslandChannel | null = null;
+    // 이 채널의 두 번째 이후 onOpen = stompjs 재접속(GROMO-2250 집계).
+    let opened = false;
     const controller = createMovementController({
       me,
-      send: (intent) => !!channel && publishMoveIntent(channel, syncIslandId, intent),
+      send: (intent) => {
+        const ok = !!channel && publishMoveIntent(channel, syncIslandId, intent);
+        if (ok) movementStats.sent(intent.commandSeq);
+        return ok;
+      },
       position: () => sync.current.position(),
       walking: () => stepping.current,
       onMyPath: (...args) => sync.current.onMyPath(...args),
@@ -1886,9 +1931,15 @@ function FinalIslandScene({
           const arrived = arrivals(body);
           if (arrived) notifyRef.current?.(memberArrivedText(arrived));
         } else if (type === 'member.appearance.updated') applyAppearance(body, syncIslandId);
-        else controller.onMessage(body);
+        else {
+          movementStats.onMessage(body, me);
+          controller.onMessage(body);
+        }
       },
-      onOpen: () => {},
+      onOpen: () => {
+        movementStats.opened(opened);
+        opened = true;
+      },
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
       onMovementDenied: () => {
@@ -2009,6 +2060,40 @@ function FinalIslandScene({
     };
     // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
   }, [navDebug, tileNav, grid, syncIslandId, me]);
+  // 이동 동기화 집계(GROMO-2250, 개발 전용) — 이동 보기가 켜진 동안만 기록하고 1초마다 Metro 에 찍는다.
+  // syncIslandId 를 deps 에 넣지 않는다 — background 복귀(null↔id)로 집계가 비워지지 않게.
+  useEffect(() => {
+    if (!navDebug || !tileNav) return;
+    movementStats.reset();
+    const id = setInterval(() => console.log('[GROMO-2250] ' + movementStats.format()), 1000);
+    return () => {
+      clearInterval(id);
+      console.log('[GROMO-2250] END ' + movementStats.format());
+      movementStats.stop();
+    };
+  }, [navDebug, tileNav]);
+  // 자동 걷기(GROMO-2250, 개발 전용) — 2,000ms + 0~50ms 지터마다 한 걸음. 이동 보기·동기화가 꺼지거나
+  // 화면을 떠나면(syncIslandId null) 멈춘다.
+  const autoWalking = autoWalk && navDebug && tileNav && !!syncIslandId;
+  useEffect(() => {
+    if (!autoWalking) return;
+    console.log('[GROMO-2250] AUTO on');
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      timer = setTimeout(
+        () => {
+          autoWalkStep.current();
+          next();
+        },
+        2000 + Math.random() * 50,
+      );
+    };
+    next();
+    return () => {
+      clearTimeout(timer);
+      console.log('[GROMO-2250] AUTO off');
+    };
+  }, [autoWalking]);
   // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2 · 보완9 항목 1) — flush 효과와는
   // 별도다. navDebugClock.debugClockPeriod 가 이제 live 여부만 보므로(보정 창 50ms 분기 제거, 보완9
   // 항목 1) deps 도 debugLive 하나면 된다 — 보정이 와도(correctedAt 변경) 주기가 안 바뀌니 이 effect 를
@@ -2468,13 +2553,7 @@ function FinalIslandScene({
         showMailboxMagazine={mailboxMagazine}
         hiddenVillageBuilding={activeBuilding}
         dayNight={dayNight}
-        onSpot={
-          visiting
-            ? undefined
-            : (p) => {
-                if (!buildingEntryPending.current) walk(p);
-              }
-        }
+        onSpot={visiting ? undefined : tapWalk}
         children={actors}
       />
       {showHud && (
@@ -2731,6 +2810,8 @@ function FinalIslandScene({
 
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
+// 개발 빌드에서만 — 이동 보기·자동 걷기를 켠 채 시작(GROMO-2250 실기기 측정 자동 시작).
+const MEASURE_AUTOSTART = __DEV__ && process.env.EXPO_PUBLIC_MOVEMENT_MEASURE === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
 // 두 월드 점이 같은 통행 셀인지 — 연결 경로(navPath)가 비어도 되는 정상 경우(같은 셀)를 가려낸다.
 const cellEq = (a: WorldPoint, b: WorldPoint) => {
@@ -2779,7 +2860,10 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
-  const [navDebug, setNavDebug] = useState(false);
+  // 측정 자동 시작(GROMO-2250, 개발 전용): EXPO_PUBLIC_MOVEMENT_MEASURE=1 이면 이동 보기·자동 걷기를 켠 채로
+  // 시작한다 — 실기기 10분 런을 사람 탭 없이 돌리기 위한 것. 버튼으로 끌 수 있다.
+  const [navDebug, setNavDebug] = useState(MEASURE_AUTOSTART);
+  const [autoWalk, setAutoWalk] = useState(MEASURE_AUTOSTART);
   const demoMotionStates = isDemoMode();
   return (
     <View style={{ flex: 1 }}>
@@ -2796,6 +2880,7 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         mapAssets={mapAssets}
         onMapAssetsFail={failMapAssets}
         navDebug={navDebug}
+        autoWalk={navDebug && autoWalk}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (
         <View
@@ -2820,7 +2905,18 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
               id="nav-debug-toggle"
               kind="sec"
               title={navDebug ? '이동 숨기기' : '이동 보기'}
-              onPress={() => setNavDebug((value) => !value)}
+              onPress={() => {
+                setNavDebug((value) => !value);
+                setAutoWalk(false);
+              }}
+            />
+          )}
+          {TILE_ISLAND && navDebug && (
+            <Btn
+              id="auto-walk-toggle"
+              kind="sec"
+              title={autoWalk ? '자동 멈춤' : '자동 걷기'}
+              onPress={() => setAutoWalk((value) => !value)}
             />
           )}
         </View>
