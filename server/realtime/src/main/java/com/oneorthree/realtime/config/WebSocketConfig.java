@@ -2,6 +2,7 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.movement.stomp.MovementOutboundInterceptor;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -72,6 +73,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final MovementOutboundInterceptor movementOutboundInterceptor;
     private final OutboundSendBudget outboundSendBudget;
     private final OutboundAuthzCache outboundAuthzCache;
+    private final MeterRegistry meterRegistry;
+    private final WebSocketConnectionDiagnostics connectionDiagnostics = new WebSocketConnectionDiagnostics();
 
     /** 서버 heartbeat 송신 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000 과 같은 값이 기본이다. */
     @Value("${chat.websocket.heartbeat.server-ms:10000}")
@@ -92,6 +95,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     /** 수신 STOMP 메시지 크기 상한. */
     @Value("${chat.websocket.transport.message-size-limit-bytes:65536}")
     private int messageSizeLimitBytes;
+
+    @Value("${chat.websocket.inbound.threads:4}")
+    private int inboundThreads;
+
+    @Value("${chat.websocket.inbound.queue-capacity:256}")
+    private int inboundQueueCapacity;
 
     /** 거절 ERROR 프레임을 보낼 통로. 이 설정이 채널을 만드는 쪽이라 순환을 피해 늦게 받는다. */
     @Lazy
@@ -118,6 +127,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws/chat", "/ws/realtime")
+                .setHandshakeHandler(new NoCompressionHandshakeHandler())
+                .addInterceptors(connectionDiagnostics)
                 .setAllowedOriginPatterns(allowedOrigins);
         registry.setErrorHandler(chatStompErrorHandler);
         // 한 세션이 연달아 보낸 SEND 를 받은 순서대로 처리한다(GROMO-1741 §①). 끄면 인바운드 채널이 스레드
@@ -135,6 +146,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registration.setSendTimeLimit(sendTimeLimitMillis)
                 .setSendBufferSizeLimit(sendBufferSizeLimitBytes)
                 .setMessageSizeLimit(messageSizeLimitBytes);
+        registration.addDecoratorFactory(connectionDiagnostics);
         registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
             @Override
             public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -194,6 +206,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      */
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
+        // Boot가 유일한 AsyncTaskExecutor인 heartbeat scheduler를 고르는 기본 배선을 명시적으로 덮는다.
+        // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
+        registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
         registration.interceptors(new RejectAsErrorFrame(), movementSubscriptions);
     }
 

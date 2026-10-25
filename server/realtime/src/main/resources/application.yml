@@ -45,6 +45,10 @@ spring:
 
 server:
   tomcat:
+    threads:
+      # 동시 종료에서 기본 200개까지 스레드 확장과 RSS 급증을 관측했다(GROMO-2417).
+      # 연결 수 상한이 아니다. close의 동기 Redis I/O와 HTTP 요청이 이 작업 예산을 공유한다.
+      max: 32
     mbeanregistry:
       enabled: true
   port: 8081
@@ -94,6 +98,11 @@ chat:
     # 빈 값이면 앱 접속까지 403 이다 — 환경마다 API 도메인을 넣는다(dev 는 SM gromo/dev/env, GROMO-2175).
     # 기본값을 비워 두는 이유는 WebSocketConfig#allowedOrigins javadoc.
     allowed-origins: ${CHAT_WS_ALLOWED_ORIGINS:}
+    # heartbeat와 분리한 수신 실행기. 포화 시 제출 스레드가 처리하므로 프레임을 버리지 않는다.
+    # 4는 초기 처리 예산이며 운영 수용량 보장이 아니다. 지표 name=realtime-inbound.
+    inbound:
+      threads: 4
+      queue-capacity: 256
     # 아웃바운드 송신 예산(GROMO-2340) — 근거·포화 정책은 OutboundSendBudget javadoc.
     outbound:
       core-threads: 0 # 0 = CPU×2(Spring 기본)
