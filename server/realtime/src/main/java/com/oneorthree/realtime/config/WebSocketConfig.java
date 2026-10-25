@@ -72,6 +72,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final MovementOutboundInterceptor movementOutboundInterceptor;
     private final OutboundSendBudget outboundSendBudget;
     private final OutboundAuthzCache outboundAuthzCache;
+    private final WebSocketConnectionDiagnostics connectionDiagnostics = new WebSocketConnectionDiagnostics();
 
     /** 서버 heartbeat 송신 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000 과 같은 값이 기본이다. */
     @Value("${chat.websocket.heartbeat.server-ms:10000}")
@@ -118,6 +119,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws/chat", "/ws/realtime")
+                .addInterceptors(connectionDiagnostics)
                 .setAllowedOriginPatterns(allowedOrigins);
         registry.setErrorHandler(chatStompErrorHandler);
         // 한 세션이 연달아 보낸 SEND 를 받은 순서대로 처리한다(GROMO-1741 §①). 끄면 인바운드 채널이 스레드
@@ -135,6 +137,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registration.setSendTimeLimit(sendTimeLimitMillis)
                 .setSendBufferSizeLimit(sendBufferSizeLimitBytes)
                 .setMessageSizeLimit(messageSizeLimitBytes);
+        registration.addDecoratorFactory(connectionDiagnostics);
         registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
             @Override
             public void afterConnectionEstablished(WebSocketSession session) throws Exception {

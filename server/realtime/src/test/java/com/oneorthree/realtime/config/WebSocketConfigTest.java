@@ -64,7 +64,7 @@ class WebSocketConfigTest {
         WebSocketSession socket = mock(WebSocketSession.class);
         when(socket.getId()).thenReturn("socket-1");
 
-        WebSocketHandler decorated = transport.list().get(0).decorate(failing);
+        WebSocketHandler decorated = transport.decorateAll(failing);
 
         assertThatThrownBy(() -> decorated.afterConnectionEstablished(socket))
                 .isInstanceOf(IllegalStateException.class);
@@ -83,8 +83,12 @@ class WebSocketConfigTest {
 
     /** {@code getDecoratorFactories()} 가 protected 라 하위 클래스로 꺼낸다. */
     private static final class Decorators extends WebSocketTransportRegistration {
-        List<WebSocketHandlerDecoratorFactory> list() {
-            return getDecoratorFactories();
+        WebSocketHandler decorateAll(WebSocketHandler handler) {
+            WebSocketHandler decorated = handler;
+            for (WebSocketHandlerDecoratorFactory factory : getDecoratorFactories()) {
+                decorated = factory.decorate(decorated);
+            }
+            return decorated;
         }
     }
 }
