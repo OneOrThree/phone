@@ -106,7 +106,7 @@ import {
   type MovementCallbacks,
   type MovementController,
 } from '@/services/movementSync';
-import { movementStats } from '@/services/movementStats';
+import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -1940,8 +1940,12 @@ function FinalIslandScene({
         else {
           movementStats.onMessage(body, me);
           adoptingFullState.current = type === 'FullState';
-          controller.onMessage(body);
-          adoptingFullState.current = false;
+          // onMessage 가 던져도 표시를 풀어야 다음 settle() 보정(onMessage 밖 경로)이 점프 표본에서 빠지지 않는다.
+          try {
+            controller.onMessage(body);
+          } finally {
+            adoptingFullState.current = false;
+          }
         }
       },
       // 재접속 판정(GROMO-2250 집계)은 movementStats 가 측정 세션 단위로 한다 — 이 effect 가 다시 돌아 새 채널을
@@ -2076,7 +2080,10 @@ function FinalIslandScene({
     if (!navDebug || !tileNav) return;
     // 채널이 이미 열린 뒤 「이동 보기」로 켜면 그 채널은 다시 열리지 않는다 — 「이미 연결됨」에서 시작한다.
     movementStats.reset(movementOpened.current);
-    const id = setInterval(() => console.log('[GROMO-2250] ' + movementStats.format()), 1000);
+    const id = setInterval(
+      () => console.log('[GROMO-2250] ' + movementStats.format()),
+      STATS_LOG_MS,
+    );
     return () => {
       clearInterval(id);
       console.log('[GROMO-2250] END ' + movementStats.format());

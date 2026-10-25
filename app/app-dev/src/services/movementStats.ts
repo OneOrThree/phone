@@ -18,6 +18,9 @@ type Body = {
 } | null;
 type Pt = { x: number; y: number };
 
+/** 이동 보기가 켜진 동안 집계를 Metro 에 찍는 주기(ms) — WorldMap 의 집계 인터벌·꺼짐 비용 테스트가 같은 값을 쓴다. */
+export const STATS_LOG_MS = 1000;
+
 /** 최근접 순위 백분위 — 정렬된 배열의 a[ceil(p·n) − 1]. 빈 배열은 null. */
 export const pct = (sorted: number[], p: number): number | null =>
   sorted.length

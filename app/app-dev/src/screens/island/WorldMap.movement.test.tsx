@@ -15,7 +15,7 @@ import { loadNav } from '@/utils/nav-path';
 import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
-import { movementStats } from '@/services/movementStats';
+import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -1359,8 +1359,8 @@ describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', (
       await emit(snapshot(101, [entity(ME, 1, SPAWN)]));
       await act(async () => jest.advanceTimersByTime(3000));
       expect(screen.queryByTestId('nav-debug-text')).toBeNull();
-      // 마운트가 만드는 60초 시계 인터벌(낮·밤 등) 2개뿐이고, 집계의 1초 Metro 로그 인터벌은 없다.
-      expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).toEqual([60000, 60000]);
+      // 마운트 시계 인터벌(낮·밤 등)은 계기와 무관하다 — 집계 Metro 로그 주기의 인터벌만 없으면 된다.
+      expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).not.toContain(STATS_LOG_MS);
       expect(format).not.toHaveBeenCalled();
       await screen.unmount();
     } finally {
