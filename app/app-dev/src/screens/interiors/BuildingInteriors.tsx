@@ -50,6 +50,7 @@ import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { isSystemLetter, isSystemLetterView } from '@/services/api/letters';
 import { errorTextOr, localized, t } from '@/i18n';
+import { josa } from '@/i18n/format';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { Btn, NavBtn } from '@/design-system/patterns';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
@@ -3760,12 +3761,6 @@ const buildingRoute: Partial<Record<Building, Route>> = {
   mail: 'mail',
   gram: 'sound',
   shop: 'shop',
-};
-// 받침이 있으면 앞 조사, 없으면 뒤 조사 (으로/로는 ㄹ받침도 '로')
-export const josa = (word: string, withFinal: string, without: string) => {
-  const code = word.charCodeAt(word.length - 1) - 0xac00;
-  const final = code >= 0 && code <= 11171 ? code % 28 : 0;
-  return word + (final && !(without === '로' && final === 8) ? withFinal : without);
 };
 const minutesLabel = (m: number) => (m % 60 ? `${m}분` : `${m / 60}시간`);
 // 공지 작성일: 오늘 · 어제 · M월 D일 (Asia/Seoul)

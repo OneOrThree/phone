@@ -159,6 +159,19 @@ class FocusSessionContractTest extends UpstreamTestBase {
         assertThat(body).doesNotContain("activeIntervals");
     }
 
+    /** 집중섬 자리(GROMO-2477)는 넷째 선택 필드다 — 좌표를 그대로 Data 로 넘기고, 없으면 키째 뺀다(옛 앱 본문 그대로). */
+    @Test
+    void startForwardsTheSeatOnlyWhenTheAppSendsIt() throws Exception {
+        DATA.on(DATA_START, request -> ok(STATE));
+        mockMvc.perform(write(post("/focus-sessions"),
+                        START_BODY.replace("}", ",\"seat\":{\"x\":12.5,\"y\":40.25}}")))
+                .andExpect(status().isCreated());
+        assertThat(DATA.received().get(0).body()).contains("\"seat\":{\"x\":12.5,\"y\":40.25}");
+
+        mockMvc.perform(write(post("/focus-sessions"), START_BODY)).andExpect(status().isCreated());
+        assertThat(DATA.received().get(1).body()).doesNotContain("seat");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"{}", "null", "[]",
             "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\"}",
@@ -166,7 +179,24 @@ class FocusSessionContractTest extends UpstreamTestBase {
             "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
                     + "\"targetMinutes\":1.5}",
             "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
-                    + "\"targetMinutes\":\"60\"}"})
+                    + "\"targetMinutes\":\"60\"}",
+            // 넷째 필드는 seat 만 된다 — targetMinutes 와 함께 오타가 오거나 다섯째가 붙으면 거절
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"targetMinutes\":60,\"oops\":1}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"targetMinutes\":60,\"seat\":{\"x\":1,\"y\":2},\"oops\":1}",
+            // seat 는 0~100 숫자 두 개 {x,y} 정확히 — 명시 null·범위 밖·문자열·짝 없음·추가 키 거절
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\",\"seat\":null}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"seat\":{\"x\":101,\"y\":40}}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"seat\":{\"x\":12.5,\"y\":-1}}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"seat\":{\"x\":\"12.5\",\"y\":40}}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"seat\":{\"x\":12.5}}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"seat\":{\"x\":12.5,\"y\":40,\"z\":1}}"})
     void startRejectsBodyShapeBeforeNetwork(String body) throws Exception {
         mockMvc.perform(write(post("/focus-sessions"), body))
                 .andExpect(status().isBadRequest())

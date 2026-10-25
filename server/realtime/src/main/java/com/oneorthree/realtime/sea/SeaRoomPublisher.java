@@ -50,12 +50,12 @@ public class SeaRoomPublisher implements MessageListener {
         this.sessions = sessions;
     }
 
-    /** 그 방 토픽으로 사건 하나를 보낸다 — realtime-b(이모트)도 이것을 부른다. */
+    /** 방 사건을 전파한다. 스냅샷은 개인 큐, 나머지는 방 토픽으로 보낸다 — 이모트도 이 입구를 쓴다. */
     public void publish(UUID roomId, String type, JsonNode payload) {
         SeaRoomEvent event = SeaRoomEvent.of(type, roomId, clock.instant(), payload);
         String destination = StompTopics.seaRoomTopic(roomId);
         try {
-            messagingTemplate.convertAndSend(destination, event);
+            deliverLocal(destination, event);
         } catch (RuntimeException e) {
             log.error("바다 방 사건 로컬 전달 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
                     type, e.getClass().getSimpleName());
@@ -81,6 +81,10 @@ public class SeaRoomPublisher implements MessageListener {
      */
     public void publishToUser(UUID userId, UUID roomId, String type, JsonNode payload) {
         SeaRoomEvent event = SeaRoomEvent.of(type, roomId, clock.instant(), payload);
+        deliverToUser(userId, event);
+    }
+
+    private void deliverToUser(UUID userId, SeaRoomEvent event) {
         for (String sessionId : sessions.sessionIdsOf(userId)) {
             try {
                 SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
@@ -89,9 +93,23 @@ public class SeaRoomPublisher implements MessageListener {
                 messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/sea", event,
                         headers.getMessageHeaders());
             } catch (RuntimeException e) {
-                log.warn("바다 개인 큐 전달 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
-                        type, e.getClass().getSimpleName());
+                log.warn("바다 개인 큐 전달 실패 — roomId={} eventId={} type={} reason={}", event.roomId(), event.eventId(),
+                        event.type(), e.getClass().getSimpleName());
             }
+        }
+    }
+
+    /** 앱은 스냅샷을 개인 큐에서 받는다. 다른 인스턴스의 차단 갱신도 같은 경로로 보낸다. */
+    private void deliverLocal(String destination, SeaRoomEvent event) {
+        if (SeaRooms.SNAPSHOT.equals(event.type())) {
+            for (JsonNode member : event.payload().path("members")) {
+                JsonNode userId = member.path("userId");
+                if (userId.isString()) {
+                    deliverToUser(UUID.fromString(userId.stringValue()), event);
+                }
+            }
+        } else {
+            messagingTemplate.convertAndSend(destination, event);
         }
     }
 
@@ -103,7 +121,7 @@ public class SeaRoomPublisher implements MessageListener {
             if (instanceId.equals(event.originInstanceId())) {
                 return; // 내가 보낸 것 — 로컬 전달은 publish 에서 끝났다
             }
-            messagingTemplate.convertAndSend(event.destination(), event.event());
+            deliverLocal(event.destination(), event.event());
         } catch (Exception e) {
             // 예외 객체를 통째로 남기지 않는다 — 역직렬화 메시지에 한마디 같은 사용자 입력 조각이 실린다.
             log.error("바다 방 사건 팬아웃 수신 실패 — 이 건만 버린다. reason={}", e.getClass().getName());

@@ -385,7 +385,7 @@ test('집중 중 휴식 진입 전환의 뒤로 가기는 전환을 취소하고
   assert.equal(captured.route, 'focus');
   expect(screen.queryByText('이번 집중을 마칠까요?')).toBeNull();
   expect(screen.queryByText('집중을 마칠까요?')).toBeNull();
-  const holdHint = '3초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.';
+  const holdHint = '1.5초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.';
   expect(screen.queryByText(holdHint)).toBeNull();
 
   // 전환이 없으면 종료 버튼의 길게 누르기를 안내하고 집중을 유지한다

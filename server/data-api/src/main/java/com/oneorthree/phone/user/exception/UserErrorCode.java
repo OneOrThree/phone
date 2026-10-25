@@ -32,7 +32,7 @@ public enum UserErrorCode implements ErrorCode {
      */
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "로그인 정보가 만료됐어요. 다시 로그인해 주세요."),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."),
-    NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 앞뒤 공백 제외 2~10자여야 합니다."),
+    NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 공백 없이 2~10자여야 합니다."),
     /**
      * 기기 소유권 값({@code ownershipToken})이 정규 UUID 표기가 아니다 (A22 ㊚ · ㊲).
      *

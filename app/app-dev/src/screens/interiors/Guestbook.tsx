@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
-import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { Btn, CharCount, Field, Group, Row, Txt } from '@/design-system/patterns';
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
@@ -61,7 +60,7 @@ const writeErrorText = (error: unknown): string => {
 
 /**
  * 섬 방명록 — 30개씩 이어 읽기 + 한 줄(20 코드포인트) 쓰기. 방문자(VisitorBoard)와 주민(게시판)이 같이 쓴다.
- * 섬장(`host`)만 항목마다 [지우기]·[차단]이 보인다(본인 글에는 [차단] 없음). 신고는 설정의 단일 신고센터에서 받는다.
+ * 섬장(`host`)만 항목마다 [지우기]가 보인다. 차단은 친구 관리, 신고는 설정의 단일 신고센터에서 한다.
  * 게시판이 없는 섬(`boardBuilt=false`)이면 통째로 숨긴다.
  */
 export function Guestbook({
@@ -92,7 +91,6 @@ export function Guestbook({
   // 누르면 풀린다 — 목록 응답엔 «오늘 썼는지»가 없어(mine 은 지운 글·30개 밖을 못 본다) 일단 풀고, 서버가 아직 막고 있으면
   // 다음 쓰기의 거절이 다시 막는다. 자정(KST)이 지나도 화면을 나갔다 오지 않고 쓸 수 있게 한다
   const [blocked, setBlocked] = useState<ApiError | null>(null);
-  const [blocking, setBlocking] = useState<GuestbookEntry | null>(null);
   const scope = useRef<object | null>(null);
   // 연타로 같은 글이 두 번 나가지 않게(둘째는 하루 1개 규칙에 걸려 409 가 된다) state 가 아니라 ref 로 막는다
   const writing = useRef(false);
@@ -368,17 +366,6 @@ export function Guestbook({
                               onPress={() => askDelete(entry)}
                               id={`guestbook-delete-${entry.id}`}
                             />
-                            {/* 섬장 본인이 쓴 글은 차단할 대상이 아니다 */}
-                            {!entry.mine && (
-                              <Btn
-                                small
-                                kind="sec"
-                                title={t('guestbook.block')}
-                                accessibilityLabel={`${t('guestbook.block')}: ${author}`}
-                                onPress={() => setBlocking(entry)}
-                                id={`guestbook-block-${entry.id}`}
-                              />
-                            )}
                           </View>
                         )}
                       </View>
@@ -411,16 +398,6 @@ export function Guestbook({
             </>
           )}
         </>
-      )}
-      {blocking && (
-        <UserSafetySheet
-          visible
-          initialMode="block"
-          targetUserId={blocking.authorId}
-          targetName={blocking.authorName ?? t('guestbook.formerResident')}
-          onClose={() => setBlocking(null)}
-          onMessage={(message) => e?.notify?.(message)}
-        />
       )}
     </View>
   );

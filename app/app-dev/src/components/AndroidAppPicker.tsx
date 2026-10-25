@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { t } from '@/i18n';
 import { Btn, Field, Group, Row, Toggle, Txt } from '@/design-system/patterns';
 import { screenTimeNative, type InstalledApp } from '@/services/ScreenTimeModule';
 import { getSession, sessionGeneration } from '@/services/api/session';
@@ -56,19 +57,23 @@ export function AndroidAppPicker({
         if (!screenTimeNative?.setAndroidAllowedPackages) throw new Error('UNAVAILABLE');
         await screenTimeNative.setAndroidAllowedPackages(owner!, selected);
         if (!current()) return;
-        notify('집중 중 허용 앱을 저장했어요.');
+        notify(t('settings.permissions.androidPicker.savedAllowed'));
       } else {
         if (!screenTimeNative?.setAndroidSelection) throw new Error('UNAVAILABLE');
         const result = await screenTimeNative.setAndroidSelection(owner!, selected, all);
         if (!current()) return;
-        notify(result.pending ? '측정 앱을 내일부터 적용해요.' : '선택한 앱의 측정을 시작했어요.');
+        notify(
+          result.pending
+            ? t('settings.permissions.androidPicker.savedTomorrow')
+            : t('settings.permissions.androidPicker.savedNow'),
+        );
         await syncAndroidMeasurement().catch(() => {
-          if (current()) notify('앱 선택은 저장했어요. 사용량은 다시 확인할게요.');
+          if (current()) notify(t('settings.permissions.androidPicker.syncLater'));
         });
       }
       if (current()) onDone();
     } catch {
-      if (current()) notify('앱 선택을 저장하지 못했어요. 다시 시도해 주세요.');
+      if (current()) notify(t('settings.permissions.androidPicker.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -76,30 +81,41 @@ export function AndroidAppPicker({
   if (error)
     return (
       <>
-        <Txt>설치된 앱 목록을 불러오지 못했어요.</Txt>
-        <Btn title="다시 시도" onPress={() => setReload((n) => n + 1)} />
+        <Txt>{t('settings.permissions.androidPicker.loadFailed')}</Txt>
+        <Btn title={t('common.retry')} onPress={() => setReload((n) => n + 1)} />
       </>
     );
-  if (!apps) return <Txt>앱 목록을 불러오는 중이에요.</Txt>;
+  if (!apps) return <Txt>{t('settings.permissions.androidPicker.loading')}</Txt>;
   const filtered = apps.filter((app) =>
     `${app.label} ${app.packageName}`.toLowerCase().includes(query.toLowerCase()),
   );
   return (
     <>
-      <Txt kind="section">{mode === 'allowed' ? '집중 중 허용 앱' : '측정 앱'}</Txt>
+      <Txt kind="section">
+        {mode === 'allowed'
+          ? t('settings.permissions.sheet.allowedApps')
+          : t('settings.permissions.measuredApps.title')}
+      </Txt>
       <Txt>
         {mode === 'allowed'
-          ? '선택한 앱은 집중 중에도 사용할 수 있어요. 선택하지 않으면 추가 허용 앱이 없어요.'
-          : '최초 선택은 바로, 기존 대상 변경은 다음 날 한국 시각 자정부터 적용해요.'}
+          ? t('settings.permissions.androidPicker.descAllowed')
+          : t('settings.permissions.androidPicker.descMeasured')}
       </Txt>
       {mode === 'measured' && (
         <Row
-          title="전체 앱 측정"
-          tail={<Toggle label="전체 앱 측정" value={all} onChange={setAll} disabled={busy} />}
+          title={t('settings.permissions.androidPicker.allApps')}
+          tail={
+            <Toggle
+              label={t('settings.permissions.androidPicker.allApps')}
+              value={all}
+              onChange={setAll}
+              disabled={busy}
+            />
+          }
         />
       )}
       <Field
-        label="앱 검색"
+        label={t('settings.permissions.androidPicker.search')}
         value={query}
         onChange={(value: string) => {
           setQuery(value);
@@ -114,7 +130,7 @@ export function AndroidAppPicker({
             sub={app.packageName}
             tail={
               <Toggle
-                label={`${app.label} 선택`}
+                label={t('settings.permissions.androidPicker.select', { label: app.label })}
                 disabled={busy || all}
                 value={all || selected.includes(app.packageName)}
                 onChange={(checked: boolean) =>
@@ -129,16 +145,31 @@ export function AndroidAppPicker({
           />
         ))}
       </Group>
-      {filtered.length === 0 && <Txt kind="meta">일치하는 앱이 없어요.</Txt>}
+      {filtered.length === 0 && (
+        <Txt kind="meta">{t('settings.permissions.androidPicker.none')}</Txt>
+      )}
       {filtered.length > limit && (
-        <Btn title="앱 더 보기" kind="ghost" onPress={() => setLimit((n) => n + 40)} />
+        <Btn
+          title={t('settings.permissions.androidPicker.more')}
+          kind="ghost"
+          onPress={() => setLimit((n) => n + 40)}
+        />
       )}
       <Btn
-        title={busy ? '저장 중…' : '선택 저장'}
+        title={
+          busy
+            ? t('settings.permissions.androidPicker.saving')
+            : t('settings.permissions.androidPicker.save')
+        }
         onPress={save}
         disabled={busy || (mode === 'measured' && !all && !selected.length)}
       />
-      <Btn title="돌아가기" kind="ghost" onPress={onDone} disabled={busy} />
+      <Btn
+        title={t('settings.permissions.androidPicker.back')}
+        kind="ghost"
+        onPress={onDone}
+        disabled={busy}
+      />
     </>
   );
 }

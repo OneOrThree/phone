@@ -48,6 +48,7 @@ test.each([
 
     expect(getByLabelText('마지막 항목')).toBeTruthy();
     const clipStyle = StyleSheet.flatten(getByTestId('island-sheet-content-clip').props.style);
+    // 스타일 계약 검증(실제 레이아웃 아님)
     expect(clipStyle).toMatchObject({
       overflow: 'hidden',
       borderBottomLeftRadius: compact || tablet ? 28 : 0,

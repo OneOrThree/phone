@@ -1,7 +1,7 @@
 /**
- * 홈 섬 이동 동기화 배선(GROMO-2248) — 플래그 on + 타일 섬 + 서버 홈이면 이동 전용 채널을 열고,
- * 내 고양이는 서버 확정 경로·도착을 따르며 다른 주민은 Wanderer 대신 서버 위치(RemoteResident)로 그린다.
- * 플래그 off·목업 섬·채널 거절이면 이 PR 이전과 같다(채널 없음·로컬 걷기·Wanderer).
+ * 홈 섬 이동 동기화 배선(GROMO-2248) — 타일 섬(iOS·Android) + 서버 홈이면 늘 이동 전용 채널을 열고(GROMO-2476),
+ * 내 고양이는 서버 확정 경로·도착을 따르며 다른 주민은 서버 위치(RemoteResident)로 그린다.
+ * 동기화 위치가 없는 주민(FullState 전·채널 거절·미접속·목업 섬·웹)은 고정 자리(StandingResident)에 서 있다.
  */
 import React from 'react';
 import { Animated, AppState } from 'react-native';
@@ -16,6 +16,7 @@ import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
+import grids from '@/constants/world-v2.json';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -104,10 +105,9 @@ jest.mock('@/services/movementSync', () => {
   };
 });
 
-// 플래그는 모듈 로드 때 상수로 굳는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅된다).
-process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
-process.env.EXPO_PUBLIC_MOVEMENT_SYNC = '1';
-const { FinalIsland, initialMapAssets } = require('./WorldMap') as typeof import('./WorldMap');
+// iOS·Android 는 늘 타일 섬이다(GROMO-2476) — jest 기본 Platform.OS(ios)로 그대로 불러온다.
+const { FinalIsland, initialMapAssets, residentSpot } =
+  require('./WorldMap') as typeof import('./WorldMap');
 
 const ME = 'a0000000-0000-4000-8000-000000000001';
 const U1 = 'a0000000-0000-4000-8000-000000000002';
@@ -261,8 +261,21 @@ const residents = (screen: Screen) =>
     .queryAllByTestId(/^remote-resident-/)
     .map((n) => n.props.testID)
     .sort();
-// 이름 없는 고양이 스프라이트 = Wanderer 또는 RemoteResident(내 고양이는 home-cat-sprite).
+// 이름 없는 고양이 스프라이트 = StandingResident 또는 RemoteResident(내 고양이는 home-cat-sprite).
 const otherCats = (screen: Screen) => screen.queryAllByTestId('mock-cat-sprite').length;
+// 동기화 위치가 없어 고정 자리에 선 주민(GROMO-2476) — 이동 없이 left/top 만으로 놓인다.
+const standing = (screen: Screen) =>
+  screen
+    .queryAllByTestId(/^standing-resident-/)
+    .map((n) => n.props.testID)
+    .sort();
+// 서버 홈 명단(ME·U1·U2·U3)에서 나와 털색 없는 U3 를 뺀 순서 — U1 이 0번, U2 가 1번 고정 자리다.
+const expectStandingAt = (screen: Screen, userId: string, n: number) => {
+  const st = flat(screen.getByTestId(`standing-resident-${userId}`).props.style);
+  const spot = residentSpot(grids.home, n);
+  expect(st.left / SCALE).toBeCloseTo(spot.x, 6);
+  expect(st.top / SCALE).toBeCloseTo(spot.y, 6);
+};
 // 바닥 탭 — 지형 Pressable 은 접근성에서 빠져 있어(accessible=false) 이미지 전체 크기로 찾는다.
 const tapGround = async (screen: Screen, at: WorldPoint) => {
   const [ground] = screen.container.queryAll(
@@ -628,7 +641,7 @@ it('다른 주민은 응답 appearance 로 머리·목을 입고, member.appeara
   const headOf = (color: string) =>
     screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
       .testPropOutfit?.head;
-  // 이동 동기화 전 Wanderer(ginger·white) — 응답에 옷이 있는 주민만 입는다
+  // 이동 동기화 전 고정 자리 주민(ginger·white) — 응답에 옷이 있는 주민만 입는다
   expect(headOf('ginger')).toBe('hat-u1');
   expect(headOf('white')).toBeUndefined();
   await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
@@ -688,10 +701,48 @@ it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 
   }
 });
 
-it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
+it('동기화 위치가 없는 주민은 명단 순서의 고정 자리에 서 있고 시간이 흘러도 그 자리 그대로다 (GROMO-2476)', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());
-  // FullState 전에는 이전처럼 Wanderer 둘(ginger·white).
+  // FullState 전 — 나·털색 미선택(U3)을 뺀 U1·U2 만 고정 자리에 선다.
+  expect(residents(screen)).toEqual([]);
+  expect(standing(screen)).toEqual([`standing-resident-${U1}`, `standing-resident-${U2}`].sort());
+  expect(otherCats(screen)).toBe(2);
+  expectStandingAt(screen, U1, 0);
+  expectStandingAt(screen, U2, 1);
+  const residentMotions = () =>
+    [U1, U2].map(
+      (id) =>
+        within(screen.getByTestId(`standing-resident-${id}`)).getByTestId('mock-cat-sprite').props
+          .testPropMotion,
+    );
+  expect(residentMotions()).toEqual(['blink', 'blink']);
+  // 예전 배회(첫 출발 1.2초 뒤·걸음 130ms)라면 움직였을 시간을 흘려도 자리·자세가 같다.
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expectStandingAt(screen, U1, 0);
+  expectStandingAt(screen, U2, 1);
+  expect(residentMotions()).toEqual(['blink', 'blink']);
+  await screen.unmount();
+});
+
+it('FullState 뒤 접속한 주민은 동기화 위치로, 명단에 있지만 접속하지 않은 주민은 고정 자리에 그대로 선다 (GROMO-2476)', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN), actor(U2, { x: 36.5, y: 45.5 })]));
+  expect(residents(screen)).toEqual([`remote-resident-${U2}`]);
+  expect(residentAt(screen, U2).x).toBeCloseTo(36.5, 6);
+  expect(residentAt(screen, U2).y).toBeCloseTo(45.5, 6);
+  // U1 은 FullState 에 없다(미접속) — 순서 0번 고정 자리 그대로다. 다른 주민 순서가 바뀌어도 자리가 밀리지 않는다.
+  expect(standing(screen)).toEqual([`standing-resident-${U1}`]);
+  expectStandingAt(screen, U1, 0);
+  expect(otherCats(screen)).toBe(2);
+  await screen.unmount();
+});
+
+it('다른 주민은 FullState 로 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  // FullState 전에는 고정 자리 둘(ginger·white).
   expect(residents(screen)).toEqual([]);
   expect(otherCats(screen)).toBe(2);
   await emit(
@@ -704,7 +755,8 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
     ]),
   );
   expect(residents(screen)).toEqual([`remote-resident-${U1}`, `remote-resident-${U2}`].sort());
-  // Wanderer 는 사라지고 주민 둘만 남는다.
+  // 고정 자리 주민은 사라지고 동기화된 주민 둘만 남는다.
+  expect(standing(screen)).toEqual([]);
   expect(otherCats(screen)).toBe(2);
   expect(residentAt(screen, U2).x).toBeCloseTo(36.5, 6);
   expect(residentAt(screen, U2).y).toBeCloseTo(45.5, 6);
@@ -730,12 +782,9 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
   await screen.unmount();
 });
 
-it('걷는 고양이(내 고양이·떠돌이·다른 주민)는 left/top 이 아니라 transform 을 네이티브 드라이버로 옮긴다(GROMO-2374)', async () => {
+it('걷는 고양이(내 고양이·다른 주민)는 left/top 이 아니라 transform 을 네이티브 드라이버로 옮긴다(GROMO-2374)', async () => {
   jest.useFakeTimers();
-  // 떠돌이 행선지를 고정해 FullState 전에 한 번 걷게 한다(첫 출발 1.2초 뒤).
-  const random = jest.spyOn(Math, 'random').mockReturnValue(0.9);
   const screen = await renderHome(nextIsland());
-  await act(async () => jest.advanceTimersByTime(1500));
   await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
   const box = (id: string) => flat(screen.getByTestId(id).props.style);
   const ids = ['home-cat-container', `remote-resident-${U1}`];
@@ -751,15 +800,15 @@ it('걷는 고양이(내 고양이·떠돌이·다른 주민)는 left/top 이 �
     expect(now.top).toBe(before[i].top);
     expect(now.transform).not.toEqual(before[i].transform);
   });
-  // 고양이 셋(떠돌이·내 고양이·다른 주민)의 이동이 모두 네이티브 드라이버 설정이다 — 테스트만 JS 로 돌린다(jsDriver).
+  // 걷는 고양이 둘(내 고양이·다른 주민)의 이동이 모두 네이티브 드라이버 설정이다 — 테스트만 JS 로 돌린다(jsDriver).
+  // 고정 자리 주민(U2)은 이동 애니메이션 자체가 없다.
   const moves = jsDriver.mock.calls.filter(([value]) => value instanceof Animated.ValueXY);
-  expect(new Set(moves.map(([value]) => value)).size).toBe(3);
+  expect(new Set(moves.map(([value]) => value)).size).toBe(2);
   for (const [, config] of moves) expect(config.useNativeDriver).toBe(true);
-  random.mockRestore();
   await screen.unmount();
 });
 
-it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동기화를 끄고 Wanderer·로컬 걷기로 돌아간다', async () => {
+it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동기화를 끄고 주민 고정 자리·로컬 걷기로 돌아간다', async () => {
   jest.useFakeTimers();
   const notify = jest.fn();
   const screen = await renderHome(nextIsland(), { notify });
@@ -771,6 +820,9 @@ it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동�
   await act(async () => denied.opts.onMovementDenied?.());
   expect(denied.close).toHaveBeenCalled();
   expect(residents(screen)).toEqual([]);
+  // 접속했던 주민도 마지막 수신 자리가 아니라 명단 순서의 고정 자리로 돌아간다.
+  expectStandingAt(screen, U1, 0);
+  expectStandingAt(screen, U2, 1);
   expect(otherCats(screen)).toBe(2);
   await tapGround(screen, { x: 42.5, y: 45.5 });
   expect(denied.send).not.toHaveBeenCalled();
@@ -1370,42 +1422,51 @@ describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', (
   });
 });
 
-describe('플래그 off·서버 홈 아님', () => {
-  // 플래그는 모듈 로드 때 굳으므로 격리 로드한다. 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다.
-  const isolatedIsland = (env: Record<string, string | undefined>) => {
-    const keys = ['EXPO_PUBLIC_TILE_ISLAND', 'EXPO_PUBLIC_MOVEMENT_SYNC'];
-    const saved = keys.map((k) => process.env[k]);
-    keys.forEach((k) => (env[k] === undefined ? delete process.env[k] : (process.env[k] = env[k])));
-    try {
-      let Island!: typeof FinalIsland;
-      jest.isolateModules(() => {
-        jest.doMock('react', () => React);
+describe('웹(이미지 섬)·서버 홈 아님', () => {
+  // 웹 빌드(TILE_ISLAND=false)는 모듈 로드 때 Platform.OS 로 굳으므로 격리 로드하면서 그때만 격리 레지스트리의
+  // Platform.OS 를 'web' 으로 둔다 — jest 엔 DOM 이 없어 렌더는 기본 OS 로 되돌린 뒤 한다. 격리 레지스트리가
+  // React 를 따로 만들면 훅이 깨진다. 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의
+  // saveSession 도 함께 돌려준다.
+  const webIsland = () => {
+    let Island!: typeof FinalIsland;
+    let isolatedSaveSession!: typeof saveSession;
+    jest.isolateModules(() => {
+      jest.doMock('react', () => React);
+      isolatedSaveSession = (
+        require('@/services/api/session') as typeof import('@/services/api/session')
+      ).saveSession;
+      const platform = (require('react-native') as typeof import('react-native')).Platform;
+      const os = platform.OS;
+      (platform as { OS: string }).OS = 'web';
+      try {
         Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
-      });
-      return Island;
-    } finally {
-      keys.forEach((k, n) =>
-        saved[n] === undefined ? delete process.env[k] : (process.env[k] = saved[n]),
-      );
-    }
+      } finally {
+        (platform as { OS: string }).OS = os;
+      }
+    });
+    return { Island, saveSession: isolatedSaveSession };
   };
   afterAll(() => jest.dontMock('react'));
 
-  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 이동 채널 없이 Wanderer·로컬 걷기 그대로이고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390)', async () => {
+  it('웹(이미지 섬)이면 이동 채널 없이 주민은 고정 자리에 서고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390·2476)', async () => {
     jest.useFakeTimers();
     const opened = mockChannels.length;
+    const before = controllers.length;
     const island = nextIsland();
     const state = serverState(island);
     (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
-    const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const isolated = webIsland();
+    await isolated.saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
+    const Island = isolated.Island;
     const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
-    await tapGround(screen, { x: 42.5, y: 45.5 });
     // 이동 채널은 없고 events 토픽만 여는 채널 하나
     expect(mockChannels.length).toBe(opened + 1);
     expect(channel().opts).toMatchObject({ islandId: island, events: true, presence: false });
     expect(channel().opts.movement).toBeFalsy();
-    expect(myMotion(screen)).toBe('walking');
+    expect(controllers.length).toBe(before);
     expect(residents(screen)).toEqual([]);
+    expectStandingAt(screen, U1, 0);
+    expectStandingAt(screen, U2, 1);
     expect(otherCats(screen)).toBe(2);
     const headOf = (color: string) =>
       screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
@@ -1424,14 +1485,15 @@ describe('플래그 off·서버 홈 아님', () => {
     expect(mockChannels[mockChannels.length - 1].close).toHaveBeenCalled();
   });
 
-  it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
+  it('컨트롤러가 없는 홈(서버 홈이 없는 목업 섬)도 오버레이는 켜진다 — 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
     jest.useFakeTimers();
-    const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const before = controllers.length;
     const screen = await render(
-      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+      <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
     );
-    // jest.getTimerCount() 의 생 델타는 이 화면의 다른 setTimeout 잡음(배회하는 다른 주민의 roam() 재귀
-    // 예약, 버튼 프레스 모션)에 가려 기준선 노릇을 못 한다 — setInterval 호출만 집어 센다. WorldMap.tsx
+    expect(controllers.length).toBe(before);
+    // jest.getTimerCount() 의 생 델타는 이 화면의 다른 setTimeout 잡음(버튼 프레스 모션 등)에 가려
+    // 기준선 노릇을 못 한다 — setInterval 호출만 집어 센다. WorldMap.tsx
     // 안의 setInterval 은 낮·밤 시계(마운트 때 1회, navDebug 와 무관)와 이 250ms flush 뿐이라, 스파이를
     // 마운트 뒤에 걸면 토글이 만드는 setInterval 호출 수만 그대로 드러난다.
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
@@ -1445,7 +1507,7 @@ describe('플래그 off·서버 홈 아님', () => {
     await screen.unmount();
   });
 
-  it('플래그 on 이어도 서버 홈(facts)이 없는 목업 섬이면 채널을 열지 않는다', async () => {
+  it('타일 섬이어도 서버 홈(facts)이 없는 목업 섬이면 채널을 열지 않는다', async () => {
     const opened = mockChannels.length;
     const screen = await render(
       <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
@@ -1464,9 +1526,8 @@ describe('플래그 off·서버 홈 아님', () => {
 
   // 항목 6(릴리스 음성 테스트) — WorldMap.tileIsland.test.tsx 는 movementSync mock 이 없어(다른 mock 구조)
   // 거기 추가하면 전체 테스트에 새 전역 mock 을 얹어야 한다. 이미 controllers 스파이가 있는 이 파일의
-  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). EXPO_PUBLIC_TILE_ISLAND·MOVEMENT_SYNC 는
-  // 이미 파일 상단에서 '1' — process.env 는 격리 레지스트리와도 공유라 다시 안 세운다. 세션은 모듈별
-  // 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
+  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). 격리 복사본도 기본 Platform.OS(ios)라 타일 섬이다.
+  // 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
   it('__DEV__=false 릴리스 빌드는 nav-debug-toggle 이 없어 movementSync.subscribe 를 한 번도 안 부른다(음성, 항목 6)', async () => {
     jest.useFakeTimers();
     const before = controllers.length;
@@ -1509,7 +1570,7 @@ describe('플래그 off·서버 홈 아님', () => {
 });
 
 // initialMapAssets(GROMO-2244, codex 지적) — movementSync 빌드는 서버와 같은 nav 아티팩트(번들)만 쓴다.
-// 순수 함수라 TILE_ISLAND·MOVEMENT_SYNC env 격리 없이 인자로 바로 검증한다.
+// 순수 함수라 인자로 바로 검증한다. 화면은 타일 섬(iOS·Android)이면 movementSync 도 켜서 부른다(GROMO-2476).
 describe('initialMapAssets (GROMO-2244)', () => {
   const cache = { kind: 'cache' as const, mapVersion: 1, dir: 'file:///v1', path: 'maps/home/v1' };
 

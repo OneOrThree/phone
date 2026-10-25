@@ -75,6 +75,7 @@ import {
   type LocalePref,
 } from '@/i18n';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
+import { stripNicknameWhitespace } from '@/utils/nickname';
 import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
@@ -743,6 +744,7 @@ export function RedesignScreens({ e }: any) {
     // 새 섬 만들기 정원 선택값. 숫자로 두고 휠 라벨은 렌더 시점에 로케일대로 만든다
     [capacityPick, setCapacityPick] = useState(15),
     [profileName, setProfileName] = useState(state.name),
+    [profileNameError, setProfileNameError] = useState(''),
     [profileColor, setProfileColor] = useState<Color>(state.color),
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
     // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
@@ -769,6 +771,7 @@ export function RedesignScreens({ e }: any) {
     // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
     [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
   const profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    profileErrorScope = useRef<object>({}),
     serverWriting = useRef(false),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
@@ -1012,9 +1015,14 @@ export function RedesignScreens({ e }: any) {
     return () => backSub.remove();
   }, [soundDialog]);
   useEffect(() => {
+    profileErrorScope.current = {};
     if (route !== 'profile') return;
     setProfileName(state.name);
     setProfileColor(state.color);
+    setProfileNameError('');
+    return () => {
+      profileErrorScope.current = {};
+    };
   }, [route, state.name, state.color]);
   useEffect(() => {
     if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
@@ -1352,7 +1360,7 @@ export function RedesignScreens({ e }: any) {
         cta={
           <Btn
             title={t('character.startWithCat')}
-            disabled={!state.name.trim() || serverBusy}
+            disabled={!state.name || serverBusy}
             onPress={() => {
               if (!server) {
                 // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
@@ -1362,7 +1370,7 @@ export function RedesignScreens({ e }: any) {
               // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
               // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
               // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
-              const name = state.name.trim();
+              const name = state.name;
               const signature = JSON.stringify([name, state.color]);
               if (characterSaveIntent.current?.signature !== signature)
                 characterSaveIntent.current = { signature, key: uuid() };
@@ -1415,7 +1423,7 @@ export function RedesignScreens({ e }: any) {
           value={state.name}
           disabled={serverBusy}
           onChange={(name: string) => {
-            if (!serverBusy) act('PROFILE', { name });
+            if (!serverBusy) act('PROFILE', { name: stripNicknameWhitespace(name) });
           }}
           inputStyle={INP}
         />
@@ -3385,8 +3393,11 @@ export function RedesignScreens({ e }: any) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '나만 미리듣기'}
+              disabled={!player.playbackAllowed}
+              accessibilityState={{ disabled: !player.playbackAllowed }}
               onPress={() => {
                 try {
+                  if (!player.playbackAllowed) return;
                   if (previewAudio) {
                     player.pause();
                     setPreviewAudio(false);
@@ -3394,8 +3405,7 @@ export function RedesignScreens({ e }: any) {
                     player.replace(assets['audio/' + p.id + '.wav']);
                     // 미리듣기는 한 번만(끝나면 재생 종료 이벤트로 버튼을 되돌린다)
                     player.loop = false;
-                    player.play();
-                    setPreviewAudio(true);
+                    setPreviewAudio(player.play());
                   }
                 } catch {
                   notify('음원을 불러오지 못했어요.');
@@ -3915,7 +3925,7 @@ export function RedesignScreens({ e }: any) {
       <IslandSheet
         bg="dock"
         sign="boat/raft"
-        title="내 꾸미기"
+        title={t('wardrobe.title')}
         tall
         tight
         onBack={back}
@@ -4368,7 +4378,8 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
         action={t('common.save')}
         actionPress={() => {
-          const name = profileName.trim();
+          const name = profileName;
+          setProfileNameError('');
           if (!name) {
             notify(t('account.profile.nicknameRequired'));
             return;
@@ -4384,17 +4395,33 @@ export function RedesignScreens({ e }: any) {
             profileSaveIntent.current = { signature, key: uuid() };
           }
           const intent = profileSaveIntent.current;
+          const errorScope = profileErrorScope.current;
+          const gen = sessionGeneration();
           run(
             () =>
-              updateProfile({ name, catColor: profileColor }, intent.key).then((saved) => {
-                if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
-                act('PROFILE', {
-                  name: saved.name ?? name,
-                  color: saved.catColor ?? profileColor,
-                });
-                notify(t('account.profile.saved'));
-                back();
-              }),
+              updateProfile({ name, catColor: profileColor }, intent.key)
+                .then((saved) => {
+                  if (profileSaveIntent.current?.key === intent.key)
+                    profileSaveIntent.current = null;
+                  act('PROFILE', {
+                    name: saved.name ?? name,
+                    color: saved.catColor ?? profileColor,
+                  });
+                  notify(t('account.profile.saved'));
+                  back();
+                })
+                .catch((thrown) => {
+                  if (thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID') {
+                    if (
+                      profileErrorScope.current === errorScope &&
+                      routeNowRef.current === 'profile' &&
+                      sessionGeneration() === gen
+                    )
+                      setProfileNameError(thrown.message);
+                    return;
+                  }
+                  throw thrown;
+                }),
             notify,
           );
         }}
@@ -4412,10 +4439,19 @@ export function RedesignScreens({ e }: any) {
           label={t('account.profile.nickname')}
           placeholder={t('account.profile.nicknamePlaceholder')}
           value={profileName}
-          onChange={serverBusy ? () => {} : setProfileName}
+          onChange={(value: string) => {
+            if (serverBusy) return;
+            setProfileName(stripNicknameWhitespace(value));
+            setProfileNameError('');
+          }}
           disabled={serverBusy}
           inputStyle={sheetInput}
         />
+        {!!profileNameError && (
+          <Txt kind="meta" accessibilityRole="alert" style={{ color: semanticTokens.color.danger }}>
+            {profileNameError}
+          </Txt>
+        )}
         <SheetGroup>
           <SheetRow
             title={t('account.profile.linkedAccount')}
