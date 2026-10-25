@@ -466,6 +466,7 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
   const screen = await render(<ObservatorySearch e={e} />);
   screen.getByText('Find islands');
   await fireEvent.changeText(screen.getByLabelText('Island name'), 'm');
+  screen.getByLabelText('Clear search'); // 입력이 있으면 지우기 버튼의 읽는 이름도 번역된다
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
   });
