@@ -861,7 +861,9 @@
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
-      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue"
+      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue",
+      "title": "Island news",
+      "promotionRow": "The host spent 60 fish on a magazine promotion"
     },
     "reader": {
       "title": "Nyaong",
