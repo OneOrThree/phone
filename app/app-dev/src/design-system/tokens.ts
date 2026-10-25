@@ -446,6 +446,11 @@ export const componentTokens = {
     topOffset: -11,
     rightOffset: 21,
   },
+  // 우체통 안 「받은 편지」 칸 오른쪽 위 모서리에 걸치는 새 편지 배지 자리(GROMO-2489)
+  mailInboxNewBadge: {
+    topOffset: -6,
+    rightOffset: -6,
+  },
   villageBuildingThemeTint: {
     color: '#d7829b',
     opacity: 0.3,

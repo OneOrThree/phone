@@ -416,6 +416,7 @@
     },
     "door": {
       "mailNewLetter": "우체통, 친구에게 받은 새 편지가 있어요",
+      "inboxNewLetters": "받은 편지 열기, 새 편지 {{count}}통",
       "mailNewMagazine": "우체통, 새 고양이 잡지가 왔어요",
       "newComment": "{{label}}, 새 댓글이 있어요",
       "unreadNotice": "{{label}}, 읽지 않은 새 소식이 있어요",
