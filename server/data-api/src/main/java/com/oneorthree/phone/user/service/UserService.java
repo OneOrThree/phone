@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 현재 계정 프로필과 탈퇴 개인정보 파기를 담당한다.
@@ -48,49 +49,21 @@ public class UserService {
     /** 닉네임 금칙어 판정 (GROMO-1986) — 온보딩 최초 입력과 수정이 {@link #changeNickname} 하나를 지난다. */
     private final BannedWords bannedWords;
 
-    /**
-     * 닉네임 규칙 단일점 (GROMO-1215) — {@link #normalizeNickname} 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
-     * 이 상수·헬퍼를 공유해 "체크는 통과했는데 저장은 거절" 같은 어긋남을 막는다.
-     * DTO bean validation 에 기대지 않는 이유: 저장 경로가 둘로 흩어져 있어 어노테이션만으로는
-     * 규칙이 갈라지기 쉽고, 검증 주체를 서비스 한 곳으로 고정하는 편이 안전하다.
-     */
+    /** 새 가입·실제 이름 변경에만 적용한다. 기존 공백 닉네임의 무변경 프로필 저장은 허용한다. */
     private static final int NICKNAME_MIN_LENGTH = 2;
     private static final int NICKNAME_MAX_LENGTH = 10;
+    /** Unicode White_Space와 BOM. 앱의 공백 제거 범위와 같다(탭·개행·전각 공백·NBSP 포함). */
+    private static final Pattern NICKNAME_WHITESPACE = Pattern.compile("[\\p{IsWhite_Space}\\uFEFF]");
 
-    /**
-     * 닉네임 정규화 <b>단일점</b> (GROMO-2051) — 앞뒤 공백을 지운다.
-     * 정책 정본(policy-2026-09-14 「친구 관리·우체통 대화」): 「닉네임은 대소문자를 구분하지 않고 중복될 수
-     * 없으며 <b>앞뒤 공백 없이 저장한다</b>.」
-     *
-     * <p><b>{@code String.trim} 이 아니라 {@code String.strip} 인 이유.</b> 전자는 U+0020 이하만 자르므로
-     * U+2003(앰 스페이스)이 앞에 붙은 닉네임이 그대로 저장된다. 그러면 V89 의
-     * {@code uq_users_nickname_lower} 가 {@code " alice"} 와 {@code "alice"} 를 <b>서로 다른 키</b>로 보아,
-     * 화면에는 같아 보이는 두 계정이 공존한다 — 그 인덱스가 막으려던 것이 바로 그 「보이기에 같은 이름」이다.
-     * 길이 검증도 같이 샜다: 앰 스페이스 두 개가 「2자」로 통과해 공백처럼 보이는 닉네임이 만들어졌다.
-     *
-     * <p>레포의 표시 텍스트는 이미 전부 {@code strip()} 이다 — 편지 본문({@code InternalLetterService}) ·
-     * 퀘스트 제목({@code IslandQuestService}) · 초대 표시명({@code LandingRenderer}) · 친구 검색어
-     * ({@code NicknameSearchStrategy}). 닉네임 저장만 {@code String.trim} 이라 같은 값이 저장·표시·검색에서
-     * 세 가지로 취급됐다.
-     *
-     * <p>길이 검증은 <b>이 정규화의 결과</b>를 본다({@link #hasValidNicknameLength}) — 원문을 재면 공백 패딩이
-     * 길이를 벌어 준다. 저장되는 값도 같은 결과다: 검사한 값과 저장한 값이 갈라지지 않는다.
-     *
-     * @param raw 요청 원문. {@code null} 은 빈 문자열로 접어 길이 검증이 거절한다
-     * @return 앞뒤 공백을 지운 값
-     */
-    private static String normalizeNickname(String raw) {
-        return raw == null ? "" : raw.strip();
-    }
-
-    private static boolean hasValidNicknameLength(String normalizedNickname) {
-        return normalizedNickname.length() >= NICKNAME_MIN_LENGTH
-                && normalizedNickname.length() <= NICKNAME_MAX_LENGTH;
+    private static boolean isValidNickname(String nickname) {
+        return nickname != null && nickname.length() >= NICKNAME_MIN_LENGTH
+                && nickname.length() <= NICKNAME_MAX_LENGTH
+                && !NICKNAME_WHITESPACE.matcher(nickname).find();
     }
 
     /**
      * 닉네임 변경의 단일 저장 경로.
-     * ① 형식({@link #normalizeNickname} 후 2~10자) 위반 → 400 NICKNAME_INVALID
+     * ① 형식(공백 없이 2~10 UTF-16 단위) 위반 → 400 NICKNAME_INVALID
      * ② 금칙어 → 400 BANNED_WORD (GROMO-1986). 중복 검사보다 앞이라 판정 순서가 형식 → 금칙어 → 중복이다
      * ③ 본인 제외 사전 중복 검사 («대소문자 무시», GROMO-1996) → 409 NICKNAME_DUPLICATE (GROMO-584)
      * ④ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname·uq_users_nickname_lower 유니크 제약 위반을
@@ -107,9 +80,8 @@ public class UserService {
      * 호출부는 배타 락 로드(findActiveByIdForUpdate)로 목표
      * 상태에 도달했다(GROMO-1237) — flush() 는 배타 락과 호환이라 동작 변화가 없다.
      */
-    private void changeNickname(User user, String rawNickname) {
-        String nickname = normalizeNickname(rawNickname);
-        if (!hasValidNicknameLength(nickname)) {
+    private void changeNickname(User user, String nickname) {
+        if (!isValidNickname(nickname)) {
             throw new UserException(UserErrorCode.NICKNAME_INVALID);
         }
         // 금칙어는 중복 검사보다 «앞» 이다 — 뒤에 두면 이미 쓰이는 금칙어 닉네임에 409 가 먼저 나가
@@ -189,8 +161,8 @@ public class UserService {
     /**
      * 공개 {@code PATCH /me} 의 프로필 변경 (GROMO-1801·1945 · 계정 LLD §2.3).
      *
-     * <p>이름은 기존 닉네임 writer({@link #changeNickname})에 그대로 위임한다 — 정규화·중복 정책을 새로 만들지 않는다.
-     * 정규화한 값이 지금 이름과 같으면 writer 를 돌리지 않는다: 돌리면 표시정보 변경 사건이 한 번 더 나간다.
+     * <p>이름은 기존 닉네임 writer({@link #changeNickname})에 그대로 위임한다 — 공백·길이·중복 정책을 새로 만들지 않는다.
+     * 요청 원문이 지금 이름과 같으면 기존 공백 닉네임도 보존하며 writer 를 돌리지 않는다: 돌리면 표시정보 변경 사건이 한 번 더 나간다.
      * 이름을 먼저 바꾸는 이유는 {@link #changeNickname} 이 TX 의 첫 변경이어야 해서다. 두 입력을 모두 적용한 뒤에
      * 완료 전이를 판정한다.
      *
@@ -204,7 +176,7 @@ public class UserService {
     public PublicProfileChange updatePublicProfile(UUID userId, String rawName, String catColor) {
         User user = userQueryService.getCallerForUpdate(userId);
         boolean wasComplete = OnboardingCompletion.isComplete(user);
-        if (rawName != null && !normalizeNickname(rawName).equals(user.getNickname())) {
+        if (rawName != null && !rawName.equals(user.getNickname())) {
             changeNickname(user, rawName);
         }
         if (catColor != null) {

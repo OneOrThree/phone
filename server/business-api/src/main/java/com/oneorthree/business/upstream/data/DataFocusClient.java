@@ -1,10 +1,12 @@
 package com.oneorthree.business.upstream.data;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
+import com.oneorthree.business.upstream.data.dto.FocusSeat;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.FocusTutorialReward;
@@ -53,12 +55,12 @@ public class DataFocusClient {
      * 응답 유실 뒤 재시도가 <b>두 번째 세션</b>이 되지 않게 하는 유일한 장치다.
      */
     public FocusSessionState startFocusSession(UUID userId, UUID islandId, String subject, Integer targetMinutes,
-            UUID key, Deadline deadline) {
+            FocusSeat seat, UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_FOCUS_SESSIONS, userId))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
-                        .body(new FocusSessionStartCommand(islandId, subject, targetMinutes))
+                        .body(new FocusSessionStartCommand(islandId, subject, targetMinutes, seat))
                         .idempotentCommand()
                         .build(),
                 deadline,
@@ -202,8 +204,12 @@ public class DataFocusClient {
                 responseType);
     }
 
-    /** 집중 세션 시작 요청 본문 (GROMO-1764). */
-    record FocusSessionStartCommand(UUID islandId, String subject, Integer targetMinutes) {
+    /**
+     * 집중 세션 시작 요청 본문 (GROMO-1764). {@code seat}(GROMO-2477)는 없으면 키째 뺀다 — 옛 앱 요청이 배포 전과
+     * 같은 본문으로 나간다.
+     */
+    record FocusSessionStartCommand(UUID islandId, String subject, Integer targetMinutes,
+                                    @JsonInclude(JsonInclude.Include.NON_NULL) FocusSeat seat) {
     }
 
     /** 바다 집중 세션 시작 요청 본문 (GROMO-2299). */

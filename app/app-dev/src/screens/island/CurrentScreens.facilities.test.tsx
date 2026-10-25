@@ -9,11 +9,7 @@ import { getIslandNews } from '@/services/api/magazine';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, reducer } from '@/services/model';
 
-// 잠금 문구가 받침 조사(josa)를 쓰므로 실제 모듈에서 josa 는 살려 두고 InteriorRoute 만 막는다
-jest.mock('@/screens/interiors/BuildingInteriors', () => ({
-  ...jest.requireActual('@/screens/interiors/BuildingInteriors'),
-  InteriorRoute: () => null,
-}));
+jest.mock('@/screens/interiors/BuildingInteriors', () => ({ InteriorRoute: () => null }));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
   useFriendsScreen: () => ({ data: null }),
 }));

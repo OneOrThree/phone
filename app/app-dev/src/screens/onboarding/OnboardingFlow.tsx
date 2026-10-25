@@ -22,7 +22,8 @@ import { seaClock } from '@/screens/sea/seaModel';
 import { seaAssets } from '@/screens/sea/seaAssets';
 import { updateProfile } from '@/services/api/account';
 import { sessionGeneration } from '@/services/api/session';
-import { uuid } from '@/services/api/client';
+import { ApiError, uuid } from '@/services/api/client';
+import { stripNicknameWhitespace } from '@/utils/nickname';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
 import { errorTextOr, t } from '@/i18n';
@@ -133,7 +134,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
     move('name');
   };
   const saveName = async () => {
-    const value = name.trim();
+    const value = name;
     if (!value) {
       setError(t('onboardingStory.nameEmpty'));
       return;
@@ -162,7 +163,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
         scope();
       } else move('greet');
     } catch (thrown) {
-      if (live()) setError(errorTextOr(thrown, 'errors.GENERIC'));
+      if (live())
+        setError(
+          thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID'
+            ? thrown.message
+            : errorTextOr(thrown, 'errors.GENERIC'),
+        );
     } finally {
       requestLock.current = false;
       if (mounted.current) setPending(false);
@@ -530,7 +536,11 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                     style={[k.field, font]}
                     value={name}
                     editable={!pending}
-                    onChangeText={setName}
+                    onChangeText={(value) => {
+                      if (pending) return;
+                      setName(stripNicknameWhitespace(value));
+                      setError('');
+                    }}
                     returnKeyType="done"
                     onSubmitEditing={saveName}
                     onFocus={() => scroll.current?.scrollToEnd({ animated: true })}
@@ -546,7 +556,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                 id="onboarding-continue"
                 dynamicHeight
                 title={t(`onboardingStory.${ctaText}`)}
-                disabled={pending || (nameStep && !name.trim()) || (step === 'ready' && !selected)}
+                disabled={pending || (nameStep && !name) || (step === 'ready' && !selected)}
                 onPress={cta}
               />
             </View>

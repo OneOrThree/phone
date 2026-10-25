@@ -54,11 +54,11 @@ class UserServiceTest {
     private UserService userService;
 
     @Test
-    void publicProfileNormalizesNameBeforePublishing() {
+    void publicProfilePublishesValidName() {
         User user = currentUser();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
 
-        userService.updatePublicProfile(USER_ID, "\u2003새이름\u2003", "black");
+        userService.updatePublicProfile(USER_ID, "새이름", "black");
 
         assertThat(user.getNickname()).isEqualTo("새이름");
         assertThat(user.getCatColor()).isEqualTo("black");
@@ -67,18 +67,20 @@ class UserServiceTest {
     }
 
     @Test
-    void sameNormalizedNameDoesNotPublishAgain() {
+    void sameNameDoesNotPublishAgain() {
         User user = currentUser();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
 
-        userService.updatePublicProfile(USER_ID, "\u2003기존이름\u2003", null);
+        userService.updatePublicProfile(USER_ID, "기존이름", null);
 
         verify(userRepository, never()).flush();
         verify(eventPublisher, never()).publishEvent(any(UserDisplayNameChangedEvent.class));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", " ", "가", "\u2003\u2003", "가나다라마바사아자차카"})
+    @ValueSource(strings = {"", " ", "가", "\u2003\u2003", "가나다라마바사아자차카", "검은 고양이", " 새이름",
+            "새이름 ", "검은\t고양이", "검은\n고양이", "검은\u3000고양이", "검은\u00a0고양이",
+            "검은\u0085고양이", "검은\ufeff고양이", "검은\u2028고양이", "검은\u202f고양이"})
     void invalidNameDoesNotChangeProfile(String name) {
         User user = currentUser();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
@@ -87,6 +89,20 @@ class UserServiceTest {
                 .isInstanceOf(UserException.class).extracting("errorCode").isEqualTo(UserErrorCode.NICKNAME_INVALID);
         assertThat(user.getNickname()).isEqualTo("기존이름");
         assertThat(user.getCatColor()).isEqualTo("white");
+    }
+
+    @Test
+    void unchangedLegacyWhitespaceNameCanChangeColorWithoutPublishing() {
+        User user = currentUser();
+        user.setNickname("검은 고양이");
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+
+        userService.updatePublicProfile(USER_ID, "검은 고양이", "black");
+
+        assertThat(user.getNickname()).isEqualTo("검은 고양이");
+        assertThat(user.getCatColor()).isEqualTo("black");
+        verify(userRepository, never()).flush();
+        verify(eventPublisher, never()).publishEvent(any(UserDisplayNameChangedEvent.class));
     }
 
     @Test

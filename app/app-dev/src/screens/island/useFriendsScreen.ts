@@ -56,7 +56,7 @@ export function useFriendsScreen({
   routeKey = routeActive,
   date,
 }: {
-  /** friends·friendSearch route 에 있고 서버 세션이 있을 때만 true. */
+  /** 서버 세션과 공용 친구 소비자가 활성일 때 true. 화면을 닫아도 유지될 수 있다. */
   active: boolean;
   /** 친구 목록·검색 route가 실제로 표시될 때 true — 진입할 때 차단 목록을 재검증한다. */
   routeActive?: boolean;
@@ -88,6 +88,27 @@ export function useFriendsScreen({
     session: number;
     ids: ReadonlySet<string> | null;
   }>({ session, ids: null });
+  const previousEntry = useRef({ active, searchActive, routeKey });
+
+  useEffect(() => {
+    const previous = previousEntry.current;
+    previousEntry.current = { active, searchActive, routeKey };
+    // 첫 적재·로그인은 아래 조회 effect가 처리한다. 공용 소비자가 계속 활성인 동안의
+    // 친구 화면 재진입만 새로 고쳐, 뗏목·홈에 머무는 매 렌더마다 조회하지 않는다.
+    if (
+      active &&
+      previous.active &&
+      searchActive &&
+      (!previous.searchActive || previous.routeKey !== routeKey)
+    ) {
+      setNonce((n) => n + 1);
+    }
+  }, [active, searchActive, routeKey]);
+
+  useEffect(() => {
+    // 공용 친구 데이터는 유지해도, 닫은 검색창의 입력은 다음 진입으로 넘기지 않는다.
+    if (!active || !searchActive) setQuery('');
+  }, [active, searchActive]);
 
   useEffect(() => {
     if (previousBlockedIds.current.session !== session) {

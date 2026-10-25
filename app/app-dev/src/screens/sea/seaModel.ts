@@ -3,6 +3,9 @@ import type { Color } from '@/services/model';
 import { t } from '@/i18n';
 
 export const seaEmotes = ['hello', 'cheer', 'hearts', 'sleepy', 'laugh'] as const;
+
+/** 호스트가 실패 이유를 문구로 알릴 때 던진다 — SeaScreen 은 이 메시지를, 그 밖의 실패는 `openSea.retry` 를 인라인 안내로 띄운다. */
+export class SeaNotice extends Error {}
 export type SeaEmote = (typeof seaEmotes)[number];
 
 /** API DTO가 아니다. 바다 서버 어댑터가 정본 스냅샷을 이 표시 모델로 변환한다. */

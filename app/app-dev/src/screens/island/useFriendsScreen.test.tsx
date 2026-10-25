@@ -82,6 +82,132 @@ test('활성이면 /screens/friends 를 date 와 함께 읽고 세 조각을 보
   assert.equal(result.current.data?.friendRequests[0].requestId, 'r-1');
 });
 
+test('공용 소비자가 계속 활성인 동안 친구 화면을 다시 열 때마다 목록·받은 요청을 새로 읽는다', async () => {
+  screenMock.mockResolvedValueOnce(screen({ friends: [], friendRequests: [] }));
+  const hook = await renderHook(
+    (open: boolean) =>
+      useFriendsScreen({ ...args, searchActive: open, routeKey: open ? 'friends' : 'home' }),
+    { initialProps: false },
+  );
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 1);
+
+  screenMock.mockResolvedValue(screen());
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.data?.friendRequests[0]?.requestId, 'r-1'));
+  assert.equal(hook.result.current.data?.friends[0]?.userId, 'u-friend');
+
+  await hook.rerender(false);
+  assert.equal(screenMock.mock.calls.length, 2);
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 3));
+});
+
+test('첫 친구 화면 적재는 한 번이며 연속된 친구 route 진입은 다시 조회한다', async () => {
+  screenMock.mockResolvedValue(screen());
+  const hook = await renderHook(
+    (route: string) => useFriendsScreen({ ...args, searchActive: true, routeKey: route }),
+    { initialProps: 'friends' },
+  );
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 1);
+  await hook.rerender('friendSearch');
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+});
+
+test('로그인과 친구 화면 진입이 겹쳐도 중복 조회하지 않는다', async () => {
+  screenMock.mockResolvedValue(screen());
+  const hook = await renderHook(
+    (active: boolean) => useFriendsScreen({ ...args, active, searchActive: active }),
+    { initialProps: false },
+  );
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 1);
+});
+
+test('재진입 뒤 도착한 이전 목록 응답은 새 친구·요청을 덮어쓰지 않는다', async () => {
+  let resolveOld!: (value: FriendsScreen) => void;
+  screenMock.mockReturnValueOnce(new Promise<FriendsScreen>((resolve) => (resolveOld = resolve)));
+  screenMock.mockResolvedValueOnce(screen());
+  const hook = await renderHook(
+    (open: boolean) => useFriendsScreen({ ...args, searchActive: open }),
+    { initialProps: true },
+  );
+  await hook.rerender(false);
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(hook.result.current.data?.friendRequests[0]?.requestId, 'r-1'));
+  await act(async () => resolveOld(screen({ friends: [], friendRequests: [] })));
+  assert.equal(hook.result.current.data?.friends[0]?.userId, 'u-friend');
+  assert.equal(hook.result.current.data?.friendRequests[0]?.requestId, 'r-1');
+});
+
+test('친구 관리를 닫고 다시 열면 검색어·결과·오류 없이 시작한다', async () => {
+  screenMock.mockResolvedValue(screen());
+  searchMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '검색 실패', 0));
+  const hook = await renderHook(
+    (open: boolean) => useFriendsScreen({ ...args, searchActive: open }),
+    { initialProps: true },
+  );
+  await act(async () => hook.result.current.setQuery('ㅊㅊ'));
+  await waitFor(() => assert.equal(hook.result.current.searchStatus, 'error'));
+  await hook.rerender(false);
+  await hook.rerender(true);
+
+  assert.equal(hook.result.current.query, '');
+  assert.deepEqual(hook.result.current.searchItems, []);
+  assert.equal(hook.result.current.searchError, null);
+  assert.equal(hook.result.current.searchStatus, 'idle');
+  assert.equal(searchMock.mock.calls.length, 1);
+});
+
+test('닫기 전 검색의 늦은 응답은 다시 연 빈 검색창에 결과를 되살리지 않는다', async () => {
+  screenMock.mockResolvedValue(screen());
+  let resolveOld!: (items: unknown[]) => void;
+  searchMock.mockReturnValueOnce(new Promise((resolve) => (resolveOld = resolve)));
+  const hook = await renderHook(
+    (open: boolean) => useFriendsScreen({ ...args, searchActive: open }),
+    { initialProps: true },
+  );
+  await act(async () => hook.result.current.setQuery('옛검색'));
+  await waitFor(() => assert.equal(searchMock.mock.calls.length, 1));
+  await hook.rerender(false);
+  await hook.rerender(true);
+  await act(async () => resolveOld([{ userId: 'old', nickname: '옛결과', relation: 'NONE' }]));
+
+  assert.equal(hook.result.current.query, '');
+  assert.deepEqual(hook.result.current.searchItems, []);
+  assert.equal(hook.result.current.searchStatus, 'idle');
+});
+
+test.each(['screen', 'session'] as const)(
+  '디바운스 중 %s 비활성화는 대기 검색을 취소한다',
+  async (close) => {
+    jest.useFakeTimers();
+    try {
+      screenMock.mockResolvedValue(screen());
+      searchMock.mockResolvedValue([]);
+      const hook = await renderHook(
+        (props: { active: boolean; searchActive: boolean }) =>
+          useFriendsScreen({ ...args, ...props }),
+        { initialProps: { active: true, searchActive: true } },
+      );
+      await act(async () => hook.result.current.setQuery('닫기 전'));
+      await act(async () => jest.advanceTimersByTime(100));
+      await hook.rerender({ active: close !== 'session', searchActive: close !== 'screen' });
+      await act(async () => jest.advanceTimersByTime(1000));
+
+      assert.equal(searchMock.mock.calls.length, 0);
+      assert.equal(hook.result.current.query, '');
+      assert.deepEqual(hook.result.current.searchItems, []);
+      await hook.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  },
+);
+
 test('차단 신호가 오면 이미 적재된 친구·요청을 서버 재조회 전에 즉시 숨긴다', async () => {
   screenMock.mockResolvedValue(screen());
   const { result } = await renderHook(() => useFriendsScreen(args));

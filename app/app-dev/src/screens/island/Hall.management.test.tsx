@@ -396,6 +396,21 @@ test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 �
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
 
+test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조회를 보류하고, 도착하면 한 번 부른다(GROMO-2460)', async () => {
+  const islands = {};
+  const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
+  const screen = await render(<Hall e={{ ...e('manage', pending), islands }} />);
+  await act(async () => {});
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, null);
+  expect(getNewsMock).toHaveBeenCalledTimes(0);
+
+  const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands }} />);
+  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
+  assert.equal(getNewsMock.mock.calls[0][0], 'srv-1');
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
+});
+
 test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave 를 보낸다(4-06)', async () => {
   managementMock.mockReturnValue(management({ role: 'member', requests: null }));
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
@@ -413,6 +428,22 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
   await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
   assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
   assert.equal(env.reset.mock.calls.length, 0); // 다음 위치를 모르면 바다로 단정하지 않는다
+});
+
+test('서버 섬 id 가 아직 없으면 로딩 화면만 보이고 카드·초대·탈퇴가 없다, 도착하면 카드가 그려진다(GROMO-2460)', async () => {
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
+  const screen = await render(<Hall e={{ ...e('manage', pending), islands: { leave } }} />);
+
+  expect(screen.queryByTestId('hall-management-loading')).toBeTruthy();
+  expect(screen.queryByTestId('hall-leave')).toBeNull();
+  expect(screen.queryByTestId('hall-invite')).toBeNull();
+  expect(leave).toHaveBeenCalledTimes(0);
+
+  const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands: { leave } }} />);
+  expect(screen.queryByTestId('hall-management-loading')).toBeNull();
+  expect(screen.queryByTestId('hall-invite')).toBeTruthy();
 });
 
 test.each([
@@ -459,7 +490,17 @@ test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 �
 
 test('다른 주민이 있는 방장은 기본 섬 정보에서 탈퇴를 누르면 위임부터 안내한다', async () => {
   const leave = asyncCommand();
-  const screen = await render(<Hall e={{ ...e(), islands: { leave } }} />);
+  const screen = await render(
+    <Hall
+      e={{
+        ...e('manage', {
+          ...initialState(true),
+          serverIslands: { currentIslandId: 'srv-1' },
+        } as any),
+        islands: { leave },
+      }}
+    />,
+  );
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   await waitFor(() => assert.ok(screen.getByText('방장을 위임할 주민을 골라요.')));
