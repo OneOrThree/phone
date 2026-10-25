@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { art } from '@/constants/art';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
@@ -2726,8 +2726,8 @@ test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어�
 
 test.each([
   [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, false],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
   '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',

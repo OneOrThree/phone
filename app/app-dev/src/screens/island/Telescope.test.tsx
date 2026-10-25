@@ -1161,8 +1161,8 @@ describe('큰 글자·배치', () => {
 
   test.each([
     [1, false],
-    [componentTokens.telescope.largeTextThreshold - 0.01, false],
-    [componentTokens.telescope.largeTextThreshold, true],
+    [semanticTokens.typography.largeTextThreshold - 0.01, false],
+    [semanticTokens.typography.largeTextThreshold, true],
     [3, true],
   ])(
     '글자 배율 %s — 다시 시도 작은 버튼의 높이 가변은 %s, 뒤로 동그라미는 늘 44',

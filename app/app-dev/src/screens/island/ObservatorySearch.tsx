@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { Badge, Btn, Txt } from '@/design-system/patterns';
-import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import {
   IslandSheet,
@@ -47,7 +47,7 @@ const stateText = (island: IslandSummary) =>
  */
 export function ObservatorySearch({ e }: { e: any }) {
   // 큰 글자(망원경과 같은 판정)에서는 상태 배지를 이름 아래 줄로 내린다 — 고정 폭 썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·소개 칸이 0 으로 준다
-  const largeText = (useAppLayout().fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
+  const largeText = (useAppLayout().fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
   const [text, setText] = useState('');
   const search = useIslandSearch(text);
   const pin = useTelescopePin(e);

@@ -53,6 +53,18 @@ describe('design system tokens', () => {
     expect(primitiveTokens.radius.card).toBe(20);
   });
 
+  it('큰 글자 임계값은 semantic token 한 곳이고 component token 에 복제하지 않는다(GROMO-2281)', () => {
+    expect(semanticTokens.typography.largeTextThreshold).toBe(1.3);
+    // 다른 판정(1.2)인 raftDestinations 만 자기 값을 가진다 — 그 밖의 그룹에 되살리면 복제다
+    const groups = Object.entries(componentTokens as Record<string, unknown>)
+      .filter(
+        ([, group]) => typeof group === 'object' && group !== null && 'largeTextThreshold' in group,
+      )
+      .map(([name]) => name);
+    expect(groups).toEqual(['raftDestinations']);
+    expect(componentTokens.raftDestinations.largeTextThreshold).toBe(1.2);
+  });
+
   it('placeholder는 surface 위 대비 4.5:1 이상의 textMuted를 쓴다', () => {
     expect(componentTokens.input.placeholder).toBe(semanticTokens.color.textMuted);
     expect(

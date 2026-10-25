@@ -256,7 +256,7 @@ export function MagazineReader({
   // MAX_BLEED(그 이상 걸친 드문 꾸미기는 끝이 잘린다 — 칸이 너무 작아지지 않게)
   const bleed = issueBleed(loaded?.cells ?? []);
   const { W, H, innerW, innerH, cellW, cellPad } = readerGeometry(L, bleed);
-  const largeText = L.fontScale >= R.largeTextThreshold;
+  const largeText = L.fontScale >= semanticTokens.typography.largeTextThreshold;
   const text = (size: number, color: string = semanticTokens.color.text) => ({
     fontFamily: font,
     fontSize: size,

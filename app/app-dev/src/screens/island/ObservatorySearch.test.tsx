@@ -5,7 +5,7 @@
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
 import { SEARCH_DEBOUNCE_MS } from '@/screens/island/useIslandSearch';
 import { applyLocalePref } from '@/i18n';
@@ -233,8 +233,8 @@ test('가입 신청 중인 섬은 «신청 중» 배지가 붙지만 망원경�
 
 test.each([
   [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, false],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
   '검색 행 «소속됨»·«신청 중» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
