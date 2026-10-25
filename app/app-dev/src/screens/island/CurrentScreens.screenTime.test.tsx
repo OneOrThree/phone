@@ -5,6 +5,7 @@ import { CurrentScreens } from './CurrentScreens';
 import { initialState } from '@/services/model';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { screenTime } from '@/services/screenTime';
+import { applyLocalePref } from '@/i18n';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
   screenTimeNative: {
@@ -60,6 +61,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await cleanup();
+  applyLocalePref('system');
   jest.restoreAllMocks();
   Platform.OS = originalOS;
 });
@@ -95,6 +97,38 @@ test('차단 미지원 Android는 측정 설정만 표시하고 차단 권한을
   expect(native.getFocusAllowSafariWeb).not.toHaveBeenCalled();
   await fireEvent.press(view.getByText('측정 앱'));
   expect(e.go).toHaveBeenCalledWith('screenTimeApps', 'settings');
+});
+
+test.each(['ios', 'android'] as const)(
+  'en 로케일 — 앱 권한 관리(%s)는 한글 없이 영문으로 그린다',
+  async (os) => {
+    Platform.OS = os;
+    applyLocalePref('en');
+    native.getAuthorizationStatus.mockResolvedValue('approved');
+    const view = await render(<CurrentScreens e={environment('settings')} />);
+    await view.findByText('2 selected');
+    expect(view.getByText('Manage App Permissions')).toBeTruthy();
+    expect(view.getByRole('switch', { name: 'Connect Screen Time' })).toBeTruthy();
+    expect(view.getByText('Allowed during focus')).toBeTruthy();
+    expect(view.queryByText(/[가-힣]/)).toBeNull();
+    expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
+  },
+);
+
+test.each([
+  ['ios', 'denied', 'permission'],
+  ['ios', 'notDetermined', 'permission'],
+  ['android', 'approved', 'permission'],
+  ['ios', 'approved', 'screenTimeApps'],
+  ['android', 'approved', 'screenTimeApps'],
+] as const)('en 로케일 — %s %s %s 화면은 한글이 없다', async (os, auth, route) => {
+  Platform.OS = os;
+  applyLocalePref('en');
+  native.getAuthorizationStatus.mockResolvedValue(auth);
+  const view = await render(<CurrentScreens e={environment('', route)} />);
+  await view.findAllByText(route === 'permission' ? 'Measurement permission' : 'Measured apps');
+  expect(view.queryByText(/[가-힣]/)).toBeNull();
+  expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
 });
 
 test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 요구하지 않는다', async () => {

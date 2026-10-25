@@ -2549,7 +2549,9 @@ export function Hall({ e }: any) {
     const capacity = setting(
       '주민 정원',
       `현재 ${liveManagement ? (management.members?.length ?? 0) : residentCount(i)}명 · 최대 ${CAPACITY_MAX}명`,
-      <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>{draft.capacity}명</T>,
+      <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>
+        {t('onboarding.createIsland.capacityUnit', { count: draft.capacity })}
+      </T>,
       {
         testID: 'hall-capacity',
         onPress: () => {
@@ -2557,7 +2559,11 @@ export function Hall({ e }: any) {
             CAPACITY_MIN,
             liveManagement ? (management.members?.length ?? CAPACITY_MIN) : residentCount(i),
           );
-          let picked = `${draft.capacity}명`;
+          let picked: number = draft.capacity;
+          // 라벨은 숫자에서 만든다 — 고른 값은 숫자로만 든다(로케일을 바꿔도 저장값 유지)
+          const items = Array.from({ length: CAPACITY_MAX - min + 1 }, (_, n) =>
+            t('onboarding.createIsland.capacityUnit', { count: n + min }),
+          );
           setDialog({
             title: '주민 정원',
             text: '현재 주민 수보다 작게 줄일 수는 없어요.',
@@ -2566,14 +2572,14 @@ export function Hall({ e }: any) {
                 <Wheel
                   label=""
                   a11yLabel="주민 정원"
-                  items={Array.from({ length: CAPACITY_MAX - min + 1 }, (_, n) => `${n + min}명`)}
-                  value={picked}
-                  onChange={(v: string) => (picked = v)}
+                  items={items}
+                  value={items[picked - min]}
+                  onChange={(v: string) => (picked = items.indexOf(v) + min)}
                 />
               </View>
             ),
             ok: '정하기',
-            onOk: () => setDraft((d) => ({ ...d, capacity: parseInt(picked, 10) })),
+            onOk: () => setDraft((d) => ({ ...d, capacity: picked })),
           });
         },
       },

@@ -1,5 +1,6 @@
 import { CoastalAtlas } from './CoastalAtlas';
 import React, { useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 import { TileTerrainFacilities } from './TileTerrainFacilities';
 import {
   Canvas,
@@ -13,6 +14,7 @@ import {
   type SkRSXform,
 } from '@shopify/react-native-skia';
 import type { NavGrid } from '@/utils/nav-path';
+import { componentTokens } from '@/design-system/tokens';
 import bundledTilemap from '@/assets/village-world/v1/tilemap.json';
 import bundledTileset from '@/assets/village-world/v1/tileset.json';
 import {
@@ -36,8 +38,9 @@ type Point = { x: number; y: number };
 // 실기기 측정 항목: tileset@2x.png 는 4096×2048 RGBA(≈32 MB)라 최대 텍스처 크기가 4096 인 일부 저사양 Android 기기에서
 // 한계에 걸리거나 메모리 부담이 될 수 있다. 코드는 그대로 두고 실기기에서 로드·메모리를 확인한다.
 
-// 개발 확인용 이동 보기(`navDebug`, FinalIsland 의 개발 버튼): 타일 경계선 · 막힌 nav 셀 · 마지막 걷기(탭→보정 목적지·경로)를
-// 그려 준다. 버튼이 CAN_PREVIEW_VILLAGE 로만 뜨고 그리기는 prop 이 있을 때만이라 배포 빌드에서는 그려지지 않는다.
+// 개발 확인용 이동 보기(`navDebug`, FinalIsland 의 개발 버튼): 타일 경계선 · 막힌 nav 셀 · 마지막 걷기(탭→보정 목적지·점)를
+// 그려 준다. 걷는 경로 선 자체는 운영 경로선(`walkPath` prop, GROMO-2479)이 늘 그린다.
+// 버튼이 CAN_PREVIEW_VILLAGE 로만 뜨고 그리기는 prop 이 있을 때만이라 배포 빌드에서는 그려지지 않는다.
 export type NavWalk = { tap: Point; path: Point[] };
 /** 서버 확정 경로·스냅샷·예측 오차(GROMO-2249), 전부 1x 이미지 px. 이동 동기화가 꺼져 있으면 전부 null. */
 export type NavServerDebug = {
@@ -226,6 +229,7 @@ export function TileTerrainCanvas({
   assets,
   onAssetsFail,
   navDebug,
+  walkPath,
   reduceMotion = false,
   pressedFacility,
   showFacilityOutlines = false,
@@ -242,6 +246,11 @@ export function TileTerrainCanvas({
   onAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기. 없으면 아무것도 더 그리지 않는다. */
   navDebug?: NavDebug | null;
+  /**
+   * 지금 걷는 경로(1x 이미지 px, 출발점 포함, GROMO-2479) — 운영에서 늘 그린다. 점이 2개 미만이거나 null 이면 안 그린다.
+   * 정적 선이라 모션 줄이기와 무관하다(그리는 효과 없음).
+   */
+  walkPath?: Point[] | null;
   /** 설정의 모션 줄이기 — 보정 원을 50ms로 깜빡이지 않고 창 동안 정적으로 보여준다(GROMO-2249 보완8 항목 6). */
   reduceMotion?: boolean;
   pressedFacility?: string | null;
@@ -252,12 +261,13 @@ export function TileTerrainCanvas({
   // 번들 쪽은 Metro 의 @2x 배율 해석에 기댄 우회, Expo 57 / `expo export --platform ios` 로 확인(2026-10-08).
   // 낮·밤이 바뀌면 소스가 바뀌어 useImage 가 다시 로드한다.
   const file: TilesetFile = night ? 'tileset-night@2x.png' : 'tileset@2x.png';
-  // 번들 타일셋(낮·밤 13 MB)은 타일 섬 빌드에만 싣는다(GROMO-2379). 조건을 require 바로 옆에 process.env 로 써야
-  // 배포 빌드에서 값이 리터럴로 접혀 Metro 가 꺼진 빌드의 require 를 지운다 — 다른 모듈의 상수로 빼면 접히지 않는다.
+  // 번들 타일셋(낮·밤 13 MB)은 타일 섬인 iOS·Android 에서만 쓴다(GROMO-2379 · 2476 플래그 제거 — 네이티브 빌드엔
+  // 늘 실린다). 조건을 require 바로 옆에 Platform.OS 로 둬, 배포 빌드가 플랫폼 값을 리터럴로 접으면 웹 번들에서
+  // require 가 빠지게 한다 — 다른 모듈의 상수로 빼면 접히지 않는다.
   const source = useMemo(
     () =>
       tilesetUri(assets, file) ??
-      (process.env.EXPO_PUBLIC_TILE_ISLAND !== '1'
+      (Platform.OS === 'web'
         ? null
         : file === 'tileset-night@2x.png'
           ? require('@/assets/village-world/v1/tileset-night.png')
@@ -287,7 +297,11 @@ export function TileTerrainCanvas({
   );
   const blocked = useMemo(() => (nav ? buildBlockedPath(nav) : null), [nav]);
   const walk = navDebug?.walk;
-  const walkPath = useMemo(() => (walk ? polyline(walk.path) : null), [walk]);
+  // 지형이 안 뜬 동안은 아무것도 안 그리니(아래 return null) 선도 이미지가 뜬 뒤에 만든다.
+  const route = useMemo(
+    () => (image && walkPath && walkPath.length > 1 ? polyline(walkPath) : null),
+    [image, walkPath],
+  );
   const tapLine = useMemo(() => {
     const dest = walk?.path[walk.path.length - 1];
     return walk && dest ? polyline([walk.tap, dest]) : null;
@@ -369,12 +383,12 @@ export function TileTerrainCanvas({
             color="rgba(200,200,200,0.9)"
           />
         )}
-        {walkPath && (
+        {route && (
           <Path
-            path={walkPath}
+            path={route}
             style="stroke"
-            strokeWidth={3 / scale}
-            color="rgba(30,110,255,0.9)"
+            strokeWidth={componentTokens.walkPath.width / scale}
+            color={componentTokens.walkPath.color}
           />
         )}
         {walk && walk.path.length > 0 && (
@@ -389,7 +403,7 @@ export function TileTerrainCanvas({
             />
           </>
         )}
-        {/* 서버 확정 경로·스냅샷·예측 오차(GROMO-2249) — 기존 파란 로컬 선 위에 주황으로 겹쳐 그린다. */}
+        {/* 서버 확정 경로·스냅샷·예측 오차(GROMO-2249) — 파란 운영 경로선 위에 주황으로 겹쳐 그린다. */}
         {serverPath && (
           <Path
             path={serverPath}

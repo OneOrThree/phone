@@ -8,6 +8,7 @@ import {
   componentTokens as c,
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
@@ -300,7 +301,7 @@ export function SeaScene({
               size={selfRaft}
               reduceMotion={reduceMotion}
             />
-            <Text style={[styles.name, styles.me, font]}>{t('openSea.me')}</Text>
+            <Text style={[styles.name, styles.me, font]}>{ownCatName(self.name)}</Text>
             {focusing && (
               <Text testID="sea-self-clock" style={[styles.clock, font]}>
                 {seaClock(self.activeSeconds)}

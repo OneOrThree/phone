@@ -272,7 +272,9 @@ export function IslandSheet({
           }}
         >
           {/* 뒤로 ‹·닫기 × 는 공용 NavBtn(DESIGN §7.14). 뒤로는 한 단계 위, 닫기는 시트를 접고 섬으로 */}
-          {onBack && <NavBtn label="뒤로" onPress={onBack} style={{ marginLeft: -10 }} />}
+          {onBack && (
+            <NavBtn label={t('common.back')} onPress={onBack} style={{ marginLeft: -10 }} />
+          )}
           <Txt
             accessibilityRole="header"
             numberOfLines={1}

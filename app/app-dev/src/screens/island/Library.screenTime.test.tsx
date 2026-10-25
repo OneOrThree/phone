@@ -2,7 +2,6 @@ import React from 'react';
 import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
-import { RedesignScreens } from './Screens';
 import { dateKey, diaryRange, shortDate } from './library/diaryData';
 import { initialState } from '@/services/model';
 import {
@@ -407,7 +406,7 @@ test.each(['diary', 'stats'])(
     e.state.screenDays = {};
     e.state.screenMinutes = 777;
     e.state.settings.screenTimeMeasurementDay = '2026-09-22';
-    const view = () => (route === 'diary' ? <Library e={e} /> : <RedesignScreens e={e} />);
+    const view = () => <Library e={e} />;
     const screen = await render(view());
     expect(screen.queryByText('777분')).toBeNull();
     e.state.settings.screenTimeMeasurementDay = '2026-09-23';

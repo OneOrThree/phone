@@ -502,6 +502,10 @@ export const componentTokens = {
     wakeRadius: semanticTokens.radius.full,
     ripple: color.sailingRipple,
   },
+  // 고양이 이름표(GROMO-2475) — 모든 화면 공통. 내 이름표만 me. 피그마 확정 전 임시값
+  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#B83D63', shadow: '#FFFDFA' },
+  // 땅을 눌러 고양이가 가는 길(GROMO-2479) — 타일 섬 지도 위 선. width 는 화면 pt(줌과 무관). 개발용 이동 보기의 파란 선 값 그대로
+  walkPath: { color: 'rgba(30,110,255,0.9)', width: 3 },
   fishingScene: {
     splashDrop: color.fishingSplash,
     splashRing: color.fishingSplashRing,
