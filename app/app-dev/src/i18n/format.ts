@@ -27,3 +27,15 @@ export function islandTitle(name: string): string {
   const n = name.trim();
   return /(섬|island)$/i.test(n) ? n : t('magazine.islandTitle', { name: n });
 }
+
+/**
+ * 받침이 있으면 withFinal, 없으면 without 을 단어 뒤에 붙인다. 한글 음절이 아닌 끝글자는 받침 없음으로 본다.
+ * 「으로/로」는 ㄹ받침도 「로」(without === '로' 일 때만 예외).
+ * 전제: `home.lock.missing` 의 ko 템플릿 `아직 {{building}} 없어요` 는 호출부가 이 함수로 조사를 붙여
+ * 건물명을 넘겨 준다(템플릿 안에 조사가 없다).
+ */
+export const josa = (word: string, withFinal: string, without: string) => {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  const final = code >= 0 && code <= 11171 ? code % 28 : 0;
+  return word + (final && !(without === '로' && final === 8) ? withFinal : without);
+};
