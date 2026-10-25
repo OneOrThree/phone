@@ -122,7 +122,7 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   expect(testflight).toContain('fastlane beta_dev');
 });
 
-test('Android CI builds the dev AAB and only main pushes reach Play via CD', () => {
+test('Android CI builds the dev AAB and independent CD publishes only verified main CI artifacts', () => {
   const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
   const ci = fs.readFileSync(
     path.join(appDevRoot, '../../.github/workflows/app-android-ci.yml'),
@@ -146,62 +146,80 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   expect(ci).toContain('GROMO_ANDROID_AUDIENCE: dev');
   expect(ci).toContain('EXPO_PUBLIC_ENV: dev');
   // 잡 하나의 본문 (2칸 들여쓰기 잡 이름 기준)
-  const job = (name) => {
-    const m = ci.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`));
+  const job = (workflow, name) => {
+    const m = workflow.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`));
     if (!m) throw new Error(`job ${name} 없음`);
     return m[1];
   };
-  const version = job('version');
-  const build = job('build');
-  const sign = job('sign');
-  const deploy = job('deploy');
+  const settings = job(ci, 'settings');
+  const build = job(ci, 'build');
+  const source = job(cd, 'source');
+  const sign = job(cd, 'sign');
+  const deploy = job(cd, 'play-internal');
   // Play 업로드는 CD 만. 키 잡은 main 만
   expect(ci).not.toContain('upload-google-play');
   expect(cd).toContain('track: internal');
-  expect(version).toContain(
-    "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
+  expect(settings).toContain("github.ref == 'refs/heads/main'");
+  expect(settings).toContain("needs.quality-gate.result == 'success'");
+  expect(build).toContain("needs.settings.result == 'success'");
+  expect(ci).not.toMatch(/^ {2}(sign|deploy):$/m);
+  expect(ci).not.toContain('uses: ./.github/workflows/app-android-cd.yml');
+  expect(build).toContain('android-ci-${{ github.run_id }}-${{ github.run_attempt }}');
+  expect(source).toContain("github.event.workflow_run.conclusion == 'success'");
+  expect(source).toContain("github.event.workflow_run.head_branch == 'main'");
+  expect(source).toContain(
+    'github.event.workflow_run.head_repository.id == github.event.repository.id',
   );
-  expect(sign).toContain(
-    "if: needs.version.result == 'success' && needs.build.result == 'success'",
+  expect(source).not.toContain('id-token: write');
+  expect(source).toContain('android-cd-source.py');
+  expect(source).toContain('android-artifact.py verify');
+  expect(sign).toContain('needs: source');
+  expect(sign.indexOf('android-artifact.py verify')).toBeLessThan(
+    sign.indexOf('uses: aws-actions/configure-aws-credentials@'),
   );
-  expect(deploy).toContain("if: needs.sign.result == 'success'");
-  expect(deploy).toContain('app-android-cd.yml');
+  expect(deploy).toContain('needs: [source, sign]');
+  expect(deploy).toContain('needs.source.outputs.version-code');
   // 의존성 코드는 Play·서명 키가 없는 build 잡에서만. 키 잡엔 안 돎
   expect(build).toContain('npm ci');
   expect(build).toContain('./gradlew');
   expect(build).not.toMatch(/id-token|aws-actions|RELEASE_SECRET_ID/);
-  for (const keyJob of [version, sign]) {
+  for (const keyJob of [settings, sign]) {
     expect(keyJob).toContain('id-token: write');
     expect(keyJob).not.toMatch(/npm |pip |gradlew|setup-node|setup-python/);
   }
   expect(cd).not.toMatch(/pip |setup-python/);
   // AAB 를 만드는 build 잡 액션도 커밋 SHA 고정
   expect(build).not.toMatch(/uses: [^\n]*@v\d/);
-  // 재실행: 이미 트랙에 있으면 업로드 건너뜀
-  expect(cd).toMatch(/name: 이미 올라갔는지 확인[\s\S]*PRESENCE_ONLY: '1'/);
+  // 재실행: 동일 versionCode의 업로드 바이트까지 검증한 경우만 업로드를 건너뛴다
+  expect(cd).toContain('run: python3 .github/ci/play-verify-bundle.py');
+  expect(cd).toContain("REQUIRE_PRESENT: '1'");
   expect(cd).toContain("if: steps.pre.outputs.present != 'true'");
   // 키 잡·CD 의 액션은 커밋 SHA 고정, 키 쓴 뒤 AWS 자격 증명 비움
-  for (const keyJob of [version, sign, cd]) {
+  for (const keyJob of [settings, sign, cd]) {
     expect(keyJob).not.toMatch(/uses: [^\n]*@v\d/);
     expect(keyJob).toContain('AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN');
   }
   // 서명 검증은 jarsigner 출력으로. 업로드 키 지문 대조는 sign 잡
   expect(build).toContain("grep -q '^jar verified\\.'");
   expect(sign).toContain('"$ANDROID_UPLOAD_CERT_SHA1"');
-  expect(ci).toContain(
+  expect(cd).toContain(
     'ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37',
   );
   // CD: 업로드 → 트랙 재조회 → 그다음 PR 표시
   expect(cd).toMatch(/업로드 확인 \(internal 트랙 재조회\)[\s\S]*배포된 PR 에 표시/);
   expect(cd).toContain('deployed:android-play-internal');
   expect(cd).toMatch(/r0adkll\/upload-google-play@[0-9a-f]{40}/);
-  expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
+  expect(cd).toMatch(/^on:\s*\n\s*workflow_run:/m);
+  expect(cd).toContain('workflows: [Android CI]');
+  expect(cd).toContain('branches: [main]');
+  expect(cd).not.toMatch(/^\s+workflow_call:/m);
+  expect(cd).toContain('ci-run-id:');
   // Play·서명 키는 Secrets Manager 에서만. 분석 업로드 키 하나만 main 빌드에 허용한다.
   expect(ci.match(/\bsecrets\.[A-Za-z_][A-Za-z0-9_]*/g)).toEqual(['secrets.POSTHOG_CLI_API_KEY']);
   expect(build).toContain(
     "POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}",
   );
-  for (const keyJob of [version, sign]) {
+  for (const keyJob of [settings, sign]) {
     expect(keyJob).not.toMatch(/secrets\./);
   }
   expect(cd).not.toMatch(/secrets\./);
