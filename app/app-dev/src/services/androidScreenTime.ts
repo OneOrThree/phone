@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { currentFocusSession } from './api/focusSessions';
 import { screenTimeNative } from './ScreenTimeModule';
 import { getSession, sessionGeneration } from './api/session';
@@ -85,6 +86,8 @@ export function syncAndroidFocus(
   color: Color,
   verifyServer = false,
 ): Promise<boolean> {
+  if (Platform.OS === 'android' && screenTimeNative?.supportsFocusShield === false)
+    return Promise.resolve(true);
   const revision = ++focusRevision;
   const generation = sessionGeneration();
   const owner = getSession()?.userId;

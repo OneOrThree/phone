@@ -5,6 +5,7 @@ function setup(now = '2026-10-12T02:00:00Z') {
   jest.resetModules();
   jest.useFakeTimers().setSystemTime(new Date(now));
   const native = {
+    supportsFocusShield: undefined as boolean | undefined,
     bindMeasurementOwner: jest.fn().mockResolvedValue(undefined),
     getAndroidMeasurement: jest.fn(),
     syncAndroidFocus: jest.fn().mockResolvedValue(true),
@@ -15,6 +16,7 @@ function setup(now = '2026-10-12T02:00:00Z') {
     sessionGeneration: jest.fn(() => 1),
   };
   const report = jest.fn().mockResolvedValue(undefined);
+  const currentFocusSession = jest.fn().mockResolvedValue(null);
   const measurement = {
     owner: 'owner',
     approved: true,
@@ -44,7 +46,7 @@ function setup(now = '2026-10-12T02:00:00Z') {
   jest.doMock('./ScreenTimeModule', () => ({ screenTimeNative: native }));
   jest.doMock('./api/session', () => auth);
   jest.doMock('./api/focusSessions', () => ({
-    currentFocusSession: jest.fn().mockResolvedValue(null),
+    currentFocusSession,
   }));
   jest.doMock('./screenTimeReporting', () => ({ reportScreenTime: report }));
   jest.doMock('./liveActivity', () => ({
@@ -59,12 +61,35 @@ function setup(now = '2026-10-12T02:00:00Z') {
     native,
     auth,
     report,
+    currentFocusSession,
     measurement,
     mod: require('./androidScreenTime') as typeof import('./androidScreenTime'),
   };
 }
 afterEach(() => {
   jest.useRealTimers();
+});
+
+test('차단 미지원 바이너리는 서버 조회·집중 차단을 생략하고 사용량 보고를 유지한다', async () => {
+  const { mod, native, currentFocusSession, report, measurement } = setup();
+  require('react-native').Platform.OS = 'android';
+  native.supportsFocusShield = false;
+  await expect(
+    mod.syncAndroidFocus({ id: 's', version: 1, status: 'active' } as Session, 'black', true),
+  ).resolves.toBe(true);
+  await expect(mod.syncAndroidFocus(null, 'black', true)).resolves.toBe(true);
+  expect(currentFocusSession).not.toHaveBeenCalled();
+  expect(native.bindMeasurementOwner).not.toHaveBeenCalled();
+  expect(native.syncAndroidFocus).not.toHaveBeenCalled();
+  expect(native.endAndroidFocus).not.toHaveBeenCalled();
+
+  await expect(mod.syncAndroidMeasurement()).resolves.toMatchObject({
+    minutes: 15,
+    reportFailed: false,
+  });
+  expect(native.bindMeasurementOwner).toHaveBeenCalledWith('owner');
+  expect(native.getAndroidMeasurement).toHaveBeenCalledTimes(1);
+  expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
 });
 
 test.each(['2026-10-12T02:00:00Z', '2026-10-12T16:00:00Z'])(

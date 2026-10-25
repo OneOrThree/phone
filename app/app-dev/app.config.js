@@ -58,8 +58,14 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 4,
+      versionCode: 20,
+      // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
+      runtimeVersion: '2.0.0-no-special-use',
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
+      blockedPermissions: [
+        'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
+        'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+      ],
       adaptiveIcon: {
         image: './src/assets/icon.png',
         backgroundColor: '#FDEFD5',
@@ -70,7 +76,15 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
-      ['expo-audio', { microphonePermission: false, recordAudioAndroid: false }],
+      // 현재 음원은 앱 안에서만 재생하므로 미디어 포그라운드 서비스를 추가하지 않는다.
+      [
+        'expo-audio',
+        {
+          microphonePermission: false,
+          recordAudioAndroid: false,
+          enableBackgroundPlayback: false,
+        },
+      ],
       'expo-localization',
       'expo-apple-authentication',
       [

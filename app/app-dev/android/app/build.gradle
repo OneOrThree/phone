@@ -215,7 +215,7 @@ android {
         }
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
+        versionCode 20
         versionName "2.0.0"
         // dev 청중(Play 내부 테스트용 팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
         // 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다. iOS dev 빌드는 Fastfile beta_dev 가 같은 일을 한다.

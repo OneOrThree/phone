@@ -95,18 +95,12 @@ class ScreenTimeModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
-    AsyncFunction("getFocusPushToken") { promise: Promise ->
-      try {
-        check(com.google.firebase.FirebaseApp.initializeApp(context) != null) { "FIREBASE_NOT_CONFIGURED" }
-        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
-          .addOnSuccessListener { promise.resolve(it) }
-          .addOnFailureListener { promise.reject("FCM_TOKEN_UNAVAILABLE", "집중 알림 연결을 확인해 주세요.", null) }
-      } catch (_: Exception) { promise.reject("FCM_NOT_CONFIGURED", "집중 알림 설정을 확인해 주세요.", null) }
-    }
+    Constant("supportsFocusShield") { false }
 
     AsyncFunction("bindMeasurementOwner") { owner: String ->
       ledger.bind(owner)
       FocusSessionState(context).bind(owner)
+      clearFocusActivity()
     }
     AsyncFunction("getAndroidMeasurement") {
       val granted = isUsageAccessGranted()
@@ -125,28 +119,9 @@ class ScreenTimeModule : Module() {
     }
     AsyncFunction("setAndroidAllowedPackages") { owner: String, packages: List<String> -> ledger.allow(owner, packages) }
     AsyncFunction("getMeasurementSelectionCounts") { ledger.selection() }
-    AsyncFunction("canDrawOverlays") { Settings.canDrawOverlays(context) }
-    AsyncFunction("requestOverlayPermission") {
-      val activity = appContext.currentActivity ?: throw Exceptions.ReactContextLost()
-      activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
-    }
-    AsyncFunction("syncAndroidFocus") { payload: String, promise: Promise ->
-      val requestId = java.util.UUID.randomUUID().toString()
-      FocusSessionState.await(requestId, promise)
-      try {
-        check(appContext.currentActivity != null) { "FOREGROUND_REQUIRED" }
-        val intent = Intent(context, FocusShieldService::class.java).apply {
-          action = FocusShieldService.ACTION_SYNC
-          putExtra(FocusShieldService.EXTRA_STATE, payload)
-          putExtra("requestId", requestId)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
-      } catch (_: Exception) { FocusSessionState.resolve(requestId, false) }
-    }
-    AsyncFunction("endAndroidFocus") {
-      FocusSessionState(context).end()
-      context.stopService(Intent(context, FocusShieldService::class.java))
-    }
+    // 이전 JS 호출도 서비스를 다시 시작하거나 차단 성공으로 응답하지 않는다.
+    AsyncFunction("syncAndroidFocus") { _: String -> false }
+    AsyncFunction("endAndroidFocus") { clearFocusActivity() }
     AsyncFunction("getAllowedSelectionCounts") {
       mapOf("applications" to (prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet())?.size ?: 0), "categories" to 0, "webDomains" to 0)
     }
@@ -179,7 +154,7 @@ class ScreenTimeModule : Module() {
 
     AsyncFunction("resetScreenTimeData") {
       FocusSessionState(context).clear()
-      context.stopService(Intent(context, FocusShieldService::class.java))
+      clearFocusActivity()
       ledger.reset()
       prefs.edit().clear().apply()
     }
@@ -393,6 +368,12 @@ class ScreenTimeModule : Module() {
         promise.resolve(isUsageAccessGranted())
       }
     }
+  }
+
+  /** 업데이트 이전 버전이 남긴 집중 알림과 복구 상태를 정리한다. */
+  private fun clearFocusActivity() {
+    FocusSessionState(context).end()
+    (context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager).cancel(4201)
   }
 
   // 런처에서 열 수 있는 앱의 패키지 집합 — '사용자가 앱으로 인식하는 것'의 기준이다.

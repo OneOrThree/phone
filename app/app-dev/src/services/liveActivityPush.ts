@@ -15,6 +15,7 @@ type PushToken = {
 export function startLiveActivityPushSync(
   current: () => { session: Session | null; color: Color },
 ): () => void {
+  if (Platform.OS === 'android' && screenTimeNative?.supportsFocusShield === false) return () => {};
   const native = Platform.OS === 'ios' ? NativeModules.LiveActivityModule : undefined;
   if (!native?.getPushTokens && !(Platform.OS === 'android' && screenTimeNative?.getFocusPushToken))
     return () => {};

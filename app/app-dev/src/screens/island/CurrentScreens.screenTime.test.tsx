@@ -15,6 +15,8 @@ jest.mock('@/services/ScreenTimeModule', () => ({
     getFocusAllowSafariWeb: jest.fn(),
     presentAppPicker: jest.fn(),
     presentAllowedAppManager: jest.fn(),
+    canDrawOverlays: jest.fn(),
+    getAllowedPackages: jest.fn(),
   },
 }));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
@@ -45,11 +47,14 @@ const originalOS = Platform.OS;
 beforeEach(() => {
   jest.clearAllMocks();
   Platform.OS = 'ios';
+  delete (screenTimeNative as NonNullable<typeof screenTimeNative>).supportsFocusShield;
   native.getAuthorizationStatus.mockResolvedValue('denied');
   native.requestAuthorization.mockResolvedValue(false);
   native.getMeasurementSelectionCounts.mockResolvedValue(selection(2));
   native.getAllowedSelectionCounts.mockResolvedValue(selection(1));
   native.getFocusAllowSafariWeb.mockResolvedValue(false);
+  native.canDrawOverlays.mockResolvedValue(false);
+  native.getAllowedPackages.mockResolvedValue([]);
   jest.spyOn(Linking, 'openSettings').mockResolvedValue();
   jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() });
 });
@@ -72,6 +77,33 @@ function environment(detail = '', route = 'permission') {
     notify: jest.fn(),
   };
 }
+
+test('차단 미지원 Android는 측정 설정만 표시하고 차단 권한을 조회하지 않는다', async () => {
+  Platform.OS = 'android';
+  native.supportsFocusShield = false;
+  native.getAuthorizationStatus.mockResolvedValue('approved');
+  const e = environment('settings');
+  const view = await render(<CurrentScreens e={e} />);
+  await view.findByText('2개 선택됨');
+  expect(view.getByRole('switch', { name: '스크린타임 연결' })).toBeTruthy();
+  for (const label of ['집중 중 허용', '허용 앱', '다른 앱 위에 표시', '집중 상태 알림']) {
+    expect(view.queryByText(label)).toBeNull();
+  }
+  expect(native.canDrawOverlays).not.toHaveBeenCalled();
+  expect(native.getAllowedPackages).not.toHaveBeenCalled();
+  expect(native.getAllowedSelectionCounts).not.toHaveBeenCalled();
+  expect(native.getFocusAllowSafariWeb).not.toHaveBeenCalled();
+  await fireEvent.press(view.getByText('측정 앱'));
+  expect(e.go).toHaveBeenCalledWith('screenTimeApps', 'settings');
+});
+
+test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 요구하지 않는다', async () => {
+  Platform.OS = 'android';
+  native.supportsFocusShield = false;
+  const view = await render(<CurrentScreens e={environment()} />);
+  await view.findByText('선택한 앱의 사용 시간만 기록해요.');
+  expect(view.queryByText(/집중 중 앱 차단/)).toBeNull();
+});
 
 test('거절 화면에서 재요청해 승인되면 측정 앱 선택으로 이동한다', async () => {
   const e = environment('measured-apps');
