@@ -1,7 +1,7 @@
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
-import { syncFocusShield } from '@/services/focusShield';
+import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
@@ -1973,8 +1973,8 @@ function Gromo() {
           ? syncAndroidFocus(session, stateRef.current.color, true)
           : syncFocusShield(session, stateRef.current.color, true)
       )
-        .then((applied) => {
-          if (!applied && session?.status === 'active')
+        .then(async (applied) => {
+          if (!applied && session?.status === 'active' && (await shouldReportShieldFailure()))
             notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
         })
         .catch(() => notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.'));

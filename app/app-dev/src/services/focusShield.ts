@@ -45,3 +45,7 @@ export function syncFocusShield(
   queue = result.catch(() => undefined);
   return result;
 }
+
+/** 차단을 못 걸었을 때 알릴지. 스크린타임 권한을 허용하지 않아 건너뛴 것은 실패가 아니다(GROMO-2515). */
+export const shouldReportShieldFailure = async () =>
+  (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved';
