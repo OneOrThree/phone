@@ -102,7 +102,7 @@ test('Android MainActivity가 legacy gromo scheme 링크를 수신한다', () =>
 });
 
 test('iOS 네이티브 타깃이 legacy gromo scheme 링크를 수신한다', () => {
-  const plist = readFileSync(path.join(__dirname, '../../ios/GROMO/Info.plist'), 'utf8');
+  const plist = readFileSync(path.join(__dirname, '../../ios/Cattus/Info.plist'), 'utf8');
   const urlTypes = /<key>CFBundleURLTypes<\/key>\s*<array>([\s\S]*?)\n\t<\/array>/.exec(plist)?.[1];
   assert.ok(urlTypes);
   assert.match(urlTypes, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>gromo<\/string>/);

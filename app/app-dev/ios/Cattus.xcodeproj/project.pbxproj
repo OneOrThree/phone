@@ -22,7 +22,7 @@
 		422D61DB31180A4450760E30 /* ScreenTimeReportViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */; };
 		46A505F2CDC4497FE47E9B84 /* cat-cream-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 4D9454689F5CB01569B5FDAC /* cat-cream-focus.png */; };
 		4A6D5678F116265BD0BA5958 /* TotalActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E5E91034EC812D5CEB472E /* TotalActivityReport.swift */; };
-		4CE008E421D1DB7491061D15 /* libPods-GROMO.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1CE6CDC64ED3C9B47124F0B /* libPods-GROMO.a */; };
+		4CE008E421D1DB7491061D15 /* libPods-Cattus.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1CE6CDC64ED3C9B47124F0B /* libPods-Cattus.a */; };
 		4E75A7010F4CF32FE42CC580 /* ScreenTimeReportUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */; };
 		53CC3CA8CAC4E8261B93BC26 /* screentimereport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACDB593FFAD602A622C4BBD /* screentimereport.swift */; };
 		6D8E2D0A61D96B01EF2B74E3 /* TotalActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3A51EEBDA3C876B0863837 /* TotalActivityView.swift */; };
@@ -34,7 +34,7 @@
 		A19830000000000000000004 /* DeviceActivityMonitorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000004 /* DeviceActivityMonitorExtension.swift */; };
 		A19830000000000000000005 /* ShieldConfigurationExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000008 /* ShieldConfigurationExtension.swift */; };
 		A19830000000000000000006 /* ShieldActionExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1983100000000000000000C /* ShieldActionExtension.swift */; };
-		A19830000000000000000007 /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A19831000000000000000007 /* GromoScreenTimeMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A19830000000000000000007 /* CattusScreenTimeMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A19831000000000000000007 /* CattusScreenTimeMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A19830000000000000000008 /* ShieldConfiguration.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1983100000000000000000B /* ShieldConfiguration.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A19830000000000000000009 /* ShieldAction.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1983100000000000000000F /* ShieldAction.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A1CDA6989DF2E4DC3F4EA665 /* HomeUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B317EBDCA02146843DFCAD52 /* HomeUsageView.swift */; };
@@ -50,6 +50,8 @@
 		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		CA7724580000000000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = CA7724580000000000000002 /* InfoPlist.strings */; };
+		CA7724580000000000000011 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = CA7724580000000000000012 /* InfoPlist.strings */; };
 		D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB802E10F6288401A5062C2 /* CompactActivityView.swift */; };
 		D773B2A78A2F134A7DB00548 /* ScreenTimeReportViewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */; };
 		DCFFF543C6596D90A7ABFC1C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 924CDFF4DCFC00733E587F72 /* Foundation.framework */; };
@@ -63,7 +65,7 @@
 			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A19834000000000000000001;
-			remoteInfo = GromoScreenTimeMonitor;
+			remoteInfo = CattusScreenTimeMonitor;
 		};
 		A19837000000000000000002 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -113,7 +115,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				A19830000000000000000007 /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */,
+				A19830000000000000000007 /* CattusScreenTimeMonitor.appex in Embed Foundation Extensions */,
 				A19830000000000000000008 /* ShieldConfiguration.appex in Embed Foundation Extensions */,
 				A19830000000000000000009 /* ShieldAction.appex in Embed Foundation Extensions */,
 				B18650000000000000000008 /* FocusWidget.appex in Embed Foundation Extensions */,
@@ -124,33 +126,33 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		13B07F961A680F5B00A75B9A /* GROMO.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GROMO.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = GROMO/Images.xcassets; sourceTree = "<group>"; };
-		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = GROMO/Info.plist; sourceTree = "<group>"; };
+		13B07F961A680F5B00A75B9A /* Cattus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cattus.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Cattus/Images.xcassets; sourceTree = "<group>"; };
+		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Cattus/Info.plist; sourceTree = "<group>"; };
 		1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = file; name = "gowun-dodum.ttf"; path = "../src/assets/fonts/gowun-dodum.ttf"; sourceTree = "<group>"; };
 		286FF41589D833FDC4D83EA9 /* cat-white-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-white-focus.png"; sourceTree = SOURCE_ROOT; };
 		2C878C66C0F4A8645EE71923 /* RemainingActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemainingActivityView.swift; sourceTree = "<group>"; };
 		37E5E91034EC812D5CEB472E /* TotalActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TotalActivityReport.swift; sourceTree = "<group>"; };
 		3F3A51EEBDA3C876B0863837 /* TotalActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TotalActivityView.swift; sourceTree = "<group>"; };
 		4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReportPalette.swift; sourceTree = "<group>"; };
-		4D1C0E843797C471FA8A450D /* Pods-GROMO.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GROMO.release.xcconfig"; path = "Target Support Files/Pods-GROMO/Pods-GROMO.release.xcconfig"; sourceTree = "<group>"; };
+		4D1C0E843797C471FA8A450D /* Pods-Cattus.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Cattus.release.xcconfig"; path = "Target Support Files/Pods-Cattus/Pods-Cattus.release.xcconfig"; sourceTree = "<group>"; };
 		4D9454689F5CB01569B5FDAC /* cat-cream-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-cream-focus.png"; sourceTree = SOURCE_ROOT; };
-		4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportViewManager.swift; path = GROMO/ScreenTimeReportViewManager.swift; sourceTree = "<group>"; };
-		551B579AEEDD5AFBB82D0B25 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-GROMO/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportUIView.swift; path = GROMO/ScreenTimeReportUIView.swift; sourceTree = "<group>"; };
+		4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportViewManager.swift; path = Cattus/ScreenTimeReportViewManager.swift; sourceTree = "<group>"; };
+		551B579AEEDD5AFBB82D0B25 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Cattus/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportUIView.swift; path = Cattus/ScreenTimeReportUIView.swift; sourceTree = "<group>"; };
 		79DBC525CEE1901161C9D4D4 /* screentimereport.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = screentimereport.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CBE04A35134BD8A020CACF0 /* cat-ginger-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-ginger-focus.png"; sourceTree = SOURCE_ROOT; };
 		8A8307588BD6BA28216B5958 /* HomeUsageReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeUsageReport.swift; sourceTree = "<group>"; };
 		8AA60D5986A7C9B4506CEA9C /* cat-gray-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-gray-focus.png"; sourceTree = SOURCE_ROOT; };
 		924CDFF4DCFC00733E587F72 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
-		9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeReportViewManager.m; path = GROMO/ScreenTimeReportViewManager.m; sourceTree = "<group>"; };
-		A19831000000000000000001 /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = GROMO/ScreenTimeModule.swift; sourceTree = "<group>"; };
-		A19831000000000000000002 /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = GROMO/ScreenTimeModule.m; sourceTree = "<group>"; };
+		9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeReportViewManager.m; path = Cattus/ScreenTimeReportViewManager.m; sourceTree = "<group>"; };
+		A19831000000000000000001 /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = Cattus/ScreenTimeModule.swift; sourceTree = "<group>"; };
+		A19831000000000000000002 /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = Cattus/ScreenTimeModule.m; sourceTree = "<group>"; };
 		A19831000000000000000003 /* FocusActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusActivityAttributes.swift; sourceTree = "<group>"; };
 		A19831000000000000000004 /* DeviceActivityMonitorExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceActivityMonitorExtension.swift; sourceTree = "<group>"; };
 		A19831000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A19831000000000000000006 /* GromoScreenTimeMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GromoScreenTimeMonitor.entitlements; sourceTree = "<group>"; };
-		A19831000000000000000007 /* GromoScreenTimeMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GromoScreenTimeMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A19831000000000000000006 /* CattusScreenTimeMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CattusScreenTimeMonitor.entitlements; sourceTree = "<group>"; };
+		A19831000000000000000007 /* CattusScreenTimeMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CattusScreenTimeMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A19831000000000000000008 /* ShieldConfigurationExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldConfigurationExtension.swift; sourceTree = "<group>"; };
 		A19831000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1983100000000000000000A /* ShieldConfiguration.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShieldConfiguration.entitlements; sourceTree = "<group>"; };
@@ -159,10 +161,10 @@
 		A1983100000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1983100000000000000000E /* ShieldAction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShieldAction.entitlements; sourceTree = "<group>"; };
 		A1983100000000000000000F /* ShieldAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = GROMO/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Cattus/SplashScreen.storyboard; sourceTree = "<group>"; };
 		AACDB593FFAD602A622C4BBD /* screentimereport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = screentimereport.swift; sourceTree = "<group>"; };
-		B18650000000000000000011 /* LiveActivityModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveActivityModule.swift; path = GROMO/LiveActivityModule.swift; sourceTree = "<group>"; };
-		B18650000000000000000012 /* LiveActivityModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = LiveActivityModule.m; path = GROMO/LiveActivityModule.m; sourceTree = "<group>"; };
+		B18650000000000000000011 /* LiveActivityModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveActivityModule.swift; path = Cattus/LiveActivityModule.swift; sourceTree = "<group>"; };
+		B18650000000000000000012 /* LiveActivityModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = LiveActivityModule.m; path = Cattus/LiveActivityModule.m; sourceTree = "<group>"; };
 		B18650000000000000000013 /* FocusWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusWidget.swift; sourceTree = "<group>"; };
 		B18650000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B18650000000000000000015 /* CatArt */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CatArt; sourceTree = "<group>"; };
@@ -172,17 +174,21 @@
 		B317EBDCA02146843DFCAD52 /* HomeUsageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeUsageView.swift; sourceTree = "<group>"; };
 		B6506CBA4CF0F42171FF60F9 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = GROMO/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Cattus/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		CA7724580000000000000003 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = Cattus/Supporting/ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		CA7724580000000000000004 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Cattus/Supporting/en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		CA7724580000000000000013 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		CA7724580000000000000014 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		D0D54597FD0D0441D4DAD113 /* cat-black-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-black-focus.png"; sourceTree = SOURCE_ROOT; };
 		D1FF28FB82587B907B9C0E57 /* screentimereport.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = screentimereport.entitlements; sourceTree = "<group>"; };
 		D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldPalette.swift; sourceTree = "<group>"; };
 		D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-calico-focus.png"; sourceTree = SOURCE_ROOT; };
 		DFB802E10F6288401A5062C2 /* CompactActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompactActivityView.swift; sourceTree = "<group>"; };
-		E1CE6CDC64ED3C9B47124F0B /* libPods-GROMO.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GROMO.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		EBB09C6D644025DE951FA644 /* Pods-GROMO.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GROMO.debug.xcconfig"; path = "Target Support Files/Pods-GROMO/Pods-GROMO.debug.xcconfig"; sourceTree = "<group>"; };
+		E1CE6CDC64ED3C9B47124F0B /* libPods-Cattus.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Cattus.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		EBB09C6D644025DE951FA644 /* Pods-Cattus.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Cattus.debug.xcconfig"; path = "Target Support Files/Pods-Cattus/Pods-Cattus.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = GROMO/AppDelegate.swift; sourceTree = "<group>"; };
-		F11748442D0722820044C1D9 /* GROMO-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "GROMO-Bridging-Header.h"; path = "GROMO/GROMO-Bridging-Header.h"; sourceTree = "<group>"; };
+		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Cattus/AppDelegate.swift; sourceTree = "<group>"; };
+		F11748442D0722820044C1D9 /* Cattus-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Cattus-Bridging-Header.h"; path = "Cattus/Cattus-Bridging-Header.h"; sourceTree = "<group>"; };
 		FF1437B48DBA89E0A7BF2D35 /* CompactActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompactActivityReport.swift; sourceTree = "<group>"; };
 		FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemainingActivityReport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -192,7 +198,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4CE008E421D1DB7491061D15 /* libPods-GROMO.a in Frameworks */,
+				4CE008E421D1DB7491061D15 /* libPods-Cattus.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -238,12 +244,12 @@
 		074669341FFEBF850D25630F /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				62ABBDC4792E7D2D4B4532D2 /* GROMO */,
+				62ABBDC4792E7D2D4B4532D2 /* Cattus */,
 			);
 			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
-		13B07FAE1A68108700A75B9A /* GROMO */ = {
+		13B07FAE1A68108700A75B9A /* Cattus */ = {
 			isa = PBXGroup;
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
@@ -251,17 +257,18 @@
 				A19831000000000000000002 /* ScreenTimeModule.m */,
 				B18650000000000000000011 /* LiveActivityModule.swift */,
 				B18650000000000000000012 /* LiveActivityModule.m */,
-				F11748442D0722820044C1D9 /* GROMO-Bridging-Header.h */,
+				F11748442D0722820044C1D9 /* Cattus-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
+				CA7724580000000000000002 /* InfoPlist.strings */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */,
 				63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */,
 				4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */,
 				9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */,
 			);
-			name = GROMO;
+			name = Cattus;
 			sourceTree = "<group>";
 		};
 		15CF9E5DA6AC41789D40D714 /* Resources */ = {
@@ -276,7 +283,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				E1CE6CDC64ED3C9B47124F0B /* libPods-GROMO.a */,
+				E1CE6CDC64ED3C9B47124F0B /* libPods-Cattus.a */,
 				5A8FC8FC33F3B41E29BD4B2A /* iOS */,
 			);
 			name = Frameworks;
@@ -309,12 +316,12 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
-		62ABBDC4792E7D2D4B4532D2 /* GROMO */ = {
+		62ABBDC4792E7D2D4B4532D2 /* Cattus */ = {
 			isa = PBXGroup;
 			children = (
 				551B579AEEDD5AFBB82D0B25 /* ExpoModulesProvider.swift */,
 			);
-			name = GROMO;
+			name = Cattus;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -327,9 +334,9 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
-				13B07FAE1A68108700A75B9A /* GROMO */,
+				13B07FAE1A68108700A75B9A /* Cattus */,
 				A19832000000000000000001 /* Shared */,
-				A19832000000000000000002 /* GromoScreenTimeMonitor */,
+				A19832000000000000000002 /* CattusScreenTimeMonitor */,
 				A19832000000000000000003 /* ShieldConfiguration */,
 				A19832000000000000000004 /* ShieldAction */,
 				B18650000000000000000021 /* FocusWidget */,
@@ -349,8 +356,8 @@
 		83CBBA001A601CBA00E9B192 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				13B07F961A680F5B00A75B9A /* GROMO.app */,
-				A19831000000000000000007 /* GromoScreenTimeMonitor.appex */,
+				13B07F961A680F5B00A75B9A /* Cattus.app */,
+				A19831000000000000000007 /* CattusScreenTimeMonitor.appex */,
 				A1983100000000000000000B /* ShieldConfiguration.appex */,
 				A1983100000000000000000F /* ShieldAction.appex */,
 				B18650000000000000000018 /* FocusWidget.appex */,
@@ -362,8 +369,8 @@
 		8FC73E13F7E9D0F235BEBFF6 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				EBB09C6D644025DE951FA644 /* Pods-GROMO.debug.xcconfig */,
-				4D1C0E843797C471FA8A450D /* Pods-GROMO.release.xcconfig */,
+				EBB09C6D644025DE951FA644 /* Pods-Cattus.debug.xcconfig */,
+				4D1C0E843797C471FA8A450D /* Pods-Cattus.release.xcconfig */,
 			);
 			name = Pods;
 			path = Pods;
@@ -379,14 +386,14 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
-		A19832000000000000000002 /* GromoScreenTimeMonitor */ = {
+		A19832000000000000000002 /* CattusScreenTimeMonitor */ = {
 			isa = PBXGroup;
 			children = (
 				A19831000000000000000004 /* DeviceActivityMonitorExtension.swift */,
 				A19831000000000000000005 /* Info.plist */,
-				A19831000000000000000006 /* GromoScreenTimeMonitor.entitlements */,
+				A19831000000000000000006 /* CattusScreenTimeMonitor.entitlements */,
 			);
-			path = GromoScreenTimeMonitor;
+			path = CattusScreenTimeMonitor;
 			sourceTree = "<group>";
 		};
 		A19832000000000000000003 /* ShieldConfiguration */ = {
@@ -422,6 +429,7 @@
 				B18650000000000000000014 /* Info.plist */,
 				B18650000000000000000015 /* CatArt */,
 				B18650000000000000000019 /* Localizable.strings */,
+				CA7724580000000000000012 /* InfoPlist.strings */,
 			);
 			path = FocusWidget;
 			sourceTree = "<group>";
@@ -432,15 +440,15 @@
 				BB2F792C24A3F905000567C9 /* Expo.plist */,
 			);
 			name = Supporting;
-			path = GROMO/Supporting;
+			path = Cattus/Supporting;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		13B07F861A680F5B00A75B9A /* GROMO */ = {
+		13B07F861A680F5B00A75B9A /* Cattus */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "GROMO" */;
+			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Cattus" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
 				F00000000000000000000001 /* Check iOS release Apple audience readiness */,
@@ -466,9 +474,9 @@
 				44744793CC9DD9496E401D8D /* PBXTargetDependency */,
 				B18650000000000000000030 /* PBXTargetDependency */,
 			);
-			name = GROMO;
-			productName = GROMO;
-			productReference = 13B07F961A680F5B00A75B9A /* GROMO.app */;
+			name = Cattus;
+			productName = Cattus;
+			productReference = 13B07F961A680F5B00A75B9A /* Cattus.app */;
 			productType = "com.apple.product-type.application";
 		};
 		3496B5BBFD9FA9159612DB65 /* screentimereport */ = {
@@ -488,9 +496,9 @@
 			productReference = 79DBC525CEE1901161C9D4D4 /* screentimereport.appex */;
 			productType = "com.apple.product-type.extensionkit-extension";
 		};
-		A19834000000000000000001 /* GromoScreenTimeMonitor */ = {
+		A19834000000000000000001 /* CattusScreenTimeMonitor */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A19836000000000000000001 /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */;
+			buildConfigurationList = A19836000000000000000001 /* Build configuration list for PBXNativeTarget "CattusScreenTimeMonitor" */;
 			buildPhases = (
 				A19833000000000000000002 /* Sources */,
 				A19833000000000000000003 /* Frameworks */,
@@ -500,9 +508,9 @@
 			);
 			dependencies = (
 			);
-			name = GromoScreenTimeMonitor;
-			productName = GromoScreenTimeMonitor;
-			productReference = A19831000000000000000007 /* GromoScreenTimeMonitor.appex */;
+			name = CattusScreenTimeMonitor;
+			productName = CattusScreenTimeMonitor;
+			productReference = A19831000000000000000007 /* CattusScreenTimeMonitor.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		A19834000000000000000002 /* ShieldConfiguration */ = {
@@ -586,7 +594,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "GROMO" */;
+			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "Cattus" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -600,8 +608,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				13B07F861A680F5B00A75B9A /* GROMO */,
-				A19834000000000000000001 /* GromoScreenTimeMonitor */,
+				13B07F861A680F5B00A75B9A /* Cattus */,
+				A19834000000000000000001 /* CattusScreenTimeMonitor */,
 				A19834000000000000000002 /* ShieldConfiguration */,
 				A19834000000000000000003 /* ShieldAction */,
 				3496B5BBFD9FA9159612DB65 /* screentimereport */,
@@ -619,6 +627,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */,
+				CA7724580000000000000001 /* InfoPlist.strings in Resources */,
 				8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -663,6 +672,7 @@
 			files = (
 				B18650000000000000000005 /* CatArt in Resources */,
 				B18650000000000000000006 /* Localizable.strings in Resources */,
+				CA7724580000000000000011 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -701,7 +711,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-GROMO-checkManifestLockResult.txt",
+				"$(DERIVED_FILE_DIR)/Pods-Cattus-checkManifestLockResult.txt",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -719,18 +729,18 @@
 			inputPaths = (
 				"$(SRCROOT)/.xcode.env",
 				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/GROMO/GROMO.entitlements",
-				"$(SRCROOT)/Pods/Target Support Files/Pods-GROMO/expo-configure-project.sh",
+				"$(SRCROOT)/Cattus/Cattus.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Cattus/expo-configure-project.sh",
 			);
 			name = "[Expo] Configure project";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(SRCROOT)/Pods/Target Support Files/Pods-GROMO/ExpoModulesProvider.swift",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Cattus/ExpoModulesProvider.swift",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-GROMO/expo-configure-project.sh\"\n";
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Cattus/expo-configure-project.sh\"\n";
 		};
 		7382D70F4C2E00CA0B974178 /* [Airbridge] Copy airbridge.json */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -756,7 +766,7 @@
 			files = (
 			);
 			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-resources.sh",
+				"${PODS_ROOT}/Target Support Files/Pods-Cattus/Pods-Cattus-resources.sh",
 				"${PODS_CONFIGURATION_BUILD_DIR}/Alamofire/Alamofire.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/AppAuth/AppAuthCore_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogCore/DatadogCore.bundle",
@@ -829,7 +839,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-resources.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Cattus/Pods-Cattus-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		A5143E9E19BB29C02AD6BA30 /* [CP] Embed Pods Frameworks */ = {
@@ -838,7 +848,7 @@
 			files = (
 			);
 			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-frameworks.sh",
+				"${PODS_ROOT}/Target Support Files/Pods-Cattus/Pods-Cattus-frameworks.sh",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem.framework/ExpoFileSystem",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoFont/ExpoFont.framework/ExpoFont",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesCore/ExpoModulesCore.framework/ExpoModulesCore",
@@ -865,7 +875,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-frameworks.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Cattus/Pods-Cattus-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */ = {
@@ -998,7 +1008,7 @@
 		};
 		A19837100000000000000001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A19834000000000000000001 /* GromoScreenTimeMonitor */;
+			target = A19834000000000000000001 /* CattusScreenTimeMonitor */;
 			targetProxy = A19837000000000000000001 /* PBXContainerItemProxy */;
 		};
 		A19837100000000000000002 /* PBXTargetDependency */ = {
@@ -1028,17 +1038,35 @@
 			name = Localizable.strings;
 			sourceTree = "<group>";
 		};
+		CA7724580000000000000002 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				CA7724580000000000000003 /* ko */,
+				CA7724580000000000000004 /* en */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+		CA7724580000000000000012 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				CA7724580000000000000013 /* ko */,
+				CA7724580000000000000014 /* en */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = EBB09C6D644025DE951FA644 /* Pods-GROMO.debug.xcconfig */;
+			baseConfigurationReference = EBB09C6D644025DE951FA644 /* Pods-Cattus.debug.xcconfig */;
 			buildSettings = {
 				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Cattus/Cattus.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
@@ -1049,7 +1077,7 @@
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
 				);
-				INFOPLIST_FILE = GROMO/Info.plist;
+				INFOPLIST_FILE = Cattus/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1064,9 +1092,9 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat;
-				PRODUCT_NAME = GROMO;
+				PRODUCT_NAME = Cattus;
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				SWIFT_OBJC_BRIDGING_HEADER = "GROMO/GROMO-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Cattus/Cattus-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1076,19 +1104,19 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 4D1C0E843797C471FA8A450D /* Pods-GROMO.release.xcconfig */;
+			baseConfigurationReference = 4D1C0E843797C471FA8A450D /* Pods-Cattus.release.xcconfig */;
 			buildSettings = {
 				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Cattus/Cattus.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				INFOPLIST_FILE = GROMO/Info.plist;
+				INFOPLIST_FILE = Cattus/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1103,9 +1131,9 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat;
-				PRODUCT_NAME = GROMO;
+				PRODUCT_NAME = Cattus;
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				SWIFT_OBJC_BRIDGING_HEADER = "GROMO/GROMO-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Cattus/Cattus-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -1281,13 +1309,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
+				CODE_SIGN_ENTITLEMENTS = CattusScreenTimeMonitor/CattusScreenTimeMonitor.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GromoScreenTimeMonitor/Info.plist;
+				INFOPLIST_FILE = CattusScreenTimeMonitor/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1310,13 +1338,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
+				CODE_SIGN_ENTITLEMENTS = CattusScreenTimeMonitor/CattusScreenTimeMonitor.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GromoScreenTimeMonitor/Info.plist;
+				INFOPLIST_FILE = CattusScreenTimeMonitor/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1536,7 +1564,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "GROMO" */ = {
+		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Cattus" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				13B07F941A680F5B00A75B9A /* Debug */,
@@ -1554,7 +1582,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "GROMO" */ = {
+		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "Cattus" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
@@ -1563,7 +1591,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A19836000000000000000001 /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */ = {
+		A19836000000000000000001 /* Build configuration list for PBXNativeTarget "CattusScreenTimeMonitor" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A19835000000000000000001 /* Debug */,

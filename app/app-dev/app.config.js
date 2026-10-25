@@ -15,7 +15,9 @@ const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.repla
 
 module.exports = {
   expo: {
-    name: 'catus',
+    name: 'cattus',
+    // 홈 화면·권한 창 이름 — 한국어 기기 집중할고양, 그 외 cattus(GROMO-2458). ios/Cattus/Supporting/*.lproj/InfoPlist.strings 와 같은 값
+    locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
     version: '2.0.0',
@@ -97,7 +99,7 @@ module.exports = {
       ],
       withLegacyAndroidKakao,
       withIosStoreVersion,
-      // prebuild 전용 입력 — 체크인된 ios/GROMO/Info.plist 가 실제 스킴 정본이다(위 주석)
+      // prebuild 전용 입력 — 체크인된 ios/Cattus/Info.plist 가 실제 스킴 정본이다(위 주석)
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
       // GROMO-2380 고운돋움을 앱에 넣어 첫 화면부터 글꼴을 기다리지 않는다(웹만 useFonts 로 불러온다).

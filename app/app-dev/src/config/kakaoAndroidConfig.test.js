@@ -51,7 +51,7 @@ test('Android uses the 2.0 Kakao app identity and OAuth callback scheme', () => 
 test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', () => {
   const iosKey = '1280641e9b639a279b7406f24b059703';
   const kakaoPlugin = appConfig.plugins.find(([name]) => name === '@react-native-kakao/core');
-  const plist = fs.readFileSync(path.join(appDevRoot, 'ios/GROMO/Info.plist'), 'utf8');
+  const plist = fs.readFileSync(path.join(appDevRoot, 'ios/Cattus/Info.plist'), 'utf8');
 
   expect(appConfig.ios.bundleIdentifier).toBe('com.oneorthree.focuscat');
   expect(kakaoPlugin[1].nativeAppKey).toBe(iosKey);
@@ -64,7 +64,7 @@ test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', (
 test('Android/iOS release require real terms and the production API URL', () => {
   const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
   const xcode = fs.readFileSync(
-    path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'),
+    path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'),
     'utf8',
   );
   const fastfile = fs.readFileSync(path.join(appDevRoot, 'ios/fastlane/Fastfile'), 'utf8');
@@ -86,7 +86,7 @@ test('Android/iOS release require real terms and the production API URL', () => 
 
 test('iOS dev TestFlight lane pins the team dev server and keeps the production gate', () => {
   const xcode = fs.readFileSync(
-    path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'),
+    path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'),
     'utf8',
   );
   const fastfile = fs.readFileSync(path.join(appDevRoot, 'ios/fastlane/Fastfile'), 'utf8');
@@ -221,7 +221,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
   const { spawnSync } = require('node:child_process');
   const os = require('node:os');
   const script = xcodeShellScript(
-    fs.readFileSync(path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'), 'utf8'),
+    fs.readFileSync(path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'), 'utf8'),
     'Check iOS release Apple audience readiness',
   );
   const prodUrl = 'https://catus-api.oneorthree.world';
