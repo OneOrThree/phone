@@ -17,15 +17,15 @@ export const formatNumber = (n: number) => n.toLocaleString(localeTag());
 export const formatDate = (d: Date, opts?: Intl.DateTimeFormatOptions) =>
   d.toLocaleDateString(localeTag(), opts);
 
+/** 내 고양이 이름표 — 닉네임이 비면 「나」/「Me」 (GROMO-2475) */
+export const ownCatName = (name: string) => name.trim() || t('focusFlow.common.me');
+
 /**
  * 섬 이름 표기 — ko 「바다」 → 「바다섬」, en 「Sea」 → 「Sea Island」. 이미 「섬」·「Island」로 끝나면 그대로 둔다
  * (「바다섬섬」·「Sea Island Island」 방지, 구현계획 M6). 섬 이름을 문장에 넣는 문구는 전부 이 함수를 거치고,
  * 번역 키의 {{name}} 뒤에 섬/Island 를 직접 붙이지 않는다 — 접미를 붙이는 키는 이 함수가 쓰는
  * `magazine.islandTitle` 하나뿐이다(DESIGN.md §8.18).
  */
-/** 내 고양이 이름표 — 닉네임이 비면 「나」/「Me」 (GROMO-2475) */
-export const ownCatName = (name: string) => name.trim() || t('focusFlow.common.me');
-
 export function islandTitle(name: string): string {
   const n = name.trim();
   return /(섬|island)$/i.test(n) ? n : t('magazine.islandTitle', { name: n });
