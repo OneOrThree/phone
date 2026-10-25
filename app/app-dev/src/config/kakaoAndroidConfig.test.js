@@ -235,7 +235,9 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
       path.join(root, 'src/config/googleClientIds.json'),
       JSON.stringify({ dev: { ios: 'd-ios', web: 'd-web' }, prod: prodIds }),
     );
-    const env = publicEnv ?? (audience === 'dev' ? 'dev' : undefined);
+    // publicEnv: null = 셸에 없음, '' = 빈 값, 생략 = 청중에 맞는 값(dev → dev, 그 외 → prod)
+    const env =
+      publicEnv === null ? undefined : (publicEnv ?? (audience === 'dev' ? 'dev' : 'prod'));
     return spawnSync('/bin/sh', ['-c', script], {
       env: {
         PATH: process.env.PATH,
@@ -268,4 +270,8 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
   expect(run('dev', devUrl, { publicEnv: 'prod' })).toBe(1);
   expect(run('prod', prodUrl, { publicEnv: 'dev' })).toBe(1);
   expect(run('prod', prodUrl, { publicEnv: 'prod' })).toBe(0);
+  // Release 는 EXPO_PUBLIC_ENV 를 명시해야 한다 — 없거나 빈 값이면 청중과 무관하게 막는다(.env* 파일에 기대지 않음)
+  expect(run('prod', prodUrl, { publicEnv: null })).toBe(1);
+  expect(run(undefined, prodUrl, { publicEnv: '' })).toBe(1);
+  expect(run('dev', devUrl, { publicEnv: null })).toBe(1);
 });

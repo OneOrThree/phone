@@ -25,8 +25,10 @@ Xcode 「Check iOS release Apple audience readiness」 빌드 단계(Release 구
 `android/app/build.gradle` 의 release 가드(`assemble/bundle/packageRelease`·운영 청중, `prod.web`)에도 있다.
 두 네이티브 가드는 청중(`GROMO_IOS_AUDIENCE`/`GROMO_ANDROID_AUDIENCE`)과 `EXPO_PUBLIC_ENV` 가 어긋나는 빌드도 막는다 — JS 는
 `EXPO_PUBLIC_ENV` 로 행을 고르므로 dev 청중은 `EXPO_PUBLIC_ENV=dev` 여야 하고, 운영 청중은 `dev` 가 아니어야 한다.
-셸에 값이 없을 때 Expo 는 `.env` 를 인라인하므로, iOS 운영 레인(`fastlane beta`)은 `EXPO_PUBLIC_ENV=prod` 를 고정하고
-Android gradle 가드는 셸 값이 없으면 `app-dev/.env` 의 `EXPO_PUBLIC_ENV=` 줄을 읽어 같은 값을 본다.
+Release 빌드(Xcode Release 단계·gradle release 작업)는 `EXPO_PUBLIC_ENV` 를 **셸(또는 `.xcode.env`)에 명시**해야 한다 —
+`.env*` 파일에 기대지 않는다. Expo 는 `.env.local`·`.env.production` 을 `.env` 보다 우선하므로 가드가 파일을 읽어도 번들과
+같은 값을 보장할 수 없다. 레인은 전부 명시한다: `testflight.sh`(`EXPO_PUBLIC_ENV=$AUDIENCE`), Fastfile `beta`(prod)·`beta_dev`(dev),
+`app-android-ci.yml`(dev). 수동 Android 운영 빌드는 `EXPO_PUBLIC_ENV=prod ./gradlew bundleRelease` 처럼 준다.
 
 ## prod 발급 뒤 할 일
 
