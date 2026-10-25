@@ -14,7 +14,7 @@ JSON 은 주석을 못 쓰므로 `googleClientIds.json` 의 규칙을 여기에 
 - JS(`src/services/socialLogin.ts`): `__DEV__` 이거나 `EXPO_PUBLIC_ENV` 가 정확히 `dev` 면 `dev` 행, 그 밖(운영 TestFlight·OTA·스토어 번들)은 `prod` 행.
   `EXPO_PUBLIC_ENV=`(빈 문자열)은 `dev` 가 아니다.
 - 고른 행의 `ios`·`web` 이 비어 있으면 로그인 시도를 거절한다(`CLIENT_PROVIDER_UNAVAILABLE`). dev id 로 몰래 돌아가지 않는다.
-- 네이티브 URL 스킴: `app.config.js`(prebuild 전용 플러그인 입력)는 `dev.ios` 를 뒤집어 만들고, 체크인된 `ios/GROMO/Info.plist` 의
+- 네이티브 URL 스킴: `app.config.js`(prebuild 전용 플러그인 입력)는 `dev.ios` 를 뒤집어 만들고, 체크인된 `ios/Cattus/Info.plist` 의
   `GoogleSignIn` 항목은 정적이다. Release 에서는 JS `iosClientId` 와 바이너리 스킴이 어긋나면 로그인 탭에서 크래시하므로
   (`RNGoogleSignin.mm` 의 `@try` 는 `#if DEBUG` 안에만 있다) Info.plist 에 dev·prod 스킴을 **둘 다** 등록한다. 그래야 OTA 로 JS 만 바뀌어도 안전하다.
 
@@ -33,5 +33,5 @@ Release 빌드(Xcode Release 단계·gradle release 작업)는 `EXPO_PUBLIC_ENV`
 ## prod 발급 뒤 할 일
 
 1. 이 JSON 의 `prod.ios`·`prod.web` 두 값을 채운다(둘 다 같은 Cloud 프로젝트 번호이고 `dev` 와 달라야 한다 — `googleClientIds.test.js` 가 확인한다).
-2. `ios/GROMO/Info.plist` 의 `GoogleSignIn` `CFBundleURLSchemes` 에 prod 스킴 한 줄을 더한다 — `com.googleusercontent.apps.<prod.ios 에서 .apps.googleusercontent.com 뺀 값>`. 기존 dev 스킴은 지우지 않는다.
+2. `ios/Cattus/Info.plist` 의 `GoogleSignIn` `CFBundleURLSchemes` 에 prod 스킴 한 줄을 더한다 — `com.googleusercontent.apps.<prod.ios 에서 .apps.googleusercontent.com 뺀 값>`. 기존 dev 스킴은 지우지 않는다.
 3. 서버 SM `GOOGLE_CLIENT_ID` 순서: prod Web id 를 덧붙임 → 운영 빌드 → 마지막에 `263851348176` 값 제거.

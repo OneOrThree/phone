@@ -290,7 +290,7 @@ flowchart TD
     end
 
     subgraph EXT["🧩 익스텐션 (별도 프로세스)"]
-        MON["GromoScreenTimeMonitor<br/>DeviceActivityMonitor<br/><b>측정값 기록</b>"]:::o
+        MON["CattusScreenTimeMonitor<br/>DeviceActivityMonitor<br/><b>측정값 기록</b>"]:::o
         REP["screentimereport<br/>DeviceActivityReport<br/><b>화면 표시 전용</b>"]:::o
         SH["ShieldConfiguration · ShieldAction<br/>집중 실드"]:::o
         WD["Widget · NotificationService"]:::o
@@ -716,7 +716,7 @@ flowchart TD
 
 1. Spotlight → **Console.app** 실행
 2. 좌측에서 연결된 iPhone 선택
-3. 검색창에 `screentimereport` 또는 `GromoScreenTimeMonitor`
+3. 검색창에 `screentimereport` 또는 `CattusScreenTimeMonitor`
 4. 기기에서 동작 재현 → `print()` 로그와 scene 생명주기 로그 확인
 
 ### 일반 체크리스트

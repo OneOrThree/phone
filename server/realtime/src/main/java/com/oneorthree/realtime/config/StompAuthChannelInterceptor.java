@@ -26,7 +26,6 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -465,6 +464,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             log.debug("구독 거절 — 같은 id 의 목적지 변경이거나 세션의 중복 구독이거나 누적 상한을 넘었다");
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
+        if (EndedSessionGuard.isEnded(accessor.getSessionAttributes())) {
+            // 가드 검사를 지난 뒤 소켓이 닫혔다 — 종료 정리가 이미 지나갔으면 방금 남긴 기록이 영영 남는다(EndedSessionGuard).
+            sessions.forgetSubscriptions(accessor.getSessionId());
+        }
         return principal;
     }
 
@@ -639,7 +642,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // 폐기된 sid(GROMO-2350) — 종료가 실패해 소켓이 남아 있어도 SEND·SUBSCRIBE 는 서비스에 닿지 않는다. 인메모리 조회라 프레임당
         // 왕복이 없다. 던지기만 하면 ERROR 프레임만 가고 소켓은 남을 수 있어(만료 AT 의 거절도 같다) 여기서 직접 한 번 더 닫는다.
         if (proof.isPresent() && chatUserFence.isRevoked(proof.get().sessionId())) {
-            sessions.close(accessor.getSessionId(), CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            sessions.close(accessor.getSessionId(), RealtimeSessionRegistry.SESSION_REVOKED);
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
         }
         return principal;

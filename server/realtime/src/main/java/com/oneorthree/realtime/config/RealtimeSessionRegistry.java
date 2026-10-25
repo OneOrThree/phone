@@ -53,6 +53,12 @@ public class RealtimeSessionRegistry implements MeterBinder {
      */
     static final int MAX_SUBSCRIPTIONS_PER_SESSION = 96;
 
+    /** 토큰 만료·불일치로 닫는다(1008) — 앱은 토큰을 갱신해 다시 붙는다. */
+    public static final CloseStatus UNAUTHORIZED = CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED");
+
+    /** 그 로그인 세션이 폐기돼 닫는다(1008, GROMO-2350). */
+    public static final CloseStatus SESSION_REVOKED = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+
     private final Map<String, ChatPrincipal> principals = new ConcurrentHashMap<>();
     private final Map<String, WebSocketSession> sockets = new ConcurrentHashMap<>();
 
@@ -121,6 +127,16 @@ public class RealtimeSessionRegistry implements MeterBinder {
             }
             held.put(subscriptionId, destination);
             return true;
+        }
+    }
+
+    /**
+     * 끝난 세션의 구독 기록을 통째로 지운다 — 종료 정리(disconnected·closed)보다 늦게 남은 기록용(EndedSessionGuard).
+     * <b>끝난 세션 전용</b>: 살아 있는 세션에 부르면 그 세션의 구독 기록이 사라진다.
+     */
+    public void forgetSubscriptions(String sessionId) {
+        if (sessionId != null) {
+            subscriptions.remove(sessionId);
         }
     }
 
@@ -218,7 +234,7 @@ public class RealtimeSessionRegistry implements MeterBinder {
 
     /** 수신만 하던 앱도 토큰 갱신·재연결을 시작할 수 있게 실제 연결을 끝낸다. */
     public void closeUnauthorized(String sessionId) {
-        close(sessionId, CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+        close(sessionId, UNAUTHORIZED);
     }
 
     /**

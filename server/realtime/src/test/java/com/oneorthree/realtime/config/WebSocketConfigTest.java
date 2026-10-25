@@ -2,16 +2,29 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.movement.stomp.MovementOutboundInterceptor;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.SubscribableChannel;
 import org.springframework.messaging.simp.config.ChannelRegistration;
+import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.messaging.simp.stomp.StompCommand;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,16 +51,28 @@ class WebSocketConfigTest {
     private final OutboundAuthzCache authzCache = mock(OutboundAuthzCache.class);
     private final WebSocketConfig config = new WebSocketConfig(mock(StompAuthChannelInterceptor.class),
             mock(ChatStompErrorHandler.class), chatOutbound, sessions, movementSubscriptions, movementOutbound, budget,
-            authzCache);
+            authzCache, new SimpleMeterRegistry());
 
     @Test
-    @DisplayName("인바운드는 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
+    @DisplayName("인바운드는 끝난 세션 가드 → 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
     void interceptorOrderIsTheContract() {
         Interceptors inbound = new Interceptors();
+        ReflectionTestUtils.setField(config, "inboundThreads", 4);
+        ReflectionTestUtils.setField(config, "inboundQueueCapacity", 256);
         config.configureClientInboundChannel(inbound);
-        assertThat(inbound.list()).hasSize(2);
-        assertThat(inbound.list().get(0).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
-        assertThat(inbound.list().get(1)).isSameAs(movementSubscriptions);
+        assertThat(inbound.list()).hasSize(3);
+        assertThat(inbound.list().get(0)).isInstanceOf(EndedSessionGuard.class);
+        assertThat(inbound.list().get(1).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
+        assertThat(inbound.list().get(2)).isSameAs(movementSubscriptions);
+
+        // 브로커 채널에도 같은 가드 — 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 이리로 다시 보낸다.
+        MessageBrokerRegistry brokers = new MessageBrokerRegistry(mock(SubscribableChannel.class),
+                mock(MessageChannel.class));
+        config.configureMessageBroker(brokers);
+        List<?> brokerInterceptors = ReflectionTestUtils.invokeMethod(brokers.configureBrokerChannel(),
+                "getInterceptors");
+        assertThat(brokerInterceptors).hasSize(1);
+        assertThat(brokerInterceptors.get(0)).isInstanceOf(EndedSessionGuard.class);
 
         Interceptors outbound = new Interceptors();
         config.configureClientOutboundChannel(outbound);
@@ -64,7 +89,7 @@ class WebSocketConfigTest {
         WebSocketSession socket = mock(WebSocketSession.class);
         when(socket.getId()).thenReturn("socket-1");
 
-        WebSocketHandler decorated = transport.list().get(0).decorate(failing);
+        WebSocketHandler decorated = transport.decorateAll(failing);
 
         assertThatThrownBy(() -> decorated.afterConnectionEstablished(socket))
                 .isInstanceOf(IllegalStateException.class);
@@ -72,6 +97,20 @@ class WebSocketConfigTest {
         order.verify(sessions).closed("socket-1");
         order.verify(authzCache).evictSession("socket-1");
         order.verify(movementSubscriptions).closed("socket-1");
+    }
+
+    @Test
+    @DisplayName("소켓 종료 이벤트가 그 소켓의 세션 속성에 끝난 세션 표시를 남긴다")
+    void socketCloseEventMarksTheSessionEnded() {
+        Map<String, Object> socketAttributes = new ConcurrentHashMap<>();
+        StompHeaderAccessor headers = StompHeaderAccessor.create(StompCommand.DISCONNECT);
+        headers.setSessionId("socket-1");
+        headers.setSessionAttributes(socketAttributes);
+        Message<byte[]> disconnect = MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders());
+
+        config.markEndedSession(new SessionDisconnectEvent(this, disconnect, "socket-1", CloseStatus.NORMAL));
+
+        assertThat(socketAttributes).containsKey(EndedSessionGuard.ENDED);
     }
 
     /** {@code getInterceptors()} 가 protected 라 하위 클래스로 꺼낸다. */
@@ -83,8 +122,12 @@ class WebSocketConfigTest {
 
     /** {@code getDecoratorFactories()} 가 protected 라 하위 클래스로 꺼낸다. */
     private static final class Decorators extends WebSocketTransportRegistration {
-        List<WebSocketHandlerDecoratorFactory> list() {
-            return getDecoratorFactories();
+        WebSocketHandler decorateAll(WebSocketHandler handler) {
+            WebSocketHandler decorated = handler;
+            for (WebSocketHandlerDecoratorFactory factory : getDecoratorFactories()) {
+                decorated = factory.decorate(decorated);
+            }
+            return decorated;
         }
     }
 }

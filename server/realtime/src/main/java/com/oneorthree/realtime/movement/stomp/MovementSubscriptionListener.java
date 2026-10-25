@@ -27,6 +27,7 @@ import org.springframework.web.socket.CloseStatus;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -97,6 +98,10 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private static final long GENERATION_TTL_NANOS = TimeUnit.MINUTES.toNanos(10);
 
     private static final CloseStatus UNVERIFIED = CloseStatus.SERVER_ERROR.withReason("MEMBERSHIP_UNVERIFIED");
+
+    /** 이동이 소켓을 닫을 때 쓰는 reason — 연결 진단 로그는 서버 reason 만 그대로 남긴다({@code WebSocketConnectionDiagnostics}). */
+    public static final Set<String> CLOSE_REASONS = Set.of(MovementOutbox.BACKPRESSURE.getReason(),
+            MovementOutbox.SEND_FAILED.getReason(), UNVERIFIED.getReason());
 
     private final MovementCluster cluster;
     private final MovementPublisher publisher;
@@ -542,7 +547,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             case UNAUTHORIZED -> {
                 // 그 토큰으로는 다시 물어도 같다 — 기존 만료 토큰 규칙대로 1008 로 닫아 앱이 갱신·재연결하게 한다.
                 if (rechecks.remove(outbox, recheck)) {
-                    closeLater(outbox.sessionId(), CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+                    closeLater(outbox.sessionId(), RealtimeSessionRegistry.UNAUTHORIZED);
                 }
             }
             case GONE -> rechecks.remove(outbox, recheck);
