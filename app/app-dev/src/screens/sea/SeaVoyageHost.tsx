@@ -22,11 +22,18 @@ import type { State } from '@/services/model';
 import {
   openSeaRoom,
   seaParticipantsAt,
+  type SeaEmoteResult,
   type SeaLiveMember,
   type SeaRoom,
 } from '@/services/seaRealtime';
 import { SeaScreen } from './SeaScreen';
-import type { SeaArrival, SeaEmote, SeaParticipant, SeaVoyage } from './seaModel';
+import {
+  SeaNotice,
+  type SeaArrival,
+  type SeaEmote,
+  type SeaParticipant,
+  type SeaVoyage,
+} from './seaModel';
 import { saveSeaRemark, seaRemarkCooldownSeconds } from './seaRemark';
 
 /** 항해를 그만두면 섬이 멀어지는 영상(3초). */
@@ -35,6 +42,13 @@ const ABANDON = require('@/assets/ota/cutscenes/abandon.mp4');
 const INVENTORY_WAIT_MS = 3000;
 /** 이모트 표시 수명 — 섬 응원과 같은 3초. */
 const EMOTE_TTL_MS = 3000;
+/** 이모트가 나가지 못한 이유별 안내(GROMO-2484) — 「연결이 원활하지 않아요」는 연결 문제(끊김·닫힘)에만 쓴다. */
+const EMOTE_FAILURE: Record<Exclude<SeaEmoteResult, 'sent'>, string> = {
+  'no-room': 'openSea.rejoining',
+  disconnected: 'openSea.retry',
+  throttled: 'openSea.emoteTooFrequent',
+  closed: 'openSea.retry',
+};
 
 /** 응답을 잃어 서버가 끝냈는지 모른다(연결 끊김·타임아웃) — 서버가 이미 정산했을 수 있다. */
 const finishOutcomeUnknown = (thrown: unknown) =>
@@ -80,8 +94,13 @@ export function SeaVoyageHost({ e }: { e: any }) {
   const now: number = e.now ?? Date.now();
   const [members, setMembers] = useState<SeaLiveMember[]>([]);
   const [emotes, setEmotes] = useState<Record<string, SeaEmote>>({});
-  // 이 화면에서 저장한 한마디 — 서버가 확인하기 전까지만 쓰는 임시값. before 는 저장 시점에 서버가 알던 내 한마디.
-  const [remark, setRemark] = useState<{ text: string; before: string | undefined } | null>(null);
+  // 이 화면에서 저장한 한마디 — 서버가 확인하기 전까지만 쓰는 임시값. before 는 저장 시점에 서버가 알던 내 한마디,
+  // known 은 그 값을 알았는지(방 밖 — 표류 정리 뒤·첫 스냅샷 전이면 몰랐다)
+  const [remark, setRemark] = useState<{
+    text: string;
+    before: string | undefined;
+    known: boolean;
+  } | null>(null);
   const remarkRef = useRef(remark);
   remarkRef.current = remark;
   const [departFrom, setDepartFrom] = useState<string | null>(null);
@@ -186,8 +205,14 @@ export function SeaVoyageHost({ e }: { e: any }) {
       resync();
     // 내 한마디가 서버에서 바뀌어 왔으면(내 저장이 반영됐거나 다른 기기가 고쳤다) 임시값을 버리고 서버 값을 쓴다.
     // 「저장 뒤 N초」로 풀지 않는 이유: 실시간 사건이 꺼진 환경에서는 스냅샷이 한참 옛 값이라 시간으로 풀면 되돌아가 보인다.
+    // 저장 시점 값을 몰랐으면(known=false) 늦게 온 옛 값과 다른 기기 값을 가를 수 없다 — 방금 저장한 값이 돌아올 때만 푼다
+    // (GROMO-2484: 표류 정리 뒤 재입장 스냅샷이 저장 전 옛 한마디를 싣고 늦게 와 화면을 되돌렸다)
     const pending = remarkRef.current;
-    if (pending && me.message !== pending.before) setRemark(null);
+    if (
+      pending &&
+      ((me.message ?? '') === pending.text || (pending.known && me.message !== pending.before))
+    )
+      setRemark(null);
   };
   // 마운트 때 한 번 건 구독(AppState·바다 방)은 이 ref 로 매 렌더의 최신 콜백을 부른다 — App 의 e 는 렌더마다 새 객체이고
   // e.replace·e.notify 도 렌더마다 새로 만든 함수라, 첫 렌더 클로저를 쓰면 옛 라우트·상태 위에서 움직인다
@@ -502,11 +527,15 @@ export function SeaVoyageHost({ e }: { e: any }) {
           : undefined
       }
       onMessage={async (text) => {
-        const before = members.find((m) => m.userId === selfId)?.message;
-        if (await saveSeaRemark(e, text)) setRemark({ text, before });
+        if (!(await saveSeaRemark(e, text))) return;
+        setRemark({ text, before: mine?.message, known: !!mine });
+        // 표류 정리(adrift)로 방에서 빠졌으면 저장 «뒤» 다시 들어간다 — 한마디는 REST 라 입장이 필요 없고,
+        // 저장 뒤 입장해야 그 스냅샷이 새 한마디를 싣는다. 방에 있어야 남에게 보인다
+        room.current?.reconnect();
       }}
       onEmote={async (type) => {
-        if (!room.current?.sendEmote(type)) throw new Error('emote not sent');
+        const sent = room.current?.sendEmote(type) ?? 'closed';
+        if (sent !== 'sent') throw new SeaNotice(t(EMOTE_FAILURE[sent]));
       }}
     />
   );
