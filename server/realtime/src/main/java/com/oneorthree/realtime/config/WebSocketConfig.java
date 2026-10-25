@@ -118,6 +118,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws/chat", "/ws/realtime")
+                .setHandshakeHandler(new NoCompressionHandshakeHandler())
                 .setAllowedOriginPatterns(allowedOrigins);
         registry.setErrorHandler(chatStompErrorHandler);
         // 한 세션이 연달아 보낸 SEND 를 받은 순서대로 처리한다(GROMO-1741 §①). 끄면 인바운드 채널이 스레드

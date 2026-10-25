@@ -45,6 +45,10 @@ spring:
 
 server:
   tomcat:
+    threads:
+      # 동시 종료에서 기본 200개까지 스레드 확장과 RSS 급증을 관측했다(GROMO-2417).
+      # 연결 수 상한이 아니다. close의 동기 Redis I/O와 HTTP 요청이 이 작업 예산을 공유한다.
+      max: 32
     mbeanregistry:
       enabled: true
   port: 8081
