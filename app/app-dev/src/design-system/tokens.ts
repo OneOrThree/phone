@@ -405,11 +405,13 @@ export const componentTokens = {
     frameGap: 2,
     radius: 3,
     inset: space[1],
+    // 바닥에 붙으면 너무 내려가 보여 조금 띄운다(2026-10-26 오스카)
+    bottomInset: space[3],
     labelInset: space[1],
     fontSize: primitiveTokens.fontSize.xs,
     lineHeight: 18,
     letterSpacing: 1,
-    rotation: '-8deg',
+    rotation: '-14deg',
     // 글 위에 겹쳐 찍으므로 밑 글이 비쳐 읽히게 — 잉크 도장의 반투명 느낌(2026-10-26)
     opacity: 0.85,
   },
