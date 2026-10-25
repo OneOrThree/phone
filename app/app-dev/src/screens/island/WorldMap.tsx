@@ -158,13 +158,13 @@ import {
 import { ImageTerrainFacilities } from './ImageTerrainFacilities';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
-// 타일 섬 지형(GROMO-2230): 켜면 기존 마을 홈 섬의 바닥을 Skia Atlas 로 그리고 탭·걷기를 v1/nav.json A* 로 한다.
-// 새 마을 미리보기(layered)는 플래그와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
-// 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
-// 이동 동기화(GROMO-2248)는 따로 끄는 플래그가 없다(GROMO-2476): 타일 섬 + 서버 홈이면 늘 이동 채널을 열어 서버
-// 확정 경로를 따른다. 서버가 없거나 거절하면 로컬로 걷고, 다른 주민은 고정 자리(residentSpot)에 서 있다.
-const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
-// 타일 섬 = 플래그 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
+// 타일 섬 지형(GROMO-2230): iOS·Android 는 늘 기존 마을 홈 섬의 바닥을 Skia Atlas 로 그리고 탭·걷기를 v1/nav.json
+// A* 로 한다(GROMO-2476 플래그 제거). 웹은 canvaskit wasm 로딩이 필요해 기존 Image 섬 그대로다.
+// 새 마을 미리보기(layered)는 이와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
+// 이동 동기화(GROMO-2248)도 따로 끄는 플래그가 없다: 타일 섬 + 서버 홈이면 늘 이동 채널을 열어 서버 확정 경로를
+// 따른다. 서버가 없거나 거절하면 로컬로 걷고, 다른 주민은 고정 자리(residentSpot)에 서 있다.
+const TILE_ISLAND = Platform.OS !== 'web';
+// 타일 섬 = 네이티브 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
@@ -567,7 +567,7 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + 플래그일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
+  // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + iOS·Android 일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
   const tileTerrain = isTileIsland(village, fishing);
   const facilityDecorations = !village && !fishing;
   const reduceFacilityMotion = useContext(MotionContext) || state.settings.reduceMotion;
@@ -627,7 +627,7 @@ export function WorldMap({
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof camera) => {
     // 타일 섬의 Skia 캔버스는 화면 크기 표면이라 컨테이너 transform 으로 옮기면 끄는 동안 가장자리가 빈다 —
-    // 그 경로(EXPO_PUBLIC_TILE_ISLAND)만 예전처럼 움직일 때마다 카메라를 커밋해 캔버스가 다시 그리게 한다
+    // 그 경로(타일 섬)만 예전처럼 움직일 때마다 카메라를 커밋해 캔버스가 다시 그리게 한다
     if (tileTerrainRef.current) {
       setCamera(c);
       return;
@@ -859,7 +859,7 @@ export function WorldMap({
             if (onLand(grid, p)) current.current.onSpot?.(p);
           }}
         >
-          {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
+          {/* 타일 섬이면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
           {!tileTerrain && (
             <Image
               source={
@@ -1364,7 +1364,7 @@ function FinalIslandScene({
     const built = villageScene(navBuildings);
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
     // 서버 배치는 이 브랜치에 들어왔고(2232), 통행·건설 위치를 layout 으로 옮기는 것은 후속에 villageScene 이 objects 를 받아 다시 계산하게 한다.
-    // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
+    // 웹(이미지 섬)에서는 서버 배치를 무시해 map.json 그대로 그린다.
     // 타일 섬(기존 마을)은 여기가 아니라 아래 buildingOffsets(건물별 평행이동)로 layout 을 적용한다.
     const objects = TILE_ISLAND ? applyLayout(built.objects, layout, mapAssets) : built.objects;
     return objects === built.objects ? built : { ...built, objects };
@@ -1585,7 +1585,7 @@ function FinalIslandScene({
     const k = WALK_EASE(Math.min(1, (Date.now() - g.t0) / g.ms));
     return { x: g.from.x + (g.to.x - g.from.x) * k, y: g.from.y + (g.to.y - g.from.y) * k };
   };
-  // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
+  // 타일 섬 = iOS·Android + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const facilityDecorations = !scene;
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
@@ -2787,7 +2787,7 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에
   // 내려준다(렌더 중 교체 금지). 백그라운드 동기화는 완료돼도 다음 홈 진입부터 반영된다.
-  // 플래그 off 면 캐시를 읽지 않고 항상 번들이다.
+  // 웹(이미지 섬)은 캐시를 읽지 않고 항상 번들이다.
   const [mapAssets, setMapAssets] = useState(() =>
     // 타일 섬은 곧 이동 동기화라(GROMO-2476) 늘 번들로 고정된다 — promote(캐시 승격)는 홈에서 불리지 않는다.
     initialMapAssets(TILE_ISLAND, TILE_ISLAND, () => promoteMapAssets('home')),

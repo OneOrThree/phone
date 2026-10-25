@@ -1,7 +1,7 @@
 /**
- * 홈 섬 이동 동기화 배선(GROMO-2248) — 타일 섬 + 서버 홈이면 늘 이동 전용 채널을 열고(GROMO-2476 플래그 제거),
+ * 홈 섬 이동 동기화 배선(GROMO-2248) — 타일 섬(iOS·Android) + 서버 홈이면 늘 이동 전용 채널을 열고(GROMO-2476),
  * 내 고양이는 서버 확정 경로·도착을 따르며 다른 주민은 서버 위치(RemoteResident)로 그린다.
- * 동기화 위치가 없는 주민(FullState 전·채널 거절·미접속·목업 섬·비타일)은 고정 자리(StandingResident)에 서 있다.
+ * 동기화 위치가 없는 주민(FullState 전·채널 거절·미접속·목업 섬·웹)은 고정 자리(StandingResident)에 서 있다.
  */
 import React from 'react';
 import { Animated, AppState } from 'react-native';
@@ -105,8 +105,7 @@ jest.mock('@/services/movementSync', () => {
   };
 });
 
-// 플래그는 모듈 로드 때 상수로 굳는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅된다).
-process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
+// iOS·Android 는 늘 타일 섬이다(GROMO-2476) — jest 기본 Platform.OS(ios)로 그대로 불러온다.
 const { FinalIsland, initialMapAssets, residentSpot } =
   require('./WorldMap') as typeof import('./WorldMap');
 
@@ -1423,40 +1422,40 @@ describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', (
   });
 });
 
-describe('타일 섬 아님·서버 홈 아님', () => {
-  // 플래그는 모듈 로드 때 굳으므로 격리 로드한다. 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다.
-  // 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 도 함께 돌려준다.
-  const isolatedIsland = (env: Record<string, string | undefined>) => {
-    const keys = ['EXPO_PUBLIC_TILE_ISLAND'];
-    const saved = keys.map((k) => process.env[k]);
-    keys.forEach((k) => (env[k] === undefined ? delete process.env[k] : (process.env[k] = env[k])));
-    try {
-      let Island!: typeof FinalIsland;
-      let isolatedSaveSession!: typeof saveSession;
-      jest.isolateModules(() => {
-        jest.doMock('react', () => React);
-        isolatedSaveSession = (
-          require('@/services/api/session') as typeof import('@/services/api/session')
-        ).saveSession;
+describe('웹(이미지 섬)·서버 홈 아님', () => {
+  // 웹 빌드(TILE_ISLAND=false)는 모듈 로드 때 Platform.OS 로 굳으므로 격리 로드하면서 그때만 격리 레지스트리의
+  // Platform.OS 를 'web' 으로 둔다 — jest 엔 DOM 이 없어 렌더는 기본 OS 로 되돌린 뒤 한다. 격리 레지스트리가
+  // React 를 따로 만들면 훅이 깨진다. 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의
+  // saveSession 도 함께 돌려준다.
+  const webIsland = () => {
+    let Island!: typeof FinalIsland;
+    let isolatedSaveSession!: typeof saveSession;
+    jest.isolateModules(() => {
+      jest.doMock('react', () => React);
+      isolatedSaveSession = (
+        require('@/services/api/session') as typeof import('@/services/api/session')
+      ).saveSession;
+      const platform = (require('react-native') as typeof import('react-native')).Platform;
+      const os = platform.OS;
+      (platform as { OS: string }).OS = 'web';
+      try {
         Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
-      });
-      return { Island, saveSession: isolatedSaveSession };
-    } finally {
-      keys.forEach((k, n) =>
-        saved[n] === undefined ? delete process.env[k] : (process.env[k] = saved[n]),
-      );
-    }
+      } finally {
+        (platform as { OS: string }).OS = os;
+      }
+    });
+    return { Island, saveSession: isolatedSaveSession };
   };
   afterAll(() => jest.dontMock('react'));
 
-  it('타일 섬이 아니면(웹·EXPO_PUBLIC_TILE_ISLAND 없음) 이동 채널 없이 주민은 고정 자리에 서고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390·2476)', async () => {
+  it('웹(이미지 섬)이면 이동 채널 없이 주민은 고정 자리에 서고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390·2476)', async () => {
     jest.useFakeTimers();
     const opened = mockChannels.length;
     const before = controllers.length;
     const island = nextIsland();
     const state = serverState(island);
     (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
-    const isolated = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: undefined });
+    const isolated = webIsland();
     await isolated.saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
     const Island = isolated.Island;
     const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
@@ -1527,9 +1526,8 @@ describe('타일 섬 아님·서버 홈 아님', () => {
 
   // 항목 6(릴리스 음성 테스트) — WorldMap.tileIsland.test.tsx 는 movementSync mock 이 없어(다른 mock 구조)
   // 거기 추가하면 전체 테스트에 새 전역 mock 을 얹어야 한다. 이미 controllers 스파이가 있는 이 파일의
-  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). EXPO_PUBLIC_TILE_ISLAND 는
-  // 이미 파일 상단에서 '1' — process.env 는 격리 레지스트리와도 공유라 다시 안 세운다. 세션은 모듈별
-  // 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
+  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). 격리 복사본도 기본 Platform.OS(ios)라 타일 섬이다.
+  // 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
   it('__DEV__=false 릴리스 빌드는 nav-debug-toggle 이 없어 movementSync.subscribe 를 한 번도 안 부른다(음성, 항목 6)', async () => {
     jest.useFakeTimers();
     const before = controllers.length;
@@ -1572,7 +1570,7 @@ describe('타일 섬 아님·서버 홈 아님', () => {
 });
 
 // initialMapAssets(GROMO-2244, codex 지적) — movementSync 빌드는 서버와 같은 nav 아티팩트(번들)만 쓴다.
-// 순수 함수라 TILE_ISLAND env 격리 없이 인자로 바로 검증한다. 화면은 타일 섬이면 movementSync 도 켜서 부른다(GROMO-2476).
+// 순수 함수라 인자로 바로 검증한다. 화면은 타일 섬(iOS·Android)이면 movementSync 도 켜서 부른다(GROMO-2476).
 describe('initialMapAssets (GROMO-2244)', () => {
   const cache = { kind: 'cache' as const, mapVersion: 1, dir: 'file:///v1', path: 'maps/home/v1' };
 

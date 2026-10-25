@@ -3,7 +3,7 @@
  * 바다(IslandOcean)는 WorldMap 이 그려질 때마다 같이 그려지므로 그 횟수를 지도 전체 렌더 횟수로 센다.
  */
 import React from 'react';
-import { Animated, PanResponder, StyleSheet } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { buildingNames, initialState } from '@/services/model';
 
@@ -32,7 +32,13 @@ jest.mock('./IslandOcean', () => {
     },
   };
 });
+// 이 파일은 이미지 섬(웹 빌드) 경로를 잰다 — iOS·Android 는 늘 타일 섬이라(GROMO-2476) 끄는 동안 카메라를 커밋하는
+// 타일 경로와 갈린다. TILE_ISLAND 는 모듈 로드 때 Platform.OS 로 굳으므로 그때만 'web' 으로 두고 되돌린다(jest 엔
+// DOM 이 없어 웹 전용 런타임 분기는 돌릴 수 없다).
+const nativeOS = Platform.OS;
+(Platform as { OS: string }).OS = 'web';
 const { FinalIsland, WorldMap } = require('./WorldMap') as typeof import('./WorldMap');
+(Platform as { OS: string }).OS = nativeOS;
 const { islandTerrain } = require('./IslandOcean') as typeof import('./IslandOcean');
 
 beforeEach(() => {
