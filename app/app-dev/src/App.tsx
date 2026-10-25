@@ -71,8 +71,6 @@ import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { assets, cat } from '@/constants/assets';
 import { Flag, BoatPortrait, IslandDecor, IslandPreview } from '@/screens/cosmetics/Cosmetics';
 import { IslandDiscovery } from '@/screens/discovery/IslandDiscovery';
-import { IslandHome } from '@/screens/island/IslandHome';
-import { SceneHero, RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import {
   initialState,
@@ -405,7 +403,6 @@ function Gromo() {
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
-    [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
   const tutorialOwner = getSession()?.userId;
@@ -556,7 +553,6 @@ function Gromo() {
     });
     const nextRoute: Route = gateBoard ? 'permission' : r;
     const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
-    if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
     if (r === 'rest' && !options.sessionIsAlreadyPaused && state.session?.status === 'active')
       dispatch({ type: 'PAUSE' });
@@ -2206,7 +2202,6 @@ function Gromo() {
         setTab(opts.tab || '');
         setText(opts.text || '');
         setBody(opts.body || '');
-        setRestTravel(!!opts.travel);
         // LOAD로 받은 진행도를 보존한다. 안내 단계는 명시한 검수 화면에서만 바꾼다.
         if (opts.guideStep !== undefined) setGuideStep(opts.guideStep);
         setFailNext(!!opts.failNext);
@@ -2342,7 +2337,6 @@ function Gromo() {
           walkTo,
           newQuest,
           walkRequest,
-          restTravel,
           windowStart,
           setWindowStart,
           windowEnd,

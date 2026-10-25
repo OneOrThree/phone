@@ -266,7 +266,6 @@
       "approvalAfterJoinSub": "방장이 확인한 뒤 주민이 돼요",
       "title": "새 섬 만들기",
       "submit": "섬 만들기",
-      "capacityRangeError": "정원은 {{min}}~{{max}}명이에요.",
       "doneTitle": "섬을 만들었어요",
       "doneSub": "「{{island}}」이 내 섬이 됐어요.",
       "nameLabel": "섬 이름",

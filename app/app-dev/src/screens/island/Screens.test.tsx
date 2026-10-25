@@ -2324,6 +2324,46 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
   assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
 });
 
+// 정원 휠 선택값은 숫자 상태다 — 라벨은 렌더 시점의 로케일로 만들고 create 에는 그 숫자가 간다.
+const wheelWeight = (label: string, s: any) =>
+  StyleSheet.flatten(s.getByText(label).props.style)?.fontWeight;
+
+test('섬 만들기 정원 휠에서 «3명» 을 고르면 create 에 maxMembers 3 이 간다(ko)', async () => {
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15명', s), '800');
+  await fireEvent.press(s.getByLabelText('정원 3명'));
+  assert.equal(wheelWeight('3명', s), '800');
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+  await fireEvent.press(s.getByLabelText('섬 만들기'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 maxMembers 3 이 간다(en)', async () => {
+  applyLocalePref('en');
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15 residents', s), '800');
+  await fireEvent.press(s.getByLabelText('Capacity 3 residents'));
+  assert.equal(wheelWeight('3 residents', s), '800');
+  await fireEvent.changeText(s.getByLabelText('Island Name'), 'New Island');
+  await fireEvent.press(s.getByLabelText('Create Island'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 화면에서 언어를 바꿔도 고른 정원 항목이 강조된 채 남는다', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await fireEvent.press(s.getByLabelText('정원 7명'));
+  assert.equal(wheelWeight('7명', s), '800');
+  applyLocalePref('en');
+  // 새 엘리먼트로 다시 그린다 — 같은 엘리먼트면 React 가 렌더를 건너뛴다
+  await s.rerender(<Harness route="createIsland" api={() => ({})} />);
+  assert.equal(wheelWeight('7 residents', s), '800');
+  assert.equal(wheelWeight('15 residents', s), '400');
+});
+
 test('대표 섬 선택은 서버 소속만 표시하고 저장 성공 뒤에 닫는다', async () => {
   const initial = reducer(initialState(true), {
     type: 'ISLAND_SYNC',
