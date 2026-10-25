@@ -156,6 +156,19 @@ class LocalHarnessTest(unittest.TestCase):
             leaked=[str(f) for f in (root/'results').rglob('*') if f.is_file() and any(u['token'] in f.read_text(errors='ignore') or 'Bearer ' in f.read_text(errors='ignore') for u in users[:5]+users[300:301])]
             self.assertEqual(leaked,[])
 
+    def test_chat_sends_first_message_right_after_phase_delay(self):
+        # 연결 N·frequency f·seconds s 에서 전송 수가 N·f·s 에 근접해야 한다(위상 지연 뒤 한 주기 손실 없음).
+        self.server.behavior='echo'
+        n,f,sec=10,1,3
+        with tempfile.TemporaryDirectory() as temporary:
+            out=Path(temporary);users=out/'users.json'
+            users.write_text(json.dumps([{'userId':f'synthetic-{i}','islandId':f'island-{i}','token':token(f'synthetic-{i}')} for i in range(n)]))
+            subprocess.run(['node',str(SCRIPTS/'aws-realtime.mjs'),'--url',f'ws://127.0.0.1:{self.server.server_port}/ws','--users',str(users),'--out',str(out/'result.json'),'--connections',str(n),'--mode','chat','--seconds',str(sec),'--frequency',str(f),'--ready-timeout-ms','2000','--runtime-seconds','20','--drain-ms','200'],capture_output=True,text=True,timeout=30)
+            data=json.loads((out/'result.json').read_text())
+            self.assertEqual(data['plannedSends'],n*f*sec)
+            self.assertGreaterEqual(data['sent'],n*f*sec-1)
+            self.assertLessEqual(data['sentShortfall'],1)
+
     def test_node_close_types_over_localhost(self):
         for behavior in ('intentional','early','heartbeat','policy','transport','private','secret-code','secret-nested','secret-reason','secret-type','ignore-close'):
             with self.subTest(behavior=behavior), tempfile.TemporaryDirectory() as temporary:
