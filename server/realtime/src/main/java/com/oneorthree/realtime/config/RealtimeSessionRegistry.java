@@ -130,7 +130,10 @@ public class RealtimeSessionRegistry implements MeterBinder {
         }
     }
 
-    /** 끝난 세션의 구독 기록을 통째로 지운다 — 종료 정리(disconnected·closed)보다 늦게 남은 기록용(EndedSessionGuard). */
+    /**
+     * 끝난 세션의 구독 기록을 통째로 지운다 — 종료 정리(disconnected·closed)보다 늦게 남은 기록용(EndedSessionGuard).
+     * <b>끝난 세션 전용</b>: 살아 있는 세션에 부르면 그 세션의 구독 기록이 사라진다.
+     */
     public void forgetSubscriptions(String sessionId) {
         if (sessionId != null) {
             subscriptions.remove(sessionId);
