@@ -1590,6 +1590,156 @@ describe('웹(이미지 섬)·서버 홈 아님', () => {
   });
 });
 
+// 경로선(GROMO-2479) — 지금 걷는 경로를 타일 섬 지형 캔버스(mock 호스트 뷰)의 walkPath prop 으로 넘긴다.
+describe('경로선 (GROMO-2479)', () => {
+  const route = (screen: Screen) =>
+    (screen.getByTestId('tile-terrain').props.walkPath as WorldPoint[] | null)?.map((p) =>
+      imageToWorld(p, SIZE),
+    ) ?? null;
+  const expectNear = (p: WorldPoint, q: WorldPoint) => {
+    expect(p.x).toBeCloseTo(q.x, 6);
+    expect(p.y).toBeCloseTo(q.y, 6);
+  };
+  const GOAL = { x: 42.5, y: 45.5 };
+
+  it('땅을 누르면 지금 자리 → 누른 칸 경로가 들어가고, 걸어서 도착하면 null 이다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    expect(route(screen)).toBeNull();
+    await tapGround(screen, GOAL);
+    const r = route(screen)!;
+    expect(r.length).toBeGreaterThan(1);
+    expectNear(r[0], SPAWN);
+    expectNear(r[r.length - 1], GOAL);
+    // 걷는 동안(지나온 구간 포함) 그대로 둔다.
+    await act(async () => jest.advanceTimersByTime(150));
+    expect(route(screen)).toEqual(r);
+    await walkToEnd(screen);
+    expect(myMotion(screen)).not.toBe('walking');
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('걷는 중 새 목적지를 누르면 그 목적지 경로로 바뀐다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    const first = route(screen)!;
+    await act(async () => jest.advanceTimersByTime(150));
+    const next = { x: 40.5, y: 46.5 };
+    await tapGround(screen, next);
+    const second = route(screen)!;
+    expect(second).not.toEqual(first);
+    // 출발점은 스폰이 아니라 그새 걸어 나간 자리다.
+    expect(second[0].x).toBeGreaterThan(SPAWN.x + 0.5);
+    expectNear(second[second.length - 1], next);
+    await screen.unmount();
+  });
+
+  it('서버 PathAccepted 로 갈아타면 서버 경로로 바뀌고, 걷는 중 받은 Arrived 는 다 걸은 뒤 지운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    await act(async () => jest.advanceTimersByTime(150));
+    // 서버는 한 줄 아래로 가는 경로를 확정했다.
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 46.5 },
+        { x: 40.5, y: 46.5 },
+        { x: 41.5, y: 46.5 },
+        { x: 42.5, y: 46.5 },
+      ]),
+    );
+    const r = route(screen)!;
+    expectNear(r[r.length - 1], { x: 42.5, y: 46.5 });
+    expect(r.some((p) => Math.abs(p.y - 46.5) < 1e-6)).toBe(true);
+    await emit(arrived(ME, 1, { x: 42.6, y: 46.4 }));
+    expect(route(screen)).toEqual(r);
+    await walkToEnd(screen);
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('모션 줄이기: 고양이는 걷는 효과 없이 바로 도착해도 경로선은 남고(정적 선), 서버 Arrived 에 지운다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(myMotion(screen)).not.toBe('walking');
+    expectNear(myCat(screen), GOAL);
+    expect(screen.getByTestId('tile-terrain').props.reduceMotion).toBe(true);
+    const r = route(screen)!;
+    expectNear(r[0], SPAWN);
+    expectNear(r[r.length - 1], GOAL);
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 45.5 },
+        { x: 40.5, y: 45.5 },
+        { x: 41.5, y: 45.5 },
+        GOAL,
+      ]),
+    );
+    expect(route(screen)).not.toBeNull();
+    await emit(arrived(ME, 1, GOAL));
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('모션 줄이기: Arrived 전에 목적지를 다시 골라 로컬과 다른 서버 경로로 갈아타도 선은 서버 경로 전체로 남는다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    const next = { x: 40.5, y: 46.5 };
+    await tapGround(screen, next);
+    // 로컬 고양이는 이미 next 에 서 있다 — 서버는 한 줄 위로 돌아가는 다른 경로를 확정했다.
+    const server = [{ x: 39.5, y: 45.5 }, { x: 40.5, y: 45.5 }, next];
+    await emit(pathAccepted(ME, 2, 2, SPAWN, server));
+    const r = route(screen)!;
+    expect(r).toHaveLength(4);
+    [SPAWN, ...server].forEach((p, i) => expectNear(r[i], p));
+    await emit(arrived(ME, 2, next));
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('모션 줄이기: 건물 문을 눌러 들어가면 도착에서 안 지우는 경로선도 지운다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(route(screen)).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    await act(async () => jest.advanceTimersByTime(2000));
+    expect(go).toHaveBeenCalled();
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('섬이 바뀌면 걷던 경로선을 지운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(route(screen)).not.toBeNull();
+    await screen.rerender(
+      <FinalIsland state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+    );
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+});
+
 // initialMapAssets(GROMO-2244, codex 지적) — movementSync 빌드는 서버와 같은 nav 아티팩트(번들)만 쓴다.
 // 순수 함수라 인자로 바로 검증한다. 화면은 타일 섬(iOS·Android)이면 movementSync 도 켜서 부른다(GROMO-2476).
 describe('initialMapAssets (GROMO-2244)', () => {

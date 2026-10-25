@@ -546,6 +546,7 @@ export function WorldMap({
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug,
+  walkPath,
   debugNow,
   buildingOffsets,
   pressedFacility,
@@ -581,6 +582,8 @@ export function WorldMap({
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기(타일 섬만). */
   navDebug?: NavDebug | null;
+  /** 내 고양이가 지금 걷는 경로(1x 이미지 px, GROMO-2479) — 타일 섬 지형 캔버스가 경로선으로 그린다. */
+  walkPath?: Point[] | null;
   /** 틱 지연·대기 readout 시계 — FinalIslandScene 이 serverDebug flush 와 같은 동기 구간에서
    * 갱신한다(GROMO-2249 보완8 항목 2). navDebug 없이 호출하는 쪽(WorldMap.test.tsx)은 readout 자체를
    * 안 그리니 안 넘겨도 된다. */
@@ -858,6 +861,7 @@ export function WorldMap({
             assets={mapAssets}
             onAssetsFail={onMapAssetsFail}
             navDebug={navDebug}
+            walkPath={walkPath}
             reduceMotion={reduceFacilityMotion}
             pressedFacility={pressedFacility}
             showFacilityOutlines
@@ -1621,6 +1625,9 @@ function FinalIslandScene({
   const tileNav = isTileIsland(scene);
   const facilityDecorations = !scene;
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
+  // 지도에 그리는 경로선(GROMO-2479) — walkPath 에 들어온 경로 전체(로컬 tilePath·서버 경로 갈아타기 모두).
+  // 걷는 동안 지나온 구간도 그대로 두고, 도착·제자리 맞춤(place)·섬 전환 때 지운다.
+  const [walkRoute, setWalkRoute] = useState<Point[] | null>(null);
   // background 전환(codex 지적, PR #1111 — WorldMap.tsx:1625) — 홈이 마운트된 채 background 로 가도
   // 언마운트·syncIslandId/me 변경 때만 채널 effect 가 정리돼 channel.close() 가 안 불린다. 서버는 소켓
   // 종료에서만 rooms.leave 하므로 OS 가 WebSocket 을 유지하면 다른 주민에게 내 actor 가 계속 남는다.
@@ -1673,10 +1680,13 @@ function FinalIslandScene({
     location.current = p;
     setPos(p);
     homePositions[positionKey] = p;
+    // 서버 도착·보정으로 선 자리에 맞추면 가던 길은 끝났다 — 경로선도 지운다(GROMO-2479).
+    setWalkRoute(null);
   };
   // 주어진 이미지 px 경로(출발점 포함)를 걷는다. 반환값·done 계약은 walk 그대로다(buildingTransition 이 의존).
   // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
-  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
+  // display 는 표시선만 — 서버 경로로 갈아탈 때 출발점부터의 확정 경로(이동은 path=남은 구간). 없으면 path.
+  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number, display?: Point[]) => {
     const run = ++token.current;
     // 걷는 도중 멈추면 고양이는 구간 중간에 서 있다 — 첫 구간의 보이는 출발점으로 기억한다(livePosition).
     let from = livePosition();
@@ -1685,6 +1695,9 @@ function FinalIslandScene({
     arrival.current = null;
     // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
     walkDone.current = path.length ? done : undefined;
+    // 새 목적지·서버 경로 갈아타기는 선을 통째로 바꾼다. 갈 곳이 없거나(빈 경로) 같은 칸([from])이면 선이 없다.
+    const route = display ?? path;
+    setWalkRoute(route.length > 1 ? route : null);
     if (!path.length) {
       moving(false);
       return false;
@@ -1701,6 +1714,10 @@ function FinalIslandScene({
         // 걷는 중에 서버 Arrived 가 왔으면 마지막 세그먼트를 마친 뒤 그 자리에 선다.
         if (arrival.current) place(arrival.current);
         arrival.current = null;
+        // 모션 줄이기면 걸음이 0ms 라 탭한 그 틱에 도착한다 — 여기서 지우면 선이 한 번도 안 보인다. 그때는
+        // 서버 도착·보정(place)·다음 목적지·섬 전환 때 지운다.
+        // ponytail: 동기화가 없는 홈(목업 섬·채널 거절)은 다음 탭까지 남는다. 정해진 시간 뒤 지워야 하면 타이머로.
+        if (!state.settings.reduceMotion) setWalkRoute(null);
         if (!done && pathDistance(path) >= 180) {
           triggerMotion('stretch');
         }
@@ -1825,7 +1842,13 @@ function FinalIslandScene({
         return;
       }
       const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
-      walkPath([here, ...worldPath.map((p) => worldToImage(p, size))], walkDone.current, msPerUnit);
+      walkPath(
+        [here, ...worldPath.map((p) => worldToImage(p, size))],
+        walkDone.current,
+        msPerUnit,
+        // 표시선은 서버가 확정한 경로 전체 — 남은 구간만 쓰면 이미 도착한 모션 줄이기에서 길이 0 선이 된다.
+        [start, ...waypoints].map((p) => worldToImage(p, size)),
+      );
     },
     onMyArrived: (p) => {
       const at = worldToImage(p, sizeOf(grid));
@@ -2108,6 +2131,7 @@ function FinalIslandScene({
     setPos(p);
     setWalking(false);
     stepping.current = false;
+    setWalkRoute(null);
     return () => {
       token.current++;
       xy.stopAnimation();
@@ -2248,7 +2272,11 @@ function FinalIslandScene({
               buildingEntryPending.current = true;
               return runBuildingEntryWalk(
                 (onArrival) => walk(d, onArrival),
-                () => navigateOnArrival(d.r),
+                () => {
+                  // 건물에 들어가면 가던 길은 끝 — 모션 줄이기에서도 지운다(GROMO-2479 r1).
+                  setWalkRoute(null);
+                  return navigateOnArrival(d.r);
+                },
                 () => {
                   buildingEntryPending.current = false;
                 },
@@ -2532,6 +2560,7 @@ function FinalIslandScene({
             ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk, server: serverDebug }
             : null
         }
+        walkPath={walkRoute}
         debugNow={debugNow}
         islandId={i.id}
         boardStatus={visiting ? null : boardStatus}
