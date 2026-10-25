@@ -1677,7 +1677,9 @@ function FinalIslandScene({
     walkCells = useRef<WorldPoint[]>([]),
     arrival = useRef<Point | null>(null),
     // 이 화면에서 이동 채널이 한 번이라도 열렸는지 — 측정을 그 뒤에 켜도 다음 열림을 재접속으로 센다(GROMO-2250 집계).
-    movementOpened = useRef(false);
+    movementOpened = useRef(false),
+    // 지금 처리 중인 메시지가 FullState 인지 — 그 채택 스냅도 onMyCorrection 으로 와서 집계 「점프」에서 뺀다(GROMO-2250).
+    adoptingFullState = useRef(false);
   const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
   // 실시간으로 받은 다른 주민의 외양(GROMO-2390) — 홈 응답의 appearance 와 version 으로 합쳐 그린다
   const [looks, setLooks] = useState<Record<string, MemberLook>>({});
@@ -1699,7 +1701,6 @@ function FinalIslandScene({
   };
   // 멈춘 상태에서 서버 위치로 맞춘다(FullState 채택·보정·도착).
   const place = (p: Point) => {
-    movementStats.jump(location.current, p, scaleRef.current);
     xy.setValue(p);
     segment.current = null;
     location.current = p;
@@ -1867,7 +1868,12 @@ function FinalIslandScene({
         moving(false);
       }
     },
-    onMyCorrection: (p) => place(worldToImage(p, sizeOf(grid))),
+    onMyCorrection: (p) => {
+      const at = worldToImage(p, sizeOf(grid));
+      // 집계 「점프」(GROMO-2250)는 정지 상태 보정만 잰다 — FullState 채택·도착·경로 갈아타기 스냅은 정상 동작이라 뺀다.
+      if (!adoptingFullState.current) movementStats.jump(location.current, at, scaleRef.current);
+      place(at);
+    },
     onActors: setRemoteActors,
     onRemotePosition: (userId, p, durationMs) =>
       remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving, durationMs),
@@ -1933,7 +1939,9 @@ function FinalIslandScene({
         } else if (type === 'member.appearance.updated') applyAppearance(body, syncIslandId);
         else {
           movementStats.onMessage(body, me);
+          adoptingFullState.current = type === 'FullState';
           controller.onMessage(body);
+          adoptingFullState.current = false;
         }
       },
       // 재접속 판정(GROMO-2250 집계)은 movementStats 가 측정 세션 단위로 한다 — 이 effect 가 다시 돌아 새 채널을
@@ -2077,7 +2085,8 @@ function FinalIslandScene({
   }, [navDebug, tileNav]);
   // 자동 걷기(GROMO-2250, 개발 전용) — 2,000ms + 0~50ms 지터마다 한 걸음. 이동 보기·동기화가 꺼지거나
   // 화면을 떠나면(syncIslandId null) 멈춘다.
-  const autoWalking = autoWalk && navDebug && tileNav && !!syncIslandId;
+  // __DEV__ 한정 — 이동 보기가 있는 QA 빌드(EXPO_PUBLIC_VILLAGE_PREVIEW)에서도 자동 걷기는 돌지 않는다.
+  const autoWalking = __DEV__ && autoWalk && navDebug && tileNav && !!syncIslandId;
   useEffect(() => {
     if (!autoWalking) return;
     console.log('[GROMO-2250] AUTO on');
@@ -2914,7 +2923,8 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
               }}
             />
           )}
-          {TILE_ISLAND && navDebug && (
+          {/* 자동 걷기는 개발 빌드만 — QA 빌드(EXPO_PUBLIC_VILLAGE_PREVIEW)에는 이동 보기만 있다(GROMO-2250). */}
+          {__DEV__ && TILE_ISLAND && navDebug && (
             <Btn
               id="auto-walk-toggle"
               kind="sec"
