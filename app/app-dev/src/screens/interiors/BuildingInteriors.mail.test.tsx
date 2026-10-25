@@ -24,6 +24,8 @@ import {
 } from '@/services/api/letters';
 
 jest.mock('@/services/api/letters', () => ({
+  // 시스템 편지 판별 헬퍼(isSystemLetter·isSystemLetterView)는 실제 구현을 쓴다.
+  ...jest.requireActual('@/services/api/letters'),
   getMailboxScreen: jest.fn(),
   listLetters: jest.fn(),
   listSystemLetters: jest.fn(),
@@ -405,6 +407,34 @@ test('시스템 편지 상세 — 발신자는 「섬 알림」이고 답장 버
   // 닫기는 남는다 — 시스템 편지도 읽고 닫으면 사라진다.
   assert.ok(ui.getByTestId('close-letter'));
   expect(ui.queryByTestId('reply-to-letter')).toBeNull();
+  expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
+  await ui.unmount();
+});
+
+test('시스템 편지 — kind 가 있으면 발신자 id·닉네임이 채워져 와도 「섬 알림」이고 답장·더보기가 없다', async () => {
+  const filled = { counterpartUserId: 'u9', counterpartNickname: '방장' };
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem(filled)]));
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: 'u9',
+      senderNickname: '방장',
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByLabelText('섬 알림의 편지 열기')));
+  expect(ui.queryByLabelText('방장의 편지 열기')).toBeNull();
+
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+
+  await waitFor(() => assert.ok(ui.getByText('소다 섬에서 나가게 됐어요')));
+  assert.ok(ui.getByText('섬 알림'));
+  expect(ui.queryByText('방장')).toBeNull();
+  expect(ui.queryByTestId('reply-to-letter')).toBeNull();
+  expect(ui.queryByLabelText('방장 더보기')).toBeNull();
   expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
   await ui.unmount();
 });

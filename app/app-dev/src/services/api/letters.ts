@@ -59,6 +59,19 @@ export type LetterView = {
   kind?: string;
 };
 
+/**
+ * 시스템 편지(강퇴·가입 승인) 판별 — 목록 항목. 새 서버는 시스템 편지에만 kind 를 싣고, 발신자
+ * 없는(counterpartUserId == null) 항목도 시스템 편지다. 둘 중 하나면 시스템 편지로 본다 —
+ * 서버가 시스템 편지에 발신자 id 를 채워 보내도 닉네임·답장·차단이 붙지 않게 판별을 여기 한 곳에 둔다.
+ * 옛 서버가 kind 를 무시하고 돌려준 친구 항목(kind 없음·발신자 있음)은 시스템 편지가 아니다.
+ */
+export const isSystemLetter = (l: Pick<LetterItem, 'kind' | 'counterpartUserId'>) =>
+  l.kind != null || l.counterpartUserId == null;
+
+/** 시스템 편지 판별 — 상세. 기준은 {@link isSystemLetter} 와 같다(senderId 가 발신자 자리). */
+export const isSystemLetterView = (l: Pick<LetterView, 'kind' | 'senderId'>) =>
+  l.kind != null || l.senderId == null;
+
 export type MailboxMessage = {
   id: string;
   clientMessageId: string;

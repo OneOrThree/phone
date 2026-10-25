@@ -23,6 +23,8 @@ import {
 } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/letters', () => ({
+  // 시스템 편지 판별 헬퍼(isSystemLetter·isSystemLetterView)는 실제 구현을 쓴다.
+  ...jest.requireActual('@/services/api/letters'),
   getMailboxScreen: jest.fn(),
   listLetters: jest.fn(),
   listSystemLetters: jest.fn(),
@@ -514,6 +516,25 @@ test('시스템 편지 — 로드 때 kind=system 을 함께 읽어 systemLetter
   assert.equal(listSystemMock.mock.calls.length, 1);
   // 친구 편지 목록은 묶음(/screens/mailbox) 그대로 — /letters 는 부르지 않는다.
   assert.equal(listLettersMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('시스템 편지 — kind 가 있으면 counterpartUserId 가 채워져 있어도 시스템 편지로 받는다', async () => {
+  // 서버가 시스템 편지에 발신자 id 를 채워 보내도 버리지 않는다. kind 없는 옛 친구 항목은 여전히 걸러진다.
+  listSystemMock.mockResolvedValue(
+    slice([
+      systemItem({ counterpartUserId: 'u9', counterpartNickname: '방장' }),
+      letterItem({ id: 'friend-in-system' }),
+    ]),
+  );
+
+  const hook = await mount();
+
+  await waitFor(() => assert.equal(hook.result.current.systemLetters.length, 1));
+  assert.deepEqual(
+    hook.result.current.systemLetters.map((l) => l.id),
+    ['sys-1'],
+  );
   await hook.unmount();
 });
 

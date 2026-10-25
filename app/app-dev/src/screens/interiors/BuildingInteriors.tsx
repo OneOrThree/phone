@@ -48,6 +48,7 @@ import {
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { isSystemLetter, isSystemLetterView } from '@/services/api/letters';
 import { errorTextOr, localized, t } from '@/i18n';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { Btn, NavBtn } from '@/design-system/patterns';
@@ -7670,23 +7671,29 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       : letterFriends;
   // 섬 시스템 편지(GROMO-2275)를 친구 편지와 한 목록에 최신순으로 섞는다. sort 는 안정 정렬이라
   // 서버가 이미 최신순으로 준 친구 편지끼리의 순서는 그대로다. 안 읽음 수는 친구 편지만 센다(아래).
+  const mergedLetters = useMemo(
+    () =>
+      [...mail.systemLetters, ...mail.letters].sort(
+        (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+      ),
+    [mail.systemLetters, mail.letters],
+  );
   const letters: LetterView[] = serverMail
-    ? [...mail.systemLetters, ...mail.letters]
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-        .map((l) => ({
+    ? mergedLetters.map((l) => {
+        // 시스템 편지는 발신자 id 가 채워져 와도 친구가 아니다 — 닉네임·섬·답장·차단을 붙이지 않는다.
+        const system = isSystemLetter(l);
+        return {
           id: l.id,
-          friendId: l.counterpartUserId,
-          from:
-            l.counterpartUserId === null
-              ? t('mailbox.systemSender')
-              : (l.counterpartNickname ?? '알 수 없음'),
-          island: friendIsland(l.counterpartUserId),
+          friendId: system ? null : l.counterpartUserId,
+          from: system ? t('mailbox.systemSender') : (l.counterpartNickname ?? '알 수 없음'),
+          island: system ? '' : friendIsland(l.counterpartUserId),
           color: l.catColor ?? null,
           outfit: appearanceOutfit(l.appearance),
           time: letterTime(Date.parse(l.createdAt), now),
           body: l.content,
           isRead: l.isRead,
-        }))
+        };
+      })
     : state
       ? unreadLetters(state).map(({ friend, letter }) => ({
           id: letter.id,
@@ -7703,12 +7710,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     ? mail.detail && mail.detail.id === e?.detail
       ? {
           id: mail.detail.id,
-          friendId: mail.detail.senderId,
-          from:
-            mail.detail.senderId === null
-              ? t('mailbox.systemSender')
-              : (mail.detail.senderNickname ?? '알 수 없음'),
-          island: friendIsland(mail.detail.senderId),
+          friendId: isSystemLetterView(mail.detail) ? null : mail.detail.senderId,
+          from: isSystemLetterView(mail.detail)
+            ? t('mailbox.systemSender')
+            : (mail.detail.senderNickname ?? '알 수 없음'),
+          island: isSystemLetterView(mail.detail) ? '' : friendIsland(mail.detail.senderId),
           color: mail.detail.catColor ?? null,
           outfit: appearanceOutfit(mail.detail.appearance),
           time: letterTime(Date.parse(mail.detail.createdAt), now),

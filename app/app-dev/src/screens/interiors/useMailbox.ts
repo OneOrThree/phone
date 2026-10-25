@@ -28,8 +28,8 @@
  * 노력이라 기다리지 않는다: 묶음·받은/보낸 목록을 먼저 적용하고 시스템 편지는 뒤따라
  * 같은 세션·세대(epoch/generation) 검증을 거쳐 반영하므로, 느리거나 실패해도 친구 우체통·
  * 닫기·발송을 막지 않는다(재조회 실패는 이전 값 유지). 닫기가 확정된 시스템 편지는 재조회
- * 결과와 무관하게 바로 뺀다. kind 를 모르는 옛 서버가 친구함을 돌려줘도 발신자 없는
- * (counterpartUserId == null) 항목만 받는다.
+ * 결과와 무관하게 바로 뺀다. kind 를 모르는 옛 서버가 친구함을 돌려줘도 시스템 편지(kind 가
+ * 있거나 발신자가 없는 항목, isSystemLetter)만 받는다.
  *
  * 권한 상실(401/403)이 읽기 경로에서 오면 화면 캐시(편지·낙서·친구·상세)를 지운다 —
  * 권한을 잃은 뒤 캐시된 편지가 다시 보이면 안 된다. 상세의 403/404 는 그 편지의
@@ -43,6 +43,8 @@ import {
   closeLetter as delLetter,
   getLetter,
   getMailboxScreen,
+  isSystemLetter,
+  isSystemLetterView,
   listIslandMessages,
   listLetters,
   listSystemLetters,
@@ -115,10 +117,10 @@ const EMPTY: MailboxState = {
 const authLost = (error: unknown) =>
   error instanceof ApiError && (error.status === 401 || error.status === 403);
 
-/** 시스템 편지 최선 노력 조회 — 실패(또는 모양 불일치)는 null, 발신자 있는 항목은 버린다. */
+/** 시스템 편지 최선 노력 조회 — 실패(또는 모양 불일치)는 null, 시스템 편지가 아닌 항목(옛 서버의 친구 항목)은 버린다. */
 const fetchSystemLetters = async (): Promise<LetterItem[] | null> => {
   try {
-    return (await listSystemLetters()).content.filter((l) => l.counterpartUserId == null);
+    return (await listSystemLetters()).content.filter(isSystemLetter);
   } catch {
     return null;
   }
@@ -395,8 +397,10 @@ export function useMailbox({
         }
         // 닫기가 확정된 시스템 편지는 재조회 결과(실패 포함)와 무관하게 바로 뺀다 — 재조회가
         // 실패해도 닫은 편지가 되살아나 눌렀다가 404 가 나지 않게.
-        if (alive(e, generation))
+        if (alive(e, generation)) {
+          systemSeq.current += 1; // 이미 떠 있는 옛 조회 응답이 방금 뺀 편지를 되살리지 못하게 이 줄이 직접 올린다.
           set({ systemLetters: stateRef.current.systemLetters.filter((l) => l.id !== letterId) });
+        }
         await refreshLetters(e, generation);
         if (stateRef.current.detail?.id === letterId) set({ detail: null });
       } finally {
@@ -635,8 +639,11 @@ export function useMailbox({
   ]);
 
   const visibleState = useMemo(() => {
+    // 시스템 편지는 목록처럼 차단 판정 밖이다(발신자 id 가 채워져 와도 사람의 편지가 아니다).
     const counterpart = (detail: LetterView) =>
-      (detail.senderId === state.myId ? detail.receiverId : detail.senderId) ?? '';
+      isSystemLetterView(detail)
+        ? ''
+        : ((detail.senderId === state.myId ? detail.receiverId : detail.senderId) ?? '');
     if (active && blockedUsers.status !== 'ready') {
       const blockedListError =
         blockedUsers.status === 'error'
