@@ -2097,6 +2097,11 @@ export function Hall({ e }: any) {
       return;
     }
     if (liveManagement) {
+      // 서버 섬 id 가 오기 전엔 서버 호출 없이 성공 알림만 뜨지 않게 진입 전에 막는다(GROMO-2460)
+      if (!liveIslandId) {
+        notify('섬 정보를 확인하고 있어요.\n잠시 뒤 다시 시도해 주세요.');
+        return;
+      }
       // 서버 모드(4-06): 확인창은 서버 섬 이름·주민 수로, 탈퇴는 서버 명령으로 보낸다.
       // 탈퇴 뒤 어느 섬이 current 가 될지는 서버 재조회가 정한다 — 이동 목적지를 약속하지 않는다.
       const liveSolo = (management.members?.length ?? 0) <= 1;
@@ -2109,7 +2114,6 @@ export function Hall({ e }: any) {
         danger: true,
         onOk: () =>
           void runManagement(async () => {
-            if (!liveIslandId) return;
             const my = await e.islands.leave(liveIslandId);
             // 재조회한 current 가 응답보다 최신이라 먼저 본다 — 다른 섬이 current 면 홈. current 가 비고 서버가
             // 먼바다라고 했으면 바다로(GROMO-2366), 다음 위치를 모르면(구 응답) App 이 보낸다.
