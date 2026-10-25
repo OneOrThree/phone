@@ -7,6 +7,7 @@ import com.oneorthree.phone.appearance.service.CustomizationRewardService;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.ActiveInterval;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusSummaryView;
@@ -163,12 +164,19 @@ public class FocusSessionLifecycleService {
         String subject = validateSubject(body == null ? null : body.subject());
         Integer targetMinutes = validateTargetMinutes(body == null ? null : body.targetMinutes());
         UUID islandId = requireIslandId(body == null ? null : body.islandId());
+        // 범위는 FocusSeat 가 만들어질 때 이미 걸렀다(본문 파서 → 400 INVALID_REQUEST).
+        FocusSeat seat = body == null ? null : body.seat();
 
         // targetMinutes 는 선택이라 null 일 수 있다 — Map.of 는 null 값을 못 담는다.
         Map<String, Object> fingerprint = new LinkedHashMap<>();
         fingerprint.put("islandId", islandId.toString());
         fingerprint.put("subject", subject);
         fingerprint.put("targetMinutes", targetMinutes);
+        if (seat != null) {
+            // 자리 없는 시작은 키를 넣지 않는다 — 지문은 «키 없음»과 null 을 가르므로, 넣으면 GROMO-2477 배포 전에 받은
+            // receipt 를 같은 키로 재시도할 때 같은 요청이 충돌(409)로 바뀐다.
+            fingerprint.put("seat", seat);
+        }
         return startSession(userId, "POST:/focus-sessions:" + userId, idempotencyKey, tree(fingerprint), user -> {
             UserIslandContext context = userIslandContextLockService.lock(user);
             if (context.getCurrentIslandId() == null || !context.getCurrentIslandId().equals(islandId)) {
@@ -177,7 +185,7 @@ public class FocusSessionLifecycleService {
             // context → 섬 → 멤버십 — 섬 소속 경로(IslandMembershipService)와 같은 방향이다.
             GroupMember membership = requireLockedMembership(userId, islandId);
             return new StartPlan(FocusSessionKind.ISLAND, islandId, membership.getMembershipEpoch(), subject,
-                    targetMinutes, null);
+                    targetMinutes, null, seat);
         });
     }
 
@@ -207,7 +215,7 @@ public class FocusSessionLifecycleService {
                             .orElseThrow(() -> new FocusException(FocusErrorCode.SEA_DESTINATION_UNAVAILABLE));
                     // 바다 세션은 주제가 없다 — 열이 NOT NULL 이라 빈 문자열이다(탈퇴 익명화와 같은 관례).
                     return new StartPlan(FocusSessionKind.SEA, destination, null, "", item.sailingMinutes(),
-                            item.sailingMinutes());
+                            item.sailingMinutes(), null);
                 });
     }
 
@@ -216,9 +224,10 @@ public class FocusSessionLifecycleService {
      *
      * @param membershipEpoch 섬 세션만. 바다 세션은 null
      * @param sailingMinutes  바다 세션만
+     * @param seat            섬 세션만, 선택(GROMO-2477). 바다 세션은 null
      */
     private record StartPlan(FocusSessionKind kind, UUID islandId, Long membershipEpoch, String subject,
-                             Integer targetMinutes, Integer sailingMinutes) {
+                             Integer targetMinutes, Integer sailingMinutes, FocusSeat seat) {
     }
 
     /**
@@ -268,6 +277,8 @@ public class FocusSessionLifecycleService {
                             .sailingMinutes(startPlan.sailingMinutes())
                             .subject(startPlan.subject())
                             .targetMinutes(startPlan.targetMinutes())
+                            .seatX(startPlan.seat() == null ? null : startPlan.seat().x())
+                            .seatY(startPlan.seat() == null ? null : startPlan.seat().y())
                             .lifecycle(FocusSessionLifecycle.ACTIVE)
                             .version(1L)
                             .lastTransitionAt(now)
@@ -305,7 +316,7 @@ public class FocusSessionLifecycleService {
                                 startPlan.sailingMinutes(), now);
                     } else {
                         events = focusPresenceProjection.progressing(userId, startPlan.islandId(), view, null,
-                                session.getPresenceOrder());
+                                startPlan.seat(), session.getPresenceOrder());
                     }
                     return new PublicCommandResult(201, tree(view), tree(events));
                 }).value().data();
@@ -399,7 +410,7 @@ public class FocusSessionLifecycleService {
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), now,
                             detail.getVersion(), activeIntervals, FocusSessionView.KIND_ISLAND, null);
                     return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
-                            userId, detail.getIslandId(), view, restSeat, presenceOrderOf(sessionId))));
+                            userId, detail.getIslandId(), view, restSeat, seatOf(detail), presenceOrderOf(sessionId))));
                 }).value().data();
         return decode(data, FocusSessionView.class);
     }
@@ -455,7 +466,7 @@ public class FocusSessionLifecycleService {
                             detail.getVersion(), activeIntervals, FocusSessionView.KIND_ISLAND, null);
                     // active 전이는 rest 목록에서 제거를 뜻한다 — restStartedAt/restSeat=null(LLD §6).
                     return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
-                            userId, detail.getIslandId(), view, null, presenceOrderOf(sessionId))));
+                            userId, detail.getIslandId(), view, null, seatOf(detail), presenceOrderOf(sessionId))));
                 }).value().data();
         return decode(data, FocusSessionView.class);
     }
@@ -1045,6 +1056,11 @@ public class FocusSessionLifecycleService {
      */
     private Long presenceOrderOf(UUID sessionId) {
         return focusSessionRepository.findPresenceOrderById(sessionId).orElse(null);
+    }
+
+    /** 시작 때 저장한 집중섬 자리 — pause/resume 사건도 같은 자리를 싣는다(앱은 사건마다 행을 다시 만든다). */
+    private static FocusSeat seatOf(FocusSessionDetail detail) {
+        return FocusSeat.of(detail.getSeatX(), detail.getSeatY());
     }
 
     private static String validateSubject(String subject) {

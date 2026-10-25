@@ -123,6 +123,17 @@ public class FocusSessionDetail {
     private Integer restSeat;
 
     /**
+     * 집중섬에서 앉은 자리 — 시작 때 앱이 고른 지도 % 좌표(V1, GROMO-2477). 시작 후 불변이고, 자리 없이 시작한
+     * 세션(옛 앱·바다 세션)은 둘 다 null 이다(CHECK {@code focus_session_details_seat_ck}). 모닥불 자리
+     * {@link #restSeat} 와 별개다.
+     */
+    @Column(name = "seat_x")
+    private Double seatX;
+
+    @Column(name = "seat_y")
+    private Double seatY;
+
+    /**
      * 적립 틱이 <b>판정을 마친</b> 순수 집중 초 (V82, GROMO-1990). 언제나
      * {@code secondsPerFish} 의 배수이고, 하루 상한에 걸려 실제로는 못 받은 몫도 여기에 포함된다 —
      * 그래야 자정에 상한이 풀릴 때 어제 깎인 몫이 한꺼번에 터지지 않는다.
