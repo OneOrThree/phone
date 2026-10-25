@@ -7666,7 +7666,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           .map((f) => ({ id: f.id, name: f.name, island: f.island, color: f.color }))
       : letterFriends;
   // 섬 시스템 편지(GROMO-2275)를 친구 편지와 한 목록에 최신순으로 섞는다. sort 는 안정 정렬이라
-  // 서버가 이미 최신순으로 준 친구 편지끼리의 순서는 그대로다. 안 읽음 수는 친구 편지만 센다(아래).
+  // 서버가 이미 최신순으로 준 친구 편지끼리의 순서는 그대로다. 안 읽음 수도 둘을 함께 센다(아래, GROMO-2489).
   const mergedLetters = useMemo(
     () =>
       [...mail.systemLetters, ...mail.letters].sort(
@@ -8007,7 +8007,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           <VillageNotificationBadge
             testID="mail-home-inbox-new-indicator"
             accessibilityLabel=""
-            style={{ top: -6, right: -6 }}
+            style={{
+              top: componentTokens.mailInboxNewBadge.topOffset,
+              right: componentTokens.mailInboxNewBadge.rightOffset,
+            }}
           />
         )}
         {note ? (

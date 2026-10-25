@@ -175,11 +175,18 @@ export async function fetchMailboxUnreadCount(
   alive();
   const screen = await gated(getMailboxScreen(), alive);
   if (screen.island.id !== islandId) throw contract('mailbox.island.id');
-  // 섬 시스템 편지(강퇴·가입 승인)도 같은 기준으로 센다(GROMO-2489, 2026-10-25 재영님 결정) — 한 페이지면 된다
-  const system = await gated(listSystemLetters(), alive);
-  if (!Array.isArray(system.content)) throw contract('systemLetters');
-  if (system.content.some((item) => item && isSystemLetter(item) && item.isRead === false))
-    return 1;
+  // 섬 시스템 편지(강퇴·가입 승인)도 같은 기준으로 센다(GROMO-2489, 2026-10-25 재영님 결정) — 목록(useMailbox)과 같이 첫 페이지만 본다.
+  // 조회가 실패해도 친구 편지 배지는 살린다(목록의 best-effort 와 같음) — 세션이 바뀐 오류만 그대로 던진다
+  let systemUnread = false;
+  try {
+    const system = await gated(listSystemLetters(), alive);
+    systemUnread =
+      Array.isArray(system.content) &&
+      system.content.some((item) => item && isSystemLetter(item) && item.isRead === false);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === CLIENT_STALE_SESSION) throw error;
+  }
+  if (systemUnread) return 1;
   const ids = new Set<string>();
   const cursors = new Set<string>();
   let page: LetterSlice = screen.letters;

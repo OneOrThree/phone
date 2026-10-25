@@ -11,7 +11,7 @@ import {
 import { getMailboxScreen, listLetters, listSystemLetters } from './api/letters';
 import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
 import { clearSession, saveSession } from './api/session';
-import { CLIENT_STALE_SESSION } from './api/client';
+import { ApiError, CLIENT_STALE_SESSION } from './api/client';
 
 jest.mock('./api/letters', () => ({
   ...jest.requireActual('./api/letters'),
@@ -197,6 +197,44 @@ test('안 읽은 시스템 편지 1통만 있어도 우체통 배지를 세고, 
   });
   (listLetters as jest.Mock).mockResolvedValue({ content: [], hasNext: false, nextCursor: null });
   expect(await fetchMailboxUnreadCount('i:1')).toBe(0);
+});
+
+test('시스템 편지가 안 읽음이면 친구 편지 읽음 경계(readThrough)는 건드리지 않는다(GROMO-2489)', async () => {
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: { content: [{ id: 'l5', isRead: true }], hasNext: false, nextCursor: null },
+  });
+  (listSystemLetters as jest.Mock).mockResolvedValue({
+    content: [{ id: 's1', isRead: false, kind: 'KICK', counterpartUserId: null }],
+    hasNext: false,
+    nextCursor: null,
+  });
+  const readThrough = { id: 'l3' as string | null };
+  expect(await fetchMailboxUnreadCount('i:1', undefined, readThrough)).toBe(1);
+  expect(readThrough.id).toBe('l3');
+});
+
+test('시스템 편지 조회가 실패해도 친구 편지 안 읽음은 그대로 센다 — 세션이 바뀐 오류만 던진다(GROMO-2489)', async () => {
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: { content: [{ id: 'l1', isRead: false }], hasNext: false, nextCursor: null },
+  });
+  (listSystemLetters as jest.Mock).mockRejectedValue(new ApiError('SERVER_ERROR', '잠시 뒤', 500));
+  expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
+
+  // 모양이 계약과 달라도(배열이 아님) 친구 편지 경로로 간다
+  (listSystemLetters as jest.Mock).mockResolvedValue({ content: null, hasNext: false });
+  expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
+
+  // 시스템 편지를 기다리는 사이 로그인이 바뀌면 그대로 실패한다
+  let generation = 0;
+  (listSystemLetters as jest.Mock).mockImplementation(async () => {
+    generation += 1;
+    throw new ApiError('SERVER_ERROR', '잠시 뒤', 500);
+  });
+  await expect(fetchMailboxUnreadCount('i:1', () => generation === 0)).rejects.toMatchObject({
+    code: CLIENT_STALE_SESSION,
+  });
 });
 
 test('전부 읽음을 확인한 경계 이후에는 새로 온 편지만 확인하고 이전 페이지를 다시 돌지 않는다', async () => {
