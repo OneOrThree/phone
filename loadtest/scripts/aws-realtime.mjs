@@ -63,7 +63,7 @@ for (const user of users) {
 }
 if ([...rooms.values()].some(room => room.size > 15)) throw new Error('섬당 최대 15명: 섬 개수를 늘려야 합니다');
 const latency = [], connectLatency = [], readyLatency = [];
-let sent = 0, expected = 0, delivered = 0, duplicate = 0, errors = 0, rejected = 0;
+let plannedSends = 0, sent = 0, expected = 0, delivered = 0, duplicate = 0, errors = 0, rejected = 0;
 let frames = 0, snapshots = 0, receivedBytes = 0, sentBytes = 0, fullyDelivered = 0;
 let stopping = false, finished = false, aborted = null, peakRss = 0;
 let measurementStart = null, measurementEnd = null, eventStart = Infinity, eventEnd = Infinity;
@@ -217,7 +217,7 @@ async function finish(force = false) {
     fixtureHash: createHash('sha256').update(fixture).digest('hex'), harnessSha256,
     harnessDependenciesSha256: { 'ws-evidence.mjs': createHash('sha256').update(readFileSync(new URL('./ws-evidence.mjs', import.meta.url))).digest('hex') }, tokenRemainingSeconds, userOffset: offset,
     aborted, valid, sloPassed, p95LimitMs, eventsRequireSourceLedger: mode === 'events', limits: { maxErrors, maxInflight, maxRssMb, maxPendingMs, readyTimeoutMs },
-    sent, expectedDeliveries: expected, delivered, missing: expected - delivered, duplicate, fullyDeliveredMessages: fullyDelivered,
+    sent, plannedSends, sentShortfall: plannedSends - sent, expectedDeliveries: expected, delivered, missing: expected - delivered, duplicate, fullyDeliveredMessages: fullyDelivered,
     sendPerSecond: measurementMs ? sent / (measurementMs / 1000) : null, deliveryPerSecond: measurementMs ? delivered / (measurementMs / 1000) : null,
     goodputPerSecond: measurementMs ? fullyDelivered / (measurementMs / 1000) : null,
     shutdownCloseUnconfirmed,
@@ -246,17 +246,17 @@ try {
   if (!aborted) {
     measurementStart = performance.now(); eventStart = Date.now();
     if (mode === 'chat' || mode === 'movement') for (const [index, client] of clients.entries()) {
-      client.startTimer = setTimeout(() => {
-        client.sendTimer = setInterval(() => {
-          if (aborted || stopping || client.closed) return;
-          if (pending.size >= maxInflight) { abort('LOADGEN_INFLIGHT_LIMIT'); return; }
-          const key = mode === 'movement' ? `${client.user.userId}:${++client.seq}` : randomUUID();
-          const body = mode === 'movement' ? { commandSeq: client.seq, navRevision: client.nav, goalX: client.seq % 2 ? 38.5 : 67.5, goalY: client.seq % 2 ? 45.5 : 27.5 } : { content: `loadtest-${runId}-${key}`, clientMessageId: key };
-          const receivers = rooms.get(client.user.islandId);
-          pending.set(key, { at: performance.now(), receivers, seen: new Set() }); expected += receivers.size; sent++;
-          send(client, frame('SEND', { destination: mode === 'movement' ? `/app/islands/${client.user.islandId}/movement/intent` : `/app/groups/${client.user.islandId}/send`, 'content-type': 'application/json' }, JSON.stringify(body)));
-        }, 1000 / frequency);
-      }, index / clients.length * 1000 / frequency);
+      const tick = () => {
+        if (aborted || stopping || client.closed) return;
+        if (pending.size >= maxInflight) { abort('LOADGEN_INFLIGHT_LIMIT'); return; }
+        const key = mode === 'movement' ? `${client.user.userId}:${++client.seq}` : randomUUID();
+        const body = mode === 'movement' ? { commandSeq: client.seq, navRevision: client.nav, goalX: client.seq % 2 ? 38.5 : 67.5, goalY: client.seq % 2 ? 45.5 : 27.5 } : { content: `loadtest-${runId}-${key}`, clientMessageId: key };
+        const receivers = rooms.get(client.user.islandId);
+        pending.set(key, { at: performance.now(), receivers, seen: new Set() }); expected += receivers.size; sent++;
+        send(client, frame('SEND', { destination: mode === 'movement' ? `/app/islands/${client.user.islandId}/movement/intent` : `/app/groups/${client.user.islandId}/send`, 'content-type': 'application/json' }, JSON.stringify(body)));
+      };
+      client.startTimer = setTimeout(() => { tick(); client.sendTimer = setInterval(tick, 1000 / frequency); }, index / clients.length * 1000 / frequency);
+      plannedSends += Math.ceil(seconds * frequency - index / clients.length);
     }
     const end = measurementStart + seconds * 1000;
     while (!aborted && performance.now() < end) await sleep(Math.min(100, end - performance.now()));
