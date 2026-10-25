@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -26,6 +29,7 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 /**
  * STOMP 배선.
@@ -75,6 +79,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final OutboundAuthzCache outboundAuthzCache;
     private final MeterRegistry meterRegistry;
     private final WebSocketConnectionDiagnostics connectionDiagnostics = new WebSocketConnectionDiagnostics();
+    /** 끝난 세션의 늦은 프레임을 수신·브로커 채널 양쪽에서 버리고 보상한다 — 상태는 소켓 세션 속성에만 있다. */
+    private final EndedSessionGuard endedSessions = new EndedSessionGuard();
 
     /** 서버 heartbeat 송신 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000 과 같은 값이 기본이다. */
     @Value("${chat.websocket.heartbeat.server-ms:10000}")
@@ -183,6 +189,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.enableSimpleBroker("/topic", "/queue")
                 .setHeartbeatValue(new long[] {heartbeatServerMillis, heartbeatClientMillis})
                 .setTaskScheduler(realtimeHeartbeatScheduler());
+        // 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 여기로 다시 보낸다 — 같은 가드로 버리고 보상한다.
+        registry.configureBrokerChannel().interceptors(endedSessions);
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
@@ -210,7 +218,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
         registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
         // 끝난 세션의 늦은 CONNECT·SUBSCRIBE 를 맨 앞에서 버린다 — 포화 중 종료 DISCONNECT 가 그것들을 추월한다.
-        registration.interceptors(new EndedSessionGuard(), new RejectAsErrorFrame(), movementSubscriptions);
+        registration.interceptors(endedSessions, new RejectAsErrorFrame(), movementSubscriptions);
+    }
+
+    /**
+     * 소켓이 실제로 닫힐 때만 끝난 세션으로 표시한다. {@code StompSubProtocolHandler.afterSessionEnded} 가 종료 DISCONNECT 를
+     * 보내기 직전에 같은 스레드로 이 이벤트를 발행한다(클라이언트 DISCONNECT 프레임은 발행하지 않는다). 앞선 리스너가
+     * 던지면 뒤 리스너가 불리지 않으므로 맨 먼저 돈다.
+     */
+    @EventListener
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void markEndedSession(SessionDisconnectEvent event) {
+        EndedSessionGuard.markEnded(SimpMessageHeaderAccessor.getSessionAttributes(event.getMessage().getHeaders()));
     }
 
     /**
