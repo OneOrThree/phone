@@ -91,6 +91,9 @@ test('운영 빌드 경로(TestFlight 레인·OTA·Xcode Release 단계·Android
   expect(gradle).toContain(
     'if (includesReleaseArtifactTask && !devAudience && publicEnv == "dev") {',
   );
+  // 셸에 EXPO_PUBLIC_ENV 가 없으면 gradle 가드도 Expo 처럼 app-dev/.env 를 읽는다 — .env 의 dev 가 운영 번들에 섞이는 틈을 막는다.
+  expect(gradle).toContain('def dotenv = new File(rootDir, "../.env")');
+  expect(gradle).toContain('if (m.find()) publicEnv = m.group(1)');
 
   // fastlane beta(운영)는 EXPO_PUBLIC_ENV 를 prod 로 고정한다 — 셸에 값이 없을 때 Expo 가 .env 의 dev 를 인라인하는 틈을 막는다.
   const fastfile = read('ios/fastlane/Fastfile');
