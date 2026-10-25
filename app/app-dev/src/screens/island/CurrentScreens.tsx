@@ -1678,6 +1678,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : (i.members ?? [])
         .filter((member) => member.focusing)
@@ -2358,9 +2359,30 @@ function FocusFlow({ e: environment }: any) {
     advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
     e.reset('focusResult');
   };
-  // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
-  const minePoint =
-      s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
+  // 내 자리: 진행 중 세션은 서버가 기억한 내 seat 가 정본 — 다른 기기에서 시작한 세션을 복구하면 focusSpot 은 지난
+  // 세션 좌표다(SESSION_SYNC 는 focusSpot 을 바꾸지 않음). 내 항목은 아래 peerMembers 에서 거르므로 거르기 전에 꺼낸다.
+  // 서버 seat 가 없으면(옛 앱으로 시작) 로컬 focusSpot, 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
+  const liveSeat = s.session
+    ? live.focus.find((m) => m.userId === myId && m.sessionId === s.session?.id)?.seat
+    : null;
+  // 결과 화면·다른 기기 종료(SESSION_SYNC 가 세션을 먼저 지움)에선 서버가 내 항목을 지우므로 이번 세션에서 마지막으로
+  // 받은 seat 를 이어 쓴다. 세션 id 를 알면 일치할 때만, 모르면(세션·결과 id 없음) 그대로 — 새 세션은 자리 고르기·준비를
+  // 거치며 비운다
+  const lastServerSeat = useRef<{ sessionId: string; seat: Point } | null>(null);
+  // 서버는 0~100 범위만 검사하므로 물 위 seat 는 쓰지 않고 로컬 focusSpot/LANDING 으로 대체한다
+  if (s.session && liveSeat && onLand(fishingGrid, liveSeat))
+    lastServerSeat.current = { sessionId: s.session.id, seat: liveSeat };
+  else if (r === 'focusSetup' || r === 'fishingArrival') lastServerSeat.current = null;
+  const knownSessionId = s.session?.id ?? resultSessionId,
+    serverSeat =
+      (r === 'focus' || r === 'rest' || r === 'focusResult') &&
+      lastServerSeat.current &&
+      (knownSessionId == null || lastServerSeat.current.sessionId === knownSessionId)
+        ? lastServerSeat.current.seat
+        : null,
+    minePoint =
+      serverSeat ??
+      (s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;
@@ -2380,6 +2402,7 @@ function FocusFlow({ e: environment }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : i.members
         .filter((m) => m.focusing)
@@ -2433,6 +2456,12 @@ function FocusFlow({ e: environment }: any) {
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
     snapshotTransitions: live.snapshotTransitions,
+    // 내 자리는 이번 흐름에서 고른 뒤(준비·집중·휴식·결과)에만 비켜 준다 — 자리 고르기 중의 focusSpot 은
+    // 지난 세션 좌표라 예약하면 그 자리에 앉은 주민의 seat 가 밀려난다
+    mine:
+      r === 'focusSetup' || r === 'focus' || r === 'rest' || r === 'focusResult'
+        ? minePoint
+        : undefined,
   });
   transitionHandler.current = (transition) => {
     // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로
@@ -2785,10 +2814,11 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     if (e.focus) {
-      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다.
+      // 고른 자리(focusSpot)를 함께 보내 다른 주민 화면에도 같은 자리에 앉는다(GROMO-2478)
       setError('');
       e.focus
-        .start({ subject })
+        .start({ subject, seat: s.focusSpot })
         .then(() => {
           advanceTutorial(8, 9);
           e.go('focus');

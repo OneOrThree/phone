@@ -36,6 +36,7 @@ import {
   fishingCatchPlacement,
   fishingCatchFootprintOnLand,
   fishingPeerCatchVisible,
+  underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -368,6 +369,17 @@ test('주민 11명 이상이어도 스크린리더의 기본 빈 자리를 안�
       );
     }
   }
+});
+
+test('DEFAULT_SPOT 의 고정 물고기 더미는 바로 곁 더미 자리 고양이를 덮고, PEER_SPOTS 는 덮지 않는다', () => {
+  const { left, top } = DEFAULT_CATCH_PLACEMENT!,
+    // 더미 그림 한가운데(프레임은 고양이 크기의 1.1배)
+    pile = {
+      x: DEFAULT_SPOT.x + (left - 0.5 + 0.55) * 7.7,
+      y: DEFAULT_SPOT.y + (top - 0.90625 + 0.55) * 11.55,
+    };
+  assert.ok(underDefaultCatch(pile));
+  assert.ok(!PEER_SPOTS.some((spot) => underDefaultCatch(spot)));
 });
 
 test('숨겨진 resident 보상은 mine placement obstacle이 아니다', () => {
