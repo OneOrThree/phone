@@ -133,6 +133,23 @@ test('내 고양이 이름표는 닉네임이고 닉네임이 비면 「나」/�
   await applyLocalePref('ko');
 });
 
+test('태블릿(짧은 변 600pt 이상)에서 홈 이름표 글자는 공용 Text 의 1.25배다 (GROMO-2475)', async () => {
+  const rn = jest.requireActual('react-native');
+  const spy = jest
+    .spyOn(rn, 'useWindowDimensions')
+    .mockReturnValue({ width: 820, height: 1180, scale: 2, fontScale: 1 });
+  try {
+    const state = initialState(true);
+    state.name = '하늘';
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const text = within(screen.getByTestId('home-cat-name')).getByText('하늘');
+    expect(StyleSheet.flatten(text.props.style).fontSize).toBeCloseTo(11 * 1.25);
+    await screen.unmount();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
 test('일반 이미지 섬의 새 편지 터치 영역은 펠리컨 전체를 포함하고 팻말 위치는 유지한다', async () => {
   const state = initialState();
   state.islands.find((island) => island.id === state.islandId)!.buildings = ['mail'];

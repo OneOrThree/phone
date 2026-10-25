@@ -12,7 +12,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import {
@@ -35,6 +34,7 @@ import {
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDuration, ownCatName } from '@/i18n/format';
+import { Text } from '@/design-system/typography';
 import { nameText } from '@/screens/focus/FishingIsland';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
