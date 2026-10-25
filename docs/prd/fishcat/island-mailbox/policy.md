@@ -8,7 +8,7 @@
 
 | ID | 규칙 | 상태·근거 |
 | --- | --- | --- |
-| M01 | 섬 하나의 전체 편지방. 현재 주민·우체통 완공 필요, 방문자/1:1 수신자 없음 | 원본2계약 |
+| M01 | 섬 하나의 전체 편지방. 현재 주민이면 우체통 완공 여부와 무관하게 이용. 방문자/1:1 수신자 없음. 일반 편지 받은함·상세의 시설 게이트는 유지 | 티켓 2498 · 2026-10-25 |
 | M02 | 새 GET/POST /islands/{islandId}/messages는 Business 공개 ingress, 메시지 정본은 기존 gromo_chat | DB 공유/메시지 Data 복제 금지. realtime 개명과 DB이름 변경은 별개 |
 | M03 | 기존 /api/v1/chat·/ws/chat와 STOMP SEND wire 유지 | 사용자 기존경로 보존. 새 POST가 이미 배포됐다는 뜻 아님 |
 | M04 | clientMessageId는 UUID36자, v4/v7 생성 권고. actor+island+키로 저장1회 | 원본 local-1은 목업. 공통1750, DB UNIQUE 재사용 |
