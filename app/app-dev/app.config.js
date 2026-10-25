@@ -27,8 +27,8 @@ module.exports = {
       },
       fallbackToCacheTimeout: 0,
       enableBsdiffPatchSupport: true,
-      // 정적 이미지·오디오는 네이티브 바이너리에만 포함한다.
-      // OTA는 JS 중심으로 배포하고 새 에셋 참조는 assets:verify로 검사한다.
+      // `src/assets/ota/**` 만 OTA 업데이트에 싣는다. 그 밖의 에셋은 바이너리에만 있으니
+      // 새 그림은 ota/ 아래에 둔다(README 「문구·이미지 추가 규칙」). 자동 검사는 없다.
       assetPatternsToBeBundled: ['src/assets/ota/**/*'],
     },
     extra: {

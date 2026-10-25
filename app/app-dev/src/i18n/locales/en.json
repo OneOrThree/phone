@@ -273,7 +273,6 @@
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
       "submit": "Create Island",
-      "capacityRangeError": "Capacity must be between {{min}} and {{max}}.",
       "doneTitle": "Island Created!",
       "doneSub": "\"{{island}}\" is now your island.",
       "nameLabel": "Island Name",
