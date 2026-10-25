@@ -92,7 +92,7 @@ public class IslandPromotionService {
      *
      * <p>값을 바꾸면 함께 갱신한다 — 앱 {@code app/app-dev/src/i18n/locales/{ko,en}.json} 의
      * {@code magazine.news.promotion}·{@code magazine.news.promotionYesterday}·{@code magazine.news.promotionRow}
-     * (문구에 60 이 박혀 있다), 앱 {@code src/services/api/magazineMock.ts} 의 body 문자열과 {@code feeFish: 60},
+     * (문구에 60 이 박혀 있다), 앱 {@code src/services/api/magazineMock.ts} 의 body 문자열·{@code feeFish: 60}·잔액 차감(60),
      * 서버 테스트 {@code IslandPromotionIntegrationTest}·{@code IslandNewsV116MigrationTest}, business-api
      * {@code IslandPromotionContractTest} 의 문구.
      */
