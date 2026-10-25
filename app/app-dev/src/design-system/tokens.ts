@@ -184,6 +184,8 @@ export const semanticTokens = {
     semibold: fontWeight.semibold,
     bold: fontWeight.bold,
     extraBold: fontWeight.extraBold,
+    // 시스템 글자 배율이 이 값 이상이면 큰 글자 배치 — 각 사용처가 `>=` 로 비교한다(결과창·온보딩만 `>`, GROMO-2281). raftDestinations 의 1.2 는 다른 판정.
+    largeTextThreshold: 1.3,
   },
   radius: {
     control: radius.control,
@@ -463,7 +465,6 @@ export const componentTokens = {
     contentPaddingLeft: space[4],
     contentPaddingRight: space[12],
     largeTextContentPaddingRight: space[16],
-    largeTextThreshold: 1.3,
     backWidth: 184,
     backFarInsetLeft: 10,
     backFarInsetTop: space[3],
@@ -526,7 +527,6 @@ export const componentTokens = {
     recordSize: 112,
     controlWidth: 60,
     rowMinHeight: semanticTokens.size.tapMin,
-    largeTextThreshold: 1.3,
     // 글자 크기 단계(DESIGN §5.2) — 현재 곡 제목 lg · 부제 xs, 곡 행 이름 sm · 상태(무료·보유·재생 중) xs
     titleText: { fontSize: fontSize.lg, lineHeight: 24 },
     captionText: { fontSize: fontSize.xs, lineHeight: 16 },
@@ -535,14 +535,13 @@ export const componentTokens = {
     // 현재 곡 칸 = 제목 줄 24 + 부제 줄 16
     currentTrackMinHeight: 40,
   },
-  // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
+  // 망원경(GROMO-2266) — 큰 글자(semanticTokens.typography.largeTextThreshold 이상)면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
   // ribbonTilt(GROMO-2273) — 잡지에서 넣은 섬에 붙이는 「찜」 리본이 마스킹테이프처럼 살짝 기울어 붙은 각도
   // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874 · GROMO-2414 확대). 섬 칸 146 안에 섬 그림 126 을 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
   // 칸 폭은 알약이 더 길면 알약을 따라 늘어(최대 pillMaxWidth) 서로 겹치지 않는다. 홀수 번째 섬은 stagger 만큼 낮다.
   // 짝수 번째 섬 칸 위쪽이 수평선보다 horizonGap 위에 오게 띠를 둔다 — 섬 그림이 수평선에 걸쳐 하늘 쪽으로 솟아 빈 하늘이 줄어든다.
   // 뗏목 고양이는 안전 영역 안쪽 오른쪽 아래(시안 아래 84 = 홈 인디케이터 34 + 50).
   telescope: {
-    largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
     islandBox: 146,
     islandArtWidth: 126,
@@ -555,8 +554,7 @@ export const componentTokens = {
     ribbonOffset: { left: -4, top: -6 },
     raft: { width: 200, right: 26, bottom: 50 },
   },
-  // 우리 섬 홍보 쓰기(GROMO-2289 C1) — 칸 틀 견본·스티커 서랍 칸·고른 꾸미기 손잡이·서랍 최소 높이. 글자 배율이 largeTextThreshold
-  // 이상이면 아래 고정 줄의 [새로 꾸미기]·[잡지에 싣기]를 세로로 쌓고 버튼 높이를 글자에 맞춘다(망원경과 같은 판정).
+  // 우리 섬 홍보 쓰기(GROMO-2289 C1) — 칸 틀 견본·스티커 서랍 칸·고른 꾸미기 손잡이·서랍 최소 높이.
   promotionEditor: {
     headerHeight: 52,
     frameTileWidth: 64,
@@ -568,7 +566,6 @@ export const componentTokens = {
     selectionRadius: 6,
     handleSize: 18,
     drawerMinHeight: 140,
-    largeTextThreshold: 1.3,
   },
   // 우체통 첫 화면의 행동 버튼(잡지 보기 · 잡지 꽂이, GROMO-2289) — 편지 칸과 같은 짙은 나무 테·바닥 그림자를
   // 쓰고 바탕만 역할 색이다. 우체통 장면 팔레트가 바뀌면 여기 한 곳을 고친다.
@@ -620,8 +617,6 @@ export const componentTokens = {
     navHeight: 30,
     // 표지 띠·쪽 번호는 속지 그림의 정해진 자리에 놓여 큰 글자에서도 이 배율까지만 키운다(칸 글자 P12 와 같은 이유)
     fixedTextMaxScale: 1.3,
-    // 글자 배율이 이 값 이상이면 편집부 섬 줄의 숫자(평균·주민)를 이름 아래로 내린다
-    largeTextThreshold: 1.3,
     pageNumberMinWidth: 56,
     closeArt: 36,
     // 닫기 버튼(44)이 속지 오른쪽 위 모서리에 걸치는 만큼

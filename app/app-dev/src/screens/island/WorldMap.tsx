@@ -2417,7 +2417,7 @@ function FinalIslandScene({
     hudAvailable = Math.max(0, L.width - hudLeft - hudRight),
     hudMax = visiting ? Math.min(L.width / 2, hudAvailable) : hudAvailable,
     // 구경 중 하단 「다시 바다로」·가입 버튼(GROMO-2405) — 큰 글자(1.3배 이상)면 세로로 쌓고, 가로일 때만 폭을 나눈다
-    stackedActions = (L.fontScale ?? 1) >= 1.3,
+    stackedActions = (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold,
     actionStyle = stackedActions ? undefined : { flex: 1 },
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =

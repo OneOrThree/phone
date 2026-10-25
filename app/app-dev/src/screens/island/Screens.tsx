@@ -2632,7 +2632,7 @@ export function RedesignScreens({ e }: any) {
           ...ownedTrackIds,
           ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
         ];
-    const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
+    const largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
     const dialogProduct = soundDialog?.product;
     const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
       if (!server) {
@@ -4388,7 +4388,7 @@ export function RedesignScreens({ e }: any) {
         // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
         joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
         // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
-        largeText = (layout.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
+        largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
       return (
         <IslandSheet
           bg="tower"
@@ -5732,7 +5732,8 @@ export function RedesignScreens({ e }: any) {
       onReject: () => void,
       safetyMenu?: React.ReactNode,
     ) => {
-      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      const stacked =
+        !!safetyMenu && layout.fontScale >= semanticTokens.typography.largeTextThreshold;
       return (
         <View
           testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
