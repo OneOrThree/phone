@@ -51,6 +51,7 @@ import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { isSystemLetter, isSystemLetterView } from '@/services/api/letters';
 import { errorTextOr, localized, t } from '@/i18n';
 import { josa } from '@/i18n/format';
+import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { Btn, NavBtn } from '@/design-system/patterns';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
@@ -7948,9 +7949,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     </Pressable>
   );
 
+  // 안 읽음 수는 친구 편지 + 섬 시스템 편지(강퇴·가입 승인)를 함께 센다 — 지도 배지·「새 편지 N통」·목록 「아직 열지 않은 편지 N통」 모두 같은 기준(GROMO-2489)
   const newChat = serverMail ? 0 : island ? newChatCount(island) : 7,
     newLetters = serverMail
-      ? mail.letters.filter((l) => !l.isRead).length
+      ? [...mail.letters, ...mail.systemLetters].filter((l) => !l.isRead).length
       : state
         ? letters.length
         : 3;
@@ -7976,7 +7978,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         key={title}
         testID={`mail-home-${i}`}
         accessibilityRole="button"
-        accessibilityLabel={`${title} 열기`}
+        accessibilityLabel={
+          i === 1 && newLetters
+            ? t('home.door.inboxNewLetters', { count: newLetters })
+            : `${title} 열기`
+        }
         onPress={() => go(routes[i], `${title}을 열었어요`)}
         style={[
           {
@@ -7996,6 +8002,14 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         ]}
       >
         <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>{title}</Text>
+        {/* 받은 편지 칸 모서리의 새 소식 배지 — 지도 우체통과 같은 느낌표(GROMO-2489). 읽는 이름은 칸의 라벨이 맡는다 */}
+        {i === 1 && newLetters > 0 && (
+          <VillageNotificationBadge
+            testID="mail-home-inbox-new-indicator"
+            accessibilityLabel=""
+            style={{ top: -6, right: -6 }}
+          />
+        )}
         {note ? (
           <Text
             style={[mailFont(6.5, 1.35, '#705b4e', '700'), { marginTop: 2, textAlign: 'center' }]}
@@ -8388,7 +8402,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       <Text style={mailFont(8, 1.4, '#826c5b', '800')}>{label}</Text>
     </View>
   );
-  const unreadCount = serverMail ? mail.letters.filter((l) => !l.isRead).length : letters.length;
+  const unreadCount = serverMail
+    ? [...mail.letters, ...mail.systemLetters].filter((l) => !l.isRead).length
+    : letters.length;
   const inbox: Pane = {
     head: header('받은 편지', `아직 열지 않은 편지 ${unreadCount}통`),
     body:

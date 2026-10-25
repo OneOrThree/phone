@@ -443,6 +443,7 @@
     },
     "door": {
       "mailNewLetter": "Mailbox, you have a new letter from a friend.",
+      "inboxNewLetters": "Open received letters, {{count}} new",
       "mailNewMagazine": "Mailbox, a new cat magazine arrived.",
       "newComment": "{{label}}, there's a new comment.",
       "unreadNotice": "{{label}}, there's an unread notice.",

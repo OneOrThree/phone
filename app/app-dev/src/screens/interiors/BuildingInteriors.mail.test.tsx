@@ -453,23 +453,50 @@ test('회귀 — 친구 편지 상세는 답장 버튼과 「민지 더보기」
   await ui.unmount();
 });
 
-test('회귀 — 안 읽은 시스템 편지가 있어도 안 읽음 수는 친구 편지만 센다', async () => {
-  // 안 읽은 시스템 편지 1 + 안 읽은 친구 편지 1 + 읽은 친구 편지 1 → 친구 기준 1통
+test('안 읽음 수는 친구 편지 + 시스템 편지를 함께 센다(GROMO-2489)', async () => {
+  // 안 읽은 시스템 편지 1 + 안 읽은 친구 편지 1 + 읽은 친구 편지 1 → 2통, 행은 3개
   screenMock.mockResolvedValue(
     screen([letterItem(), letterItem({ id: 'letter-2', isRead: true, content: '읽은 편지' })]),
   );
   listSystemMock.mockResolvedValue(slice([systemItem()]));
   const inbox = await renderMail(makeE());
 
-  await waitFor(() => assert.ok(inbox.getByText('아직 열지 않은 편지 1통')));
+  await waitFor(() => assert.ok(inbox.getByText('아직 열지 않은 편지 2통')));
   assert.equal(inbox.getAllByTestId(/^received-letter-/).length, 3);
   await inbox.unmount();
 
-  // 첫 화면 「새 편지 N통」도 같다.
+  // 첫 화면 「새 편지 N통」도 같은 기준이고, 받은 편지 칸 모서리에 느낌표 배지가 붙는다
   const home = await renderMail(makeE({ tab: '' }));
-  await waitFor(() => assert.ok(home.getByText('새 편지 1통')));
-  expect(home.queryByText('새 편지 2통')).toBeNull();
+  await waitFor(() => assert.ok(home.getByText('새 편지 2통')));
+  assert.ok(home.getByTestId('mail-home-inbox-new-indicator', { includeHiddenElements: true }));
+  assert.equal(
+    home.getByTestId('mail-home-1').props.accessibilityLabel,
+    '받은 편지 열기, 새 편지 2통',
+  );
   await home.unmount();
+});
+
+test('시스템 편지 1통만 안 읽어도 받은 편지 칸 배지·「새 편지 1통」이 뜨고, 읽으면 사라진다(GROMO-2489)', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  const unread = await renderMail(makeE({ tab: '' }));
+  await waitFor(() => assert.ok(unread.getByText('새 편지 1통')));
+  assert.ok(unread.getByTestId('mail-home-inbox-new-indicator', { includeHiddenElements: true }));
+  assert.equal(
+    unread.getByTestId('mail-home-1').props.accessibilityLabel,
+    '받은 편지 열기, 새 편지 1통',
+  );
+  await unread.unmount();
+
+  // 마지막 안 읽은 편지(시스템)를 읽은 뒤 — 배지·새 편지 줄이 없고 라벨은 평소대로
+  listSystemMock.mockResolvedValue(slice([systemItem({ isRead: true })]));
+  const read = await renderMail(makeE({ tab: '' }));
+  await waitFor(() => assert.ok(read.getByTestId('mail-home-1')));
+  await waitFor(() => assert.equal(listSystemMock.mock.calls.length >= 2, true));
+  expect(read.queryByText(/새 편지 \d+통/)).toBeNull();
+  expect(read.queryByTestId('mail-home-inbox-new-indicator')).toBeNull();
+  assert.equal(read.getByTestId('mail-home-1').props.accessibilityLabel, '받은 편지 열기');
+  await read.unmount();
 });
 
 test('편지 더보기의 차단은 유지하고 개별 신고 메일은 열지 않는다', async () => {

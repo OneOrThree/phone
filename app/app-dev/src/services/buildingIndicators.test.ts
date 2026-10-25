@@ -8,12 +8,17 @@ import {
   loadLibrarySeen,
   saveLibrarySeen,
 } from './buildingIndicators';
-import { getMailboxScreen, listLetters } from './api/letters';
+import { getMailboxScreen, listLetters, listSystemLetters } from './api/letters';
 import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
 import { clearSession, saveSession } from './api/session';
 import { CLIENT_STALE_SESSION } from './api/client';
 
-jest.mock('./api/letters', () => ({ getMailboxScreen: jest.fn(), listLetters: jest.fn() }));
+jest.mock('./api/letters', () => ({
+  ...jest.requireActual('./api/letters'),
+  getMailboxScreen: jest.fn(),
+  listLetters: jest.fn(),
+  listSystemLetters: jest.fn(),
+}));
 jest.mock('./api/records', () => ({ getLibraryScreen: jest.fn(), getFocusStatistics: jest.fn() }));
 
 const scope = { userId: 'u:1', islandId: 'i:1' };
@@ -42,6 +47,12 @@ const library = (): LibraryScreen => ({
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  // 시스템 편지는 기본 없음 — 우체통 배지 계산이 친구 편지와 함께 센다(GROMO-2489)
+  (listSystemLetters as jest.Mock).mockResolvedValue({
+    content: [],
+    hasNext: false,
+    nextCursor: null,
+  });
   await AsyncStorage.clear();
   await clearSession();
 });
@@ -163,6 +174,29 @@ test('받은 편지 전체 페이지의 미열람 수를 센다', async () => {
   });
   expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
   expect(listLetters).toHaveBeenCalledWith('received', 'older');
+});
+
+test('안 읽은 시스템 편지 1통만 있어도 우체통 배지를 세고, 친구 편지 뒷페이지는 돌지 않는다(GROMO-2489)', async () => {
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: { content: [{ id: 'l1', isRead: true }], hasNext: true, nextCursor: 'older' },
+  });
+  (listSystemLetters as jest.Mock).mockResolvedValue({
+    content: [{ id: 's1', isRead: false, kind: 'KICK', counterpartUserId: null }],
+    hasNext: false,
+    nextCursor: null,
+  });
+  expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
+  expect(listLetters).not.toHaveBeenCalled();
+
+  // 읽은 시스템 편지는 세지 않는다 — 친구 편지 페이지를 끝까지 보고 0
+  (listSystemLetters as jest.Mock).mockResolvedValue({
+    content: [{ id: 's1', isRead: true, kind: 'KICK', counterpartUserId: null }],
+    hasNext: false,
+    nextCursor: null,
+  });
+  (listLetters as jest.Mock).mockResolvedValue({ content: [], hasNext: false, nextCursor: null });
+  expect(await fetchMailboxUnreadCount('i:1')).toBe(0);
 });
 
 test('전부 읽음을 확인한 경계 이후에는 새로 온 편지만 확인하고 이전 페이지를 다시 돌지 않는다', async () => {

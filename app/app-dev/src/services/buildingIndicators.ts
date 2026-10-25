@@ -1,7 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION } from './api/client';
 import { CLIENT_CONTRACT_ERROR } from './api/home';
-import { getMailboxScreen, listLetters, type LetterSlice } from './api/letters';
+import {
+  getMailboxScreen,
+  isSystemLetter,
+  listLetters,
+  listSystemLetters,
+  type LetterSlice,
+} from './api/letters';
 import { getLibraryScreen, type LibraryScreen } from './api/records';
 import { sessionGeneration } from './api/session';
 
@@ -169,6 +175,11 @@ export async function fetchMailboxUnreadCount(
   alive();
   const screen = await gated(getMailboxScreen(), alive);
   if (screen.island.id !== islandId) throw contract('mailbox.island.id');
+  // 섬 시스템 편지(강퇴·가입 승인)도 같은 기준으로 센다(GROMO-2489, 2026-10-25 재영님 결정) — 한 페이지면 된다
+  const system = await gated(listSystemLetters(), alive);
+  if (!Array.isArray(system.content)) throw contract('systemLetters');
+  if (system.content.some((item) => item && isSystemLetter(item) && item.isRead === false))
+    return 1;
   const ids = new Set<string>();
   const cursors = new Set<string>();
   let page: LetterSlice = screen.letters;
