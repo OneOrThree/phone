@@ -133,7 +133,7 @@ def measurement_windows(components, chat):
             if row.get('phase') == 'measurement':
                 windows.append({'component': name, 'startedAt': row.get('measurementStartAt'),
                     'endedAt': row.get('measurementEndAt'), 'measuredSeconds': row.get('measuredSeconds'),
-                    'requests': row.get('requests'), 'completedJourneys': row.get('completedJourneys'),
+                    'requests': row.get('requests'), 'completedJourneys': row.get('completedJourneys'), 'basis': 'testRunDuration',
                     'actualRps': row.get('actualRps'), 'completedTps': row.get('completedTps'),
                     'verdict': row.get('verdict')})
     if chat:
@@ -145,9 +145,11 @@ def measurement_windows(components, chat):
             'sendPerSecond': chat.get('sendPerSecond'), 'deliveryPerSecond': chat.get('deliveryPerSecond'),
             'valid': chat.get('valid'), 'sloPassed': chat.get('sloPassed')})
     known = len(windows) == 3 and all(w['startedAt'] and w['endedAt'] for w in windows)
-    start = max(w['startedAt'] for w in windows) if known else None
-    end = min(w['endedAt'] for w in windows) if known else None
-    overlap = max(0, (dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)).total_seconds()) if known else None
+    # ISO 문자열 사전순 비교는 소수부 유무·오프셋 표기가 섞이면 틀리므로 파싱한 뒤 비교한다.
+    parse = lambda value: dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    start = max((w['startedAt'] for w in windows), key=parse) if known else None
+    end = min((w['endedAt'] for w in windows), key=parse) if known else None
+    overlap = max(0, (parse(end) - parse(start)).total_seconds()) if known else None
     return {'measurementWindows': windows, 'commonMeasurementStartAt': start,
             'commonMeasurementEndAt': end, 'commonMeasurementOverlapSeconds': overlap,
             'commonWindowThroughput': None,
