@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
@@ -23,6 +24,7 @@ import com.oneorthree.phone.internal.scheduler.FocusRewardScheduler;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandEconomyReadService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -33,6 +35,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.test.annotation.DirtiesContext;
@@ -89,7 +92,8 @@ class FocusSessionActivationIntegrationTest {
                 "POST /internal/users/*/focus-sessions/*/finish",
                 "GET /internal/users/*/focus-sessions/pending-result",
                 "POST /internal/users/*/focus-sessions/*/acknowledge",
-                "GET /internal/users/*/focus-summary");
+                "GET /internal/users/*/focus-summary",
+                "GET /internal/islands/*/focus-members");
         for (int i = 0; i < allow.size(); i++) {
             String rule = allow.get(i);
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> rule);
@@ -305,6 +309,109 @@ class FocusSessionActivationIntegrationTest {
                 + "and params->>'sessionId'=? and params->>'status'='active' "
                 + "and params->'restSeat'='null'::jsonb and params->'restStartedAt'='null'::jsonb",
                 started.id().toString())).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- 집중섬 자리(GROMO-2477)
+
+    @Test
+    @DisplayName("seat 를 보내 시작하면 상세에 그대로 저장되고 focus-members·focus 사건(start·pause)에 같은 좌표가 실린다")
+    void seatIsStoredAndSharedThroughMembersAndEvents() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자리섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        String started = call(post("/internal/users/" + user + "/focus-sessions"), user,
+                "{\"islandId\":\"" + island + "\",\"subject\":\"알고리즘\",\"seat\":{\"x\":12.5,\"y\":40.25}}")
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID sessionId = UUID.fromString(JsonPath.read(started, "$.id"));
+
+        assertThat(detailRow(sessionId)).as("반올림 없이 그대로").containsEntry("seat_x", 12.5)
+                .containsEntry("seat_y", 40.25);
+        call(get("/internal/islands/" + island + "/focus-members"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].seat.x").value(12.5))
+                .andExpect(jsonPath("$.items[0].seat.y").value(40.25));
+        String seatEvent = "select count(*) from event_outbox where type='focus.member.updated' "
+                + "and params->>'sessionId'=? and params->>'status'=? "
+                + "and params->'seat'='{\"x\":12.5,\"y\":40.25}'::jsonb";
+        assertThat(count(seatEvent, sessionId.toString(), "active")).isEqualTo(1);
+
+        // 앱은 사건마다 행을 다시 만든다 — pause 사건도 시작 때 자리를 그대로 싣는다.
+        focus.pause(user, sessionId, new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        assertThat(count(seatEvent, sessionId.toString(), "paused")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("seat 를 생략한 시작(옛 앱)은 자리 없이 저장되고 focus-members·사건에 seat:null 키가 남는다")
+    void omittedSeatKeepsANullKey() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자리없는섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        FocusSessionView started = start(user, island);
+
+        assertThat(detailRow(started.id())).containsEntry("seat_x", null).containsEntry("seat_y", null);
+        String members = call(get("/internal/islands/" + island + "/focus-members"), user, null)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(members).as("키는 항상 실린다").contains("\"seat\":null");
+        assertThat(count("select count(*) from event_outbox where type='focus.member.updated' "
+                + "and params->>'sessionId'=? and params->'seat'='null'::jsonb", started.id().toString()))
+                .isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"x\":101,\"y\":40}", "{\"x\":12.5,\"y\":-1}", "{\"x\":NaN,\"y\":40}",
+            "{\"x\":12.5}"})
+    @DisplayName("범위 밖·NaN·짝 없는 seat 는 400 INVALID_REQUEST 이고 세션을 만들지 않는다")
+    void invalidSeatIsRejected(String seat) throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("거절섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        call(post("/internal/users/" + user + "/focus-sessions"), user,
+                "{\"islandId\":\"" + island + "\",\"subject\":\"알고리즘\",\"seat\":" + seat + "}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertThat(count("select count(*) from focus_session_details where user_id=?", user)).isZero();
+    }
+
+    @Test
+    @DisplayName("자리 범위는 FocusSeat 와 DB CHECK 가 함께 막는다 — JSON 이 못 싣는 NaN·한쪽만 있는 좌표도")
+    void seatRangeIsGuardedByTheRecordAndTheCheck() {
+        assertThatThrownBy(() -> new FocusSeat(Double.NaN, 40.0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FocusSeat(100.5, 40.0)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new FocusSeat(0.0, 100.0).x()).as("경계는 포함한다").isZero();
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("제약섬", null, false, null),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+
+        for (String set : List.of("seat_x=50, seat_y=null", "seat_x='NaN', seat_y=50", "seat_x=50, seat_y=100.01")) {
+            assertThatThrownBy(() -> jdbc.update("update focus_session_details set " + set + " where session_id=?",
+                    started.id())).as(set).isInstanceOf(DataIntegrityViolationException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("멱등 지문에 seat 가 들어간다 — 같은 키·같은 자리는 재생, 같은 키·다른 자리(또는 생략)는 409")
+    void seatIsPartOfTheIdempotencyFingerprint() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("멱등자리섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID key = UUID.randomUUID();
+
+        FocusSessionView first = focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", 25, new FocusSeat(12.5, 40.25)), key);
+        assertThat(focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", 25, new FocusSeat(12.5, 40.25)), key).id())
+                .as("같은 요청 재시도는 원 결과 재생").isEqualTo(first.id());
+        assertThatThrownBy(() -> focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", 25, new FocusSeat(12.5, 40.0)), key))
+                .hasFieldOrPropertyWithValue("errorCode", OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        assertThatThrownBy(() -> focus.start(user, new FocusSessionStartCommandRequest(island, "알고리즘", 25), key))
+                .hasFieldOrPropertyWithValue("errorCode", OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
     }
 
 

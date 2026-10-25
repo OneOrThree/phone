@@ -103,19 +103,31 @@ public class IslandFocusMembersUseCase {
             @JsonProperty(required = true) List<MemberWatermarkView> watermarks) {
     }
 
+    /**
+     * @param seat 집중섬에서 앉은 자리(GROMO-2477, 지도 % 좌표) — 자리 없이 시작했거나 자리를 모르는 옛 Data 면 null,
+     *             키는 항상 실린다. 차단 중립 표시와 무관하게 그대로 둔다(집중 상태와 같은 섬 공동 표시)
+     */
     public record FocusMemberView(
             @JsonProperty(required = true) String userId,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String name,
             @JsonProperty(required = true) String sessionId,
             @JsonProperty(required = true) String subject,
             @JsonProperty(required = true) long activeSeconds,
-            @JsonProperty(required = true) String status) {
+            @JsonProperty(required = true) String status,
+            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) FocusSeatView seat) {
         private static FocusMemberView from(IslandFocusMembers.Item item, Set<UUID> blocked) {
             return item == null ? null : new FocusMemberView(item.userId(),
                     blocked.contains(UUID.fromString(item.userId())) ? BlockedProfileMask.NEUTRAL_NAME : item.name(),
                     item.sessionId(),
-                    item.subject(), item.activeSeconds(), item.status());
+                    item.subject(), item.activeSeconds(), item.status(),
+                    item.seat() == null ? null : new FocusSeatView(item.seat().x(), item.seat().y()));
         }
+    }
+
+    /** 공개 자리 좌표(GROMO-2477) — 상류 전송 레코드를 그대로 내보내지 않는다({@code PublicResponseTypeAuditTest}). */
+    public record FocusSeatView(
+            @JsonProperty(required = true) double x,
+            @JsonProperty(required = true) double y) {
     }
 
     public record RestMemberView(
