@@ -4927,7 +4927,7 @@ export function RedesignScreens({ e }: any) {
       <IslandSheet
         bg="dock"
         sign="boat/raft"
-        title="내 꾸미기"
+        title={t('wardrobe.title')}
         tall
         tight
         onBack={back}

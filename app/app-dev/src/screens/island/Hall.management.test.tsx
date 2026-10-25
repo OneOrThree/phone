@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { Platform, StyleSheet } from 'react-native';
 import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
+import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import * as magazine from '@/services/api/magazine';
@@ -131,7 +132,10 @@ beforeEach(() => {
   getNewsMock.mockReset();
   getNewsMock.mockResolvedValue([]);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  applyLocalePref('system');
+});
 
 test('실제 Hall manage는 서버 DTO를 그리고 저장·승인·강퇴 명령을 hook으로 보낸다', async () => {
   const api = management();
@@ -1040,4 +1044,33 @@ test('다른 섬을 구경 중인 방문자는 섬 소식을 부르지 않는다
   await act(async () => {});
   expect(getNewsMock).not.toHaveBeenCalled();
   expect(visitor.queryByText('섬 소식')).toBeNull();
+});
+
+describe('정원 휠 — 숫자 state + t() 라벨(GROMO-2464)', () => {
+  const pickCapacity = async (api: ReturnType<typeof management>, label: string) => {
+    managementMock.mockReturnValue(api);
+    const screen = await render(<Hall e={e()} />);
+    await fireEvent.press(screen.getByTestId('hall-edit'));
+    await waitFor(() => assert.ok(screen.getByTestId('hall-capacity')));
+    await fireEvent.press(screen.getByTestId('hall-capacity'));
+    await fireEvent.press(screen.getByText(label));
+    await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+    return screen;
+  };
+
+  test('en 에서 휠 항목은 «N residents» 이고 고른 값은 숫자로 저장된다', async () => {
+    applyLocalePref('en');
+    const api = management();
+    const screen = await pickCapacity(api, '12 residents');
+    await fireEvent.press(screen.getByTestId('hall-save'));
+    await waitFor(() => assert.equal(api.saveSettings.mock.calls[0][0].maxMembers, 12));
+  });
+
+  test('고른 뒤 언어를 en 으로 바꿔도 저장값은 유지된다', async () => {
+    const api = management();
+    const screen = await pickCapacity(api, '12명');
+    applyLocalePref('en');
+    await fireEvent.press(screen.getByTestId('hall-save'));
+    await waitFor(() => assert.equal(api.saveSettings.mock.calls[0][0].maxMembers, 12));
+  });
 });
