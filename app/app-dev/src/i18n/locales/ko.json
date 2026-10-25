@@ -364,7 +364,6 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "오늘 집중",
       "visiting": "{{name}} 구경 중",
       "focusingNow": "지금 {{count}}명이 낚시섬에서 집중 중",
       "quietNow": "지금 낚시섬은 조용해요",
@@ -433,11 +432,7 @@
       "membersOnly": "주민만 이용할 수 있어요"
     },
     "a11y": {
-      "walk": "섬 산책하기",
       "campfire": "모닥불",
-      "gram": "꽃나팔 방송기",
-      "boat": "내 배",
-      "dock": "부두",
       "todayFocusClock": "{{name}} 오늘 집중 {{clock}}",
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",

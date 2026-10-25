@@ -373,7 +373,6 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "Focus today",
       "visiting": "Visiting {{name}}",
       "focusingNow": "{{count}} focusing on Fishing Island now",
       "quietNow": "Fishing Island is quiet right now",
@@ -460,11 +459,7 @@
       "membersOnly": "Only residents can use this."
     },
     "a11y": {
-      "walk": "Walk around the island",
       "campfire": "Campfire",
-      "gram": "Gramophone",
-      "boat": "My Boat",
-      "dock": "Dock",
       "todayFocusClock": "{{name}}, focus today {{clock}}",
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
