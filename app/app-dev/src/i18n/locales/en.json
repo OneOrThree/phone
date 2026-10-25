@@ -1082,11 +1082,17 @@
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
     "welcomeBody": "You arrived at \"{{island}}\" as a new resident.",
-    "focusTime": "Focus time",
-    "requestFriend": "Add friend",
-    "friendRequested": "Request sent",
-    "friendExists": "You are already friends or have a pending request.",
-    "friendUnavailable": "You cannot send a friend request to this user."
+    "focusTime": "Focus time"
+  },
+  "catInfo": {
+    "open": "View {{name}}",
+    "todayFocus": "Focused today {{duration}}",
+    "request": "Add friend",
+    "accept": "Accept friend request",
+    "requested": "Requested",
+    "processing": "Processing…",
+    "friends": "Friends",
+    "failed": "Couldn't send the request. Tap to try again."
   },
   "safety": {
     "blockTitle": "Block user",

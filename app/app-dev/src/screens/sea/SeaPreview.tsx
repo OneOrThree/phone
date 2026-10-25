@@ -266,10 +266,6 @@ export function SeaPreview() {
                     }
                   }
                   onSignIn={() => setGuest(false)}
-                  onFriendRequest={async () => {
-                    await check();
-                    return true;
-                  }}
                   onFinish={async (_sessionId, intent) => {
                     await check();
                     if (!voyage) return;

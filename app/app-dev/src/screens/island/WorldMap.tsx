@@ -117,6 +117,7 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { CatInfoPopup } from './CatInfoPopup';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
@@ -356,6 +357,7 @@ function Wanderer({
   assets,
   buildings,
   outfit,
+  press,
 }: {
   color: Color;
   outfit?: Outfit;
@@ -366,6 +368,7 @@ function Wanderer({
   scene?: VillageScene;
   assets: MapAssetSource;
   buildings: readonly string[];
+  press?: ResidentPress;
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
@@ -437,7 +440,7 @@ function Wanderer({
   }, [scene, reduce, assets]);
   return (
     <Animated.View
-      pointerEvents="none"
+      pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
         left: 0,
@@ -457,7 +460,29 @@ function Wanderer({
         reduce={reduce}
         outfit={outfit}
       />
+      {press && <ResidentTouch press={press} catSize={70 * s} />}
     </Animated.View>
+  );
+}
+// 다른 주민 고양이를 누르면 정보창(GROMO-2474) — 신원(서버 주민·목업 주민)이 있는 고양이만 누를 수 있다
+type ResidentPress = { userId: string; name: string; onPress: () => void };
+// 누르는 자리는 내 고양이(home-cat-container)와 같다 — 발 기준점 위 몸 가운데에 최소 44pt
+function ResidentTouch({ press, catSize }: { press: ResidentPress; catSize: number }) {
+  const hit = Math.max(semanticTokens.size.tapMin, catSize);
+  return (
+    <Pressable
+      testID={`home-resident-${press.userId}`}
+      accessibilityRole="button"
+      accessibilityLabel={t('catInfo.open', { name: press.name })}
+      onPress={press.onPress}
+      style={{
+        position: 'absolute',
+        left: -hit / 2,
+        top: -(catSize / 2 + hit / 2),
+        width: hit,
+        height: hit,
+      }}
+    />
   );
 }
 type RemoteListener = (p: Point, moving: boolean, durationMs: number) => void;
@@ -471,6 +496,7 @@ function RemoteResident({
   reduce,
   subscribe,
   outfit,
+  press,
 }: {
   userId: string;
   color: Color;
@@ -479,6 +505,7 @@ function RemoteResident({
   s: number;
   reduce: boolean;
   subscribe: (userId: string, listener: RemoteListener) => () => void;
+  press?: ResidentPress;
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
@@ -505,7 +532,7 @@ function RemoteResident({
   return (
     <Animated.View
       testID={`remote-resident-${userId}`}
-      pointerEvents="none"
+      pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
         left: 0,
@@ -524,6 +551,7 @@ function RemoteResident({
         reduce={reduce}
         outfit={outfit}
       />
+      {press && <ResidentTouch press={press} catSize={70 * s} />}
     </Animated.View>
   );
 }
@@ -1607,6 +1635,27 @@ function FinalIslandScene({
     }
   };
   const scaleRef = useRef(1);
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다
+  const [catInfo, setCatInfo] = useState<{
+    userId: string;
+    name: string;
+    color: Color;
+    outfit?: Outfit;
+  } | null>(null);
+  const residentPress = (
+    userId: string | null,
+    name: string | null,
+    color: Color,
+    outfit?: Outfit,
+  ): ResidentPress | undefined => {
+    if (!userId || !showActions) return undefined;
+    const label = name ?? t('focusFlow.common.resident');
+    return {
+      userId,
+      name: label,
+      onPress: () => setCatInfo({ userId, name: label, color, outfit }),
+    };
+  };
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -2168,16 +2217,26 @@ function FinalIslandScene({
     const others = facts
       ? facts.members
           .filter((m) => m.id !== myId && m.catColor)
-          .map((m) => ({ color: catColor(m.catColor), outfit: lookOf(looks, m.id, m) }))
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            color: catColor(m.catColor),
+            outfit: lookOf(looks, m.id, m),
+          }))
       : i.members
           .filter((m) => m.id !== 'me')
-          .map((m) => ({ color: m.color as Color, outfit: undefined }));
-    // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            color: m.color as Color,
+            outfit: undefined,
+          }));
+    // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다(신원이 없어 누를 수 없다)
     const spare = facts
       ? []
       : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[])
           .filter((c) => c !== state.color && !others.some((o) => o.color === c))
-          .map((color) => ({ color, outfit: undefined }));
+          .map((color) => ({ id: null, name: null, color, outfit: undefined }));
     return [...others, ...spare].slice(0, 2);
   }, [i.members, facts, state.color, looks]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
@@ -2397,11 +2456,12 @@ function FinalIslandScene({
         })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
         {!remoteActors &&
-          wanderers.map(({ color, outfit }, n) => (
+          wanderers.map(({ id, name, color, outfit }, n) => (
             <Wanderer
               key={color + n}
               color={color}
               outfit={outfit}
+              press={residentPress(id, name, color, outfit)}
               start={nearestLand(grid, WANDER_STARTS[n])}
               scene={scene}
               assets={mapAssets}
@@ -2415,12 +2475,14 @@ function FinalIslandScene({
         {remoteActors?.map((a) => {
           const member = facts?.members.find((m) => m.id === a.userId);
           const color = member?.catColor;
+          const outfit = lookOf(looks, a.userId, member);
           return color ? (
             <RemoteResident
               key={a.userId}
               userId={a.userId}
               color={catColor(color)}
-              outfit={lookOf(looks, a.userId, member)}
+              outfit={outfit}
+              press={residentPress(a.userId, member?.name ?? null, catColor(color), outfit)}
               start={worldToImage(a, sizeOf(grid))}
               s={s}
               reduce={state.settings.reduceMotion}
@@ -2540,13 +2602,38 @@ function FinalIslandScene({
     <TutorialScene
       style={{ flex: 1 }}
       onSkip={focusTutorial?.onSkip}
+      // 주민 정보창(GROMO-2474)도 장면 밖 층에 띄우고, 떠 있는 동안 뒤 장면을 스크린리더에서 숨긴다(안드로이드 포함)
+      isolateAccessibility={!focusTutorial && !!catInfo}
       overlay={
-        focusTutorial && (
+        focusTutorial ? (
           <TutorialSpotlight
             target={focusTarget.rect}
             text={focusTutorial.text}
             action={{ title: t('focus.start'), onPress: departFocus }}
           />
+        ) : (
+          catInfo && (
+            <CatInfoPopup
+              key={catInfo.userId}
+              userId={catInfo.userId}
+              name={catInfo.name}
+              catColor={catInfo.color}
+              art={
+                // 홈 고양이와 같은 idle 그림(움직임 없이)
+                <View style={{ width: CAT_INFO, height: CAT_INFO }}>
+                  <CatSprite
+                    color={catInfo.color}
+                    size={CAT_INFO}
+                    motion="idle"
+                    reduce
+                    anchored={false}
+                    outfit={catInfo.outfit}
+                  />
+                </View>
+              }
+              onClose={() => setCatInfo(null)}
+            />
+          )
         )
       }
     >
@@ -2826,6 +2913,7 @@ function FinalIslandScene({
     </TutorialScene>
   );
 }
+const CAT_INFO = componentTokens.catInfoPopup.catSize;
 
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';

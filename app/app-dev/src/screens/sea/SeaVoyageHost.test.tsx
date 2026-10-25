@@ -14,6 +14,8 @@ import * as magazineApi from '@/services/api/magazine';
 import type { MagazineReceipt, MagazineToday } from '@/services/api/magazine';
 import { resetMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { SeaVoyageHost } from './SeaVoyageHost';
+import { FriendActionContext } from '@/screens/island/CatInfoPopup';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -118,12 +120,24 @@ beforeEach(() => {
   jest.mocked(sendFriendRequest).mockReset();
 });
 
-const showPeer = async () => {
-  const e = env({
-    state: { name: '나냥', color: 'black', session: null },
-    friendsScreen: { refresh: jest.fn() },
-  });
-  const screen = await render(<SeaVoyageHost e={e} />);
+// 남의 뗏목 정보창(GROMO-2474)의 친구 행동은 호스트가 아니라 앱 친구 상태(FriendActionContext)가 맡는다.
+// 실패·중복·게스트·계정 전환 분기는 CatInfoPopup.test 가 본다 — 여기서는 바다 방 참가자와 이어지는지만 본다.
+test('표류 중 남의 뗏목을 누르면 정보창이 뜨고, 친구 요청은 앱 친구 상태로 보내 서버 성공 뒤 요청 중이 된다', async () => {
+  jest.mocked(sendFriendRequest).mockResolvedValue();
+  const friendsScreen = {
+    data: { friends: [], friendRequests: [], sentFriendRequests: [] },
+    busy: false,
+    refresh: jest.fn(),
+    command: jest.fn(async (fn: () => Promise<unknown>) => {
+      await fn();
+    }),
+  } as unknown as FriendsScreenState;
+  const e = env({ state: { name: '나냥', color: 'black', session: null } });
+  const screen = await render(
+    <FriendActionContext.Provider value={{ friendsScreen, conversion: e.conversion }}>
+      <SeaVoyageHost e={e} />
+    </FriendActionContext.Provider>,
+  );
   await act(async () =>
     mockRoomOpts.onMembers([
       {
@@ -137,55 +151,11 @@ const showPeer = async () => {
     ]),
   );
   await fireEvent.press(screen.getByTestId('sea-person-peer'));
-  expect(openSeaRoom).toHaveBeenCalledTimes(1);
-  return { e, screen };
-};
-
-test('바다 유저 카드의 친구 요청은 API 성공 뒤에만 완료 표시하고 친구 목록을 새로 읽는다', async () => {
-  jest.mocked(sendFriendRequest).mockResolvedValue();
-  const { e, screen } = await showPeer();
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('치즈');
   await fireEvent.press(screen.getByLabelText('친구 요청'));
   expect(sendFriendRequest).toHaveBeenCalledWith('peer');
-  expect(e.friendsScreen.refresh).toHaveBeenCalledTimes(1);
-  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+  expect(screen.getByLabelText('요청 중')).toBeDisabled();
   expect(openSeaRoom).toHaveBeenCalledTimes(1);
-});
-
-test.each([
-  ['STATE_CONFLICT', '이미 친구이거나 보낸 요청이 있어요.'],
-  ['FORBIDDEN', '친구 요청을 보낼 수 없는 상대예요.'],
-])('친구 요청 %s 실패를 성공으로 표시하지 않고 이유를 안내한다', async (code, message) => {
-  jest.mocked(sendFriendRequest).mockRejectedValue(new ApiError(code, '', 409));
-  const { e, screen } = await showPeer();
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  expect(e.notify).toHaveBeenCalledWith(message);
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
-});
-
-test('게스트 친구 요청은 회원 전환을 열고 성공으로 표시하지 않는다', async () => {
-  jest.mocked(sendFriendRequest).mockRejectedValue(new ApiError('SOCIAL_LOGIN_REQUIRED', '', 403));
-  const { e, screen } = await showPeer();
-  e.conversion.offer.mockReturnValue(true);
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  expect(e.conversion.offer).toHaveBeenCalled();
-  expect(e.notify).not.toHaveBeenCalled();
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
-});
-
-test('계정 전환 뒤 도착한 친구 요청 성공은 새 계정에 반영하지 않는다', async () => {
-  let finish!: () => void;
-  jest.mocked(sendFriendRequest).mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const { e, screen } = await showPeer();
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  jest.mocked(sessionGeneration).mockReturnValue(2);
-  await act(async () => finish());
-  expect(e.friendsScreen.refresh).not.toHaveBeenCalled();
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
 });
 
 test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 중」과 [섬에 내리기]로 바뀐다', async () => {

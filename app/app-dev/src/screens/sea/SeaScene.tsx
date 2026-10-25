@@ -424,3 +424,5 @@ const styles = StyleSheet.create({
     backgroundColor: s.color.danger,
   },
 });
+/** 한마디 말풍선 상자·글자 — 다른 고양이 정보창(CatInfoPopup)도 같은 모양으로 그린다(GROMO-2474). */
+export const seaBubble = { box: styles.bubble, text: styles.caption };
