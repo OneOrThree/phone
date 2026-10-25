@@ -6,7 +6,14 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
-import { DEFAULT_SPOT, PEER_SPOTS, LANDING, occupied } from '@/screens/focus/FishingIsland';
+import {
+  castSpot,
+  DEFAULT_SPOT,
+  fishingCatchPlacement,
+  PEER_SPOTS,
+  LANDING,
+  occupied,
+} from '@/screens/focus/FishingIsland';
 
 const peer: FishingPeer = {
   userId: 'u1',
@@ -597,9 +604,10 @@ test('슬롯 배정은 내 자리(SEAT_GAP) 곁 칸을 건너뛰고, 내 자리 
   const { result } = await renderHook(() =>
     useFishingPeerActors({ members, ready: true, reduce: false, mine: PEER_SPOTS[0] }),
   );
+  // 땅 위 seat(u2)를 먼저 예약한다 — 내 자리에 막혀 칸 1, 좌표 없는 u1 은 그다음 칸 2
   assert.deepEqual(
     result.current.actors.map((actor) => actor.slot),
-    [1, 2],
+    [2, 1],
   );
 });
 
@@ -646,4 +654,70 @@ test('같은 주민의 세션이 교체되면 이전 자리 곁으로 옮긴 새
     [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
     [35.1, 55.9],
   );
+});
+
+test('스냅숏에서 좌표 없는 주민이 앞에 와도 뒤 주민의 서버 seat 를 먼저 예약한다', async () => {
+  const seat = { x: PEER_SPOTS[0].x, y: PEER_SPOTS[0].y };
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({
+      members: [
+        { ...peer, userId: 'none', sessionId: 's-none', seat: null },
+        { ...peer, userId: 'seated', sessionId: 's-seated', seat },
+      ],
+      ready: true,
+      reduce: false,
+    }),
+  );
+  const [none, seated] = result.current.actors;
+  assert.deepEqual([seated.spot.x, seated.spot.y], [seat.x, seat.y]);
+  assert.equal(occupied(none.spot, [seated.spot]), false);
+});
+
+test('내가 자리로 걷는 사이 같은 seat 로 들어온 주민은 내 자리가 정해지면 비켜 앉고, 풀리면 돌아온다', async () => {
+  let members: FishingPeer[] = [],
+    mine: { x: number; y: number } | undefined;
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: true, snapshotVersion: 1, mine }),
+  );
+  members = [{ ...peer, seat: DEFAULT_SPOT }];
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u1',
+      previous: null,
+      current: { ...member('active'), seat: DEFAULT_SPOT },
+    } as IslandPresenceTransition),
+  );
+  const at = () => [result.current.actors[0].spot.x, result.current.actors[0].spot.y];
+  assert.deepEqual(at(), [DEFAULT_SPOT.x, DEFAULT_SPOT.y]);
+  mine = DEFAULT_SPOT; // 걷기를 마치고 준비 화면 — 내 자리가 생긴다
+  await rerender(undefined);
+  assert.equal(occupied(result.current.actors[0].spot, [DEFAULT_SPOT]), false);
+  mine = undefined;
+  await rerender(undefined);
+  assert.deepEqual(at(), [DEFAULT_SPOT.x, DEFAULT_SPOT.y]);
+});
+
+test('서버 자리 주민의 물고기 그림은 곁 주민 고양이를 덮지 않는다', async () => {
+  const first = { x: 60.2, y: 44.1 },
+    second = { x: 75, y: 45 };
+  // 회피 없이 정한 첫 주민의 물고기 자리는 둘째 고양이를 덮는다(그러면 둘째의 판정이 null)
+  const naive = { ...castSpot(first), catchPlacement: fishingCatchPlacement(castSpot(first)) };
+  assert.equal(fishingCatchPlacement(castSpot(second), [naive]), null);
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({
+      members: [
+        { ...peer, userId: 'a', sessionId: 's-a', seat: first },
+        { ...peer, userId: 'b', sessionId: 's-b', seat: second },
+      ],
+      ready: true,
+      reduce: false,
+    }),
+  );
+  const [a, b] = result.current.actors;
+  assert.deepEqual([a.spot.x, b.spot.x], [first.x, second.x]);
+  assert.ok(a.spot.catchPlacement);
+  assert.notEqual(fishingCatchPlacement(castSpot(second), [a.spot]), null);
 });

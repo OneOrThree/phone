@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
   castSpot,
+  fishingCatchPlacement,
   fishingGrid,
   fishingPeerCatchVisible,
   LANDING,
@@ -73,6 +74,19 @@ const SPARE_SPOTS: Point[] = (() => {
   const center = (p: Point) => Math.hypot(p.x - 50, p.y - 50);
   return spots.sort((a, b) => center(a) - center(b));
 })();
+// 서버 자리·예비 자리(castSpot)는 PEER_SPOTS 처럼 미리 정한 물고기 자리가 없다 — 다른 주민·내 고양이를 덮지
+// 않게 같은 회피 계산(fishingCatchPlacement)으로 함께 정한다. 앞에서 정한 물고기 자리는 뒤 계산의 장애물이 된다.
+// PEER_SPOTS 칸은 미리 정한 자리 그대로다(내 물고기 자리가 그것을 기준으로 피한다).
+const withCatchPlacements = (actors: FishingPeerActor[], mine?: Point) => {
+  const spots = actors.map((actor) => actor.spot),
+    me = mine ? [castSpot(mine)] : [];
+  actors.forEach((actor, index) => {
+    if (Object.prototype.hasOwnProperty.call(actor.spot, 'catchPlacement')) return;
+    const others = [...spots.filter((_, other) => other !== index), ...me];
+    spots[index] = { ...actor.spot, catchPlacement: fishingCatchPlacement(actor.spot, others) };
+  });
+  return new Map(actors.map((actor, index) => [actor.key, spots[index]]));
+};
 const fromLive = (member: LiveFocusMember, seconds: number): FishingPeer => ({
   userId: member.userId,
   sessionId: member.sessionId,
@@ -155,13 +169,18 @@ export function useFishingPeerActors({
   const mineX = mine?.x,
     mineY = mine?.y;
   useEffect(() => {
-    if (!displacedByMine.current.size) return;
+    const mineNow = mineRef.current;
+    if (!displacedByMine.current.size && !mineNow) return;
     setActors((current) => {
       let changed = false;
       const next = current.map((actor) => {
-        if (!displacedByMine.current.has(actor.key)) return actor;
+        // 내 자리가 새로 생기거나 옮겨 이미 앉은(예약한) 주민과 겹치면 그 주민을 비켜 앉힌다 — seat 주민은
+        // displacedByMine 에 들어가 내 자리가 풀리면 돌아온다(내가 걷는 사이 같은 자리 사건이 온 경우)
+        const blocked = !!mineNow && occupied(actor.spot, [mineNow]);
+        if (!blocked && !displacedByMine.current.has(actor.key)) return actor;
         slots.current.delete(actor.key);
-        const spot = alloc(actor.key, actor.seat, actor.spot) ?? actor.spot;
+        const spot = alloc(actor.key, actor.seat, blocked ? undefined : actor.spot) ?? actor.spot;
+        slots.current.set(actor.key, spot);
         if (spot === actor.spot) return actor;
         changed = true;
         const atSpot = actor.position.x === actor.spot.x && actor.position.y === actor.spot.y;
@@ -213,9 +232,21 @@ export function useFishingPeerActors({
       for (const key of slots.current.keys()) {
         if (!incomingKeys.has(key)) slots.current.delete(key);
       }
-      return [...snapshotMembers.values()].flatMap((member) => {
+      // 서버 seat 가 있는 주민부터 예약한다 — 좌표 없는 주민의 대체 칸이 정상 seat 를 밀어내 기기마다 다른 자리에
+      // 그리지 않게. 화면 순서(actors)는 스냅숏 순서 그대로다.
+      const incoming = [...snapshotMembers.values()],
+        landed = (member: FishingPeer) => !!member.seat && onLand(fishingGrid, member.seat),
+        reserved = new Map(
+          [...incoming.filter(landed), ...incoming.filter((member) => !landed(member))].map(
+            (member) => {
+              const key = actorKey(member.userId, member.sessionId);
+              return [key, alloc(key, member.seat)] as const;
+            },
+          ),
+        );
+      return incoming.flatMap((member) => {
         const key = actorKey(member.userId, member.sessionId),
-          spot = alloc(key, member.seat);
+          spot = reserved.get(key);
         if (!spot) return [];
         return [
           {
@@ -469,5 +500,20 @@ export function useFishingPeerActors({
     setRevision((value) => value + 1);
   }, [reduce]);
 
-  return { actors, onTransition, entered, cast, leftForPause, stretched, leftForComplete };
+  // 물고기 자리는 배치(누가 어디)가 바뀔 때만 다시 잰다 — 초마다 바뀌는 집중 시간 갱신은 무시한다
+  const layout = actors.map((actor) => `${actor.key}@${actor.spot.x},${actor.spot.y}`).join('|');
+  const placed = useMemo(
+    () => withCatchPlacements(actors, mine),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 배치·내 자리가 같으면 결과도 같다
+    [layout, mineX, mineY],
+  );
+  const shown = useMemo(
+    () =>
+      actors.map((actor) => {
+        const spot = placed.get(actor.key);
+        return spot && spot !== actor.spot ? { ...actor, spot } : actor;
+      }),
+    [actors, placed],
+  );
+  return { actors: shown, onTransition, entered, cast, leftForPause, stretched, leftForComplete };
 }
