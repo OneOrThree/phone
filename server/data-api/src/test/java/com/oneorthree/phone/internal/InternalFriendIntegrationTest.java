@@ -171,10 +171,11 @@ class InternalFriendIntegrationTest {
     }
 
     @Test
-    @DisplayName("차단한 상대는 blocker의 친구 목록과 검색 결과에서만 제외한다")
+    @DisplayName("차단한 상대는 양쪽의 친구 목록과 검색 결과에서 제외한다")
     void blockExcludesCounterpartFromFriendsAndSearch() throws Exception {
         UUID blocker = newUser();
         UUID blocked = newUser();
+        nickname(blocker, "차단한친구");
         nickname(blocked, "차단친구");
         friendService.acceptRequest(blocked, friendService.createRequest(blocker, blocked));
 
@@ -185,9 +186,11 @@ class InternalFriendIntegrationTest {
                 .andExpect(status().isOk()).andExpect(content().json("[]"));
         as(blocker, get(path(blocker, "/friend-search")).param("type", "NICKNAME").param("q", "차단친구"))
                 .andExpect(status().isOk()).andExpect(content().json("[]"));
-        // 반대 방향 차단은 없으므로 상대의 목록은 그대로다.
+        // 한 방향 차단도 상대의 친구 목록·검색에서 함께 숨긴다.
         as(blocked, get(path(blocked, "/friends")).param("date", DATE))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].userId").value(blocker.toString()));
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        as(blocked, get(path(blocked, "/friend-search")).param("type", "NICKNAME").param("q", "차단한친구"))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
     }
 
     @Test
