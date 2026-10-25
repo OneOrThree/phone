@@ -114,6 +114,8 @@ export function useFishingPeerActors({
   const slots = useRef(new Map<string, Spot>());
   const mineRef = useRef(mine);
   mineRef.current = mine;
+  // 서버 seat 가 내 자리에만 막혀 다른 칸에 앉힌 주민 — 내 자리가 바뀌거나 풀리면 seat 로 되돌린다
+  const displacedByMine = useRef(new Set<string>());
   const transitions = useRef<IslandPresenceTransition[]>([]);
   const appliedSnapshotVersion = useRef<number | null>(null);
   const membersRef = useRef(members);
@@ -131,23 +133,48 @@ export function useFishingPeerActors({
     const existing = slots.current.get(key);
     if (existing) return existing;
     if (!reuse && slots.current.size >= PEER_SPOTS.length) return null;
-    const taken = [
-        ...(mineRef.current ? [mineRef.current] : []),
-        ...[...slots.current.values()].filter((spot) => spot !== reuse),
-      ],
+    const others = [...slots.current.values()].filter((spot) => spot !== reuse),
+      taken = mineRef.current ? [mineRef.current, ...others] : others,
       free = (p: Point) => !occupied(p, taken),
       spare = () => {
         const p = SPARE_SPOTS.find(free);
         return p && castSpot(p);
       },
-      spot =
-        seat && onLand(fishingGrid, seat) && free(seat)
-          ? castSpot(seat)
-          : (reuse ?? PEER_SPOTS.find(free) ?? spare());
+      usable = seat && onLand(fishingGrid, seat) && !occupied(seat, others) ? seat : null,
+      seatFree = usable && free(usable) ? usable : null;
+    if (usable && !seatFree) displacedByMine.current.add(key);
+    else displacedByMine.current.delete(key);
+    const spot = seatFree ? castSpot(seatFree) : (reuse ?? PEER_SPOTS.find(free) ?? spare());
     if (!spot) return null;
     slots.current.set(key, spot);
     return spot;
   }, []);
+
+  // 내 자리가 바뀌거나 풀리면 그 때문에 밀려난 주민만 다시 앉힌다. seat 가 여전히 막히면 지금 칸(reuse)에
+  // 그대로 두고, 다른 주민의 칸은 건드리지 않는다. 걷는 중이면 새 자리로 길을 다시 잡는다(FishingPeerActorView).
+  const mineX = mine?.x,
+    mineY = mine?.y;
+  useEffect(() => {
+    if (!displacedByMine.current.size) return;
+    setActors((current) => {
+      let changed = false;
+      const next = current.map((actor) => {
+        if (!displacedByMine.current.has(actor.key)) return actor;
+        slots.current.delete(actor.key);
+        const spot = alloc(actor.key, actor.seat, actor.spot) ?? actor.spot;
+        if (spot === actor.spot) return actor;
+        changed = true;
+        const atSpot = actor.position.x === actor.spot.x && actor.position.y === actor.spot.y;
+        return {
+          ...actor,
+          slot: PEER_SPOTS.indexOf(spot),
+          spot,
+          position: atSpot ? spot : actor.position,
+        };
+      });
+      return changed ? next : current;
+    });
+  }, [mineX, mineY, alloc]);
 
   const onTransition = useCallback((transition: IslandPresenceTransition) => {
     transitions.current.push(transition);
@@ -160,6 +187,7 @@ export function useFishingPeerActors({
       appliedSnapshotVersion.current = null;
       transitions.current.length = 0;
       slots.current.clear();
+      displacedByMine.current.clear();
       setActors([]);
       return;
     }

@@ -3,7 +3,7 @@ import React, { useReducer, useState } from 'react';
 import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render, userEvent } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { applyLocalePref } from '@/i18n';
+import { applyLocalePref, t } from '@/i18n';
 import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import { ApiError } from '@/services/api/client';
@@ -1555,5 +1555,47 @@ test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약
   );
   const { spot } = screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props;
   expect([spot.x, spot.y]).toEqual([34.1, 55.9]);
+  await screen.unmount();
+});
+
+test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서버 seat 로 돌아가 그 자리를 점유로 막는다 (GROMO-2478)', async () => {
+  const state = focusedState();
+  state.session = null; // 준비 중 — focusSpot {34.1, 55.9} 를 이번에 골랐다
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  mockRealPeerActors = true;
+  mockPresenceFocus = [
+    {
+      userId: 'minji',
+      name: '민지',
+      catColor: 'gray',
+      appearance: null,
+      sessionId: 's-minji',
+      subject: '영어',
+      activeSeconds: 0,
+      status: 'active',
+      anchorMs: Date.now(),
+      seat: { x: 34.1, y: 55.9 },
+    },
+  ];
+  const notify = jest.fn(),
+    props = { islands: {}, notify };
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, props),
+  );
+  const peerAt = () => {
+    const { spot } = screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props;
+    return [spot.x, spot.y];
+  };
+  expect(peerAt()).not.toEqual([34.1, 55.9]);
+  await screen.rerender(
+    screenElement(state, 'fishingArrival', undefined, undefined, undefined, undefined, props),
+  );
+  expect(peerAt()).toEqual([34.1, 55.9]);
+  await act(async () =>
+    screen
+      .getByTestId('golden-world', { includeHiddenElements: true })
+      .props.onTap({ x: 34.1, y: 55.9 }),
+  );
+  expect(notify).toHaveBeenCalledWith(t('focusFlow.spot.occupied'));
   await screen.unmount();
 });
