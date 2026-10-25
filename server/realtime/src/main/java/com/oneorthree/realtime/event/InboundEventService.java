@@ -409,7 +409,7 @@ public class InboundEventService {
             }
         }
         currentMembershipCache.evictUser(userId);
-        CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+        CloseStatus status = RealtimeSessionRegistry.SESSION_REVOKED;
         boolean failed = false;
         for (String stompId : revoked) {
             outboundAuthzCache.evictSession(stompId);

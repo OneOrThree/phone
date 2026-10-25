@@ -22,7 +22,6 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -465,7 +464,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         // 폐기된 sid(auth.session.revoked, GROMO-2350) — 종료가 실패해 소켓이 열려 있어도 프레임은 나가지 않는다. 인메모리 조회라
         // 프레임당 비용은 맵 get 하나다(이동 20Hz 포함 — 이동 프레임도 이 길을 지난다).
         if (proof.isPresent() && chatUserFence.isRevoked(proof.get().sessionId())) {
-            sessions.close(sessionId, CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            sessions.close(sessionId, RealtimeSessionRegistry.SESSION_REVOKED);
             return null;
         }
         return principal;
