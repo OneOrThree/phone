@@ -32,7 +32,7 @@ public class InternalIslandMailboxController {
 
     private final InternalIslandMailboxService service;
 
-    /** 주민 인가 + 요청자 표시 projection. 거절은 403 MEMBER_ONLY / MAILBOX_LOCKED · 404 USER_NOT_FOUND. */
+    /** 주민 인가 + 요청자 표시 projection. 거절은 403 MEMBER_ONLY · 404 USER_NOT_FOUND. */
     @GetMapping("/mailbox-access")
     public MailboxViewerResponse access(@PathVariable UUID islandId, @RequestHeader("X-User-Id") UUID userId) {
         return service.access(islandId, userId);
