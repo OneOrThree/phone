@@ -234,6 +234,67 @@ class SeaRoomIntegrationTest {
     }
 
     @Test
+    @DisplayName("같은 방에서 차단·해제하면 서로의 표시만 즉시 바뀌고 방·항해·집중은 유지된다")
+    void blockChangesRefreshBothViewersWithoutMovingOrEndingFocus() throws Exception {
+        UUID alice = sailor();
+        UUID bob = sailor();
+        UUID carol = sailor();
+        Client a = connect(alice);
+        UUID room = roomOf(a.enter());
+        Client b = connect(bob);
+        assertThat(roomOf(b.enter())).isEqualTo(room);
+        Client c = connect(carol);
+        assertThat(roomOf(c.enter())).isEqualTo(room);
+        a.sync();
+        b.sync();
+        c.sync();
+        Map<Object, Object> aliceBefore = redis.opsForHash().entries(RedisKeys.seaUser(alice));
+        Map<Object, Object> bobBefore = redis.opsForHash().entries(RedisKeys.seaUser(bob));
+
+        given(blockClient.fetchBlockedIds(alice)).willReturn(Set.of(bob));
+        postEvent(blockEvent(alice, bob, "BLOCKED"));
+        assertThat(memberIds(payload(await(a.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), carol.toString());
+        assertThat(memberIds(payload(await(b.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(bob.toString(), carol.toString());
+        assertThat(memberIds(payload(await(c.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), bob.toString(), carol.toString());
+        assertThat(memberIds(payload(a.sync()))).doesNotContain(bob.toString());
+        assertThat(memberIds(payload(b.sync()))).doesNotContain(alice.toString());
+
+        given(blockClient.fetchBlockedIds(bob)).willReturn(Set.of(alice));
+        postEvent(blockEvent(bob, alice, "BLOCKED"));
+        await(a.assignments, snapshot -> isSnapshot(snapshot));
+        await(b.assignments, snapshot -> isSnapshot(snapshot));
+        given(blockClient.fetchBlockedIds(alice)).willReturn(Set.of());
+        postEvent(blockEvent(alice, bob, "UNBLOCKED"));
+        assertThat(memberIds(payload(await(a.assignments, snapshot -> isSnapshot(snapshot)))))
+                .doesNotContain(bob.toString());
+        assertThat(memberIds(payload(await(b.assignments, snapshot -> isSnapshot(snapshot)))))
+                .doesNotContain(alice.toString());
+
+        given(blockClient.fetchBlockedIds(bob)).willReturn(Set.of());
+        postEvent(blockEvent(bob, alice, "UNBLOCKED"));
+        assertThat(memberIds(payload(await(a.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), bob.toString(), carol.toString());
+        assertThat(memberIds(payload(await(b.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), bob.toString(), carol.toString());
+        assertThat(redis.opsForHash().entries(RedisKeys.seaUser(alice))).isEqualTo(aliceBefore);
+        assertThat(redis.opsForHash().entries(RedisKeys.seaUser(bob))).isEqualTo(bobBefore);
+    }
+
+    private static boolean isSnapshot(Map<String, Object> frame) {
+        return "sea.room.snapshot".equals(frame.get("type"));
+    }
+
+    private static String blockEvent(UUID blocker, UUID blocked, String changeKind) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"user.blocks.updated\","
+                + "\"occurredAt\":\"" + Instant.now() + "\",\"userId\":\"" + blocker + "\",\"params\":{"
+                + "\"blockerUserId\":\"" + blocker + "\",\"blockedUserId\":\"" + blocked
+                + "\",\"changeKind\":\"" + changeKind + "\"}}";
+    }
+
+    @Test
     @DisplayName("친구 있는 방 > 같은 목적지로 항해 중인 방 > 큰 방")
     void friendsThenSameDestinationThenSize() throws Exception {
         UUID stranger = UUID.randomUUID();
