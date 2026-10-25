@@ -151,7 +151,16 @@ test('다른 주민 식빵을 누르면 정보창이 뜨고(GROMO-2474), 내 고
   assert.equal(screen.queryByTestId('rest-cat-me'), null);
   await fireEvent.press(screen.getByLabelText('두부 정보 보기'));
   expect(screen.getByTestId('cat-info-name')).toHaveTextContent('두부');
+  // 정보창이 떠 있는 동안 뒤 장면(주민 누르는 자리·집중 이어가기)은 스크린리더에서 숨는다(안드로이드 no-hide-descendants 포함)
+  assert.equal(screen.queryByLabelText('두부 정보 보기'), null);
+  assert.equal(screen.queryByTestId('resume-focus'), null);
+  const hidden = screen.getByLabelText('두부 정보 보기', { includeHiddenElements: true });
+  let scene: any = hidden.parent;
+  while (scene && scene.props.importantForAccessibility !== 'no-hide-descendants')
+    scene = scene.parent;
+  assert.equal(scene?.props.accessibilityElementsHidden, true);
   await fireEvent.press(screen.getByLabelText('닫기'));
+  assert.ok(screen.getByLabelText('두부 정보 보기'));
   assert.equal(screen.queryByTestId('cat-info-name'), null);
   await screen.unmount();
 });

@@ -1762,6 +1762,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
       {liveIslandId && live.status === 'loading' ? (
         <View
           pointerEvents="none"
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1771,6 +1772,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         </View>
       ) : liveIslandId && live.status === 'error' ? (
         <View
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1808,6 +1810,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
       ) : !peers.length ? (
         <View
           pointerEvents="none"
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1846,6 +1849,7 @@ function FishingCatInfo({
   const { actor, outfit } = target;
   return (
     <CatInfoPopup
+      key={actor.userId}
       userId={actor.userId}
       name={actor.name}
       catColor={actor.color}
@@ -3400,6 +3404,7 @@ function FocusFlow({ e: environment }: any) {
         {r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21) && (
           <View
             pointerEvents="box-none"
+            {...a11yHidden(!!catInfo)}
             style={{
               position: 'absolute',
               top: safe.top + semanticTokens.spacing.control,
@@ -3418,6 +3423,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {liveIslandId && live.status === 'error' && (
           <View
+            {...a11yHidden(!!catInfo)}
             style={{
               position: 'absolute',
               zIndex: 5,

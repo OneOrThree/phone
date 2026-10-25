@@ -2614,6 +2614,7 @@ function FinalIslandScene({
         ) : (
           catInfo && (
             <CatInfoPopup
+              key={catInfo.userId}
               userId={catInfo.userId}
               name={catInfo.name}
               catColor={catInfo.color}

@@ -39,13 +39,14 @@ export const FriendActionContext = createContext<FriendActionSource | null>(null
 type Relation = 'none' | 'received' | 'sent' | 'friend';
 type Phase = 'busy' | 'failed' | 'sent' | 'friend';
 
-/** 대상 한 명과의 친구 관계·오늘 집중·행동. 출처가 없으면 null. */
+/**
+ * 대상 한 명과의 친구 관계·오늘 집중·행동. 출처가 없으면 null.
+ * 대상마다 새 인스턴스다 — 호출부가 `CatInfoPopup` 에 `key={userId}` 를 준다(대상이 바뀌면 처리 중 표시·연타 잠금도 새로).
+ */
 export function useFriendAction(userId: string, name: string, catColor: Color) {
   const source = useContext(FriendActionContext);
   const latest = useRef(source);
   latest.current = source;
-  const target = useRef(userId);
-  target.current = userId;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -53,12 +54,10 @@ export function useFriendAction(userId: string, name: string, catColor: Color) {
       alive.current = false;
     };
   }, []);
-  // 결과는 누른 대상에 묶는다 — 정보창이 다른 고양이로 바뀌면 옛 결과·처리 중 표시를 쓰지 않는다
-  const [outcome, setOutcome] = useState<{ userId: string; phase: Phase } | null>(null);
+  const [phase, setPhase] = useState<Phase | null>(null);
   // 같은 프레임의 연타는 state 반영 전에 들어오므로 ref 로 막는다
   const flight = useRef(false);
   if (!source) return null;
-  const phase = outcome?.userId === userId ? outcome.phase : null;
   const data = source.friendsScreen?.data;
   const friend = data?.friends.find((item) => item.userId === userId);
   const received = data?.friendRequests.find((item) => item.userId === userId);
@@ -91,23 +90,24 @@ export function useFriendAction(userId: string, name: string, catColor: Color) {
       return;
     }
     const requestId = received?.requestId;
+    // 받은 요청인데 수락할 요청 id 가 없으면 새 요청으로 바꿔 보내지 않는다 — 실패로 두고 다시 누르게 한다
+    if (accepting && !requestId) {
+      setPhase('failed');
+      return;
+    }
     const generation = sessionGeneration();
-    // 정보창이 닫혔거나 다른 고양이로 바뀌었거나 계정이 바뀌었으면 응답을 이 대상의 결과로 쓰지 않는다
-    const current = () =>
-      alive.current && target.current === userId && generation === sessionGeneration();
-    // 이 대상의 처리 중 표시만 결과로 바꾼다 — 그 사이 다른 대상의 표시는 건드리지 않는다
+    // 정보창이 닫혔거나(다른 고양이면 새 인스턴스다) 계정이 바뀌었으면 응답을 결과로 쓰지 않는다
+    const current = () => alive.current && generation === sessionGeneration();
     const finish = (next: Phase | null) => {
-      if (!alive.current) return;
-      setOutcome((previous) =>
-        previous?.userId === userId ? (next ? { userId, phase: next } : null) : previous,
-      );
+      if (alive.current) setPhase(next);
     };
     flight.current = true;
-    setOutcome({ userId, phase: 'busy' });
+    setPhase('busy');
     let ran = false;
     screen
       .command(() => {
         ran = true;
+        // accepting 이면 위에서 requestId 를 확인했다 — 새 요청으로 빠지지 않는다
         return accepting && requestId ? acceptFriendRequest(requestId) : sendFriendRequest(userId);
       })
       // 다른 친구 명령이 진행 중이라 이 요청이 나가지 않았으면(ran=false) 원래 버튼으로 돌린다

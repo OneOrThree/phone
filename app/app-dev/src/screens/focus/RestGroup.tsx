@@ -572,6 +572,7 @@ export function RestGroup({
       )}
       {catInfo && (
         <CatInfoPopup
+          key={catInfo.id}
           userId={catInfo.id}
           name={catInfo.name}
           catColor={catInfo.color}

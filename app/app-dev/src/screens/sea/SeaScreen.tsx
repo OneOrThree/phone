@@ -371,6 +371,7 @@ export function SeaScreen(props: SeaScreenProps) {
       )}
       {!result && !!peer && (
         <CatInfoPopup
+          key={peer.userId}
           userId={peer.userId}
           name={peer.name}
           catColor={peer.color}

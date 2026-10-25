@@ -95,6 +95,13 @@ beforeEach(() => {
   accept.mockReset();
 });
 
+// 버튼의 onPress 를 직접 꺼낸다 — fireEvent 는 매번 act 로 감싸 다시 그리므로 «같은 프레임 두 번»을 만들 수 없다
+const pressHandler = (host: { unstable_fiber?: any }) => {
+  let fiber = host.unstable_fiber;
+  while (fiber && typeof fiber.memoizedProps?.onPress !== 'function') fiber = fiber.return;
+  return fiber.memoizedProps.onPress as () => void;
+};
+
 test('요청 가능 → 처리 중(중복 입력 막음) → 서버 성공 뒤에만 요청 중', async () => {
   const flight = deferred();
   send.mockReturnValue(flight.promise);
@@ -192,6 +199,60 @@ test('닫힌 뒤·계정이 바뀐 뒤 도착한 응답은 아무것도 바꾸�
   } finally {
     generation.mockRestore();
   }
+});
+
+test('같은 프레임에 두 번 눌러도(다시 그리기 전) 서버 요청은 한 번만 나간다', async () => {
+  const flight = deferred();
+  send.mockReturnValue(flight.promise);
+  const view = await render(popup({ friendsScreen: screen() }).ui);
+  const press = pressHandler(view.getByLabelText('친구 요청') as never);
+  await act(async () => {
+    press();
+    press();
+  });
+  expect(send).toHaveBeenCalledTimes(1);
+  await act(async () => flight.resolve());
+  expect(view.getByLabelText('요청 중')).toBeDisabled();
+});
+
+test('다른 친구 명령이 진행 중이라 command 가 요청을 보내지 않고 끝나면 버튼이 원래대로 돌아온다', async () => {
+  // useFriendsScreen.command 는 진행 중인 명령이 있으면 fn 을 부르지 않고 그냥 끝난다
+  const busyElsewhere = screen({}, { command: jest.fn(async () => {}) });
+  const view = await render(popup({ friendsScreen: busyElsewhere }).ui);
+  await fireEvent.press(view.getByLabelText('친구 요청'));
+  expect(send).not.toHaveBeenCalled();
+  expect(view.getByLabelText('친구 요청')).toBeEnabled();
+  expect(view.queryByLabelText('요청 중')).toBeNull();
+  expect(view.queryByText('요청을 보내지 못했어요. 다시 눌러 시도해 주세요.')).toBeNull();
+});
+
+test('닫은 뒤 도착한 성공은 다시 연 정보창을 «요청 중»으로 바꾸지 않는다', async () => {
+  const flight = deferred();
+  send.mockReturnValueOnce(flight.promise);
+  const source = { friendsScreen: screen() };
+  const error = jest.spyOn(console, 'error');
+  const view = await render(popup(source).ui);
+  await fireEvent.press(view.getByLabelText('친구 요청'));
+  await view.rerender(
+    <FriendActionContext.Provider value={source}>{null}</FriendActionContext.Provider>,
+  );
+  await view.rerender(popup(source).ui);
+  await act(async () => flight.resolve());
+  expect(view.getByLabelText('친구 요청')).toBeEnabled();
+  expect(view.queryByLabelText('요청 중')).toBeNull();
+  expect(error).not.toHaveBeenCalled();
+  error.mockRestore();
+});
+
+test('받은 요청인데 요청 id 가 없으면 새 요청으로 보내지 않고 실패 안내를 보인다', async () => {
+  const view = await render(
+    popup({ friendsScreen: screen({ friendRequests: [request('u1', '')] }) }).ui,
+  );
+  await fireEvent.press(view.getByLabelText('친구 요청 수락'));
+  expect(send).not.toHaveBeenCalled();
+  expect(accept).not.toHaveBeenCalled();
+  expect(view.getByText('요청을 보내지 못했어요. 다시 눌러 시도해 주세요.')).toBeTruthy();
+  expect(view.getByLabelText('친구 요청 수락')).toBeEnabled();
 });
 
 test('목업은 로컬 친구 목록으로 상태를 보이고 리듀서로 요청한다 · 출처가 없으면 행동 줄이 없다', async () => {
