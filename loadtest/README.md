@@ -208,6 +208,8 @@ sequenceDiagram
 
 ## 운영 원칙
 
+AWS 운영 탐색 하네스의 집중 실패 원장·실행 소유 복구·서버 대조는 [집중 부하 실패와 실행 소유 복구 원장](docs/aws-focus-failure-ledger.md)을 따른다.
+
 - **평시 전부 중지** — `make down`이 곧 과금 차단. 부하 VM(spot)은 run마다 생성·삭제.
 - run 비교는 **메타(sha·seed·스펙) 동일**할 때만 유효 — 다르면 verdict가 diff를 거부한다.
 - 실부하 DB에 `EXPLAIN ANALYZE` 금지 — 심층 분석은 `analysis` 클론에서.
