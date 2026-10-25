@@ -1710,6 +1710,22 @@ describe('경로선 (GROMO-2479)', () => {
     await screen.unmount();
   });
 
+  it('모션 줄이기: 건물 문을 눌러 들어가면 도착에서 안 지우는 경로선도 지운다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(route(screen)).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    await act(async () => jest.advanceTimersByTime(2000));
+    expect(go).toHaveBeenCalled();
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
   it('섬이 바뀌면 걷던 경로선을 지운다', async () => {
     jest.useFakeTimers();
     const screen = await renderHome(nextIsland());

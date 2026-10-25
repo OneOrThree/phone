@@ -2272,7 +2272,11 @@ function FinalIslandScene({
               buildingEntryPending.current = true;
               return runBuildingEntryWalk(
                 (onArrival) => walk(d, onArrival),
-                () => navigateOnArrival(d.r),
+                () => {
+                  // 건물에 들어가면 가던 길은 끝 — 모션 줄이기에서도 지운다(GROMO-2479 r1).
+                  setWalkRoute(null);
+                  return navigateOnArrival(d.r);
+                },
                 () => {
                   buildingEntryPending.current = false;
                 },
