@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Back",
     "characterLimit": "Up to {{max}} characters · {{count}}/{{max}}",
     "cancel": "Cancel",
     "ok": "OK",
@@ -102,6 +103,114 @@
     "permissionSection": "Permissions",
     "permissionManage": "Manage App Permissions",
     "permissionManageSub": "Screen Time permission · Measured apps",
+    "permissions": {
+      "gate": {
+        "title": "Measurement permission",
+        "heading": "We'll record your usage accurately",
+        "sub": "Only the apps you select are recorded.",
+        "row": "Screen Time permission",
+        "rowUnavailable": "Not available on this device",
+        "rowDenied": "Permission is off. You can request it again.",
+        "rowNone": "Not connected yet",
+        "openUsage": "Open Usage Access settings",
+        "done": "Done",
+        "continue": "Continue",
+        "retry": "Ask for permission again",
+        "requesting": "Requesting permission…",
+        "openSystem": "Open system settings",
+        "laterBoard": "Skip for now and open the board",
+        "openBoard": "Open the board",
+        "connectBtn": "Connect Screen Time",
+        "note": "Without permission, phone-use quests show “Needs check” instead of 0 minutes."
+      },
+      "status": {
+        "permissionChecking": "Checking",
+        "checking": "Checking selection",
+        "failed": "Couldn't check the selection",
+        "allApps": "All apps",
+        "allAppsPending": "All apps · Applies from tomorrow",
+        "selectedCount": "{{count}} selected",
+        "selectedCountPending": "{{count}} selected · Applies from tomorrow",
+        "none": "Nothing selected yet"
+      },
+      "connected": "Connected",
+      "unavailable": "Unavailable",
+      "needed": "Connection needed",
+      "sheet": {
+        "allowedApps": "Apps allowed during focus"
+      },
+      "screenTime": {
+        "title": "Screen Time",
+        "connect": "Connect Screen Time",
+        "sub": "{{description}} · Used for phone-use quests and records"
+      },
+      "measuredApps": {
+        "title": "Measured apps",
+        "a11y": "Measured apps, {{description}}",
+        "pick": "Pick measured apps"
+      },
+      "disconnectNote": "If you turn this off, phone-use quest progress shows “Needs check”.",
+      "allowed": {
+        "section": "Allowed during focus",
+        "title": "Allowed apps",
+        "count": "{{count}} selected"
+      },
+      "safari": {
+        "title": "Unblock Safari websites",
+        "sub": "Also pick Safari in the allowed apps above to browse the web",
+        "a11y": "Unblock Safari websites during focus"
+      },
+      "android": {
+        "overlay": {
+          "title": "Display over other apps",
+          "on": "Allowed · Used to block apps during focus",
+          "off": "Permission needed to block apps"
+        },
+        "notice": {
+          "title": "Focus status notification",
+          "sub": "See your focus time in notifications and on the lock screen"
+        }
+      },
+      "help": {
+        "android": "Allow this app in Usage Access settings.",
+        "ios": "If the permission prompt doesn't appear, allow it in system Settings."
+      },
+      "errors": {
+        "usageOpenFailed": "Couldn't open Usage Access settings.",
+        "settingsOpen": "Couldn't open settings. Check the permission in your device's Settings app.",
+        "safariCheck": "Couldn't check the Safari setting.",
+        "allowedCheck": "Couldn't check the allowed apps setting.",
+        "unavailable": "Screen Time can't be connected on this device.",
+        "grantAndroid": "Allow the permission in Usage Access settings.",
+        "grantIos": "Allow Screen Time in iOS Settings.",
+        "requestFailed": "Couldn't request Screen Time permission.",
+        "allowedChange": "Couldn't change allowed apps.",
+        "safariChange": "Couldn't change the Safari setting.",
+        "overlayOpen": "Couldn't open the blocking permission settings.",
+        "appliedNow": "Applied {{count}} measured apps right away.",
+        "appliedTomorrow": "{{count}} measured apps will apply from tomorrow.",
+        "pickerOpen": "Couldn't open the measured apps picker."
+      },
+      "androidPicker": {
+        "savedAllowed": "Saved your allowed apps.",
+        "savedTomorrow": "Measured apps will apply from tomorrow.",
+        "savedNow": "Started measuring the selected apps.",
+        "syncLater": "Saved your selection. We'll check usage again.",
+        "saveFailed": "Couldn't save your selection. Please try again.",
+        "loadFailed": "Couldn't load the installed apps.",
+        "loading": "Loading apps…",
+        "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
+        "descMeasured": "Your first selection applies right away. Changes to existing apps apply from midnight KST the next day.",
+        "allApps": "Measure all apps",
+        "search": "Search apps",
+        "select": "Select {{label}}",
+        "none": "No matching apps.",
+        "more": "Show more apps",
+        "saving": "Saving…",
+        "save": "Save selection",
+        "back": "Back"
+      }
+    },
     "safetySection": "Safety",
     "blockedUsersSub": "Review and unblock your blocked list",
     "helpSection": "Help",
@@ -489,6 +598,7 @@
     }
   },
   "wardrobe": {
+    "title": "My Outfits",
     "default": "Default",
     "defaultFor": "{{slot}}: default",
     "section": {

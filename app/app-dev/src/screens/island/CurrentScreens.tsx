@@ -843,7 +843,7 @@ async function openScreenTimeSettings(notify: (message: string) => void) {
       await Linking.openSettings();
     }
   } catch {
-    notify('설정을 열지 못했어요. 기기의 설정 앱에서 권한을 확인해 주세요.');
+    notify(t('settings.permissions.errors.settingsOpen'));
   }
 }
 
@@ -851,8 +851,8 @@ function ScreenTimePermissionHelp() {
   return (
     <Txt kind="meta">
       {Platform.OS === 'android'
-        ? '사용 정보 접근 설정에서 이 앱을 허용해 주세요.'
-        : '허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.'}
+        ? t('settings.permissions.help.android')
+        : t('settings.permissions.help.ios')}
     </Txt>
   );
 }
@@ -873,22 +873,31 @@ function AppPermissionManager({ e }: any) {
   const selectedCount = selectionCount(selection);
   const selectionDescription =
     selectionStatus === 'loading'
-      ? '선택 상태 확인 중'
+      ? t('settings.permissions.status.checking')
       : selectionStatus === 'error'
-        ? '선택 상태를 확인하지 못했어요'
+        ? t('settings.permissions.status.failed')
         : selection?.allApps
-          ? `전체 앱${selection.pending ? ' · 내일부터 적용' : ''}`
+          ? t(
+              selection.pending
+                ? 'settings.permissions.status.allAppsPending'
+                : 'settings.permissions.status.allApps',
+            )
           : selectedCount
-            ? `${selectedCount}개 선택됨${selection?.pending ? ' · 내일부터 적용' : ''}`
-            : '아직 선택하지 않았어요';
+            ? t(
+                selection?.pending
+                  ? 'settings.permissions.status.selectedCountPending'
+                  : 'settings.permissions.status.selectedCount',
+                { count: selectedCount },
+              )
+            : t('settings.permissions.status.none');
   const permissionDescription =
     status === 'loading'
-      ? '확인 중'
+      ? t('settings.permissions.status.permissionChecking')
       : approved
-        ? '연결됨'
+        ? t('settings.permissions.connected')
         : unavailable
-          ? '사용 불가'
-          : '연결 필요';
+          ? t('settings.permissions.unavailable')
+          : t('settings.permissions.needed');
 
   useEffect(() => {
     let active = true;
@@ -932,7 +941,7 @@ function AppPermissionManager({ e }: any) {
           if (active) setAllowSafari(value);
         })
         .catch(() => {
-          if (active) e.notify('Safari 허용 설정을 확인하지 못했어요.');
+          if (active) e.notify(t('settings.permissions.errors.safariCheck'));
         });
       void screenTime
         .getAllowedSelectionCounts()
@@ -940,7 +949,7 @@ function AppPermissionManager({ e }: any) {
           if (active) setAllowedCount(selectionCount(value));
         })
         .catch(() => {
-          if (active) e.notify('허용 앱 설정을 확인하지 못했어요.');
+          if (active) e.notify(t('settings.permissions.errors.allowedCheck'));
         });
     }
     syncPermissionState();
@@ -956,7 +965,7 @@ function AppPermissionManager({ e }: any) {
   const requestConnection = async () => {
     if (approved) return true;
     if (unavailable) {
-      e.notify('이 기기에서는 스크린타임을 연결할 수 없어요.');
+      e.notify(t('settings.permissions.errors.unavailable'));
       return false;
     }
     if (busy) return;
@@ -969,12 +978,12 @@ function AppPermissionManager({ e }: any) {
       if (nextStatus !== 'approved')
         e.notify(
           Platform.OS === 'android'
-            ? '사용 정보 접근 설정에서 권한을 허용해 주세요.'
-            : 'iOS 설정에서 스크린타임 권한을 허용해 주세요.',
+            ? t('settings.permissions.errors.grantAndroid')
+            : t('settings.permissions.errors.grantIos'),
         );
       return nextStatus === 'approved';
     } catch {
-      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      e.notify(t('settings.permissions.errors.requestFailed'));
       return false;
     } finally {
       setBusy(false);
@@ -999,7 +1008,7 @@ function AppPermissionManager({ e }: any) {
 
   if (supportsFocusShield && allowedPicker)
     return (
-      <Sheet e={e} title="집중 중 허용 앱">
+      <Sheet e={e} title={t('settings.permissions.sheet.allowedApps')}>
         <AndroidAppPicker
           mode="allowed"
           notify={e.notify}
@@ -1014,15 +1023,15 @@ function AppPermissionManager({ e }: any) {
       </Sheet>
     );
   return (
-    <Sheet e={e} title="앱 권한 관리">
-      <Txt kind="section">스크린타임</Txt>
+    <Sheet e={e} title={t('settings.permissionManage')}>
+      <Txt kind="section">{t('settings.permissions.screenTime.title')}</Txt>
       <Group>
         <Row
-          title="스크린타임 연결"
-          sub={`${permissionDescription} · 폰 사용 퀘스트와 기록에 사용해요`}
+          title={t('settings.permissions.screenTime.connect')}
+          sub={t('settings.permissions.screenTime.sub', { description: permissionDescription })}
           tail={
             <Toggle
-              label="스크린타임 연결"
+              label={t('settings.permissions.screenTime.connect')}
               value={approved}
               disabled={busy || status === 'loading' || unavailable}
               onChange={(next: boolean) => {
@@ -1032,21 +1041,23 @@ function AppPermissionManager({ e }: any) {
           }
         />
         <Row
-          title="측정 앱"
+          title={t('settings.permissions.measuredApps.title')}
           sub={selectionDescription}
-          accessibilityLabel={`측정 앱, ${selectionDescription}`}
+          accessibilityLabel={t('settings.permissions.measuredApps.a11y', {
+            description: selectionDescription,
+          })}
           chevron
           onPress={openMeasuredApps}
         />
       </Group>
-      <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="meta">{t('settings.permissions.disconnectNote')}</Txt>
       {supportsFocusShield && (
         <>
-          <Txt kind="section">집중 중 허용</Txt>
+          <Txt kind="section">{t('settings.permissions.allowed.section')}</Txt>
           <Group>
             <Row
-              title="허용 앱"
-              sub={`${allowedCount}개 선택됨`}
+              title={t('settings.permissions.allowed.title')}
+              sub={t('settings.permissions.allowed.count', { count: allowedCount })}
               chevron
               disabled={busy}
               onPress={async () => {
@@ -1060,7 +1071,7 @@ function AppPermissionManager({ e }: any) {
                   const picked = await screenTime.presentAllowedAppManager();
                   if (picked) setAllowedCount(selectionCount(picked));
                 } catch {
-                  e.notify('허용 앱을 변경하지 못했어요.');
+                  e.notify(t('settings.permissions.errors.allowedChange'));
                 } finally {
                   setBusy(false);
                 }
@@ -1068,11 +1079,11 @@ function AppPermissionManager({ e }: any) {
             />
             {Platform.OS === 'ios' && (
               <Row
-                title="Safari 웹사이트 차단 해제"
-                sub="위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요"
+                title={t('settings.permissions.safari.title')}
+                sub={t('settings.permissions.safari.sub')}
                 tail={
                   <Toggle
-                    label="집중 중 Safari 웹사이트 차단 해제"
+                    label={t('settings.permissions.safari.a11y')}
                     value={allowSafari}
                     disabled={busy || !approved}
                     onChange={async (value: boolean) => {
@@ -1081,7 +1092,7 @@ function AppPermissionManager({ e }: any) {
                         await screenTime.setFocusAllowSafariWeb(value);
                         setAllowSafari(value);
                       } catch {
-                        e.notify('Safari 허용 설정을 변경하지 못했어요.');
+                        e.notify(t('settings.permissions.errors.safariChange'));
                       } finally {
                         setBusy(false);
                       }
@@ -1096,22 +1107,22 @@ function AppPermissionManager({ e }: any) {
       {Platform.OS === 'android' && supportsFocusShield && (
         <Group>
           <Row
-            title="다른 앱 위에 표시"
+            title={t('settings.permissions.android.overlay.title')}
             sub={
               overlayGranted
-                ? '허용됨 · 집중 중 앱 차단에 사용해요'
-                : '앱 차단을 위해 허용이 필요해요'
+                ? t('settings.permissions.android.overlay.on')
+                : t('settings.permissions.android.overlay.off')
             }
             chevron
             onPress={() =>
               screenTimeNative
                 ?.requestOverlayPermission?.()
-                .catch(() => e.notify('차단 권한 설정을 열지 못했어요.'))
+                .catch(() => e.notify(t('settings.permissions.errors.overlayOpen')))
             }
           />
           <Row
-            title="집중 상태 알림"
-            sub="알림·잠금화면에서 집중 시간을 확인해요"
+            title={t('settings.permissions.android.notice.title')}
+            sub={t('settings.permissions.android.notice.sub')}
             chevron
             onPress={async () => {
               if (Number(Platform.Version) >= 33) {
@@ -1204,7 +1215,7 @@ function ScreenTimePermission({ e }: any) {
       const next = await syncStatus();
       if (next === 'approved') finish();
     } catch {
-      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      e.notify(t('settings.permissions.errors.requestFailed'));
     } finally {
       setBusy(false);
     }
@@ -1213,7 +1224,7 @@ function ScreenTimePermission({ e }: any) {
     return (
       <Sheet
         e={e}
-        title="측정 권한"
+        title={t('settings.permissions.gate.title')}
         onBack={boardFirst ? skip : undefined}
         onClose={boardFirst ? skip : undefined}
       >
@@ -1226,75 +1237,94 @@ function ScreenTimePermission({ e }: any) {
   return (
     <Sheet
       e={e}
-      title="측정 권한"
+      title={t('settings.permissions.gate.title')}
       onBack={boardFirst ? skip : undefined}
       onClose={boardFirst ? skip : undefined}
     >
       <Pic id="cat/black/sitting" w={82} />
-      <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
-      <Txt>선택한 앱의 사용 시간만 기록해요.</Txt>
+      <Txt kind="h17">{t('settings.permissions.gate.heading')}</Txt>
+      <Txt>{t('settings.permissions.gate.sub')}</Txt>
       <Group flat>
         <Row
-          title="스크린타임 권한"
+          title={t('settings.permissions.gate.row')}
           sub={
             unavailable
-              ? '이 기기에서는 사용할 수 없어요'
+              ? t('settings.permissions.gate.rowUnavailable')
               : status === 'approved'
-                ? '연결됨'
+                ? t('settings.permissions.connected')
                 : status === 'denied'
-                  ? '권한이 꺼져 있어요. 다시 요청할 수 있어요'
-                  : '아직 연결하지 않았어요'
+                  ? t('settings.permissions.gate.rowDenied')
+                  : t('settings.permissions.gate.rowNone')
           }
         />
       </Group>
       {Platform.OS === 'android' && status === 'approved' && (
         <Btn
-          title="사용 정보 접근 설정 열기"
+          title={t('settings.permissions.gate.openUsage')}
           kind="sec"
           onPress={async () => {
             if (!(await screenTime.openUsageAccessSettings()))
-              e.notify('사용 정보 접근 설정을 열지 못했어요.');
+              e.notify(t('settings.permissions.errors.usageOpenFailed'));
           }}
         />
       )}
       {status === 'approved' ? (
         <Btn
-          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          title={
+            boardFirst
+              ? t('settings.permissions.measuredApps.pick')
+              : measuredApps
+                ? t('settings.permissions.gate.continue')
+                : t('settings.permissions.gate.done')
+          }
           onPress={finish}
         />
       ) : !unavailable && (status === 'denied' || requestAttempted) ? (
         <>
           <ScreenTimePermissionHelp />
           <Btn
-            title={busy ? '권한 요청 중…' : '권한 다시 요청하기'}
+            title={
+              busy
+                ? t('settings.permissions.gate.requesting')
+                : t('settings.permissions.gate.retry')
+            }
             disabled={busy}
             onPress={request}
           />
           <Btn
-            title="시스템 설정 열기"
+            title={t('settings.permissions.gate.openSystem')}
             kind="sec"
             disabled={busy}
             onPress={() => openScreenTimeSettings(e.notify)}
           />
           <Btn
-            title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
+            title={boardFirst ? t('settings.permissions.gate.laterBoard') : t('common.later')}
             kind="ghost"
             onPress={skip}
           />
         </>
       ) : unavailable ? (
-        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={skip} />
+        <Btn
+          title={boardFirst ? t('settings.permissions.gate.openBoard') : t('common.ok')}
+          onPress={skip}
+        />
       ) : (
         <>
           <Btn
-            title={busy ? '권한 요청 중…' : '스크린타임 연결하기'}
+            title={
+              busy
+                ? t('settings.permissions.gate.requesting')
+                : t('settings.permissions.gate.connectBtn')
+            }
             disabled={busy}
             onPress={request}
           />
-          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={skip} />}
+          {boardFirst && (
+            <Btn title={t('settings.permissions.gate.laterBoard')} kind="ghost" onPress={skip} />
+          )}
         </>
       )}
-      <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="meta">{t('settings.permissions.gate.note')}</Txt>
     </Sheet>
   );
 }
@@ -1309,7 +1339,12 @@ function MeasuredAppPicker({ e }: any) {
       } else e.back();
     };
     return (
-      <Sheet e={e} title="측정 앱" onBack={finish} onClose={finish}>
+      <Sheet
+        e={e}
+        title={t('settings.permissions.measuredApps.title')}
+        onBack={finish}
+        onClose={finish}
+      >
         <AndroidAppPicker mode="measured" notify={e.notify} onDone={finish} />
       </Sheet>
     );
@@ -1356,13 +1391,13 @@ function IOSMeasuredAppPicker({ e }: any) {
         e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
         e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         e.dispatch({ type: 'SCREEN_TIME', value: minutes });
-        e.notify(`측정 앱 ${count}개를 바로 적용했어요.`);
+        e.notify(t('settings.permissions.errors.appliedNow', { count }));
       } else {
-        e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
+        e.notify(t('settings.permissions.errors.appliedTomorrow', { count }));
       }
       finish();
     } catch {
-      e.notify('측정 앱 선택 화면을 열지 못했어요.');
+      e.notify(t('settings.permissions.errors.pickerOpen'));
     } finally {
       pickerInFlight.current = false;
       setBusy(false);
@@ -1378,14 +1413,14 @@ function IOSMeasuredAppPicker({ e }: any) {
   return (
     <Sheet
       e={e}
-      title="측정 앱"
+      title={t('settings.permissions.measuredApps.title')}
       onBack={boardFirst ? finish : undefined}
       onClose={boardFirst ? finish : undefined}
     >
       {busy ? (
         <ActivityIndicator color={C.ink} />
       ) : (
-        <Btn title="측정 앱 고르기" onPress={openPicker} />
+        <Btn title={t('settings.permissions.measuredApps.pick')} onPress={openPicker} />
       )}
     </Sheet>
   );
