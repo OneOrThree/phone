@@ -79,8 +79,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final OutboundAuthzCache outboundAuthzCache;
     private final MeterRegistry meterRegistry;
     private final WebSocketConnectionDiagnostics connectionDiagnostics = new WebSocketConnectionDiagnostics();
-    /** 끝난 세션의 늦은 프레임을 수신·브로커 채널 양쪽에서 버리고 보상한다 — 상태는 소켓 세션 속성에만 있다. */
-    private final EndedSessionGuard endedSessions = new EndedSessionGuard();
 
     /** 서버 heartbeat 송신 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000 과 같은 값이 기본이다. */
     @Value("${chat.websocket.heartbeat.server-ms:10000}")
@@ -190,7 +188,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setHeartbeatValue(new long[] {heartbeatServerMillis, heartbeatClientMillis})
                 .setTaskScheduler(realtimeHeartbeatScheduler());
         // 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 여기로 다시 보낸다 — 같은 가드로 버리고 보상한다.
-        registry.configureBrokerChannel().interceptors(endedSessions);
+        registry.configureBrokerChannel().interceptors(endedSessionGuard());
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
@@ -218,7 +216,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
         registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
         // 끝난 세션의 늦은 CONNECT·SUBSCRIBE 를 맨 앞에서 버린다 — 포화 중 종료 DISCONNECT 가 그것들을 추월한다.
-        registration.interceptors(endedSessions, new RejectAsErrorFrame(), movementSubscriptions);
+        registration.interceptors(endedSessionGuard(), new RejectAsErrorFrame(), movementSubscriptions);
+    }
+
+    /** 끝난 세션의 늦은 프레임을 수신·브로커 채널 양쪽에서 버리고 보상한다 — 상태는 소켓 세션 속성에만 있다. */
+    @Bean
+    EndedSessionGuard endedSessionGuard() {
+        return new EndedSessionGuard(meterRegistry);
     }
 
     /**

@@ -1,5 +1,11 @@
 package com.oneorthree.realtime.config;
 
+import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.block.BlockedUsers;
+import com.oneorthree.realtime.event.RealtimeEventDelivery;
+import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.movement.stomp.MovementOutboundInterceptor;
+import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.commons.logging.LogFactory;
 import org.junit.jupiter.api.DisplayName;
@@ -33,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 /**
  * 실제 수신 실행기·순서 보존 데코레이터·SimpleBroker·사용자 목적지 처리기로 종료와 늦은 프레임의 경합을 재현한다.
@@ -42,6 +49,8 @@ class EndedSessionGuardTest {
 
     private static final String SESSION = "socket-1";
     private static final String USER_ERRORS = "/queue/errors-user" + SESSION;
+
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
 
     @Test
     @DisplayName("포화 중 종료 DISCONNECT 가 대기 CONNECT 를 추월해도 끝난 세션은 브로커·구독 레지스트리에 남지 않는다")
@@ -54,7 +63,7 @@ class EndedSessionGuardTest {
         try {
             ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(executor);
             // 운영 배선 순서 — 등록 가로채기가 먼저, Spring 의 순서 보존 콜백은 엔드포인트 등록 때 뒤에 붙는다.
-            inbound.setInterceptors(List.of(new EndedSessionGuard()));
+            inbound.setInterceptors(List.of(new EndedSessionGuard(meters)));
             OrderedMessageChannelDecorator.configureInterceptor(inbound, true);
             List<Message<?>> toClient = new CopyOnWriteArrayList<>();
             ExecutorSubscribableChannel outbound = new ExecutorSubscribableChannel();
@@ -112,10 +121,17 @@ class EndedSessionGuardTest {
                     return message;
                 }
             };
-            inbound.setInterceptors(List.of(new EndedSessionGuard(), pauseConnect));
+            inbound.setInterceptors(List.of(new EndedSessionGuard(meters), pauseConnect));
             OrderedMessageChannelDecorator.configureInterceptor(inbound, true);
             List<Message<?>> toClient = new CopyOnWriteArrayList<>();
             ExecutorSubscribableChannel outbound = new ExecutorSubscribableChannel();
+            // 운영 아웃바운드 인터셉터 셋 그대로 — 보상 ACK 가 예외 없이 지나가고 송신 예산 지표를 건드리지 않는지 본다.
+            RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
+            outbound.setInterceptors(List.of(new MovementOutboundInterceptor(),
+                    new ChatOutboundChannelInterceptor(sessions, mock(JwtValidator.class), mock(ChatAccessGuard.class),
+                            mock(RealtimeEventDelivery.class), new tools.jackson.databind.ObjectMapper(),
+                            mock(BlockedUsers.class), mock(SeaRooms.class), meters),
+                    new OutboundSendBudget(sessions, meters, 1, 1, 8)));
             outbound.subscribe(message -> {
                 toClient.add(message);
                 if (typeOf(message) == SimpMessageType.DISCONNECT_ACK) {
@@ -148,6 +164,11 @@ class EndedSessionGuardTest {
                     .anyMatch(message -> typeOf(message) == SimpMessageType.CONNECT_ACK);
             assertThat(brokerSessions(broker)).as("보상이 되살아난 세션을 지운다").doesNotContainKey(SESSION);
             assertThat(subscribers(broker, "/topic/probe")).isEmpty();
+            assertThat(compensated("broker")).isEqualTo(1);
+            assertThat(toClient.stream().filter(message -> typeOf(message) == SimpMessageType.DISCONNECT_ACK))
+                    .as("보상 ACK 는 아웃바운드 큐에 들어가지 않는다 — 종료 DISCONNECT 의 ACK 하나").hasSize(1);
+            assertThat(meters.find("realtime.outbound.dropped").counters())
+                    .allSatisfy(counter -> assertThat(counter.count()).isZero());
         } finally {
             release.countDown();
             executor.shutdown();
@@ -161,7 +182,7 @@ class EndedSessionGuardTest {
         executor.initialize();
         try {
             ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(executor);
-            inbound.setInterceptors(List.of(new EndedSessionGuard()));
+            inbound.setInterceptors(List.of(new EndedSessionGuard(meters)));
             OrderedMessageChannelDecorator.configureInterceptor(inbound, true);
             List<Message<?>> toClient = new CopyOnWriteArrayList<>();
             ExecutorSubscribableChannel outbound = new ExecutorSubscribableChannel();
@@ -221,7 +242,7 @@ class EndedSessionGuardTest {
                     }
                 }
             };
-            inbound.setInterceptors(List.of(new EndedSessionGuard(), probe));
+            inbound.setInterceptors(List.of(new EndedSessionGuard(meters), probe));
             OrderedMessageChannelDecorator.configureInterceptor(inbound, true);
             ExecutorSubscribableChannel brokerChannel = new ExecutorSubscribableChannel();
             ChannelInterceptor countForwarded = new ChannelInterceptor() {
@@ -233,7 +254,7 @@ class EndedSessionGuardTest {
                     return message;
                 }
             };
-            brokerChannel.setInterceptors(List.of(countForwarded, new EndedSessionGuard()));
+            brokerChannel.setInterceptors(List.of(countForwarded, new EndedSessionGuard(meters)));
             ExecutorSubscribableChannel outbound = new ExecutorSubscribableChannel();
             outbound.subscribe(message -> { });
             SimpleBrokerMessageHandler broker = new SimpleBrokerMessageHandler(inbound, outbound, brokerChannel,
@@ -263,6 +284,7 @@ class EndedSessionGuardTest {
             Object sendHelper = ReflectionTestUtils.getField(userDestinations, "sendHelper");
             Map<?, ?> templates = (Map<?, ?>) ReflectionTestUtils.getField(sendHelper, "orderedMessagingTemplates");
             assertThat(templates.containsKey(SESSION)).as("세션별 전송 템플릿도 보상이 지운다").isFalse();
+            assertThat(compensated("user")).isEqualTo(1);
         } finally {
             release.countDown();
             executor.shutdown();
@@ -273,13 +295,17 @@ class EndedSessionGuardTest {
     @DisplayName("앱이 SimpMessagingTemplate 으로 보내는 메시지는 세션 속성이 없어 가드를 그대로 지난다")
     void templateMessagesPassTheGuard() {
         ExecutorSubscribableChannel brokerChannel = new ExecutorSubscribableChannel();
-        brokerChannel.setInterceptors(List.of(new EndedSessionGuard()));
+        brokerChannel.setInterceptors(List.of(new EndedSessionGuard(meters)));
         List<Message<?>> received = new CopyOnWriteArrayList<>();
         brokerChannel.subscribe(received::add);
 
         new SimpMessagingTemplate(brokerChannel).convertAndSend("/topic/probe", "hello");
 
         assertThat(received).hasSize(1);
+    }
+
+    private double compensated(String handler) {
+        return meters.get("realtime.inbound.ended.compensated").tag("handler", handler).counter().count();
     }
 
     @SuppressWarnings("unchecked")

@@ -1,5 +1,7 @@
 package com.oneorthree.realtime.config;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
@@ -45,16 +47,51 @@ import java.util.Map;
  * 이 시점의 get 은 표시를 반드시 본다. 둘 다 지우게 되는 경우 두 번째 제거는 무해하다 — 없는 세션의 {@code remove}·구독
  * 해제·템플릿 제거는 아무 일도 하지 않고, DISCONNECT_ACK 는 이미 세션이 없는 {@code SubProtocolWebSocketHandler} 가 버린다.
  * 세션별 잠금은 쓰지 않는다 — 처리기가 던져 짝이 어긋나면 잠금이 새어 그 세션의 다음 프레임이 워커를 영원히 막는다.
+ * 보상 DISCONNECT 의 ACK 는 {@link OutboundSendBudget} 이 큐에 넣기 전에 버린다({@link #isCompensationAck}) — 표시는
+ * {@code SubProtocolWebSocketHandler} 가 세션을 지운 «뒤»에만 붙으므로 그 ACK 는 어차피 버려진다. 큐에 넣으면 포화 중
+ * {@code realtime.outbound.dropped{reason=queue_full}} 만 부풀린다. 보상 횟수는 {@code realtime.inbound.ended.compensated}.
+ *
+ * <p>세션 상태를 드는 처리기·리스너를 새로 붙이면 위 보상 목록에 넣거나 등록 직후 {@link #isEnded} 를 본다 — 지금은
+ * {@code RealtimeSessionRegistry} 의 구독 기록을 {@code StompAuthChannelInterceptor} 가 등록 직후 확인해 되돌린다. 이동 구독
+ * ({@code MovementSubscriptionListener})은 세션별 {@code compute} 안의 {@code isConnected} 와 종료 정리 순서로 이미 닫혀 있다.
  */
 final class EndedSessionGuard implements ExecutorChannelInterceptor {
 
     static final String ENDED = EndedSessionGuard.class.getName() + ".ENDED";
+
+    /** 보상 DISCONNECT 표지 — 그 ACK 를 아웃바운드 큐에 넣지 않게 알아본다. */
+    private static final String COMPENSATION = EndedSessionGuard.class.getName() + ".COMPENSATION";
+
+    private final Counter brokerCompensated;
+    private final Counter userCompensated;
+
+    EndedSessionGuard(MeterRegistry registry) {
+        this.brokerCompensated = compensated(registry, "broker");
+        this.userCompensated = compensated(registry, "user");
+    }
+
+    private static Counter compensated(MeterRegistry registry, String handler) {
+        return Counter.builder("realtime.inbound.ended.compensated").tag("handler", handler)
+                .description("검사를 지난 뒤 끝난 세션의 상태를 합성 DISCONNECT 로 되지운 횟수").register(registry);
+    }
 
     /** 소켓이 닫혔다 — 종료 DISCONNECT 를 보내기 전에, 같은 스레드에서 부른다. */
     static void markEnded(Map<String, Object> socketAttributes) {
         if (socketAttributes != null) {
             socketAttributes.put(ENDED, Boolean.TRUE);
         }
+    }
+
+    /** 소켓이 닫혔는가 — 세션 상태를 등록한 직후 확인해 되돌릴 때 쓴다. */
+    static boolean isEnded(Map<String, Object> socketAttributes) {
+        return socketAttributes != null && socketAttributes.containsKey(ENDED);
+    }
+
+    /** 보상 DISCONNECT 에 브로커가 답한 ACK 인가 — 받을 소켓이 이미 없다. */
+    static boolean isCompensationAck(Message<?> message) {
+        return SimpMessageType.DISCONNECT_ACK.equals(SimpMessageHeaderAccessor.getMessageType(message.getHeaders()))
+                && message.getHeaders().get(SimpMessageHeaderAccessor.DISCONNECT_MESSAGE_HEADER) instanceof Message<?> d
+                && d.getHeaders().containsKey(COMPENSATION);
     }
 
     @Override
@@ -70,10 +107,11 @@ final class EndedSessionGuard implements ExecutorChannelInterceptor {
     @Override
     public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler,
             Exception ex) {
-        boolean holdsSessionState = handler instanceof AbstractBrokerMessageHandler
-                || handler instanceof UserDestinationMessageHandler;
-        if (holdsSessionState && lateFrame(message.getHeaders())) {
+        Counter compensated = handler instanceof AbstractBrokerMessageHandler ? brokerCompensated
+                : handler instanceof UserDestinationMessageHandler ? userCompensated : null;
+        if (compensated != null && lateFrame(message.getHeaders())) {
             handler.handleMessage(disconnectOf(message.getHeaders()));
+            compensated.increment();
         }
     }
 
@@ -81,8 +119,7 @@ final class EndedSessionGuard implements ExecutorChannelInterceptor {
         if (SimpMessageType.DISCONNECT.equals(SimpMessageHeaderAccessor.getMessageType(headers))) {
             return false;
         }
-        Map<String, Object> attributes = SimpMessageHeaderAccessor.getSessionAttributes(headers);
-        return attributes != null && attributes.containsKey(ENDED);
+        return isEnded(SimpMessageHeaderAccessor.getSessionAttributes(headers));
     }
 
     private static Message<byte[]> disconnectOf(MessageHeaders headers) {
@@ -90,6 +127,7 @@ final class EndedSessionGuard implements ExecutorChannelInterceptor {
         accessor.setSessionId(SimpMessageHeaderAccessor.getSessionId(headers));
         accessor.setSessionAttributes(SimpMessageHeaderAccessor.getSessionAttributes(headers));
         accessor.setUser(SimpMessageHeaderAccessor.getUser(headers));
+        accessor.setHeader(COMPENSATION, Boolean.TRUE);
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }

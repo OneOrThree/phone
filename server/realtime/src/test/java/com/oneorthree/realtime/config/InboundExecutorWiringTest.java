@@ -15,6 +15,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -81,9 +83,11 @@ class InboundExecutorWiringTest {
             CountDownLatch started = new CountDownLatch(4);
             CountDownLatch release = new CountDownLatch(1);
             CountDownLatch beat = new CountDownLatch(1);
+            List<String> workers = new CopyOnWriteArrayList<>();
             try {
                 for (int index = 0; index < 4; index++) {
                     executor.execute(() -> {
+                        workers.add(Thread.currentThread().getName());
                         started.countDown();
                         try {
                             release.await(5, TimeUnit.SECONDS);
@@ -93,6 +97,7 @@ class InboundExecutorWiringTest {
                     });
                 }
                 assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
+                assertThat(workers).hasSize(4).allMatch(name -> name.startsWith("realtime-inbound-"));
                 heartbeat.schedule(beat::countDown, Instant.now());
                 assertThat(beat.await(1, TimeUnit.SECONDS)).isTrue();
             } finally {

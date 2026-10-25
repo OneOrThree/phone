@@ -365,10 +365,10 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         }
     }
 
-    /** 종료 예약된 세션의 프레임은 큐에 넣지 않는다. */
+    /** 종료 예약된 세션의 프레임과 끝난 세션 보상의 ACK({@link EndedSessionGuard}, 받을 소켓이 없다)는 큐에 넣지 않는다. */
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-        return closingSession(message) ? null : message;
+        return EndedSessionGuard.isCompensationAck(message) || closingSession(message) ? null : message;
     }
 
     @Override

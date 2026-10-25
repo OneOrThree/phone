@@ -82,10 +82,15 @@ class InboundCallerRunsPolicyTest {
         InboundCallerRunsPolicy policy = policy();
         List<Integer> received = new ArrayList<>();
         IllegalStateException failure = new IllegalStateException("handler failed");
+        IllegalArgumentException later = new IllegalArgumentException("later handler failed");
         assertThatThrownBy(() -> policy.rejectedExecution(() -> {
             policy.rejectedExecution(() -> received.add(1), null);
+            policy.rejectedExecution(() -> {
+                throw later;
+            }, null);
             throw failure;
         }, null)).isSameAs(failure);
+        assertThat(failure.getSuppressed()).as("뒤 오류도 버리지 않는다").containsExactly(later);
         policy.rejectedExecution(() -> received.add(2), null);
         assertThat(received).containsExactly(1, 2);
     }

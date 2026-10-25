@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.config;
 
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -14,15 +15,18 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 클라이언트 UUID 둘을 상관관계 힌트로만 보존한다. 인증된 사용자나 서버가 검증한 원인으로 취급하지 않는다.
  * 원문 URI·기타 쿼리·예외 메시지·토큰은 기록하지 않는다. 관측은 기존 종료 정리를 가로막지 않는다.
  *
- * <p>종료 reason 은 서버가 고르는 오류 코드 모양({@code OUTBOUND_QUEUE_FULL}·{@code UNAUTHORIZED}·
- * {@code SESSION_REVOKED} 등)일 때만 그대로 남기고, 그 밖의 문자열은 {@code OTHER}, 없으면 {@code NONE} 이다 —
- * 클라이언트·컨테이너가 보낸 자유 문구에 개인정보가 섞여도 로그로 옮기지 않는다.
+ * <p>종료 reason 은 서버가 고르는 상수({@link #SERVER_REASONS} — 소켓을 닫는 코드의 {@code CloseStatus} 상수에서 모은다)일
+ * 때만 그대로 남기고, 그 밖의 문자열은 모양이 비슷해도 {@code OTHER}, 없으면 {@code NONE} 이다 — 클라이언트·컨테이너가
+ * 보낸 자유 문구에 개인정보가 섞여도 로그로 옮기지 않는다. 소켓을 닫는 새 reason 을 만들면 여기에 더한다.
  */
 @Slf4j
 final class WebSocketConnectionDiagnostics implements HandshakeInterceptor, WebSocketHandlerDecoratorFactory {
@@ -33,7 +37,10 @@ final class WebSocketConnectionDiagnostics implements HandshakeInterceptor, WebS
 
     private static final Pattern SOCKET_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,128}");
 
-    private static final Pattern REASON_CODE_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
+    static final Set<String> SERVER_REASONS = Stream.concat(
+            Stream.of(OutboundSendBudget.QUEUE_FULL, RealtimeSessionRegistry.UNAUTHORIZED,
+                    RealtimeSessionRegistry.SESSION_REVOKED).map(CloseStatus::getReason),
+            MovementSubscriptionListener.CLOSE_REASONS.stream()).collect(Collectors.toUnmodifiableSet());
 
     private record Correlation(String runId, String connectionId) {
     }
@@ -104,7 +111,7 @@ final class WebSocketConnectionDiagnostics implements HandshakeInterceptor, WebS
         if (reason == null || reason.isEmpty()) {
             return "NONE";
         }
-        return REASON_CODE_PATTERN.matcher(reason).matches() ? reason : "OTHER";
+        return SERVER_REASONS.contains(reason) ? reason : "OTHER";
     }
 
     private static void record(WebSocketSession session, String event, CloseStatus status) {

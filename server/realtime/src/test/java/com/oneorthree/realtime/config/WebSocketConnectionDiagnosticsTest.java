@@ -53,6 +53,13 @@ class WebSocketConnectionDiagnosticsTest {
     }
 
     @Test
+    void serverReasonsAreTheCloseStatusConstantsThatCloseSockets() {
+        assertThat(WebSocketConnectionDiagnostics.SERVER_REASONS).containsExactlyInAnyOrder("OUTBOUND_QUEUE_FULL",
+                "UNAUTHORIZED", "SESSION_REVOKED", "MOVEMENT_BACKPRESSURE", "MOVEMENT_SEND_FAILED",
+                "MEMBERSHIP_UNVERIFIED");
+    }
+
+    @Test
     void closeAndTransportExceptionsStillDelegateAndRecordWithoutPrivateText() throws Exception {
         WebSocketHandler delegate = mock(WebSocketHandler.class);
         WebSocketSession session = mock(WebSocketSession.class);
@@ -89,6 +96,10 @@ class WebSocketConnectionDiagnosticsTest {
             handler.afterConnectionClosed(session, OutboundSendBudget.QUEUE_FULL);
             assertThat(appender.list.get(3).getFormattedMessage())
                     .contains("close_code=1008", "close_reason=OUTBOUND_QUEUE_FULL");
+            // 모양만 서버 코드 같은 임의 문자열은 그대로 남지 않는다 — 허용 집합 밖이다.
+            handler.afterConnectionClosed(session, new CloseStatus(1008, "JYJ_1234"));
+            assertThat(appender.list.get(4).getFormattedMessage()).contains("close_reason=OTHER")
+                    .doesNotContain("JYJ_1234");
             assertThat(appender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
                     .doesNotContain("synthetic-secret", "example.com", "Bearer", USER_ID));
         } finally {

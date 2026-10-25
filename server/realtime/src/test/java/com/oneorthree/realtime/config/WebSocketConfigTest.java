@@ -72,7 +72,7 @@ class WebSocketConfigTest {
         List<?> brokerInterceptors = ReflectionTestUtils.invokeMethod(brokers.configureBrokerChannel(),
                 "getInterceptors");
         assertThat(brokerInterceptors).hasSize(1);
-        assertThat(brokerInterceptors.get(0)).isSameAs(inbound.list().get(0));
+        assertThat(brokerInterceptors.get(0)).isInstanceOf(EndedSessionGuard.class);
 
         Interceptors outbound = new Interceptors();
         config.configureClientOutboundChannel(outbound);

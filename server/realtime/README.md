@@ -112,7 +112,8 @@ cd server/realtime
 
 `server.tomcat.threads.max`의 기본값은 32입니다. 소켓 연결 개수를 제한하는 값은 아닙니다. Tomcat이 처리하는
 핸드셰이크·HTTP 요청·소켓 종료 콜백이 이 작업 스레드 예산을 공유하며, STOMP 채널 실행기는 별도입니다.
-환경별로 `SERVER_TOMCAT_THREADS_MAX`로 조정할 수 있지만, 스레드 수를 늘리기 전에는 컨테이너 메모리 여유를 함께 확인해야 합니다.
+Spring 완화 바인딩으로 `SERVER_TOMCAT_THREADS_MAX` 환경변수가 이 값을 덮지만, dev 컨테이너 env 는 `.github/scripts/write-compose-env.py`
+허용목록으로 걸러지므로 그 허용목록과 compose 에 키를 더하는 변경(별도 PR)이 먼저입니다. 스레드 수를 늘리기 전에는 컨테이너 메모리 여유를 함께 확인해야 합니다.
 
 2026-10-22 운영 시험에서는 1,000개 유휴 연결 종료 부근에 768MiB 컨테이너의 cgroup OOM kill이 발생했습니다.
 종료 직전 힙은 used 229MiB / committed 400MiB / max 483MiB, 비힙 committed는 246MiB였습니다.
@@ -138,11 +139,14 @@ Spring에서 선택 확장 목록만 비워도 Tomcat 11이 내장 압축 확장
 운영 적용 여부는 Infra에서 확인합니다. 컨테이너 한도·공용 JVM 설정·Datadog agent는 유지합니다.
 
 **아래 수치는 모두 로컬 격리 Docker(768MiB·2CPU) 재현이며 운영 AWS 실측이 아닙니다.** 운영 수용량은 같은 패턴의 운영 재측정으로 확인합니다.
-최종 통합 JAR(`2e185d2fcb47d7ce50c6114b47af89341eaadb555ba99ade728193daa5a960ce`)로
+당시 통합 JAR(`2e185d2fcb47d7ce50c6114b47af89341eaadb555ba99ade728193daa5a960ce`, 끝난 세션 가드 이전)로
 1,000개 연결·60초 유지·60초 회복을 정상/강제/정상 종료로 3회 반복해 모두 통과했습니다.
 클라이언트가 압축을 제안했지만 모든 응답의 확장 헤더는 없었고, 정상 종료 2,000개 모두 peer close 1000을 확인했습니다.
 OOM·재시작·조기 종료가 없었으며 매 회차 소켓/STOMP 세션과 송신 큐가 0으로 회복했습니다.
 최종 인바운드·브로커 큐도 0입니다(heartbeat scheduler의 주기 작업 1개는 정상 상태).
+
+아래 표의 JAR 은 끝난 세션 가드(`EndedSessionGuard`, 늦은 프레임 폐기·보상)를 더하기 **이전** 빌드입니다 — 3회 통과는 현재
+코드의 결과가 아니며, 현재 코드는 같은 하네스로 다시 재야 합니다.
 
 | 종료 방식 | RSS 최대 관측(MiB) | cgroup 최대 관측(MiB) | 서버 정리 관측(s) |
 | --- | ---: | ---: | ---: |
