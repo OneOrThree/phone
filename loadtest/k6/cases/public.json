@@ -492,5 +492,18 @@
       "/islands/{islandId}/statistics/focus?from={from}&to={yesterday}&timezone=Asia/Seoul&scope=island"
     ],
     "target": "business"
+  },
+  {
+    "id": "app_home_new_user",
+    "kind": "journey",
+    "paths": [
+      "/screens/home?date={date}&timezone=Asia/Seoul",
+      "/islands/{islandId}/focus-members",
+      "/islands/{islandId}/rest-members",
+      "/screens/library",
+      "/screens/mailbox"
+    ],
+    "target": "business",
+    "parallelAfterFirst": true
   }
 ]
