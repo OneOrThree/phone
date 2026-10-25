@@ -342,6 +342,7 @@ public class InboundEventService {
         }
         blockedUsers.advanceGeneration(blockerId);
         outboundAuthzCache.evictUser(blockerId);
+        seaRooms.refreshBlockVisibility(blockerId);
     }
 
     /**
