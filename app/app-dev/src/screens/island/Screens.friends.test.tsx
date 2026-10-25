@@ -221,6 +221,7 @@ test('검색 뒤 친구 관리를 닫았다 열면 입력과 검색 결과 영�
 
   await screen.rerender(<LiveHarness open={false} />);
   await screen.rerender(<LiveHarness open />);
+  await waitFor(() => assert.equal(getMock.mock.calls.length, 2));
   await screen.findByText('아직 친구가 없어요');
   assert.equal(screen.getByPlaceholderText('닉네임으로 친구 찾기').props.value, '');
   assert.equal(screen.queryByText('검색 결과'), null);

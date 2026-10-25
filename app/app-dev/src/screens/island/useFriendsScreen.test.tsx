@@ -181,6 +181,33 @@ test('닫기 전 검색의 늦은 응답은 다시 연 빈 검색창에 결과�
   assert.equal(hook.result.current.searchStatus, 'idle');
 });
 
+test.each(['screen', 'session'] as const)(
+  '디바운스 중 %s 비활성화는 대기 검색을 취소한다',
+  async (close) => {
+    jest.useFakeTimers();
+    try {
+      screenMock.mockResolvedValue(screen());
+      searchMock.mockResolvedValue([]);
+      const hook = await renderHook(
+        (props: { active: boolean; searchActive: boolean }) =>
+          useFriendsScreen({ ...args, ...props }),
+        { initialProps: { active: true, searchActive: true } },
+      );
+      await act(async () => hook.result.current.setQuery('닫기 전'));
+      await act(async () => jest.advanceTimersByTime(100));
+      await hook.rerender({ active: close !== 'session', searchActive: close !== 'screen' });
+      await act(async () => jest.advanceTimersByTime(1000));
+
+      assert.equal(searchMock.mock.calls.length, 0);
+      assert.equal(hook.result.current.query, '');
+      assert.deepEqual(hook.result.current.searchItems, []);
+      await hook.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  },
+);
+
 test('차단 신호가 오면 이미 적재된 친구·요청을 서버 재조회 전에 즉시 숨긴다', async () => {
   screenMock.mockResolvedValue(screen());
   const { result } = await renderHook(() => useFriendsScreen(args));
