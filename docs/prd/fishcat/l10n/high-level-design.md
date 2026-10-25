@@ -141,7 +141,7 @@ sequenceDiagram
 3. **함수 기본 인자의 `t()` 는 괜찮지만, 호출부가 리터럴을 넘기면 덮인다**(방문 중 관전 화면의 뗏목 라벨 사례).
 4. **`useState` 초기값에 번역 라벨을 넣으면 그 순간 언어로 굳는다.** 정원 휠이 겪었다 — 지금은 `capacityPick` 을 숫자 상태로 두고 휠 항목 라벨은 렌더 시점에 `t()` 로 만든다(GROMO-2254).
 5. **`App.tsx` 의 `titles` 는 번역하지 않는다.** Datadog RUM 뷰 이름이라 번역하면 대시보드가 언어별로 갈라진다.
-6. **화면 파일은 실제 렌더 지점으로 판단한다.** App 은 `CurrentScreens` 를 쓰고 `CurrentScreensContent` 가 arrival·travel·focusSetup·focus·rest·focusResult 등을 먼저 가로채며, manage·members 는 `Hall` 로 보낸다. `CurrentScreens.routing.test.tsx` 가 이 가로채기를 고정한다. 번역하기 전에 어느 파일이 실제로 그려지는지 확인한다 — 같은 이름 분기와 옛 `IslandHome.tsx`·`RestWorld`·`SceneHero` 처럼 렌더되지 않던 코드는 GROMO-2254 에서 삭제했다.
+6. **화면 파일은 실제 렌더 지점으로 판단한다.** App 은 `CurrentScreens` 를 쓰고 `CurrentScreensContent` 가 arrival·travel·focusSetup·focus·rest·focusResult 등을 먼저 가로채며, hall·manage·members·ledger·construction 은 `Hall`, library·diary·stats 는 `Library`, board·quest·notice·mail 류는 `InteriorRoute` 로 보낸다. `CurrentScreens.routing.test.tsx` 가 이 가로채기를 고정한다. 번역하기 전에 어느 파일이 실제로 그려지는지 확인한다 — 같은 이름 분기와 옛 `IslandHome.tsx`·`RestWorld`·`SceneHero` 처럼 렌더되지 않던 코드는 GROMO-2254 에서, `Screens.tsx` 의 hall·stats·ledger·construction·board·quest·questEdit·notice·noticeEdit·mail 분기는 GROMO-2463 에서 삭제했다.
 7. **ko 값은 기존 리터럴과 글자까지 같게.** 기존 한국어 단언 테스트가 수정 없이 통과하는 것이 그 증거다.
 8. **확인 팁**: iOS 는 로그인 세션이 키체인에 남아 앱을 지우고 다시 깔아도 온보딩이 다시 나오지 않는다 → 로그아웃 후 «게스트로 시작». 웹은 `?review=1&lang=en`.
 

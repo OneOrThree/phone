@@ -17,15 +17,12 @@ import {
   type WithdrawalIntent,
 } from '@/services/withdrawalIntent';
 import { clearStudyWidget } from '@/services/studyWidget';
-import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   AppState,
   View,
-  Image,
   Pressable,
   ScrollView,
-  FlatList,
   PanResponder,
   StyleSheet,
   Platform,
@@ -37,22 +34,17 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  islandFocusRecord,
   State,
   Friend,
-  Building,
   Color,
   displayIsland as currentIsland,
   mainIsland,
   serverHome,
   isHost,
   sessionSeconds,
-  questRate,
-  canBuild,
   canBuy,
   products,
   costs,
-  buildingNames,
   colors,
   colorName,
   residentCount,
@@ -64,7 +56,6 @@ import {
   CAPACITY_MAX,
   findIslandByInviteCode,
   balance,
-  dayKey,
   kstMonthDay,
   kstHourMinute,
   trackNames,
@@ -88,7 +79,7 @@ import { stripNicknameWhitespace } from '@/utils/nickname';
 import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
-import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
+import { FinalIsland } from '@/screens/island/WorldMap';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { Ticking } from '@/hooks/useNow';
 import { assets, cat } from '@/constants/assets';
@@ -98,7 +89,6 @@ import {
   DEFAULT_FREE_AUDIO_TRACK_IDS,
   hasBundledAudio,
 } from '@/constants/audio';
-import { Flag } from '@/screens/cosmetics/Cosmetics';
 import {
   appearanceOutfit,
   CatOutfitLayers,
@@ -110,10 +100,8 @@ import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
-import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { componentTokens } from '@/design-system/tokens';
 import {
-  art,
   C,
   k,
   Txt,
@@ -121,24 +109,18 @@ import {
   Btn,
   Group,
   Row,
-  Seg,
   Chips,
   Field,
   Toggle,
-  Bar,
   Badge,
   Strip,
   Page,
   Wheel,
-  Graph,
   EmptyState,
   NavBtn,
 } from '@/design-system/patterns';
 import {
   IslandSheet,
-  WoodBoard,
-  QuestNote,
-  NoticePaper,
   st,
   sheetInput,
   SheetRow,
@@ -148,7 +130,6 @@ import {
   Avatar,
   Preview,
   IslandThumb,
-  RaftCatArt,
   Cta,
   SearchField,
 } from '@/screens/island/IslandSheet';
@@ -203,7 +184,6 @@ const buildingArt: Record<string, string> = {
 };
 // 전망대 순위 행의 «소속됨» 배지 — Badge 는 기본이 왼쪽 위 정렬(DESIGN §7.5)이라 행 안 세로 가운데에 둔다
 const rankJoinedBadge = { alignSelf: 'center' } as const;
-const pad = (n: number) => String(n).padStart(2, '0');
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
 const hm = kstHourMinute;
@@ -396,26 +376,9 @@ const SEC = {
 // 한 줄 입력칸 줄 높이는 웹에서만(iOS 한 줄 TextInput은 lineHeight를 주면 글자가 아래로 밀린다). 여러 줄은 모든 플랫폼
 const INP: any = { letterSpacing: -0.15, ...(Platform.OS === 'web' ? { lineHeight: 23.2 } : null) };
 const INP_TA = { lineHeight: 23.2, letterSpacing: -0.15 } as const;
-// 한국어 문장을 단어 단위로 줄바꿈(시안 word-break:keep-all). iOS는 lineBreakStrategyIOS로
-const KEEP: any = Platform.OS === 'web' ? { wordBreak: 'keep-all' } : null;
 // CSS 그라데이션: 웹은 background-image, 네이티브는 experimental_backgroundImage
 const gradient = (css: string): any =>
   Platform.OS === 'web' ? { backgroundImage: css } : { experimental_backgroundImage: css };
-// 행 오른쪽 꺾쇠(시안 .chev 18px)
-function Chev() {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 24 24">
-      <Path
-        d="M9 6l6 6-6 6"
-        stroke={C.brown}
-        strokeWidth={2.4}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
 // 드럼 위아래 흐림(시안 .wheel:before/:after). 드럼을 감싼 칸 안에 겹친다
 function WheelFade({ h }: { h: number }) {
   return (
@@ -611,33 +574,6 @@ function Onboard({
     </View>
   );
 }
-function MiniRadio({ on }: any) {
-  return (
-    <View
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        borderWidth: 2,
-        borderColor: C.brown,
-        backgroundColor: C.paper,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {on && (
-        <View
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: 6,
-            backgroundColor: C.pink,
-          }}
-        />
-      )}
-    </View>
-  );
-}
 // v2 목업(build-redesign-gallery.py ICON)의 선 아이콘. 연필·보내기·체크는 24칸, 나머지는 32칸
 const ICON: Record<string, string> = {
   hammer: 'M6 3L17 3L22 8L18 12L15 9L4 24L8 28L19 14L23 18L29 12L23 6',
@@ -765,31 +701,6 @@ function AvStack({ list }: { list: string[] }) {
     </View>
   );
 }
-// 재생 중 막대(eq)
-function Eq() {
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        gap: 2,
-        height: 14,
-      }}
-    >
-      {[6, 13, 9, 12].map((h, i) => (
-        <View
-          key={i}
-          style={{
-            width: 3,
-            height: h,
-            borderRadius: 1,
-            backgroundColor: '#D95C7F',
-          }}
-        />
-      ))}
-    </View>
-  );
-}
 // 언어 화면 pick() 의 겹침 탭 가드 — route 분기 안이라 useRef 를 못 써(조건부 훅 금지) 모듈 플래그로 둔다.
 let pickingLocale = false;
 export function RedesignScreens({ e }: any) {
@@ -828,13 +739,8 @@ export function RedesignScreens({ e }: any) {
     previewAudio,
     setPreviewAudio,
     walkTo,
-    newQuest,
   } = e;
-  const [period, setPeriod] = useState('주'),
-    [custom, setCustom] = useState(false),
-    [questHours, setQuestHours] = useState('0시간'),
-    [questMins, setQuestMins] = useState('30분'),
-    [search, setSearch] = useState(''),
+  const [search, setSearch] = useState(''),
     // 새 섬 만들기 정원 선택값. 숫자로 두고 휠 라벨은 렌더 시점에 로케일대로 만든다
     [capacityPick, setCapacityPick] = useState(15),
     [profileName, setProfileName] = useState(state.name),
@@ -864,8 +770,7 @@ export function RedesignScreens({ e }: any) {
     // 서버 탈퇴(또는 로컬 탈퇴)는 끝났는데 기기의 로컬 데이터 소유자 정리를 확정하지 못한 상태.
     // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
     [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
-  const chat = useRef<ScrollView>(null),
-    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+  const profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     profileErrorScope = useRef<object>({}),
     serverWriting = useRef(false),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
@@ -877,7 +782,6 @@ export function RedesignScreens({ e }: any) {
   routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
-    setCustom(false);
     setSearch('');
     setCapacityPick(15);
     setHallGuideOpen(false);
@@ -1123,13 +1027,6 @@ export function RedesignScreens({ e }: any) {
   useEffect(() => {
     if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
   }, [route, currentMainIslandId]);
-  useEffect(() => {
-    if (route !== 'questEdit') return;
-    const q = island.quests.find((q) => q.id === detail);
-    const target = q?.target ?? (body === 'screen' ? 120 : 30);
-    setQuestHours(`${Math.floor(target / 60)}시간`);
-    setQuestMins(`${String(target % 60).padStart(2, '0')}분`);
-  }, [route, detail, body]);
   // 20b: 첫 집중 후 홈에 오면 바로 done으로 기록하고 창만 띄운다. 알겠어를 안 누르고 홈을 떠나도 다시 뜨지 않는다
   useEffect(() => {
     if (route !== 'home' || state.hallGuide !== 'pending') return;
@@ -1149,7 +1046,7 @@ export function RedesignScreens({ e }: any) {
       aria-hidden={true}
       style={{ flex: 1 }}
     >
-      <IslandHome
+      <FinalIsland
         state={state}
         go={go}
         build={build}
@@ -1159,32 +1056,6 @@ export function RedesignScreens({ e }: any) {
         boardStatus={e.boardStatus}
       />
     </View>
-  );
-  const sceneBg = (key: string) => (
-    <View style={{ flex: 1 }}>
-      <Pic id={key} w="100%" h="100%" cover />
-    </View>
-  );
-  const footer = (
-    primary: string,
-    fn: () => void,
-    ghost?: string,
-    gfn?: () => void,
-    note?: string,
-    disabled = false,
-  ) => (
-    <>
-      {note && (
-        <Txt kind="meta" style={{ textAlign: 'center' }}>
-          {note}
-        </Txt>
-      )}
-      {/* v2 CTA 바: 가로 폰에서도 주 버튼 아래 고스트 버튼을 쌓는다 */}
-      <View style={{ gap: semanticTokens.spacing.control }}>
-        <Btn title={primary} onPress={fn} disabled={disabled} />
-        {ghost && <Btn title={ghost} onPress={gfn} kind="ghost" />}
-      </View>
-    </>
   );
   const join = (i: any) => {
     if (i.kicked) {
@@ -1225,31 +1096,6 @@ export function RedesignScreens({ e }: any) {
     });
     return () => sub?.remove();
   }, [previewAudio]);
-  const hallSwitch = (x: string) => {
-    go(x === '기록' ? 'stats' : 'construction');
-  };
-  const hall = (selected: string, children: any, foot?: any) => (
-    <IslandSheet
-      bg="hall"
-      sign="bld/hall"
-      title="마을회관"
-      tall={selected === '마을 발전'}
-      action="⚙"
-      actionPress={() => go('manage')}
-      onClose={home}
-      footer={foot}
-    >
-      <FTabs
-        items={[
-          ['기록', 'clock'],
-          ['마을 발전', 'hammer'],
-        ]}
-        value={selected}
-        onChange={hallSwitch}
-      />
-      {children}
-    </IslandSheet>
-  );
   if (route === 'login' && e.loginProviders) {
     return (
       <LoginScreen
@@ -2273,7 +2119,7 @@ export function RedesignScreens({ e }: any) {
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        <IslandHome
+        <FinalIsland
           state={state}
           go={go}
           build={build}
@@ -2886,790 +2732,6 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
-  if (['hall', 'stats', 'ledger'].includes(route)) {
-    const records = state.records.filter(
-        (r) =>
-          islandFocusRecord(r, island.id) &&
-          r.at > Date.now() - (period === '주' ? 7 : 30) * 86400000,
-      ),
-      total = records.reduce((s, r) => s + r.seconds, 0),
-      days = Array.from({ length: 7 }, (_, i) =>
-        records
-          .filter((r) => new Date(r.at).getDay() === (i + 1) % 7)
-          .reduce((s, r) => s + r.seconds / 60, 0),
-      );
-    const periodSeg = (
-      <Seg
-        small
-        items={['주', '월']}
-        value={period}
-        onChange={setPeriod}
-        style={{ width: 88, height: 32 }}
-      />
-    );
-    // 24: 회관 기록 판의 "주민 N명의 기록 보기"로 들어오는 시트 안 2단계(stats + detail "residents")
-    if (detail === 'residents')
-      return (
-        <IslandSheet bg="hall" sign="bld/hall" title="주민 기록" onBack={back} onClose={home}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {periodSeg}
-            <Txt kind="meta" style={{ flex: 1 }}>
-              이번 {period} · 매일의 공부 시간은 모두에게 보여요
-            </Txt>
-          </View>
-          <Group>
-            <Row
-              title={state.name + ' · 나'}
-              icon={'avatar/' + state.color}
-              sub={<Bar value={100} />}
-              right={clock(total)}
-            />
-            {island.members.map((m) => (
-              <Row
-                key={m.id}
-                title={m.name}
-                icon={'avatar/' + m.color}
-                sub={<Bar value={Math.min(100, m.seconds / 36)} />}
-                right={clock(m.seconds)}
-              />
-            ))}
-          </Group>
-        </IslandSheet>
-      );
-    const head = (icon: string, title: string, right: any) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Icon name={icon} size={20} />
-        <Txt style={{ flex: 1, fontSize: 17, lineHeight: 23, fontWeight: '800' }}>{title}</Txt>
-        {right}
-      </View>
-    );
-    const big = (value: string, meta: string) => (
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'baseline',
-          flexWrap: 'wrap',
-          gap: 10,
-        }}
-      >
-        <Txt style={[k.number, { fontSize: 36, lineHeight: 42 }]}>{value}</Txt>
-        <Txt kind="meta">{meta}</Txt>
-      </View>
-    );
-    const divider = (
-      <View
-        style={{
-          height: 2,
-          borderRadius: 1,
-          marginVertical: 2,
-          backgroundColor: '#8B695622',
-        }}
-      />
-    );
-    // 22~25: 스위치 없이 집중 → 스크린타임 → 주민 기록이 한 판에 이어진다
-    return hall(
-      '기록',
-      <>
-        <View style={{ gap: 10 }}>
-          {head('clock', '집중', periodSeg)}
-          {big(
-            `${Math.floor(total / 3600)}:${pad(Math.floor(total / 60) % 60)}`,
-            `이번 ${period} · ${period === '주' ? 7 : 30}일 합계`,
-          )}
-          <Graph values={days} />
-          <Txt kind="section">최근 기록</Txt>
-          <Group flat>
-            {records.length ? (
-              records
-                .slice()
-                .reverse()
-                .map((r) => (
-                  <Row key={r.id} title={r.subject} sub={md(r.at)} right={clock(r.seconds)} />
-                ))
-            ) : (
-              <Row title="아직 기록이 없어요" />
-            )}
-          </Group>
-        </View>
-        {divider}
-        <View style={{ gap: 10 }}>
-          {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
-          {state.settings.permission &&
-          state.settings.screenTimeMeasurementReady &&
-          (Platform.OS !== 'android' || state.settings.screenTimeMeasurementDay === dayKey(now)) ? (
-            <>
-              <Txt kind="meta">
-                {Platform.OS === 'android'
-                  ? '오늘 · 전체 앱 사용 시간'
-                  : '오늘 · 선택한 앱의 사용 시간'}
-              </Txt>
-              <Group flat>
-                <Row
-                  title="오늘 폰 사용"
-                  sub={md(now)}
-                  right={
-                    Platform.OS === 'android' ? (
-                      <Txt>{state.screenMinutes}분</Txt>
-                    ) : (
-                      <ScreenTimeReportView
-                        reportContext="Compact Activity"
-                        style={{
-                          width: primitiveTokens.space[16] * 2,
-                          minHeight: primitiveTokens.size.tapMin,
-                        }}
-                      />
-                    )
-                  }
-                />
-                <Row
-                  title="측정 권한"
-                  sub="앱 설정에서 켜고 끌 수 있어요"
-                  chevron
-                  onPress={() => go('settings')}
-                />
-              </Group>
-            </>
-          ) : (
-            <>
-              <View
-                style={{
-                  paddingVertical: 22,
-                  paddingHorizontal: 18,
-                  gap: 8,
-                  borderRadius: 18,
-                  borderWidth: 2,
-                  borderStyle: 'dashed',
-                  borderColor: '#D9C6B8',
-                  alignItems: 'center',
-                }}
-              >
-                <Txt kind="h17">
-                  {state.settings.permission
-                    ? Platform.OS === 'android'
-                      ? '오늘 사용 시간을 확인하고 있어요'
-                      : '측정할 앱을 선택해야 해요'
-                    : '스크린타임 연결이 꺼져 있어요'}
-                </Txt>
-                <Txt kind="meta" style={{ textAlign: 'center' }}>
-                  {state.settings.permission
-                    ? Platform.OS === 'android'
-                      ? '오늘 측정이 확인되면 사용 시간을 표시해요.'
-                      : `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
-                    : `연결하면 오늘 폰 사용 시간을 여기서 볼 수 있어요.\n기록이 없는 것과 0분은 달라요.`}
-                </Txt>
-                <Btn
-                  title={
-                    state.settings.permission
-                      ? Platform.OS === 'android'
-                        ? '측정 권한 확인하기'
-                        : '측정 앱 선택하기'
-                      : '설정에서 켜기'
-                  }
-                  small
-                  kind="sec"
-                  style={{ marginTop: 4 }}
-                  onPress={() => go('settings')}
-                />
-              </View>
-              <Group flat>
-                <Row title="아직 기록이 없어요" sub="연결한 날부터 쌓여요" />
-              </Group>
-            </>
-          )}
-        </View>
-        {divider}
-        <Group flat>
-          <Row
-            lead={
-              <AvStack list={[state.color, ...island.members.map((m) => m.color)].slice(0, 3)} />
-            }
-            title={`주민 ${island.members.length + 1}명의 기록 보기`}
-            sub="매일의 공부 시간은 모두에게 보여요"
-            chevron
-            onPress={() => go('stats', 'residents')}
-          />
-        </Group>
-      </>,
-    );
-  }
-  if (route === 'construction') {
-    const selected =
-        island.nextBuilding ||
-        (['tower', 'mail', 'gram', 'shop'] as Building[]).find(
-          (b) => !island.buildings.includes(b),
-        ) ||
-        'tower',
-      all = ['tower', 'mail', 'gram', 'shop'] as Building[];
-    // 상점 설명의 "배" 꾸미기는 정책상 뺐다(배는 기본 뗏목 고정)
-    const desc = {
-      tower: '다른 섬 기록 보기 · 다른 섬 참가',
-      mail: '섬 전체 편지방',
-      gram: '집중 중 함께 듣는 소리',
-      shop: '캐릭터·섬 꾸미기',
-    };
-    return hall(
-      '마을 발전',
-      <>
-        <Strip label="섬 물고기" value={island.points.toLocaleString() + 'P'} />
-        {/* 건물 카드: 세로 2열, 가로 폰 4열. 선택 = 분홍 + 체크, 잠김·완료·방장 아님 = 흐리게 */}
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: layout.compact ? 10 : 12,
-          }}
-        >
-          {all.map((b) => {
-            const made = island.buildings.includes(b),
-              locked =
-                b === 'shop' &&
-                (!island.buildings.includes('tower') || !island.buildings.includes('mail')),
-              on = selected === b,
-              disabled = made || locked || !host;
-            return (
-              <Pressable
-                key={b}
-                accessibilityRole="button"
-                accessibilityLabel={buildingNames[b]}
-                accessibilityState={{ selected: on, disabled }}
-                disabled={disabled}
-                onPress={() => act('SELECT_BUILDING', { building: b })}
-                style={{
-                  width: layout.compact ? '23%' : '48%',
-                  alignItems: 'center',
-                  gap: 4,
-                  paddingTop: 8,
-                  paddingHorizontal: layout.compact ? 6 : 10,
-                  paddingBottom: layout.compact ? 8 : 10,
-                  borderRadius: 18,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: on ? C.soft : C.paper,
-                  boxShadow: on ? '0px 4px 0px ' + C.brown : 'none',
-                  opacity: disabled ? 0.45 : 1,
-                }}
-              >
-                <View
-                  style={{
-                    width: '100%',
-                    height: layout.compact ? 66 : 84,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Pic
-                    id={b === 'gram' ? 'gram' : 'bld/' + buildingArt[b]}
-                    w={layout.compact ? 62 : 80}
-                  />
-                </View>
-                <Txt
-                  style={{
-                    fontSize: layout.compact ? 14 : 16,
-                    fontWeight: '800',
-                    textAlign: 'center',
-                  }}
-                >
-                  {buildingNames[b]}
-                </Txt>
-                <Txt style={{ fontSize: 15, fontWeight: '800', color: '#D95C7F' }}>
-                  {made ? '건설 완료' : costs[b] + 'P'}
-                </Txt>
-                <Txt
-                  kind="meta"
-                  style={{
-                    fontSize: layout.compact ? 11 : 12,
-                    lineHeight: 16,
-                    textAlign: 'center',
-                  }}
-                >
-                  {desc[b as keyof typeof desc]}
-                </Txt>
-                {on && (
-                  <View style={{ position: 'absolute', right: 10, top: 10 }}>
-                    <CheckDot size={24} />
-                  </View>
-                )}
-                {locked && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: 10,
-                      top: 10,
-                      paddingHorizontal: 8,
-                      paddingVertical: 1,
-                      borderRadius: 999,
-                      borderWidth: 1.5,
-                      borderColor: '#D9C6B8',
-                      backgroundColor: C.paper,
-                    }}
-                  >
-                    <Txt
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '700',
-                        color: C.muted,
-                      }}
-                    >
-                      전망대·우체통 먼저
-                    </Txt>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-      </>,
-      footer(
-        island.buildings.includes(selected)
-          ? '건설 완료'
-          : `${buildingNames[selected]} 짓기 · ${costs[selected]}P`,
-        () => build(selected),
-        undefined,
-        undefined,
-        `건설 후 잔액 ${Math.max(0, island.points - costs[selected]).toLocaleString()}P`,
-        !!canBuild(state, selected),
-      ),
-    );
-  }
-  const editQuest = (q: any) => {
-    go('questEdit', q.id);
-    setText(q.title);
-    setBody(q.type);
-    setQuestHours(Math.floor(q.target / 60) + '시간');
-    setQuestMins(pad(q.target % 60) + '분');
-    e.setWindowStart(q.windowStart || '00:00');
-    e.setWindowEnd(q.windowEnd || '24:00');
-  };
-  if (route === 'board') {
-    // 32·37: 섬 위 나무 게시판. 탭은 실제로 전환되고, 쪽지를 누르면 상세로
-    const onNotice = tab === '공지';
-    return (
-      <WoodBoard
-        tab={onNotice ? 'notice' : 'quest'}
-        onTab={(nextTab) => setTab(nextTab === 'notice' ? '공지' : '퀘스트')}
-        onMake={() =>
-          !host
-            ? notify('방장만 만들 수 있어요.')
-            : onNotice
-              ? go('noticeEdit')
-              : (setQuestHours('0시간'), setQuestMins('30분'), newQuest())
-        }
-        onClose={home}
-      >
-        {onNotice
-          ? island.notices.map((n, i) => {
-              const author = n.author || '알 수 없음';
-              return (
-                <NoticePaper
-                  key={n.id}
-                  i={i}
-                  title={n.title}
-                  meta={n.at ? `${author} · ${md(n.at)}` : author}
-                  comments={n.comments.length}
-                  badge={isHostName(author) ? '방장' : undefined}
-                  onPress={() => go('notice', n.id)}
-                />
-              );
-            })
-          : island.quests.map((q, i) => (
-              <QuestNote
-                key={q.id}
-                i={i}
-                title={q.title}
-                pct={questRate(state, q)}
-                onPress={() => go('quest', q.id)}
-              />
-            ))}
-      </WoodBoard>
-    );
-  }
-  if (route === 'quest') {
-    const q = island.quests.find((q) => q.id === detail) || island.quests[0];
-    if (!q)
-      return (
-        <IslandSheet
-          bg="board"
-          sign="bld/notice-board"
-          title="그룹원 달성률"
-          tall
-          onBack={back}
-          onClose={home}
-        >
-          <Txt>진행 중인 퀘스트가 없어요.</Txt>
-        </IslandSheet>
-      );
-    const rate = questRate(state, q);
-    const people: {
-      id: string;
-      name: string;
-      color: string;
-      pct: number | null;
-    }[] = [
-      { id: 'me', name: state.name, color: state.color, pct: rate },
-      ...island.members.map((m, i) => ({
-        id: m.id,
-        name: m.name,
-        color: m.color,
-        pct: [100, 80, 35][i % 3],
-      })),
-    ];
-    return (
-      <IslandSheet
-        bg="board"
-        sign="bld/notice-board"
-        title="그룹원 달성률"
-        tall
-        onBack={back}
-        onClose={home}
-        action={host ? '수정' : undefined}
-        actionPress={() => editQuest(q)}
-        footer={footer(
-          q.claimed ? '보상 받음' : '달성 보상 받기 · 10P',
-          () => {
-            act('CLAIM', { id: q.id });
-            notify('섬 물고기 10P를 받았어요.');
-          },
-          undefined,
-          undefined,
-          '모두 100%가 되면 섬 물고기가 섬에 쌓여요',
-          q.claimed || rate !== 100,
-        )}
-      >
-        <Txt kind="h">{q.title}</Txt>
-        <Txt kind="meta">
-          {q.type === 'focus'
-            ? `${q.windowStart || '00:00'} – ${q.windowEnd || '24:00'} · ${q.target}분 집중 · 시간대 집중 퀘스트`
-            : '하루 폰 사용 · 스크린타임 기준 · 다음 날 정산'}
-        </Txt>
-        {/* 현상수배 포스터: 세로 2열, 가로 폰 4열. 100%면 분홍 "달성" 도장 */}
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: 12,
-            paddingTop: 4,
-            paddingHorizontal: 4,
-          }}
-        >
-          {people.map((p, n) => {
-            const done = p.pct === 100;
-            return (
-              <View
-                key={p.id}
-                style={{
-                  width: layout.compact ? '22.5%' : '47.5%',
-                  alignItems: 'center',
-                  gap: 4,
-                  paddingTop: 8,
-                  paddingHorizontal: 8,
-                  paddingBottom: 10,
-                  borderRadius: 8,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: '#F7EAD0',
-                  boxShadow: '0px 4px 0px ' + C.brown,
-                  transform: [{ rotate: n % 2 ? '1.1deg' : '-1.2deg' }],
-                }}
-              >
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: 4,
-                    right: 4,
-                    top: 4,
-                    bottom: 4,
-                    borderRadius: 5,
-                    borderWidth: 1.5,
-                    borderStyle: 'dashed',
-                    borderColor: '#8B695666',
-                  }}
-                />
-                <View
-                  style={{
-                    width: '100%',
-                    aspectRatio: 4 / 3,
-                    borderRadius: 6,
-                    borderWidth: 1.5,
-                    borderColor: C.brown,
-                    backgroundColor: '#E3F4FC',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Pic id={'cat/' + p.color} w="88%" h="88%" />
-                </View>
-                <Txt numberOfLines={1} style={{ marginTop: 2, fontSize: 15, fontWeight: '800' }}>
-                  {p.name}
-                </Txt>
-                <Txt
-                  style={{
-                    fontSize: p.pct === null ? 15 : 23,
-                    lineHeight: 26,
-                    fontWeight: '800',
-                    fontVariant: ['tabular-nums'],
-                    color: done ? '#D95C7F' : C.ink,
-                  }}
-                >
-                  {p.pct === null ? '확인 필요' : p.pct + '%'}
-                </Txt>
-                <View style={{ alignSelf: 'stretch' }}>
-                  <Bar value={p.pct} />
-                </View>
-                {done && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      right: 8,
-                      top: 30,
-                      paddingHorizontal: 6,
-                      paddingVertical: 1,
-                      borderRadius: 6,
-                      borderWidth: 2,
-                      borderColor: '#D95C7F',
-                      backgroundColor: '#FFFDFAD9',
-                      transform: [{ rotate: '14deg' }],
-                    }}
-                  >
-                    <Txt
-                      style={{
-                        fontSize: 11,
-                        lineHeight: 15,
-                        fontWeight: '800',
-                        color: '#D95C7F',
-                      }}
-                    >
-                      달성
-                    </Txt>
-                  </View>
-                )}
-              </View>
-            );
-          })}
-        </View>
-      </IslandSheet>
-    );
-  }
-  if (route === 'questEdit') {
-    const type = body === 'screen' ? 'screen' : 'focus',
-      target = parseInt(questHours) * 60 + parseInt(questMins),
-      hours = Array.from({ length: 25 }, (_, i) => pad(i) + ':00');
-    return (
-      <IslandSheet
-        bg="board"
-        sign="bld/notice-board"
-        title={detail ? '퀘스트 수정' : '퀘스트 만들기'}
-        tall
-        onBack={back}
-        onClose={home}
-        keepOnBackdrop
-        footer={footer(
-          '게시판에 붙이기',
-          () => {
-            act('QUEST_SAVE', {
-              id: detail,
-              title: text,
-              kind: type,
-              target,
-              windowStart: e.windowStart,
-              windowEnd: e.windowEnd,
-            });
-            replace('board');
-          },
-          undefined,
-          undefined,
-          undefined,
-          !text.trim() || target <= 0 || (type === 'focus' && e.windowStart >= e.windowEnd),
-        )}
-      >
-        <Seg
-          items={['집중 시간', '폰 사용 시간']}
-          value={type === 'focus' ? '집중 시간' : '폰 사용 시간'}
-          onChange={(v: string) => setBody(v === '집중 시간' ? 'focus' : 'screen')}
-        />
-        <Field
-          label="퀘스트 제목"
-          value={text}
-          onChange={setText}
-          placeholder={type === 'focus' ? '저녁에 한 시간 집중하기' : '오늘 폰 사용 두 시간 이내'}
-        />
-        {type === 'focus' && (
-          <>
-            <Txt kind="meta">집중 시간대</Txt>
-            <View style={k.row}>
-              <Wheel
-                row={layout.compact ? 33 : 44}
-                label="시작"
-                items={hours.slice(0, 24)}
-                value={e.windowStart}
-                onChange={e.setWindowStart}
-              />
-              <Wheel
-                row={layout.compact ? 33 : 44}
-                label="끝"
-                items={hours.slice(1)}
-                value={e.windowEnd}
-                onChange={e.setWindowEnd}
-              />
-            </View>
-          </>
-        )}
-        <Txt kind="meta">
-          {type === 'focus' ? '이 시간대 안에서 집중할 시간' : '하루 폰 사용 상한'}
-        </Txt>
-        <View style={k.row}>
-          <Wheel
-            row={layout.compact ? 33 : 44}
-            label="시간"
-            items={Array.from({ length: 25 }, (_, i) => i + '시간')}
-            value={questHours}
-            onChange={setQuestHours}
-          />
-          <Wheel
-            row={layout.compact ? 33 : 44}
-            label="분"
-            items={Array.from({ length: 12 }, (_, i) => pad(i * 5) + '분')}
-            value={questMins}
-            onChange={setQuestMins}
-          />
-        </View>
-        {type === 'screen' && <Txt kind="meta">스크린타임을 연결한 주민만 달성률이 계산돼요.</Txt>}
-      </IslandSheet>
-    );
-  }
-  const tabletMail = route === 'mail' && layout.tablet;
-  const composer = (placeholder: string, send: () => void) => (
-    <View style={[k.row, { gap: 10 }]}>
-      <View style={{ flex: 1 }}>
-        <Field
-          placeholder={placeholder}
-          value={text}
-          onChange={setText}
-          inputStyle={
-            tabletMail
-              ? {
-                  fontSize: 18,
-                  lineHeight: 26,
-                  minHeight: 58,
-                  paddingVertical: 14,
-                }
-              : undefined
-          }
-          placeholderColor={tabletMail ? C.muted : undefined}
-          tabletScale={tabletMail ? 1 : undefined}
-        />
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="보내기"
-        disabled={!text.trim()}
-        onPress={send}
-        style={{
-          width: tabletMail ? 56 : 48,
-          height: tabletMail ? 56 : 48,
-          borderRadius: tabletMail ? 28 : 24,
-          borderWidth: 2,
-          borderColor: C.brown,
-          backgroundColor: C.pink,
-          opacity: text.trim() ? 1 : 0.4,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="send" size={tabletMail ? 24 : 20} stroke={2.4} />
-      </Pressable>
-    </View>
-  );
-  if (route === 'notice') {
-    const n = island.notices.find((n) => n.id === detail) || island.notices[0];
-    if (!n)
-      return (
-        <IslandSheet
-          bg="board"
-          sign="bld/notice-board"
-          title="공지"
-          tall
-          onBack={back}
-          onClose={home}
-        />
-      );
-    const author = n.author || '알 수 없음';
-    return (
-      <IslandSheet
-        keepOnBackdrop
-        bg="board"
-        sign="bld/notice-board"
-        title="공지"
-        tall
-        onBack={back}
-        onClose={home}
-        action={host ? '수정' : undefined}
-        actionPress={() => {
-          go('noticeEdit', n.id);
-          setText(n.title);
-          setBody(n.body);
-        }}
-        footer={composer('댓글을 남겨요', () => {
-          act('COMMENT', { id: n.id, text });
-          setText('');
-        })}
-      >
-        <Txt kind="h">{n.title}</Txt>
-        <Txt kind="meta">
-          {[author, isHostName(author) && '방장', n.at && md(n.at)].filter(Boolean).join(' · ')}
-        </Txt>
-        <Txt>{n.body}</Txt>
-        <View style={{ height: 1, backgroundColor: '#8B695633', marginVertical: 2 }} />
-        <Txt kind="section">댓글 {n.comments.length}</Txt>
-        {n.comments.map((c) => (
-          <ChatBubble
-            key={c.id}
-            name={c.name}
-            text={c.text}
-            color="ginger"
-            at={c.at ? hm(c.at) : ''}
-            avatar={36}
-          />
-        ))}
-      </IslandSheet>
-    );
-  }
-  if (route === 'noticeEdit')
-    return (
-      <IslandSheet
-        bg="board"
-        sign="bld/notice-board"
-        title={detail ? '공지 수정' : '공지 작성'}
-        tall
-        onBack={back}
-        onClose={home}
-        keepOnBackdrop
-        action={detail ? '삭제' : undefined}
-        actionPress={() =>
-          confirm('공지를 삭제할까요?', '삭제한 공지는 되돌릴 수 없어요.', () => {
-            act('NOTICE_DELETE', { id: detail });
-            replace('board');
-            setTab('공지');
-          })
-        }
-        footer={footer(
-          '공지 저장',
-          () => {
-            act('NOTICE_SAVE', { id: detail, title: text, body });
-            replace('board');
-            setTab('공지');
-          },
-          undefined,
-          undefined,
-          undefined,
-          !text.trim() || !body.trim(),
-        )}
-      >
-        <Field label="제목" value={text} onChange={setText} />
-        <Field label="본문" value={body} onChange={setBody} multiline />
-      </IslandSheet>
-    );
   if (route === 'tower') {
     // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
     if (server) {
@@ -3982,70 +3044,6 @@ export function RedesignScreens({ e }: any) {
       </IslandSheet>
     );
   }
-  if (route === 'mail')
-    return (
-      <IslandSheet
-        bg="mail"
-        sign="bld/mailbox"
-        title="우리 섬 편지방"
-        tall
-        onClose={home}
-        keepOnBackdrop
-        scrollRef={chat}
-        footer={composer('우리 섬 모두에게', () => {
-          act('MESSAGE', { text });
-          setText('');
-          setTimeout(
-            () =>
-              chat.current?.scrollToEnd({
-                animated: !state.settings.reduceMotion,
-              }),
-            80,
-          );
-        })}
-      >
-        <Txt
-          kind="meta"
-          style={{
-            textAlign: 'center',
-            ...(layout.tablet ? { fontSize: 15, lineHeight: 22 } : {}),
-          }}
-        >
-          {island.name} · {island.members.length + 1}명이 함께 나누는 이야기
-        </Txt>
-        <View
-          style={{
-            gap: layout.tablet ? 28 : 20,
-            paddingTop: layout.tablet ? 16 : 10,
-          }}
-        >
-          {island.messages.map((m) => (
-            <View key={m.id}>
-              <ChatBubble
-                large={layout.tablet}
-                name={m.memberId === 'me' ? '나' : m.name}
-                color={m.color}
-                text={m.text}
-                own={m.memberId === 'me'}
-                at={new Date(m.at).toLocaleTimeString('ko-KR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                })}
-              />
-              {m.status === 'failed' && (
-                <Btn
-                  small
-                  title="다시 보내기"
-                  kind="ghost"
-                  onPress={() => act('RETRY_MESSAGE', { id: m.id })}
-                />
-              )}
-            </View>
-          ))}
-        </View>
-      </IslandSheet>
-    );
   // 뗏목 위 고양이 그림. 합성 그림은 검정 고양이만 있어서 다른 털색은 뗏목 + 고양이를 겹쳐 그린다
   const raftCat = (h: number) =>
     state.color === 'black' ? (
@@ -5750,98 +4748,6 @@ export function RedesignScreens({ e }: any) {
     <Page title={t('onboardingStory.brand')} back={home}>
       <Btn title="섬으로 돌아가기" onPress={home} />
     </Page>
-  );
-}
-function ChatBubble({ name, text, color, own = false, at = '', large = false, avatar }: any) {
-  return (
-    <View
-      style={{
-        flexDirection: own ? 'row-reverse' : 'row',
-        alignItems: 'flex-start',
-        gap: large ? 14 : 10,
-      }}
-    >
-      <Pic
-        id={'avatar/' + color}
-        w={avatar ?? (large ? 48 : 40)}
-        style={{
-          borderRadius: 14,
-          backgroundColor: C.sky,
-          borderWidth: 1.5,
-          borderColor: C.brown,
-        }}
-      />
-      <View
-        style={{
-          maxWidth: large ? 560 : '78%',
-          flexShrink: 1,
-          gap: large ? 8 : 6,
-          alignItems: own ? 'flex-end' : 'flex-start',
-        }}
-      >
-        <Txt
-          tabletScale={large ? 1 : undefined}
-          kind="meta"
-          style={
-            large
-              ? {
-                  fontSize: 16,
-                  lineHeight: 23,
-                  fontWeight: '600',
-                  color: C.ink,
-                }
-              : undefined
-          }
-        >
-          {name}
-          {at ? (
-            <Txt
-              tabletScale={large ? 1 : undefined}
-              kind="meta"
-              style={large ? { fontSize: 14, lineHeight: 23, fontWeight: '400' } : undefined}
-            >
-              {' · ' + at}
-            </Txt>
-          ) : null}
-        </Txt>
-        <View
-          style={{
-            backgroundColor: own ? C.soft : C.paper,
-            borderWidth: 2,
-            borderColor: C.brown,
-            borderRadius: 18,
-            paddingHorizontal: large ? 18 : 14,
-            paddingVertical: large ? 14 : 11,
-          }}
-        >
-          <Svg
-            width={14}
-            height={18}
-            viewBox="0 0 14 18"
-            style={{
-              position: 'absolute',
-              top: 9,
-              ...(own ? { right: -12, transform: [{ scaleX: -1 }] } : { left: -12 }),
-            }}
-          >
-            <Path
-              d="M14 1 C8 1 4 1 2 3 C0 5 8 7 12 16"
-              fill={own ? C.soft : C.paper}
-              stroke={C.brown}
-              strokeWidth={2}
-              strokeLinecap="round"
-            />
-            <Path d="M13 1 L13 15" stroke={own ? C.soft : C.paper} strokeWidth={3} />
-          </Svg>
-          <Txt
-            tabletScale={large ? 1 : undefined}
-            style={large ? { fontSize: 19, lineHeight: 29, fontWeight: '500' } : undefined}
-          >
-            {text}
-          </Txt>
-        </View>
-      </View>
-    </View>
   );
 }
 function Volume({ value, onChange }: any) {
