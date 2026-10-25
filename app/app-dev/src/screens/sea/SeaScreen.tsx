@@ -9,7 +9,15 @@ import {
   semanticTokens as s,
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import { SeaArrival, SeaParticipant, SeaVoyage, SeaEmote, seaEmotes, seaClock } from './seaModel';
+import {
+  SeaArrival,
+  SeaParticipant,
+  SeaVoyage,
+  SeaEmote,
+  SeaNotice,
+  seaEmotes,
+  seaClock,
+} from './seaModel';
 import { SeaScene } from './SeaScene';
 import { SeaRaft } from './SeaRaft';
 import { SeaArrivalResult } from './SeaArrivalResult';
@@ -113,13 +121,13 @@ export function SeaScreen(props: SeaScreenProps) {
         if (close) setPanel(null);
         return true;
       }
-    } catch {
+    } catch (thrown) {
       if (
         mounted.current &&
         scopeRef.current === requestScope &&
         requestVersion.current === version
       )
-        setError(t('openSea.retry'));
+        setError(thrown instanceof SeaNotice ? thrown.message : t('openSea.retry'));
     } finally {
       if (requestVersion.current === version) {
         busy.current = false;

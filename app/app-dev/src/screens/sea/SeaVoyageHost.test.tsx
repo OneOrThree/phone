@@ -51,7 +51,11 @@ jest.mock('@/services/api/shop', () => ({
   ...jest.requireActual('@/services/api/shop'),
   getMyInventory: jest.fn(async () => ({ clothes: [], decor: [], hulls: [], equipped: {} })),
 }));
-const mockRoom = { sendEmote: jest.fn(() => true), close: jest.fn(), reconnect: jest.fn() };
+const mockRoom = {
+  sendEmote: jest.fn((): string => 'sent'),
+  close: jest.fn(),
+  reconnect: jest.fn(),
+};
 let mockRoomOpts: any;
 jest.mock('@/services/seaRealtime', () => ({
   ...jest.requireActual('@/services/seaRealtime'),
@@ -327,6 +331,24 @@ test('바다 방 구성원과 이모트가 화면에 이어지고 내 이모트�
   expect(mockRoom.close).toHaveBeenCalled();
 });
 
+test.each([
+  ['no-room', '바다에 다시 들어가는 중이에요. 잠시 뒤 다시 보내 주세요.'],
+  ['disconnected', '연결이 원활하지 않아요. 다시 눌러 시도해 주세요.'],
+  ['throttled', '이모트는 잠시 뒤에 다시 보낼 수 있어요'],
+])(
+  '이모트가 나가지 못하면 이유(%s)별 문구를 패널에 띄우고 패널은 열어 둔다 (GROMO-2484)',
+  async (reason, text) => {
+    const e = env({ state: { name: '나냥', color: 'black', session: null } });
+    const screen = await render(<SeaVoyageHost e={e} />);
+    mockRoom.sendEmote.mockReturnValueOnce(reason);
+    await fireEvent.press(screen.getByLabelText('이모트'));
+    await fireEvent.press(screen.getByLabelText('응원'));
+    await act(async () => {});
+    expect(screen.getByText(text)).toBeTruthy();
+    expect(screen.getByLabelText('응원')).toBeTruthy();
+  },
+);
+
 test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금(409)은 토스트, 게스트(403)는 회원 전환', async () => {
   const e = env({ state: { name: '나냥', color: 'black', session: null } });
   const screen = await render(<SeaVoyageHost e={e} />);
@@ -339,6 +361,7 @@ test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금
   mockRemark.mockRejectedValueOnce(new ApiError('SEA_REMARK_LOCKED', '잠김', 409));
   await write('공부 중');
   expect(e.notify).toHaveBeenCalledWith('한마디는 고친 뒤 5분 동안 바꿀 수 없어요');
+  expect(mockRoom.reconnect).toHaveBeenCalled(); // 표류 정리 뒤면 한마디가 바다 방에 다시 들어간다(GROMO-2484)
   e.conversion.offer.mockReturnValueOnce(true);
   mockRemark.mockRejectedValueOnce(new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403));
   await write('공부 중');

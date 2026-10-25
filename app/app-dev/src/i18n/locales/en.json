@@ -1071,6 +1071,8 @@
     "remarkLocked": "You can change your message again 5 minutes after editing it.",
     "remarkFailed": "Could not share your message. Please write it again at sea.",
     "emoteTooFrequent": "You can send another emote in a moment.",
+    "rejoining": "Rejoining the sea. Please send it again in a moment.",
+    "upstreamUnavailable": "Could not load the sea. Please try again in a moment.",
     "backBlocked": "Use [Finish focusing] to end this focus session.",
     "finishChecking": "Checking your voyage result. It will continue once connected.",
     "finishUnconfirmed": "Could not confirm your voyage result. Please check your records.",

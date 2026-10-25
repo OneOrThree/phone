@@ -22,11 +22,18 @@ import type { State } from '@/services/model';
 import {
   openSeaRoom,
   seaParticipantsAt,
+  type SeaEmoteResult,
   type SeaLiveMember,
   type SeaRoom,
 } from '@/services/seaRealtime';
 import { SeaScreen } from './SeaScreen';
-import type { SeaArrival, SeaEmote, SeaParticipant, SeaVoyage } from './seaModel';
+import {
+  SeaNotice,
+  type SeaArrival,
+  type SeaEmote,
+  type SeaParticipant,
+  type SeaVoyage,
+} from './seaModel';
 import { saveSeaRemark, seaRemarkCooldownSeconds } from './seaRemark';
 
 /** 항해를 그만두면 섬이 멀어지는 영상(3초). */
@@ -35,6 +42,13 @@ const ABANDON = require('@/assets/ota/cutscenes/abandon.mp4');
 const INVENTORY_WAIT_MS = 3000;
 /** 이모트 표시 수명 — 섬 응원과 같은 3초. */
 const EMOTE_TTL_MS = 3000;
+/** 이모트가 나가지 못한 이유별 안내(GROMO-2484) — 「연결이 원활하지 않아요」는 연결 문제(끊김·닫힘)에만 쓴다. */
+const EMOTE_FAILURE: Record<Exclude<SeaEmoteResult, 'sent'>, string> = {
+  'no-room': 'openSea.rejoining',
+  disconnected: 'openSea.retry',
+  throttled: 'openSea.emoteTooFrequent',
+  closed: 'openSea.retry',
+};
 
 /** 응답을 잃어 서버가 끝냈는지 모른다(연결 끊김·타임아웃) — 서버가 이미 정산했을 수 있다. */
 const finishOutcomeUnknown = (thrown: unknown) =>
@@ -502,11 +516,14 @@ export function SeaVoyageHost({ e }: { e: any }) {
           : undefined
       }
       onMessage={async (text) => {
+        // 표류 정리(adrift)로 방에서 빠졌으면 사용자 행동에 다시 들어간다 — 방에 있어야 남에게 한마디가 보인다
+        room.current?.reconnect();
         const before = members.find((m) => m.userId === selfId)?.message;
         if (await saveSeaRemark(e, text)) setRemark({ text, before });
       }}
       onEmote={async (type) => {
-        if (!room.current?.sendEmote(type)) throw new Error('emote not sent');
+        const sent = room.current?.sendEmote(type) ?? 'closed';
+        if (sent !== 'sent') throw new SeaNotice(t(EMOTE_FAILURE[sent]));
       }}
     />
   );

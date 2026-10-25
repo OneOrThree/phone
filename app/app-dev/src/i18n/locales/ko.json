@@ -1041,6 +1041,8 @@
     "remarkLocked": "한마디는 고친 뒤 5분 동안 바꿀 수 없어요",
     "remarkFailed": "한마디를 띄우지 못했어요. 바다에서 다시 써 주세요.",
     "emoteTooFrequent": "이모트는 잠시 뒤에 다시 보낼 수 있어요",
+    "rejoining": "바다에 다시 들어가는 중이에요. 잠시 뒤 다시 보내 주세요.",
+    "upstreamUnavailable": "바다 상태를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요.",
     "backBlocked": "진행 중인 집중은 [집중 마치기]로 마칠 수 있어요",
     "finishChecking": "항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.",
     "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요.",
