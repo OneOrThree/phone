@@ -115,6 +115,22 @@ test.each(['ios', 'android'] as const)(
   },
 );
 
+test.each([
+  ['ios', 'denied', 'permission'],
+  ['ios', 'notDetermined', 'permission'],
+  ['android', 'approved', 'permission'],
+  ['ios', 'approved', 'screenTimeApps'],
+  ['android', 'approved', 'screenTimeApps'],
+] as const)('en 로케일 — %s %s %s 화면은 한글이 없다', async (os, auth, route) => {
+  Platform.OS = os;
+  applyLocalePref('en');
+  native.getAuthorizationStatus.mockResolvedValue(auth);
+  const view = await render(<CurrentScreens e={environment('', route)} />);
+  await view.findAllByText(route === 'permission' ? 'Measurement permission' : 'Measured apps');
+  expect(view.queryByText(/[가-힣]/)).toBeNull();
+  expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
+});
+
 test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 요구하지 않는다', async () => {
   Platform.OS = 'android';
   native.supportsFocusShield = false;

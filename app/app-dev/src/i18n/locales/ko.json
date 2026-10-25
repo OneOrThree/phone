@@ -104,6 +104,25 @@
     "permissionManage": "앱 권한 관리",
     "permissionManageSub": "스크린타임 권한 · 측정 앱",
     "permissions": {
+      "gate": {
+        "title": "측정 권한",
+        "heading": "사용 시간을 정확히 기록할게요",
+        "sub": "선택한 앱의 사용 시간만 기록해요.",
+        "row": "스크린타임 권한",
+        "rowUnavailable": "이 기기에서는 사용할 수 없어요",
+        "rowDenied": "권한이 꺼져 있어요. 다시 요청할 수 있어요",
+        "rowNone": "아직 연결하지 않았어요",
+        "openUsage": "사용 정보 접근 설정 열기",
+        "done": "완료",
+        "continue": "계속",
+        "retry": "권한 다시 요청하기",
+        "requesting": "권한 요청 중…",
+        "openSystem": "시스템 설정 열기",
+        "laterBoard": "나중에 하고 게시판 열기",
+        "openBoard": "게시판 열기",
+        "connectBtn": "스크린타임 연결하기",
+        "note": "권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요."
+      },
       "status": {
         "permissionChecking": "확인 중",
         "checking": "선택 상태 확인 중",
@@ -157,6 +176,7 @@
         "ios": "허용 창이 안 뜨면 시스템 설정에서 허용해 주세요."
       },
       "errors": {
+        "usageOpenFailed": "사용 정보 접근 설정을 열지 못했어요.",
         "settingsOpen": "설정을 열지 못했어요. 기기의 설정 앱에서 권한을 확인해 주세요.",
         "safariCheck": "Safari 허용 설정을 확인하지 못했어요.",
         "allowedCheck": "허용 앱 설정을 확인하지 못했어요.",

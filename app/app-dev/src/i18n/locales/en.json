@@ -104,6 +104,25 @@
     "permissionManage": "Manage App Permissions",
     "permissionManageSub": "Screen Time permission · Measured apps",
     "permissions": {
+      "gate": {
+        "title": "Measurement permission",
+        "heading": "We'll record your usage accurately",
+        "sub": "Only the apps you select are recorded.",
+        "row": "Screen Time permission",
+        "rowUnavailable": "Not available on this device",
+        "rowDenied": "Permission is off. You can ask again",
+        "rowNone": "Not connected yet",
+        "openUsage": "Open Usage Access settings",
+        "done": "Done",
+        "continue": "Continue",
+        "retry": "Ask for permission again",
+        "requesting": "Requesting permission…",
+        "openSystem": "Open system settings",
+        "laterBoard": "Later, open the board",
+        "openBoard": "Open the board",
+        "connectBtn": "Connect Screen Time",
+        "note": "Without permission, phone-use quests show “Needs check” instead of 0 minutes."
+      },
       "status": {
         "permissionChecking": "Checking",
         "checking": "Checking selection",
@@ -157,6 +176,7 @@
         "ios": "If the permission prompt doesn't appear, allow it in system Settings."
       },
       "errors": {
+        "usageOpenFailed": "Couldn't open Usage Access settings.",
         "settingsOpen": "Couldn't open settings. Check the permission in your device's Settings app.",
         "safariCheck": "Couldn't check the Safari setting.",
         "allowedCheck": "Couldn't check the allowed apps setting.",
