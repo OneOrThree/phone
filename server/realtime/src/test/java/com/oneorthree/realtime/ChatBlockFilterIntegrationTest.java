@@ -109,12 +109,12 @@ class ChatBlockFilterIntegrationTest {
     @AfterEach
     void tearDown() {
         redis.delete(List.of(RedisKeys.memberCache(blocker), RedisKeys.memberCache(target),
-                RedisKeys.blockCache(blocker), RedisKeys.blockGeneration(blocker)));
+                RedisKeys.blockCache(blocker), RedisKeys.blockGeneration(blocker), RedisKeys.blockCache(target)));
         stompClient.stop();
     }
 
     @Test
-    @DisplayName("차단 사건 뒤 차단 대상의 채팅은 차단자 세션에 0건이고, 차단 대상 본인과 차단자 자신의 말은 그대로 간다")
+    @DisplayName("차단 사건 뒤 차단 대상의 채팅은 차단자 세션에 0건, 차단자의 채팅도 차단 대상 세션에 0건 — 본인 말은 그대로 간다")
     void blockedSendersChatNeverReachesTheBlocker() throws Exception {
         given(blockClient.fetchBlockedIds(blocker)).willReturn(Set.of());
         StompSession blockerSession = connect(blockerBearer);
@@ -140,8 +140,12 @@ class ChatBlockFilterIntegrationTest {
         List<UUID> seen = drainUntil(blockerInbox, marker);
         assertThat(seen).as("차단자 자신의 표지 말은 도착해야 한다").contains(marker);
         assertThat(seen).as("차단 대상의 말은 차단자 세션에 0건").doesNotContain(after);
-        // 차단 대상은 차단자의 말을 계속 받는다 — 차단은 차단한 쪽 화면의 필터다.
-        assertThat(awaitMessage(targetInbox, marker)).isTrue();
+        // 차단 대상도 차단자의 말을 받지 않는다 — 숨김은 양방향이다(GROMO-2469). 자기 표지 말까지 비워 확인한다.
+        UUID targetMarker = UUID.randomUUID();
+        targetSession.send("/app/groups/" + island + "/send", new SendMessageRequest("대상 표지", targetMarker));
+        List<UUID> targetSeen = drainUntil(targetInbox, targetMarker);
+        assertThat(targetSeen).as("차단 대상 자신의 표지 말은 도착해야 한다").contains(targetMarker);
+        assertThat(targetSeen).as("차단자의 말은 차단 대상 세션에 0건").doesNotContain(marker);
     }
 
     @Test

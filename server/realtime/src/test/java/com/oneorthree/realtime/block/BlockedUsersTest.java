@@ -29,8 +29,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 차단 세대 캐시의 판정 규칙 (GROMO-2182) — 세대가 같을 때만 캐시를 믿고, 실패는 전부 fail-closed 다.
- * 실제 Redis·실제 소켓 경로는 {@code ChatBlockFilterIntegrationTest} 가 본다.
+ * 차단 세대 캐시의 판정 규칙 (GROMO-2182) — 세대가 같을 때만 캐시를 믿고, 실패는 전부 fail-closed 다. 전달 직전 판정
+ * {@code hidden} 은 양방향(GROMO-2469)이라 받는 사람 집합에 없으면 발신자 집합까지 읽는다 — «숨기지 않는다» 경우는
+ * 발신자 쪽 캐시도 스텁해야 한다. 실제 Redis·실제 소켓 경로는 {@code ChatBlockFilterIntegrationTest} 가 본다.
  */
 class BlockedUsersTest {
 
@@ -50,8 +51,8 @@ class BlockedUsersTest {
     @Test
     @DisplayName("발신자가 없거나 본인이면 조회하지 않는다")
     void nullOrSelfSenderIsNotLookedUp() {
-        assertThat(blockedUsers.hasBlocked(viewer, null)).isFalse();
-        assertThat(blockedUsers.hasBlocked(viewer, viewer)).isFalse();
+        assertThat(blockedUsers.hidden(viewer, null)).isFalse();
+        assertThat(blockedUsers.hidden(viewer, viewer)).isFalse();
         verifyNoInteractions(redis, client);
     }
 
@@ -59,10 +60,39 @@ class BlockedUsersTest {
     @DisplayName("캐시 세대가 현재 세대와 같으면 Data 를 부르지 않는다")
     void sameGenerationCacheIsTrusted() {
         cached("3", "3|" + blocked);
+        UUID stranger = UUID.randomUUID();
+        cachedFor(stranger, "0", "0|");
 
-        assertThat(blockedUsers.hasBlocked(viewer, blocked)).isTrue();
-        assertThat(blockedUsers.hasBlocked(viewer, UUID.randomUUID())).isFalse();
+        assertThat(blockedUsers.hidden(viewer, blocked)).isTrue();
+        assertThat(blockedUsers.hidden(viewer, stranger)).isFalse();
         verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("양방향 — 발신자가 받는 사람을 차단했어도 숨긴다, 받는 사람 집합에 있으면 발신자 집합은 읽지 않는다(GROMO-2469)")
+    void senderWhoBlockedTheViewerIsHiddenToo() {
+        cached("0", "0|");
+        cachedFor(blocked, "0", "0|" + viewer);
+
+        assertThat(blockedUsers.hidden(viewer, blocked)).as("발신자가 나를 차단했다").isTrue();
+        verifyNoInteractions(client);
+
+        // 받는 사람 집합에서 끝나면 발신자 집합(없음 → Data 조회)은 건드리지 않는다.
+        UUID blockedByViewer = UUID.randomUUID();
+        cached("0", "0|" + blockedByViewer);
+        assertThat(blockedUsers.hidden(viewer, blockedByViewer)).isTrue();
+        verify(client, never()).fetchBlockedIds(blockedByViewer);
+    }
+
+    @Test
+    @DisplayName("양방향 — 발신자 집합 조회 실패도 판정 불가다(fail-closed)")
+    void senderSideLookupFailureIsFailClosed() {
+        cached("0", "0|");
+        cachedFor(blocked, "0", null);
+        when(client.fetchBlockedIds(blocked)).thenThrow(new UpstreamUnavailableException());
+
+        assertThatThrownBy(() -> blockedUsers.hidden(viewer, blocked))
+                .isInstanceOf(UpstreamUnavailableException.class);
     }
 
     @Test
@@ -72,7 +102,7 @@ class BlockedUsersTest {
         cached("2", "1|");
         when(client.fetchBlockedIds(viewer)).thenReturn(Set.of(blocked));
 
-        assertThat(blockedUsers.hasBlocked(viewer, blocked)).isTrue();
+        assertThat(blockedUsers.hidden(viewer, blocked)).isTrue();
         verify(values).set(RedisKeys.blockCache(viewer), "2|" + blocked, Duration.ofSeconds(120));
     }
 
@@ -80,14 +110,15 @@ class BlockedUsersTest {
     @DisplayName("세대 키가 없으면 0 이고, 깨진 캐시 값은 믿지 않고 다시 읽는다")
     void missingGenerationIsZeroAndCorruptCacheIsReloaded() {
         cached(null, "garbage");
+        cachedFor(blocked, "0", "0|");
         when(client.fetchBlockedIds(viewer)).thenReturn(Set.of());
 
-        assertThat(blockedUsers.hasBlocked(viewer, blocked)).isFalse();
+        assertThat(blockedUsers.hidden(viewer, blocked)).isFalse();
         verify(values).set(RedisKeys.blockCache(viewer), "0|", Duration.ofSeconds(120));
 
         cached("0", "0|not-a-uuid");
         when(client.fetchBlockedIds(viewer)).thenReturn(Set.of(blocked));
-        assertThat(blockedUsers.hasBlocked(viewer, blocked)).isTrue();
+        assertThat(blockedUsers.hidden(viewer, blocked)).isTrue();
     }
 
     @Test
@@ -99,7 +130,7 @@ class BlockedUsersTest {
             return Set.of();
         });
 
-        assertThatThrownBy(() -> blockedUsers.hasBlocked(viewer, blocked))
+        assertThatThrownBy(() -> blockedUsers.hidden(viewer, blocked))
                 .isInstanceOf(UpstreamUnavailableException.class);
         verify(values, never()).set(anyString(), anyString(), any(Duration.class));
     }
@@ -109,7 +140,7 @@ class BlockedUsersTest {
     void disabledFilterDoesNothing() {
         BlockedUsers off = new BlockedUsers(client, redis, 120, false);
 
-        assertThat(off.hasBlocked(viewer, blocked)).isFalse();
+        assertThat(off.hidden(viewer, blocked)).isFalse();
         verifyNoInteractions(client);
         verify(redis, never()).opsForValue();
     }
@@ -127,7 +158,7 @@ class BlockedUsersTest {
         cached("0", null);
         when(client.fetchBlockedIds(viewer)).thenThrow(new UpstreamUnavailableException());
 
-        assertThatThrownBy(() -> blockedUsers.hasBlocked(viewer, blocked))
+        assertThatThrownBy(() -> blockedUsers.hidden(viewer, blocked))
                 .isInstanceOf(UpstreamUnavailableException.class);
         verify(values, never()).set(anyString(), anyString(), any(Duration.class));
     }
@@ -137,7 +168,7 @@ class BlockedUsersTest {
     void redisFailureIsFailClosed() {
         when(values.multiGet(any())).thenThrow(new RedisConnectionFailureException("down"));
 
-        assertThatThrownBy(() -> blockedUsers.hasBlocked(viewer, blocked))
+        assertThatThrownBy(() -> blockedUsers.hidden(viewer, blocked))
                 .isInstanceOf(UpstreamUnavailableException.class);
         verifyNoInteractions(client);
     }
@@ -150,7 +181,7 @@ class BlockedUsersTest {
         doThrow(new RedisConnectionFailureException("down"))
                 .when(values).set(anyString(), anyString(), any(Duration.class));
 
-        assertThat(blockedUsers.hasBlocked(viewer, blocked)).isTrue();
+        assertThat(blockedUsers.hidden(viewer, blocked)).isTrue();
     }
 
     @Test

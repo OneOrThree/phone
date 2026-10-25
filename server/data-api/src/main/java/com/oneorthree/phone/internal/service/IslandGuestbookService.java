@@ -86,9 +86,10 @@ public class IslandGuestbookService {
             return new IslandGuestbookViews.Page(built, List.of(), false);
         }
         PageRequest page = PageRequest.of(0, limit + 1);
+        // 요청자와 차단 관계(어느 방향이든)인 작성자의 글은 쿼리가 LIMIT 전에 뺀다(GROMO-2469) — 쪽 크기·커서가 그대로다
         List<IslandGuestbookEntry> rows = afterCreatedAt == null
-                ? entries.findFirstPage(islandId, page)
-                : entries.findPageAfter(islandId, afterCreatedAt, afterId, page);
+                ? entries.findFirstPage(islandId, callerId, page)
+                : entries.findPageAfter(islandId, callerId, afterCreatedAt, afterId, page);
         boolean hasMore = rows.size() > limit;
         List<IslandGuestbookEntry> shown = hasMore ? rows.subList(0, limit) : rows;
         Map<UUID, String> names = new HashMap<>();

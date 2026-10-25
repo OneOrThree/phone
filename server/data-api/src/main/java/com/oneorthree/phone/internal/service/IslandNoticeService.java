@@ -134,8 +134,8 @@ public class IslandNoticeService {
 
     /**
      * 목록 한 페이지 — {@code (createdAt DESC, id DESC)}. anchor 는 이전 페이지 마지막 행의 두 값이고 둘 다
-     * 있거나 둘 다 없어야 한다. {@code commentCount} 는 같은 스냅샷에서 한 번에 센다. 요청자가 차단한 사람의
-     * 공지·댓글은 DB 쿼리가 LIMIT 전에 뺀다(GROMO-2181) — 쪽 크기·keyset 경계가 그대로다.
+     * 있거나 둘 다 없어야 한다. {@code commentCount} 는 같은 스냅샷에서 한 번에 센다. 요청자와 차단 관계(어느 방향이든)인
+     * 사람의 공지·댓글은 DB 쿼리가 LIMIT 전에 뺀다(GROMO-2181 → 양방향 GROMO-2469) — 쪽 크기·keyset 경계가 그대로다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public IslandNoticeViews.Page list(UUID islandId, UUID userId, Instant afterCreatedAt, UUID afterId,
@@ -164,8 +164,8 @@ public class IslandNoticeService {
      * 상세 — 본문·댓글 한 페이지({@code createdAt ASC, id ASC})·version 을 한 REPEATABLE_READ 스냅샷에서
      * 읽는다(LLD §4). 다른 섬의 공지 id 는 {@code NOT_FOUND} 다 — 섬 경로로 다시 좁혀 찾는다.
      *
-     * <p>요청자가 차단한 사람이 쓴 공지도 {@code NOT_FOUND} 다(GROMO-2181, character-report policy RP-차단 «상세 ID
-     * 직접 조회도 같은 규칙») — 목록에서 빠진 공지를 id 로 열 수 있으면 숨김이 아니다. 댓글은 차단한 사람의 것만
+     * <p>요청자와 차단 관계인 사람이 쓴 공지도 {@code NOT_FOUND} 다(GROMO-2181, character-report policy RP-차단 «상세 ID
+     * 직접 조회도 같은 규칙») — 목록에서 빠진 공지를 id 로 열 수 있으면 숨김이 아니다. 댓글은 차단 관계인 사람의 것만
      * DB 에서 빼고 나머지는 그대로 보인다. 쓰기 경로({@link #requireNotice})는 이 제외를 타지 않는다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)

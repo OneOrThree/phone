@@ -63,7 +63,8 @@ import java.util.function.LongSupplier;
  *   <tr><th>판정</th><th>원본 키</th><th>쓰는 범위</th></tr>
  *   <tr><td>멤버십</td><td>{@code cache:chat:member:{userId}} (옵션 ON 은 원본 없음 → 우리 TTL)</td>
  *       <td>채팅·{@code events}</td></tr>
- *   <tr><td>차단</td><td>{@code cache:chat:block:{userId}} (받는 사람 기준 집합, {@code BlockedUsers})</td>
+ *   <tr><td>차단</td><td>{@code cache:chat:block:{받는 사람}}, 거기 없으면 {@code cache:chat:block:{발신자}} 까지
+ *       (양방향, GROMO-2469 — 허용의 만료는 둘 중 이른 쪽, {@code BlockedUsers#hiddenSourced})</td>
  *       <td>필터 ON 에서 실제로 조회한 채팅·{@code events}·응원</td></tr>
  * </table>
  * 차단의 세대 키({@code cache:chat:blockgen:*})는 수명이 없고 무효화 신호일 뿐이다 — 집합의 수명은 위 캐시 키가 정한다.

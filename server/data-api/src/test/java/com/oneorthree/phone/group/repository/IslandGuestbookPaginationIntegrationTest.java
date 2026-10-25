@@ -42,16 +42,18 @@ class IslandGuestbookPaginationIntegrationTest {
         seed(island, 145, 45);
         seed(other, 40, 40);
         PageRequest page = PageRequest.of(0, 30);
-        var first = entries.findFirstPage(island, page);
+        // 차단 관계가 없는 요청자 — 차단 제외는 IslandBlockFilterIntegrationTest 가 본다
+        UUID viewer = UUID.randomUUID();
+        var first = entries.findFirstPage(island, viewer, page);
         assertThat(first).extracting(IslandGuestbookEntry::getContent)
                 .containsExactlyElementsOf(IntStream.rangeClosed(1, 30).mapToObj(String::valueOf).toList());
 
         IslandGuestbookEntry anchor = first.get(29);
-        var second = entries.findPageAfter(island, anchor.getCreatedAt(), anchor.getId(), page);
+        var second = entries.findPageAfter(island, viewer, anchor.getCreatedAt(), anchor.getId(), page);
         assertThat(second).extracting(IslandGuestbookEntry::getContent)
                 .containsExactlyElementsOf(IntStream.rangeClosed(31, 45).mapToObj(String::valueOf).toList());
         IslandGuestbookEntry last = second.get(14);
-        assertThat(entries.findPageAfter(island, last.getCreatedAt(), last.getId(), page)).isEmpty();
+        assertThat(entries.findPageAfter(island, viewer, last.getCreatedAt(), last.getId(), page)).isEmpty();
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM island_guestbook_entries WHERE island_id = ? "
                 + "AND deleted_at IS NULL", Integer.class, island)).isEqualTo(45);
