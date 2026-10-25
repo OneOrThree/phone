@@ -17,6 +17,9 @@ export const formatNumber = (n: number) => n.toLocaleString(localeTag());
 export const formatDate = (d: Date, opts?: Intl.DateTimeFormatOptions) =>
   d.toLocaleDateString(localeTag(), opts);
 
+/** 내 고양이 이름표 — 닉네임이 비면 「나」/「Me」 (GROMO-2475) */
+export const ownCatName = (name: string) => name.trim() || t('focusFlow.common.me');
+
 /**
  * 섬 이름 표기 — ko 「바다」 → 「바다섬」, en 「Sea」 → 「Sea Island」. 이미 「섬」·「Island」로 끝나면 그대로 둔다
  * (「바다섬섬」·「Sea Island Island」 방지, 구현계획 M6). 섬 이름을 문장에 넣는 문구는 전부 이 함수를 거치고,

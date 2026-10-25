@@ -725,6 +725,27 @@ it('동기화 위치가 없는 주민은 명단 순서의 고정 자리에 서 �
   await screen.unmount();
 });
 
+it('홈 섬 주민 이름표는 멤버 닉네임이고 이름이 없으면 「주민」이다 — 고정 자리·동기화 위치 모두 (GROMO-2475)', async () => {
+  jest.useFakeTimers();
+  const islandId = nextIsland();
+  const state = serverState(islandId) as any;
+  state.serverIslands.home.members[2].name = null; // U2
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const nameIn = (testID: string) =>
+    within(screen.getByTestId(testID)).getByTestId('home-resident-name');
+  // U1 은 고정 자리, U2(이름 없음)도 고정 자리
+  expect(within(nameIn(`standing-resident-${U1}`)).getByText('주민-2')).toBeTruthy();
+  expect(within(nameIn(`standing-resident-${U2}`)).getByText('주민')).toBeTruthy();
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 36.5, y: 45.5 })]));
+  expect(within(nameIn(`remote-resident-${U1}`)).getByText('주민-2')).toBeTruthy();
+  await screen.unmount();
+});
+
+it('고정 자리는 홈 격자에서 주민 14명(n=0..13) 모두 서로 다른 땅 칸이다 (GROMO-2476 리뷰)', () => {
+  const spots = Array.from({ length: 14 }, (_, n) => JSON.stringify(residentSpot(grids.home, n)));
+  expect(new Set(spots).size).toBe(14);
+});
+
 it('FullState 뒤 접속한 주민은 동기화 위치로, 명단에 있지만 접속하지 않은 주민은 고정 자리에 그대로 선다 (GROMO-2476)', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());
