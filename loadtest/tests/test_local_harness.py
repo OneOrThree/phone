@@ -61,17 +61,19 @@ class Handler(BaseHTTPRequestHandler):
         body=json.dumps({'data':data}).encode()
         self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
     def do_POST(self):
-        self.rfile.read(int(self.headers.get('Content-Length',0)))
+        body=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))))
         user=self.user()
         with self.server.lock:
             if self.path=='/focus-sessions':
-                self.server.focus[user]={'id':str(uuid.uuid4()),'version':0}
+                self.server.focus[user]={'id':str(uuid.uuid4()),'version':1,'islandId':body['islandId'],
+                    'subject':body['subject'],'status':'active','startedAt':'2026-10-22T00:00:00Z'}
                 result=dict(self.server.focus[user])
             elif self.path.endswith('/finish'):
-                self.server.focus.pop(user,None)
-                result={'recordId':str(uuid.uuid4())}
+                state=self.server.focus.pop(user)
+                result={'recordId':state['id']}
             else:
                 self.server.focus[user]['version']+=1
+                self.server.focus[user]['status']='paused' if self.path.endswith('/pause') else 'active'
                 result=dict(self.server.focus[user])
         self.reply(result)
     def do_GET(self):
@@ -139,7 +141,8 @@ class LocalHarnessTest(unittest.TestCase):
         self.server.behavior='echo'
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
-            users=[{'userId':f'synthetic-{i}','islandId':f'island-{i//10}','token':token(f'synthetic-{i}')} for i in range(301)]
+            users=[{'userId':str(uuid.UUID(int=i+1)),'islandId':str(uuid.UUID(int=10000+i//10)),
+                    'token':token(str(uuid.UUID(int=i+1)))} for i in range(301)]
             (root/'users.json').write_text(json.dumps(users))
             result=subprocess.run([sys.executable,str(SCRIPTS/'aws-mixed.py'),'--url',f'http://127.0.0.1:{self.server.server_port}','--ws-url',f'ws://127.0.0.1:{self.server.server_port}/ws','--users',str(root/'users.json'),'--out',str(root/'results'),'--home-rate','1','--focus-rate','1','--chat-connections','1','--chat-frequency','1','--common-seconds','2','--seconds','4','--chat-seconds','20','--runtime-seconds','45'],capture_output=True,text=True,timeout=60)
             meta=json.loads((root/'results/mixed-meta.json').read_text())

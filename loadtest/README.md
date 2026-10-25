@@ -216,3 +216,5 @@ sequenceDiagram
 
 명시한 대상에서 HTTP와 WebSocket을 함께 측정하고 중단된 단계의 원시 결과를 보존하는 방법은
 [혼합 부하의 중단 결과와 종료 진단](docs/mixed-results.md)을 참고한다. 실제 공통 측정 시간이 부족하면 개별 단계가 통과했어도 혼합 시험은 통과하지 않는다.
+
+집중 세션의 응답 유실 진단·소유권 기반 정리·서버 원장 대조는 [집중 실패 원장](docs/aws-focus-failure-ledger.md)을 참고한다.
