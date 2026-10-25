@@ -1374,7 +1374,8 @@ test.each(['', '   '])('할 일이 %j이면 기본 주제로 집중을 시작한
     }),
   );
   await fireEvent.press(screen.getByTestId('start-focus'));
-  expect(start).toHaveBeenCalledWith({ subject: '집중' });
+  // 고른 자리도 함께 보낸다(GROMO-2478) — 범위 판정은 sessionCommands.start 가 한다
+  expect(start).toHaveBeenCalledWith({ subject: '집중', seat: state.focusSpot });
   expect(go).toHaveBeenCalledWith('focus');
   await screen.unmount();
 });

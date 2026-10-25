@@ -238,6 +238,27 @@ describe('IslandProjection', () => {
     assert.equal(m.catColor, 'ginger');
   });
 
+  test('자리: 스냅숏 seat 는 검증해 싣고, seat 없는 이벤트는 이전 자리를 이어받는다 (GROMO-2478)', () => {
+    const p = new IslandProjection('i1');
+    p.loadFocus(
+      focusSnap(
+        [
+          focusItem('u1', { seat: { x: 34.1, y: 55.9 } }),
+          focusItem('u2', { seat: { x: 'a', y: 1 } }),
+        ],
+        [wm('focus.member', 'u1', 1), wm('focus.member', 'u2', 1)],
+      ),
+    );
+    assert.deepEqual(p.focus()[0].seat, { x: 34.1, y: 55.9 });
+    assert.equal(p.focus()[1].seat, null);
+    // 옛 서버 이벤트(seat 키 없음)·paused 전이에도 자리를 잃지 않는다
+    p.apply(focusEvent('u1', 2, { status: 'paused' }));
+    assert.deepEqual(p.focus()[0].seat, { x: 34.1, y: 55.9 });
+    // 새 이벤트의 seat 가 있으면 그것이 정본
+    p.apply(focusEvent('u2', 2, { seat: { x: 60, y: 40 } }));
+    assert.deepEqual(p.focus()[1].seat, { x: 60, y: 40 });
+  });
+
   test('같은·낮은 버전 이벤트는 중복·역순으로 버린다', () => {
     const p = new IslandProjection('i1');
     p.loadFocus(focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 3)]));

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
-import { fishingPeerCatchVisible, LANDING, PEER_SPOTS } from '@/screens/focus/FishingIsland';
-import type { Point } from '@/utils/world-grid';
+import {
+  castSpot,
+  fishingGrid,
+  fishingPeerCatchVisible,
+  LANDING,
+  occupied,
+  PEER_SPOTS,
+} from '@/screens/focus/FishingIsland';
+import { onLand, type Point } from '@/utils/world-grid';
 import type { Spot } from '@/screens/focus/FishingIsland';
 
 export type FishingPeer = {
@@ -13,10 +20,13 @@ export type FishingPeer = {
   subject: string | null;
   seconds: number;
   status?: 'active' | 'paused';
+  /** 서버가 준 자리(GROMO-2478, 지도 %). 없거나 못 쓰면 슬롯 배정. */
+  seat?: Point | null;
 };
 
 export type FishingPeerActor = FishingPeer & {
   key: string;
+  /** PEER_SPOTS 번호. 서버 자리에 앉았으면 -1. */
   slot: number;
   spot: Spot;
   position: Point;
@@ -47,6 +57,7 @@ const fromLive = (member: LiveFocusMember, seconds: number): FishingPeer => ({
   subject: member.subject,
   seconds,
   status: member.status,
+  seat: member.seat,
 });
 
 /**
@@ -60,6 +71,7 @@ export function useFishingPeerActors({
   realtime = true,
   snapshotVersion = 0,
   snapshotTransitions = [],
+  mine,
 }: {
   members: FishingPeer[];
   ready: boolean;
@@ -67,10 +79,15 @@ export function useFishingPeerActors({
   realtime?: boolean;
   snapshotVersion?: number;
   snapshotTransitions?: IslandPresenceTransition[];
+  /** 내 자리 — 슬롯·서버 자리가 이 곁(SEAT_GAP)이면 쓰지 않는다. 방문 관전은 없음. */
+  mine?: Point;
 }) {
   const [actors, setActors] = useState<FishingPeerActor[]>([]);
   const [revision, setRevision] = useState(0);
-  const slots = useRef(new Map<string, number>());
+  // actor key → 예약한 자리(PEER_SPOTS 칸 또는 서버 자리)
+  const slots = useRef(new Map<string, Spot>());
+  const mineRef = useRef(mine);
+  mineRef.current = mine;
   const transitions = useRef<IslandPresenceTransition[]>([]);
   const appliedSnapshotVersion = useRef<number | null>(null);
   const membersRef = useRef(members);
@@ -80,14 +97,19 @@ export function useFishingPeerActors({
   const snapshotKey = members
     .map((member) => `${member.userId}:${member.sessionId}:${member.status}`)
     .join('|');
-  const alloc = useCallback((key: string) => {
+  // 서버 자리가 땅 위이고 내 자리·예약된 자리와 겹치지 않으면 그 자리, 아니면 reuse(같은 주민의 이전 세션 자리),
+  // 그것도 없으면 겹치지 않는 첫 빈 칸. PEER_SPOTS 끼리는 SEAT_GAP 보다 멀어 예약된 칸 자신만 걸린다.
+  const alloc = useCallback((key: string, seat?: Point | null, reuse?: Spot) => {
     const existing = slots.current.get(key);
-    if (existing != null) return existing;
-    const used = new Set(slots.current.values());
-    const slot = PEER_SPOTS.findIndex((_, n) => !used.has(n));
-    if (slot < 0) return null;
-    slots.current.set(key, slot);
-    return slot;
+    if (existing) return existing;
+    const taken = [...(mineRef.current ? [mineRef.current] : []), ...slots.current.values()],
+      spot =
+        seat && onLand(fishingGrid, seat) && !occupied(seat, taken)
+          ? castSpot(seat)
+          : (reuse ?? PEER_SPOTS.find((candidate) => !occupied(candidate, taken)));
+    if (!spot) return null;
+    slots.current.set(key, spot);
+    return spot;
   }, []);
 
   const onTransition = useCallback((transition: IslandPresenceTransition) => {
@@ -128,14 +150,13 @@ export function useFishingPeerActors({
       }
       return [...snapshotMembers.values()].flatMap((member) => {
         const key = actorKey(member.userId, member.sessionId),
-          slot = alloc(key);
-        if (slot == null) return [];
-        const spot = PEER_SPOTS[slot];
+          spot = alloc(key, member.seat);
+        if (!spot) return [];
         return [
           {
             ...member,
             key,
-            slot,
+            slot: PEER_SPOTS.indexOf(spot),
             spot,
             position: member.status === 'paused' ? LANDING : spot,
             phase: member.status === 'paused' ? ('paused' as const) : ('fishing' as const),
@@ -230,20 +251,16 @@ export function useFishingPeerActors({
           replaced = !existing && previousFound >= 0 ? next[previousFound] : null;
         if (after?.status === 'active') {
           const peer = fromLive(after, after.activeSeconds),
-            slot = existing?.slot ?? replaced?.slot ?? alloc(key);
-          if (slot == null) {
+            spot = existing?.spot ?? alloc(key, after.seat, replaced?.spot);
+          if (!spot) {
             deferred.push(transition);
             continue;
           }
-          const spot = PEER_SPOTS[slot];
-          if (replaced) {
-            slots.current.delete(replaced.key);
-            slots.current.set(key, slot);
-          }
+          if (replaced) slots.current.delete(replaced.key);
           const actor: FishingPeerActor = {
             ...peer,
             key,
-            slot,
+            slot: PEER_SPOTS.indexOf(spot),
             spot,
             position: existing?.position ?? LANDING,
             phase:
@@ -267,20 +284,16 @@ export function useFishingPeerActors({
             };
           } else if (!existing) {
             const peer = fromLive(after, after.activeSeconds),
-              slot = replaced?.slot ?? alloc(key);
-            if (slot == null) {
+              spot = alloc(key, after.seat, replaced?.spot);
+            if (!spot) {
               deferred.push(transition);
               continue;
             }
-            const spot = PEER_SPOTS[slot];
-            if (replaced) {
-              slots.current.delete(replaced.key);
-              slots.current.set(key, slot);
-            }
+            if (replaced) slots.current.delete(replaced.key);
             const actor: FishingPeerActor = {
               ...peer,
               key,
-              slot,
+              slot: PEER_SPOTS.indexOf(spot),
               spot,
               position: LANDING,
               phase: 'paused',

@@ -6,7 +6,7 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
-import { PEER_SPOTS, LANDING } from '@/screens/focus/FishingIsland';
+import { DEFAULT_SPOT, PEER_SPOTS, LANDING } from '@/screens/focus/FishingIsland';
 
 const peer: FishingPeer = {
   userId: 'u1',
@@ -525,4 +525,80 @@ test('숨겨진 paused 주민 완료로 슬롯이 반환되면 보류된 입장�
     true,
   );
   assert.equal(new Set(result.current.actors.map((actor) => actor.slot)).size, 15);
+});
+
+// GROMO-2478 — 서버가 준 자리(seat)에 앉히고, 못 쓰는 자리·내 자리 곁 칸은 슬롯 배정으로 비켜 간다.
+test('seat 가 땅 위면 그 자리, null·범위 밖·물이면 슬롯에 앉힌다', async () => {
+  const members: FishingPeer[] = [
+    { ...peer, userId: 'seated', sessionId: 's-a', seat: DEFAULT_SPOT },
+    { ...peer, userId: 'none', sessionId: 's-b', seat: null },
+    { ...peer, userId: 'outside', sessionId: 's-c', seat: { x: 340, y: 55.9 } },
+    { ...peer, userId: 'water', sessionId: 's-d', seat: { x: 0, y: 0 } },
+  ];
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false }),
+  );
+  const [seated, none, outside, water] = result.current.actors;
+  assert.deepEqual([seated.spot.x, seated.spot.y], [DEFAULT_SPOT.x, DEFAULT_SPOT.y]);
+  assert.equal(seated.slot, -1);
+  assert.deepEqual(
+    [none, outside, water].map((actor) => actor.slot),
+    [0, 1, 2],
+  );
+});
+
+test('이벤트로 들어온 주민도 seat 자리에 앉는다(active·paused)', async () => {
+  const seat = { x: PEER_SPOTS[3].x, y: PEER_SPOTS[3].y };
+  let members: FishingPeer[] = [];
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, snapshotVersion: 1 }),
+  );
+  members = [
+    { ...peer, seat: DEFAULT_SPOT },
+    { ...peer, userId: 'u2', sessionId: 's2', status: 'paused', seat },
+  ];
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u1',
+      previous: null,
+      current: { ...member('active'), seat: DEFAULT_SPOT },
+    } as IslandPresenceTransition),
+  );
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u2',
+      previous: null,
+      current: { ...member('paused'), userId: 'u2', sessionId: 's2', seat },
+    } as IslandPresenceTransition),
+  );
+  const at = (userId: string) => {
+    const spot = result.current.actors.find((actor) => actor.userId === userId)?.spot;
+    return [spot?.x, spot?.y];
+  };
+  assert.deepEqual(at('u1'), [DEFAULT_SPOT.x, DEFAULT_SPOT.y]);
+  assert.deepEqual(at('u2'), [seat.x, seat.y]);
+});
+
+test('슬롯 배정은 내 자리(SEAT_GAP) 곁 칸을 건너뛰고, 내 자리 곁 seat 도 슬롯으로 비켜 간다', async () => {
+  const members: FishingPeer[] = [
+    { ...peer, userId: 'u1', sessionId: 's1' },
+    {
+      ...peer,
+      userId: 'u2',
+      sessionId: 's2',
+      seat: { x: PEER_SPOTS[0].x + 1, y: PEER_SPOTS[0].y },
+    },
+  ];
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, mine: PEER_SPOTS[0] }),
+  );
+  assert.deepEqual(
+    result.current.actors.map((actor) => actor.slot),
+    [1, 2],
+  );
 });

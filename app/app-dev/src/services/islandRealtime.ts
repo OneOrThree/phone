@@ -20,6 +20,7 @@
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
+import { focusSeat } from '@/services/api/focusSessions';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
 import { parseAppearanceEvent, type MemberLook } from '@/services/memberAppearance';
@@ -250,6 +251,7 @@ export class IslandProjection {
       this.focusMap.set(m.userId, {
         ...m,
         status: m.status === 'paused' ? 'paused' : 'active',
+        seat: focusSeat(m.seat),
         anchorMs: Number.isFinite(anchorMs) ? anchorMs : Date.now(),
       });
     }
@@ -369,6 +371,8 @@ export class IslandProjection {
         subject: str(p?.subject) ?? prev?.subject ?? '',
         activeSeconds: num(p?.activeSeconds) ?? 0,
         status: status === 'paused' ? 'paused' : 'active',
+        // 자리(GROMO-2478) — 옛 서버 이벤트엔 seat 가 없어 스냅숏 자리를 이어받는다
+        seat: focusSeat(p?.seat) ?? prev?.seat ?? null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
       });
       const current = this.focusMap.get(userId)!;

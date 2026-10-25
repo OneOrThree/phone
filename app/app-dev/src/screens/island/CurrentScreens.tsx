@@ -1641,6 +1641,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : (i.members ?? [])
         .filter((member) => member.focusing)
@@ -2343,6 +2344,7 @@ function FocusFlow({ e: environment }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : i.members
         .filter((m) => m.focusing)
@@ -2396,6 +2398,7 @@ function FocusFlow({ e: environment }: any) {
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
     snapshotTransitions: live.snapshotTransitions,
+    mine: minePoint,
   });
   transitionHandler.current = (transition) => {
     // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로
@@ -2748,10 +2751,11 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     if (e.focus) {
-      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다.
+      // 고른 자리(focusSpot)를 함께 보내 다른 주민 화면에도 같은 자리에 앉는다(GROMO-2478)
       setError('');
       e.focus
-        .start({ subject })
+        .start({ subject, seat: s.focusSpot })
         .then(() => {
           advanceTutorial(8, 9);
           e.go('focus');

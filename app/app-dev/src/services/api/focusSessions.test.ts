@@ -5,6 +5,7 @@ import {
   claimTutorialExperienceReward,
   currentFocusSession,
   finishFocusSession,
+  focusSeat,
   pauseFocusSession,
   pendingFocusResult,
   resumeFocusSession,
@@ -118,6 +119,27 @@ test('startFocusSession — targetMinutes 는 없으면 키 자체를 생략한�
   await startFocusSession({ islandId: 'island-1', subject: '수학' }, 'idem-start-2');
 
   assert.deepEqual(body(calls[0]), { islandId: 'island-1', subject: '수학' });
+});
+
+test('startFocusSession — 고른 자리는 seat {x,y} 로 그대로 싣는다 (GROMO-2478, 반올림 금지)', async () => {
+  stub([{ status: 201, body: { data: sessionView() } }]);
+
+  await startFocusSession(
+    { islandId: 'island-1', subject: '수학', seat: { x: 34.1, y: 55.9 } },
+    'idem-start-3',
+  );
+
+  assert.deepEqual(body(calls[0]), {
+    islandId: 'island-1',
+    subject: '수학',
+    seat: { x: 34.1, y: 55.9 },
+  });
+});
+
+test('focusSeat — 숫자·0~100 만 자리로 받고 나머지는 null', () => {
+  assert.deepEqual(focusSeat({ x: 0, y: 100 }), { x: 0, y: 100 });
+  for (const bad of [null, undefined, {}, { x: '50', y: 50 }, { x: NaN, y: 50 }, { x: 50, y: 101 }])
+    assert.equal(focusSeat(bad), null);
 });
 
 test('currentFocusSession — GET /focus-sessions/current, 세션 없으면 data:null → null', async () => {
