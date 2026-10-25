@@ -1752,12 +1752,12 @@ export function reducer(state: State, a: Action): State {
       if (['intro', 'scope', 'done'].includes(a.checkpoint)) s.onboardingStory = a.checkpoint;
       break;
     case 'PROFILE':
-      if (a.name?.trim() && a.name.trim() !== s.name)
+      if (typeof a.name === 'string' && a.name && a.name !== s.name)
         s.profileNames = [
-          ...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()].filter(Boolean)),
+          ...new Set([...(s.profileNames ?? [s.name]), s.name, a.name].filter(Boolean)),
         ];
-      // 편집 중에는 빈 문자열도 실제 초안 값이다. 최종 저장 검증은 화면에서 처리한다.
-      if (typeof a.name === 'string') s.name = a.name.trim();
+      // 새 입력은 화면에서 공백을 제거한다. 서버가 보존한 기존 이름과 빈 편집 초안은 원문 그대로 둔다.
+      if (typeof a.name === 'string') s.name = a.name;
       s.color = a.color || s.color;
       break;
     // ── 섬 — 만들기·가입·이동 ──

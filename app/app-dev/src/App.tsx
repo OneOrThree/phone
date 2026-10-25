@@ -1,7 +1,7 @@
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
-import { syncFocusShield } from '@/services/focusShield';
+import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
@@ -533,7 +533,15 @@ function Gromo() {
         !island.nextBuilding &&
         !island.completed),
     record = state.lastResult;
-  const player = useSoundPlayer((message) => notify(message));
+  // 공용 곡 선택과 기기의 실제 재생은 별개다. 축음기를 열어도 집중 밖에서는 듣지 않는다.
+  const islandAudioOn =
+    loaded &&
+    state.session?.status === 'active' &&
+    island.playing &&
+    bundledAudioSource(island.track) !== null &&
+    state.settings.sound &&
+    (state.settings.volume ?? 0.55) > 0;
+  const player = useSoundPlayer((message) => notify(message), islandAudioOn);
   const notify = (s: string) => {
     setToast(s);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1973,8 +1981,8 @@ function Gromo() {
           ? syncAndroidFocus(session, stateRef.current.color, true)
           : syncFocusShield(session, stateRef.current.color, true)
       )
-        .then((applied) => {
-          if (!applied && session?.status === 'active')
+        .then(async (applied) => {
+          if (!applied && session?.status === 'active' && (await shouldReportShieldFailure()))
             notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
         })
         .catch(() => notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.'));
@@ -2121,8 +2129,6 @@ function Gromo() {
     );
     return () => subscription.remove();
   }, [history, route, modal, state.visitingIslandId, island.id]);
-  // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
-  const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;
   // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
@@ -2159,8 +2165,8 @@ function Gromo() {
     } catch {}
   }, [island.id, island.playbackReset]);
   useEffect(() => {
-    if (route !== 'product') setPreviewAudio(false);
-  }, [route]);
+    if (route !== 'product' || !islandAudioOn) setPreviewAudio(false);
+  }, [route, islandAudioOn]);
   // GROMO-1839 시작·가입 화면만 세로로 고정하고 나머지는 기기 방향을 따른다
   useRouteOrientation(route);
   useEffect(() => {

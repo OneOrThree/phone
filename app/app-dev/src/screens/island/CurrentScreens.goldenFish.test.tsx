@@ -496,7 +496,7 @@ test('첫 물고기를 기다리는 11단계에는 휴식과 종료 전환을 �
   await screen.unmount();
 });
 
-test('집중 종료 버튼은 확인창 없이 3초 누른 뒤 바로 결과로 진행한다', async () => {
+test('집중 종료 버튼은 확인창 없이 1.5초 누른 뒤 바로 결과로 진행한다', async () => {
   jest.useFakeTimers();
   const state = focusedState();
   state.session!.version = 1;
@@ -514,11 +514,11 @@ test('집중 종료 버튼은 확인창 없이 3초 누른 뒤 바로 결과로 
   const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
   const button = screen.getByTestId('end-focus', { includeHiddenElements: true });
   await user.press(button);
-  await user.longPress(button, { duration: 2999 });
+  await user.longPress(button, { duration: 1499 });
   expect(finish).not.toHaveBeenCalled();
   expect(setGuideStep).not.toHaveBeenCalled();
   expect(screen.queryByTestId('confirm-finish', { includeHiddenElements: true })).toBeNull();
-  await user.longPress(button, { duration: 3000 });
+  await user.longPress(button, { duration: 1500 });
   expect(finish).toHaveBeenCalledTimes(1);
   expect(setGuideStep).toHaveBeenCalledWith(19, { step: 17, revision: 0 });
   expect(reset).toHaveBeenCalledWith('focusResult');

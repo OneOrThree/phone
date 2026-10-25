@@ -39,16 +39,16 @@ const mount = (haptics = true) => {
   };
 };
 
-test('짧은 탭과 3초 전 해제는 종료하지 않고 3초 연속 누름만 한 번 종료한다', async () => {
+test('짧은 탭과 1.5초 전 해제는 종료하지 않고 1.5초 연속 누름만 한 번 종료한다', async () => {
   const { finish, ui } = mount();
   const screen = await render(ui);
   const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
   const button = screen.getByTestId('finish');
   await user.press(button);
   expect(finish).not.toHaveBeenCalled();
-  await user.longPress(button, { duration: 2999 });
+  await user.longPress(button, { duration: 1499 });
   expect(finish).not.toHaveBeenCalled();
-  await user.longPress(button, { duration: 3000 });
+  await user.longPress(button, { duration: 1500 });
   expect(finish).toHaveBeenCalledTimes(1);
   await act(() => jest.advanceTimersByTime(5000));
   expect(finish).toHaveBeenCalledTimes(1);
@@ -59,7 +59,7 @@ test('누르는 동안 왼쪽부터 차오르고 약한 햅틱이 반복되며 �
   const screen = await render(ui);
   const button = screen.getByTestId('finish');
   await fireEvent(button, 'pressIn');
-  await act(() => jest.advanceTimersByTime(1500));
+  await act(() => jest.advanceTimersByTime(750));
   const style = StyleSheet.flatten(screen.getByTestId('finish-progress').props.style);
   expect(style.left).toBe(0);
   expect(style.right).toBe(0);
@@ -70,7 +70,7 @@ test('누르는 동안 왼쪽부터 차오르고 약한 햅틱이 반복되며 �
   expect(progress).toBeLessThan(0.6);
   expect(Animated.timing).toHaveBeenCalledWith(
     expect.anything(),
-    expect.objectContaining({ useNativeDriver: true }),
+    expect.objectContaining({ duration: 1500, useNativeDriver: true }),
   );
   expect(Haptics.impactAsync).toHaveBeenCalledWith('light');
   expect(jest.mocked(Haptics.impactAsync).mock.calls.length).toBeGreaterThan(5);
@@ -99,11 +99,11 @@ test('앱이 비활성화되면 늦게 도착한 longPress도 종료하지 않�
   expect(Haptics.impactAsync).toHaveBeenCalledTimes(calls);
 });
 
-test('진동을 껐으면 3초 길게 눌러도 진동 없이 종료한다', async () => {
+test('진동을 껐으면 1.5초 길게 눌러도 진동 없이 종료한다', async () => {
   const { finish, ui } = mount(false);
   const screen = await render(ui);
   const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
-  await user.longPress(screen.getByTestId('finish'), { duration: 3000 });
+  await user.longPress(screen.getByTestId('finish'), { duration: 1500 });
   expect(finish).toHaveBeenCalledTimes(1);
   expect(Haptics.impactAsync).not.toHaveBeenCalled();
 });
@@ -118,15 +118,15 @@ test('누르던 버튼이 사라지면 진동을 중단한다', async () => {
   expect(Haptics.impactAsync).toHaveBeenCalledTimes(calls);
 });
 
-test('native longPress 이벤트가 없어도 누름과 화면 갱신을 유지하면 정확히 3초 후 한 번 종료한다', async () => {
+test('native longPress 이벤트가 없어도 누름과 화면 갱신을 유지하면 정확히 1.5초 후 한 번 종료한다', async () => {
   const finish = jest.fn(),
     latestFinish = jest.fn();
   const props = { title: '집중 종료하기', id: 'finish', holdToConfirm: true, haptics: false };
   const screen = await render(<FiButton {...props} onPress={finish} />);
   await fireEvent(screen.getByTestId('finish'), 'pressIn');
-  await act(() => jest.advanceTimersByTime(1500));
+  await act(() => jest.advanceTimersByTime(750));
   await screen.rerender(<FiButton {...props} onPress={latestFinish} />);
-  await act(() => jest.advanceTimersByTime(1499));
+  await act(() => jest.advanceTimersByTime(749));
   expect(finish).not.toHaveBeenCalled();
   expect(latestFinish).not.toHaveBeenCalled();
   await act(() => jest.advanceTimersByTime(1));
@@ -142,10 +142,10 @@ test('버튼 밖으로 나갔다 돌아오면 이전 누름 시간은 합산하�
   const screen = await render(ui);
   const button = screen.getByTestId('finish');
   await fireEvent(button, 'pressIn');
-  await act(() => jest.advanceTimersByTime(2000));
+  await act(() => jest.advanceTimersByTime(1000));
   await fireEvent(button, 'pressOut');
   await fireEvent(button, 'pressIn');
-  await act(() => jest.advanceTimersByTime(2999));
+  await act(() => jest.advanceTimersByTime(1499));
   expect(finish).not.toHaveBeenCalled();
   await act(() => jest.advanceTimersByTime(1));
   expect(finish).toHaveBeenCalledTimes(1);
@@ -153,7 +153,7 @@ test('버튼 밖으로 나갔다 돌아오면 이전 누름 시간은 합산하�
 });
 
 test.each(['accessibilityTap', 'accessibilityAction'])(
-  '%s 활성화도 3초를 기다리고 터치 해제 이벤트에 취소되지 않는다',
+  '%s 활성화도 1.5초를 기다리고 터치 해제 이벤트에 취소되지 않는다',
   async (event) => {
     const { finish, ui } = mount(false);
     const screen = await render(ui);
@@ -162,7 +162,7 @@ test.each(['accessibilityTap', 'accessibilityAction'])(
     expect(screen.getByLabelText('집중 종료 취소')).toBeTruthy();
     await fireEvent(button, 'pressIn');
     await fireEvent(button, 'pressOut');
-    await act(() => jest.advanceTimersByTime(2999));
+    await act(() => jest.advanceTimersByTime(1499));
     expect(finish).not.toHaveBeenCalled();
     await act(() => jest.advanceTimersByTime(1));
     expect(finish).toHaveBeenCalledTimes(1);
@@ -179,7 +179,7 @@ test.each(['accessibilityTap', 'accessibilityAction'])(
     const button = screen.getByTestId('finish');
     const action = { nativeEvent: { actionName: 'activate' } };
     await fireEvent(button, event, action);
-    await act(() => jest.advanceTimersByTime(1500));
+    await act(() => jest.advanceTimersByTime(750));
     await fireEvent(button, event, action);
     expect(screen.getByLabelText('집중 종료하기')).toBeTruthy();
     await act(() => jest.advanceTimersByTime(5000));
@@ -196,7 +196,7 @@ test('스크린리더 종료 대기도 앱 비활성화에서 취소한다', asy
   const { finish, ui } = mount(false);
   const screen = await render(ui);
   await fireEvent(screen.getByTestId('finish'), 'accessibilityTap');
-  await act(() => jest.advanceTimersByTime(1500));
+  await act(() => jest.advanceTimersByTime(750));
   await act(() => changed?.('inactive'));
   expect(screen.getByLabelText('집중 종료하기')).toBeTruthy();
   await act(() => jest.advanceTimersByTime(5000));

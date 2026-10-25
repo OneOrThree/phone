@@ -228,6 +228,51 @@ class ChatOutboundChannelInterceptorTest {
         verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
     }
 
+    @Test
+    void seaSnapshotHidesEitherBlockedPeerAndFailsClosedEvenWithChatFilterDisabled() {
+        UUID room = UUID.randomUUID();
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.enabled()).thenReturn(false);
+        when(seaRooms.isMember(user, room)).thenReturn(true);
+        when(blockedUsers.eitherBlocked(user, blocked)).thenReturn(true);
+        String body = "{\"type\":\"sea.room.snapshot\",\"roomId\":\"" + room
+                + "\",\"payload\":{\"roomId\":\"" + room + "\",\"members\":[{\"userId\":\"" + user
+                + "\"},{\"userId\":\"" + blocked + "\"}]}}";
+        Message<?> snapshot = frame("socket", "/queue/sea-usersocket", body);
+
+        Message<?> filtered = interceptor.beforeHandle(snapshot, null, null);
+
+        assertThat(filtered).isNotNull();
+        var root = new tools.jackson.databind.ObjectMapper().readTree((byte[]) filtered.getPayload());
+        assertThat(root.path("payload").path("members").size()).isEqualTo(1);
+        assertThat(root.path("payload").path("members").get(0).path("userId").stringValue())
+                .isEqualTo(user.toString());
+        // 원 프레임은 공유되므로 바꾸면 다른 수신자의 스냅샷까지 오염된다.
+        assertThat(new String((byte[]) snapshot.getPayload(), StandardCharsets.UTF_8)).isEqualTo(body);
+        when(blockedUsers.eitherBlocked(user, blocked)).thenThrow(new UpstreamUnavailableException());
+        assertThat(interceptor.beforeHandle(snapshot, null, null)).isNull();
+        when(seaRooms.isMember(user, room)).thenReturn(false);
+        assertThat(interceptor.beforeHandle(snapshot, null, null)).isNull();
+    }
+
+    @Test
+    void blockedSeaMemberCannotReappearThroughQueuedUpdatesOrEmotes() {
+        UUID room = UUID.randomUUID();
+        UUID blocked = UUID.randomUUID();
+        when(seaRooms.isMember(user, room)).thenReturn(true);
+        when(blockedUsers.eitherBlocked(user, blocked)).thenReturn(true);
+        for (String type : java.util.List.of("sea.member.joined", "sea.member.updated", "sea.emote")) {
+            String payload = type.equals("sea.emote") ? "\"userId\":\"" + blocked + "\""
+                    : "\"member\":{\"userId\":\"" + blocked + "\"}";
+            Message<?> event = frame("socket", "/topic/sea/rooms/" + room,
+                    "{\"type\":\"" + type + "\",\"payload\":{" + payload + "}}");
+            assertThat(interceptor.beforeHandle(event, null, null)).as(type).isNull();
+        }
+        Message<?> left = frame("socket", "/topic/sea/rooms/" + room,
+                "{\"type\":\"sea.member.left\",\"payload\":{\"userId\":\"" + blocked + "\"}}");
+        assertThat(interceptor.beforeHandle(left, null, null)).isSameAs(left);
+    }
+
     // ── GROMO-2182 받는 사람 기준 차단 ─────────────────────────────────────
 
     @Test
