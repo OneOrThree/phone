@@ -4,7 +4,7 @@ import { runFocusJourney, focusMarker, safeHttpFields } from '../k6/lib/focus-jo
 
 const runId = '00000000-0000-4000-8000-000000000001';
 const journeyId = '00000000-0000-4000-8000-000000000002';
-const islandId = '00000000-0000-4000-8000-000000000003';
+const islandId = 'abcdefab-cdef-4bcd-8bcd-abcdefabcdef'; // 대문자 변환이 의미 있도록 hex 문자 포함
 const sessionId = '00000000-0000-4000-8000-000000000004';
 
 function fixture(fault) {
@@ -158,4 +158,12 @@ test('실패 진단은 승인한 코드·상관 ID만 남기며 원문/토큰/�
     headers: { 'CF-Ray': '0123456789abcdef-ICN', 'X-Request-Id': runId } });
   assert.equal(safe.cfRay, '0123456789abcdef-ICN');
   assert.equal(safe.responseRequestId, runId);
+});
+
+test('fixture islandId 가 대문자여도 소문자로 돌아온 세션을 소유로 판정해 종료한다', () => {
+  const f = fixture('start_response_lost');
+  const result = runFocusJourney({ ...f.options, islandId: islandId.toUpperCase() });
+  assert.equal(f.state().settlements, 1);
+  assert.equal(result.ownership, 'OWNED');
+  assert.equal(result.finishAcknowledged, true);
 });

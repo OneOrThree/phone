@@ -137,6 +137,37 @@ class FocusCleanupTest(unittest.TestCase):
             self.assertNotIn('private-user-id', json.dumps(summary))
             self.assertNotIn('다른 실행의 주제', json.dumps(summary))
 
+    def test_uppercase_fixture_island_matches_lowercase_server_session(self):
+        island = 'abcdefab-cdef-4bcd-8bcd-abcdefabcdef'
+        user = dict(USER, islandId=island.upper())
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(Path(temporary), [user])
+            state = {'cur': {'id': SESSION, 'subject': f'lt:{RUN}:{JOURNEY}', 'islandId': island,
+                             'version': 1, 'status': 'active', 'startedAt': '2026-10-22T00:00:00Z'}}
+            def request(u, method, path, body, headers):
+                if method == 'GET':
+                    return {'status': 200, 'data': state['cur']}
+                state['cur'] = None
+                return {'status': 200, 'data': {'recordId': SESSION}}
+            result = cleanup_focus('http://localhost', [user], 1, RUN, ledger, request=request)
+        self.assertEqual((result['finished'], result['preservedForeign']), (1, 0))
+        self.assertTrue(result['complete'], result)
+
+    def test_foreign_session_does_not_resolve_unconfirmed_settlement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(Path(temporary))  # 시작 intent 만 있고 종료 확인은 없는 여정
+            foreign = {'id': '00000000-0000-4000-8000-000000000099', 'subject': '다른 실행의 주제', 'islandId': ISLAND,
+                       'version': 1, 'status': 'active', 'startedAt': '2026-10-22T00:00:00Z'}
+            methods = []
+            def request(u, method, *args):
+                methods.append(method)
+                return {'status': 200, 'data': foreign}
+            result = cleanup_focus('http://localhost', [USER], 1, RUN, ledger, request=request)
+        self.assertEqual(methods, ['GET'])  # 다른 실행 세션은 건드리지 않는다
+        self.assertEqual(result['preservedForeign'], 1)
+        self.assertGreaterEqual(result['unknown'], 1)
+        self.assertFalse(result['complete'])
+
     def test_preflight_never_finishes_an_existing_session_even_with_matching_intent(self):
         with tempfile.TemporaryDirectory() as temporary:
             ledger = self.ledger(Path(temporary))

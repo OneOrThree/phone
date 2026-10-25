@@ -278,6 +278,11 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
                 raise ValueError('HTTP_RESPONSE_UNCONFIRMED')
             return response.get('data')
 
+        def unresolved(alias=alias):
+            return [item for item in ledger.get('journeys', []) if item['fixtureAlias'] == alias
+                and item.get('startIntent') and not item.get('cleanupFinishAcknowledged')
+                and (not item.get('result') or item['result'].get('needsServerLedger') is not False)]
+
         try:
             current = call('GET', '/focus-sessions/current')
             summary['checked'] += 1
@@ -285,16 +290,13 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
                 consecutive_errors = 0
                 row.update(ownership='NONE', remainingOwnedActive=False)
                 # 종료 응답 미확인 원장은 그대로 UNKNOWN이다. current=null로 정산 완료를 만들지 않는다.
-                unresolved = [item for item in ledger.get('journeys', []) if item['fixtureAlias'] == alias
-                    and item.get('startIntent') and not item.get('cleanupFinishAcknowledged')
-                    and (not item.get('result') or item['result'].get('needsServerLedger') is not False)]
-                if unresolved:
+                if unresolved():
                     row['reason'] = 'SETTLEMENT_UNCONFIRMED'
                 continue
             if not valid_current_state(current):
                 raise ValueError('CURRENT_BODY_UNCONFIRMED')
             owned = by_marker.get((alias, current.get('subject'))) if isinstance(current, dict) else None
-            valid = (owned and valid_uuid(current.get('id')) and current.get('islandId') == user.get('islandId')
+            valid = (owned and valid_uuid(current.get('id')) and str(current.get('islandId')).lower() == str(user.get('islandId')).lower()
                 and owned.get('sessionId') in (None, current['id'])
                 and type(current.get('version')) is int and current['version'] > 0
                 and current.get('status') in ('active', 'paused'))
@@ -305,6 +307,8 @@ def cleanup_focus(base, users, limit, run_id, ledger, *, request=None, preflight
                     continue
                 summary['preservedForeign'] += 1
                 row.update(ownership='PREEXISTING' if preflight else 'FOREIGN', remainingOwnedActive=False)
+                if not preflight and unresolved():  # 다른 실행 세션은 보존하되 기존 여정의 미확인 정산은 해소되지 않는다.
+                    row['reason'] = 'SETTLEMENT_UNCONFIRMED'
                 if preflight:
                     summary['complete'] = False
                 continue

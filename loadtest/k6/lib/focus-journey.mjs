@@ -21,8 +21,10 @@ function validCurrentState(current) {
 }
 
 export function ownedCurrent(current, { runId, journeyId, islandId, sessionId = null }) {
-  return validCurrentState(current) && (!sessionId || current.id === sessionId)
-    && current.subject === focusMarker(runId, journeyId) && current.islandId === islandId;
+  // 서버는 소문자 UUID를 돌려주지만 fixture는 대문자일 수 있어 UUID는 소문자로 정규화해 비교한다.
+  const same = (x, y) => String(x).toLowerCase() === String(y).toLowerCase();
+  return validCurrentState(current) && (!sessionId || same(current.id, sessionId))
+    && current.subject === focusMarker(runId, journeyId) && same(current.islandId, islandId);
 }
 
 function header(headers, name) {
