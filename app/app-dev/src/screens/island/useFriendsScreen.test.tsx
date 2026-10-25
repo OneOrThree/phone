@@ -82,6 +82,67 @@ test('활성이면 /screens/friends 를 date 와 함께 읽고 세 조각을 보
   assert.equal(result.current.data?.friendRequests[0].requestId, 'r-1');
 });
 
+test('공용 소비자가 계속 활성인 동안 친구 화면을 다시 열 때마다 목록·받은 요청을 새로 읽는다', async () => {
+  screenMock.mockResolvedValueOnce(screen({ friends: [], friendRequests: [] }));
+  const hook = await renderHook(
+    (open: boolean) =>
+      useFriendsScreen({ ...args, searchActive: open, routeKey: open ? 'friends' : 'home' }),
+    { initialProps: false },
+  );
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 1);
+
+  screenMock.mockResolvedValue(screen());
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.data?.friendRequests[0]?.requestId, 'r-1'));
+  assert.equal(hook.result.current.data?.friends[0]?.userId, 'u-friend');
+
+  await hook.rerender(false);
+  assert.equal(screenMock.mock.calls.length, 2);
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 3));
+});
+
+test('첫 친구 화면 적재는 한 번이며 연속된 친구 route 진입은 다시 조회한다', async () => {
+  screenMock.mockResolvedValue(screen());
+  const hook = await renderHook(
+    (route: string) => useFriendsScreen({ ...args, searchActive: true, routeKey: route }),
+    { initialProps: 'friends' },
+  );
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 1);
+  await hook.rerender('friendSearch');
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+});
+
+test('로그인과 친구 화면 진입이 겹쳐도 중복 조회하지 않는다', async () => {
+  screenMock.mockResolvedValue(screen());
+  const hook = await renderHook(
+    (active: boolean) => useFriendsScreen({ ...args, active, searchActive: active }),
+    { initialProps: false },
+  );
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 1);
+});
+
+test('재진입 뒤 도착한 이전 목록 응답은 새 친구·요청을 덮어쓰지 않는다', async () => {
+  let resolveOld!: (value: FriendsScreen) => void;
+  screenMock.mockReturnValueOnce(new Promise<FriendsScreen>((resolve) => (resolveOld = resolve)));
+  screenMock.mockResolvedValueOnce(screen());
+  const hook = await renderHook(
+    (open: boolean) => useFriendsScreen({ ...args, searchActive: open }),
+    { initialProps: true },
+  );
+  await hook.rerender(false);
+  await hook.rerender(true);
+  await waitFor(() => assert.equal(hook.result.current.data?.friendRequests[0]?.requestId, 'r-1'));
+  await act(async () => resolveOld(screen({ friends: [], friendRequests: [] })));
+  assert.equal(hook.result.current.data?.friends[0]?.userId, 'u-friend');
+  assert.equal(hook.result.current.data?.friendRequests[0]?.requestId, 'r-1');
+});
+
 test('차단 신호가 오면 이미 적재된 친구·요청을 서버 재조회 전에 즉시 숨긴다', async () => {
   screenMock.mockResolvedValue(screen());
   const { result } = await renderHook(() => useFriendsScreen(args));

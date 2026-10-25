@@ -1,10 +1,22 @@
 /** 친구 목록·검색 줄의 고양이 그림 — 서버가 catColor 를 안 주면(2389 이전) 예전처럼 흰 고양이, 주면 그 색(GROMO-2391). */
 import assert from 'node:assert/strict';
 import React, { useMemo, useReducer, useRef, useState } from 'react';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { art } from '@/constants/art';
+import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
+import { getFriendsScreen, searchFriends } from '@/services/api/friends';
+
+jest.mock('@/services/api/friends', () => ({
+  ...jest.requireActual('@/services/api/friends'),
+  getFriendsScreen: jest.fn(),
+  searchFriends: jest.fn(),
+}));
+jest.mock('@/services/blockedUsers', () => ({
+  ...jest.requireActual('@/services/blockedUsers'),
+  useBlockedUsers: () => ({ ids: new Set<string>(), status: 'ready', retry: jest.fn() }),
+}));
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -105,6 +117,16 @@ function Harness({ friendsScreen }: { friendsScreen: unknown }) {
   );
 }
 
+function LiveHarness({ open }: { open: boolean }) {
+  const friendsScreen = useFriendsScreen({
+    active: true,
+    searchActive: open,
+    routeKey: open ? 'friends' : 'home',
+    date: '2026-10-25',
+  });
+  return open ? <Harness friendsScreen={friendsScreen} /> : null;
+}
+
 test('서버가 털색을 안 준 친구는 흰 고양이, 준 친구는 그 색으로 그린다', async () => {
   const screen = await render(
     <Harness
@@ -151,4 +173,33 @@ test('요청·친구가 0건이어도 검색어로 찾은 결과 행은 보인�
   assert.ok(screen.getByText('검색 결과'));
   assert.ok(screen.getByText('구름'));
   assert.ok(screen.getByText('친구 요청'));
+});
+
+test('다시 연 화면의 새 친구·받은 요청과 검색의 친구 표시가 일치한다', async () => {
+  const getMock = jest.mocked(getFriendsScreen);
+  const searchMock = jest.mocked(searchFriends);
+  getMock.mockResolvedValueOnce(screenState([]).data);
+  const screen = await render(<LiveHarness open />);
+  await screen.findByText('아직 친구가 없어요');
+  await screen.rerender(<LiveHarness open={false} />);
+
+  getMock.mockResolvedValue({
+    ...screenState([friend('u-friend', '짝꿍')]).data,
+    friendRequests: [
+      { requestId: 'r1', userId: 'u-request', nickname: '새요청', tierLevel: null, createdAt: 't' },
+    ],
+  });
+  searchMock.mockResolvedValue([
+    { userId: 'u-friend', nickname: '짝꿍', relation: 'FRIEND', tierLevel: null, occupation: null },
+  ]);
+  await screen.rerender(<LiveHarness open />);
+  await screen.findByText('새요청');
+  assert.ok(screen.getByText('짝꿍'));
+  assert.equal(screen.queryByText('아직 친구가 없어요'), null);
+
+  await fireEvent.changeText(screen.getByPlaceholderText('닉네임으로 친구 찾기'), '짝꿍');
+  await waitFor(() => assert.equal(searchMock.mock.calls.length, 1));
+  await waitFor(() => assert.equal(screen.getAllByText('짝꿍').length, 2));
+  assert.equal(screen.queryByText('친구 요청'), null);
+  assert.equal(getMock.mock.calls.length, 2);
 });
