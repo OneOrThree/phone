@@ -55,6 +55,7 @@ import {
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { useIslandNews } from '@/screens/magazine/useIslandNews';
 import {
   ISLAND_GREETING_MAX,
   ISLAND_INTRO_MAX,
@@ -397,6 +398,8 @@ export function Hall({ e }: any) {
     busy: visitorJoinBusy,
     serverJoin,
   } = useVisitorJoin(e, s, i, notify);
+  // 섬 소식(GROMO-2282) — 주민 전용 목록이라 구경 중이 아닐 때 관리·주민 카드에서만 부른다. 실패·403 은 빈 목록이다
+  const news = useIslandNews((r === 'manage' || r === 'members') && !visitor, liveIslandId);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -2955,6 +2958,28 @@ export function Hall({ e }: any) {
         </View>,
         `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
+      {news.length > 0 &&
+        section(
+          t('magazine.news.title'),
+          news.map((n) => (
+            <View
+              key={n.id}
+              testID={`hall-news-${n.id}`}
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                paddingVertical: 5,
+              }}
+            >
+              <T style={g(15, 24, { color: CARD_INK, flexShrink: 1 })}>
+                {t('magazine.news.promotionRow')}
+              </T>
+              <T style={g(15, 24, { color: MUTED })}>{kstMonthDay(Date.parse(n.createdAt))}</T>
+            </View>
+          )),
+        )}
       {!visitor && (
         <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
           {displayHost && (
