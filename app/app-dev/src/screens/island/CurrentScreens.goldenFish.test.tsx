@@ -81,6 +81,7 @@ jest.mock('@/screens/focus/FishingIsland', () => {
     ),
     FishingActor: ({
       name,
+      spot,
       goldenFishCount,
       goldenCatchToken,
       motion,
@@ -89,6 +90,7 @@ jest.mock('@/screens/focus/FishingIsland', () => {
     }: any) => (
       <View
         testID={name === '나' ? 'golden-self' : `golden-actor-${name}`}
+        spot={spot}
         goldenFishCount={goldenFishCount}
         goldenCatchToken={goldenCatchToken}
         motion={motion}
@@ -1597,5 +1599,56 @@ test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서�
       .props.onTap({ x: 34.1, y: 55.9 }),
   );
   expect(notify).toHaveBeenCalledWith(t('focusFlow.spot.occupied'));
+  await screen.unmount();
+});
+
+test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서버 seat 에 앉고, 옛 focusSpot 에 앉은 주민을 밀어내지 않는다 (GROMO-2478)', async () => {
+  const state = focusedState(); // 진행 중 세션 s-me, focusSpot {34.1, 55.9} 는 지난 세션 좌표
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  mockRealPeerActors = true;
+  const resident = (userId: string, sessionId: string, seat: { x: number; y: number }) => ({
+    userId,
+    name: userId,
+    catColor: 'gray',
+    appearance: null,
+    sessionId,
+    subject: '영어',
+    activeSeconds: 0,
+    status: 'active',
+    anchorMs: Date.now(),
+    seat,
+  });
+  mockPresenceFocus = [
+    resident('me', 's-me', { x: 60.2, y: 44.1 }), // 다른 기기에서 고른 이번 세션 자리
+    resident('minji', 's-minji', { x: 34.1, y: 55.9 }),
+  ];
+  const screen = await render(
+    screenElement(state, 'focus', undefined, undefined, undefined, undefined, { islands: {} }),
+  );
+  const at = (testID: string) => {
+    const { spot } = screen.getByTestId(testID, { includeHiddenElements: true }).props;
+    return [spot.x, spot.y];
+  };
+  expect(at('golden-self')).toEqual([60.2, 44.1]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  // 세션 완료 — 서버가 내 항목을 지우고 결과 화면으로 넘어가도 이번 세션 seat 에 그대로 앉아 있다
+  mockPresenceFocus = mockPresenceFocus.filter((member) => member.userId !== 'me');
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '수학',
+    seconds: 60,
+    at: Date.now(),
+    fish: 1,
+    contributed: true,
+  };
+  state.session = null;
+  await screen.rerender(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      islands: {},
+    }),
+  );
+  expect(at('golden-self')).toEqual([60.2, 44.1]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
   await screen.unmount();
 });

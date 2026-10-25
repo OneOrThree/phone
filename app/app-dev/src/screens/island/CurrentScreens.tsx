@@ -2323,9 +2323,25 @@ function FocusFlow({ e: environment }: any) {
     advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
     e.reset('focusResult');
   };
-  // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
-  const minePoint =
-      s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
+  // 내 자리: 진행 중 세션은 서버가 기억한 내 seat 가 정본 — 다른 기기에서 시작한 세션을 복구하면 focusSpot 은 지난
+  // 세션 좌표다(SESSION_SYNC 는 focusSpot 을 바꾸지 않음). 내 항목은 아래 peerMembers 에서 거르므로 거르기 전에 꺼낸다.
+  // 서버 seat 가 없으면(옛 앱으로 시작) 로컬 focusSpot, 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
+  const liveSeat = s.session
+    ? live.focus.find((m) => m.userId === myId && m.sessionId === s.session?.id)?.seat
+    : null;
+  // 결과 화면에선 서버가 완료한 내 항목을 지우므로 이번 세션에서 마지막으로 받은 seat 를 이어 쓴다(세션이 다르면 무효)
+  const lastServerSeat = useRef<{ sessionId: string; seat: Point } | null>(null);
+  if (s.session && liveSeat && onLand(fishingGrid, liveSeat))
+    lastServerSeat.current = { sessionId: s.session.id, seat: liveSeat };
+  else if (r === 'focusSetup' || r === 'fishingArrival') lastServerSeat.current = null;
+  const serverSeat =
+      (r === 'focus' || r === 'rest' || r === 'focusResult') &&
+      lastServerSeat.current?.sessionId === (s.session?.id ?? resultSessionId)
+        ? lastServerSeat.current.seat
+        : null,
+    minePoint =
+      serverSeat ??
+      (s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;

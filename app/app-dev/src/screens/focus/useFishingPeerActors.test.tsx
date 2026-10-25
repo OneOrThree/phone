@@ -859,3 +859,30 @@ test('종료 연출 중인 주민에 막혀 대체 칸에 앉은 seat 주민은 
   await rerender(undefined);
   assert.deepEqual([actor('b')?.spot.x, actor('b')?.spot.y], [seat.x, seat.y]);
 });
+
+test('재동기화 스냅숏은 좌표 없는 주민이 쥔 칸도 풀어, 그 칸을 seat 로 받은 새 주민을 먼저 앉힌다', async () => {
+  const seat = { x: PEER_SPOTS[0].x, y: PEER_SPOTS[0].y },
+    a = { ...peer, userId: 'a', sessionId: 's-a', seat: null },
+    b = { ...peer, userId: 'b', sessionId: 's-b', seat };
+  let members: FishingPeer[] = [a],
+    snapshotVersion = 1;
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, snapshotVersion }),
+  );
+  const actor = (userId: string) => result.current.actors.find((item) => item.userId === userId)!;
+  assert.equal(actor('a').slot, 0);
+  members = [a, b];
+  snapshotVersion = 2;
+  await rerender(undefined);
+  assert.deepEqual([actor('b').spot.x, actor('b').spot.y], [seat.x, seat.y]);
+  assert.notEqual(actor('a').slot, 0);
+  assert.equal(occupied(actor('a').spot, [actor('b').spot]), false);
+  // 처음 연 화면(같은 스냅숏을 바로 받은 기기)과 배치가 같다
+  const fresh = await renderHook(() =>
+    useFishingPeerActors({ members: [a, b], ready: true, reduce: false }),
+  );
+  assert.deepEqual(
+    result.current.actors.map((item) => [item.spot.x, item.spot.y]),
+    fresh.result.current.actors.map((item) => [item.spot.x, item.spot.y]),
+  );
+});
