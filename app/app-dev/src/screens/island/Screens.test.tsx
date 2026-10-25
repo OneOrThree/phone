@@ -2614,6 +2614,15 @@ describe('en', () => {
     assert.ok(s.getByText('Nickname'));
   });
 
+  test('en 로케일 — 내 꾸미기 제목은 영문이다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="wardrobe" full />);
+
+    assert.ok(s.getByText('My Outfits'));
+    assert.equal(s.queryByText('내 꾸미기'), null);
+  });
+
   test('en 로케일 — 앱 설정은 영문 섹션·행을 보여준다', async () => {
     mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
     applyLocalePref('system');

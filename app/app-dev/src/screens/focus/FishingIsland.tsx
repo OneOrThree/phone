@@ -43,9 +43,9 @@ import {
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
 export const fishingGrid: Grid = land;
-export const INK = '#493B39',
-  OUTLINE = '#8B6956',
-  ME = '#B83D63';
+export const INK = componentTokens.nameplate.ink,
+  OUTLINE = componentTokens.nameplate.outline,
+  ME = componentTokens.nameplate.me;
 
 const afterForegroundMs = (callback: () => void, durationMs: number) => {
   let remainingMs = durationMs;
@@ -833,12 +833,12 @@ const label = {
   color: INK,
   textAlign: 'center' as const,
 };
-const nameText = (me: boolean) => ({
+export const nameText = (me: boolean) => ({
   fontSize: 11,
   lineHeight: 17.6,
   fontWeight: '900' as const,
   color: me ? ME : INK,
-  textShadowColor: '#FFFDFA',
+  textShadowColor: componentTokens.nameplate.shadow,
   textShadowOffset: { width: 0, height: 0 },
   textShadowRadius: 5,
 });
@@ -1402,7 +1402,9 @@ export function FishingWalker({
   left,
   reduce,
   outfit,
+  name,
 }: {
+  name: string;
   p: Point;
   size: number;
   sizeY: number;
@@ -1432,7 +1434,7 @@ export function FishingWalker({
         outfit={outfit}
       />
       <View style={{ position: 'absolute', top: a * (0.98 - 0.90625), left: -100, width: 200 }}>
-        <Text style={[nameText(true), { textAlign: 'center' }]}>{t('focusFlow.common.me')}</Text>
+        <Text style={[nameText(true), { textAlign: 'center' }]}>{name}</Text>
       </View>
     </View>
   );

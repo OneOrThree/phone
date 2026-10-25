@@ -89,7 +89,7 @@ jest.mock('@/screens/focus/FishingIsland', () => {
       caughtFish,
     }: any) => (
       <View
-        testID={name === '나' ? 'golden-self' : `golden-actor-${name}`}
+        testID={name === '하늘이' ? 'golden-self' : `golden-actor-${name}`}
         spot={spot}
         goldenFishCount={goldenFishCount}
         goldenCatchToken={goldenCatchToken}
@@ -161,6 +161,7 @@ const event = (members: GoldenFishEvent['members'], eventId = 'golden-i1-1'): Go
 
 const focusedState = (): State => {
   const state = initialState(true);
+  state.name = '하늘이'; // 내 이름표는 닉네임(GROMO-2475)
   state.focusSpot = { x: 34.1, y: 55.9 };
   state.session = {
     id: 's-me',

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { t } from '@/i18n';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
@@ -106,7 +107,7 @@ const withCatchPlacements = (actors: FishingPeerActor[], mine?: Point) => {
 const fromLive = (member: LiveFocusMember, seconds: number): FishingPeer => ({
   userId: member.userId,
   sessionId: member.sessionId,
-  name: member.name ?? '주민',
+  name: member.name ?? t('focusFlow.common.resident'),
   color: (['black', 'ginger', 'cream', 'gray', 'white', 'calico'].includes(member.catColor ?? '')
     ? member.catColor
     : 'gray') as Color,

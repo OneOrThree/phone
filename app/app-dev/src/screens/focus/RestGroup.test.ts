@@ -58,6 +58,7 @@ test('모닥불: 정원 15명이 모두 화면 안에 서로 겹치지 않게 �
 
 test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () => {
   const state = initialState(true);
+  state.name = '하늘이';
   state.session = {
     id: 'focus-session',
     islandId: state.islandId,
@@ -80,6 +81,8 @@ test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () =>
 
   assert.ok(screen.getByTestId('paused-focus-info'));
   assert.ok(screen.getByText('휴식 중...'));
+  assert.ok(screen.getByText('하늘이')); // 내 이름표는 「나」가 아니라 닉네임(GROMO-2475)
+  expect(screen.queryByText('나')).toBeNull();
   assert.ok(screen.getByTestId('loaf-1'));
   expect(screen.queryByTestId('end-rest')).toBeNull();
   expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
