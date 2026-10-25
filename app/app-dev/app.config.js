@@ -58,7 +58,7 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 21,
+      versionCode: 20,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
       runtimeVersion: '2.0.0-no-special-use',
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],

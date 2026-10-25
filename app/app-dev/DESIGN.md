@@ -938,7 +938,7 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 
 `specialUse`를 제거한 Android 빌드는 `supportsFocusShield=false`를 제공한다.
 앱 권한 관리에서 집중 중 허용 앱·다른 앱 위에 표시·집중 상태 알림을 숨기고 관련 권한을 조회하거나 요청하지 않는다.
-측정 권한 안내에서도 앱 차단 권한 설명을 제외한다. 사용량 측정·측정 앱 선택·일반 알림·홈 위젯은 유지한다.
+측정 권한 안내에서도 앱 차단 권한 설명을 제외한다. 사용량 측정·측정 앱 선택·홈 위젯은 유지한다.
 집중 차단과 집중·휴식 상시 알림, 해당 상태를 갱신하는 Android 집중 푸시 등록은 실행하지 않는다.
 
 측정 앱·허용 앱 선택은 기존 `Group`, `Row`, `Toggle`, `Field`, `Btn`을 사용한다.

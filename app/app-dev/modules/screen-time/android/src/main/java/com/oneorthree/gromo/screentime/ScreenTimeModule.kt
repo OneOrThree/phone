@@ -95,7 +95,7 @@ class ScreenTimeModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
-    Constants("supportsFocusShield" to false)
+    Constant("supportsFocusShield") { false }
 
     AsyncFunction("bindMeasurementOwner") { owner: String ->
       ledger.bind(owner)
