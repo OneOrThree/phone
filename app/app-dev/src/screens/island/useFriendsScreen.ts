@@ -106,6 +106,11 @@ export function useFriendsScreen({
   }, [active, searchActive, routeKey]);
 
   useEffect(() => {
+    // 공용 친구 데이터는 유지해도, 닫은 검색창의 입력은 다음 진입으로 넘기지 않는다.
+    if (!active || !searchActive) setQuery('');
+  }, [active, searchActive]);
+
+  useEffect(() => {
     if (previousBlockedIds.current.session !== session) {
       previousBlockedIds.current = { session, ids: null };
     }
