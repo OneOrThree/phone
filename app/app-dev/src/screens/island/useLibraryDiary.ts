@@ -74,6 +74,10 @@ export function useLibraryDiary({
   combined?: boolean;
   /** 기간 합계·수열만 쓰는 화면은 집중 기록의 다음 페이지를 읽지 않는다. */
   focusSummaryOnly?: boolean;
+  /**
+   * 조회 범위. 없으면 `libraryPeriodRange`(일~토, `/screens/library` 이번 주 조각과 같은 축)를 쓴다.
+   * 일기장 주간은 월~일(GROMO-2488)이라 **반드시** 이 값을 넘긴다 — 빠뜨리면 조각 재사용 경로가 일~토 합계를 그린다.
+   */
   rangeOverride?: { from: string; to: string };
   islandKey?: string;
 }): LibraryDiaryState {

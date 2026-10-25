@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { T } from '@/screens/island/sceneKit';
 import { weekday } from './diaryData';
@@ -97,45 +97,62 @@ export function WeekLineChart({
           </View>
         ))}
       </View>
-      <Svg width="100%" height={CHART_H} viewBox={`0 0 ${VW} ${CHART_H}`}>
-        {[0, top / 2, top].map((h) => (
-          <React.Fragment key={h}>
-            <Line x1={PAD_L} x2={VW - PAD_R} y1={y(h)} y2={y(h)} stroke={`${C.outline}22`} />
-            <SvgText x={VW - PAD_R + 4} y={y(h) + 3.5} fontSize={10} fill={C.textMuted}>
+      {/* 높이를 고정하지 않고 viewBox 비율로 두어 폭이 362 를 넘어도(태블릿·가로) x·y 가 같이 커진다 — 아래 요일 줄의 % 여백과 늘 맞는다 */}
+      <View style={styles.plot}>
+        <Svg width="100%" style={styles.svg} viewBox={`0 0 ${VW} ${CHART_H}`}>
+          {[0, top / 2, top].map((h) => (
+            <Line
+              key={h}
+              x1={PAD_L}
+              x2={VW - PAD_R}
+              y1={y(h)}
+              y2={y(h)}
+              stroke={`${C.outline}22`}
+            />
+          ))}
+          {series.map((s) =>
+            segments(s.hours).map((points, k) =>
+              points.length > 1 ? (
+                <Polyline
+                  key={`${s.key}-${k}`}
+                  points={points.join(' ')}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={2.5}
+                />
+              ) : null,
+            ),
+          )}
+          {series.map((s) =>
+            days.map((d, i) => {
+              const h = s.hours.get(d);
+              return h == null ? null : (
+                <Circle
+                  key={`${s.key}-${d}`}
+                  cx={x(i)}
+                  cy={y(h)}
+                  r={3.5}
+                  fill={C.surface}
+                  stroke={s.color}
+                  strokeWidth={1.5}
+                />
+              );
+            }),
+          )}
+        </Svg>
+        {/* 시간 눈금은 SVG 글자가 아니라 공용 T — 기기 글자 크기를 따른다. 격자 선 높이(%)에 맞춰 띄운다 */}
+        <View style={styles.ticks} pointerEvents="none">
+          {[0, top / 2, top].map((h) => (
+            <T
+              key={h}
+              style={[styles.tick, { top: `${(y(h) / CHART_H) * 100}%` }]}
+              allowFontScaling
+            >
               {`${h}h`}
-            </SvgText>
-          </React.Fragment>
-        ))}
-        {series.map((s) =>
-          segments(s.hours).map((points, k) =>
-            points.length > 1 ? (
-              <Polyline
-                key={`${s.key}-${k}`}
-                points={points.join(' ')}
-                fill="none"
-                stroke={s.color}
-                strokeWidth={2.5}
-              />
-            ) : null,
-          ),
-        )}
-        {series.map((s) =>
-          days.map((d, i) => {
-            const h = s.hours.get(d);
-            return h == null ? null : (
-              <Circle
-                key={`${s.key}-${d}`}
-                cx={x(i)}
-                cy={y(h)}
-                r={3.5}
-                fill={C.surface}
-                stroke={s.color}
-                strokeWidth={1.5}
-              />
-            );
-          }),
-        )}
-      </Svg>
+            </T>
+          ))}
+        </View>
+      </View>
       <View style={styles.axis}>
         {days.map((d) => (
           <T
@@ -153,6 +170,23 @@ export function WeekLineChart({
 
 const styles = StyleSheet.create({
   wrap: { gap: S.control / 2, paddingVertical: S.control },
+  plot: { width: '100%' },
+  svg: { width: '100%', aspectRatio: VW / CHART_H },
+  ticks: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: `${(PAD_R / VW) * 100}%`,
+    paddingLeft: S.control / 3,
+  },
+  // 글자 줄 높이의 절반만큼 올려 격자 선 위에 가운데로 놓는다
+  tick: {
+    position: 'absolute',
+    fontSize: F.caption,
+    color: C.textMuted,
+    marginTop: -F.caption * 0.7,
+  },
   legend: { flexDirection: 'row', justifyContent: 'center', gap: S.component },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: S.control / 2 },
   dot: { width: 10, height: 10, borderRadius: 5 },

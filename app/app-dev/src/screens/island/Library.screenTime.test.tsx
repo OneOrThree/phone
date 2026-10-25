@@ -3,7 +3,7 @@ import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
 import { RedesignScreens } from './Screens';
-import { diaryRange, shortDate } from './library/diaryData';
+import { dateKey, diaryRange, shortDate } from './library/diaryData';
 import { initialState } from '@/services/model';
 import {
   getFocusStatistics,
@@ -340,7 +340,8 @@ test.each(['집중', '폰 사용'])('일·주 %s는 선택하지 않은 통계�
   await waitFor(() =>
     expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
   );
-  other.mockClear();
+  // 집중 탭은 진입부터 폰 사용 통계를 한 번도 부르지 않아야 하므로 기록을 지우지 않는다
+  if (tab === '폰 사용') other.mockClear();
   other.mockRejectedValue(new Error('선택하지 않은 통계 장애'));
   await fireEvent.press(screen.getByLabelText('이전 기간'));
   await waitFor(() =>
@@ -579,6 +580,9 @@ test('이웃 상세는 날짜별 표 대신 월~일 주간 선그래프를 보�
     .map((node) => node.props.children as string);
   expect(labels).toEqual(['월', '화', '수', '목', '금', '토', '일']);
   expect(screen.getByText(`${shortDate(week.from)} – ${shortDate(week.to)}`)).toBeTruthy();
+  // 이번 주의 미래 날짜는 점·선 없이 「기록 없음」 — 일요일(주의 마지막)은 오늘이 아니면 늘 미래다
+  const summary = screen.getByTestId('diary-week-chart').props.accessibilityLabel as string;
+  if (week.to !== dateKey(e.now, false)) expect(summary).toContain('일 기록 없음');
   // 이번 주는 › 가 꺼져 있고, ‹ 로 지난주에 가면 범위가 7일 앞당겨지고 › 가 켜진다
   expect(screen.getByLabelText('다음 기간').props.accessibilityState.disabled).toBe(true);
   await fireEvent.press(screen.getByLabelText('이전 기간'));
