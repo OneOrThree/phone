@@ -102,7 +102,9 @@ function setup({
   if (stored) store.set('gromo.pushDevice', JSON.stringify(stored));
   const secureStore = {
     getItemAsync: jest.fn(async (key: string) => store.get(key) ?? null),
-    setItemAsync: jest.fn(async (key: string, value: string) => void store.set(key, value)),
+    setItemAsync: jest.fn(async (key: string, value: string): Promise<void> => {
+      store.set(key, value);
+    }),
   };
   const fcm = {
     getToken: jest.fn(async (_hex: string) => FCM),
@@ -910,6 +912,142 @@ test('409 충돌 뒤 deleteToken 이 실패하면 살아 있는 토큰을 기록
   expect(t.fcm.deleteToken.mock.invocationCallOrder[1]).toBeLessThan(
     t.registerDevice.mock.invocationCallOrder[1],
   );
+  t.stop();
+});
+
+test.each<[string, Parameters<typeof setup>[0], (t: ReturnType<typeof setup>) => jest.Mock]>([
+  ['권한 조회', {}, (t) => t.notifications.getPermissionsAsync],
+  ['APNs 토큰 조회', {}, (t) => t.notifications.getDevicePushTokenAsync],
+  ['FCM 토큰 받기', {}, (t) => t.fcm.getToken],
+  ['알림 끄기의 FCM 토큰 지우기', { stored: REGISTERED, enabled: false }, (t) => t.fcm.deleteToken],
+])(
+  '%s 가 끝나지 않아도 20초 뒤 그 실행만 끝내 직렬 큐를 비우고, 다음 트리거가 다시 한다',
+  async (_step, options, stepOf) => {
+    jest.useFakeTimers();
+    try {
+      const t = setup(options);
+      const step = stepOf(t);
+      step.mockImplementationOnce(() => new Promise(() => {}));
+      await settle();
+      expect(step).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(20_000);
+      await settle();
+      t.foreground();
+      await settle();
+      expect(step).toHaveBeenCalledTimes(2);
+      t.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  },
+);
+
+test('등록이 멈춘 세션(409 두 번)에서도 알림을 끄면 FCM 토큰을 지운다 — 멈춤은 등록만 막는다', async () => {
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValueOnce(FCM_2).mockResolvedValue(FCM_3);
+  t.registerDevice
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409))
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409));
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledTimes(2);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM_3 });
+
+  t.switchOn.value = false;
+  t.push.refreshPush();
+  await settle();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(2);
+  expect(t.stored()).toStrictEqual({ userId: USER });
+  expect(t.registerDevice).toHaveBeenCalledTimes(2);
+  t.stop();
+});
+
+test('받은 토큰·계정의 기록이 디스크에 닿기 전에는 등록(PUT)을 보내지 않고, 409 뒤에도 기록을 쓴 다음에 토큰을 지운다', async () => {
+  const t = setup();
+  const write = t.secureStore.setItemAsync.getMockImplementation()!;
+  const held: (() => void)[] = [];
+  const hold = (key: string, value: string) =>
+    new Promise<void>((resolve) => {
+      held.push(() => {
+        write(key, value).then(resolve);
+      });
+    });
+  t.secureStore.setItemAsync.mockImplementationOnce(hold).mockImplementationOnce(hold);
+  t.registerDevice.mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409));
+  await settle();
+  expect(JSON.parse(t.secureStore.setItemAsync.mock.calls[0][1])).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM,
+  });
+  expect(t.registerDevice).not.toHaveBeenCalled();
+
+  held.shift()!();
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  // 409 — 낡은 소유권을 버린 기록을 먼저 쓰고, 그 쓰기가 끝나야 토큰을 지운다.
+  expect(t.secureStore.setItemAsync).toHaveBeenCalledTimes(2);
+  expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+
+  held.shift()!();
+  await settle();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
+test.each([
+  [408, 'REQUEST_TIMEOUT'],
+  [429, 'TOO_MANY_REQUESTS'],
+])(
+  '%i(%s) 는 네트워크·5xx 처럼 묶음을 두고 다음 트리거에 같은 키·같은 본문으로 다시 보낸다',
+  async (httpStatus, code) => {
+    const t = setup({ stored: REGISTERED });
+    t.fcm.getToken.mockResolvedValue(FCM_2);
+    t.registerDevice.mockRejectedValueOnce(t.apiError(code, httpStatus));
+    await settle();
+    t.foreground();
+    await settle();
+
+    const [failed, retried] = t.registerDevice.mock.calls;
+    expect(failed[0]).toStrictEqual({ deviceToken: FCM_2, ownershipToken: OWN });
+    expect(retried).toStrictEqual(failed);
+    expect(t.stored()).toStrictEqual(registeredWith(FCM_2));
+    t.stop();
+  },
+);
+
+test('같은 계정이 등록 응답을 기다리는 사이 다시 로그인하면 옛 응답은 버리고, 옛 소유권으로 보낸 등록이 409 면 토큰을 한 번 바꿔 수렴한다', async () => {
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValueOnce(FCM_2).mockResolvedValueOnce(FCM_2).mockResolvedValue(FCM_3);
+  let answerFirst!: (value: { ownershipToken: string; deliveryTag: string }) => void;
+  t.registerDevice
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+    )
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409));
+  await settle();
+
+  // 같은 계정의 새 세션(bootstrap 없음) — 그 사이 서버는 첫 등록을 처리해 소유권을 바꿨다(옛 키의 응답).
+  t.publish(sessionOf(USER, 'rt-2'));
+  answerFirst({ ownershipToken: 'rotated-ownership', deliveryTag: 'rotated-tag' });
+  await settle();
+
+  const calls = t.registerDevice.mock.calls;
+  expect(calls.map(([body]) => body)).toStrictEqual([
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    // 옛 응답을 버려 옛 소유권으로 다시 보낸다 — 서버는 409.
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    // 토큰을 한 번 바꿔 소유권 없이 보낸다.
+    { deviceToken: FCM_3 },
+  ]);
+  expect(calls[1][1]).not.toBe(calls[0][1]);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  const written = t.secureStore.setItemAsync.mock.calls.map(([, value]) => value);
+  expect(written.some((value) => value.includes('rotated-tag'))).toBe(false);
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_3));
   t.stop();
 });
 

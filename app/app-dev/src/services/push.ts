@@ -15,12 +15,12 @@
  * | 응답 | 반응 |
  * |---|---|
  * | 409 `DEVICE_OWNERSHIP_CONFLICT` | 세션당 한 번 — 표시 알림은 두고 토큰을 바꿔(deleteToken·getToken) 소유권 없이 다시 등록. 두 번째면 다음 세션까지 멈춤 |
- * | 409 `SESSION_REVOKED`·`STALE_AUTH_GENERATION`, 401(`USER_INACTIVE` 등), `CLIENT_STALE_SESSION` | 다음 세션까지 멈춤 |
- * | 네트워크·타임아웃(상태 0)·5xx(502·503) | 같은 키·같은 본문 묶음을 메모리에 두고 다음 트리거에 다시 보냄(서버가 저장 응답을 재생) |
+ * | 409 `SESSION_REVOKED`·`STALE_AUTH_GENERATION`, 401(`USER_INACTIVE` 등), `CLIENT_STALE_SESSION` | 다음 세션까지 등록을 멈춤(알림 끄기·A→B 정리는 계속) |
+ * | 네트워크·타임아웃(상태 0)·408·429·5xx(502·503) | 같은 키·같은 본문 묶음을 메모리에 두고 다음 트리거에 다시 보냄(서버가 저장 응답을 재생) |
  * | 409 `IDEMPOTENCY_KEY_CONFLICT` | 그 묶음을 버림 — 다음 트리거에 새 키 |
  * | 브리지 `NOT_CONFIGURED`(plist 없는 빌드) | 이 실행 동안 푸시를 끔 |
  * | 브리지 `INVALID_APNS_TOKEN` | 그 APNs 토큰으로는 다시 부르지 않음(다음 APNs 토큰 이벤트를 기다림) |
- * | 브리지 `TOKEN_ERROR`·APNs 토큰 조회 실패 | 다음 트리거(앱 활성·설정 변경·토큰 이벤트)에 다시 — 촘촘한 재시도는 없음 |
+ * | 브리지 `TOKEN_ERROR`·APNs 토큰 조회 실패·브리지/OS 호출 20초 초과 | 다음 트리거(앱 활성·설정 변경·토큰 이벤트)에 다시 — 촘촘한 재시도는 없음 |
  */
 import * as SecureStore from 'expo-secure-store';
 import type {
@@ -73,11 +73,24 @@ let writes: Promise<unknown> = Promise.resolve();
 /** 이 실행에서 처리한 알림 응답 — 같은 탭이 리스너와 콜드 스타트 조회로 두 번 와도 한 번만 연다. */
 const handledResponses = new Set<string>();
 
-/** 기록 전체를 한 번에 쓴다(원자 저장). 쓰기를 줄 세워 마지막 메모리 값이 마지막에 남는다. */
-function persist(): void {
+/** 기록 전체를 한 번에 쓴다(원자 저장). 쓰기를 줄 세워 마지막 메모리 값이 마지막에 남고, 끝나기를 기다릴 수 있다. */
+function persist(): Promise<unknown> {
   writes = writes
     .then(() => SecureStore.setItemAsync(DEVICE_KEY, JSON.stringify(device)))
     .catch(() => {});
+  return writes;
+}
+
+/** 브리지·OS 호출이 끝나지 않으면 직렬 큐가 영영 막힌다 — 이 시간이 지나면 그 실행만 끝내고(던짐) 다음 트리거에 다시 한다. */
+const STEP_TIMEOUT_MS = 20_000;
+function within<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('PUSH_STEP_TIMEOUT')), STEP_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 function readDevice(stored: string | null): PushDevice {
@@ -159,40 +172,41 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   const reconcile = async (): Promise<void> => {
     const session = getSession();
     const generation = sessionGeneration();
-    const live = () =>
-      !stopped && generation === sessionGeneration() && haltedGeneration !== generation;
-    if (disabled || !session || !live()) return;
+    // 정리(알림 끄기의 토큰 지우기·A→B 교체)는 멈춘 세션에서도 한다 — 멈춤(halt)은 등록만 막는다.
+    const current = () => !stopped && generation === sessionGeneration();
+    const live = () => current() && haltedGeneration !== generation;
+    if (disabled || !session || !current()) return;
     if (device.userId && device.userId !== session.userId) {
       // 계정 전환(A→B) — 알림 설정·권한과 상관없이 먼저 한다: 이전 계정의 표시 알림을 지우고 FCM 토큰을 바꾼다. 못
       // 바꾸면(던짐) 등록하지 않고 다음 트리거에 다시 한다 — A 의 토큰을 B 로 올리면 A 앞으로 남은 발송이 B 에게 뜬다.
       // 이 사이 앱이 죽어 자동 초기화가 꺼진 채 남아도 다음 시작의 getToken 이 되돌린다. 기록에 토큰이 없으면 우리 코드가
       // 이미 지웠다(알림 끄기·앞선 교체) — 빈 저장소의 deleteToken 은 거절될 수 있어 부르지 않는다(그러면 B 를 영영
       // 등록하지 못한다).
-      await N.dismissAllNotificationsAsync().catch(() => {});
-      if (device.fcmToken) await fcm.deleteToken();
+      await within(N.dismissAllNotificationsAsync()).catch(() => {});
+      if (device.fcmToken) await within(fcm.deleteToken());
       device = {};
       persist();
-      if (!live()) return;
+      if (!current()) return;
     }
-    if (!isEnabled() || !granted(N, await N.getPermissionsAsync())) {
+    if (!isEnabled() || !granted(N, await within(N.getPermissionsAsync()))) {
       // 알림 끄기(설정 OFF·권한 거부) — DELETE 가 아니라 FCM 토큰만 폐기한다. 서버는 다음 발송에서 UNREGISTERED 로
       // transport_invalid 만 세우고 소유권을 남기므로, 다시 켜면 새 토큰을 그 소유권(CAS)으로 올린다. 꺼진 동안에는
       // getToken 을 부르지 않는다 — 브리지의 getToken 은 자동 초기화를 다시 켜 토큰을 되살린다.
       // 못 지우면(던짐) 기록을 그대로 둔다 — fcmToken 이 남아 다음 트리거에 다시 지우고, 소유권은 다시 켤 때 CAS 로 쓴다.
-      if (!device.fcmToken || !live()) return;
-      await fcm.deleteToken();
+      if (!device.fcmToken || !current()) return;
+      await within(fcm.deleteToken());
       device = { ...device, fcmToken: undefined };
       persist();
       return;
     }
     if (!live()) return;
     // 이 실행의 APNs 토큰은 처음 한 번 묻고, 바뀌면 토큰 리스너가 알려 준다.
-    apnsHex ??= (await N.getDevicePushTokenAsync()).data;
+    apnsHex ??= (await within(N.getDevicePushTokenAsync())).data;
     const hex = apnsHex;
     if (!hex || hex === invalidHex || !live()) return;
     let token: string;
     try {
-      token = await fcm.getToken(hex);
+      token = await within(fcm.getToken(hex));
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === NOT_CONFIGURED) disabled = true;
@@ -226,14 +240,18 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 있다)·태그(새 응답이 바꿀 때까지)와 그 확인 토큰을 남긴다 — 확인 토큰이 새 토큰과 달라 「확인 전」으로 남는다.
     if (!sameUser || device.fcmToken !== token) {
       device = { ...(sameUser ? device : {}), userId: session.userId, fcmToken: token };
-      persist();
+      // 디스크에 닿은 뒤에 보낸다 — PUT 이 서버에 닿은 직후 앱이 죽어도 토큰·계정이 남는다.
+      await within(persist());
+      if (!live()) return;
     }
     let registered: DeviceRegistration;
     try {
       registered = await registerDevice(body, bundle.key);
     } catch (error) {
       const { code, status } = error instanceof ApiError ? error : { code: '', status: -1 };
-      if ((status === 0 && code !== CLIENT_STALE_SESSION) || status >= 500) return;
+      // 네트워크·타임아웃(상태 0)·408·429·5xx 는 같은 묶음으로 다음 트리거에 다시 보낸다.
+      const transient = (status === 0 && code !== CLIENT_STALE_SESSION) || status === 408;
+      if (transient || status === 429 || status >= 500) return;
       pending = undefined;
       if (code === 'IDEMPOTENCY_KEY_CONFLICT') return;
       if (code === 'DEVICE_OWNERSHIP_CONFLICT' && rotatedForConflict !== generation && live()) {
@@ -243,8 +261,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         // 토큰을 기록에서 놓치면 이후 A→B 가 지우지 않고 넘어가 그 토큰을 B 로 올린다.
         bootstrap = undefined;
         device = { userId: session.userId, fcmToken: token };
-        persist();
-        await fcm.deleteToken();
+        await within(persist());
+        await within(fcm.deleteToken());
         device = { userId: session.userId };
         persist();
         rotatedForConflict = generation;
@@ -315,6 +333,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       if (stopped) return;
       device = readDevice(stored);
       wake = schedule;
+      // 기록을 읽기 전(핸들러가 아직 없을 때) 온 포그라운드 푸시는 띄우지 않는다 — 누구의 알림인지 모를 때는 숨기는 쪽이다.
       N.setNotificationHandler({
         handleNotification: async (notification) => {
           const show = accept(notification);
