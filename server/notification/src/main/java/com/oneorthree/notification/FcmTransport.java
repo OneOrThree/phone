@@ -57,11 +57,15 @@ class FcmTransport implements PushTransport {
                     .retrieve().toBodilessEntity();
             return Result.SENT;
         } catch (RestClientResponseException failure) {
-            return unusableToken(failure.getStatusCode().value(), failure.getResponseBodyAsString())
-                    ? Result.UNREGISTERED : Result.RETRY;
+            return classify(failure.getStatusCode().value(), failure.getResponseBodyAsString());
         } catch (IOException | org.springframework.web.client.RestClientException unavailable) {
             return Result.RETRY;
         }
+    }
+
+    /** @return FCM 오류 응답의 결과 — 토큰 고유 오류면 {@code UNREGISTERED}, 그 밖에는 재시도 */
+    static Result classify(int status, String body) {
+        return unusableToken(status, body) ? Result.UNREGISTERED : Result.RETRY;
     }
 
     /**
@@ -73,12 +77,15 @@ class FcmTransport implements PushTransport {
      * 구 {@code FcmPushNotificationClient} 는 그 응답을 무효 토큰으로 정리해 왔으므로, 정리하지 않는
      * 것은 서버를 가르면서 생긴 회귀다.
      *
+     * <p>다른 FCM 프로젝트에서 발급된 토큰({@code 403 SENDER_ID_MISMATCH})도 같은 길을 탄다 —
+     * {@link #isSenderIdMismatch}.
+     *
      * @param status HTTP 상태
      * @param body   응답 본문
      * @return 정리 대상인가
      */
     static boolean unusableToken(int status, String body) {
-        return isUnregistered(status, body) || isInvalidToken(status, body);
+        return isUnregistered(status, body) || isInvalidToken(status, body) || isSenderIdMismatch(status, body);
     }
 
     /**
@@ -134,15 +141,38 @@ class FcmTransport implements PushTransport {
     }
 
     static boolean isUnregistered(int status, String body) {
-        if (status != 404) {
-            return false;
-        }
+        return status == 404 && hasFcmErrorCode(body, "UNREGISTERED");
+    }
+
+    /**
+     * {@code 403 SENDER_ID_MISMATCH} — 이 토큰은 «다른 FCM 프로젝트»에서 발급됐다.
+     *
+     * <p>앱의 {@code GoogleService-Info.plist} 프로젝트가 서버의 {@code FCM_PROJECT_ID} 와 다르면, 그 앱이
+     * 받은 토큰은 이 서버 프로젝트로 영원히 보낼 수 없다. 재시도로 돌리면 {@code retry} 가 60초마다 같은
+     * 토큰으로 다시 보내므로, 이벤트 만료가 없는 알림은 끝나지 않는다.
+     *
+     * <p>토큰 고유 오류라 {@code UNREGISTERED} 와 같은 길이다 — 전송 자격({@code transport_invalid})만 내리고
+     * 소유권({@code active})은 유지해, 앱이 올바른 프로젝트의 새 토큰을 올리면 CAS 로 교체된다.
+     *
+     * <p>상태만 보고 판정하지 않는다. 같은 403 이라도 서버 자격·권한 문제({@code PERMISSION_DENIED})는 토큰
+     * 탓이 아니고, {@code THIRD_PARTY_AUTH_ERROR}(APNs 키·인증서)는 서버 설정 오류라 둘 다 재시도로 남긴다.
+     *
+     * @param status HTTP 상태
+     * @param body   응답 본문
+     * @return 프로젝트가 다른 토큰인가
+     */
+    static boolean isSenderIdMismatch(int status, String body) {
+        return status == 403 && hasFcmErrorCode(body, "SENDER_ID_MISMATCH");
+    }
+
+    /** @return 응답 상세의 {@code FcmError} 가 이 errorCode 를 돌려줬는가 — 본문이 JSON 이 아니면 아니다 */
+    private static boolean hasFcmErrorCode(String body, String errorCode) {
         try {
             Object details = Json.map(Json.map(body).get("error")).get("details");
             if (details instanceof List<?> list) {
                 return list.stream().filter(item -> item instanceof Map<?, ?>).map(Json::map).anyMatch(item ->
                         "type.googleapis.com/google.firebase.fcm.v1.FcmError".equals(item.get("@type"))
-                                && "UNREGISTERED".equals(item.get("errorCode")));
+                                && errorCode.equals(item.get("errorCode")));
             }
         } catch (RuntimeException invalid) {
             return false;

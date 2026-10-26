@@ -159,6 +159,57 @@ class DeviceTransportContinuityTest {
     }
 
     /**
+     * 다른 FCM 프로젝트에서 발급된 토큰({@code 403 SENDER_ID_MISMATCH}, GROMO-2521)은 {@code UNREGISTERED} 와 같은
+     * 길을 탄다 — 응답을 실제 분류기({@code FcmTransport.classify})에 통과시킨 결과를 전송 결과로 돌린다.
+     * 재시도로 남으면 그 토큰의 delivery 가 매분 영구 재시도되고, 소유권까지 폐기하면 올바른 새 토큰이 CAS 에 걸린다.
+     */
+    @Test
+    void senderIdMismatchInvalidatesOnlyTheTransportAndIsNotRetriedForever() {
+        register("fcm-mismatch", "bootstrap", 1, "register");
+        PushTransport.Result mismatch = FcmTransport.classify(403,
+                RenderPolicyTest.fcmError(403, "PERMISSION_DENIED", "SENDER_ID_MISMATCH"));
+        when(transport.send(eq("fcm-mismatch"), any(), anyBoolean(), anyString())).thenReturn(mismatch);
+        UUID id = enqueue("mismatch");
+        dispatch.dispatch(id);
+
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-mismatch'"))
+                .containsEntry("active", true).containsEntry("transport_invalid", true);
+
+        // 재시도 간격이 지나도 같은 토큰으로 다시 보내지 않는다.
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(eq("fcm-mismatch"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "NO_ACTIVE_DEVICE");
+    }
+
+    /**
+     * 같은 403 이라도 {@code THIRD_PARTY_AUTH_ERROR}(APNs 키·인증서 — 서버 설정 문제)는 토큰 탓이 아니다.
+     * 토큰을 죽이지 않고 재시도로 남겨, 설정이 고쳐지면 같은 토큰으로 이어서 보낸다.
+     */
+    @Test
+    void thirdPartyAuthErrorStaysRetryableAndLeavesTheTokenUsable() {
+        register("fcm-apns", "bootstrap", 1, "register");
+        PushTransport.Result authError = FcmTransport.classify(403,
+                RenderPolicyTest.fcmError(403, "PERMISSION_DENIED", "THIRD_PARTY_AUTH_ERROR"));
+        when(transport.send(eq("fcm-apns"), any(), anyBoolean(), anyString())).thenReturn(authError);
+        UUID id = enqueue("apns-auth");
+        dispatch.dispatch(id);
+
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-apns'"))
+                .containsEntry("active", true).containsEntry("transport_invalid", false);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+
+        // 설정이 고쳐지면 같은 토큰으로 이어서 보낸다.
+        when(transport.send(eq("fcm-apns"), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+        verify(transport, times(2)).send(eq("fcm-apns"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    /**
      * 전송 자격만 내리는 것이 <b>소유권 울타리를 열지 않는다</b>. 로그아웃 · 삭제 · 세션 폐기가 남긴
      * {@code active=false} 는 여전히 같은 소유권의 토큰 교체를 거절한다.
      */
