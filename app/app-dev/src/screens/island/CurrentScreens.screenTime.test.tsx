@@ -511,3 +511,65 @@ test('알림 행 — 권한이 허용이고 앱 설정 「알림」도 켜져 �
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
   expect(notificationSettingDispatches(e)).toEqual([]);
 });
+
+// ── 권한을 읽지 못했을 때(error) — 브리지는 있는데 네이티브가 던진 것이라 «브리지 없음»(unavailable)과 다르다 ──
+test('알림 행 — 권한을 읽지 못했으면(error) 행을 숨기지 않고 «확인하지 못했어요» 로 보이며 읽는 이름에도 싣는다', async () => {
+  mockPushPermissionStatus.mockResolvedValue('error');
+  const view = await render(<CurrentScreens e={environment('settings')} />);
+  await view.findByText('확인하지 못했어요');
+  expect(view.getByText('알림 권한')).toBeTruthy();
+  expect(view.getByLabelText('알림 권한, 확인하지 못했어요')).toBeTruthy();
+});
+
+test.each([
+  { fresh: 'undetermined', requests: 1, opens: 0, label: '허용됨' },
+  { fresh: 'denied', requests: 0, opens: 1, label: '꺼짐' },
+  { fresh: 'error', requests: 0, opens: 0, label: '확인하지 못했어요' },
+] as const)(
+  '알림 행 — 읽지 못한(error) 권한은 누르면 다시 읽고, 읽힌 값이 $fresh 면 시스템 팝업 $requests회·시스템 설정 $opens회, 부제 «$label»',
+  async ({ fresh, requests, opens, label }) => {
+    // 시트가 열릴 때는 못 읽고, 누를 때 다시 읽은 값이 fresh 다.
+    mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue(fresh);
+    mockRequestPushPermission.mockResolvedValue('granted');
+    const view = await render(<CurrentScreens e={environment('settings')} />);
+    await fireEvent.press(await view.findByText('알림 권한'));
+    await flushAsync();
+
+    expect(mockPushPermissionStatus).toHaveBeenCalledTimes(2);
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(requests);
+    expect(Linking.openSettings).toHaveBeenCalledTimes(opens);
+    expect(view.getByText(label)).toBeTruthy();
+  },
+);
+
+test('알림 행 — 읽지 못했던(error) 권한이 허용으로 읽히면 꺼진 앱 설정 「알림」을 시스템 설정 없이 바로 켠다', async () => {
+  mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue('granted');
+  const e = environmentNotificationsOff();
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await view.findByText('허용됨');
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+  expect(Linking.openSettings).not.toHaveBeenCalled();
+});
+
+test('알림 행 — 권한을 읽지 못했으면(error) 앱이 활성으로 돌아올 때 다시 읽어 부제를 갱신한다', async () => {
+  const returnToApp = captureAppActive();
+  mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue('denied');
+  const view = await render(<CurrentScreens e={environment('settings')} />);
+  await view.findByText('확인하지 못했어요');
+
+  await returnToApp();
+  await view.findByText('꺼짐');
+});
+
+test('en 로케일 — 권한을 읽지 못한 알림 행은 한글 없이 영문으로 그린다', async () => {
+  applyLocalePref('en');
+  mockPushPermissionStatus.mockResolvedValue('error');
+  const view = await render(<CurrentScreens e={environment('settings')} />);
+  await view.findByText("Couldn't check");
+  expect(view.getByLabelText("Notification permission, Couldn't check")).toBeTruthy();
+  expect(view.queryByText(/[가-힣]/)).toBeNull();
+  expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
+});

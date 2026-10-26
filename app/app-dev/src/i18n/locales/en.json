@@ -176,6 +176,7 @@
         "granted": "Allowed",
         "denied": "Off",
         "undetermined": "Not asked yet",
+        "error": "Couldn't check",
         "a11y": "Notification permission, {{description}}"
       },
       "help": {

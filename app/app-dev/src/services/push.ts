@@ -424,8 +424,11 @@ export function refreshPush(): void {
   wake?.();
 }
 
-/** 설정·권한 관리 화면이 보는 알림 권한(GROMO-2526). `unavailable` 은 iOS 가 아니거나 브리지가 없는 바이너리 — 알림 항목을 그리지 않는다. */
-export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+/**
+ * 설정·권한 관리 화면이 보는 알림 권한(GROMO-2526). `unavailable` 은 iOS 가 아니거나 브리지가 없는 바이너리 — 알림 항목을 그리지
+ * 않는다. `error` 는 브리지가 있는데 네이티브가 권한을 읽지 못한 것(일시적 실패)이다 — 허용도 «브리지 없음»도 아닌 확인 못 함이다.
+ */
+export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable' | 'error';
 
 /** {@link startPushSync} 와 같은 바이너리 판정 — 그 밖에서는 expo-notifications 를 불러오는 자리에서 던지므로 불러오지 않는다. */
 function bridgedNotifications(): NotificationsModule | undefined {
@@ -445,20 +448,20 @@ const permissionOf = (
       ? 'undetermined'
       : 'denied';
 
-/** 지금 알림 권한을 읽는다 — 시스템 팝업은 띄우지 않는다. 권한을 읽지 못하면 `unavailable` 이다. */
+/** 지금 알림 권한을 읽는다 — 시스템 팝업은 띄우지 않는다. 브리지가 있는데 읽지 못하면 `error`, 브리지가 없으면 `unavailable` 이다. */
 export async function pushPermissionStatus(): Promise<PushPermission> {
   const N = bridgedNotifications();
   if (!N) return 'unavailable';
   try {
     return permissionOf(N, await N.getPermissionsAsync());
   } catch {
-    return 'unavailable';
+    return 'error';
   }
 }
 
 /**
  * 아직 안 물음이면 시스템 팝업으로 묻고 답을 돌려준다(알림·소리만 — 배지는 서버도 앱도 쓰지 않는다). 이미 정해졌으면 묻지
- * 않고 지금 상태를 돌려준다. 물은 뒤에는 동기화를 깨워 새 권한으로 등록하게 한다.
+ * 않고 지금 상태를 돌려준다. 물은 뒤에는 동기화를 깨워 새 권한으로 등록하게 한다. 네이티브가 던지면 `error` 다.
  */
 export async function requestPushPermission(): Promise<PushPermission> {
   const N = bridgedNotifications();
@@ -473,7 +476,7 @@ export async function requestPushPermission(): Promise<PushPermission> {
     refreshPush();
     return answered;
   } catch {
-    return 'unavailable';
+    return 'error';
   }
 }
 

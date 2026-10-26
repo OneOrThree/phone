@@ -3229,27 +3229,30 @@ test.each([
   await app.unmount();
 });
 
-test('권한 조회가 일시적으로 실패해(unavailable) 못 물었으면 다음 홈 진입에서 다시 묻고, 답을 받은 뒤에는 묻지 않는다', async () => {
-  mockRequestPushPermission.mockResolvedValueOnce('unavailable');
-  const app = await pushApp();
-  await promptAsked();
-  // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다(effect 는 의존값이 바뀔 때만 돈다).
-  await afterShield();
-  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+test.each(['error', 'unavailable'] as const)(
+  '권한 요청이 %s 로 끝나(네이티브 일시 실패·브리지 없음) 못 물었으면 다음 홈 진입에서 다시 묻고, 답을 받은 뒤에는 묻지 않는다',
+  async (result) => {
+    mockRequestPushPermission.mockResolvedValueOnce(result);
+    const app = await pushApp();
+    await promptAsked();
+    // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다(effect 는 의존값이 바뀔 때만 돈다).
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
 
-  await act(async () => captured.reset('settings'));
-  await act(async () => captured.reset('home'));
-  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
-    timeout: 3000,
-  });
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+      timeout: 3000,
+    });
 
-  // 이번에는 답이 왔다(granted) — 더는 묻지 않는다.
-  await act(async () => captured.reset('settings'));
-  await act(async () => captured.reset('home'));
-  await afterShield();
-  expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
-  await app.unmount();
-});
+    // 이번에는 답이 왔다(granted) — 더는 묻지 않는다.
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+    await app.unmount();
+  },
+);
 
 test.each(['granted', 'denied'] as const)(
   '권한 요청이 %s 로 끝나면 이 실행에서는 홈에 다시 들어와도 다시 묻지 않는다',

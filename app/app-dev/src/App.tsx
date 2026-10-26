@@ -1546,8 +1546,9 @@ function Gromo() {
     if (appContentHidden || state.settings.notifications === false) return;
     pushAsked.current = true;
     void requestPushPermission().then((permission) => {
-      // 네이티브가 일시적으로 실패하면('unavailable') 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다.
-      if (permission === 'unavailable') pushAsked.current = false;
+      // 네이티브가 일시적으로 실패하면('error') 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다.
+      // 브리지가 없는 바이너리('unavailable')도 같다(물을 수 없었다).
+      if (permission === 'error' || permission === 'unavailable') pushAsked.current = false;
     });
   }, [
     loaded,

@@ -3187,6 +3187,38 @@ describe('설정 「알림」 토글', () => {
   });
 
   test.each([
+    ['granted', 0, 0, true],
+    ['undetermined', 1, 0, true],
+    ['denied', 0, 1, false],
+    ['error', 0, 0, false],
+  ] as const)(
+    '설정 「알림」 — 권한을 읽지 못했으면(error) 앱 설정이 켜져 있어도 꺼진 것으로 보이고, 누르면 다시 읽어 %s 면 시스템 팝업 %i회·시스템 설정 %i회·켜진 것으로 보이는가 %s',
+    async (fresh, requests, opened, shownOn) => {
+      // 시트가 열릴 때는 못 읽고, 누를 때 다시 읽은 값이 fresh 다.
+      mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue(fresh);
+      const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+      let exposed: any;
+      const ui = await render(
+        <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+      );
+      await flush();
+      const toggle = () => ui.getByRole('switch', { name: '알림' });
+      // 읽지 못한 권한은 허용이 아니다 — 앱 설정(기본값 켜짐)이 켜져 있어도 켜진 것으로 그리지 않는다.
+      expect(toggle().props.accessibilityState.checked).toBe(false);
+      const reads = mockPushPermissionStatus.mock.calls.length;
+
+      await fireEvent.press(toggle());
+      await flush();
+      expect(mockPushPermissionStatus).toHaveBeenCalledTimes(reads + 1);
+      // 앱 설정은 이미 켜져 있다 — 끄지도 다시 쓰지도 않는다.
+      expect(exposed.actions).not.toContain('SETTING');
+      expect(mockRequestPushPermission).toHaveBeenCalledTimes(requests);
+      expect(openSettings).toHaveBeenCalledTimes(opened);
+      expect(toggle().props.accessibilityState.checked).toBe(shownOn);
+    },
+  );
+
+  test.each([
     ['ios', false],
     // 푸시 브리지가 없는 플랫폼은 읽기 전에도 앱 설정 그대로 그린다 — 읽은 뒤 바뀌는 깜빡임이 없다.
     ['android', true],

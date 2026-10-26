@@ -176,6 +176,7 @@
         "granted": "허용됨",
         "denied": "꺼짐",
         "undetermined": "아직 묻지 않았어요",
+        "error": "확인하지 못했어요",
         "a11y": "알림 권한, {{description}}"
       },
       "help": {

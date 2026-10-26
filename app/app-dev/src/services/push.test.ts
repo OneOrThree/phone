@@ -1131,16 +1131,16 @@ test.each([
   },
 );
 
-test('권한을 읽거나 요청하다 네이티브가 던지면 unavailable 이고 동기화를 깨우지 않는다', async () => {
+test('브리지가 있는데 권한을 읽거나 요청하다 네이티브가 던지면 error(확인 못 함)이고 — 브리지 없음 unavailable 과 다르다 — 동기화를 깨우지 않는다', async () => {
   const t = setup({ permission: 'undetermined', answer: 'granted' });
   await settle();
 
   t.notifications.getPermissionsAsync.mockRejectedValueOnce(new Error('native'));
-  await expect(t.push.pushPermissionStatus()).resolves.toBe('unavailable');
+  await expect(t.push.pushPermissionStatus()).resolves.toBe('error');
   t.notifications.getPermissionsAsync.mockRejectedValueOnce(new Error('native'));
-  await expect(t.push.requestPushPermission()).resolves.toBe('unavailable');
+  await expect(t.push.requestPushPermission()).resolves.toBe('error');
   t.notifications.requestPermissionsAsync.mockRejectedValueOnce(new Error('native'));
-  await expect(t.push.requestPushPermission()).resolves.toBe('unavailable');
+  await expect(t.push.requestPushPermission()).resolves.toBe('error');
   await settle();
   expect(t.registerDevice).not.toHaveBeenCalled();
   t.stop();

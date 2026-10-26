@@ -921,7 +921,9 @@ function AppPermissionManager({ e }: any) {
       ? t('settings.permissions.notifications.granted')
       : pushPermission === 'denied'
         ? t('settings.permissions.notifications.denied')
-        : t('settings.permissions.notifications.undetermined');
+        : pushPermission === 'error'
+          ? t('settings.permissions.notifications.error')
+          : t('settings.permissions.notifications.undetermined');
   const permissionDescription =
     status === 'loading'
       ? t('settings.permissions.status.permissionChecking')
@@ -1041,18 +1043,25 @@ function AppPermissionManager({ e }: any) {
   const openSystemSettings = () => openScreenTimeSettings(e.notify);
 
   // 아직 안 물음이면 시스템 팝업, 이미 허용인데 앱 설정 「알림」만 꺼져 있으면 바로 켠다. 그 밖(거부, 끄려는 허용)은 시스템
-  // 설정으로 보낸다 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다.
+  // 설정으로 보낸다 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다. 읽지 못했던('error') 권한은 먼저 다시 읽고, 읽힌 값으로
+  // 위를 그대로 이어 간다(그래도 못 읽으면 아무것도 하지 않는다).
   const changePush = async () => {
-    if (pushPermission === 'undetermined') {
+    let current = pushPermission;
+    if (current === 'error') {
+      current = await pushPermissionStatus();
+      setPushPermission(current);
+    }
+    if (current === 'undetermined') {
       const next = await requestPushPermission();
       setPushPermission(next);
       if (next === 'granted') enablePushSetting();
       return;
     }
-    if (pushPermission === 'granted' && pushSettingOff.current) {
+    if (current === 'granted' && pushSettingOff.current) {
       enablePushSetting();
       return;
     }
+    if (current !== 'granted' && current !== 'denied') return;
     pushSettingsOpened.current = true;
     await openSystemSettings();
   };
