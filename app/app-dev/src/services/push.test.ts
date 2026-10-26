@@ -1044,7 +1044,7 @@ test('같은 계정이 등록 응답을 기다리는 사이 다시 로그인하�
   const calls = t.registerDevice.mock.calls;
   expect(calls.map(([body]) => body)).toStrictEqual([
     { deviceToken: FCM_2, ownershipToken: OWN },
-    // 옛 응답을 버려 다시 보낸다 — 연결이 끊긴 세대(bootstrap 없는 같은 계정의 새 세션)라 옛 소유권을 싣지 않고, 서버는 409.
+    // 옛 응답을 버려 다시 보낸다 — 재생된 로그인(bootstrap 없는 같은 계정의 새 세션)이 공개 순간 옛 소유권을 지웠으니 싣지 않고, 서버는 409.
     { deviceToken: FCM_2 },
     // 토큰을 한 번 바꿔 소유권 없이 보낸다.
     { deviceToken: FCM_3 },
@@ -1410,10 +1410,11 @@ test('같은 계정·같은 토큰을 새 세션의 bootstrap 으로 다시 등�
   t.stop();
 });
 
-// ── 연결이 끊긴 세대 — 같은 계정의 새 세션이 bootstrap 없이 공개된 경우(응답을 잃은 로그인·전환의 재생) ──
-// 서버 행은 옛 세션의 bootstrap 에 묶여 있고 옛 세션이 폐기되면 꺼진다 — 기록의 소유권으로는 새 세션에서 올릴 수 없다.
+// ── 재생된 로그인 — 같은 계정의 새 세션이 bootstrap 없이 공개된 경우(응답을 잃은 로그인·전환을 같은 attemptId 로 다시 한 것) ──
+// 서버 행은 옛 세션의 bootstrap 에 묶여 있어 기록의 소유권(CAS)을 실으면 그 연결을 물려받는다. 공개 순간 기록의 소유권·확인을
+// 지워 저장하고(로그아웃 갈래와 같다), 소유권 없이 보내 409 를 받으면 토큰을 바꿔 새로 묶는다.
 
-test('확인받은 기록이 있어도 같은 계정의 새 세션이 bootstrap 없이 공개되면 소유권 없이 보내고, 409 면 토큰을 바꿔 소유권 없이 다시 등록해 새 소유권·태그를 기록한다', async () => {
+test('같은 계정의 새 세션이 bootstrap 없이 공개되면 소유권 없이 보내고, 409 면 토큰을 바꿔 소유권 없이 다시 등록해 새 소유권·태그를 기록한다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
   // 부팅 복구(첫 세션)는 건너뛴다.
@@ -1440,7 +1441,7 @@ test('확인받은 기록이 있어도 같은 계정의 새 세션이 bootstrap 
     deliveryTag: 'tag-2',
   });
 
-  // 등록에 성공했으니 표시는 풀렸다 — 앱 복귀·AT 갱신·같은 토큰 이벤트로는 다시 보내지 않는다.
+  // 새로 확인받은 기록이다 — 앱 복귀·AT 갱신·같은 토큰 이벤트로는 다시 보내지 않는다.
   t.foreground();
   t.refreshAccessToken();
   t.fcmRefresh(FCM_2);
@@ -1450,34 +1451,99 @@ test('확인받은 기록이 있어도 같은 계정의 새 세션이 bootstrap 
   t.stop();
 });
 
-test('연결이 끊긴 세대의 첫 PUT 이 일시적으로 실패하면 다음 트리거에 같은 소유권 없는 본문·같은 키로 다시 보낸다', async () => {
+test('재생된 로그인의 첫 PUT 이 일시적으로 실패하면 다음 트리거에 같은 소유권 없는 본문·같은 키로 다시 보낸다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
   t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
   t.publish(sessionOf(USER, 'rt-2'));
   await settle();
+  // 공개 순간 기록의 옛 소유권·확인을 지웠다(태그는 새 응답이 바꿀 때까지 둔다).
+  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM, deliveryTag: TAG });
   t.foreground();
   await settle();
 
   const [failed, retried] = t.registerDevice.mock.calls;
   expect(failed[0]).toStrictEqual({ deviceToken: FCM });
   expect(retried).toStrictEqual(failed);
-  // 기록에는 옛 소유권이 남아 있어도 싣지 않는다.
-  expect(t.stored()).toMatchObject({ ownershipToken: OWN });
+  // 재시도가 확인을 받으면 새 응답으로 덮는다.
+  expect(t.stored()).toStrictEqual(REGISTERED);
   t.stop();
 });
 
-test('부팅 복구(첫 세션)는 bootstrap 이 없어도 연결이 끊긴 것으로 보지 않는다 — 확인받은 기록이면 매 실행 다시 등록하지 않는다', async () => {
+test('재생된 로그인 직후 앱이 죽어도(첫 맞춤이 기록을 쓰기 전) 다시 시작하면 옛 소유권을 싣지 않는다 — 소유권 없이 보내 409 면 토큰을 바꿔 등록한다', async () => {
+  let t = setup({ stored: REGISTERED });
+  await settle();
+  t.publish(sessionOf(USER, 'rt-2'));
+  t.stop();
+  await settle();
+  // 맞춤은 아무것도 쓰기 전에 끝났다 — 이 기록은 공개 순간의 쓰기뿐이다.
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  const detected = t.stored()!;
+  expect(detected).toStrictEqual({ userId: USER, fcmToken: FCM, deliveryTag: TAG });
+
+  // 다시 시작 — 첫 세션 복구라 표시는 없고, 같은 토큰·소유권 없는 기록만 남았다. 서버 행은 아직 옛 세션에 묶여 409.
+  t = setup({ stored: detected });
+  t.fcm.getToken.mockResolvedValueOnce(FCM).mockResolvedValue(FCM_2);
+  t.registerDevice
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409))
+    .mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' });
+  await settle();
+
+  expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
+    { deviceToken: FCM },
+    { deviceToken: FCM_2 },
+  ]);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.stored()).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM_2,
+    registeredToken: FCM_2,
+    ownershipToken: 'own-2',
+    deliveryTag: 'tag-2',
+  });
+  t.stop();
+});
+
+test('알림이 꺼진 채 재생된 로그인이 오고 앱이 다시 시작돼도, 켜면 옛 소유권(CAS)이 아니라 소유권 없이 등록한다', async () => {
+  // 알림을 끈 기기 — 토큰만 지우고 소유권·태그·확인은 남았다. 꺼져 있어 맞춤은 아무것도 쓰지 않는다.
+  let t = setup({ stored: TOKEN_DELETED, enabled: false });
+  await settle();
+  t.publish(sessionOf(USER, 'rt-2'));
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  const detected = t.stored()!;
+  expect(detected).toStrictEqual({ userId: USER, deliveryTag: TAG });
+  t.stop();
+
+  // 다시 시작해 켠다 — 옛 소유권이 남았다면 CAS 로 옛 세션의 연결을 물려받는다.
+  t = setup({ stored: detected, enabled: false });
+  await settle();
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.switchOn.value = true;
+  t.push.refreshPush();
+  await settle();
+
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  expect(t.registerDevice).toHaveBeenLastCalledWith(
+    { deviceToken: FCM_2 },
+    expect.stringMatching(KEY),
+  );
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2));
+  t.stop();
+});
+
+test('부팅 복구(첫 세션)는 bootstrap 이 없어도 재생된 로그인이 아니다 — 확인받은 기록이면 매 실행 다시 등록하지 않는다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
 
   expect(t.fcm.getToken).toHaveBeenCalled();
   expect(t.registerDevice).not.toHaveBeenCalled();
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+  expect(t.stored()).toStrictEqual(REGISTERED);
   t.stop();
 });
 
-test('같은 세대의 AT 갱신은 연결이 끊긴 것으로 보지 않는다 — 갱신 뒤 다른 트리거가 와도 다시 등록하지 않는다', async () => {
+test('같은 세대의 AT 갱신은 재생된 로그인이 아니다 — 갱신 뒤 다른 트리거가 와도 다시 등록하지 않는다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
   t.refreshAccessToken();
@@ -1486,11 +1552,12 @@ test('같은 세대의 AT 갱신은 연결이 끊긴 것으로 보지 않는다 
 
   expect(t.registerDevice).not.toHaveBeenCalled();
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+  expect(t.stored()).toStrictEqual(REGISTERED);
   t.stop();
 });
 
-// bootstrap 을 든 같은 계정의 새 세션(s1→s2)은 위의 「같은 계정의 새 세션(s1→s2)…」 테스트도 고정한다.
-test('연결이 끊긴 표시는 그 세대에만 걸린다 — 등록이 끝나기 전에 bootstrap 을 든 다음 세션이 오면 소유권(CAS)과 bootstrap 으로 등록한다', async () => {
+// bootstrap 을 든 같은 계정의 새 세션(s1→s2)은 위의 「같은 계정의 새 세션(s1→s2)…」 테스트가 고정한다 — 소유권(CAS)과 bootstrap 을 싣는다.
+test('재생된 로그인 뒤 bootstrap 을 든 새 세션이 오면 소유권 없이 bootstrap 만으로 등록한다 — 서버는 새 자격(freshBootstrap)이면 소유권 없이 받는다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
   t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
@@ -1499,8 +1566,9 @@ test('연결이 끊긴 표시는 그 세대에만 걸린다 — 등록이 끝나
   t.publish(sessionOf(USER, 'rt-3'), 'boot-3');
   await settle();
 
+  expect(t.registerDevice).toHaveBeenCalledTimes(2);
   expect(t.registerDevice).toHaveBeenLastCalledWith(
-    { deviceToken: FCM, ownershipToken: OWN, deviceBootstrap: 'boot-3' },
+    { deviceToken: FCM, deviceBootstrap: 'boot-3' },
     expect.stringMatching(KEY),
   );
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
