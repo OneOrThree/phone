@@ -114,6 +114,9 @@ V10은 과거 kind·템플릿을 비활성화하고 대기 발송을 억제하�
 `imports`, `migration_snapshots`, `migration_state` 테이블은 삭제합니다.
 기기·설정·사용자 폐기 펜스·수신 이벤트·현재 발송 이력은 유지합니다.
 
+V12는 `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `MAIN_ISLAND_TRANSFERRED`, `ISLAND_KICKED`의 표시 문구(4종 × 4로케일)에서 닉네임과 섬 이름을 뺍니다.
+`counterpartNickname`·`islandName`은 계약 안정성 때문에 계속 받지만 표시 문구에는 쓰지 않습니다.
+
 관리자 서비스 자격과 `Idempotency-Key`로 다음 경로를 사용합니다.
 
 - `GET /internal/admin/dispatch`: 발송 게이트 상태
