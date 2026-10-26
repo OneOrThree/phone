@@ -387,13 +387,11 @@ class DispatchService {
             RenderedPush push = renderer.render(message.get("kind").toString(),
                     (String) message.get("locale"), Json.map(message.get("payload").toString()));
             // 수신 확인 태그는 «이 기기 등록»의 값이라 기기별 렌더 직후에 싣는다(GROMO-2520) — 크기 검사도 태그를
-            // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다. 태그는 ownership_version 과 같은 등록
-            // UPSERT 에서만 바뀌므로, 판정 뒤 재등록으로 태그가 바뀌면 stillOurs 의 세대 대조가 이 발송을 거른다.
+            // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다 — 관리자 dataTemplate 이 deliveryTag 를 넣어
+            // 뒀어도 렌더 결과에서 지워야 하므로 태그 유무와 무관하게 «모든 기기에» 부른다. 태그는 ownership_version 과
+            // 같은 등록 UPSERT 에서만 바뀌므로, 판정 뒤 재등록으로 태그가 바뀌면 stillOurs 의 세대 대조가 이 발송을 거른다.
             // 관리자 템플릿 저장·미리보기는 AdminCatalog.renderDraft 가 같은 길이의 자리표시를 더해 미리 잰다.
-            String tag = (String) token.get("delivery_tag");
-            if (tag != null) {
-                push = push.withDeliveryTag(tag);
-            }
+            push = push.withDeliveryTag((String) token.get("delivery_tag"));
             try {
                 FcmPayload.requireFits(push, sound, collapseEventId(ready));
             } catch (NotificationFailure invalid) {
@@ -417,9 +415,14 @@ class DispatchService {
         if (attempts.isEmpty() && oversized != null) {
             // 시도할 기기가 하나도 없다. 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다 — 재시도 없이 끝낸다.
             // 모든 기기가 이미 받아 시도가 없는 경우(oversized == null)는 여기에 오지 않고 settle 이 발송으로 맺는다.
+            // 한 대라도 이미 받은 행(settle 과 같은 delivery_devices 기준)은 실패가 아니라 발송이다 — 초과는 남은 기기의 사정.
             for (UUID delivery : deliveries) {
-                store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
-                        + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", oversized.getMessage(), delivery);
+                if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) != null) {
+                    markSent(delivery);
+                } else {
+                    store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
+                            + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", oversized.getMessage(), delivery);
+                }
             }
             return null;
         }

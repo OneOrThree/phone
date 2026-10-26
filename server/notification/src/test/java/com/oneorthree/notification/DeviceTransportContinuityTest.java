@@ -573,6 +573,71 @@ class DeviceTransportContinuityTest {
     }
 
     /**
+     * 이미 받은 기기가 있는 배송은 남은 기기가 한도를 넘어도 FAILED 가 아니다(GROMO-2520). V13 전에 A 는 받고 B 는 일시 실패로
+     * 재시도 중인데 B 가 재등록해 태그를 얻으면, 같은 문구가 B 에게만 한도를 넘는다. 시도할 기기는 없지만 알림은 A 에 갔으므로
+     * 호출 없이 발송으로 맺는다 — 받은 기기가 하나도 없을 때만 FAILED 다(바로 위 테스트).
+     */
+    @Test
+    void aDeliveryThatADeviceAlreadyReceivedEndsSentWhenTheRetryingDeviceIsLaterPushedOverTheLimit() {
+        register("fcm-a", "boot-a", 1, "reg-a");
+        Map<String, Object> registeredB = devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 두 행 — 이 모양으로 앞 라운드가 돈다.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token IN ('fcm-a','fcm-b')");
+        sizeTheBodyToTheTagBoundary("late-tag", (String) registeredB.get("deliveryTag"));
+        when(transport.send(eq("fcm-b"), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.RETRY);
+
+        UUID id = enqueue("late-tag");
+        dispatch.dispatch(id);
+
+        // 앞 라운드: A 는 받았고 B 는 재시도 중이다.
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-a")));
+
+        // B 가 재등록해 태그를 얻는다 — 같은 문구가 이제 B 에게만 한도를 넘는다.
+        devices.register(USER, body("fcm-b", null, 1L, 0L, registeredB.get("ownershipToken").toString()), "re-reg-b");
+        assertThat(store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='fcm-b'").get("delivery_tag"))
+                .isNotNull();
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+
+        // 뒤 라운드: 호출은 앞 라운드의 A·B 한 번씩뿐이고, 배송은 FAILED 가 아니라 SENT 다.
+        verify(transport, times(1)).send(eq("fcm-a"), any(), anyBoolean(), anyString());
+        verify(transport, times(1)).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SENT").containsEntry("last_error", null);
+    }
+
+    /**
+     * 관리자 {@code dataTemplate} 이 예약 키 {@code deliveryTag} 를 넣어 둬도 그 값은 어느 기기에도 태그로 나가지 않는다
+     * (GROMO-2520). 저장 API 는 키 이름을 막지 않는다 — 태그 있는 기기에는 그 기기 등록의 값이, 태그 없는 행(V13 전 등록)에는
+     * 키가 아예 없어야 한다. 앱에 준 적 없는 값이 태그로 가면 앱이 정상 푸시를 버리거나 낡은 푸시를 받아들인다.
+     */
+    @Test
+    void aDeliveryTagKeyInTheDeeplinkTemplateNeverReachesADeviceAsAnythingButItsOwnTag() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        store.update("INSERT INTO deeplinks(id,url_template,data_template)"
+                + " VALUES('FRIEND_ACCEPTED',NULL,'{\"deliveryTag\":\"from-admin\"}'::jsonb)");
+        Map<String, Map<String, String>> sent = new LinkedHashMap<>();
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            sent.put(call.getArgument(0), call.<RenderedPush>getArgument(1).data());
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(enqueue("reserved-key"));
+
+        assertThat(sent).containsOnlyKeys("fcm-tagged", "fcm-untagged");
+        assertThat(sent.get("fcm-tagged")).containsEntry("deliveryTag", tag);
+        assertThat(sent.get("fcm-untagged")).doesNotContainKey("deliveryTag");
+    }
+
+    /**
      * 템플릿 본문을 «태그 없이는 한도에 들어가고 태그를 더하면 넘는» 길이로 맞춘다. 숫자를 박지 않고
      * {@link FcmPayload#requireFits} 가 실제로 세는 값으로 경계를 찾는다 — 한도나 봉투가 바뀌어도 같은 경계를 겨눈다.
      * 소리 켜짐은 설정 행이 없을 때의 기본값이라 실제 발송과 같고, 본문은 ASCII 라 한 글자가 정확히 1바이트다.
