@@ -629,7 +629,7 @@ test('알림 행 — 옛 읽기(거부)가 시스템 설정에 있는 동안 끝
   expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
 });
 
-test('알림 행 — 돌아온 읽기가 시작된 뒤 옛 읽기(거부)가 먼저 끝나도 무시하고, 이어 끝난 허용이 앱 설정을 켠다', async () => {
+test('알림 행 — 돌아온 읽기가 시작된 뒤 옛 읽기(거부)가 먼저 끝나도 「나감」 표시를 소비하지 못해, 이어 끝난 허용이 앱 설정을 켠다', async () => {
   const { e, view, returnToApp, oldRead, returnRead } = await readRace();
 
   await returnToApp();

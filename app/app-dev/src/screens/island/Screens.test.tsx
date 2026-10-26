@@ -3412,35 +3412,59 @@ describe('설정 「알림」 토글', () => {
     expect(toggle().props.accessibilityState.checked).toBe(true);
   });
 
-  test('설정 「알림」 — 눌러 다시 읽기를 시작한 뒤에는 그 앞에 시작한 옛 읽기가 먼저 끝나도 토글을 정하지 못한다', async () => {
+  test('설정 「알림」 — 눌러 다시 읽는 동안 그 앞에 시작한 옛 읽기(허용)가 먼저 끝나도 토글을 정하지 못하고, 눌림의 읽기(거부)를 따른다', async () => {
     const mountRead = deferred<string>();
     const pressRead = deferred<string>();
     mockPushPermissionStatus
       .mockImplementationOnce(() => mountRead.promise)
       .mockImplementationOnce(() => pressRead.promise);
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    let exposed: any;
+    // 앱 설정은 켜짐(기본값)이다 — 토글이 켜진 것으로 보이는지는 시스템 권한 읽기 결과가 정한다.
     const ui = await render(
-      <Harness
-        route="settings"
-        full
-        seed={(d: any) => d({ type: 'SETTING', key: 'notifications', value: false })}
-      />,
+      <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
     );
     await flush();
     const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
 
-    // 앱 설정을 켜고 다시 읽는다(걸림) — fireEvent.press 는 핸들러가 끝나야 끝나니 await 하지 않는다.
+    // 눌러서 다시 읽는다(걸림) — fireEvent.press 는 핸들러가 끝나야 끝나니 await 하지 않는다.
     const pressing = fireEvent.press(toggle());
     await new Promise((done) => setTimeout(done, 0));
-    // 눌림 앞에 시작한 마운트 읽기가 먼저 끝난다(허용) — 눌림의 읽기가 더 새 것이라 토글을 정하지 못한다.
+    // 눌림 앞에 시작한 옛 읽기(허용)가 먼저 끝난다 — 적용되면 토글이 켜진 것으로 보인다. 눌림의 읽기가 더 새 것이라 정하지 못한다.
     await act(async () => mountRead.resolve('granted'));
     await flush();
     expect(toggle().props.accessibilityState.checked).toBe(false);
 
     await act(async () => {
-      pressRead.resolve('granted');
+      pressRead.resolve('denied');
       await new Promise((done) => setTimeout(done, 0));
     });
     await pressing;
+    // 눌림의 읽기(거부)를 따른다 — 시스템 설정을 연다. 앱 설정은 이미 켜져 있어 다시 쓰지 않는다.
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(exposed.actions).not.toContain('SETTING');
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+  });
+
+  test('설정 「알림」 — 눌러 다시 읽어 허용된 뒤 그 앞에 시작한 옛 읽기(거부)가 늦게 끝나도 토글을 덮지 못한다', async () => {
+    const mountRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockImplementationOnce(() => mountRead.promise)
+      .mockResolvedValue('granted');
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+
+    // 눌러서 다시 읽으면 허용이다 — 팝업·시스템 설정 없이 켜진 것으로 보인다.
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).not.toHaveBeenCalled();
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+
+    // 눌림 앞에 시작한 옛 읽기(거부)가 이제야 끝난다 — 눌림의 읽기가 더 새 것이라 덮지 못한다.
+    await act(async () => mountRead.resolve('denied'));
+    await flush();
     expect(toggle().props.accessibilityState.checked).toBe(true);
   });
 

@@ -3282,6 +3282,7 @@ test.each(['error', 'unavailable'] as const)(
 
 test('권한을 읽는 사이 홈을 떠나면(조건이 사라지면) 팝업을 막고 undetermined 로 끝나, 홈으로 돌아오면 한 번 묻는다', async () => {
   // 상태 읽기를 붙잡아 둔다 — 실제 구현은 읽은 직후·팝업 직전에 shouldAsk 를 보고, false 면 묻지 않고 undetermined 를 돌려준다.
+  // 이 목은 push.ts 의 계약을 흉내 낸다 — 그 계약은 push.test.ts 「묻기 직전 shouldAsk 가 false 면…」 이 실제 구현으로 고정한다.
   let release!: () => void;
   const gate = new Promise<void>((done) => {
     release = done;

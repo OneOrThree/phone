@@ -1066,6 +1066,7 @@ test('브리지 없는 바이너리(Android·브리지 없는 iOS)에서는 권�
 
     await expect(t.push.pushPermissionStatus()).resolves.toBe('unavailable');
     await expect(t.push.requestPushPermission()).resolves.toBe('unavailable');
+    await settle();
     expect(t.loadNotifications).not.toHaveBeenCalled();
     t.stop();
   }
