@@ -18,7 +18,7 @@ type Permission = 'granted' | 'denied' | 'provisional';
 
 /** 등록을 마친 기기 — 같은 계정·같은 토큰이면 다시 등록하지 않는다. 등록 응답 기본값도 이 소유권·태그다. */
 const REGISTERED: Device = { userId: USER, fcmToken: FCM, ownershipToken: OWN, deliveryTag: TAG };
-/** 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 기록을 건드리지 않는다. */
+/** 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 같은 계정의 기록을 건드리지 않는다. */
 const RECEIVING: Device = { userId: USER, ownershipToken: OWN, deliveryTag: TAG };
 
 const sessionOf = (userId = USER, refreshToken = `rt-${userId}`): FakeSession => ({
@@ -284,6 +284,31 @@ test('A→B 는 표시 알림을 지우고 FCM 토큰을 바꾼 뒤에 소유권
   t.stop();
 });
 
+test('A→B 는 알림이 꺼져 있어도 먼저 한다 — A 의 표시 알림·토큰을 지우고 기록을 비우되 getToken·등록은 하지 않고, 켜면 B 로 등록한다', async () => {
+  // A 의 등록 기록이 남은 기기(로그아웃 뒤)에 알림이 꺼진 채 B 가 로그인한다.
+  const t = setup({ stored: REGISTERED, current: null, enabled: false });
+  await settle();
+  t.publish(sessionOf(OTHER), 'boot-b');
+  await settle();
+  expect(t.notifications.dismissAllNotificationsAsync).toHaveBeenCalledTimes(1);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.fcm.getToken).not.toHaveBeenCalled();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  expect(t.stored()).toStrictEqual({});
+
+  // 같은 세션에서 켜면 그 세션의 bootstrap 으로, 소유권 없이 B 를 등록한다.
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.switchOn.value = true;
+  t.push.refreshPush();
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledWith(
+    { deviceToken: FCM_2, deviceBootstrap: 'boot-b' },
+    expect.stringMatching(KEY),
+  );
+  expect(t.stored()).toStrictEqual({ ...REGISTERED, userId: OTHER, fcmToken: FCM_2 });
+  t.stop();
+});
+
 test('같은 계정·같은 토큰·소유권이 있으면 매 실행·앱 복귀·같은 토큰 이벤트에 다시 등록하지 않는다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
@@ -540,7 +565,7 @@ test.each<[string, { stored?: Device; current?: null; enabled?: boolean }, Notif
   ['세션 없음', { current: null }, notice({ deliveryTag: TAG }), false],
   ['알림 꺼짐', { enabled: false }, notice({ deliveryTag: TAG }), false],
   [
-    '다른 계정의 등록',
+    '다른 계정의 등록(알림이 꺼져도 A→B 교체로 비운 뒤)',
     { stored: { ...RECEIVING, userId: OTHER } },
     notice({ deliveryTag: TAG }),
     false,
@@ -567,7 +592,7 @@ test.each<[string, { stored?: Device; current?: null; enabled?: boolean }, Notif
     false,
   ],
 ])('수신 판정 — %s', async (_case, options, notification, expected) => {
-  // 권한 거부·FCM 토큰 없음 — 동기화가 기록을 건드리지 않아 판정만 본다.
+  // 권한 거부·FCM 토큰 없음 — 동기화가 토큰을 받지도 등록하지도 않아 판정만 본다(다른 계정 기록은 교체로 비운다).
   const t = setup({ stored: RECEIVING, permission: 'denied', ...options });
   await settle();
 

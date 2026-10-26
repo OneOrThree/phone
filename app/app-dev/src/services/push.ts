@@ -149,6 +149,18 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     const live = () =>
       !stopped && generation === sessionGeneration() && haltedGeneration !== generation;
     if (disabled || !session || !live()) return;
+    if (device.userId && device.userId !== session.userId) {
+      // 계정 전환(A→B) — 알림 설정·권한과 상관없이 먼저 한다: 이전 계정의 표시 알림을 지우고 FCM 토큰을 바꾼다. 못
+      // 바꾸면(던짐) 등록하지 않고 다음 트리거에 다시 한다 — A 의 토큰을 B 로 올리면 A 앞으로 남은 발송이 B 에게 뜬다.
+      // 이 사이 앱이 죽어 자동 초기화가 꺼진 채 남아도 다음 시작의 getToken 이 되돌린다. 기록에 토큰이 없으면 우리 코드가
+      // 이미 지웠다(알림 끄기·앞선 교체) — 빈 저장소의 deleteToken 은 거절될 수 있어 부르지 않는다(그러면 B 를 영영
+      // 등록하지 못한다).
+      await N.dismissAllNotificationsAsync().catch(() => {});
+      if (device.fcmToken) await fcm.deleteToken();
+      device = {};
+      persist();
+      if (!live()) return;
+    }
     if (!isEnabled() || !granted(await N.getPermissionsAsync())) {
       // 알림 끄기(설정 OFF·권한 거부) — DELETE 가 아니라 FCM 토큰만 폐기한다. 서버는 다음 발송에서 UNREGISTERED 로
       // transport_invalid 만 세우고 소유권을 남기므로, 다시 켜면 새 토큰을 그 소유권(CAS)으로 올린다. 꺼진 동안에는
@@ -161,17 +173,6 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       return;
     }
     if (!live()) return;
-    if (device.userId && device.userId !== session.userId) {
-      // 계정 전환(A→B) — 이전 계정의 표시 알림을 지우고 FCM 토큰을 바꾼 뒤에만 등록한다. 못 바꾸면(던짐) 등록하지 않고
-      // 다음 트리거에 다시 한다 — A 의 토큰을 B 로 올리면 A 앞으로 남은 발송이 B 에게 뜬다. 이 사이 앱이 죽어 자동
-      // 초기화가 꺼진 채 남아도 다음 시작의 getToken 이 되돌린다. 기록에 토큰이 없으면 우리 코드가 이미 지웠다(알림
-      // 끄기·앞선 교체) — 빈 저장소의 deleteToken 은 거절될 수 있어 부르지 않는다(그러면 B 를 영영 등록하지 못한다).
-      await N.dismissAllNotificationsAsync().catch(() => {});
-      if (device.fcmToken) await fcm.deleteToken();
-      device = {};
-      persist();
-      if (!live()) return;
-    }
     // 이 실행의 APNs 토큰은 처음 한 번 묻고, 바뀌면 토큰 리스너가 알려 준다.
     apnsHex ??= (await N.getDevicePushTokenAsync()).data;
     const hex = apnsHex;
@@ -332,7 +333,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   };
 }
 
-/** 설정 「알림」 토글 뒤에 부른다(GROMO-2526). 동기화가 돌고 있지 않으면 아무 일도 하지 않는다. */
+/** 설정 「알림」이 바뀐 뒤 부른다(App 의 설정 effect). 동기화가 돌고 있지 않으면 아무 일도 하지 않는다. */
 export function refreshPush(): void {
   wake?.();
 }

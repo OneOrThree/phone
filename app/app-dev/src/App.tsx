@@ -156,7 +156,7 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
-import { startPushSync, unregisterPushDevice } from '@/services/push';
+import { refreshPush, startPushSync, unregisterPushDevice } from '@/services/push';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -1514,6 +1514,11 @@ function Gromo() {
       unsubscribe();
     };
   }, [loaded]);
+  // 설정 「알림」이 바뀌면 바로 맞춘다 — 끄면 FCM 토큰을 지워야 OS 가 띄우는 백그라운드 푸시도 멈춘다. 렌더 뒤
+  // effect 라 동기화가 읽는 stateRef 는 이미 새 값이고, 동기화가 돌기 전(첫 렌더·부팅 LOAD)에는 아무 일도 하지 않는다.
+  useEffect(() => {
+    refreshPush();
+  }, [state.settings.notifications]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);

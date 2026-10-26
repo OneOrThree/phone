@@ -32,9 +32,12 @@ const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
 jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
 }));
+const mockStartPushSync = jest.fn(() => () => {});
+const mockRefreshPush = jest.fn();
 const mockUnregisterPushDevice = jest.fn();
 jest.mock('@/services/push', () => ({
-  startPushSync: () => () => {},
+  startPushSync: () => mockStartPushSync(),
+  refreshPush: () => mockRefreshPush(),
   unregisterPushDevice: () => mockUnregisterPushDevice(),
 }));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
@@ -1549,6 +1552,24 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   assert.ok(
     mockUnregisterPushDevice.mock.invocationCallOrder[0] < mockLogout.mock.invocationCallOrder[0],
   );
+});
+
+test('설정 「알림」을 바꾸면 푸시 동기화를 깨우고, 다른 설정은 깨우지 않는다', async () => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  // 부팅이 끝나 동기화가 시작된 뒤에 바꾼다.
+  await waitFor(() => assert.equal(mockStartPushSync.mock.calls.length, 1));
+  const before = mockRefreshPush.mock.calls.length;
+
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: false }));
+  assert.equal(mockRefreshPush.mock.calls.length, before + 1);
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'sound', value: false }));
+  assert.equal(mockRefreshPush.mock.calls.length, before + 1);
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: true }));
+  assert.equal(mockRefreshPush.mock.calls.length, before + 2);
 });
 
 test.each([
