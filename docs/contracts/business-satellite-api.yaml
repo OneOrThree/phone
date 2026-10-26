@@ -772,6 +772,13 @@ paths:
                     format: uuid
                     pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                     description: 다음 등록·삭제 입력과 같은 정규 UUID. 대소문자는 보존한다.
+                  deliveryTag:
+                    type: string
+                    description: |
+                      이 등록의 수신 확인 태그(불투명 값, GROMO-2520). 등록마다 새 값이고 같은 `Idempotency-Key` 의
+                      재생은 같은 값이다. 이 기기로 가는 모든 푸시 data 에 `deliveryTag` 로 실린다.
+                      **필수가 아니다** — 알림 서버 V13 전에 저장된 등록 응답의 재생에는 없고, 그 재생은 탈퇴
+                      전까지 계속될 수 있다. 없다고 거절하지 마라(Business 는 키를 생략한 200 으로 넘긴다).
         '409':
           description: |
             오래된 명령이라 거부했다(세대·소유권·세션 tombstone). **`code` 를 실어라.**

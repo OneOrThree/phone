@@ -214,6 +214,11 @@ class DeviceService {
                     user, legacySession, token);
         }
         UUID next = UUID.randomUUID();
+        // 수신 확인 태그 — 등록마다 새로 발급해 응답과 이 기기로 가는 모든 푸시 data 에 싣는다(GROMO-2520).
+        // 소유권(next)을 재사용하지 않는다: 소유권은 CAS 자격이라 payload 로 내보내면 안 된다. 태그는 아래
+        // UPSERT 에서만, ownership_version 과 함께 바꾼다 — 그래야 발송 펜스(DispatchService.stillOurs)의
+        // 세대 대조가 낡은 태그로 나가는 발송까지 거른다.
+        String tag = UUID.randomUUID().toString();
         UUID deviceKey = deviceIdentity(user, previous, cas ? knownOwner : null, legacySessionWindow ? legacyLinked
                 : List.of());
         if (cas && !token.equals(knownOwner.get("device_token"))) {
@@ -224,16 +229,17 @@ class DeviceService {
         // transport_invalid 는 여기서 반드시 내린다 — 새 토큰(또는 다시 올라온 같은 토큰)은 «아직
         // 거절당한 적 없는» 전송 자격이다. 남겨 두면 등록은 성공했는데 발송 대상에서는 빠진다.
         store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,device_key,auth_generation,"
-                + "bootstrap_hash,session_epoch,legacy_session_id) VALUES(?,?,?,?,?,?,?,?)"
+                + "bootstrap_hash,session_epoch,legacy_session_id,delivery_tag) VALUES(?,?,?,?,?,?,?,?,?)"
                 + " ON CONFLICT(device_token) DO UPDATE SET "
                 + "user_id=EXCLUDED.user_id,ownership_token=EXCLUDED.ownership_token,"
                 + "device_key=EXCLUDED.device_key,"
                 + "ownership_version=device_tokens.ownership_version+1,auth_generation=EXCLUDED.auth_generation,"
                 + "bootstrap_hash=EXCLUDED.bootstrap_hash,session_epoch=EXCLUDED.session_epoch,"
-                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,transport_invalid=false,"
-                + "updated_at=now()",
-                token, user, next, deviceKey, generation, hash, epoch, legacySession);
-        return Map.of("ownershipToken", next.toString());
+                + "legacy_session_id=EXCLUDED.legacy_session_id,delivery_tag=EXCLUDED.delivery_tag,"
+                + "active=true,transport_invalid=false,updated_at=now()",
+                token, user, next, deviceKey, generation, hash, epoch, legacySession, tag);
+        // 재생은 Store.command 가 저장한 이 응답을 그대로 돌려주므로 같은 키의 재시도는 같은 태그를 받는다.
+        return Map.of("ownershipToken", next.toString(), "deliveryTag", tag);
     }
 
     /**

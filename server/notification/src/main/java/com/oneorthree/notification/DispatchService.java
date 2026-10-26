@@ -350,7 +350,7 @@ class DispatchService {
         // 두 축을 모두 본다: active 는 «소유권이 살아 있는가»(로그아웃·삭제·탈퇴·세션 폐기),
         // transport_invalid 는 «FCM 이 이 토큰을 아직 받는가». 전자만 보면 UNREGISTERED 토큰에
         // 계속 때리고, 후자를 active 에 적으면 정상 세션의 토큰 교체가 막힌다.
-        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version"
+        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version,delivery_tag"
                 + " FROM device_tokens WHERE user_id=? AND active AND NOT transport_invalid"
                 + " ORDER BY device_token", user);
         List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
@@ -384,6 +384,15 @@ class DispatchService {
             Map<String, Object> message = unsent.get(0);
             RenderedPush push = renderer.render(message.get("kind").toString(),
                     (String) message.get("locale"), Json.map(message.get("payload").toString()));
+            // 수신 확인 태그는 «이 기기 등록»의 값이라 기기별 렌더 직후에 싣는다(GROMO-2520) — 크기 검사도 태그를
+            // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다. 태그는 ownership_version 과 같은 등록
+            // UPSERT 에서만 바뀌므로, 판정 뒤 재등록으로 태그가 바뀌면 stillOurs 의 세대 대조가 이 발송을 거른다.
+            String tag = (String) token.get("delivery_tag");
+            if (tag != null) {
+                Map<String, String> data = new LinkedHashMap<>(push.data());
+                data.put("deliveryTag", tag);
+                push = new RenderedPush(push.title(), push.body(), data, push.silent());
+            }
             try {
                 FcmPayload.requireFits(push, sound, collapseEventId(ready));
             } catch (NotificationFailure invalid) {

@@ -46,7 +46,8 @@ class InboundEnvelopeV11MigrationTest {
         String activeBefore = jdbc.queryForObject("SELECT envelope::text FROM inbound_events WHERE event_id='active'",
                 String.class);
 
-        migrate(MigrationVersion.LATEST);
+        // V11 에서 멈춘다. LATEST 로 올리면 뒤 마이그레이션이 더한 열(V13 delivery_tag)이 아래 SELECT * 비교를 깬다.
+        migrate(MigrationVersion.fromVersion("11"));
 
         assertThat(jdbc.queryForMap("SELECT user_id,envelope IS NULL AS purged FROM inbound_events"
                 + " WHERE event_id='withdrawn'")).containsEntry("user_id", WITHDRAWN).containsEntry("purged", true);

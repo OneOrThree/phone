@@ -497,6 +497,35 @@ class DeviceTransportContinuityTest {
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
     }
 
+    /**
+     * 수신 확인 태그는 «그 기기 등록»의 값이다(GROMO-2520). 같은 사용자의 두 기기는 각자 자기 등록 응답의 태그를
+     * 받는다 — 섞이면 앱이 자기 기기로 온 정상 푸시를 버린다. 태그 없는 행(V13 전 등록)으로 가는 푸시에는 키가
+     * 없다 — 앱에 준 적 없는 값을 지어 싣지 않는다.
+     */
+    @Test
+    void eachDeviceGetsItsOwnDeliveryTagAndAnUntaggedRowGetsNoKey() {
+        String tagA = (String) devices.register(USER, body("fcm-a", "boot-a", 1L, 0L, null), "reg-a")
+                .get("deliveryTag");
+        String tagB = (String) devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        Map<String, Map<String, String>> sent = new LinkedHashMap<>();
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            sent.put(call.getArgument(0), call.<RenderedPush>getArgument(1).data());
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(enqueue("tagged"));
+
+        assertThat(tagA).isNotNull().isNotEqualTo(tagB);
+        assertThat(sent).containsOnlyKeys("fcm-a", "fcm-b", "fcm-untagged");
+        assertThat(sent.get("fcm-a")).containsEntry("deliveryTag", tagA);
+        assertThat(sent.get("fcm-b")).containsEntry("deliveryTag", tagB);
+        assertThat(sent.get("fcm-untagged")).doesNotContainKey("deliveryTag");
+    }
+
     private UUID deviceKey(String token) {
         return (UUID) store.one("SELECT device_key FROM device_tokens WHERE device_token=?", token).get("device_key");
     }

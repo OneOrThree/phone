@@ -410,7 +410,7 @@ tombstone 을 우회**한다(A22 ㊍).
 
 | Method · Path | 조합 | 성공 |
 | --- | --- | --- |
-| `PUT /api/v1/users/me/device-token` | 활성검사 → (bootstrap 시) Data 세션확인 → Noti 등록 | 200 `{ownershipToken}` |
+| `PUT /api/v1/users/me/device-token` | 활성검사 → (bootstrap 시) Data 세션확인 → Noti 등록 | 200 `{ownershipToken, deliveryTag?}` |
 | `DELETE /api/v1/users/me/device-token` | Data outbox **먼저** → Noti 직접삭제 → 완료표시 | 204 |
 | `PUT /api/v1/users/me/notification-settings` | 활성검사 → Data 내구명령 → Noti 적용(version) | 204 |
 | `GET /api/v1/users/me/notification-settings` | Noti **정본** 조회 | 200 5필드 |
