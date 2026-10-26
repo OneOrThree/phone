@@ -42,8 +42,9 @@ on:
 
 # 같은 PR 에 연속 푸시가 나면 앞 실행을 버린다 — 앞 실행은 어차피 다음 푸시에 무의미하다.
 concurrency:
-  group: android-checks-${{ github.ref }}
-  cancel-in-progress: true
+  # main 필수 검사는 게시 게이트가 해당 SHA를 기다리므로 후속 push가 취소하면 안 된다.
+  group: android-checks-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:

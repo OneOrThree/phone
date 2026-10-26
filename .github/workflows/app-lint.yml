@@ -49,7 +49,8 @@ on:
 # 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
 # (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.
 concurrency:
-  group: app-lint-${{ github.ref }}
+  # main 필수 검사는 게시 게이트가 해당 SHA를 기다리므로 후속 push가 취소하면 안 된다.
+  group: app-lint-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   # PR 의 이전 실행은 취소하되, 통합 브랜치 push 는 중간에 끊지 않는다(data-api-ci·realtime-ci 와 같은 규율).
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

@@ -27,6 +27,16 @@ class GateTests(unittest.TestCase):
                 'head_branch': 'main', 'event': 'push', 'status': 'completed', 'conclusion': 'success'}
         self.assertEqual(gate.checks_verdict({'app-lint.yml'}, [base, {**base, 'run_attempt': 2, 'status': 'in_progress'}], SHA)[0], 'waiting')
 
+    def test_main_required_checks_are_never_replaced_by_later_validation(self):
+        import yaml
+        root = Path(__file__).parents[1] / 'workflows'
+        for name in ('app-lint.yml', 'app-android-build.yml'):
+            definition = yaml.load((root / name).read_text(), Loader=yaml.BaseLoader)
+            queue = definition['concurrency']
+            # main B의 필수 검사가 대기 중이어도 C의 검증이 같은 그룹에 들어가지 않는다.
+            self.assertIn("github.event_name == 'pull_request' && github.ref || github.run_id", queue['group'])
+            self.assertEqual(queue['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}")
+
     def test_android_ci_helper_changes_schedule_required_lint(self):
         import yaml
         root = Path(__file__).parents[1] / 'workflows'
