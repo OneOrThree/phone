@@ -16,7 +16,7 @@ on:
 
 concurrency:
   # CI 수동 검증의 완료 이벤트는 자동 게시 대기를 대체하지 않는다.
-  group: ${{ (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push') && 'android-play-internal' || format('android-play-validation-{0}', github.run_id) }}
+  group: ${{ ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.id == github.event.repository.id)) && 'android-play-internal' || format('android-play-validation-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:

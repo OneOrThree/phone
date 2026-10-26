@@ -71,6 +71,13 @@ class WorkflowRefactorTests(unittest.TestCase):
             self.assertTrue(any('--record' in step.get('run', '') for step in steps))
             self.assertTrue(any(step.get('with', {}).get('name') == 'app-publication' for step in steps))
 
+    def test_failed_ci_completion_cannot_replace_pending_play_publication(self):
+        group = workflow('app-android-cd')['concurrency']['group']
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", group)
+        self.assertIn('github.event.workflow_run.head_repository.id == github.event.repository.id', group)
+        self.assertIn("github.ref == 'refs/heads/main'", group)
+        self.assertIn('android-play-validation-', group)
+
     def test_ios_has_no_pr_event_and_auto_upload_requires_quality(self):
         ios = workflow('app-ios-testflight-dev')
         self.assertNotIn('pull_request', ios['on'])
