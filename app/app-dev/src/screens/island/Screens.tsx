@@ -4771,11 +4771,15 @@ export function RedesignScreens({ e }: any) {
 function NotificationToggle({ e }: any) {
   // null = 아직 안 읽음
   const [permission, setPermission] = useState<PushPermission | null>(null);
+  // 권한 읽기·요청마다 번호를 매긴다(시작할 때 올린다) — 더 새 것이 시작된 뒤 늦게 끝난 옛 결과가 표시를 덮지 못하게, 가장 새 것의
+  // 결과만 표시를 정한다.
+  const readSeq = useRef(0);
   useEffect(() => {
     let active = true;
     const read = () => {
+      const seq = ++readSeq.current;
       void pushPermissionStatus().then((next) => {
-        if (active) setPermission(next);
+        if (active && seq === readSeq.current) setPermission(next);
       });
     };
     read();
@@ -4793,11 +4797,15 @@ function NotificationToggle({ e }: any) {
       e.dispatch({ type: 'SETTING', key: 'notifications', value });
     if (!value) return;
     // 켤 때 시스템 권한도 맞춘다 — 아직 안 물음이면 시스템 팝업, 거부면 시스템 설정(앱에서는 다시 켤 수 없다).
+    const readStart = ++readSeq.current;
     const current = await pushPermissionStatus();
     // 다시 읽은 값을 바로 보인다 — 읽지 못했던('error') 권한이 읽히는 경우.
-    setPermission(current);
-    if (current === 'undetermined') setPermission(await requestPushPermission());
-    else if (current === 'denied')
+    if (readStart === readSeq.current) setPermission(current);
+    if (current === 'undetermined') {
+      const requestStart = ++readSeq.current;
+      const answered = await requestPushPermission();
+      if (requestStart === readSeq.current) setPermission(answered);
+    } else if (current === 'denied')
       await Linking.openSettings().catch(() =>
         e.notify(t('settings.permissions.errors.settingsOpen')),
       );

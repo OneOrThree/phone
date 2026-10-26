@@ -959,6 +959,8 @@ function AppPermissionManager({ e }: any) {
       void pushPermissionStatus().then((next) => {
         if (!active) return;
         if (readSeq === pushReadSeq.current) setPushPermission(next);
+        // 확인하지 못한 읽기('error')·브리지 없음은 결과가 아니다 — 「나감」 표시를 소비하지 않고 다음 읽기에 넘긴다.
+        if (next === 'error' || next === 'unavailable') return;
         if (!pushSettingsOpened.current || readSeq <= pushOpenedAtSeq.current) return;
         pushSettingsOpened.current = false;
         if (next === 'granted') enablePushSetting();

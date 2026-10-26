@@ -670,3 +670,26 @@ test('알림 행 — 읽지 못한(error) 권한을 눌러 다시 읽는 사이 
   expect(view.getByText('허용됨')).toBeTruthy();
   expect(view.queryByText('꺼짐')).toBeNull();
 });
+
+test('알림 행 — 돌아와 읽은 결과가 error 면 「나감」 표시를 소비하지 않고, 다음 읽기의 허용이 앱 설정을 한 번 켠다', async () => {
+  const returnToApp = captureAppActive();
+  mockPushPermissionStatus
+    .mockResolvedValueOnce('denied')
+    .mockResolvedValueOnce('error')
+    .mockResolvedValue('granted');
+  const e = environmentNotificationsOff();
+  const view = await render(<CurrentScreens e={e} />);
+  await view.findByText('꺼짐');
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
+
+  // 시스템 설정에서 돌아와 읽었는데 못 읽었다 — 확인된 결과가 아니라 표시를 남긴다.
+  await returnToApp();
+  await view.findByText('확인하지 못했어요');
+  expect(notificationSettingDispatches(e)).toEqual([]);
+
+  // 다음 앱 활성 읽기가 허용이면 그때 앱 설정을 켠다.
+  await returnToApp();
+  await view.findByText('허용됨');
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+});
