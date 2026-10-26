@@ -22,6 +22,31 @@ class WorkflowRefactorTests(unittest.TestCase):
         self.assertEqual(workflow('satellite-ci.prod')['jobs']['checks']['with']['build-services'], 'false')
         self.assertNotIn('images', workflow('satellite-ci.prod')['jobs'])
 
+    def test_main_pr_builds_each_service_once_and_release_keeps_prod_checks(self):
+        prod = workflow('prod-ci')
+        for name in ('checks', 'images'):
+            self.assertIn("github.base_ref == 'release'", prod['jobs'][name]['if'])
+            self.assertIn("github.event_name != 'pull_request'", prod['jobs'][name]['if'])
+        for filename, job, producer in [('data-api-ci.dev', 'build', 'test'),
+                                          ('realtime-ci.dev', 'docker-build', 'build'),
+                                          ('satellite-ci.dev', 'images', 'checks')]:
+            definition = workflow(filename)
+            self.assertIn('.github/workflows/prod-ci.yml', definition['on']['pull_request']['paths'])
+            self.assertIn('.github/actions/check-arm-image/**', definition['on']['pull_request']['paths'])
+            image = definition['jobs'][job]
+            self.assertIn(producer, image['needs'])
+            steps = image['steps']
+            verify = next(i for i, step in enumerate(steps) if step.get('uses') == './.github/actions/ci-jar')
+            arm = next(i for i, step in enumerate(steps) if step.get('uses') == './.github/actions/check-arm-image')
+            self.assertLess(verify, arm)
+            self.assertIn("github.event_name == 'pull_request'", steps[arm]['if'])
+            self.assertNotIn('gradlew', steps[arm].get('run', ''))
+        arm = yaml.load((ROOT.parent / 'actions/check-arm-image/action.yml').read_text(), Loader=yaml.BaseLoader)
+        inputs = arm['runs']['steps'][0]['with']
+        self.assertEqual(inputs['platforms'], 'linux/arm64')
+        self.assertEqual(inputs['build-args'], 'JAR_SOURCE=prebuilt')
+        self.assertEqual(inputs['push'], 'false')
+
     def test_progressing_deploy_is_retained_and_shared_vm_waits_are_not_dropped(self):
         for name in ('data-api-ci.dev', 'satellite-ci.dev', 'app-ios-testflight-dev', 'ops-smoke.dev'):
             w = workflow(name)

@@ -15,6 +15,8 @@ SERVICES = ('business-api', 'notification')
 # 러너 슬롯을 오래 물고, 관계없는 PR 까지 줄줄이 대기한다 (GROMO-1918).
 BUILD_AFFECTING = (
     '.github/workflows/be-gradle.yml',
+    '.github/workflows/prod-ci.yml',
+    '.dockerignore',
     '.github/workflows/satellite-check.yml',
     '.github/workflows/satellite-ci.dev.yml',
     '.github/workflows/satellite-ci.prod.yml',
@@ -32,6 +34,7 @@ BUILD_AFFECTING = (
 )
 BUILD_AFFECTING_PREFIXES = (
     '.github/actions/ci-jar/',
+    '.github/actions/check-arm-image/',
 )
 # 계약 검사(runtime-contracts·public-command-contracts)만 돌리면 되는 입력.
 # 이 잡들은 어차피 ubuntu-latest 에서 몇 분이면 끝나고 서비스 빌드와 무관하다.
