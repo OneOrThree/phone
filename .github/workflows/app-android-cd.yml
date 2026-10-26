@@ -13,9 +13,6 @@ on:
         required: true
         type: string
 
-concurrency:
-  group: android-play-internal
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -167,6 +164,9 @@ jobs:
           overwrite: true
 
   play-internal:
+    concurrency:
+      group: android-play-internal
+      cancel-in-progress: false
     needs: [source, sign]
     permissions:
       contents: read

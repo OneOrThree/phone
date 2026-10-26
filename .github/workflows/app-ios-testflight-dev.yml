@@ -41,9 +41,6 @@ on:
 
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
 # 실행 중 빌드는 유지하고 대기 중인 빌드는 최신 하나만 남긴다.
-concurrency:
-  group: ios-testflight-dev
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -86,6 +83,9 @@ jobs:
     uses: ./.github/workflows/app-lint.yml
 
   testflight-dev:
+    concurrency:
+      group: ios-testflight-dev
+      cancel-in-progress: false
     needs: [quality-gate, manual-quality, change-plan]
     # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
     # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.

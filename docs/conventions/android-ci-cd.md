@@ -28,7 +28,7 @@ CD는 현재 main의 검증 코드만 checkout한다. 다운로드한 AAB나 메
 
 Play 게시 잡은 `play-internal` 환경과 기존 OIDC 역할을 유지한다. 서명된 AAB checksum을 확인하고, 게시 전 Play 버전·AAB SHA-256과 게시 후 internal 트랙 상태·AAB SHA-256을 재조회한다. Play 실패가 이미 성공한 CI 실행의 결과를 바꾸지 않는다.
 
-CI와 CD는 각각 진행 중 실행을 유지하고 대기를 최신 하나만 남긴다. Play 게시를 수행하는 CD 전체는 `android-play-internal` 그룹으로 직렬화한다.
+게시용 AAB 빌드와 검증용 AAB 빌드는 별도 job 대기열을 사용한다. Play 게시는 `android-play-internal` job 그룹으로 직렬화하며, 진행 중 실행은 유지하고 게시 대상 대기는 최신 하나만 남긴다. 검증 전용 CI·CD와 테스트 전용 push는 게시 대기를 대체하지 않는다.
 
 ## 수동 실행·재시도
 

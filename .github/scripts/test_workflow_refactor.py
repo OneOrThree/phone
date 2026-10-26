@@ -48,12 +48,29 @@ class WorkflowRefactorTests(unittest.TestCase):
         self.assertEqual(inputs['push'], 'false')
 
     def test_progressing_deploy_is_retained_and_shared_vm_waits_are_not_dropped(self):
-        for name in ('data-api-ci.dev', 'satellite-ci.dev', 'app-ios-testflight-dev', 'ops-smoke.dev'):
+        for name in ('data-api-ci.dev', 'satellite-ci.dev', 'ops-smoke.dev'):
             w = workflow(name)
             self.assertNotEqual(w['concurrency']['cancel-in-progress'], 'true')
             self.assertNotIn('queue', w['concurrency'])
         for name in ('data-api-cd.dev', 'satellite-cd.dev'):
             self.assertEqual(workflow(name)['concurrency']['queue'], 'max')
+
+    def test_validation_only_runs_cannot_replace_pending_publication(self):
+        ios, android, cd = workflow('app-ios-testflight-dev'), workflow('app-android-ci'), workflow('app-android-cd')
+        for definition in (ios, android, cd):
+            self.assertNotIn('concurrency', definition)
+        self.assertEqual(ios['jobs']['testflight-dev']['concurrency']['group'], 'ios-testflight-dev')
+        self.assertIn("needs.change-plan.outputs.publish == 'true'", ios['jobs']['testflight-dev']['if'])
+        build = android['jobs']['build']
+        self.assertIn("needs.change-plan.outputs.publish == 'true'", build['concurrency']['group'])
+        self.assertIn('android-ci-main-validation', build['concurrency']['group'])
+        self.assertIn("needs.change-plan.outputs.build == 'true'", build['if'])
+        self.assertEqual(cd['jobs']['play-internal']['concurrency']['group'], 'android-play-internal')
+        self.assertIn("needs.source.outputs.publish == 'true'", cd['jobs']['sign']['if'])
+        self.assertIn('sign', cd['jobs']['play-internal']['needs'])
+        self.assertNotIn('always()', cd['jobs']['play-internal'].get('if', ''))
+        for job in (ios['jobs']['testflight-dev'], build, cd['jobs']['play-internal']):
+            self.assertEqual(job['concurrency']['cancel-in-progress'], 'false' if job is not build else "${{ !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}")
 
     def test_ios_has_no_pr_event_and_auto_upload_requires_quality(self):
         ios = workflow('app-ios-testflight-dev')

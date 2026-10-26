@@ -43,11 +43,6 @@ on:
 
 # PR: 같은 PR 앞 실행 버림.
 # main: 실행 중 검사는 유지하고 대기는 최신 하나만 남긴다.
-concurrency:
-  # main push·main 수동 실행만 한 줄로 섬. CD는 별도 직렬화 그룹을 쓴다.
-  # PR·다른 브랜치 수동 실행은 브랜치별 그룹. main 대기열을 밀어내지 않게.
-  group: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') && 'android-ci-main' || format('android-ci-{0}', github.ref) }}
-  cancel-in-progress: ${{ !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
 
 permissions:
   contents: read
@@ -156,6 +151,10 @@ jobs:
         run: for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
 
   build:
+    concurrency:
+      # 게시 자격 없는 CI는 게시용 AAB의 대기 실행을 대체하지 않는다.
+      group: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') && (needs.change-plan.outputs.publish == 'true' && 'android-ci-main' || 'android-ci-main-validation') || format('android-ci-{0}', github.ref) }}
+      cancel-in-progress: ${{ !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
     name: release AAB 빌드
     needs: [settings, manual-quality, manual-native, change-plan]
     # PR은 settings를 생략하고 빌드만 한다. main은 settings 성공이 필요하다.
