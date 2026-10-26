@@ -156,6 +156,7 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
+import { startPushSync, unregisterPushDevice } from '@/services/push';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -1505,7 +1506,10 @@ function Gromo() {
       else resetPostHogUser();
     });
     const stopSocialAnalytics = startSocialAnalytics();
+    // 푸시 등록·수신·탭(GROMO-2525) — iOS 이고 FCM 브리지가 든 바이너리에서만 돈다.
+    const stopPushSync = startPushSync(() => stateRef.current.settings.notifications !== false);
     return () => {
+      stopPushSync();
       stopSocialAnalytics();
       unsubscribe();
     };
@@ -1525,6 +1529,8 @@ function Gromo() {
       setConvUi(null);
       setTerms(false);
       settleSwitch(false);
+      // 보관 중이던 링크는 끝난 세션의 것이다 — 다음 로그인에서 열지 않는다.
+      setIncomingAppLink(null);
       dispatch({ type: 'LOGOUT' });
       void endLiveActivities().catch(() => {});
       reset('login');
@@ -2273,10 +2279,14 @@ function Gromo() {
     setConvUi(null);
     setTerms(false);
     settleSwitch(false);
+    // 보관 중이던 링크는 떠나는 세션의 것이다 — 다음 로그인에서 열지 않는다.
+    setIncomingAppLink(null);
     void endLiveActivities().catch(() => {});
     // 안드로이드 홈 위젯을 비운다 — 로그아웃 뒤에도 런처에 이전 계정의 공부시간이 남지 않게(1.x 로그아웃과
     // 같은 처리). 탈퇴 완료도 이 경로를 지난다. best-effort 라 로그아웃을 막지 않는다.
     void clearStudyWidget();
+    // 푸시 기기 삭제는 logout 이 세션을 지우기 전에 시작한다 — 요청이 첫 await 전에 지금 AT 를 싣는다(GROMO-2525).
+    unregisterPushDevice();
     // 확인한 준비 결과를 실제 정리에 넘긴다 — logout 이 다시 준비하면 그 실패는 여기서 못 본다.
     logout(preparation).catch(() => {});
     return true;

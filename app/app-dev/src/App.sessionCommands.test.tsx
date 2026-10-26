@@ -11,6 +11,7 @@ import {
   clearLocalDataOwner,
   clearSession,
   getLastSessionUserId,
+  notifySessionLost,
   rememberLocalDataOwner,
   saveSession,
   sessionGeneration,
@@ -30,6 +31,11 @@ jest.setTimeout(15_000);
 const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
 jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
+}));
+const mockUnregisterPushDevice = jest.fn();
+jest.mock('@/services/push', () => ({
+  startPushSync: () => () => {},
+  unregisterPushDevice: () => mockUnregisterPushDevice(),
 }));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
@@ -1522,8 +1528,9 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   assert.equal(result, false);
   assert.equal(mockLogout.mock.calls.length, 0);
   assert.ok(screen.getByText(/로그아웃하지 못했어요/));
-  // 세션이 남는 실패에서는 위젯도 그대로 둔다.
+  // 세션이 남는 실패에서는 위젯도 푸시 기기 등록도 그대로 둔다.
   assert.equal(mockClearStudyWidget.mock.calls.length, 0);
+  assert.equal(mockUnregisterPushDevice.mock.calls.length, 0);
 
   const prepared = Promise.resolve();
   mockPrepareLogout.mockReturnValueOnce(prepared);
@@ -1537,7 +1544,69 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   // 화면 전환 판단에 쓴 준비 결과를 실제 정리에 그대로 넘긴다 — 다시 준비하지 않는다.
   assert.equal(mockLogout.mock.calls[0][0], prepared);
   assert.equal(mockPrepareLogout.mock.calls.length, 2);
+  // 푸시 기기 삭제는 logout 이 세션을 지우기 전에 시작한다 — 요청이 지금 AT 를 싣는다.
+  assert.equal(mockUnregisterPushDevice.mock.calls.length, 1);
+  assert.ok(
+    mockUnregisterPushDevice.mock.invocationCallOrder[0] < mockLogout.mock.invocationCallOrder[0],
+  );
 });
+
+test.each([
+  [
+    '로그아웃으로',
+    async () => {
+      await captured.signOut();
+      // mockLogout 은 세션을 지우지 않는다 — 실제 logout 이 하는 정리를 대신한다.
+      await clearSession();
+    },
+  ],
+  [
+    '세션 상실(401)로',
+    async () => {
+      // client 가 거절된 세션을 비운 뒤 세션 상실을 알리는 순서다.
+      await clearSession();
+      notifySessionLost();
+    },
+  ],
+])(
+  '%s 세션이 끝나면 보관 중이던 링크를 버린다 — 다음 로그인에서 열리지 않는다',
+  async (_ending, end) => {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    // 현재 섬 없이 로그인한 상태 — 친구 링크는 섬이 생길 때까지 보관된다.
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    });
+    await act(async () => mockEmitAppLink!('gromo://friends'));
+    assert.notEqual(captured.route, 'friends');
+
+    await act(end);
+    // 다른 계정으로 다시 로그인해 섬에 들어온다 — 보관이 남아 있었다면 여기서 열린다.
+    await act(async () => {
+      await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: 'island-1' }],
+          nextCursor: null,
+          currentIslandId: 'island-1',
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: 'island-1',
+      });
+      captured.reset('settings');
+    });
+    await waitFor(() => assert.equal(captured.route, 'settings'));
+    // 같은 자리에서 새로 온 링크는 연다 — 위에서 열리지 않은 것이 보관을 버린 때문임을 확인한다.
+    await act(async () => mockEmitAppLink!('gromo://friends'));
+    await waitFor(() => assert.equal(captured.route, 'friends'));
+  },
+);
 
 test('계정·섬 온보딩이 끝날 때까지 지원 딥링크를 보관한다', async () => {
   await act(async () => {
