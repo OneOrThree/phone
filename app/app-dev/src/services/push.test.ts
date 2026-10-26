@@ -1105,6 +1105,45 @@ test('아직 안 물음이면 알림·소리만 시스템 팝업으로 묻고 �
   t.stop();
 });
 
+test('묻기 직전 shouldAsk 가 false 면(읽는 사이 조건이 사라졌다) 팝업 없이 undetermined 를 돌려주고, true 면 묻는다', async () => {
+  const t = setup({ permission: 'undetermined', answer: 'granted' });
+  await settle();
+  const shouldAsk = jest.fn(() => false);
+  const readsBefore = t.notifications.getPermissionsAsync.mock.calls.length;
+
+  await expect(t.push.requestPushPermission(shouldAsk)).resolves.toBe('undetermined');
+  expect(t.notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+  // 상태를 읽은 뒤에 본다.
+  expect(t.notifications.getPermissionsAsync).toHaveBeenCalledTimes(readsBefore + 1);
+  expect(shouldAsk).toHaveBeenCalledTimes(1);
+  const reads = t.notifications.getPermissionsAsync.mock.invocationCallOrder;
+  expect(reads[reads.length - 1]).toBeLessThan(shouldAsk.mock.invocationCallOrder[0]);
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+
+  shouldAsk.mockReturnValue(true);
+  await expect(t.push.requestPushPermission(shouldAsk)).resolves.toBe('granted');
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
+test.each([
+  ['granted', 'granted'],
+  ['provisional', 'granted'],
+  ['denied', 'denied'],
+] as const)(
+  '이미 정해졌으면(%s) shouldAsk 를 보지 않고 지금 상태 %s 를 돌려준다',
+  async (permission, expected) => {
+    const t = setup({ permission });
+    await settle();
+    const shouldAsk = jest.fn(() => false);
+
+    await expect(t.push.requestPushPermission(shouldAsk)).resolves.toBe(expected);
+    expect(shouldAsk).not.toHaveBeenCalled();
+    t.stop();
+  },
+);
+
 test('사용자가 팝업에서 거부하면 denied 를 돌려주고 등록하지 않는다', async () => {
   const t = setup({ permission: 'undetermined', answer: 'denied' });
   await settle();

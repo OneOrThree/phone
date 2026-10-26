@@ -40,7 +40,7 @@ jest.mock('@/services/push', () => ({
   startPushSync: () => mockStartPushSync(),
   refreshPush: () => mockRefreshPush(),
   unregisterPushDevice: () => mockUnregisterPushDevice(),
-  requestPushPermission: () => mockRequestPushPermission(),
+  requestPushPermission: (shouldAsk?: () => boolean) => mockRequestPushPermission(shouldAsk),
 }));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
@@ -3253,6 +3253,45 @@ test.each(['error', 'unavailable'] as const)(
     await app.unmount();
   },
 );
+
+test('권한을 읽는 사이 홈을 떠나면(조건이 사라지면) 팝업을 막고 undetermined 로 끝나, 홈으로 돌아오면 한 번 묻는다', async () => {
+  // 상태 읽기를 붙잡아 둔다 — 실제 구현은 읽은 직후·팝업 직전에 shouldAsk 를 보고, false 면 묻지 않고 undetermined 를 돌려준다.
+  let release!: () => void;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  let shouldAskAfterRead: boolean | undefined;
+  mockRequestPushPermission.mockImplementationOnce(async (shouldAsk?: () => boolean) => {
+    await gate;
+    shouldAskAfterRead = shouldAsk?.();
+    return shouldAskAfterRead === false ? 'undetermined' : 'granted';
+  });
+  const app = await pushApp();
+  await promptAsked();
+
+  // 읽는 사이 홈을 떠났다.
+  await act(async () => captured.reset('settings'));
+  await act(async () => release());
+  await afterShield();
+  expect(shouldAskAfterRead).toBe(false);
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  // 홈으로 돌아오면 한 번 묻는다 — 막힌 시도가 한 번뿐인 기회를 쓰지 않았다.
+  await act(async () => captured.reset('home'));
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
+  const shouldAsk = mockRequestPushPermission.mock.calls[1][0] as () => boolean;
+  expect(shouldAsk()).toBe(true);
+
+  // 이번에는 답이 왔다 — 더는 묻지 않는다.
+  await act(async () => captured.reset('settings'));
+  expect(shouldAsk()).toBe(false);
+  await act(async () => captured.reset('home'));
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+  await app.unmount();
+});
 
 test.each(['granted', 'denied'] as const)(
   '권한 요청이 %s 로 끝나면 이 실행에서는 홈에 다시 들어와도 다시 묻지 않는다',

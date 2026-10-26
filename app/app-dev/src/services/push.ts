@@ -462,13 +462,16 @@ export async function pushPermissionStatus(): Promise<PushPermission> {
 /**
  * 아직 안 물음이면 시스템 팝업으로 묻고 답을 돌려준다(알림·소리만 — 배지는 서버도 앱도 쓰지 않는다). 이미 정해졌으면 묻지
  * 않고 지금 상태를 돌려준다. 물은 뒤에는 동기화를 깨워 새 권한으로 등록하게 한다. 네이티브가 던지면 `error` 다.
+ * @param shouldAsk 상태를 읽은 직후·팝업 직전에 한 번 본다(아직 안 물음일 때만). 읽는 사이 묻고 싶던 화면을 떠났다면 false 를
+ *   돌려 팝업을 막는다 — 그러면 묻지 않고 `undetermined` 를 돌려준다.
  */
-export async function requestPushPermission(): Promise<PushPermission> {
+export async function requestPushPermission(shouldAsk?: () => boolean): Promise<PushPermission> {
   const N = bridgedNotifications();
   if (!N) return 'unavailable';
   try {
     const current = permissionOf(N, await N.getPermissionsAsync());
     if (current !== 'undetermined') return current;
+    if (shouldAsk && !shouldAsk()) return 'undetermined';
     const answered = permissionOf(
       N,
       await N.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true } }),

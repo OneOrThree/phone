@@ -1536,29 +1536,33 @@ function Gromo() {
   // 걷힌 뒤여야 한다 — 방패(350ms)는 화면 전환 직후의 터치가 새 화면에 닿지 않게 막는데, 시스템 팝업은 그 바깥이라 그 터치를 받는다.
   // 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이
   // 바다에 있으면(route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다:
-  // state.tutorial 은 끝난 뒤에도 남는다.
+  // state.tutorial 은 끝난 뒤에도 남는다. 권한을 읽는 사이 이 조건이 사라질 수 있다(홈을 떠남·로그아웃) — 조건 전체를 렌더마다
+  // ref 에 두고, requestPushPermission 이 팝업 직전에 다시 본다(shouldAsk).
   const pushAsked = useRef(false);
   const inTutorial = !!state.tutorial && state.tutorial.step < 22;
   const islandHomeShown = !homeError && !!serverHome(state);
+  const pushPromptReady =
+    loaded &&
+    !REVIEW &&
+    !DEMO &&
+    route === 'home' &&
+    hasServerSession &&
+    !inTutorial &&
+    islandHomeShown &&
+    !appContentHidden &&
+    state.settings.notifications !== false;
+  const pushPromptReadyRef = useRef(pushPromptReady);
+  pushPromptReadyRef.current = pushPromptReady;
   useEffect(() => {
-    if (pushAsked.current || !loaded || REVIEW || DEMO) return;
-    if (route !== 'home' || !hasServerSession || inTutorial || !islandHomeShown) return;
-    if (appContentHidden || state.settings.notifications === false) return;
+    if (pushAsked.current || !pushPromptReady) return;
     pushAsked.current = true;
-    void requestPushPermission().then((permission) => {
-      // 네이티브가 일시적으로 실패하면('error') 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다.
-      // 브리지가 없는 바이너리('unavailable')도 같다(물을 수 없었다).
-      if (permission === 'error' || permission === 'unavailable') pushAsked.current = false;
+    void requestPushPermission(() => pushPromptReadyRef.current).then((permission) => {
+      // 못 물었으면 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다: 네이티브가 일시적으로 실패했거나
+      // ('error'), 브리지가 없거나('unavailable'), 읽는 사이 조건이 사라져 팝업을 막았다('undetermined' 그대로).
+      if (permission === 'error' || permission === 'unavailable' || permission === 'undetermined')
+        pushAsked.current = false;
     });
-  }, [
-    loaded,
-    route,
-    hasServerSession,
-    inTutorial,
-    islandHomeShown,
-    appContentHidden,
-    state.settings.notifications,
-  ]);
+  }, [pushPromptReady]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);
