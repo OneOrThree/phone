@@ -2,7 +2,8 @@
  * iOS 푸시 등록 수명주기와 알림 수신·탭 라우팅(GROMO-2525). 서버 계약은 `api/deviceToken.ts`(PUT·DELETE), 네이티브는
  * 2523 브리지 `FCMTokenModule`(getToken·deleteToken·FCMTokenRefresh).
  *
- * 기록: 보안 저장소 키 하나 `gromo.pushDevice` = `{userId, fcmToken, ownershipToken, deliveryTag}` 를 통째로 쓴다.
+ * 기록: 보안 저장소 키 하나 `gromo.pushDevice` = `{userId, fcmToken, registeredToken, ownershipToken, deliveryTag}` 를
+ * 통째로 쓴다.
  * 세션 묶음 밖이라 로그아웃·세션 상실 뒤에도 userId·fcmToken 은 남는다 — 다음 로그인이 다른 계정(A≠B)인지 가르는
  * 근거다. ownershipToken 은 CAS 값이라 이 기록에만 두고 AsyncStorage·로그·분석 이벤트에 싣지 않는다.
  *
@@ -53,6 +54,8 @@ const DEVICE_KEY = 'gromo.pushDevice';
 type PushDevice = {
   userId?: string;
   fcmToken?: string;
+  /** 저장한 ownershipToken·deliveryTag 를 확인받은(등록 성공 응답) FCM 토큰 — 지금 토큰과 다르면 아직 확인 전이다. */
+  registeredToken?: string;
   ownershipToken?: string;
   deliveryTag?: string;
 };
@@ -116,6 +119,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   let bootstrap: { generation: number; value: string } | undefined;
   /** 소유권 충돌로 토큰을 이미 한 번 바꾼 세대. */
   let rotatedForConflict: number | undefined;
+  /** 세션을 알기 전에 온 탭 — 세션이 공개되면 한 번 판정한다(같은 계정이면 열고, 아니면 버린다). */
+  let heldResponse: NotificationResponse | undefined;
 
   // 지금 계정의 지금 등록으로 온 알림만 받는다. 저장 태그가 있으면 푸시 태그가 같아야 하고(다르거나 없으면 버림),
   // 저장 태그가 없으면(서버가 아직 싣지 않음) 대조하지 않는다. 포그라운드 핸들러는 3초 안에 답해야 해서 메모리만 본다.
@@ -126,10 +131,15 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   };
 
   // 탭(기본 동작)만 연다. 링크는 App 의 딥링크 보관·가드를 그대로 탄다.
-  const open = (response: NotificationResponse | null) => {
+  const open = (response: NotificationResponse | null | undefined) => {
     if (!response) return;
     const id = response.notification.request.identifier;
     if (handledResponses.has(id)) return;
+    // 세션을 아직 모르면(복구 전·로그아웃 뒤 다시 로그인 전) 처리했다고 적지 않고 들고 있다가, 세션이 공개되면 판정한다.
+    if (!getSession()) {
+      heldResponse = response;
+      return;
+    }
     handledResponses.add(id);
     const link = payloadOf(response.notification).link;
     if (
@@ -189,10 +199,14 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (!live()) return;
     const sameUser = device.userId === session.userId;
     const deviceBootstrap = bootstrap?.generation === generation ? bootstrap.value : undefined;
-    // 같은 계정·같은 토큰·소유권 있음·꺼낼 bootstrap 없음이면 그대로 둔다(머리 주석 — 태그 회전). 응답을 못 받은
-    // 등록(pending)이 있으면 건너뛰지 않는다 — 그 등록을 같은 키·같은 본문으로 다시 보내야 한다.
-    const settled = sameUser && device.fcmToken === token && device.ownershipToken;
-    if (settled && !deviceBootstrap && !pending) return;
+    // 같은 계정·같은 토큰이고 그 토큰으로 확인받은 소유권이 있으며 꺼낼 bootstrap 이 없으면 그대로 둔다(머리 주석 — 태그
+    // 회전). 응답을 잃은 등록은 확인 토큰이 달라 앱을 다시 시작해도 다시 보낸다.
+    const settled =
+      sameUser &&
+      device.fcmToken === token &&
+      device.registeredToken === token &&
+      device.ownershipToken;
+    if (settled && !deviceBootstrap) return;
     const body: DeviceRegistrationBody = {
       deviceToken: token,
       ...(sameUser && device.ownershipToken ? { ownershipToken: device.ownershipToken } : {}),
@@ -206,12 +220,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     pending = bundle;
     // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
     // 지우지 않고(fcmToken 없음) A→B 가 토큰을 바꾸지 않는다(userId 없음). 같은 계정이면 옛 소유권(이미 CAS 본문에
-    // 있다)·태그(새 응답이 바꿀 때까지)를 남긴다. 같은 계정이 이미 토큰을 적어 두었으면(토큰 회전) 그대로 둔다 — 새
-    // 토큰을 옛 소유권과 함께 적으면 확인되지 않은 등록이 「같은 상태」로 보여 실패 뒤에 다시 보내지 않는다.
-    // ponytail: 알림을 다시 켠 등록(같은 계정·기록에 토큰 없음)은 새 토큰을 옛 소유권 옆에 적는다. 그 CAS 응답을 잃고
-    // 다시 보내기 전에 앱이 꺼지면 기록이 「같은 상태」로 보여, 다음 로그인(bootstrap)이나 토큰 갱신(409 → 토큰 교체)까지
-    // 다시 등록하지 않는다. 막으려면 기록에 「확인 전」 표시를 두거나 이 쓰기에서 소유권을 빼야 한다.
-    if (!sameUser || !device.fcmToken) {
+    // 있다)·태그(새 응답이 바꿀 때까지)와 그 확인 토큰을 남긴다 — 확인 토큰이 새 토큰과 달라 「확인 전」으로 남는다.
+    if (!sameUser || device.fcmToken !== token) {
       device = { ...(sameUser ? device : {}), userId: session.userId, fcmToken: token };
       persist();
     }
@@ -248,7 +258,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     bootstrap = undefined;
     // 응답으로 통째로 덮는다 — 태그 없는 200(V13 전 저장 응답 재생·서버 롤백)이면 저장 태그도 지운다. 남기면 이후
     // 푸시를 전부 버린다.
-    device = { userId: session.userId, fcmToken: token, ...registered };
+    device = { userId: session.userId, fcmToken: token, registeredToken: token, ...registered };
     persist();
   };
 
@@ -282,6 +292,10 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     const value = session ? takeDeviceBootstrap(session.refreshToken) : undefined;
     bootstrap = value ? { generation, value } : undefined;
     if (session) {
+      // 세션을 알기 전에 온 탭은 첫 세션에서 한 번만 판정한다 — 계정 전환(A→B)이 기록을 비우기 전이라 다른 계정이면 버린다.
+      const held = heldResponse;
+      heldResponse = undefined;
+      open(held);
       schedule();
       return;
     }
