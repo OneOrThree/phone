@@ -577,6 +577,144 @@ class DeviceTransportContinuityTest {
         assertThat(sent.get("fcm-untagged")).doesNotContainKey("deliveryTag");
     }
 
+    /**
+     * 태그 때문에 한도를 넘는 기기 «하나»가 받을 수 있는 기기의 발송까지 막아서는 안 된다(GROMO-2520). 수신 확인 태그는 기기
+     * 행마다 있을 수도 없을 수도 있어(V13 전 등록은 NULL) 같은 문구도 봉투 크기가 기기마다 다르다 — 태그 없는 행에는 들어맞는
+     * 문구가 태그 있는 행에서만 넘는다. 넘는 기기는 호출 없이 건너뛰고, 받을 수 있는 기기에는 그대로 보내 발송으로 맺는다.
+     * 태그 있는 기기가 토큰 순으로 앞이라, 건너뛴 뒤에도 루프가 뒤의 기기로 이어지는지까지 본다.
+     */
+    @Test
+    void aDevicePushedOverTheLimitByItsTagIsSkippedWhileTheOtherDeviceStillReceivesThePush() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        sizeTheBodyToTheTagBoundary("over-by-tag", tag);
+
+        UUID id = enqueue("over-by-tag");
+        dispatch.dispatch(id);
+
+        verify(transport, never()).send(eq("fcm-tagged"), any(), anyBoolean(), anyString());
+        verify(transport, times(1)).send(eq("fcm-untagged"), any(), anyBoolean(), anyString());
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-untagged")));
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    /**
+     * 시도할 기기가 하나도 없으면 — 태그 있는 기기뿐인데 그 봉투가 한도를 넘으면 — 전과 같이 호출 없이, 재시도 없는
+     * FAILED 로 끝난다. 영구 문구 오류라 기기의 소유권·전송 자격은 건드리지 않는다.
+     */
+    @Test
+    void whenNoDeviceCanTakeThePushTheDeliveryStillFailsWithoutAnyCall() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        sizeTheBodyToTheTagBoundary("over-for-all", tag);
+
+        UUID id = enqueue("over-for-all");
+        dispatch.dispatch(id);
+
+        verify(transport, never()).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("last_error", "FCM_PAYLOAD_TOO_LARGE");
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-tagged'"))
+                .containsEntry("active", true).containsEntry("transport_invalid", false);
+    }
+
+    /**
+     * 이미 받은 기기가 있는 배송은 남은 기기가 한도를 넘어도 FAILED 가 아니다(GROMO-2520). V13 전에 A 는 받고 B 는 일시 실패로
+     * 재시도 중인데 B 가 재등록해 태그를 얻으면, 같은 문구가 B 에게만 한도를 넘는다. 시도할 기기는 없지만 알림은 A 에 갔으므로
+     * 호출 없이 발송으로 맺는다 — 받은 기기가 하나도 없을 때만 FAILED 다(바로 위 테스트).
+     */
+    @Test
+    void aDeliveryThatADeviceAlreadyReceivedEndsSentWhenTheRetryingDeviceIsLaterPushedOverTheLimit() {
+        register("fcm-a", "boot-a", 1, "reg-a");
+        Map<String, Object> registeredB = devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 두 행 — 이 모양으로 앞 라운드가 돈다.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token IN ('fcm-a','fcm-b')");
+        sizeTheBodyToTheTagBoundary("late-tag", (String) registeredB.get("deliveryTag"));
+        when(transport.send(eq("fcm-b"), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.RETRY);
+
+        UUID id = enqueue("late-tag");
+        dispatch.dispatch(id);
+
+        // 앞 라운드: A 는 받았고 B 는 재시도 중이다.
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-a")));
+
+        // B 가 재등록해 태그를 얻는다 — 같은 문구가 이제 B 에게만 한도를 넘는다.
+        devices.register(USER, body("fcm-b", null, 1L, 0L, registeredB.get("ownershipToken").toString()), "re-reg-b");
+        assertThat(store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='fcm-b'").get("delivery_tag"))
+                .isNotNull();
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+
+        // 뒤 라운드: 호출은 앞 라운드의 A·B 한 번씩뿐이고, 배송은 FAILED 가 아니라 SENT 다.
+        verify(transport, times(1)).send(eq("fcm-a"), any(), anyBoolean(), anyString());
+        verify(transport, times(1)).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SENT").containsEntry("last_error", null);
+    }
+
+    /**
+     * 관리자 {@code dataTemplate} 이 예약 키 {@code deliveryTag} 를 넣어 둬도 그 값은 어느 기기에도 태그로 나가지 않는다
+     * (GROMO-2520). 저장 API 는 키 이름을 막지 않는다 — 태그 있는 기기에는 그 기기 등록의 값이, 태그 없는 행(V13 전 등록)에는
+     * 키가 아예 없어야 한다. 앱에 준 적 없는 값이 태그로 가면 앱이 정상 푸시를 버리거나 낡은 푸시를 받아들인다.
+     */
+    @Test
+    void aDeliveryTagKeyInTheDeeplinkTemplateNeverReachesADeviceAsAnythingButItsOwnTag() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        store.update("INSERT INTO deeplinks(id,url_template,data_template)"
+                + " VALUES('FRIEND_ACCEPTED',NULL,'{\"deliveryTag\":\"from-admin\"}'::jsonb)");
+        Map<String, Map<String, String>> sent = new LinkedHashMap<>();
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            sent.put(call.getArgument(0), call.<RenderedPush>getArgument(1).data());
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(enqueue("reserved-key"));
+
+        assertThat(sent).containsOnlyKeys("fcm-tagged", "fcm-untagged");
+        assertThat(sent.get("fcm-tagged")).containsEntry("deliveryTag", tag);
+        assertThat(sent.get("fcm-untagged")).doesNotContainKey("deliveryTag");
+    }
+
+    /**
+     * 템플릿 본문을 «태그 없이는 한도에 들어가고 태그를 더하면 넘는» 길이로 맞춘다. 숫자를 박지 않고
+     * {@link FcmPayload#requireFits} 가 실제로 세는 값으로 경계를 찾는다 — 한도나 봉투가 바뀌어도 같은 경계를 겨눈다.
+     * 소리 켜짐은 설정 행이 없을 때의 기본값이라 실제 발송과 같고, 본문은 ASCII 라 한 글자가 정확히 1바이트다.
+     */
+    private void sizeTheBodyToTheTagBoundary(String eventId, String tag) {
+        RenderedPush rendered = new Renderer(store).render("FRIEND_ACCEPTED", "ko", Map.of("kind", "FRIEND_ACCEPTED"));
+        int length = 0;
+        while (fits(rendered, "a".repeat(length), tag, eventId)) {
+            length++;
+        }
+        String filler = "a".repeat(length);
+        assertThat(fits(rendered, filler, null, eventId)).as("태그가 없으면 들어가야 한다").isTrue();
+        store.update("UPDATE templates SET body=? WHERE kind='FRIEND_ACCEPTED'", filler);
+    }
+
+    /** 이 본문의 푸시가 한도에 들어가는가 — {@code tag} 가 null 이면 태그 없는 행의 봉투다. */
+    private static boolean fits(RenderedPush rendered, String body, String tag, String eventId) {
+        RenderedPush push = new RenderedPush(rendered.title(), body, rendered.data(), rendered.silent());
+        try {
+            FcmPayload.requireFits(tag == null ? push : push.withDeliveryTag(tag), true, eventId);
+            return true;
+        } catch (NotificationFailure tooLarge) {
+            return false;
+        }
+    }
+
     private UUID deviceKey(String token) {
         return (UUID) store.one("SELECT device_key FROM device_tokens WHERE device_token=?", token).get("device_key");
     }
