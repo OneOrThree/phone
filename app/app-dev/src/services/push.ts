@@ -71,12 +71,14 @@ let writes: Promise<unknown> = Promise.resolve();
 /** 이 실행에서 처리한 알림 응답 — 같은 탭이 리스너와 콜드 스타트 조회로 두 번 와도 한 번만 연다. */
 const handledResponses = new Set<string>();
 
-/** 기록 전체를 한 번에 쓴다(원자 저장). 쓰기를 줄 세워 마지막 메모리 값이 마지막에 남고, 끝나기를 기다릴 수 있다. */
-function persist(): Promise<unknown> {
-  writes = writes
-    .then(() => SecureStore.setItemAsync(DEVICE_KEY, JSON.stringify(device)))
-    .catch(() => {});
-  return writes;
+/**
+ * 기록 전체를 한 번에 쓴다(원자 저장). 쓰기를 줄 세워 마지막 메모리 값이 마지막에 남는다. 돌려준 약속은 이 쓰기가
+ * 실패하면 거절한다 — 기다리는 곳(등록 전·409)은 그 실행을 끝내고, 기다리지 않는 곳은 `.catch` 로 삼킨다.
+ */
+function persist(): Promise<void> {
+  const done = writes.then(() => SecureStore.setItemAsync(DEVICE_KEY, JSON.stringify(device)));
+  writes = done.catch(() => {});
+  return done;
 }
 
 /** 브리지·OS 호출이 끝나지 않으면 직렬 큐가 영영 막힌다 — 이 시간이 지나면 그 실행만 끝내고(던짐) 다음 트리거에 다시 한다. */
@@ -201,7 +203,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         tokenMayExist = false;
       }
       device = {};
-      persist();
+      persist().catch(() => {});
       if (!current()) return;
     }
     if (!isEnabled() || !granted(await within(N.getPermissionsAsync()))) {
@@ -214,7 +216,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       await bridge(() => fcm.deleteToken());
       tokenMayExist = false;
       device = { ...device, fcmToken: undefined };
-      persist();
+      persist().catch(() => {});
       return;
     }
     if (!live()) return;
@@ -258,12 +260,19 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     pending = bundle;
     // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
     // 지우지 않고(fcmToken 없음) A→B 가 토큰을 바꾸지 않는다(userId 없음). 같은 계정이면 옛 소유권(이미 CAS 본문에
-    // 있다)·태그(새 응답이 바꿀 때까지)와 그 확인 토큰을 남긴다 — 확인 토큰이 새 토큰과 달라 「확인 전」으로 남는다.
-    if (!sameUser || device.fcmToken !== token) {
-      device = { ...(sameUser ? device : {}), userId: session.userId, fcmToken: token };
-      // 디스크에 닿은 뒤에 보낸다 — PUT 이 서버에 닿은 직후 앱이 죽어도 토큰·계정이 남는다.
-      await within(persist());
+    // 있다)·태그(새 응답이 바꿀 때까지)를 남기되 확인은 지운다 — 같은 토큰을 bootstrap 으로 다시 등록하다 응답을 잃어도
+    // 「확인 전」으로 남아, 앱을 다시 시작하면 다시 보낸다.
+    if (!sameUser || device.fcmToken !== token || device.registeredToken !== undefined) {
+      device = {
+        ...(sameUser ? device : {}),
+        userId: session.userId,
+        fcmToken: token,
+        registeredToken: undefined,
+      };
     }
+    // 디스크에 닿은 뒤에 보낸다 — PUT 이 서버에 닿은 직후 앱이 죽어도 토큰·계정이 남는다. 늘 쓴다: 앞 실행의 쓰기가
+    // 실패했으면 메모리만 바뀌어 있어, 조건부로 쓰면 다시 쓰지 않고 보내게 된다. 실패하면(던짐) 이 실행을 끝낸다.
+    await within(persist());
     // 보내기 직전에 다시 본다 — 그 사이 세션이 바뀌었거나 알림을 껐으면(곧 지울 토큰) 등록하지 않는다.
     if (!live() || !isEnabled()) return;
     let registered: DeviceRegistration;
@@ -289,7 +298,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         tokenMayExist = false;
         // 토큰을 실제로 지운 뒤에만 덮어쓴다 — 그 사이 세션이 끝나 남긴 기록을 덮어도 빠지는 것은 지운 토큰뿐이다(의도).
         device = { userId: session.userId };
-        persist();
+        persist().catch(() => {});
         rotatedForConflict = generation;
         again = true;
         return;
@@ -305,7 +314,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 응답으로 통째로 덮는다 — 태그 없는 200(V13 전 저장 응답 재생·서버 롤백)이면 저장 태그도 지운다. 남기면 이후
     // 푸시를 전부 버린다.
     device = { userId: session.userId, fcmToken: token, registeredToken: token, ...registered };
-    persist();
+    persist().catch(() => {});
   };
 
   // 브리지 호출은 겹치면 순서가 정해지지 않는다 — 한 번에 하나만 돌리고, 도는 중에 온 트리거는 「한 번 더」로 접는다.
@@ -350,7 +359,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 로그아웃·401·탈퇴 확인으로 세션이 끝났다 — 네트워크 없이 표시 알림을 지우고 CAS·태그를 버린다.
     void N.dismissAllNotificationsAsync().catch(() => {});
     device = { userId: device.userId, fcmToken: device.fcmToken };
-    persist();
+    persist().catch(() => {});
   };
 
   void SecureStore.getItemAsync(DEVICE_KEY).then(
@@ -425,5 +434,5 @@ export function unregisterPushDevice(): void {
   // 곧 지워질 이 세션으로는 다시 등록하지 않고, 진행 중이던 등록의 응답도 버린다.
   pending = undefined;
   haltedGeneration = sessionGeneration();
-  persist();
+  persist().catch(() => {});
 }

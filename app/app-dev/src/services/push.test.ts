@@ -320,8 +320,14 @@ test('알림을 다시 켠 등록(CAS)의 응답을 잃고 앱이 다시 시작�
   t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
   await settle();
   const unconfirmed = t.stored()!;
-  // 받은 토큰은 적혔지만 소유권·태그는 아직 옛 토큰으로 확인받은 것이다.
-  expect(unconfirmed).toStrictEqual({ ...TOKEN_DELETED, fcmToken: FCM_2 });
+  // 받은 토큰은 적혔고 옛 소유권·태그는 남았지만, 새 토큰으로는 아직 확인받지 않았다.
+  expect(unconfirmed).toMatchObject({
+    userId: USER,
+    fcmToken: FCM_2,
+    ownershipToken: OWN,
+    deliveryTag: TAG,
+  });
+  expect(unconfirmed.registeredToken).not.toBe(FCM_2);
   t.stop();
 
   // 다시 시작 — 메모리의 묶음은 없어도 확인 전이라 다시 보낸다.
@@ -1137,5 +1143,60 @@ test('등록 전 기록을 쓰는 사이 알림을 끄면 등록하지 않고, �
   await settle();
   expect(t.registerDevice).not.toHaveBeenCalled();
   expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
+test('등록 전 기록 쓰기가 실패하면 등록하지 않고, 다음 트리거에 기록부터 다시 쓴 뒤 보낸다', async () => {
+  const t = setup();
+  t.secureStore.setItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'));
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  expect(t.stored()).toBeNull();
+
+  t.foreground();
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  // 다시 쓴 기록이 디스크에 닿은 뒤에 보냈다.
+  expect(JSON.parse(t.secureStore.setItemAsync.mock.calls[1][1])).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM,
+  });
+  expect(t.secureStore.setItemAsync.mock.invocationCallOrder[1]).toBeLessThan(
+    t.registerDevice.mock.invocationCallOrder[0],
+  );
+  expect(t.stored()).toStrictEqual(REGISTERED);
+  t.stop();
+});
+
+test('같은 계정·같은 토큰을 새 세션의 bootstrap 으로 다시 등록하다 응답을 잃으면, 확인을 지워 두어 다시 시작해도 다시 보낸다', async () => {
+  let t = setup({ stored: REGISTERED });
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
+  t.publish(sessionOf(USER, 'rt-2'), 'boot-2');
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledWith(
+    { deviceToken: FCM, ownershipToken: OWN, deviceBootstrap: 'boot-2' },
+    expect.stringMatching(KEY),
+  );
+  // 서버가 처리했다면 소유권·태그가 바뀌었을 수 있다 — 보내기 전에 확인을 지웠다.
+  const unconfirmed = t.stored()!;
+  expect(unconfirmed).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM,
+    ownershipToken: OWN,
+    deliveryTag: TAG,
+  });
+  t.stop();
+
+  // 다시 시작 — bootstrap 은 없지만 확인 전이라 건너뛰지 않고 다시 보낸다.
+  t = setup({ stored: unconfirmed });
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledWith(
+    { deviceToken: FCM, ownershipToken: OWN },
+    expect.stringMatching(KEY),
+  );
+  expect(t.stored()).toStrictEqual(REGISTERED);
   t.stop();
 });
