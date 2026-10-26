@@ -18,7 +18,8 @@
  * | 응답 | 반응 |
  * |---|---|
  * | 409 `DEVICE_OWNERSHIP_CONFLICT` | 세션당 한 번 — 표시 알림은 두고 토큰을 바꿔(deleteToken·getToken) 소유권 없이 다시 등록. 두 번째면 다음 세션까지 멈춤 |
- * | 409 `SESSION_REVOKED`·`STALE_AUTH_GENERATION`, 401(`USER_INACTIVE` 등), `CLIENT_STALE_SESSION` | 다음 세션까지 등록을 멈춤(알림 끄기·A→B 정리는 계속) |
+ * | 409 `SESSION_REVOKED` — 소유권만 싣고 bootstrap 은 없던 요청 | 세션당 한 번 — 소유권으로 옛 세션의 연결을 물려받은 것이라 소유권·확인을 지우고(저장) 소유권 없이 다시 보냄(위 409 로 이어진다). 두 번째면 멈춤 |
+ * | 409 `SESSION_REVOKED`(그 밖의 경우)·`STALE_AUTH_GENERATION`, 401(`USER_INACTIVE` 등), `CLIENT_STALE_SESSION` | 다음 세션까지 등록을 멈춤(알림 끄기·A→B 정리는 계속) |
  * | 네트워크·타임아웃(상태 0)·408·429·5xx(502·503) | 같은 키·같은 본문 묶음을 메모리에 두고 다음 트리거에 다시 보냄(서버가 저장 응답을 재생) |
  * | 409 `IDEMPOTENCY_KEY_CONFLICT` | 그 묶음을 버림 — 다음 트리거에 새 키 |
  * | 브리지 `NOT_CONFIGURED`(plist 없는 빌드) | 이 실행 동안 푸시를 끔 |
@@ -159,6 +160,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   let bootstrap: { generation: number; value: string } | undefined;
   /** 소유권 충돌로 토큰을 이미 한 번 바꾼 세대. */
   let rotatedForConflict: number | undefined;
+  /** SESSION_REVOKED 로 낡은 소유권을 이미 한 번 지운 세대. */
+  let staleOwnershipCleared: number | undefined;
   /** 세션을 알기 전에 온 탭 — 세션이 공개되면 한 번 판정한다(같은 계정이면 열고, 아니면 버린다). */
   let heldResponse: NotificationResponse | undefined;
 
@@ -306,6 +309,22 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         device = { userId: session.userId };
         persist().catch(() => {});
         rotatedForConflict = generation;
+        again = true;
+        return;
+      }
+      if (
+        code === 'SESSION_REVOKED' &&
+        body.ownershipToken &&
+        !body.deviceBootstrap &&
+        staleOwnershipCleared !== generation &&
+        live()
+      ) {
+        // 소유권만 싣고 bootstrap 은 없는 요청(앱을 다시 시작해 bootstrap 이 사라진 확인 전 등록)이 SESSION_REVOKED 면 서버가 소유권으로
+        // 옛 세션의 연결을 물려받은 것이다 — 지금 세션 자체는 notification 앞의 business-api 가 이미 확인했다. 소유권·확인을 지우고
+        // 한 번만 소유권 없이 다시 보내 위 409 경로로 새로 묶는다. bootstrap 을 실었거나 이 세대에 이미 했으면 아래에서 멈춘다.
+        staleOwnershipCleared = generation;
+        device = { ...device, ownershipToken: undefined, registeredToken: undefined };
+        await within(persist());
         again = true;
         return;
       }
