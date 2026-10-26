@@ -350,7 +350,7 @@ class DispatchService {
         // 두 축을 모두 본다: active 는 «소유권이 살아 있는가»(로그아웃·삭제·탈퇴·세션 폐기),
         // transport_invalid 는 «FCM 이 이 토큰을 아직 받는가». 전자만 보면 UNREGISTERED 토큰에
         // 계속 때리고, 후자를 active 에 적으면 정상 세션의 토큰 교체가 막힌다.
-        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version"
+        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version,delivery_tag"
                 + " FROM device_tokens WHERE user_id=? AND active AND NOT transport_invalid"
                 + " ORDER BY device_token", user);
         List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
@@ -369,6 +369,8 @@ class DispatchService {
             return null;
         }
         List<Attempt> attempts = new ArrayList<>();
+        // 크기 초과로 건너뛴 기기가 있었으면 그 사유 — 시도할 기기가 하나도 없을 때만 행을 FAILED 로 접는 근거다.
+        NotificationFailure oversized = null;
         for (Map<String, Object> token : tokens) {
             // 중복 방지의 키는 «기기»다. 소유권은 등록마다 회전하므로(A22 ㊚) 그것으로 세면 재시도
             // 사이에 앱을 재시작한 기기가 미전송으로 되돌아가 같은 알림을 두 번 받는다.
@@ -384,20 +386,45 @@ class DispatchService {
             Map<String, Object> message = unsent.get(0);
             RenderedPush push = renderer.render(message.get("kind").toString(),
                     (String) message.get("locale"), Json.map(message.get("payload").toString()));
+            // 수신 확인 태그는 «이 기기 등록»의 값이라 기기별 렌더 직후에 싣는다(GROMO-2520) — 크기 검사도 태그를
+            // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다 — 관리자 dataTemplate 이 deliveryTag 를 넣어
+            // 뒀어도 렌더 결과에서 지워야 하므로 태그 유무와 무관하게 «모든 기기에» 부른다. 태그는 ownership_version 과
+            // 같은 등록 UPSERT 에서만 바뀌므로, 판정 뒤 재등록으로 태그가 바뀌면 stillOurs 의 세대 대조가 이 발송을 거른다.
+            // 관리자 템플릿 저장·미리보기는 AdminCatalog.renderDraft 가 같은 길이의 자리표시를 더해 미리 잰다.
+            push = push.withDeliveryTag((String) token.get("delivery_tag"));
             try {
                 FcmPayload.requireFits(push, sound, collapseEventId(ready));
             } catch (NotificationFailure invalid) {
                 if (!"FCM_PAYLOAD_TOO_LARGE".equals(invalid.getMessage())) {
                     throw invalid;
                 }
-                // 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다. 아직 외부 발송은 시작하지 않았다.
-                deliveries.forEach(delivery -> store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
-                        + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", invalid.getMessage(), delivery));
-                return null;
+                // 크기는 «기기 단위»로 본다. 수신 확인 태그(값 36자 + 키)는 기기 행마다 있을 수도 없을 수도 있어(V13 전
+                // 등록은 NULL) 같은 문구도 봉투 크기가 기기마다 다르다 — 태그 없는 행에는 들어맞는 문구가 태그 있는
+                // 행에서만 넘을 수 있다. 한 기기의 초과로 묶음 전체를 접으면 정상으로 받을 수 있는 기기의 알림까지
+                // 잃으니 그 기기만 건너뛴다(GROMO-2520). 한계: 건너뛴 기기는 이 알림을 받지 못한다 — 재시도에서도 같은
+                // 크기라 다시 건너뛴다. 아직 외부 발송은 시작하지 않았다.
+                log.warn("푸시가 크기 한도를 넘는 기기 — 이 기기만 건너뛴다. deviceKey={} deliveries={}",
+                        device, deliveries);
+                oversized = invalid;
+                continue;
             }
             attempts.add(new Attempt(user, device, token.get("device_token").toString(),
                     ((Number) token.get("ownership_version")).longValue(), push,
                     unsent.stream().map(row -> (UUID) row.get("id")).toList()));
+        }
+        if (attempts.isEmpty() && oversized != null) {
+            // 시도할 기기가 하나도 없다. 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다 — 재시도 없이 끝낸다.
+            // 모든 기기가 이미 받아 시도가 없는 경우(oversized == null)는 여기에 오지 않고 settle 이 발송으로 맺는다.
+            // 한 대라도 이미 받은 행(settle 과 같은 delivery_devices 기준)은 실패가 아니라 발송이다 — 초과는 남은 기기의 사정.
+            for (UUID delivery : deliveries) {
+                if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) != null) {
+                    markSent(delivery);
+                } else {
+                    store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
+                            + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", oversized.getMessage(), delivery);
+                }
+            }
+            return null;
         }
         // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,
         // 그 전에 프로세스가 죽어도 임대가 끝나기 전에는 다시 집히지 않는다.

@@ -213,6 +213,30 @@ class AdminApiTest {
                 .containsEntry("version", 2);
     }
 
+    /**
+     * 실제 발송은 기기마다 deliveryTag 를 data 에 더한다(GROMO-2520). 태그 없이는 한도 안이어도 태그를 더하면
+     * 넘는 템플릿은 저장 단계에서 거절돼야 한다 — 아니면 저장은 되고 태그 있는 기기로 가는 발송만 FAILED 가 된다.
+     */
+    @Test
+    void templatesMustStillFitOnceTheDeliveryTagOfTheRealSendIsAdded() throws Exception {
+        String tag = devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1),
+                "reg").get("deliveryTag").toString();
+        // 경계는 requireFits 로 직접 잰다 — 봉투가 바뀌어도 숫자가 낡지 않는다. 본문은 ASCII 라 1자 = 1byte.
+        int fitsWithTag = 0;
+        while (fits(fitsWithTag + 1, tag)) {
+            fitsWithTag++;
+        }
+        int oneOver = fitsWithTag + 1;
+        assertThat(fits(oneOver, null)).as("전제: 태그 없이 재면 이 본문은 한도 안이다").isTrue();
+
+        MvcResult rejected = put("/internal/admin/templates/FRIEND_REQUEST.ko", "tagged-template",
+                template("a".repeat(oneOver)));
+        assertThat(rejected.getResponse().getStatus()).isEqualTo(422);
+        assertThat(code(rejected)).isEqualTo("FCM_PAYLOAD_TOO_LARGE");
+        assertThat(store.one("SELECT body,version FROM templates WHERE id='FRIEND_REQUEST.ko'"))
+                .containsEntry("body", "내기 {count}건").containsEntry("version", 1L);
+    }
+
     @Test
     void dataOwnedJobsAreRefusedAndNotificationJobsValidateCron() throws Exception {
         store.update("INSERT INTO jobs(id,owner,cron) VALUES('league-weekly','DATA','0 0 7 * * MON'),"
@@ -240,8 +264,9 @@ class AdminApiTest {
         request.put("body", "초안 {count}건");
         Map<String, Object> preview = body(post("/internal/admin/templates/FRIEND_REQUEST.ko/preview", null, request));
         assertThat(preview).containsEntry("body", "초안 3건").containsEntry("title", "결과");
+        // 크기 검사에 쓴 태그 자리표시는 미리보기 응답에 새지 않는다(GROMO-2520).
         assertThat(Json.map(preview.get("data"))).containsEntry("link", "gromo://bet/3")
-                .containsEntry("screen", "bet-3");
+                .containsEntry("screen", "bet-3").doesNotContainKey("deliveryTag");
         // 미리보기는 저장하지 않는다.
         assertThat(store.one("SELECT body FROM templates WHERE id='FRIEND_REQUEST.ko'").get("body"))
                 .isEqualTo("내기 {count}건");
@@ -323,6 +348,17 @@ class AdminApiTest {
         request.put("enabled", true);
         request.put("sampleParams", Map.of("count", 1));
         return request;
+    }
+
+    /** 관리자 저장이 재는 봉투(제목 «결과», 빈 data, sound)에 본문 bodyLength 자와 태그(없으면 null)를 담아 한도 안인지. */
+    private static boolean fits(int bodyLength, String tag) {
+        RenderedPush push = new RenderedPush("결과", "a".repeat(bodyLength), Map.of(), false);
+        try {
+            FcmPayload.requireFits(tag == null ? push : push.withDeliveryTag(tag), true, "template-preview");
+            return true;
+        } catch (NotificationFailure tooLarge) {
+            return false;
+        }
     }
 
     private static List<String> ids(Map<String, Object> page) {
