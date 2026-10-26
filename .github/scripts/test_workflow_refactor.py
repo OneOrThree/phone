@@ -55,22 +55,21 @@ class WorkflowRefactorTests(unittest.TestCase):
         for name in ('data-api-cd.dev', 'satellite-cd.dev'):
             self.assertEqual(workflow(name)['concurrency']['queue'], 'max')
 
-    def test_validation_only_runs_cannot_replace_pending_publication(self):
+    def test_app_queues_keep_latest_pending_with_publication_based_classification(self):
         ios, android, cd = workflow('app-ios-testflight-dev'), workflow('app-android-ci'), workflow('app-android-cd')
-        for definition in (ios, android, cd):
-            self.assertNotIn('concurrency', definition)
-        self.assertEqual(ios['jobs']['testflight-dev']['concurrency']['group'], 'ios-testflight-dev')
-        self.assertIn("needs.change-plan.outputs.publish == 'true'", ios['jobs']['testflight-dev']['if'])
-        build = android['jobs']['build']
-        self.assertIn("needs.change-plan.outputs.publish == 'true'", build['concurrency']['group'])
-        self.assertIn('android-ci-main-validation', build['concurrency']['group'])
-        self.assertIn("needs.change-plan.outputs.build == 'true'", build['if'])
-        self.assertEqual(cd['jobs']['play-internal']['concurrency']['group'], 'android-play-internal')
-        self.assertIn("needs.source.outputs.publish == 'true'", cd['jobs']['sign']['if'])
-        self.assertIn('sign', cd['jobs']['play-internal']['needs'])
-        self.assertNotIn('always()', cd['jobs']['play-internal'].get('if', ''))
-        for job in (ios['jobs']['testflight-dev'], build, cd['jobs']['play-internal']):
-            self.assertEqual(job['concurrency']['cancel-in-progress'], 'false' if job is not build else "${{ !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}")
+        self.assertIn('ios-testflight-dev', ios['concurrency']['group'])
+        self.assertIn('ios-testflight-validation-', ios['concurrency']['group'])
+        self.assertIn('vars.IOS_DEV_RUNNERS', ios['concurrency']['group'])
+        self.assertIn('android-ci-main', android['concurrency']['group'])
+        self.assertIn('android-play-validation-', cd['concurrency']['group'])
+        for definition in (ios, android):
+            planner = definition['jobs']['change-plan']
+            self.assertEqual(planner['permissions']['actions'], 'read')
+            self.assertEqual(planner['steps'][0]['with']['fetch-depth'], '0')
+        for definition, job in ((ios, 'testflight-dev'), (cd, 'play-internal')):
+            steps = definition['jobs'][job]['steps']
+            self.assertTrue(any('--record' in step.get('run', '') for step in steps))
+            self.assertTrue(any(step.get('with', {}).get('name') == 'app-publication' for step in steps))
 
     def test_ios_has_no_pr_event_and_auto_upload_requires_quality(self):
         ios = workflow('app-ios-testflight-dev')

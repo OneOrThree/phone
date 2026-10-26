@@ -42,12 +42,20 @@ on:
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
 # 실행 중 빌드는 유지하고 대기 중인 빌드는 최신 하나만 남긴다.
 
+concurrency:
+  group: ${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && 'ios-testflight-dev' || format('ios-testflight-validation-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
   change-plan:
     name: iOS 자동 게시 범위 판정
+    if: github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.plan.outputs.publish }}
@@ -56,6 +64,8 @@ jobs:
         with:
           fetch-depth: 0
       - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 .github/ci/app-change-plan.py --platform ios
 
   quality-gate:
@@ -83,9 +93,6 @@ jobs:
     uses: ./.github/workflows/app-lint.yml
 
   testflight-dev:
-    concurrency:
-      group: ios-testflight-dev
-      cancel-in-progress: false
     needs: [quality-gate, manual-quality, change-plan]
     # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
     # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
@@ -141,6 +148,15 @@ jobs:
         # Apple 처리 완료까지 기다리므로 운영 빌드보다 5~15분 더 걸린다.
         working-directory: app/app-dev/ios
         run: ./testflight.sh --dev
+
+      - name: 성공한 실제 게시 SHA 기록
+        run: python3 .github/ci/app-change-plan.py --platform ios --record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-publication
+          path: app-publication.json
+          retention-days: 90
+          overwrite: true
 
       - name: 결과 요약
         if: always()

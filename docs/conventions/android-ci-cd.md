@@ -28,11 +28,11 @@ CD는 현재 main의 검증 코드만 checkout한다. 다운로드한 AAB나 메
 
 Play 게시 잡은 `play-internal` 환경과 기존 OIDC 역할을 유지한다. 서명된 AAB checksum을 확인하고, 게시 전 Play 버전·AAB SHA-256과 게시 후 internal 트랙 상태·AAB SHA-256을 재조회한다. Play 실패가 이미 성공한 CI 실행의 결과를 바꾸지 않는다.
 
-게시용 AAB 빌드와 검증용 AAB 빌드는 별도 job 대기열을 사용한다. Play 게시는 `android-play-internal` job 그룹으로 직렬화하며, 진행 중 실행은 유지하고 게시 대상 대기는 최신 하나만 남긴다. 검증 전용 CI·CD와 테스트 전용 push는 게시 대기를 대체하지 않는다.
+CI와 CD는 진행 중 실행을 유지하고 대기를 최신 하나만 남긴다. main의 앱 변경 판정은 마지막 실제 게시 SHA부터 누적하므로, 테스트·도구 push가 대기 실행을 대체해도 미게시 런타임 변경은 최신 실행에서 다시 빌드·게시한다. 수동 CI 검증의 완료 이벤트는 Play 자동 게시와 별도 그룹을 사용한다.
 
 ## 수동 실행·재시도
 
-Android CI 수동 실행은 빌드까지다. 성공한 main 실행은 자동 CD 대상이며, 다른 브랜치의 수동 CI는 게시하지 않는다. Android CD를 main에서 수동 실행할 때 `ci-run-id`에 성공한 main CI 실행 ID를 지정한다. CI의 현재 성공 attempt만 선택한다.
+Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. 다른 브랜치의 수동 CI도 게시하지 않는다. Android CD를 main에서 수동 실행할 때 `ci-run-id`에 성공한 main CI 실행 ID를 지정한다. CI의 현재 성공 attempt만 선택한다.
 
 게시 후 PR 표시 등에서 실패했다면 CD의 실패한 게시 job만 재실행해 같은 서명 AAB를 재사용한다. 동일 versionCode의 기존 번들이 현재 업로드 바이트와 다르면 성공으로 간주하지 않는다. 서명까지 전체 재실행해 bytes가 바뀐 경우에는 새 CI를 실행하거나 게시 완료 상태를 별도 확인해야 한다.
 
@@ -52,8 +52,8 @@ Android CI 수동 실행은 빌드까지다. 성공한 main 실행은 자동 CD 
 ### 자동 게시 입력
 
 `app-change-plan.py`는 검증용 AAB 생성과 스토어 자동 게시 여부를 별도로 판정한다.
-테스트·Markdown만 변경하면 AAB를 만들지 않고, workflow·CI helper 변경은 AAB를
-검증하되 Play에는 자동 게시하지 않는다. 플랫폼별 네이티브 입력은 해당 플랫폼만,
+마지막 게시 이후 테스트·Markdown만 변경하면 AAB를 만들지 않고, workflow·CI helper 변경만 있으면 AAB를
+검증하되 Play에는 자동 게시하지 않는다. 이전 취소·실패 실행의 미게시 런타임 변경이 있으면 함께 게시 대상으로 선택한다. 플랫폼별 네이티브 입력은 해당 플랫폼만,
 공유 소스·asset·의존성·`ios/release-config.sh`는 두 플랫폼의 게시 입력이다.
 
 Android CI 산출물의 schema 2 메타데이터에는 `publish`가 포함된다. CD는 checksum과
@@ -62,3 +62,5 @@ Android CI 산출물의 schema 2 메타데이터에는 `publish`가 포함된다
 명시적으로 수동 실행한다. schema 1의 과거 산출물은 새 CI 실행으로 다시 생성해야 한다.
 
 필수 Lint·Android Checks는 main 실행별 그룹으로 보존한다. 게시 job만 보존하고 선행 검사를 취소하면 동일 SHA 게이트가 실패해 런타임 변경의 게시가 누락될 수 있기 때문이다. PR 검사는 기존처럼 PR별 최신 실행으로 대체한다.
+
+게시 성공 뒤 `app-publication` 산출물에 플랫폼·실제 소스 SHA를 90일간 기록한다. AAB 생성 성공이나 workflow_run의 이벤트 시점 head_sha를 게시 기준으로 삼지 않는다. 최초 전환에서는 기존 workflow의 실제 트랙 재조회·TestFlight 업로드 성공도 인정한다. 성공 기준을 확인할 수 없으면 자동 판정을 실패시키며, main 수동 게시로 기준을 초기화한다.

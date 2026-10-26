@@ -14,6 +14,11 @@ on:
         type: string
 
 
+concurrency:
+  # CI 수동 검증의 완료 이벤트는 자동 게시 대기를 대체하지 않는다.
+  group: ${{ (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push') && 'android-play-internal' || format('android-play-validation-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   actions: read
@@ -164,9 +169,6 @@ jobs:
           overwrite: true
 
   play-internal:
-    concurrency:
-      group: android-play-internal
-      cancel-in-progress: false
     needs: [source, sign]
     permissions:
       contents: read
@@ -275,6 +277,17 @@ jobs:
       - name: Play 키 지우기
         if: always()
         run: rm -f "$RUNNER_TEMP/play-sa.json"
+
+      - name: 성공한 실제 게시 SHA 기록
+        env:
+          PUBLISHED_REVISION: ${{ needs.source.outputs.revision }}
+        run: python3 .github/ci/app-change-plan.py --platform android --record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-publication
+          path: app-publication.json
+          retention-days: 90
+          overwrite: true
 
       - name: 배포된 PR 에 표시
         # 커밋의 머지 PR 찾아 표시. PR 없으면 건너뜀.
