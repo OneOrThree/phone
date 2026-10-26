@@ -61,6 +61,8 @@ class WorkflowRefactorTests(unittest.TestCase):
         self.assertIn('ios-testflight-validation-', ios['concurrency']['group'])
         self.assertIn('vars.IOS_DEV_RUNNERS', ios['concurrency']['group'])
         self.assertIn('android-ci-main', android['concurrency']['group'])
+        self.assertIn('android-ci-main-validation', android['concurrency']['group'])
+        self.assertIn("github.event_name == 'push'", android['concurrency']['group'])
         self.assertIn('android-play-validation-', cd['concurrency']['group'])
         for definition in (ios, android):
             planner = definition['jobs']['change-plan']

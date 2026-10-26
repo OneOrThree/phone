@@ -48,7 +48,7 @@ on:
 # main: 실행 중 검사는 유지하고 대기는 최신 하나만 남긴다.
 
 concurrency:
-  group: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') && 'android-ci-main' || format('android-ci-{0}', github.ref) }}
+  group: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'android-ci-main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && 'android-ci-main-validation' || format('android-ci-{0}', github.ref) }}
   cancel-in-progress: ${{ !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
 
 permissions:
