@@ -12,12 +12,32 @@ const TAG = '5d1c2f0a-9a53-4b36-8f0e-1c2d3e4f5a6b';
 const DEFAULT_ACTION = 'expo.modules.notifications.actions.DEFAULT';
 const KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-type Device = { userId?: string; fcmToken?: string; ownershipToken?: string; deliveryTag?: string };
+type Device = {
+  userId?: string;
+  fcmToken?: string;
+  registeredToken?: string;
+  ownershipToken?: string;
+  deliveryTag?: string;
+};
 type FakeSession = { accessToken: string; refreshToken: string; userId: string };
 type Permission = 'granted' | 'denied' | 'provisional' | 'undetermined';
 
-/** 등록을 마친 기기 — 같은 계정·같은 토큰이면 다시 등록하지 않는다. 등록 응답 기본값도 이 소유권·태그다. */
-const REGISTERED: Device = { userId: USER, fcmToken: FCM, ownershipToken: OWN, deliveryTag: TAG };
+/** 그 토큰으로 등록을 확인받은 기록 — 같은 계정·같은 토큰이면 다시 등록하지 않는다. 등록 응답 기본값도 이 소유권·태그다. */
+const registeredWith = (fcmToken: string, userId = USER): Device => ({
+  userId,
+  fcmToken,
+  registeredToken: fcmToken,
+  ownershipToken: OWN,
+  deliveryTag: TAG,
+});
+const REGISTERED = registeredWith(FCM);
+/** 알림을 끈 기기 — 토큰만 지우고 소유권·태그와 그것을 확인받은 토큰은 남긴다(다시 켜면 CAS). */
+const TOKEN_DELETED: Device = {
+  userId: USER,
+  registeredToken: FCM,
+  ownershipToken: OWN,
+  deliveryTag: TAG,
+};
 /** 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 같은 계정의 기록을 건드리지 않는다. */
 const RECEIVING: Device = { userId: USER, ownershipToken: OWN, deliveryTag: TAG };
 
@@ -302,6 +322,38 @@ test('알림을 다시 켠 등록(CAS)의 응답을 잃으면 같은 상태로 �
   t.stop();
 });
 
+test('알림을 다시 켠 등록(CAS)의 응답을 잃고 앱이 다시 시작돼도 확인 전인 등록을 다시 보내고, 확인된 기록은 다시 시작해도 건너뛴다', async () => {
+  // 알림을 껐다(토큰만 지움) 다시 켠 기기 — 등록 응답을 잃는다.
+  let t = setup({ stored: TOKEN_DELETED });
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
+  await settle();
+  const unconfirmed = t.stored()!;
+  // 받은 토큰은 적혔지만 소유권·태그는 아직 옛 토큰으로 확인받은 것이다.
+  expect(unconfirmed).toStrictEqual({ ...TOKEN_DELETED, fcmToken: FCM_2 });
+  t.stop();
+
+  // 다시 시작 — 메모리의 묶음은 없어도 확인 전이라 다시 보낸다.
+  t = setup({ stored: unconfirmed });
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledWith(
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    expect.stringMatching(KEY),
+  );
+  const confirmed = t.stored()!;
+  expect(confirmed).toStrictEqual(registeredWith(FCM_2));
+  t.stop();
+
+  // 확인된 기록으로 다시 시작하면 건너뛴다.
+  t = setup({ stored: confirmed });
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  await settle();
+  expect(t.fcm.getToken).toHaveBeenCalled();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  t.stop();
+});
+
 test('Android·브리지 없는 바이너리에서는 expo-notifications 를 불러오지 않고 브리지·저장소·서버도 부르지 않는다', async () => {
   for (const options of [{ os: 'android' }, { bridge: false }]) {
     const t = setup({ ...options, stored: REGISTERED });
@@ -359,7 +411,7 @@ test('A→B 는 표시 알림을 지우고 FCM 토큰을 바꾼 뒤에 소유권
   const registered = t.registerDevice.mock.invocationCallOrder[0];
   expect(dismissed).toBeLessThan(deleted);
   expect(deleted).toBeLessThan(registered);
-  expect(t.stored()).toStrictEqual({ ...REGISTERED, fcmToken: FCM_2 });
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2));
   t.stop();
 });
 
@@ -384,7 +436,7 @@ test('A→B 는 알림이 꺼져 있어도 먼저 한다 — A 의 표시 알림
     { deviceToken: FCM_2, deviceBootstrap: 'boot-b' },
     expect.stringMatching(KEY),
   );
-  expect(t.stored()).toStrictEqual({ ...REGISTERED, userId: OTHER, fcmToken: FCM_2 });
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2, OTHER));
   t.stop();
 });
 
@@ -416,7 +468,7 @@ test('FCM 토큰 갱신 이벤트·APNs 토큰 변경이면 새 FCM 토큰을 �
     { deviceToken: FCM_2, ownershipToken: OWN },
     expect.stringMatching(KEY),
   );
-  expect(t.stored()).toStrictEqual({ ...REGISTERED, fcmToken: FCM_2 });
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2));
 
   // swizzling 을 꺼서 Firebase 는 APNs 토큰을 getToken 인자로만 받는다 — 바뀐 APNs 토큰으로 다시 묻는다.
   t.fcm.getToken.mockResolvedValue(FCM_3);
@@ -448,7 +500,7 @@ test('네트워크·5xx 로 실패한 등록은 다음 트리거에 같은 키·
   expect(retry).toStrictEqual(first);
   expect(changed[0]).toStrictEqual({ deviceToken: FCM_3, ownershipToken: OWN });
   expect(changed[1]).not.toBe(first[1]);
-  expect(t.stored()).toStrictEqual({ ...REGISTERED, fcmToken: FCM_3 });
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_3));
   t.stop();
 });
 
@@ -544,7 +596,7 @@ test('가장 최근에 시작한 등록의 응답만 저장한다 — 세션이 
     ownershipToken: OWN,
     deviceBootstrap: 'boot-2',
   });
-  expect(t.stored()).toStrictEqual({ ...REGISTERED, fcmToken: FCM_2 });
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2));
   t.stop();
 });
 
@@ -590,7 +642,7 @@ test('설정을 끄면 서버 행은 두고 FCM 토큰만 지운다(소유권 �
   await settle();
   expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
   expect(t.deleteDevice).not.toHaveBeenCalled();
-  expect(t.stored()).toStrictEqual({ userId: USER, ownershipToken: OWN, deliveryTag: TAG });
+  expect(t.stored()).toStrictEqual(TOKEN_DELETED);
 
   t.foreground();
   await settle();
@@ -711,6 +763,39 @@ test('탭은 기록을 읽은 뒤 콜드 스타트 응답을 한 번 열고 지�
   t.stop();
 });
 
+test.each([
+  ['같은 계정이면 한 번 연다', USER, 1],
+  ['다른 계정이면 버린다', OTHER, 0],
+])(
+  '세션을 알기 전에 온 탭은 들고 있다가 세션이 공개되면 한 번 판정한다 — %s',
+  async (_case, userId, opens) => {
+    const tapped = notice({ link: 'gromo://friends', deliveryTag: TAG });
+    const t = setup({
+      stored: RECEIVING,
+      permission: 'denied',
+      current: null,
+      cold: responseOf(tapped),
+    });
+    await settle();
+    // 세션을 모르는 동안에는 열지 않고, 같은 탭이 리스너로 다시 와도 들고만 있다(OS 의 마지막 응답은 지운다).
+    t.tap(responseOf(tapped));
+    expect(t.openAppLink).not.toHaveBeenCalled();
+    expect(t.notifications.clearLastNotificationResponse).toHaveBeenCalledTimes(1);
+
+    t.publish(sessionOf(userId));
+    await settle();
+    expect(t.openAppLink).toHaveBeenCalledTimes(opens);
+
+    // 판정은 한 번뿐 — 같은 탭이 다시 와도, 세션이 다시 바뀌어도 다시 열지 않는다.
+    t.tap(responseOf(tapped));
+    t.publish(null);
+    t.publish(sessionOf(USER, 'rt-again'));
+    await settle();
+    expect(t.openAppLink).toHaveBeenCalledTimes(opens);
+    t.stop();
+  },
+);
+
 test('태그 없는 200(V13 전 저장 응답 재생)이면 저장 태그를 지워 이후 푸시를 버리지 않는다', async () => {
   const t = setup({ stored: REGISTERED });
   t.fcm.getToken.mockResolvedValue(FCM_2);
@@ -720,6 +805,7 @@ test('태그 없는 200(V13 전 저장 응답 재생)이면 저장 태그를 지
   expect(t.stored()).toStrictEqual({
     userId: USER,
     fcmToken: FCM_2,
+    registeredToken: FCM_2,
     ownershipToken: 'replayed-ownership',
   });
   await expect(t.show(notice({}))).resolves.toMatchObject({ shouldShowBanner: true });
@@ -768,7 +854,7 @@ test('알림 끄기의 deleteToken 이 실패하면 기록을 그대로 두고 �
   t.foreground();
   await settle();
   expect(t.fcm.deleteToken).toHaveBeenCalledTimes(2);
-  expect(t.stored()).toStrictEqual({ userId: USER, ownershipToken: OWN, deliveryTag: TAG });
+  expect(t.stored()).toStrictEqual(TOKEN_DELETED);
 
   t.switchOn.value = true;
   t.fcm.getToken.mockResolvedValue(FCM_2);
@@ -785,7 +871,7 @@ test('A→B 에서 기록에 FCM 토큰이 없으면(알림 끄기로 이미 지
   const t = setup({ stored: REGISTERED, enabled: false });
   await settle();
   expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
-  expect(t.stored()).toStrictEqual({ userId: USER, ownershipToken: OWN, deliveryTag: TAG });
+  expect(t.stored()).toStrictEqual(TOKEN_DELETED);
 
   // 빈 저장소의 deleteToken 은 거절될 수 있다 — 불렀다면 B 를 등록하지 못한다.
   t.fcm.deleteToken.mockRejectedValue(bridgeError('TOKEN_ERROR'));
@@ -799,7 +885,7 @@ test('A→B 에서 기록에 FCM 토큰이 없으면(알림 끄기로 이미 지
     { deviceToken: FCM_2, deviceBootstrap: 'boot-b' },
     expect.stringMatching(KEY),
   );
-  expect(t.stored()).toStrictEqual({ ...REGISTERED, userId: OTHER, fcmToken: FCM_2 });
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2, OTHER));
   t.stop();
 });
 
