@@ -18,7 +18,7 @@ type Permission = 'granted' | 'denied' | 'provisional' | 'undetermined';
 
 /** 등록을 마친 기기 — 같은 계정·같은 토큰이면 다시 등록하지 않는다. 등록 응답 기본값도 이 소유권·태그다. */
 const REGISTERED: Device = { userId: USER, fcmToken: FCM, ownershipToken: OWN, deliveryTag: TAG };
-/** 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 기록을 건드리지 않는다. */
+/** 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 같은 계정의 기록을 건드리지 않는다. */
 const RECEIVING: Device = { userId: USER, ownershipToken: OWN, deliveryTag: TAG };
 
 const sessionOf = (userId = USER, refreshToken = `rt-${userId}`): FakeSession => ({
@@ -227,10 +227,78 @@ test('첫 등록은 그 세션의 bootstrap 을 싣고, 응답을 userId·토큰
   const [body, key] = t.registerDevice.mock.calls[0];
   expect(body).toStrictEqual({ deviceToken: FCM, deviceBootstrap: 'boot-1' });
   expect(key).toMatch(KEY);
-  // 원자 저장 — 네 값이 쓰기 한 번에 함께 들어간다.
-  expect(t.secureStore.setItemAsync).toHaveBeenCalledTimes(1);
+  // 원자 저장 — 응답(소유권·태그)은 userId·토큰과 함께 기록 하나로 한 번에 쓴다.
+  const writes = t.secureStore.setItemAsync.mock.calls.map(([, value]) => JSON.parse(value));
+  expect(writes.filter((write) => 'ownershipToken' in write)).toStrictEqual([REGISTERED]);
   expect(t.stored()).toStrictEqual(REGISTERED);
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+  t.stop();
+});
+
+test('첫 등록의 응답을 잃어도(네트워크) 받은 토큰과 계정은 먼저 적혀 있다 — 알림을 끄면 그 토큰을 지운다', async () => {
+  const t = setup({ bootstrap: 'boot-1' });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
+  await settle();
+  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM });
+
+  t.switchOn.value = false;
+  t.push.refreshPush();
+  await settle();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.stored()).toStrictEqual({ userId: USER });
+  t.stop();
+});
+
+test('첫 등록의 응답을 잃은 뒤 A 가 로그아웃하고 B 가 로그인하면 그 토큰을 지운 뒤에 B 를 등록한다', async () => {
+  const t = setup({ bootstrap: 'boot-1' });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_TIMEOUT', 0));
+  await settle();
+
+  // A 로그아웃 — 서버 행 삭제도 먼저 적어 둔 토큰으로 시작한다.
+  t.push.unregisterPushDevice();
+  expect(t.deleteDevice).toHaveBeenCalledWith(FCM, undefined, expect.stringMatching(KEY));
+  t.publish(null);
+  await settle();
+
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.publish(sessionOf(OTHER), 'boot-b');
+  await settle();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.registerDevice).toHaveBeenLastCalledWith(
+    { deviceToken: FCM_2, deviceBootstrap: 'boot-b' },
+    expect.stringMatching(KEY),
+  );
+  expect(t.fcm.deleteToken.mock.invocationCallOrder[0]).toBeLessThan(
+    t.registerDevice.mock.invocationCallOrder[1],
+  );
+  t.stop();
+});
+
+test('첫 등록의 응답을 잃으면 다음 트리거에 같은 키·같은 본문으로 다시 보내 재생 응답의 소유권·태그를 저장한다', async () => {
+  const t = setup({ bootstrap: 'boot-1' });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_TIMEOUT', 0));
+  await settle();
+  t.foreground();
+  await settle();
+
+  const [lost, replayed] = t.registerDevice.mock.calls;
+  expect(lost[0]).toStrictEqual({ deviceToken: FCM, deviceBootstrap: 'boot-1' });
+  expect(replayed).toStrictEqual(lost);
+  expect(t.stored()).toStrictEqual(REGISTERED);
+  t.stop();
+});
+
+test('알림을 다시 켠 등록(CAS)의 응답을 잃으면 같은 상태로 보고 건너뛰지 않고 다음 트리거에 같은 키·본문으로 다시 보낸다', async () => {
+  // 알림을 껐다가(토큰만 지움, 소유권·태그는 남김) 다시 켠 기기.
+  const t = setup({ stored: { userId: USER, ownershipToken: OWN, deliveryTag: TAG } });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
+  await settle();
+  t.foreground();
+  await settle();
+
+  const [lost, retried] = t.registerDevice.mock.calls;
+  expect(lost[0]).toStrictEqual({ deviceToken: FCM, ownershipToken: OWN });
+  expect(retried).toStrictEqual(lost);
   t.stop();
 });
 
@@ -292,6 +360,31 @@ test('A→B 는 표시 알림을 지우고 FCM 토큰을 바꾼 뒤에 소유권
   expect(dismissed).toBeLessThan(deleted);
   expect(deleted).toBeLessThan(registered);
   expect(t.stored()).toStrictEqual({ ...REGISTERED, fcmToken: FCM_2 });
+  t.stop();
+});
+
+test('A→B 는 알림이 꺼져 있어도 먼저 한다 — A 의 표시 알림·토큰을 지우고 기록을 비우되 getToken·등록은 하지 않고, 켜면 B 로 등록한다', async () => {
+  // A 의 등록 기록이 남은 기기(로그아웃 뒤)에 알림이 꺼진 채 B 가 로그인한다.
+  const t = setup({ stored: REGISTERED, current: null, enabled: false });
+  await settle();
+  t.publish(sessionOf(OTHER), 'boot-b');
+  await settle();
+  expect(t.notifications.dismissAllNotificationsAsync).toHaveBeenCalledTimes(1);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.fcm.getToken).not.toHaveBeenCalled();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  expect(t.stored()).toStrictEqual({});
+
+  // 같은 세션에서 켜면 그 세션의 bootstrap 으로, 소유권 없이 B 를 등록한다.
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.switchOn.value = true;
+  t.push.refreshPush();
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledWith(
+    { deviceToken: FCM_2, deviceBootstrap: 'boot-b' },
+    expect.stringMatching(KEY),
+  );
+  expect(t.stored()).toStrictEqual({ ...REGISTERED, userId: OTHER, fcmToken: FCM_2 });
   t.stop();
 });
 
@@ -551,7 +644,7 @@ test.each<[string, { stored?: Device; current?: null; enabled?: boolean }, Notif
   ['세션 없음', { current: null }, notice({ deliveryTag: TAG }), false],
   ['알림 꺼짐', { enabled: false }, notice({ deliveryTag: TAG }), false],
   [
-    '다른 계정의 등록',
+    '다른 계정의 등록(알림이 꺼져도 A→B 교체로 비운 뒤)',
     { stored: { ...RECEIVING, userId: OTHER } },
     notice({ deliveryTag: TAG }),
     false,
@@ -578,7 +671,7 @@ test.each<[string, { stored?: Device; current?: null; enabled?: boolean }, Notif
     false,
   ],
 ])('수신 판정 — %s', async (_case, options, notification, expected) => {
-  // 권한 거부·FCM 토큰 없음 — 동기화가 기록을 건드리지 않아 판정만 본다.
+  // 권한 거부·FCM 토큰 없음 — 동기화가 토큰을 받지도 등록하지도 않아 판정만 본다(다른 계정 기록은 교체로 비운다).
   const t = setup({ stored: RECEIVING, permission: 'denied', ...options });
   await settle();
 
