@@ -18,6 +18,7 @@ import {
   tutorialExperienceAction,
 } from '@/services/tutorialExperience';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
+import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { Ticking } from '@/hooks/useNow';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -882,6 +883,8 @@ function AppPermissionManager({ e }: any) {
   const [allowedCount, setAllowedCount] = useState(0);
   const [allowedPicker, setAllowedPicker] = useState(false);
   const [overlayGranted, setOverlayGranted] = useState(false);
+  // 알림 권한(GROMO-2526) — iOS 이고 푸시 브리지가 든 바이너리에서만 `unavailable` 이 아니다. 아니면 알림 섹션을 그리지 않는다.
+  const [pushPermission, setPushPermission] = useState<PushPermission>('unavailable');
   const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
@@ -904,6 +907,12 @@ function AppPermissionManager({ e }: any) {
                 { count: selectedCount },
               )
             : t('settings.permissions.status.none');
+  const pushDescription =
+    pushPermission === 'granted'
+      ? t('settings.permissions.notifications.granted')
+      : pushPermission === 'denied'
+        ? t('settings.permissions.notifications.denied')
+        : t('settings.permissions.notifications.undetermined');
   const permissionDescription =
     status === 'loading'
       ? t('settings.permissions.status.permissionChecking')
@@ -930,6 +939,9 @@ function AppPermissionManager({ e }: any) {
           })
           .catch(() => {});
       }
+      void pushPermissionStatus().then((next) => {
+        if (active) setPushPermission(next);
+      });
       screenTime
         .getAuthorizationStatus()
         .then((nextStatus) => {
@@ -1014,6 +1026,12 @@ function AppPermissionManager({ e }: any) {
   };
 
   const openSystemSettings = () => openScreenTimeSettings(e.notify);
+
+  // 아직 안 물음이면 시스템 팝업, 아니면 시스템 설정 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다.
+  const changePush = async () => {
+    if (pushPermission === 'undetermined') setPushPermission(await requestPushPermission());
+    else await openSystemSettings();
+  };
 
   const openMeasuredApps = async () => {
     if (!(approved || (await requestConnection()))) return;
@@ -1149,6 +1167,22 @@ function AppPermissionManager({ e }: any) {
             }}
           />
         </Group>
+      )}
+      {pushPermission !== 'unavailable' && (
+        <>
+          <Txt kind="section">{t('settings.notifications')}</Txt>
+          <Group>
+            <Row
+              title={t('settings.permissions.notifications.title')}
+              sub={pushDescription}
+              accessibilityLabel={t('settings.permissions.notifications.a11y', {
+                description: pushDescription,
+              })}
+              chevron
+              onPress={changePush}
+            />
+          </Group>
+        </>
       )}
     </Sheet>
   );

@@ -171,6 +171,13 @@
           "sub": "알림·잠금화면에서 집중 시간을 확인해요"
         }
       },
+      "notifications": {
+        "title": "알림 권한",
+        "granted": "허용됨",
+        "denied": "꺼짐",
+        "undetermined": "아직 묻지 않았어요",
+        "a11y": "알림 권한, {{description}}"
+      },
       "help": {
         "android": "사용 정보 접근 설정에서 이 앱을 허용해 주세요.",
         "ios": "허용 창이 안 뜨면 시스템 설정에서 허용해 주세요."

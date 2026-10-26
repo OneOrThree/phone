@@ -14,7 +14,7 @@ const KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12
 
 type Device = { userId?: string; fcmToken?: string; ownershipToken?: string; deliveryTag?: string };
 type FakeSession = { accessToken: string; refreshToken: string; userId: string };
-type Permission = 'granted' | 'denied' | 'provisional';
+type Permission = 'granted' | 'denied' | 'provisional' | 'undetermined';
 
 /** 등록을 마친 기기 — 같은 계정·같은 토큰이면 다시 등록하지 않는다. 등록 응답 기본값도 이 소유권·태그다. */
 const REGISTERED: Device = { userId: USER, fcmToken: FCM, ownershipToken: OWN, deliveryTag: TAG };
@@ -56,6 +56,7 @@ function setup({
   current = sessionOf(),
   bootstrap,
   permission = 'granted',
+  answer = 'granted',
   enabled = true,
   cold = null,
 }: {
@@ -65,6 +66,8 @@ function setup({
   current?: FakeSession | null;
   bootstrap?: string;
   permission?: Permission;
+  /** 아직 안 물음일 때 시스템 팝업에 사용자가 답하는 권한. */
+  answer?: Permission;
   enabled?: boolean;
   cold?: NotificationResponse | null;
 } = {}) {
@@ -93,13 +96,21 @@ function setup({
   let handler:
     { handleNotification: (n: Notification) => Promise<Record<string, boolean>> } | undefined;
   let status: Permission = permission;
+  // 네이티브(ExpoNotificationsPermissionsRequester)와 같은 모양 — 최상위 status 는 허용·거부 말고는 임시 허용도 undetermined 이고,
+  // ios.status 는 UNAuthorizationStatus 원본 값이다.
+  const permissionSnapshot = () => ({
+    status: status === 'granted' || status === 'denied' ? status : 'undetermined',
+    granted: status === 'granted',
+    ios: { status: { undetermined: 0, denied: 1, granted: 2, provisional: 3 }[status] },
+  });
   const notifications = {
     DEFAULT_ACTION_IDENTIFIER: DEFAULT_ACTION,
     IosAuthorizationStatus: { PROVISIONAL: 3 },
-    getPermissionsAsync: jest.fn(async () => ({
-      granted: status === 'granted',
-      ios: { status: status === 'granted' ? 2 : status === 'provisional' ? 3 : 1 },
-    })),
+    getPermissionsAsync: jest.fn(async () => permissionSnapshot()),
+    requestPermissionsAsync: jest.fn(async (_request: object) => {
+      status = answer;
+      return permissionSnapshot();
+    }),
     getDevicePushTokenAsync: jest.fn(async () => ({ type: 'ios', data: APNS })),
     dismissAllNotificationsAsync: jest.fn(async () => undefined),
     setNotificationHandler: jest.fn((next: typeof handler | null) => {
@@ -720,5 +731,94 @@ test('409 충돌 뒤 deleteToken 이 실패하면 살아 있는 토큰을 기록
   expect(t.fcm.deleteToken.mock.invocationCallOrder[1]).toBeLessThan(
     t.registerDevice.mock.invocationCallOrder[1],
   );
+  t.stop();
+});
+
+// ── 알림 권한 조회·요청(GROMO-2526) ──
+
+test('브리지 없는 바이너리(Android·브리지 없는 iOS)에서는 권한 조회·요청이 unavailable 이고 expo-notifications 를 불러오지 않는다', async () => {
+  for (const options of [{ os: 'android' }, { bridge: false }]) {
+    const t = setup(options);
+    await settle();
+
+    await expect(t.push.pushPermissionStatus()).resolves.toBe('unavailable');
+    await expect(t.push.requestPushPermission()).resolves.toBe('unavailable');
+    expect(t.loadNotifications).not.toHaveBeenCalled();
+    t.stop();
+  }
+});
+
+test.each([
+  ['granted', 'granted'],
+  // 임시 허용은 최상위 status 가 undetermined 로 오지만 동기화와 같은 기준으로 허용이다.
+  ['provisional', 'granted'],
+  ['denied', 'denied'],
+  ['undetermined', 'undetermined'],
+] as const)(
+  '권한 조회 — %s 는 %s 이고 시스템 팝업을 띄우지 않는다',
+  async (permission, expected) => {
+    const t = setup({ permission });
+    await settle();
+
+    await expect(t.push.pushPermissionStatus()).resolves.toBe(expected);
+    expect(t.notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    t.stop();
+  },
+);
+
+test('아직 안 물음이면 알림·소리만 시스템 팝업으로 묻고 답을 돌려주며, 끝나면 동기화를 깨워 새 권한으로 등록한다', async () => {
+  const t = setup({ permission: 'undetermined', answer: 'granted' });
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+
+  await expect(t.push.requestPushPermission()).resolves.toBe('granted');
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  // 배지는 묻지 않는다 — 서버도 앱도 배지를 쓰지 않는다.
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledWith({
+    ios: { allowAlert: true, allowSound: true },
+  });
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
+test('사용자가 팝업에서 거부하면 denied 를 돌려주고 등록하지 않는다', async () => {
+  const t = setup({ permission: 'undetermined', answer: 'denied' });
+  await settle();
+
+  await expect(t.push.requestPushPermission()).resolves.toBe('denied');
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  t.stop();
+});
+
+test.each([
+  ['granted', 'granted'],
+  ['provisional', 'granted'],
+  ['denied', 'denied'],
+] as const)(
+  '이미 정해졌으면(%s) 팝업 없이 지금 상태 %s 를 돌려준다',
+  async (permission, expected) => {
+    const t = setup({ permission });
+    await settle();
+
+    await expect(t.push.requestPushPermission()).resolves.toBe(expected);
+    expect(t.notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    t.stop();
+  },
+);
+
+test('권한을 읽거나 요청하다 네이티브가 던지면 unavailable 이고 동기화를 깨우지 않는다', async () => {
+  const t = setup({ permission: 'undetermined', answer: 'granted' });
+  await settle();
+
+  t.notifications.getPermissionsAsync.mockRejectedValueOnce(new Error('native'));
+  await expect(t.push.pushPermissionStatus()).resolves.toBe('unavailable');
+  t.notifications.getPermissionsAsync.mockRejectedValueOnce(new Error('native'));
+  await expect(t.push.requestPushPermission()).resolves.toBe('unavailable');
+  t.notifications.requestPermissionsAsync.mockRejectedValueOnce(new Error('native'));
+  await expect(t.push.requestPushPermission()).resolves.toBe('unavailable');
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
   t.stop();
 });

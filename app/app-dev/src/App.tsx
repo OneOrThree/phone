@@ -156,7 +156,7 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
-import { startPushSync, unregisterPushDevice } from '@/services/push';
+import { requestPushPermission, startPushSync, unregisterPushDevice } from '@/services/push';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -1514,6 +1514,18 @@ function Gromo() {
       unsubscribe();
     };
   }, [loaded]);
+  // 알림 권한(GROMO-2526) — 섬 홈에 들어올 때 시스템 팝업으로 한 번 묻는다. 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을
+  // 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이 바다에 있으면(route 가 home 이 아님) 묻지 않는다
+  // — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다: state.tutorial 은 끝난 뒤에도 남는다.
+  const pushAsked = useRef(false);
+  const inTutorial = !!state.tutorial && state.tutorial.step < 22;
+  useEffect(() => {
+    if (pushAsked.current || !loaded || REVIEW || DEMO) return;
+    if (route !== 'home' || !hasServerSession || inTutorial) return;
+    if (state.settings.notifications === false) return;
+    pushAsked.current = true;
+    void requestPushPermission();
+  }, [loaded, route, hasServerSession, inTutorial, state.settings.notifications]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);

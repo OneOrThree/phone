@@ -33,9 +33,11 @@ jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
 }));
 const mockUnregisterPushDevice = jest.fn();
+const mockRequestPushPermission = jest.fn();
 jest.mock('@/services/push', () => ({
   startPushSync: () => () => {},
   unregisterPushDevice: () => mockUnregisterPushDevice(),
+  requestPushPermission: () => mockRequestPushPermission(),
 }));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
@@ -3023,4 +3025,74 @@ test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
     if (qa === undefined) delete process.env.EXPO_PUBLIC_QA;
     else process.env.EXPO_PUBLIC_QA = qa;
   }
+});
+
+// ── 알림 권한 팝업(GROMO-2526) — 섬 홈 첫 진입에서 한 번 ──
+const pushApp = async ({
+  session = true,
+  route = 'home',
+  before,
+}: {
+  session?: boolean;
+  route?: Route;
+  before?: (dispatch: (action: any) => void) => void;
+} = {}) => {
+  if (session) await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'push-user' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    before?.(captured.dispatch);
+    captured.reset(route);
+  });
+  return app;
+};
+
+test('서버 세션이 있는 섬 홈에 들어오면 알림 권한을 한 번만 묻는다 — 홈을 다시 열어도 같은 실행에서는 다시 묻지 않는다', async () => {
+  const app = await pushApp();
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+
+  await act(async () => captured.reset('settings'));
+  await act(async () => captured.reset('home'));
+  await settle();
+  expect(captured.route).toBe('home');
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+  await app.unmount();
+});
+
+test('튜토리얼 중에는 묻지 않고, 튜토리얼이 끝나면(step 22 이상 — state.tutorial 은 끝난 뒤에도 남는다) 묻는다', async () => {
+  const app = await pushApp({ before: (dispatch) => dispatch({ type: 'GUIDE_STEP', step: 4 }) });
+  await settle();
+  expect(captured.route).toBe('home');
+  expect(captured.state.tutorial).toEqual({ step: 4 });
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => captured.dispatch({ type: 'GUIDE_STEP', step: 22 }));
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  expect(captured.state.tutorial).toEqual({ step: 22 });
+  await app.unmount();
+});
+
+test.each([
+  [
+    '설정 「알림」이 꺼져 있다',
+    {
+      before: (dispatch: (action: any) => void) =>
+        dispatch({ type: 'SETTING', key: 'notifications', value: false }),
+    },
+  ],
+  ['서버 세션이 없다', { session: false }],
+  [
+    '소속 섬 없이 바다에 있다(홈이 아니다)',
+    {
+      route: 'sea' as Route,
+      before: (dispatch: (action: any) => void) => dispatch(islandSync(null, null)),
+    },
+  ],
+])('알림 권한을 묻지 않는다 — %s', async (_case, options) => {
+  const app = await pushApp(options);
+  await settle();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+  await app.unmount();
 });

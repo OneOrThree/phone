@@ -39,6 +39,8 @@ import {
 } from './api/deviceToken';
 import { getSession, sessionGeneration, subscribeSession, type Session } from './api/session';
 
+type NotificationsModule = typeof import('expo-notifications');
+
 /** 2523 브리지(`ios/Cattus/FCMTokenModule.swift`). 브리지 호출은 겹치지 않게 {@link startPushSync} 의 직렬 큐 안에서만 부른다. */
 type FCMTokenBridge = {
   getToken(apnsTokenHex: string): Promise<string>;
@@ -93,6 +95,10 @@ function payloadOf(notification: Notification): Record<string, unknown> {
   return trigger && 'type' in trigger && trigger.type === 'push' ? (trigger.payload ?? {}) : {};
 }
 
+/** 알림을 받을 수 있는 권한인가 — 임시 허용(provisional)도 허용으로 본다. 동기화({@link startPushSync})와 권한 표시가 같은 기준이다. */
+const granted = (N: NotificationsModule, permission: NotificationPermissionsStatus) =>
+  permission.granted || permission.ios?.status === N.IosAuthorizationStatus.PROVISIONAL;
+
 /**
  * App 이 부팅(`loaded`) 뒤 한 번 시작한다. iOS 이고 브리지가 든 바이너리가 아니면 아무것도 하지 않는다 — 그런
  * 바이너리(Android·옛 iOS·웹·Jest)에서 expo-notifications 를 불러오면 네이티브 모듈이 없어 그 자리에서 던진다.
@@ -140,16 +146,13 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       openAppLink(link);
   };
 
-  const granted = (permission: NotificationPermissionsStatus) =>
-    permission.granted || permission.ios?.status === N.IosAuthorizationStatus.PROVISIONAL;
-
   const reconcile = async (): Promise<void> => {
     const session = getSession();
     const generation = sessionGeneration();
     const live = () =>
       !stopped && generation === sessionGeneration() && haltedGeneration !== generation;
     if (disabled || !session || !live()) return;
-    if (!isEnabled() || !granted(await N.getPermissionsAsync())) {
+    if (!isEnabled() || !granted(N, await N.getPermissionsAsync())) {
       // 알림 끄기(설정 OFF·권한 거부) — DELETE 가 아니라 FCM 토큰만 폐기한다. 서버는 다음 발송에서 UNREGISTERED 로
       // transport_invalid 만 세우고 소유권을 남기므로, 다시 켜면 새 토큰을 그 소유권(CAS)으로 올린다. 꺼진 동안에는
       // getToken 을 부르지 않는다 — 브리지의 getToken 은 자동 초기화를 다시 켜 토큰을 되살린다.
@@ -335,6 +338,59 @@ export function startPushSync(isEnabled: () => boolean): () => void {
 /** 설정 「알림」 토글 뒤에 부른다(GROMO-2526). 동기화가 돌고 있지 않으면 아무 일도 하지 않는다. */
 export function refreshPush(): void {
   wake?.();
+}
+
+/** 설정·권한 관리 화면이 보는 알림 권한(GROMO-2526). `unavailable` 은 iOS 가 아니거나 브리지가 없는 바이너리 — 알림 항목을 그리지 않는다. */
+export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+
+/** {@link startPushSync} 와 같은 바이너리 판정 — 그 밖에서는 expo-notifications 를 불러오는 자리에서 던지므로 불러오지 않는다. */
+function bridgedNotifications(): NotificationsModule | undefined {
+  return Platform.OS === 'ios' && NativeModules.FCMTokenModule
+    ? (require('expo-notifications') as NotificationsModule)
+    : undefined;
+}
+
+// iOS 는 최상위 status 를 임시 허용(provisional)에도 undetermined 로 낸다 — 허용 판정을 먼저 본다.
+const permissionOf = (
+  N: NotificationsModule,
+  permission: NotificationPermissionsStatus,
+): PushPermission =>
+  granted(N, permission)
+    ? 'granted'
+    : permission.status === 'undetermined'
+      ? 'undetermined'
+      : 'denied';
+
+/** 지금 알림 권한을 읽는다 — 시스템 팝업은 띄우지 않는다. 권한을 읽지 못하면 `unavailable` 이다. */
+export async function pushPermissionStatus(): Promise<PushPermission> {
+  const N = bridgedNotifications();
+  if (!N) return 'unavailable';
+  try {
+    return permissionOf(N, await N.getPermissionsAsync());
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/**
+ * 아직 안 물음이면 시스템 팝업으로 묻고 답을 돌려준다(알림·소리만 — 배지는 서버도 앱도 쓰지 않는다). 이미 정해졌으면 묻지
+ * 않고 지금 상태를 돌려준다. 물은 뒤에는 동기화를 깨워 새 권한으로 등록하게 한다.
+ */
+export async function requestPushPermission(): Promise<PushPermission> {
+  const N = bridgedNotifications();
+  if (!N) return 'unavailable';
+  try {
+    const current = permissionOf(N, await N.getPermissionsAsync());
+    if (current !== 'undetermined') return current;
+    const answered = permissionOf(
+      N,
+      await N.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true } }),
+    );
+    refreshPush();
+    return answered;
+  } catch {
+    return 'unavailable';
+  }
 }
 
 /**

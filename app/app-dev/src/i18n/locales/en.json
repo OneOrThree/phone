@@ -171,6 +171,13 @@
           "sub": "See your focus time in notifications and on the lock screen"
         }
       },
+      "notifications": {
+        "title": "Notification permission",
+        "granted": "Allowed",
+        "denied": "Off",
+        "undetermined": "Not asked yet",
+        "a11y": "Notification permission, {{description}}"
+      },
       "help": {
         "android": "Allow this app in Usage Access settings.",
         "ios": "If the permission prompt doesn't appear, allow it in system Settings."

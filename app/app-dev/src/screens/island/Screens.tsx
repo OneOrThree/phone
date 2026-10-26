@@ -30,6 +30,7 @@ import {
   Easing,
   Keyboard,
   BackHandler,
+  Linking,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -100,6 +101,7 @@ import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
+import { pushPermissionStatus, requestPushPermission } from '@/services/push';
 import { componentTokens } from '@/design-system/tokens';
 import {
   C,
@@ -4613,7 +4615,26 @@ export function RedesignScreens({ e }: any) {
         </SheetGroup>
         {sec(t('settings.generalSection'))}
         <SheetGroup flat>
-          {toggle(t('settings.notifications'), 'notifications')}
+          {/* 알림은 켤 때 시스템 권한도 맞춘다(GROMO-2526) — 아직 안 물음이면 시스템 팝업, 거부면 시스템 설정(앱에서는 다시 켤 수 없다) */}
+          <SheetRow
+            title={t('settings.notifications')}
+            tail={
+              <Toggle
+                label={t('settings.notifications')}
+                value={state.settings.notifications}
+                onChange={async (value: boolean) => {
+                  act('SETTING', { key: 'notifications', value });
+                  if (!value) return;
+                  const permission = await pushPermissionStatus();
+                  if (permission === 'undetermined') await requestPushPermission();
+                  else if (permission === 'denied')
+                    await Linking.openSettings().catch(() =>
+                      notify(t('settings.permissions.errors.settingsOpen')),
+                    );
+                }}
+              />
+            }
+          />
           {toggle(t('settings.sound'), 'sound')}
           {toggle(t('settings.haptics'), 'haptics')}
           {toggle(t('settings.reduceMotion'), 'reduceMotion')}
