@@ -11,3 +11,10 @@ export EXPO_PUBLIC_TERMS_VERSION="${EXPO_PUBLIC_TERMS_VERSION:-2026-09}"
 # Datadog RUM 공개 설정 — 1.x 와 같은 RUM application 을 쓴다. 클라이언트 토큰은 앱 안에 들어가는 공개값이다.
 export EXPO_PUBLIC_DATADOG_APPLICATION_ID="${EXPO_PUBLIC_DATADOG_APPLICATION_ID:-44a4f021-ed4d-4134-b59d-63a40e37c2ff}"
 export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="${EXPO_PUBLIC_DATADOG_CLIENT_TOKEN:-pub851a727c3f95bc795ae8f9a15f5326d4}"
+
+# GROMO-2523 Firebase 프로젝트 ID — 각 환경 알림 서버의 FCM_PROJECT_ID(공개값). 빌드 단계
+# scripts/firebase-plist-xcode.sh 가 GoogleService-Info.plist 의 PROJECT_ID 와 대조한다.
+# dev 는 dev 알림 서버(phone-notification-1)의 값을 2026-10-26 에 확인했다.
+# prod 는 운영 SM 을 확인하기 전이라 비워 둔다 — 비어 있으면 prod plist 를 둔 빌드를 막는다.
+export GROMO_FIREBASE_PROJECT_ID_DEV="${GROMO_FIREBASE_PROJECT_ID_DEV:-catus-dev}"
+export GROMO_FIREBASE_PROJECT_ID_PROD="${GROMO_FIREBASE_PROJECT_ID_PROD:-}"

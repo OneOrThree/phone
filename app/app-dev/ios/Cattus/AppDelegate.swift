@@ -4,6 +4,7 @@ import react_native_line
 import React
 import ReactAppDependencyProvider
 import AirbridgeReactNative
+import FirebaseCore
 
 @main
 class AppDelegate: ExpoAppDelegate {
@@ -28,6 +29,11 @@ class AppDelegate: ExpoAppDelegate {
       AirbridgeReactNative.initializeSDK(name: Self.airbridgeAppName, token: Self.airbridgeAppToken)
     } else {
       NSLog("[Airbridge] 앱 이름·SDK 토큰이 비어 있어 초기화를 건너뜁니다 — AppDelegate.swift 의 상수를 채우세요")
+    }
+    // GROMO-2523 FCM 토큰(FCMTokenModule)용. plist 는 빌드 단계 [Firebase] Copy GoogleService-Info.plist 가 넣고,
+    // 없는 Debug 빌드는 Firebase 없이 푸시 등록만 빠진 채 동작한다(브리지가 NOT_CONFIGURED 로 거절).
+    if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
+      FirebaseApp.configure()
     }
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
