@@ -9,7 +9,9 @@
  *
  * 등록은 세션 공개(세대·userId 로 거른다 — AT 갱신은 재등록 대상이 아니다)·앱 활성·FCM 토큰 갱신·APNs 토큰 변경·
  * {@link refreshPush} 에서 직렬 큐로 맞춘다. 서버가 등록마다 deliveryTag 를 바꾸므로 같은 계정·같은 토큰이면 다시
- * 등록하지 않는다 — 매 실행 재등록하면 알림 센터에 남은 이전 알림을 탭해도 태그가 달라 버려진다.
+ * 등록하지 않는다 — 매 실행 재등록하면 알림 센터에 남은 이전 알림을 탭해도 태그가 달라 버려진다. 같은 계정의 새 세션이
+ * bootstrap 없이 공개되면(응답을 잃은 로그인·전환을 같은 attemptId 로 다시 한 재생) 서버 행은 옛 세션에 묶여 있어 기록의
+ * 소유권으로는 올릴 수 없다 — 그 세대는 확인받은 기록이어도 소유권 없이 보내 아래 409 경로로 새로 묶는다.
  *
  * 오류 반응:
  * | 응답 | 반응 |
@@ -156,6 +158,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   let bootstrap: { generation: number; value: string } | undefined;
   /** 소유권 충돌로 토큰을 이미 한 번 바꾼 세대. */
   let rotatedForConflict: number | undefined;
+  /** 같은 계정의 새 세션이 bootstrap 없이 공개된 세대 — 서버 행이 옛 세션에 묶여 기록의 소유권을 못 쓴다. 등록에 성공하면 푼다. */
+  let unlinkedGeneration: number | undefined;
   /** 세션을 알기 전에 온 탭 — 세션이 공개되면 한 번 판정한다(같은 계정이면 열고, 아니면 버린다). */
   let heldResponse: NotificationResponse | undefined;
 
@@ -242,9 +246,11 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (!live()) return;
     const sameUser = device.userId === session.userId;
     const deviceBootstrap = bootstrap?.generation === generation ? bootstrap.value : undefined;
+    const unlinked = unlinkedGeneration === generation;
     // 같은 계정·같은 토큰이고 그 토큰으로 확인받은 소유권이 있으며 꺼낼 bootstrap 이 없으면 그대로 둔다(머리 주석 — 태그
-    // 회전). 응답을 잃은 등록은 확인 토큰이 달라 앱을 다시 시작해도 다시 보낸다.
+    // 회전). 응답을 잃은 등록은 확인 토큰이 달라 앱을 다시 시작해도 다시 보낸다. 연결이 끊긴 세대(unlinked)는 건너뛰지 않는다.
     const settled =
+      !unlinked &&
       sameUser &&
       device.fcmToken === token &&
       device.registeredToken === token &&
@@ -252,7 +258,11 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (settled && !deviceBootstrap) return;
     const body: DeviceRegistrationBody = {
       deviceToken: token,
-      ...(sameUser && device.ownershipToken ? { ownershipToken: device.ownershipToken } : {}),
+      // 연결이 끊긴 세대는 옛 세션에 묶인 소유권을 싣지 않는다 — 서버가 409 DEVICE_OWNERSHIP_CONFLICT 로 답하면 아래 기존 경로가
+      // 토큰을 바꿔 소유권 없이 다시 등록한다.
+      ...(sameUser && device.ownershipToken && !unlinked
+        ? { ownershipToken: device.ownershipToken }
+        : {}),
       ...(deviceBootstrap ? { deviceBootstrap } : {}),
     };
     // 응답이 유실된 등록은 같은 키·같은 본문으로 다시 보내야 서버가 저장 응답을 재생한다 — 본문이 바뀌면 새 키.
@@ -314,6 +324,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (pending?.key !== bundle.key) return;
     pending = undefined;
     bootstrap = undefined;
+    if (unlinkedGeneration === generation) unlinkedGeneration = undefined;
     // 응답으로 통째로 덮는다 — 태그 없는 200(V13 전 저장 응답 재생·서버 롤백)이면 저장 태그도 지운다. 남기면 이후
     // 푸시를 전부 버린다.
     device = { userId: session.userId, fcmToken: token, registeredToken: token, ...registered };
@@ -349,6 +360,12 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 미루면 다른 로그인에 밀려 사라질 수 있다. 꺼낸 값은 저장하지 않는다(메모리·그 등록의 재시도 본문까지만).
     const value = session ? takeDeviceBootstrap(session.refreshToken) : undefined;
     bootstrap = value ? { generation, value } : undefined;
+    // 첫 관찰(부팅 복구)이 아닌 같은 계정의 새 세션이 bootstrap 없이 왔다 — 응답을 잃어 같은 attemptId 로 다시 한 로그인·전환이
+    // 서버의 저장 결과(bootstrap 이 없다)로 재생된 경우다. 서버 행은 옛 세션의 bootstrap 에 묶여 있어 옛 세션이 폐기되면 꺼진다.
+    // ponytail: 기존 409 경로와 같은 서버 `legacy-device-registration` 창에 기댄다. 재생된 로그인과 첫 동기화 사이에 앱이 죽으면
+    // 옛 연결이 남는다(기록에 세션 정체를 두지 않는다 — 드문 일 위의 드문 일).
+    if (session && !first && !value && device.userId === session.userId)
+      unlinkedGeneration = generation;
     if (session) {
       // 세션을 알기 전에 온 탭은 첫 세션에서 한 번만 판정한다 — 계정 전환(A→B)이 기록을 비우기 전이라 다른 계정이면 버린다.
       const held = heldResponse;
