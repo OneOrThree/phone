@@ -4816,13 +4816,27 @@ function NotificationToggle({ e }: any) {
     permission === null
       ? Platform.OS !== 'ios'
       : permission === 'granted' || permission === 'unavailable' || permission === 'error';
+  // 꺼진 채 보이는 까닭이 권한이면 누르는 일이 스위치를 넘기는 것만이 아니다 — 팝업이 뜨거나 설정 앱이 열린다(힌트). 확인 못 함(error)의
+  // 「확인하지 못했어요」 는 스위치와 따로 읽히는 sub 라서, 스위치 이름에도 붙여 상태가 스위치에 닿게 한다.
+  const hint =
+    permission === 'undetermined'
+      ? t('settings.permissions.notifications.hint.ask')
+      : permission === 'denied'
+        ? t('settings.permissions.notifications.hint.openSettings')
+        : undefined;
+  const unconfirmed =
+    permission === 'error' ? t('settings.permissions.notifications.error') : undefined;
+  const label = unconfirmed
+    ? `${t('settings.notifications')}, ${unconfirmed}`
+    : t('settings.notifications');
   return (
     <SheetRow
       title={t('settings.notifications')}
-      sub={permission === 'error' ? t('settings.permissions.notifications.error') : undefined}
+      sub={unconfirmed}
       tail={
         <Toggle
-          label={t('settings.notifications')}
+          label={label}
+          accessibilityHint={hint}
           value={!!e.state.settings.notifications && receiving}
           onChange={change}
         />

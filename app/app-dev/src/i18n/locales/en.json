@@ -177,7 +177,13 @@
         "denied": "Off",
         "undetermined": "Not asked yet",
         "error": "Couldn't check",
-        "a11y": "Notification permission, {{description}}"
+        "a11y": "Notification permission, {{description}}",
+        "hint": {
+          "ask": "Asks for notification permission",
+          "openSettings": "Opens the Settings app",
+          "enable": "Turns notifications on",
+          "recheck": "Checks the permission again"
+        }
       },
       "help": {
         "android": "Allow this app in Usage Access settings.",

@@ -693,3 +693,62 @@ test('알림 행 — 돌아와 읽은 결과가 error 면 「나감」 표시를
   await view.findByText('허용됨');
   expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
 });
+
+// ── 알림 행의 accessibilityHint — 누르면 일어날 일(changePush 의 갈래)을 상태마다 알린다 ──
+test.each([
+  {
+    permission: 'undetermined',
+    settingOff: false,
+    label: '알림 권한, 아직 묻지 않았어요',
+    hint: '누르면 알림 권한을 물어요',
+  },
+  {
+    permission: 'granted',
+    settingOff: true,
+    label: '알림 권한, 허용됨',
+    hint: '누르면 알림을 켜요',
+  },
+  {
+    permission: 'granted',
+    settingOff: false,
+    label: '알림 권한, 허용됨',
+    hint: '누르면 설정 앱이 열려요',
+  },
+  {
+    permission: 'denied',
+    settingOff: false,
+    label: '알림 권한, 꺼짐',
+    hint: '누르면 설정 앱이 열려요',
+  },
+  {
+    permission: 'error',
+    settingOff: false,
+    label: '알림 권한, 확인하지 못했어요',
+    hint: '누르면 권한을 다시 확인해요',
+  },
+] as const)(
+  '알림 행 — 권한 $permission(앱 설정 꺼짐 $settingOff)이면 힌트는 «$hint»',
+  async ({ permission, settingOff, label, hint }) => {
+    mockPushPermissionStatus.mockResolvedValue(permission);
+    const e = settingOff ? environmentNotificationsOff() : environment('settings');
+    const view = await render(<CurrentScreens e={e} />);
+    expect((await view.findByLabelText(label)).props.accessibilityHint).toBe(hint);
+  },
+);
+
+test.each([
+  { permission: 'undetermined', settingOff: false, hint: 'Asks for notification permission' },
+  { permission: 'granted', settingOff: true, hint: 'Turns notifications on' },
+  { permission: 'denied', settingOff: false, hint: 'Opens the Settings app' },
+  { permission: 'error', settingOff: false, hint: 'Checks the permission again' },
+] as const)(
+  'en 로케일 — 알림 행의 힌트(권한 $permission)는 영문이다: $hint',
+  async ({ permission, settingOff, hint }) => {
+    applyLocalePref('en');
+    mockPushPermissionStatus.mockResolvedValue(permission);
+    const e = settingOff ? environmentNotificationsOff() : environment('settings');
+    const view = await render(<CurrentScreens e={e} />);
+    const row = await view.findByLabelText(/^Notification permission, /);
+    expect(row.props.accessibilityHint).toBe(hint);
+  },
+);

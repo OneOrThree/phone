@@ -929,6 +929,17 @@ function AppPermissionManager({ e }: any) {
         : pushPermission === 'error'
           ? t('settings.permissions.notifications.error')
           : t('settings.permissions.notifications.undetermined');
+  // 누르면 일어날 일(changePush 와 같은 갈래) — 제목·부제만으로는 안 읽히니 힌트로 덧붙인다.
+  const pushHint =
+    pushPermission === 'undetermined'
+      ? t('settings.permissions.notifications.hint.ask')
+      : pushPermission === 'granted' && e.state.settings.notifications === false
+        ? t('settings.permissions.notifications.hint.enable')
+        : pushPermission === 'granted' || pushPermission === 'denied'
+          ? t('settings.permissions.notifications.hint.openSettings')
+          : pushPermission === 'error'
+            ? t('settings.permissions.notifications.hint.recheck')
+            : undefined;
   const permissionDescription =
     status === 'loading'
       ? t('settings.permissions.status.permissionChecking')
@@ -1222,6 +1233,7 @@ function AppPermissionManager({ e }: any) {
               accessibilityLabel={t('settings.permissions.notifications.a11y', {
                 description: pushDescription,
               })}
+              accessibilityHint={pushHint}
               chevron
               onPress={changePush}
             />

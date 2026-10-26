@@ -3193,7 +3193,7 @@ describe('설정 「알림」 토글', () => {
       <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
     );
     await flush();
-    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    const toggle = () => ui.getByRole('switch', { name: /^알림/ });
     // 확인 못 한 권한이라도 앱에서 끌 수 있어야 한다 — 꺼진 것으로 그리지 않는다.
     expect(toggle().props.accessibilityState.checked).toBe(true);
     expect(ui.getByText('확인하지 못했어요')).toBeTruthy();
@@ -3231,7 +3231,7 @@ describe('설정 「알림」 토글', () => {
         />,
       );
       await flush();
-      const toggle = () => ui.getByRole('switch', { name: '알림' });
+      const toggle = () => ui.getByRole('switch', { name: /^알림/ });
       const settingWrites = () =>
         exposed.actions.filter((type: string) => type === 'SETTING').length;
       expect(toggle().props.accessibilityState.checked).toBe(false);
@@ -3345,6 +3345,48 @@ describe('설정 「알림」 토글', () => {
     expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
     expect(openSettings).toHaveBeenCalledTimes(1);
   });
+
+  test.each([
+    { permission: 'undetermined', hint: '누르면 알림 권한을 물어요' },
+    { permission: 'denied', hint: '누르면 설정 앱이 열려요' },
+    { permission: 'granted', hint: undefined },
+    { permission: 'unavailable', hint: undefined },
+  ] as const)(
+    '설정 「알림」 — 권한이 $permission 이면 스위치의 힌트는 $hint',
+    async ({ permission, hint }) => {
+      mockPushPermissionStatus.mockResolvedValue(permission);
+      const ui = await render(<Harness route="settings" full />);
+      await flush();
+      expect(ui.getByRole('switch', { name: '알림' }).props.accessibilityHint).toBe(hint);
+    },
+  );
+
+  test('설정 「알림」 — 권한을 읽지 못하면(error) 「확인하지 못했어요」 가 스위치 이름에도 붙고 힌트는 없다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('error');
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = ui.getByRole('switch', { name: '알림, 확인하지 못했어요' });
+    expect(toggle.props.accessibilityHint).toBeUndefined();
+    // 눈에 보이는 부제는 그대로다.
+    expect(ui.getByText('확인하지 못했어요')).toBeTruthy();
+  });
+
+  test.each([
+    { permission: 'error', name: "Notifications, Couldn't check", hint: undefined },
+    { permission: 'undetermined', name: 'Notifications', hint: 'Asks for notification permission' },
+    { permission: 'denied', name: 'Notifications', hint: 'Opens the Settings app' },
+  ] as const)(
+    'en 로케일 — 권한이 $permission 이면 스위치 이름·힌트가 영문이다',
+    async ({ permission, name, hint }) => {
+      applyLocalePref('en');
+      mockPushPermissionStatus.mockResolvedValue(permission);
+      const ui = await render(<Harness route="settings" full localePref="en" />);
+      await flush();
+      const toggle = ui.getByRole('switch', { name });
+      expect(toggle.props.accessibilityHint).toBe(hint);
+      expect(toggle.props.accessibilityLabel).not.toMatch(/[가-힣]/);
+    },
+  );
 
   test('설정 「알림」 — 권한이 거부인데 시스템 설정을 열지 못하면 안내한다', async () => {
     mockPushPermissionStatus.mockResolvedValue('denied');
@@ -3516,7 +3558,7 @@ describe('설정 「알림」 토글', () => {
       />,
     );
     await flush();
-    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    const toggle = () => ui.getByRole('switch', { name: /^알림/ });
 
     const pressing = fireEvent.press(toggle());
     await new Promise((done) => setTimeout(done, 0));

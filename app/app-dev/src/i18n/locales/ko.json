@@ -177,7 +177,13 @@
         "denied": "꺼짐",
         "undetermined": "아직 묻지 않았어요",
         "error": "확인하지 못했어요",
-        "a11y": "알림 권한, {{description}}"
+        "a11y": "알림 권한, {{description}}",
+        "hint": {
+          "ask": "누르면 알림 권한을 물어요",
+          "openSettings": "누르면 설정 앱이 열려요",
+          "enable": "누르면 알림을 켜요",
+          "recheck": "누르면 권한을 다시 확인해요"
+        }
       },
       "help": {
         "android": "사용 정보 접근 설정에서 이 앱을 허용해 주세요.",
