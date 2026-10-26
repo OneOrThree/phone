@@ -391,6 +391,8 @@ else:
             'updated_at': '2026-01-02T00:00:00Z', 'conclusion': conclusion, 'run_attempt': attempt}}
         class API:
             def request(self, path, raw=False):
+                if '/jobs?' in path:
+                    return {'jobs': [{'steps': [{'started_at': '2026-01-02T00:00:00Z'}]}]}
                 if '/artifacts?' in path:
                     return {'artifacts': [{'id': i, 'name': name, 'expired': False}
                                           for i, (name, _) in enumerate(artifacts)]}
@@ -429,6 +431,11 @@ else:
     def test_Data공동CD의_두서비스_성공산출물을_함께_게시한다(self):
         records = [{**record(service), 'revision': 'b' * 40} for service in ('data-api', 'realtime')]
         self.assertEqual(self.run_badge('.github/workflows/data-api-ci.dev.yml', [
+            ('deployment-status-dev-2', records)], 'success'), records)
+
+    def test_직접_수동_복구_CD도_실제_이미지_SHA로_배지를_회복한다(self):
+        records = [record(service) for service in ('data-api', 'realtime')]
+        self.assertEqual(self.run_badge('.github/workflows/data-api-cd.dev.yml', [
             ('deployment-status-dev-2', records)], 'success'), records)
 
     def test_Satellite_CD는_실패전에_기록한_선택대상과_원본SHA만_실패로_남긴다(self):

@@ -2,15 +2,10 @@ name: Backend Gradle
 
 # JVM 서버의 Gradle 검사를 한 곳에서 돈다.
 #
-# 현재 호출부는 «둘뿐»이다 — data-api-ci.dev.yml(`service: data-api`) 과 realtime-ci.dev.yml(`service: realtime`).
-# business-api·notification 은 아래 사유로 «의도적 예외»라 satellite-check.yml 이 맡는다. 서버가 늘면
-# 여기로 붙이되, 이 목록도 같이 고쳐라 — 「전부 이걸 부른다」고 적어 두면 예외가 사고가 된다.
-#
-# 왜 합쳤나 — 이전의 be-check-style.yml · be-test.yml · be-spot-bugs.yml 은 `workflow_call` 전용인데
-# 입력을 하나도 선언하지 않고 `server/data-api` 를 네 곳(defaults · 캐시 키 hashFiles · 아티팩트
-# path · jar-size 경로)에 박아 뒀다. 아티팩트 «이름»도 고정이라 두 서비스가 같이 부르면 충돌한다.
-# 그래서 realtime 도 business-api 도 이걸 못 부르고 각자 CI 파일을 새로 썼고, 서버가 늘 때마다
-# 같은 일을 다르게 쓰는 파일이 하나씩 늘었다(GROMO-1790).
+# Data·Realtime·Satellite·prod가 같은 검사·JAR 전달 절차를 사용한다.
+# 같은 실행 안의 service/revision/run_id가 일치하는 JAR만 환경별 이미지 조립에 넘긴다.
+# 서로 다른 PR/main/release 실행 사이에서는 검사 성공을 추정해 재사용하지 않는다.
+# Business는 business-pdf 입력으로 Docker test 이미지의 poppler 의존성을 유지한다.
 #
 # 호스트 Postgres 는 «띄우지 않는다»(GROMO-1793). 한동안 data-api 만 호스트 DB 가 필요하다고 보고
 # `needs-db` 입력과 조건부 `docker run` 스텝을 뒀는데, 실측해 보니 그 DB 를 쓰는 테스트가 한 건도
@@ -25,15 +20,20 @@ name: Backend Gradle
 # 부수 효과: 이 워크플로가 도커에 의존하지 않게 되어, 호출부가 `runs-on` 만 바꾸면 GitHub-hosted
 # 러너로 그대로 옮겨진다.
 #
-# satellite-check.yml 의 business-api·notification 매트릭스는 이 파일을 쓰지 않는다 — business-api 의
-# PDF 미리보기 테스트가 poppler-utils 에 의존하고 그건 Dockerfile 의 `test` 스테이지가 깐다.
-# 일반 러너에서 gradle 을 돌리는 이 파일로는 대체할 수 없다.
 
 on:
   workflow_call:
     inputs:
+      enabled:
+        description: 변경 대상 서비스만 실제 Gradle 검사를 수행한다
+        type: boolean
+        default: true
+      business-pdf:
+        description: Business PDF 테스트의 poppler 도구 이미지를 사용한다
+        type: boolean
+        default: false
       service:
-        description: "server/ 아래 디렉터리 이름. 현재 넘어오는 값은 data-api · realtime 둘뿐이다"
+        description: "server/ 아래 디렉터리 이름. data-api · realtime · business-api · notification"
         type: string
         required: true
       runs-on:
@@ -71,6 +71,7 @@ jobs:
     # `runs-on` 은 `inputs` 컨텍스트를 쓸 수 있는 자리다(GitHub 문서 「Contexts availability」의
     # `jobs.<job_id>.runs-on` 행: github · needs · strategy · matrix · vars · **inputs**).
     # 입력이 문자열이므로 `fromJSON` 으로 배열로 되돌린다.
+    if: inputs.enabled
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     # 25 가 아니라 30 이다(옛 be-test.yml 에서 옮겨온 상한). 서비스 분리 회귀를 포함한 전체 테스트가
     # 공유 러너에서 20분을 넘을 수 있어서, 실행이 중간에 잘리지 않고 결과·JAR 측정까지 마치도록
@@ -110,7 +111,26 @@ jobs:
 
       - run: chmod +x gradlew
 
+      - name: Business PDF 도구 이미지
+        if: inputs.business-pdf
+        run: docker build --target test -t "business-api-test:${GITHUB_RUN_ID}" .
+      - name: Business 실제 검사·bootJar
+        if: inputs.business-pdf
+        run: |
+          mkdir -p "$GRADLE_USER_HOME"
+          docker run --rm --network host --user "$(id -u):$(id -g)" \
+            --group-add "$(stat -c '%g' /var/run/docker.sock)" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -v "$GRADLE_USER_HOME:/gradle" \
+            -e GRADLE_USER_HOME=/gradle -e SPRING_PROFILES_ACTIVE=ci \
+            -e TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1 \
+            -w "$GITHUB_WORKSPACE/server/business-api" \
+            "business-api-test:${GITHUB_RUN_ID}" ./gradlew ${{ inputs.tasks }} --no-daemon --stacktrace
+      - name: Business 도구 이미지 정리
+        if: always() && inputs.business-pdf
+        run: docker image rm "business-api-test:${GITHUB_RUN_ID}" || true
       - name: Gradle ${{ inputs.tasks }}
+        if: ${{ !inputs.business-pdf }}
         env:
           SPRING_PROFILES_ACTIVE: ci
         run: ./gradlew ${{ inputs.tasks }} --stacktrace

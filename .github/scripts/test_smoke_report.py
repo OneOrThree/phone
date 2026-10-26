@@ -29,6 +29,19 @@ class SmokeReportTests(unittest.TestCase):
     def test_all_15_pass(self):
         self.assertEqual(report.report(self.temp.name), 0)
 
+    def test_no_deploy_has_explicit_unexecuted_summary(self):
+        os.environ['SMOKE_NEEDED'] = 'false'
+        os.environ['SMOKE_RUN_RESULT'] = 'skipped'
+        self.path.unlink()
+        self.assertEqual(report.report(self.temp.name), 0)
+
+    def test_superseded_target_does_not_invent_15_failures(self):
+        os.environ['SMOKE_TARGET_STATE'] = 'superseded'
+        self.path.unlink()
+        self.assertEqual(report.report(self.temp.name), 0)
+        os.environ['SMOKE_RUN_RESULT'] = 'failure'
+        self.assertEqual(report.report(self.temp.name), 1)
+
     def test_partial_results_cannot_pass(self):
         self.path.write_text('id\tstatus\thttp_code\tms\treason\nSMOKE-SERVER-001\tPASS\t200\t9\tprobe\n')
         self.assertEqual(report.report(self.temp.name), 1)

@@ -29,31 +29,82 @@ on:
   push:
     branches: [main]
     paths:
-      - "app/app-dev/**"
+      - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
+      - '!app/app-dev/android/**'
+      - '!app/app-dev/modules/**/android/**'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-lint.yml'
+      - '.github/scripts/wait-app-checks.py'
+      - '.github/ci/app-change-plan.py'
   workflow_dispatch:
 
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
-# 뒤 것들이 순서대로 기다린다 — 기본값(queue: single)은 대기 중인 실행을 하나만 남기고 취소한다.
+# 실행 중 빌드는 유지하고 대기 중인 빌드는 최신 하나만 남긴다.
+
 concurrency:
-  group: ios-testflight-dev
+  group: ${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && 'ios-testflight-dev' || format('ios-testflight-validation-{0}', github.run_id) }}
   cancel-in-progress: false
-  queue: max
 
 permissions:
   contents: read
 
 jobs:
+  change-plan:
+    name: iOS 자동 게시 범위 판정
+    if: github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/app-change-plan.py --platform ios
+
+  quality-gate:
+    name: 동일 SHA 앱 필수 검사 확인
+    needs: change-plan
+    if: github.event_name == 'push' && needs.change-plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: 앱 검사 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_PLATFORM: ios
+        run: python3 .github/scripts/wait-app-checks.py
+
+  manual-quality:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-lint.yml
+
   testflight-dev:
+    needs: [quality-gate, manual-quality, change-plan]
     # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
     # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
-    # main push 는 IOS_DEV_RUNNERS(쉼표 목록) 에 등록된 사람만 허용한다. 양쪽에 쉼표를 붙여
-    # 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 미등록자는 러너 배정 전에 건너뛴다.
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' &&
-           contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) &&
-           !contains(github.event.head_commit.message, '[skip testflight]')) }}
-    # 수동 실행도 항상 누른 사람의 맥 — 아무 브랜치나 고를 수 있는 실행이 남의 맥으로 가면 안 된다.
+      !cancelled() &&
+      ((github.event_name == 'push' && contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && needs.change-plan.outputs.publish == 'true' && needs.quality-gate.result == 'success' && !contains(github.event.head_commit.message, '[skip testflight]')) ||
+       (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success'))
+    # main push는 등록된 본인의 맥에서만 실행한다. 미등록자는 자동 게시를 생략한다.
+    # 수동 실행도 누른 사람의 맥만 사용한다.
     name: dev TestFlight 빌드 (${{ github.actor }})
     runs-on: [self-hosted, macOS, ios, "${{ github.actor }}"]
     timeout-minutes: 90
@@ -100,6 +151,15 @@ jobs:
         # Apple 처리 완료까지 기다리므로 운영 빌드보다 5~15분 더 걸린다.
         working-directory: app/app-dev/ios
         run: ./testflight.sh --dev
+
+      - name: 성공한 실제 게시 SHA 기록
+        run: python3 .github/ci/app-change-plan.py --platform ios --record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-publication
+          path: app-publication.json
+          retention-days: 90
+          overwrite: true
 
       - name: 결과 요약
         if: always()
