@@ -253,8 +253,9 @@ class AdminCatalog {
         try {
             RenderedPush push = renderer.renderTemplate(template, params);
             // 실제 발송은 기기마다 deliveryTag 를 더한 봉투로 같은 한도를 잰다(GROMO-2520). 태그 없이 재면 한도에
-            // 가까운 템플릿이 저장은 되고 태그 있는 기기로 갈 때만 FCM_PAYLOAD_TOO_LARGE 로 재시도 없이 FAILED 가
-            // 된다 — 그래서 태그 길이만큼 자리를 예약해 잰다. 미리보기 화면에는 태그를 보이지 않으니 반환은 원래 push.
+            // 가까운 템플릿이 저장은 되고, 발송 때 태그 있는 기기는 크기 초과로 건너뛰어 그 알림을 받지 못한다(받을
+            // 기기가 하나도 없으면 FAILED) — 그래서 태그 길이만큼 자리를 예약해 잰다. 미리보기 화면에는 태그를 보이지
+            // 않으니 반환은 원래 push.
             FcmPayload.requireFits(push.withDeliveryTag(TAG_PLACEHOLDER), true, "template-preview");
             return push;
         } catch (IllegalArgumentException invalid) {
