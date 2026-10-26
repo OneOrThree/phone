@@ -211,6 +211,8 @@ iOS 앱은 FCM 토큰을 받으려고 서버 환경별 Firebase 설정 파일을
 - 개발 맥: `ios/credentials/dev/GoogleService-Info.plist`·`ios/credentials/prod/GoogleService-Info.plist`(gitignore). 다른 곳에 두려면 `GROMO_IOS_CREDENTIALS_DIR`(그 아래 `dev/`·`prod/`)를 환경변수나 `ios/.xcode.env.local` 에 둡니다. 운영 서버로 디버그 빌드를 돌릴 때는 `ios/.xcode.env.local` 에 `export EXPO_PUBLIC_ENV=prod` 도 둡니다 — plist 와 서버 환경이 어긋나면 발송이 `SENDER_ID_MISMATCH` 로 실패합니다.
 - plist 의 `BUNDLE_ID` 가 번들 id 와 다르거나 `PROJECT_ID` 가 `ios/release-config.sh` 의 `GROMO_FIREBASE_PROJECT_ID_DEV`·`_PROD`(각 서버 `FCM_PROJECT_ID`)와 다르면 빌드가 실패합니다. 파일이 없으면 Release 는 실패하고, Debug 는 경고만 내고 푸시 없이 빌드합니다(`FCMTokenModule` 이 `NOT_CONFIGURED` 로 거절).
 - TestFlight 러너 맥은 레포 밖 경로를 씁니다 — [`ios-testflight-dev-runner.md`](../../docs/conventions/ios-testflight-dev-runner.md) 「푸시 설정 파일」.
+- `expo-notifications` 는 `57.0.17` 로 정확히 고정합니다. 설치된 expo 57.0.21 이 기대하는 값이고, `~` 로 두면 57.0.24 가 `expo-constants` 를 한 벌 더 설치합니다. `expo install --check` 가 이 고정을 경고해도 그대로 두고, 올릴 때는 expo 패치와 함께 올립니다. Android 는 `package.json` 의 `expo.autolinking.android.exclude` 로 이 모듈을 빼 바이너리가 그대로입니다.
+- 앱의 `PrivacyInfo.xcprivacy` 에 있는 UserDefaults 사유 `1C8F.1` 은 `pod install` 이 FirebaseCoreInternal 의 privacy manifest 를 합쳐 넣은 값입니다(Podfile `privacy_file_aggregation_enabled`). 손으로 지우지 않습니다.
 
 ### 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`
 
