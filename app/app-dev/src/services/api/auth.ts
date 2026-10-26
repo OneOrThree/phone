@@ -76,27 +76,34 @@ const DEVICE_BOOTSTRAP_HEADER = 'X-Device-Bootstrap';
 /**
  * 로그인·게스트 시작 응답이 주는 1회용 기기 등록 자격. 서버가 못 박은 대로 **저장소·로그·공용 캐시에
  * 남기지 않는다**(`DeviceBootstrapHeader.java` 머리 주석, 계정 LLD §2.1) — 그래서 `LoginResult`
- * (앱 상태에 실려 AsyncStorage 로 갈 수 있다)에 싣지 않고, 리프레시 토큰에 묶어 이 변수에 **메모리로만**
- * 둔다. 새 로그인이 값을 가져오면 덮어쓴다. 결과 재생(응답 유실 복구)·refresh 응답에는 헤더가 없다.
+ * (앱 상태에 실려 AsyncStorage 로 갈 수 있다)에 싣지 않고, **리프레시 토큰 → 값의 Map** 으로 메모리에만
+ * 둔다. 한 칸이 아니라 Map 인 이유: 같은 세대에서 두 로그인 응답이 연달아 오면(첫 `saveSession` 이 직렬
+ * 큐에서 돌기 전에 둘째 응답이 도착) 한 칸은 둘째가 첫째를 덮어, 먼저 공개되는 첫 세션이 자격을 못 얻고
+ * 버려지는 둘째의 정리가 남은 값마저 지운다. 결과 재생(응답 유실 복구)·refresh 응답에는 헤더가 없다.
+ *
+ * ponytail: 상한 4개 — 푸시가 꺼져 있으면 아무도 take 하지 않아 값이 쌓인다. 「공개 전」에 경합하는
+ * 로그인은 화면의 로그인 중복 가드와 세대 펜스(먼저 공개된 하나만 산다)로 많아야 두셋이고, 공개된
+ * 세션의 값은 곧바로 소비되므로 최근 4개면 경합과 미소비 한둘을 덮는다. 넘으면 가장 오래된 항목부터 버린다.
  */
-let pendingDeviceBootstrap: { refreshToken: string; value: string } | null = null;
+const pendingDeviceBootstrap = new Map<string, string>();
+const PENDING_DEVICE_BOOTSTRAP_LIMIT = 4;
 
 /**
  * 이 세션(RT)의 bootstrap 을 한 번만 꺼내 준다. RT 가 다르거나, 이미 꺼냈거나, 서버가 주지 않았으면
- * undefined — 호출부는 그때 자격 없는 기존 등록 경로로 내려간다. 다른 RT 로 부른 시도는 값을 지우지 않는다.
+ * undefined — 호출부는 그때 자격 없는 기존 등록 경로로 내려간다. 꺼내는 것은 그 RT 의 항목뿐이라
+ * 다른 RT 로 부른 시도는 다른 세션의 값을 지우지 않는다.
  */
 export function takeDeviceBootstrap(refreshToken: string): string | undefined {
-  const pending = pendingDeviceBootstrap;
-  if (pending?.refreshToken !== refreshToken) return undefined;
-  pendingDeviceBootstrap = null;
-  return pending.value;
+  const value = pendingDeviceBootstrap.get(refreshToken);
+  pendingDeviceBootstrap.delete(refreshToken);
+  return value;
 }
 
 /**
  * {@link saveSession} 에 bootstrap 을 RT 로 묶는 일을 «공개 전에» 끼운다. 세션 공개 알림
  * (`subscribeSession`)은 `login()` 이 반환하기 전에 오므로, 반환 뒤에 묶으면 구독자가 못 꺼낸다.
- * 공개하지 못했으면(세대 변경 `false`·저장소 오류) 값을 버린다 — 이 RT 는 쓰이지 않는 세션이다.
- * 서버는 빈 값을 싣지 않는 것이 계약이라 비어 있으면 «없음»이다.
+ * 공개하지 못했으면(세대 변경 `false`·저장소 오류) **자기 RT 의 항목만** 버린다 — 이 RT 는 쓰이지 않는
+ * 세션이고, 다른 로그인이 묶어 둔 값은 그대로다. 서버는 빈 값을 싣지 않는 것이 계약이라 비어 있으면 «없음»이다.
  */
 async function saveSessionHoldingBootstrap(
   session: Session,
@@ -104,14 +111,19 @@ async function saveSessionHoldingBootstrap(
   bootstrap: string,
   onPublished?: (session: Session, generation: number) => void,
 ): Promise<boolean> {
-  const mine = bootstrap.trim() ? { refreshToken: session.refreshToken, value: bootstrap } : null;
-  if (mine) pendingDeviceBootstrap = mine;
+  const held = bootstrap.trim() !== '';
+  if (held) {
+    pendingDeviceBootstrap.set(session.refreshToken, bootstrap);
+    for (const oldest of pendingDeviceBootstrap.keys()) {
+      if (pendingDeviceBootstrap.size <= PENDING_DEVICE_BOOTSTRAP_LIMIT) break;
+      pendingDeviceBootstrap.delete(oldest);
+    }
+  }
   let published = false;
   try {
     published = await saveSession(session, generation, onPublished);
   } finally {
-    // 그 사이 더 새 로그인이 덮어썼다면 그 값은 건드리지 않는다.
-    if (mine && !published && pendingDeviceBootstrap === mine) pendingDeviceBootstrap = null;
+    if (held && !published) pendingDeviceBootstrap.delete(session.refreshToken);
   }
   return published;
 }

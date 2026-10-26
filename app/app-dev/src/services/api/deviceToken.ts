@@ -17,10 +17,14 @@
  *  - 오류 code: 409 `DEVICE_OWNERSHIP_CONFLICT`·`SESSION_REVOKED`·`STALE_AUTH_GENERATION`·
  *            `IDEMPOTENCY_KEY_CONFLICT`, 401 `USER_INACTIVE`, 502, 503.
  *
+ * **멱등 키는 두 함수 모두 호출자가 고정해서 넘긴다(기본값 없음) — 재시도는 같은 키로.** 응답이 유실된 뒤
+ * 같은 키·같은 본문(헤더)으로 다시 보내야 서버가 저장 응답을 재생한다. 호출마다 새 키를 만들면 같은 명령이
+ * 매번 새 명령이 되어 재생이 아니라 중복 실행이 된다.
+ *
  * 만료 AT 의 401 `UNAUTHORIZED` 는 `request()` 가 refresh 로 한 번 갱신해 같은 요청을 다시 보낸다 —
- * 멱등 키도 그대로다. 응답 유실 뒤의 재시도(같은 키·같은 본문으로 서버가 저장 응답을 재생)는 호출부 몫이다.
+ * 멱등 키도 그대로다. 응답 유실 뒤의 재시도는 호출부 몫이다.
  */
-import { ApiError, request, uuid } from './client';
+import { ApiError, request } from './client';
 
 const DEVICE_TOKEN_PATH = '/api/v1/users/me/device-token';
 
@@ -57,11 +61,14 @@ export async function registerDevice(
   };
 }
 
-/** 대상 토큰·CAS 값은 본문이 아니라 헤더로 보낸다. `ownershipToken` 이 없으면 그 헤더는 생략한다. */
+/**
+ * 대상 토큰·CAS 값은 본문이 아니라 헤더로 보낸다. `ownershipToken` 이 없으면 그 헤더는 생략한다.
+ * `idempotencyKey` 는 호출부가 고정해서 넘긴다 — 응답 유실 뒤 재시도도 같은 키여야 같은 명령으로 재생된다.
+ */
 export async function deleteDevice(
   deviceToken: string,
   ownershipToken: string | undefined,
-  idempotencyKey: string = uuid(),
+  idempotencyKey: string,
 ): Promise<void> {
   await request<unknown>(DEVICE_TOKEN_PATH, {
     method: 'DELETE',

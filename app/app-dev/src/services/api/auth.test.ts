@@ -910,7 +910,7 @@ test('헤더가 없거나(결과 재생·refresh) 비어 있으면 꺼낼 것이
   assert.equal(takeDeviceBootstrap('BOOT4_RT'), undefined);
 });
 
-test('새 로그인이 오면 앞선 bootstrap 을 덮어쓴다', async () => {
+test('다른 RT 의 값은 서로 독립이다 — 나중 로그인이 앞선 값을 덮지 않고 한쪽을 꺼내도 다른 쪽이 남는다', async () => {
   stub([
     bootstrapped('BOOT5', 'u1', 'SECRET-5'),
     bootstrapped('BOOT6', 'u2', 'SECRET-6'),
@@ -920,8 +920,59 @@ test('새 로그인이 오면 앞선 bootstrap 을 덮어쓴다', async () => {
   await login('apple', 'apple-jwt', '2026-09');
   await login('apple', 'apple-jwt', '2026-09');
 
-  assert.equal(takeDeviceBootstrap('BOOT5_RT'), undefined);
   assert.equal(takeDeviceBootstrap('BOOT6_RT'), 'SECRET-6');
+  assert.equal(takeDeviceBootstrap('BOOT5_RT'), 'SECRET-5');
+  assert.equal(takeDeviceBootstrap('BOOT5_RT'), undefined);
+  assert.equal(takeDeviceBootstrap('BOOT6_RT'), undefined);
+});
+
+test('두 로그인 응답이 연달아 와도 먼저 공개되는 첫 세션이 자기 bootstrap 을 얻는다 — 둘째가 세대 검사로 버려져도', async () => {
+  stub([
+    bootstrapped('BOOT12', 'u2', 'SECRET-12'),
+    bootstrapped('BOOT13', 'u3', 'SECRET-13'),
+    { status: 200, body: { data: { revoked: true } } }, // 버려진 둘째 세션의 RT 폐기
+  ]);
+  // 첫 saveSession 이 직렬 큐에서 끝나기 전에 둘째 응답이 도착하는 경합 — 저장소 쓰기를 문 뒤에 세운다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const first = login('apple', 'apple-jwt', '2026-09');
+  const second = login('google', 'google-jwt', '2026-09');
+  // 마이크로태스크가 모두 빠진 뒤 — 두 응답이 다 돌아와 저장이 줄에 선 뒤 — 문을 연다.
+  setTimeout(open, 0);
+
+  const secondError = await second.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await first;
+  write.mockImplementation(realWrite);
+
+  // 첫 세션만 공개되고, 둘째는 같은 세대를 잡고 왔다가 세대 검사로 버려진다.
+  assert.equal(getSession()?.refreshToken, 'BOOT12_RT');
+  assert.equal(secondError?.code, CLIENT_STALE_SESSION);
+  // 둘째가 첫째의 값을 덮지 않았고, 둘째의 정리가 첫째의 값을 지우지도 않았다.
+  assert.equal(takeDeviceBootstrap('BOOT13_RT'), undefined);
+  assert.equal(takeDeviceBootstrap('BOOT12_RT'), 'SECRET-12');
+});
+
+test('꺼내지 않은 값은 최근 4개까지만 쌓는다 — 넘으면 가장 오래된 것부터 버린다', async () => {
+  // 푸시가 꺼져 있어 아무도 take 하지 않는 경우에도 값이 무한히 쌓이지 않는다.
+  stub(Array.from({ length: 5 }, (_, i) => bootstrapped(`CAP${i}`, `u${i}`, `SECRET-CAP${i}`)));
+  for (let i = 0; i < 5; i += 1) {
+    await clearSession(); // 이전 세션 폐기 요청 없이 연속 로그인
+    await login('apple', 'apple-jwt', '2026-09');
+  }
+
+  assert.equal(takeDeviceBootstrap('CAP0_RT'), undefined);
+  for (let i = 1; i < 5; i += 1) {
+    assert.equal(takeDeviceBootstrap(`CAP${i}_RT`), `SECRET-CAP${i}`);
+  }
 });
 
 test('bootstrap 은 보안 저장소·AsyncStorage 어디에도 쓰이지 않는다', async () => {

@@ -28,7 +28,6 @@ const FCM_TOKEN = 'fcm-token-1';
 const OWNERSHIP = '0b8f4f0e-6a1e-4f43-9d61-3a5f1f7c9e21';
 const NEXT_OWNERSHIP = '7c1d2a52-3e0b-4a8e-9b4f-2f6f5d0f8a10';
 const TAG = '5d1c2f0a-9a53-4b36-8f0e-1c2d3e4f5a6b';
-const UUID36 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 beforeEach(async () => {
   calls.length = 0;
@@ -119,16 +118,25 @@ test('deleteDevice — 2.0 의 /api/v1 첫 예외: DELETE 에 X-Device-Token·X-
   assert.equal(header(calls[0], 'Content-Type'), undefined);
 });
 
-test('deleteDevice — ownership 을 모르면 그 헤더를 생략하고, 키를 생략하면 UUID36 을 만든다', async () => {
+test('deleteDevice — ownership 을 모르면 그 헤더를 생략하고, 넘긴 키를 그대로 헤더에 싣는다 (재시도도 같은 키)', async () => {
   stub([{ status: 204 }]);
 
-  await deleteDevice(FCM_TOKEN, undefined);
+  // 응답 유실 뒤 재시도: 호출자가 고정한 같은 키로 두 번 보낸다.
+  await deleteDevice(FCM_TOKEN, undefined, 'delete-key-2');
+  await deleteDevice(FCM_TOKEN, undefined, 'delete-key-2');
 
   const headers = calls[0].init.headers as Record<string, string>;
   assert.equal(headers['X-Device-Token'], FCM_TOKEN);
   // 빈 값을 실으면 서버가 «깨진 값» 으로 400 이다 — 없으면 헤더 자체를 보내지 않는다.
   assert.equal('X-Device-Ownership' in headers, false);
-  assert.match(headers['Idempotency-Key'], UUID36);
+  // 키를 새로 만들지 않는다 — 만들면 재시도가 같은 명령의 재생이 아니라 새 명령이 된다.
+  assert.equal(headers['Idempotency-Key'], 'delete-key-2');
+  assert.equal(header(calls[1], 'Idempotency-Key'), 'delete-key-2');
+
+  // 키는 필수 인자다 — 기본값(호출마다 새 UUID)을 되살리면 아래 지시자가 쓰이지 않아 typecheck 가 실패한다.
+  // @ts-expect-error — idempotencyKey 를 생략하면 타입이 거부한다(재시도는 같은 키로, 호출자가 고정)
+  const withoutKey = () => deleteDevice(FCM_TOKEN, undefined);
+  assert.equal(typeof withoutKey, 'function');
 });
 
 test('legacy 최상위 {code,message} 오류가 ApiError.code 로 읽힌다 — 409 4종·401·502·503', async () => {
