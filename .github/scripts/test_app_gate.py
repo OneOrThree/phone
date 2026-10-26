@@ -27,6 +27,16 @@ class GateTests(unittest.TestCase):
                 'head_branch': 'main', 'event': 'push', 'status': 'completed', 'conclusion': 'success'}
         self.assertEqual(gate.checks_verdict({'app-lint.yml'}, [base, {**base, 'run_attempt': 2, 'status': 'in_progress'}], SHA)[0], 'waiting')
 
+    def test_document_only_push_cannot_replace_a_pending_publication_without_lint(self):
+        import yaml
+        root = Path(__file__).parents[1] / 'workflows'
+        for name in ('app-android-ci.yml', 'app-ios-testflight-dev.yml'):
+            definition = yaml.load((root / name).read_text(), Loader=yaml.BaseLoader)
+            for path in ('app/app-dev/docs/guide.mdx', 'app/app-dev/docs/guide.ts',
+                         'app/app-dev/.docs/design.json', 'app/app-dev/README.mdx', 'app/app-dev/README.md'):
+                self.assertFalse(gate.github.matches_paths([path], definition['on']['push']['paths']), (name, path))
+            self.assertTrue(gate.github.matches_paths(['app/app-dev/src/App.tsx'], definition['on']['push']['paths']))
+
     def test_main_required_checks_are_never_replaced_by_later_validation(self):
         import yaml
         root = Path(__file__).parents[1] / 'workflows'

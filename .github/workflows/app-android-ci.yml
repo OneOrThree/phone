@@ -25,6 +25,9 @@ on:
     paths: &android_release_paths
       - "app/app-dev/**"
       - "!app/app-dev/**/*.md"
+      - "!app/app-dev/**/*.mdx"
+      - "!app/app-dev/docs/**"
+      - "!app/app-dev/.docs/**"
       - "!app/app-dev/ios/**"
       # iOS 폴더 제외. 단 약관 버전·Datadog 공개 설정 정본은 여기 → 다시 포함
       - "app/app-dev/ios/release-config.sh"

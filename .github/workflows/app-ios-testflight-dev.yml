@@ -31,6 +31,9 @@ on:
     paths:
       - 'app/app-dev/**'
       - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
       - '!app/app-dev/android/**'
       - '!app/app-dev/modules/**/android/**'
       - '.github/workflows/app-ios-testflight-dev.yml'
