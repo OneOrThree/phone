@@ -1541,6 +1541,16 @@ function Gromo() {
   const pushAsked = useRef(false);
   const inTutorial = !!state.tutorial && state.tutorial.step < 22;
   const islandHomeShown = !homeError && !!serverHome(state);
+  // 앱이 앞에 있는가('active' 만 앞이다) — 백그라운드에서는 시스템 팝업을 사용자가 못 본다. 앞/뒤를 조건에 넣어, 돌아올 때 effect 가
+  // 다시 돌아 되돌려진(error) 한 번뿐인 기회를 다시 쓰게 한다. 팝업이 떠 있는 동안은 'inactive' 지만, shouldAsk 는 팝업 직전에 보고
+  // 요청이 도는 동안은 pushAsked 가 참이라 다시 묻지 않는다.
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) =>
+      setAppActive(next === 'active'),
+    );
+    return () => subscription.remove();
+  }, []);
   const pushPromptReady =
     loaded &&
     !REVIEW &&
@@ -1550,6 +1560,7 @@ function Gromo() {
     !inTutorial &&
     islandHomeShown &&
     !appContentHidden &&
+    appActive &&
     state.settings.notifications !== false;
   const pushPromptReadyRef = useRef(pushPromptReady);
   pushPromptReadyRef.current = pushPromptReady;

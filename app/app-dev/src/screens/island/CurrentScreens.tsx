@@ -891,6 +891,11 @@ function AppPermissionManager({ e }: any) {
   pushSettingOff.current = e.state.settings.notifications === false;
   // 알림 행에서 시스템 설정으로 나갔는가 — 돌아와 다시 읽은 권한이 허용이면 앱 설정도 켠다(한 번뿐, 어느 쪽이든 지운다).
   const pushSettingsOpened = useRef(false);
+  // 권한 읽기마다 번호를 매긴다(읽기를 시작할 때 올린다) — 표시는 가장 새 읽기의 결과만 정한다(옛 결과는 버린다). 눌러서 시스템
+  // 설정으로 나간 때의 번호도 적어 두고, 그보다 새로 시작한 읽기만 「나감」 표시를 소비한다 — 나가기 전에 시작한 읽기가 나가
+  // 있는 동안 늦게 끝나도(거부) 표시를 지우지 못해, 돌아와 읽은 허용이 앱 설정을 켠다.
+  const pushReadSeq = useRef(0);
+  const pushOpenedAtSeq = useRef(0);
   const enablePushSetting = () => {
     if (pushSettingOff.current) e.dispatch({ type: 'SETTING', key: 'notifications', value: true });
   };
@@ -950,12 +955,13 @@ function AppPermissionManager({ e }: any) {
           })
           .catch(() => {});
       }
+      const readSeq = ++pushReadSeq.current;
       void pushPermissionStatus().then((next) => {
         if (!active) return;
-        setPushPermission(next);
-        const fromRow = pushSettingsOpened.current;
+        if (readSeq === pushReadSeq.current) setPushPermission(next);
+        if (!pushSettingsOpened.current || readSeq <= pushOpenedAtSeq.current) return;
         pushSettingsOpened.current = false;
-        if (fromRow && next === 'granted') enablePushSetting();
+        if (next === 'granted') enablePushSetting();
       });
       screenTime
         .getAuthorizationStatus()
@@ -1048,12 +1054,14 @@ function AppPermissionManager({ e }: any) {
   const changePush = async () => {
     let current = pushPermission;
     if (current === 'error') {
+      const readSeq = ++pushReadSeq.current;
       current = await pushPermissionStatus();
-      setPushPermission(current);
+      if (readSeq === pushReadSeq.current) setPushPermission(current);
     }
     if (current === 'undetermined') {
+      const readSeq = ++pushReadSeq.current;
       const next = await requestPushPermission();
-      setPushPermission(next);
+      if (readSeq === pushReadSeq.current) setPushPermission(next);
       if (next === 'granted') enablePushSetting();
       return;
     }
@@ -1062,6 +1070,7 @@ function AppPermissionManager({ e }: any) {
       return;
     }
     if (current !== 'granted' && current !== 'denied') return;
+    pushOpenedAtSeq.current = pushReadSeq.current;
     pushSettingsOpened.current = true;
     await openSystemSettings();
   };

@@ -2,6 +2,7 @@ import { readAccountGuides } from '@/services/accountGuides';
 import assert from 'node:assert/strict';
 import * as SecureStore from 'expo-secure-store';
 import React from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
@@ -3059,6 +3060,24 @@ const afterShield = async () => {
   await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
   await settle();
 };
+// 앱이 앞/뒤로 가는 장면 — App 이 등록한 'change' 리스너 가운데 아직 구독 중인 것만 부른다. 알림 권한은 앱이 앞('active')일 때만 묻는다.
+const appStateListeners = new Set<(state: AppStateStatus) => void>();
+const emitAppState = (state: AppStateStatus) =>
+  act(async () => [...appStateListeners].forEach((listener) => listener(state)));
+// RN jest 설정이 이미 목으로 둔 값이라(currentState 는 jest.fn) 이 묶음이 바꾼 것을 매 테스트 뒤 되돌린다.
+const originalAppState = AppState.currentState;
+afterEach(() => {
+  appStateListeners.clear();
+  jest.mocked(AppState.addEventListener).mockImplementation(() => ({ remove: jest.fn() }));
+  (AppState as { currentState: unknown }).currentState = originalAppState;
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 // 서버 홈 스냅샷 — 알림 권한은 이 스냅샷이 현재 섬 것으로 적용돼 홈이 실제로 그려진 뒤에만 묻는다. 스냅샷 전에는 홈 자리에 로딩·오류 화면이 뜬다.
 const homeFacts = (islandId: string) => ({
   status: 'loaded' as const,
@@ -3087,6 +3106,13 @@ const pushApp = async ({
   snapshot?: () => Promise<unknown>;
 } = {}) => {
   mockLoadHomeSnapshot = jest.fn(snapshot);
+  // 앱이 앞에 있다고 보이게 하고(WorldMap 테스트와 같은 패턴), App 이 등록하는 AppState 리스너를 잡는다.
+  (AppState as { currentState: unknown }).currentState = 'active';
+  appStateListeners.clear();
+  jest.mocked(AppState.addEventListener).mockImplementation((_event, listener) => {
+    appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  });
   if (session) await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'push-user' });
   const app = await render(<App />);
   await waitFor(() => expect(captured).toBeTruthy());
@@ -3290,6 +3316,39 @@ test('권한을 읽는 사이 홈을 떠나면(조건이 사라지면) 팝업을
   await act(async () => captured.reset('home'));
   await afterShield();
   expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+  await app.unmount();
+});
+
+test('앱이 백그라운드에 있는 동안에는 묻지 않고, 앞으로 돌아오면 한 번 묻는다', async () => {
+  const snapshot = deferred<ReturnType<typeof homeFacts>>();
+  const app = await pushApp({ snapshot: () => snapshot.promise });
+  await emitAppState('background');
+  // 백그라운드에서 스냅샷이 적용돼 다른 조건이 모두 맞아진다.
+  await act(async () => snapshot.resolve(homeFacts('i1')));
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await emitAppState('active');
+  await promptAsked();
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+  await app.unmount();
+});
+
+test('첫 요청이 error 로 끝난 뒤 앱이 백그라운드로 갔다 같은 홈으로 돌아오면 다시 묻는다', async () => {
+  mockRequestPushPermission.mockResolvedValueOnce('error');
+  const app = await pushApp();
+  await promptAsked();
+  // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다.
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  await emitAppState('background');
+  await emitAppState('active');
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
   await app.unmount();
 });
 

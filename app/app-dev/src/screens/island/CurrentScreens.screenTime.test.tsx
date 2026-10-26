@@ -573,3 +573,100 @@ test('en 로케일 — 권한을 읽지 못한 알림 행은 한글 없이 영�
   expect(view.queryByText(/[가-힣]/)).toBeNull();
   expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
 });
+
+// ── 권한 읽기 순서 — 늦게 끝난 옛 읽기가 더 새 읽기를 덮지 못한다 ──
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+// 거부 상태 · 앱 설정 「알림」 꺼짐 — 앱이 활성이 돼 시작한 읽기(oldRead)가 걸린 채 행을 눌러 시스템 설정으로 나갔고,
+// 돌아오면 새 읽기(returnRead)를 시작한다. 두 읽기는 테스트가 끝내는 순서대로 끝난다.
+async function readRace() {
+  const returnToApp = captureAppActive();
+  const oldRead = deferred<string>();
+  const returnRead = deferred<string>();
+  mockPushPermissionStatus
+    .mockResolvedValueOnce('denied')
+    .mockImplementationOnce(() => oldRead.promise)
+    .mockImplementationOnce(() => returnRead.promise);
+  const e = environmentNotificationsOff();
+  const view = await render(<CurrentScreens e={e} />);
+  await view.findByText('꺼짐');
+  await returnToApp();
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
+  return { e, view, returnToApp, oldRead, returnRead };
+}
+
+test('알림 행 — 나간 뒤 돌아와 읽은 허용이 먼저 끝나고 옛 읽기(거부)가 나중에 끝나도, 앱 설정을 한 번 켠 채 허용으로 끝난다', async () => {
+  const { e, view, returnToApp, oldRead, returnRead } = await readRace();
+
+  await returnToApp();
+  await act(async () => returnRead.resolve('granted'));
+  await view.findByText('허용됨');
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+
+  await act(async () => oldRead.resolve('denied'));
+  await flushAsync();
+  expect(view.getByText('허용됨')).toBeTruthy();
+  expect(view.queryByText('꺼짐')).toBeNull();
+  expect(notificationSettingDispatches(e)).toHaveLength(1);
+});
+
+test('알림 행 — 옛 읽기(거부)가 시스템 설정에 있는 동안 끝나도 「나감」 표시를 소비하지 못해, 돌아와 읽은 허용이 앱 설정을 켠다', async () => {
+  const { e, view, returnToApp, oldRead, returnRead } = await readRace();
+
+  await act(async () => oldRead.resolve('denied'));
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toEqual([]);
+
+  await returnToApp();
+  await act(async () => returnRead.resolve('granted'));
+  await view.findByText('허용됨');
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+});
+
+test('알림 행 — 돌아온 읽기가 시작된 뒤 옛 읽기(거부)가 먼저 끝나도 무시하고, 이어 끝난 허용이 앱 설정을 켠다', async () => {
+  const { e, view, returnToApp, oldRead, returnRead } = await readRace();
+
+  await returnToApp();
+  await act(async () => oldRead.resolve('denied'));
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toEqual([]);
+
+  await act(async () => returnRead.resolve('granted'));
+  await view.findByText('허용됨');
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+});
+
+test('알림 행 — 읽지 못한(error) 권한을 눌러 다시 읽는 사이 더 새 읽기가 끝나면, 늦게 끝난 눌림의 읽기는 표시를 덮지 못한다', async () => {
+  const returnToApp = captureAppActive();
+  const pressRead = deferred<string>();
+  const newerRead = deferred<string>();
+  mockPushPermissionStatus
+    .mockResolvedValueOnce('error')
+    .mockImplementationOnce(() => pressRead.promise)
+    .mockImplementationOnce(() => newerRead.promise);
+  const view = await render(<CurrentScreens e={environment('settings')} />);
+  // fireEvent.press 는 핸들러(붙잡힌 읽기를 기다리는 changePush)가 끝나야 끝난다 — await 하지 않고 눌림의 act 만 끝나게 둔다.
+  const pressing = fireEvent.press(await view.findByText('알림 권한'));
+  await new Promise((done) => setTimeout(done, 0));
+  // 눌림이 다시 읽는 사이 앱이 활성이 돼 더 새 읽기가 시작되고 먼저 끝난다.
+  await returnToApp();
+  await act(async () => newerRead.resolve('granted'));
+  await view.findByText('허용됨');
+
+  // 눌림이 이어 가는 동안(await 뒤 상태 갱신)이 act 안에 들도록, 읽기를 끝내고 한 틱을 act 안에서 기다린다.
+  await act(async () => {
+    pressRead.resolve('denied');
+    await new Promise((done) => setTimeout(done, 0));
+  });
+  await pressing;
+  // 눌림은 자기 읽기 값(거부)으로 이어 가 시스템 설정을 연다 — 그래도 표시는 가장 새 읽기(허용)를 따른다.
+  expect(Linking.openSettings).toHaveBeenCalledTimes(1);
+  expect(view.getByText('허용됨')).toBeTruthy();
+  expect(view.queryByText('꺼짐')).toBeNull();
+});
