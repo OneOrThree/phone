@@ -490,3 +490,24 @@ test('알림 행 — 앱 설정 「알림」이 이미 켜져 있으면 시스�
   await flushAsync();
   expect(notificationSettingDispatches(e)).toEqual([]);
 });
+
+test('알림 행 — 권한이 이미 허용인데 앱 설정 「알림」만 꺼져 있으면 시스템 설정을 열지 않고 바로 켠다', async () => {
+  mockPushPermissionStatus.mockResolvedValue('granted');
+  const e = environmentNotificationsOff();
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+  expect(Linking.openSettings).not.toHaveBeenCalled();
+});
+
+test('알림 행 — 권한이 허용이고 앱 설정 「알림」도 켜져 있으면 끌 수 있게 시스템 설정을 연다', async () => {
+  mockPushPermissionStatus.mockResolvedValue('granted');
+  const e = environment('settings');
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
+  expect(notificationSettingDispatches(e)).toEqual([]);
+});

@@ -1525,21 +1525,36 @@ function Gromo() {
   useEffect(() => {
     refreshPush();
   }, [state.settings.notifications]);
+  // 화면 전환 덮개(경로 전환 방패·건물·불 전환)가 앱 내용을 덮는 동안이다 — 접근성 트리에서도 내용을 숨기는 그 조건이다.
+  const appContentHidden =
+    routeTransitionShielded ||
+    buildingRouteCovered ||
+    buildingTransitionActive ||
+    fireTransition.phase !== 'idle';
   // 알림 권한(GROMO-2526) — 섬 홈이 실제로 그려진 뒤 시스템 팝업으로 한 번 묻는다: 서버 홈 스냅샷이 현재 섬 것으로 적용되고
-  // 오류가 없을 때다. 그 전에는 홈 자리에 로딩·오류 화면이 떠 있어 그 위로 팝업이 뜨고 한 번뿐인 기회가 쓰인다. 아직 안 물음일
-  // 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이 바다에 있으면
-  // (route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다: state.tutorial 은
-  // 끝난 뒤에도 남는다.
+  // 오류가 없을 때다. 그 전에는 홈 자리에 로딩·오류 화면이 떠 있어 그 위로 팝업이 뜨고 한 번뿐인 기회가 쓰인다. 전환 덮개도
+  // 걷힌 뒤여야 한다 — 방패(350ms)는 화면 전환 직후의 터치가 새 화면에 닿지 않게 막는데, 시스템 팝업은 그 바깥이라 그 터치를 받는다.
+  // 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이
+  // 바다에 있으면(route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다:
+  // state.tutorial 은 끝난 뒤에도 남는다.
   const pushAsked = useRef(false);
   const inTutorial = !!state.tutorial && state.tutorial.step < 22;
   const islandHomeShown = !homeError && !!serverHome(state);
   useEffect(() => {
     if (pushAsked.current || !loaded || REVIEW || DEMO) return;
     if (route !== 'home' || !hasServerSession || inTutorial || !islandHomeShown) return;
-    if (state.settings.notifications === false) return;
+    if (appContentHidden || state.settings.notifications === false) return;
     pushAsked.current = true;
     void requestPushPermission();
-  }, [loaded, route, hasServerSession, inTutorial, islandHomeShown, state.settings.notifications]);
+  }, [
+    loaded,
+    route,
+    hasServerSession,
+    inTutorial,
+    islandHomeShown,
+    appContentHidden,
+    state.settings.notifications,
+  ]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);
@@ -2433,11 +2448,6 @@ function Gromo() {
         <T>{t('account.loadingIsland')}</T>
       </SafeAreaView>
     );
-  const appContentHidden =
-    routeTransitionShielded ||
-    buildingRouteCovered ||
-    buildingTransitionActive ||
-    fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>

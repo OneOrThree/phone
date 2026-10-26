@@ -3049,6 +3049,9 @@ test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
 });
 
 // ── 알림 권한 팝업(GROMO-2526) — 섬 홈 첫 진입에서 한 번 ──
+// 알림 권한은 화면 전환 방패(350ms)가 걷힌 뒤에 묻는다 — 느린 CI 에서도 기본 1초 대기를 넘지 않게 넉넉히 기다린다.
+const promptAsked = () =>
+  waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1), { timeout: 3000 });
 // 서버 홈 스냅샷 — 알림 권한은 이 스냅샷이 현재 섬 것으로 적용돼 홈이 실제로 그려진 뒤에만 묻는다. 스냅샷 전에는 홈 자리에 로딩·오류 화면이 뜬다.
 const homeFacts = (islandId: string) => ({
   status: 'loaded' as const,
@@ -3091,7 +3094,7 @@ const pushApp = async ({
 
 test('서버 세션이 있는 섬 홈에 들어오면 알림 권한을 한 번만 묻는다 — 홈을 다시 열어도 같은 실행에서는 다시 묻지 않는다', async () => {
   const app = await pushApp();
-  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  await promptAsked();
 
   await act(async () => captured.reset('settings'));
   await act(async () => captured.reset('home'));
@@ -3114,7 +3117,7 @@ test('홈 스냅샷이 아직 오지 않았으면(로딩 화면) 묻지 않고, 
   expect(mockRequestPushPermission).not.toHaveBeenCalled();
 
   await act(async () => resolve(homeFacts('i1')));
-  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  await promptAsked();
   expect(captured.state.serverIslands.home.islandId).toBe('i1');
   await app.unmount();
 });
@@ -3133,7 +3136,7 @@ test('홈 스냅샷을 못 받아 오류 화면이면 묻지 않고, 다시 시�
 
   offline = false;
   await act(async () => captured.retryHome());
-  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  await promptAsked();
   expect(captured.homeError).toBe(false);
   await app.unmount();
 });
@@ -3160,7 +3163,24 @@ test('옛 스냅샷이 남아 있어도 홈을 다시 읽다 실패해 오류가
 
   offline = false;
   await act(async () => captured.retryHome());
-  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  await promptAsked();
+  await app.unmount();
+});
+
+test('화면 전환 방패가 홈을 덮는 동안에는 묻지 않고, 방패가 걷힌 뒤에 한 번 묻는다', async () => {
+  // 스냅샷이 이미 적용된 채 설정 화면에서 시작한다 — 홈으로 돌아오는 순간 다른 조건은 모두 참이다.
+  const app = await pushApp({ route: 'settings', before: applySnapshot });
+  await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => captured.reset('home'));
+  expect(captured.route).toBe('home');
+  expect(captured.routeTransitionShielded).toBe(true);
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await promptAsked();
+  expect(captured.routeTransitionShielded).toBe(false);
   await app.unmount();
 });
 
@@ -3173,7 +3193,7 @@ test('튜토리얼 중에는 묻지 않고, 튜토리얼이 끝나면(step 22 �
   expect(mockRequestPushPermission).not.toHaveBeenCalled();
 
   await act(async () => captured.dispatch({ type: 'GUIDE_STEP', step: 22 }));
-  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  await promptAsked();
   expect(captured.state.tutorial).toEqual({ step: 22 });
   await app.unmount();
 });

@@ -1040,12 +1040,17 @@ function AppPermissionManager({ e }: any) {
 
   const openSystemSettings = () => openScreenTimeSettings(e.notify);
 
-  // 아직 안 물음이면 시스템 팝업, 아니면 시스템 설정 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다.
+  // 아직 안 물음이면 시스템 팝업, 이미 허용인데 앱 설정 「알림」만 꺼져 있으면 바로 켠다. 그 밖(거부, 끄려는 허용)은 시스템
+  // 설정으로 보낸다 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다.
   const changePush = async () => {
     if (pushPermission === 'undetermined') {
       const next = await requestPushPermission();
       setPushPermission(next);
       if (next === 'granted') enablePushSetting();
+      return;
+    }
+    if (pushPermission === 'granted' && pushSettingOff.current) {
+      enablePushSetting();
       return;
     }
     pushSettingsOpened.current = true;
