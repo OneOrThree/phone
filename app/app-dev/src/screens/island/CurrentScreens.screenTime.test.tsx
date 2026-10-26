@@ -378,3 +378,115 @@ test('en 로케일 — 알림 행은 한글 없이 영문으로 그린다', asyn
   expect(view.queryByText(/[가-힣]/)).toBeNull();
   expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
 });
+
+// ── 알림 행은 앱 설정 「알림」도 켠다(GROMO-2526) — 이 행은 알림을 다시 켜는 자리다 ──
+// 앱 설정 「알림」이 꺼진 환경. dispatch 는 목이라 state 는 그대로다.
+const environmentNotificationsOff = () => {
+  const e = environment('settings');
+  e.state.settings.notifications = false;
+  return e;
+};
+const notificationSettingDispatches = (e: ReturnType<typeof environment>) =>
+  (e.dispatch as jest.Mock).mock.calls.filter(
+    ([action]) => action.type === 'SETTING' && action.key === 'notifications',
+  );
+const NOTIFICATIONS_ON = { type: 'SETTING', key: 'notifications', value: true };
+// AppState 'active' 를 내보내는 함수 — 시스템 설정에서 돌아오는 장면
+const captureAppActive = () => {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+    listeners.push(listener);
+    return { remove: jest.fn() };
+  });
+  return () => act(async () => listeners.forEach((listener) => listener('active')));
+};
+const flushAsync = () =>
+  act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
+
+test.each([
+  ['granted', 1],
+  ['denied', 0],
+] as const)(
+  '알림 행 — 앱 설정 「알림」이 꺼져 있고 시스템 팝업에서 %s 면 앱 설정을 켜는 횟수는 %i',
+  async (answer, times) => {
+    mockPushPermissionStatus.mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue(answer);
+    const e = environmentNotificationsOff();
+    const view = await render(<CurrentScreens e={e} />);
+
+    await fireEvent.press(await view.findByText('알림 권한'));
+    await view.findByText(answer === 'granted' ? '허용됨' : '꺼짐');
+    await flushAsync();
+    expect(notificationSettingDispatches(e)).toEqual(Array(times).fill([NOTIFICATIONS_ON]));
+  },
+);
+
+test('알림 행 — 앱 설정 「알림」이 이미 켜져 있으면 팝업에서 허용돼도 설정을 다시 쓰지 않는다', async () => {
+  mockPushPermissionStatus.mockResolvedValue('undetermined');
+  mockRequestPushPermission.mockResolvedValue('granted');
+  const e = environment('settings');
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await view.findByText('허용됨');
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toEqual([]);
+});
+
+test('알림 행 — 거부 상태에서 시스템 설정으로 나갔다가 허용으로 돌아오면 꺼진 앱 설정 「알림」을 한 번 켠다', async () => {
+  const returnToApp = captureAppActive();
+  mockPushPermissionStatus.mockResolvedValue('denied');
+  const e = environmentNotificationsOff();
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
+  expect(notificationSettingDispatches(e)).toEqual([]);
+
+  mockPushPermissionStatus.mockResolvedValue('granted');
+  await returnToApp();
+  await view.findByText('허용됨');
+  expect(notificationSettingDispatches(e)).toEqual([[NOTIFICATIONS_ON]]);
+
+  // 한 번뿐이다 — 다시 활성이 돼도 켜지 않는다.
+  await returnToApp();
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toHaveLength(1);
+});
+
+test('알림 행 — 시스템 설정에서 돌아와도 여전히 거부면 켜지 않고, 나간 표시를 지워 이후 다른 경로로 허용돼도 켜지 않는다', async () => {
+  const returnToApp = captureAppActive();
+  mockPushPermissionStatus.mockResolvedValue('denied');
+  const e = environmentNotificationsOff();
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
+  await returnToApp();
+  await flushAsync();
+  expect(mockPushPermissionStatus).toHaveBeenCalledTimes(2);
+  expect(notificationSettingDispatches(e)).toEqual([]);
+
+  // 이 행을 거치지 않고 허용됐다(예: 기기 설정 앱에서 직접) — 앱 설정은 그대로 둔다.
+  mockPushPermissionStatus.mockResolvedValue('granted');
+  await returnToApp();
+  await view.findByText('허용됨');
+  expect(notificationSettingDispatches(e)).toEqual([]);
+});
+
+test('알림 행 — 앱 설정 「알림」이 이미 켜져 있으면 시스템 설정을 다녀와도 설정을 다시 쓰지 않는다', async () => {
+  const returnToApp = captureAppActive();
+  mockPushPermissionStatus.mockResolvedValue('denied');
+  const e = environment('settings');
+  const view = await render(<CurrentScreens e={e} />);
+
+  await fireEvent.press(await view.findByText('알림 권한'));
+  await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
+  mockPushPermissionStatus.mockResolvedValue('granted');
+  await returnToApp();
+  await view.findByText('허용됨');
+  await flushAsync();
+  expect(notificationSettingDispatches(e)).toEqual([]);
+});

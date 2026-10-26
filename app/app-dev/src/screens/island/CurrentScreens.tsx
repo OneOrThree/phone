@@ -885,6 +885,15 @@ function AppPermissionManager({ e }: any) {
   const [overlayGranted, setOverlayGranted] = useState(false);
   // 알림 권한(GROMO-2526) — iOS 이고 푸시 브리지가 든 바이너리에서만 `unavailable` 이 아니다. 아니면 알림 섹션을 그리지 않는다.
   const [pushPermission, setPushPermission] = useState<PushPermission>('unavailable');
+  // 알림 행은 알림을 다시 켜는 자리다 — 권한이 허용됐는데 앱 설정 「알림」이 꺼져 있으면 함께 켠다(꺼진 채로는 푸시 동기화가
+  // 등록하지 않는다). 팝업·시스템 설정을 다녀온 뒤(앞선 렌더의 클로저)에도 최신 값을 보도록 설정 값은 ref 로 읽는다.
+  const pushSettingOff = useRef(false);
+  pushSettingOff.current = e.state.settings.notifications === false;
+  // 알림 행에서 시스템 설정으로 나갔는가 — 돌아와 다시 읽은 권한이 허용이면 앱 설정도 켠다(한 번뿐, 어느 쪽이든 지운다).
+  const pushSettingsOpened = useRef(false);
+  const enablePushSetting = () => {
+    if (pushSettingOff.current) e.dispatch({ type: 'SETTING', key: 'notifications', value: true });
+  };
   const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
@@ -940,7 +949,11 @@ function AppPermissionManager({ e }: any) {
           .catch(() => {});
       }
       void pushPermissionStatus().then((next) => {
-        if (active) setPushPermission(next);
+        if (!active) return;
+        setPushPermission(next);
+        const fromRow = pushSettingsOpened.current;
+        pushSettingsOpened.current = false;
+        if (fromRow && next === 'granted') enablePushSetting();
       });
       screenTime
         .getAuthorizationStatus()
@@ -1029,8 +1042,14 @@ function AppPermissionManager({ e }: any) {
 
   // 아직 안 물음이면 시스템 팝업, 아니면 시스템 설정 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다.
   const changePush = async () => {
-    if (pushPermission === 'undetermined') setPushPermission(await requestPushPermission());
-    else await openSystemSettings();
+    if (pushPermission === 'undetermined') {
+      const next = await requestPushPermission();
+      setPushPermission(next);
+      if (next === 'granted') enablePushSetting();
+      return;
+    }
+    pushSettingsOpened.current = true;
+    await openSystemSettings();
   };
 
   const openMeasuredApps = async () => {
