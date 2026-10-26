@@ -30,6 +30,7 @@ import {
   Easing,
   Keyboard,
   BackHandler,
+  Linking,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -100,6 +101,7 @@ import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
+import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { componentTokens } from '@/design-system/tokens';
 import {
   C,
@@ -4613,7 +4615,7 @@ export function RedesignScreens({ e }: any) {
         </SheetGroup>
         {sec(t('settings.generalSection'))}
         <SheetGroup flat>
-          {toggle(t('settings.notifications'), 'notifications')}
+          <NotificationToggle e={e} />
           {toggle(t('settings.sound'), 'sound')}
           {toggle(t('settings.haptics'), 'haptics')}
           {toggle(t('settings.reduceMotion'), 'reduceMotion')}
@@ -4759,6 +4761,87 @@ export function RedesignScreens({ e }: any) {
     <Page title={t('onboardingStory.brand')} back={home}>
       <Btn title="섬으로 돌아가기" onPress={home} />
     </Page>
+  );
+}
+// 설정 「알림」 토글(GROMO-2526). «실제로 받는지»를 보인다 — 시스템 권한이 허용일 때만 켜진 것으로 그리고, 아직 안 물음·거부는
+// 앱 설정이 켜져 있어도(기본값이 켜짐이다) 꺼진 것으로 그린다. 켜진 채로 두면 첫 누름이 앱 설정만 끄고 팝업·시스템 설정은 두 번째
+// 누름에야 간다. 시트가 열릴 때와 앱이 활성으로 돌아올 때(시스템 설정에서 돌아온 때) 권한을 다시 읽는다. 푸시 브리지가 없는
+// 바이너리(Android·옛 iOS·웹)는 'unavailable' 이라 앱 설정 그대로다. 읽지 못한 경우('error')도 앱 설정(사용자의 뜻)을 그대로
+// 보이되 「확인하지 못했어요」 를 붙여 확인된 것처럼 보이지 않게 한다 — 꺼진 것으로 그리면 앱에서 끌 수 없다.
+function NotificationToggle({ e }: any) {
+  // null = 아직 안 읽음
+  const [permission, setPermission] = useState<PushPermission | null>(null);
+  // 권한 읽기·요청마다 번호를 매긴다(시작할 때 올린다) — 더 새 것이 시작된 뒤 늦게 끝난 옛 결과가 표시를 덮지 못하게, 가장 새 것의
+  // 결과만 표시를 정한다.
+  const readSeq = useRef(0);
+  useEffect(() => {
+    let active = true;
+    const read = () => {
+      const seq = ++readSeq.current;
+      void pushPermissionStatus().then((next) => {
+        if (active && seq === readSeq.current) setPermission(next);
+      });
+    };
+    read();
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') read();
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+  const change = async (value: boolean) => {
+    // 아직 안 물음·거부 때문에 꺼져 보이던 토글을 누르면 앱 설정은 이미 그 값이다 — 다시 쓰지 않는다.
+    if (value !== e.state.settings.notifications)
+      e.dispatch({ type: 'SETTING', key: 'notifications', value });
+    if (!value) return;
+    // 켤 때 시스템 권한도 맞춘다 — 아직 안 물음이면 시스템 팝업, 거부면 시스템 설정(앱에서는 다시 켤 수 없다).
+    const readStart = ++readSeq.current;
+    const current = await pushPermissionStatus();
+    // 다시 읽은 값을 바로 보인다 — 읽지 못했던('error') 권한이 읽히는 경우.
+    if (readStart === readSeq.current) setPermission(current);
+    if (current === 'undetermined') {
+      const requestStart = ++readSeq.current;
+      const answered = await requestPushPermission();
+      if (requestStart === readSeq.current) setPermission(answered);
+    } else if (current === 'denied')
+      await Linking.openSettings().catch(() =>
+        e.notify(t('settings.permissions.errors.settingsOpen')),
+      );
+  };
+  // 읽기 전에는 iOS 만 꺼진 것으로 그린다(푸시 브리지가 iOS 에만 있어 허용인지 아직 모른다) — 켜진 것으로 그렸다 꺼지는 깜빡임이 없다.
+  // 읽은 뒤에는 허용·브리지 없음('unavailable')·확인 못 함('error')이 앱 설정을 따른다. 아직 안 물음·거부는 꺼진 것으로 그린다.
+  const receiving =
+    permission === null
+      ? Platform.OS !== 'ios'
+      : permission === 'granted' || permission === 'unavailable' || permission === 'error';
+  // 꺼진 채 보이는 까닭이 권한이면 누르는 일이 스위치를 넘기는 것만이 아니다 — 팝업이 뜨거나 설정 앱이 열린다(힌트). 확인 못 함(error)의
+  // 「확인하지 못했어요」 는 스위치와 따로 읽히는 sub 라서, 스위치 이름에도 붙여 상태가 스위치에 닿게 한다.
+  const hint =
+    permission === 'undetermined'
+      ? t('settings.permissions.notifications.hint.ask')
+      : permission === 'denied'
+        ? t('settings.permissions.notifications.hint.openSettings')
+        : undefined;
+  const unconfirmed =
+    permission === 'error' ? t('settings.permissions.notifications.error') : undefined;
+  const label = unconfirmed
+    ? `${t('settings.notifications')}, ${unconfirmed}`
+    : t('settings.notifications');
+  return (
+    <SheetRow
+      title={t('settings.notifications')}
+      sub={unconfirmed}
+      tail={
+        <Toggle
+          label={label}
+          accessibilityHint={hint}
+          value={!!e.state.settings.notifications && receiving}
+          onChange={change}
+        />
+      }
+    />
   );
 }
 function Volume({ value, onChange }: any) {

@@ -40,6 +40,8 @@ import {
 } from './api/deviceToken';
 import { getSession, sessionGeneration, subscribeSession, type Session } from './api/session';
 
+type NotificationsModule = typeof import('expo-notifications');
+
 /** 2523 브리지(`ios/Cattus/FCMTokenModule.swift`). 브리지 호출은 겹치지 않게 {@link startPushSync} 의 직렬 큐 안에서만 부른다. */
 type FCMTokenBridge = {
   getToken(apnsTokenHex: string): Promise<string>;
@@ -127,6 +129,10 @@ function payloadOf(notification: Notification): Record<string, unknown> {
   return trigger && 'type' in trigger && trigger.type === 'push' ? (trigger.payload ?? {}) : {};
 }
 
+/** 알림을 받을 수 있는 권한인가 — 임시 허용(provisional)도 허용으로 본다. 동기화({@link startPushSync})와 권한 표시가 같은 기준이다. */
+const granted = (N: NotificationsModule, permission: NotificationPermissionsStatus) =>
+  permission.granted || permission.ios?.status === N.IosAuthorizationStatus.PROVISIONAL;
+
 /**
  * App 이 부팅(`loaded`) 뒤 한 번 시작한다. iOS 이고 브리지가 든 바이너리가 아니면 아무것도 하지 않는다 — 그런
  * 바이너리(Android·옛 iOS·웹·Jest)에서 expo-notifications 를 불러오면 네이티브 모듈이 없어 그 자리에서 던진다.
@@ -181,9 +187,6 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       openAppLink(link);
   };
 
-  const granted = (permission: NotificationPermissionsStatus) =>
-    permission.granted || permission.ios?.status === N.IosAuthorizationStatus.PROVISIONAL;
-
   const reconcile = async (): Promise<void> => {
     const session = getSession();
     const generation = sessionGeneration();
@@ -206,7 +209,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       persist().catch(() => {});
       if (!current()) return;
     }
-    if (!isEnabled() || !granted(await within(N.getPermissionsAsync()))) {
+    if (!isEnabled() || !granted(N, await within(N.getPermissionsAsync()))) {
       // 알림 끄기(설정 OFF·권한 거부) — DELETE 가 아니라 FCM 토큰만 폐기한다. 서버는 다음 발송에서 UNREGISTERED 로
       // transport_invalid 만 세우고 소유권을 남기므로, 다시 켜면 새 토큰을 그 소유권(CAS)으로 올린다. 꺼진 동안에는
       // getToken 을 부르지 않는다 — 브리지의 getToken 은 자동 초기화를 다시 켜 토큰을 되살린다.
@@ -419,6 +422,70 @@ export function startPushSync(isEnabled: () => boolean): () => void {
 /** 설정 「알림」이 바뀐 뒤 부른다(App 의 설정 effect). 동기화가 돌고 있지 않으면 아무 일도 하지 않는다. */
 export function refreshPush(): void {
   wake?.();
+}
+
+/**
+ * 설정·권한 관리 화면이 보는 알림 권한(GROMO-2526). `unavailable` 은 iOS 가 아니거나 브리지가 없는 바이너리 — 알림 항목을 그리지
+ * 않는다. `error` 는 브리지가 있는데 네이티브가 권한을 읽지 못한 것(일시적 실패)이다 — 허용도 «브리지 없음»도 아닌 확인 못 함이다.
+ */
+export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable' | 'error';
+
+/** {@link startPushSync} 와 같은 바이너리 판정 — 그 밖에서는 expo-notifications 를 불러오는 자리에서 던지므로 불러오지 않는다. */
+function bridgedNotifications(): NotificationsModule | undefined {
+  return Platform.OS === 'ios' && NativeModules.FCMTokenModule
+    ? (require('expo-notifications') as NotificationsModule)
+    : undefined;
+}
+
+// iOS 는 최상위 status 를 임시 허용(provisional)에도 undetermined 로 낸다 — 허용 판정을 먼저 본다.
+const permissionOf = (
+  N: NotificationsModule,
+  permission: NotificationPermissionsStatus,
+): PushPermission =>
+  granted(N, permission)
+    ? 'granted'
+    : permission.status === 'undetermined'
+      ? 'undetermined'
+      : 'denied';
+
+/**
+ * 지금 알림 권한을 읽는다 — 시스템 팝업은 띄우지 않는다. 브리지가 있는데 읽지 못하면(던지거나 {@link within} 시간 안에 끝나지
+ * 않으면) `error`, 브리지가 없으면 `unavailable` 이다.
+ */
+export async function pushPermissionStatus(): Promise<PushPermission> {
+  const N = bridgedNotifications();
+  if (!N) return 'unavailable';
+  try {
+    return permissionOf(N, await within(N.getPermissionsAsync()));
+  } catch {
+    return 'error';
+  }
+}
+
+/**
+ * 아직 안 물음이면 시스템 팝업으로 묻고 답을 돌려준다(알림·소리만 — 배지는 서버도 앱도 쓰지 않는다). 이미 정해졌으면 묻지
+ * 않고 지금 상태를 돌려준다. 물은 뒤에는 동기화를 깨워 새 권한으로 등록하게 한다. 네이티브가 던지거나 상태 읽기가 시간 안에
+ * 끝나지 않으면 `error` 다(사용자의 답을 기다리는 팝업 요청에는 시간 제한이 없다).
+ * @param shouldAsk 상태를 읽은 직후·팝업 직전에 한 번 본다(아직 안 물음일 때만). 읽는 사이 묻고 싶던 화면을 떠났다면 false 를
+ *   돌려 팝업을 막는다 — 그러면 묻지 않고 `undetermined` 를 돌려준다.
+ */
+export async function requestPushPermission(shouldAsk?: () => boolean): Promise<PushPermission> {
+  const N = bridgedNotifications();
+  if (!N) return 'unavailable';
+  try {
+    // 상태 읽기만 시간을 제한한다 — 팝업 요청은 사용자가 답할 때까지 기다려야 하므로 제한하지 않는다.
+    const current = permissionOf(N, await within(N.getPermissionsAsync()));
+    if (current !== 'undetermined') return current;
+    if (shouldAsk && !shouldAsk()) return 'undetermined';
+    const answered = permissionOf(
+      N,
+      await N.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true } }),
+    );
+    refreshPush();
+    return answered;
+  } catch {
+    return 'error';
+  }
 }
 
 /**

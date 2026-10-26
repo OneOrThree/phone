@@ -2,6 +2,7 @@ import { readAccountGuides } from '@/services/accountGuides';
 import assert from 'node:assert/strict';
 import * as SecureStore from 'expo-secure-store';
 import React from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
@@ -35,10 +36,12 @@ jest.mock('@/services/liveActivityPush', () => ({
 const mockStartPushSync = jest.fn(() => () => {});
 const mockRefreshPush = jest.fn();
 const mockUnregisterPushDevice = jest.fn();
+const mockRequestPushPermission = jest.fn();
 jest.mock('@/services/push', () => ({
   startPushSync: () => mockStartPushSync(),
   refreshPush: () => mockRefreshPush(),
   unregisterPushDevice: () => mockUnregisterPushDevice(),
+  requestPushPermission: (shouldAsk?: () => boolean) => mockRequestPushPermission(shouldAsk),
 }));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
@@ -204,6 +207,8 @@ beforeEach(async () => {
   mockGuestLogin.mockReset();
   mockPrepareLogout.mockReset();
   mockPrepareLogout.mockResolvedValue(undefined);
+  mockRequestPushPermission.mockReset();
+  mockRequestPushPermission.mockResolvedValue('granted');
   mockCheckSession.mockResolvedValue({ status: 'offline' });
   mockRestoreSession.mockResolvedValue(null);
   mockBootRoute = 'login';
@@ -3045,3 +3050,320 @@ test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
     else process.env.EXPO_PUBLIC_QA = qa;
   }
 });
+
+// ── 알림 권한 팝업(GROMO-2526) — 섬 홈 첫 진입에서 한 번 ──
+// 알림 권한은 화면 전환 방패(350ms)가 걷힌 뒤에 묻는다 — 느린 CI 에서도 기본 1초 대기를 넘지 않게 넉넉히 기다린다.
+const promptAsked = () =>
+  waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1), { timeout: 3000 });
+// 방패가 걷힌 뒤까지 기다린다 — 「안 묻는다」는 단언이 방패 때문에 겉으로만 통과하지 않게(잘못 묻는다면 방패가 걷힌 뒤에 묻는다).
+const afterShield = async () => {
+  await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
+  await settle();
+};
+// 앱이 앞/뒤로 가는 장면 — App 이 등록한 'change' 리스너 가운데 아직 구독 중인 것만 부른다. 알림 권한은 앱이 앞('active')일 때만 묻는다.
+const appStateListeners = new Set<(state: AppStateStatus) => void>();
+const emitAppState = (state: AppStateStatus) =>
+  act(async () => [...appStateListeners].forEach((listener) => listener(state)));
+// RN jest 설정이 이미 목으로 둔 값이라(currentState 는 jest.fn) 이 묶음이 바꾼 것을 매 테스트 뒤 되돌린다.
+const originalAppState = AppState.currentState;
+afterEach(() => {
+  appStateListeners.clear();
+  jest.mocked(AppState.addEventListener).mockImplementation(() => ({ remove: jest.fn() }));
+  (AppState as { currentState: unknown }).currentState = originalAppState;
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+// 서버 홈 스냅샷 — 알림 권한은 이 스냅샷이 현재 섬 것으로 적용돼 홈이 실제로 그려진 뒤에만 묻는다. 스냅샷 전에는 홈 자리에 로딩·오류 화면이 뜬다.
+const homeFacts = (islandId: string) => ({
+  status: 'loaded' as const,
+  facts: {
+    islandId,
+    home: {
+      island: { id: islandId, name: '소다 섬', role: 'host', memberCount: 1, maxMembers: 15 },
+      wallets: { villagePoints: 0 },
+    },
+    completedBuildings: ['hall'],
+    members: [],
+  },
+});
+// 스냅샷 조건을 채워 둔다 — 다른 조건(세션·화면)만 묻지 않는 이유가 되게 한다.
+const applySnapshot = (dispatch: (action: any) => void) =>
+  dispatch({ type: 'SERVER_HOME', facts: homeFacts('i1').facts });
+const pushApp = async ({
+  session = true,
+  route = 'home',
+  before,
+  snapshot = async () => homeFacts('i1'),
+}: {
+  session?: boolean;
+  route?: Route;
+  before?: (dispatch: (action: any) => void) => void;
+  snapshot?: () => Promise<unknown>;
+} = {}) => {
+  mockLoadHomeSnapshot = jest.fn(snapshot);
+  // 앱이 앞에 있다고 보이게 하고(WorldMap 테스트와 같은 패턴), App 이 등록하는 AppState 리스너를 잡는다.
+  (AppState as { currentState: unknown }).currentState = 'active';
+  appStateListeners.clear();
+  jest.mocked(AppState.addEventListener).mockImplementation((_event, listener) => {
+    appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  });
+  if (session) await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'push-user' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    before?.(captured.dispatch);
+    captured.reset(route);
+  });
+  return app;
+};
+
+test('서버 세션이 있는 섬 홈에 들어오면 알림 권한을 한 번만 묻는다 — 홈을 다시 열어도 같은 실행에서는 다시 묻지 않는다', async () => {
+  const app = await pushApp();
+  await promptAsked();
+
+  await act(async () => captured.reset('settings'));
+  await act(async () => captured.reset('home'));
+  await afterShield();
+  expect(captured.route).toBe('home');
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+  await app.unmount();
+});
+
+test('홈 스냅샷이 아직 오지 않았으면(로딩 화면) 묻지 않고, 적용돼 홈이 그려진 뒤에 한 번 묻는다', async () => {
+  let resolve!: (result: ReturnType<typeof homeFacts>) => void;
+  const pending = new Promise<ReturnType<typeof homeFacts>>((done) => {
+    resolve = done;
+  });
+  const app = await pushApp({ snapshot: () => pending });
+  await afterShield();
+  expect(captured.route).toBe('home');
+  expect(captured.homeError).toBe(false);
+  expect(captured.state.serverIslands.home).toBeFalsy();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => resolve(homeFacts('i1')));
+  await promptAsked();
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  await app.unmount();
+});
+
+test('홈 스냅샷을 못 받아 오류 화면이면 묻지 않고, 다시 시도해 받으면 한 번 묻는다', async () => {
+  let offline = true;
+  const app = await pushApp({
+    snapshot: async () => {
+      if (offline) throw new Error('offline');
+      return homeFacts('i1');
+    },
+  });
+  await waitFor(() => expect(captured.homeError).toBe(true));
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  offline = false;
+  await act(async () => captured.retryHome());
+  await promptAsked();
+  expect(captured.homeError).toBe(false);
+  await app.unmount();
+});
+
+test('옛 스냅샷이 남아 있어도 홈을 다시 읽다 실패해 오류가 떠 있으면 묻지 않고, 다시 시도해 읽히면 묻는다', async () => {
+  let offline = false;
+  const app = await pushApp({
+    // 알림을 끈 채 스냅샷이 적용된 홈에서 시작해, 오류가 뜬 뒤에 켠다.
+    before: (dispatch) => dispatch({ type: 'SETTING', key: 'notifications', value: false }),
+    snapshot: async () => {
+      if (offline) throw new Error('offline');
+      return homeFacts('i1');
+    },
+  });
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+
+  offline = true;
+  await act(async () => captured.retryHome());
+  await waitFor(() => expect(captured.homeError).toBe(true));
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: true }));
+  await afterShield();
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  offline = false;
+  await act(async () => captured.retryHome());
+  await promptAsked();
+  await app.unmount();
+});
+
+test('화면 전환 방패가 홈을 덮는 동안에는 묻지 않고, 방패가 걷힌 뒤에 한 번 묻는다', async () => {
+  // 스냅샷이 이미 적용된 채 설정 화면에서 시작한다 — 홈으로 돌아오는 순간 다른 조건은 모두 참이다.
+  const app = await pushApp({ route: 'settings', before: applySnapshot });
+  await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => captured.reset('home'));
+  expect(captured.route).toBe('home');
+  expect(captured.routeTransitionShielded).toBe(true);
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await promptAsked();
+  expect(captured.routeTransitionShielded).toBe(false);
+  await app.unmount();
+});
+
+test('튜토리얼 중에는 묻지 않고, 튜토리얼이 끝나면(step 22 이상 — state.tutorial 은 끝난 뒤에도 남는다) 묻는다', async () => {
+  const app = await pushApp({ before: (dispatch) => dispatch({ type: 'GUIDE_STEP', step: 4 }) });
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+  await afterShield();
+  expect(captured.route).toBe('home');
+  expect(captured.state.tutorial).toEqual({ step: 4 });
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => captured.dispatch({ type: 'GUIDE_STEP', step: 22 }));
+  await promptAsked();
+  expect(captured.state.tutorial).toEqual({ step: 22 });
+  await app.unmount();
+});
+
+test.each([
+  [
+    '설정 「알림」이 꺼져 있다',
+    {
+      before: (dispatch: (action: any) => void) =>
+        dispatch({ type: 'SETTING', key: 'notifications', value: false }),
+    },
+  ],
+  ['서버 세션이 없다', { session: false, before: applySnapshot }],
+  ['홈이 아닌 화면에 있다', { route: 'settings' as Route, before: applySnapshot }],
+  [
+    '소속 섬 없이 바다에 있다(홈이 아니다)',
+    {
+      route: 'sea' as Route,
+      before: (dispatch: (action: any) => void) => dispatch(islandSync(null, null)),
+    },
+  ],
+])('알림 권한을 묻지 않는다 — %s', async (_case, options) => {
+  const app = await pushApp(options);
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+  await app.unmount();
+});
+
+test.each(['error', 'unavailable'] as const)(
+  '권한 요청이 %s 로 끝나(네이티브 일시 실패·브리지 없음) 못 물었으면 다음 홈 진입에서 다시 묻고, 답을 받은 뒤에는 묻지 않는다',
+  async (result) => {
+    mockRequestPushPermission.mockResolvedValueOnce(result);
+    const app = await pushApp();
+    await promptAsked();
+    // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다(effect 는 의존값이 바뀔 때만 돈다).
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+      timeout: 3000,
+    });
+
+    // 이번에는 답이 왔다(granted) — 더는 묻지 않는다.
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+    await app.unmount();
+  },
+);
+
+test('권한을 읽는 사이 홈을 떠나면(조건이 사라지면) 팝업을 막고 undetermined 로 끝나, 홈으로 돌아오면 한 번 묻는다', async () => {
+  // 상태 읽기를 붙잡아 둔다 — 실제 구현은 읽은 직후·팝업 직전에 shouldAsk 를 보고, false 면 묻지 않고 undetermined 를 돌려준다.
+  // 이 목은 push.ts 의 계약을 흉내 낸다 — 그 계약은 push.test.ts 「묻기 직전 shouldAsk 가 false 면…」 이 실제 구현으로 고정한다.
+  let release!: () => void;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  let shouldAskAfterRead: boolean | undefined;
+  mockRequestPushPermission.mockImplementationOnce(async (shouldAsk?: () => boolean) => {
+    await gate;
+    shouldAskAfterRead = shouldAsk?.();
+    return shouldAskAfterRead === false ? 'undetermined' : 'granted';
+  });
+  const app = await pushApp();
+  await promptAsked();
+
+  // 읽는 사이 홈을 떠났다.
+  await act(async () => captured.reset('settings'));
+  await act(async () => release());
+  await afterShield();
+  expect(shouldAskAfterRead).toBe(false);
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  // 홈으로 돌아오면 한 번 묻는다 — 막힌 시도가 한 번뿐인 기회를 쓰지 않았다.
+  await act(async () => captured.reset('home'));
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
+  const shouldAsk = mockRequestPushPermission.mock.calls[1][0] as () => boolean;
+  expect(shouldAsk()).toBe(true);
+
+  // 이번에는 답이 왔다 — 더는 묻지 않는다.
+  await act(async () => captured.reset('settings'));
+  expect(shouldAsk()).toBe(false);
+  await act(async () => captured.reset('home'));
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+  await app.unmount();
+});
+
+test('앱이 백그라운드에 있는 동안에는 묻지 않고, 앞으로 돌아오면 한 번 묻는다', async () => {
+  const snapshot = deferred<ReturnType<typeof homeFacts>>();
+  const app = await pushApp({ snapshot: () => snapshot.promise });
+  await emitAppState('background');
+  // 백그라운드에서 스냅샷이 적용돼 다른 조건이 모두 맞아진다.
+  await act(async () => snapshot.resolve(homeFacts('i1')));
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await emitAppState('active');
+  await promptAsked();
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+  await app.unmount();
+});
+
+test('첫 요청이 error 로 끝난 뒤 앱이 백그라운드로 갔다 같은 홈으로 돌아오면 다시 묻는다', async () => {
+  mockRequestPushPermission.mockResolvedValueOnce('error');
+  const app = await pushApp();
+  await promptAsked();
+  // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다.
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  await emitAppState('background');
+  await emitAppState('active');
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
+  await app.unmount();
+});
+
+test.each(['granted', 'denied'] as const)(
+  '권한 요청이 %s 로 끝나면 이 실행에서는 홈에 다시 들어와도 다시 묻지 않는다',
+  async (answer) => {
+    mockRequestPushPermission.mockResolvedValueOnce(answer);
+    const app = await pushApp();
+    await promptAsked();
+
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    await app.unmount();
+  },
+);

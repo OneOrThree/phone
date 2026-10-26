@@ -2,7 +2,19 @@ import React from 'react';
 import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Btn, CharCount, Field, NavBtn, Wheel, Seg, Txt } from './patterns';
+import {
+  Page,
+  Badge,
+  Btn,
+  CharCount,
+  Field,
+  NavBtn,
+  Row,
+  Toggle,
+  Wheel,
+  Seg,
+  Txt,
+} from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -161,6 +173,28 @@ test('Btn 은 accessibilityHint 를 안 주면 비워 두고, 주면 그대로 �
   const hinted = getByLabelText('흐림');
   expect(hinted.props.accessibilityHint).toBe('왜 흐린지');
   expect(hinted.props.accessibilityState.disabled).toBe(false);
+});
+
+test('Toggle·Row 는 accessibilityHint 를 안 주면 비워 두고, 주면 누르는 쪽(Pressable)에 그대로 싣는다', async () => {
+  const { getByRole, getByLabelText } = await render(
+    <>
+      <Toggle label="평범한 스위치" value={false} onChange={() => {}} />
+      <Toggle
+        label="힌트 스위치"
+        value={false}
+        onChange={() => {}}
+        accessibilityHint="누르면 권한을 물어요"
+      />
+      <Row title="평범한 행" onPress={() => {}} />
+      <Row title="힌트 행" onPress={() => {}} accessibilityHint="누르면 설정 앱이 열려요" />
+    </>,
+  );
+  expect(getByRole('switch', { name: '평범한 스위치' }).props.accessibilityHint).toBeUndefined();
+  expect(getByRole('switch', { name: '힌트 스위치' }).props.accessibilityHint).toBe(
+    '누르면 권한을 물어요',
+  );
+  expect(getByLabelText('평범한 행').props.accessibilityHint).toBeUndefined();
+  expect(getByLabelText('힌트 행').props.accessibilityHint).toBe('누르면 설정 앱이 열려요');
 });
 
 test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 높이와 세로 패딩을 쓴다', async () => {

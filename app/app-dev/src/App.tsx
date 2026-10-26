@@ -78,6 +78,7 @@ import {
   reducer,
   displayIsland as currentIsland,
   viewIsland,
+  serverHome,
   sessionSeconds,
   questRate,
   canBuild,
@@ -156,7 +157,12 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
-import { refreshPush, startPushSync, unregisterPushDevice } from '@/services/push';
+import {
+  refreshPush,
+  requestPushPermission,
+  startPushSync,
+  unregisterPushDevice,
+} from '@/services/push';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -1519,6 +1525,55 @@ function Gromo() {
   useEffect(() => {
     refreshPush();
   }, [state.settings.notifications]);
+  // 화면 전환 덮개(경로 전환 방패·건물·불 전환)가 앱 내용을 덮는 동안이다 — 접근성 트리에서도 내용을 숨기는 그 조건이다.
+  const appContentHidden =
+    routeTransitionShielded ||
+    buildingRouteCovered ||
+    buildingTransitionActive ||
+    fireTransition.phase !== 'idle';
+  // 알림 권한(GROMO-2526) — 섬 홈이 실제로 그려진 뒤 시스템 팝업으로 한 번 묻는다: 서버 홈 스냅샷이 현재 섬 것으로 적용되고
+  // 오류가 없을 때다. 그 전에는 홈 자리에 로딩·오류 화면이 떠 있어 그 위로 팝업이 뜨고 한 번뿐인 기회가 쓰인다. 전환 덮개도
+  // 걷힌 뒤여야 한다 — 방패(350ms)는 화면 전환 직후의 터치가 새 화면에 닿지 않게 막는데, 시스템 팝업은 그 바깥이라 그 터치를 받는다.
+  // 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이
+  // 바다에 있으면(route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다:
+  // state.tutorial 은 끝난 뒤에도 남는다. 권한을 읽는 사이 이 조건이 사라질 수 있다(홈을 떠남·로그아웃) — 조건 전체를 렌더마다
+  // ref 에 두고, requestPushPermission 이 팝업 직전에 다시 본다(shouldAsk).
+  const pushAsked = useRef(false);
+  const inTutorial = !!state.tutorial && state.tutorial.step < 22;
+  const islandHomeShown = !homeError && !!serverHome(state);
+  // 앱이 앞에 있는가('active' 만 앞이다) — 백그라운드에서는 시스템 팝업을 사용자가 못 본다. 앞/뒤를 조건에 넣어, 돌아올 때 effect 가
+  // 다시 돌아 되돌려진(error) 한 번뿐인 기회를 다시 쓰게 한다. 팝업이 떠 있는 동안은 'inactive' 지만, shouldAsk 는 팝업 직전에 보고
+  // 요청이 도는 동안은 pushAsked 가 참이라 다시 묻지 않는다.
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) =>
+      setAppActive(next === 'active'),
+    );
+    return () => subscription.remove();
+  }, []);
+  const pushPromptReady =
+    loaded &&
+    !REVIEW &&
+    !DEMO &&
+    route === 'home' &&
+    hasServerSession &&
+    !inTutorial &&
+    islandHomeShown &&
+    !appContentHidden &&
+    appActive &&
+    state.settings.notifications !== false;
+  const pushPromptReadyRef = useRef(pushPromptReady);
+  pushPromptReadyRef.current = pushPromptReady;
+  useEffect(() => {
+    if (pushAsked.current || !pushPromptReady) return;
+    pushAsked.current = true;
+    void requestPushPermission(() => pushPromptReadyRef.current).then((permission) => {
+      // 못 물었으면 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다: 네이티브가 일시적으로 실패했거나
+      // ('error'), 브리지가 없거나('unavailable'), 읽는 사이 조건이 사라져 팝업을 막았다('undetermined' 그대로).
+      if (permission === 'error' || permission === 'unavailable' || permission === 'undetermined')
+        pushAsked.current = false;
+    });
+  }, [pushPromptReady]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);
@@ -2412,11 +2467,6 @@ function Gromo() {
         <T>{t('account.loadingIsland')}</T>
       </SafeAreaView>
     );
-  const appContentHidden =
-    routeTransitionShielded ||
-    buildingRouteCovered ||
-    buildingTransitionActive ||
-    fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>

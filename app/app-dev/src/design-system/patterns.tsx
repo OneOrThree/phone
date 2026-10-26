@@ -349,6 +349,8 @@ export function Row({
   chevron = false,
   style,
   accessibilityLabel,
+  // 누르면 일어날 일이 보이는 동작과 다를 때(권한 팝업을 띄우거나 설정 앱을 연다) 덧붙인다. 눌리는 행에만 닿는다
+  accessibilityHint,
 }: any) {
   const content = (
     <>
@@ -387,6 +389,7 @@ export function Row({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || title}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={onPress}
@@ -603,6 +606,8 @@ export function Toggle({
   value,
   onChange,
   label,
+  // 누르는 일이 스위치를 넘기는 것만이 아닐 때(권한 팝업을 띄우거나 설정 앱을 연다) 그 일을 덧붙인다
+  accessibilityHint,
   disabled = false,
   activeColor = primitiveTokens.color.success,
 }: any) {
@@ -620,6 +625,7 @@ export function Toggle({
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ checked: value, disabled }}
       disabled={disabled}
       onPress={() => onChange(!value)}
