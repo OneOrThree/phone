@@ -9,7 +9,6 @@ on:
 concurrency:
   group: dev-server-smoke
   cancel-in-progress: false
-  queue: max
 
 permissions:
   contents: read
@@ -22,6 +21,10 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 185
+    outputs:
+      smoke-needed: ${{ steps.wait.outputs.smoke-needed }}
+      target-plan: ${{ steps.wait.outputs.target-plan }}
+      disposition: ${{ steps.wait.outputs.disposition }}
     permissions:
       contents: read
       actions: read
@@ -31,13 +34,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - name: 해당 main 커밋의 CI·dev 배포 완료 대기
+        id: wait
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/wait-smoke-deploy.py
 
   guest-budget:
     needs: wait-deploy
-    if: always() && (needs.wait-deploy.result == 'success' || github.event_name == 'workflow_dispatch')
+    if: always() && ((needs.wait-deploy.result == 'success' && needs.wait-deploy.outputs.smoke-needed == 'true') || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, dev]
     timeout-minutes: 75
     steps:
@@ -51,9 +55,11 @@ jobs:
 
   execute:
     needs: [wait-deploy, guest-budget]
-    if: always() && needs.guest-budget.result == 'success' && (needs.wait-deploy.result == 'success' || github.event_name == 'workflow_dispatch')
+    if: always() && needs.guest-budget.result == 'success' && ((needs.wait-deploy.result == 'success' && needs.wait-deploy.outputs.smoke-needed == 'true') || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, dev]
     timeout-minutes: 20
+    outputs:
+      target-state: ${{ steps.target.outputs.state }}
     # 같은 잠금으로 보호된 dev CD가 끝난 뒤 전체 15개를 한 러너에서 검사한다.
     concurrency:
       group: dev-vm-deploy
@@ -63,17 +69,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: 실제 서비스 SHA·digest 기록 및 요청 대상 확인
+        id: target
+        env:
+          SMOKE_TARGET_PLAN: ${{ needs.wait-deploy.outputs.target-plan }}
+        run: python3 .github/scripts/smoke-target.py
       - uses: actions/setup-node@v4
+        if: steps.target.outputs.state == 'matched'
         with:
           node-version: '22'
       - name: dev 스모크 전 오래된 미사용 이미지 정리
         # 정리 오류는 경고로 남기고 실제 서비스 상태는 스모크로 검증한다.
+        if: steps.target.outputs.state == 'matched'
         continue-on-error: true
         env:
           DEPLOY_ENV: dev
           DEV_IMAGE_HISTORY: ${{ runner.tool_cache }}/phone-dev-images/successful-images.json
         run: python3 .github/scripts/dev-image-retention.py --apply
       - name: dev 서비스 준비 확인 후 5분 안정화 대기
+        if: steps.target.outputs.state == 'matched'
         run: |
           set -euo pipefail
           for container in phone-data-api phone-business-api-1 phone-realtime phone-notification-1; do
@@ -87,6 +102,7 @@ jobs:
           sleep 300
       - name: 공개 API·실시간·핵심 게스트 흐름·인프라 15개 검사
         id: smoke
+        if: steps.target.outputs.state == 'matched'
         env:
           SMOKE_CORE_ENABLED: '1'
           SMOKE_BASIC_ONLY: '0'
@@ -106,8 +122,11 @@ jobs:
           RESULTS_FILE="$RUNNER_TEMP/smoke-results/api/results.tsv" smoke/server/run.sh
           api_rc=$?
           exit $((internal_rc || api_rc))
-      - name: dev 스모크 성공 이미지 이력 갱신
+      - name: 검사 중 버전 유지 확인
         if: success() && steps.smoke.outcome == 'success'
+        run: python3 .github/scripts/smoke-target.py verify
+      - name: dev 스모크 성공 이미지 이력 갱신
+        if: success() && steps.smoke.outcome == 'success' && steps.target.outputs.state == 'matched'
         # 이력 갱신 실패로 이미 통과한 스모크 결과를 실패로 바꾸지 않는다.
         continue-on-error: true
         env:
@@ -118,7 +137,7 @@ jobs:
         if: always()
         with:
           name: smoke-results
-          path: ${{ runner.temp }}/smoke-results/**/results.tsv
+          path: ${{ runner.temp }}/smoke-results/
           retention-days: 7
           overwrite: true
 
@@ -138,6 +157,9 @@ jobs:
           path: smoke-results
       - name: TC별 결과 요약·배지 판정
         env:
+          SMOKE_DISPOSITION: ${{ needs.wait-deploy.outputs.disposition }}
+          SMOKE_NEEDED: ${{ needs.wait-deploy.outputs.smoke-needed }}
+          SMOKE_TARGET_STATE: ${{ needs.execute.outputs.target-state }}
           SMOKE_RUN_RESULT: ${{ needs.execute.result }}
           DEPLOY_WAIT_RESULT: ${{ needs.wait-deploy.result }}
           SMOKE_EVENT_NAME: ${{ github.event_name }}

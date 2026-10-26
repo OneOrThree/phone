@@ -30,8 +30,9 @@ jobs:
   redeploy:
     name: ${{ inputs.service }} 재배포
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
       - name: 마지막 성공 배포 job 찾아 재실행
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,15 +79,18 @@ jobs:
               [ -n "$job" ] || continue
               if [[ "$SERVICE" =~ ^(business-api|notification)$ ]] && ! deployed_in_plan "$run" "$sha"; then continue; fi
               echo "재실행: run $run · job $job · 커밋 ${sha:0:8} ($created)"
+              previous_attempt=$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.run_attempt')
+              job_name=$(gh api "repos/$GH_REPO/actions/jobs/$job" --jq '.name')
               gh run rerun "$run" --job "$job"
               {
-                echo "### $SERVICE 재배포"
+                echo "### $SERVICE 재배포 요청 접수 (완료 대기 중)"
                 echo "- Data/Realtime 선택은 두 이미지를 함께 재배포하며 DB 상태도 검증함"
                 echo "- 재실행한 배포: [run $run](${{ github.server_url }}/$GH_REPO/actions/runs/$run) · 커밋 \`${sha:0:8}\` ($created)"
                 if [[ "$SERVICE" =~ ^(business-api|notification)$ ]]; then
                   echo "- 위성 배포는 그 실행의 대상 서비스 전부를 다시 띄움"
                 fi
               } >> "$GITHUB_STEP_SUMMARY"
+              python3 .github/scripts/wait-redeploy.py "$run" "$previous_attempt" "$job_name"
               exit 0
             done <<< "$runs"
           done

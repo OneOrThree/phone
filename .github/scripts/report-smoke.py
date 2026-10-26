@@ -20,6 +20,15 @@ def read_rows(directory):
 
 
 def report(directory):
+    if (os.environ.get('SMOKE_EVENT_NAME', 'push') == 'push'
+            and os.environ.get('DEPLOY_WAIT_RESULT') == 'success'
+            and (os.environ.get('SMOKE_NEEDED') == 'false'
+                 or (os.environ.get('SMOKE_TARGET_STATE') == 'superseded'
+                     and os.environ.get('SMOKE_RUN_RESULT') == 'success'))):
+        reason = ('후속 SHA로 대상 대체됨' if os.environ.get('SMOKE_DISPOSITION') == 'superseded' or os.environ.get('SMOKE_TARGET_STATE') == 'superseded' else '서버 배포 대상 없음')
+        with open(os.environ.get('GITHUB_STEP_SUMMARY', os.devnull), 'a') as file:
+            file.write('## 서버 스모크 미실행\n\n' + reason + ' — 기능 검사 통과 증거로 사용하지 않는다.\n')
+        return 0
     rows = read_rows(directory)
     result = os.environ.get('SMOKE_RUN_RESULT', 'failure')
     wait = os.environ.get('DEPLOY_WAIT_RESULT', 'skipped')
