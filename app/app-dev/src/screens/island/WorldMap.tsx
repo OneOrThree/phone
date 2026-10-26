@@ -248,7 +248,7 @@ export const legacyDoors: Record<string, Door> = (() => {
         return t('home.a11y.campfire');
       },
       memberOnly: true,
-      // 낮 연기와 밤 불꽃이 그려지는 영역을 함께 덮는다.
+      // 늘 켜진 불꽃 영역(405, 437 · 140×93)을 덮는다. 위 여백은 종전 낮 연기 자리라 누르는 범위를 줄이지 않고 둔다(GROMO-2483).
       hitbox: d.fire.hitbox,
     },
     hall: building('hall', 'hall'),

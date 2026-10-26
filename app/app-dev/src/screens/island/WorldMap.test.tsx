@@ -755,11 +755,21 @@ test('demo night 쿼리는 현재 시간이 낮이어도 저녁 모습을 고정
   const previousLocation = window.location;
   (Platform as { OS: string }).OS = 'web';
   Object.defineProperty(window, 'location', {
-    value: { search: '?demo=1&night=1' },
+    value: { search: '?demo=1' },
     configurable: true,
   });
 
   try {
+    // 대조: 같은 낮 12시에 night 쿼리가 없으면 회관은 낮 프레임이다
+    const day = await render(<WorldMap state={initialState(true)} />);
+    expect(day.getByTestId('village-hall-frame-0').props.source).toBe(
+      require('@/assets/village-world/motion/hall/frame-0.png'),
+    );
+    await day.unmount();
+    Object.defineProperty(window, 'location', {
+      value: { search: '?demo=1&night=1' },
+      configurable: true,
+    });
     const screen = await render(<WorldMap state={initialState(true)} />);
     // 모닥불은 낮밤이 같다(GROMO-2483) — 밤 고정은 회관 밤 프레임으로 본다
     expect(screen.getByTestId('village-hall-frame-0').props.source).toBe(
