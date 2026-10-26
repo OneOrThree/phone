@@ -1144,6 +1144,75 @@ test.each([
   },
 );
 
+test('권한 상태 읽기가 끝나지 않으면 20초 뒤 error 로 끝난다 — 첫 홈 팝업·설정 화면의 읽기가 영영 걸려 있지 않게, 팝업은 띄우지 않는다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ permission: 'undetermined', answer: 'granted' });
+    await settle();
+    // 네이티브가 영영 답하지 않는다.
+    t.notifications.getPermissionsAsync.mockImplementation(() => new Promise(() => {}));
+    let statusDone = false;
+    let requestDone = false;
+    const status = t.push.pushPermissionStatus().finally(() => {
+      statusDone = true;
+    });
+    const request = t.push.requestPushPermission().finally(() => {
+      requestDone = true;
+    });
+
+    jest.advanceTimersByTime(19_999);
+    await settle();
+    expect(statusDone).toBe(false);
+    expect(requestDone).toBe(false);
+
+    jest.advanceTimersByTime(1);
+    await settle();
+    expect(statusDone).toBe(true);
+    expect(requestDone).toBe(true);
+    await expect(status).resolves.toBe('error');
+    await expect(request).resolves.toBe('error');
+    expect(t.notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('시스템 팝업 요청은 사용자가 답할 때까지 시간 제한 없이 기다린다 — 20초를 훌쩍 넘겨도 error 가 아니다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ permission: 'undetermined', answer: 'granted' });
+    await settle();
+    // 팝업이 떠 있고 사용자가 아직 답하지 않았다.
+    let answer!: () => void;
+    const gate = new Promise<void>((done) => {
+      answer = done;
+    });
+    const original = t.notifications.requestPermissionsAsync.getMockImplementation()!;
+    t.notifications.requestPermissionsAsync.mockImplementationOnce(async (request: object) => {
+      await gate;
+      return original(request);
+    });
+    let done = false;
+    const request = t.push.requestPushPermission().finally(() => {
+      done = true;
+    });
+    await settle();
+    expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(120_000);
+    await settle();
+    expect(done).toBe(false);
+
+    answer();
+    await settle();
+    await expect(request).resolves.toBe('granted');
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('사용자가 팝업에서 거부하면 denied 를 돌려주고 등록하지 않는다', async () => {
   const t = setup({ permission: 'undetermined', answer: 'denied' });
   await settle();
