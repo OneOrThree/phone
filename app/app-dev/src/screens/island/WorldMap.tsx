@@ -1129,17 +1129,17 @@ export function WorldMap({
                 }}
               />
             )}
+            {/* 모닥불은 낮에도 밤과 같은 불꽃으로 늘 켜져 있다(GROMO-2483, 2026-10-27 오스카) — 밤 불꽃의 화덕 경계를 그대로 쓴다 */}
             <FireMotion
               testID="world-fire-motion"
-              mode={dayNight === 'day' ? 'day' : 'evening'}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 ...pressStyle('fire'),
                 position: 'absolute',
-                left: left + (dayNight === 'day' ? 402 : 405) * scale,
-                top: top + (dayNight === 'day' ? 425 : 437) * scale,
-                width: (dayNight === 'day' ? 116 : 140) * scale,
-                height: (dayNight === 'day' ? 77 : 93) * scale,
+                left: left + 405 * scale,
+                top: top + 437 * scale,
+                width: 140 * scale,
+                height: 93 * scale,
               }}
             />
             <RaftWaterMotion
