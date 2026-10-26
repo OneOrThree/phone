@@ -7,6 +7,9 @@
  *  - `POST   /auth/sessions/guest`    게스트 시작. 저장된 `X-Device-Id`(UUID36) 필수.
  *  - `DELETE /auth/sessions/current`  로그아웃. `X-Refresh-Token` 필수.
  *  - `GET    /me`                     내 계정.
+ *
+ * 앞의 두 로그인 201 은 1회용 기기 등록 자격을 `X-Device-Bootstrap` 헤더로 싣는다 —
+ * {@link takeDeviceBootstrap} 이 메모리로만 한 번 건넨다.
  */
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -66,6 +69,51 @@ export interface LoginResult {
   userId: string;
   /** 고양이 색·이름까지 고른 계정인지. 재시작 복구에서 이 값이 정본이다. */
   onboardingComplete: boolean;
+}
+
+const DEVICE_BOOTSTRAP_HEADER = 'X-Device-Bootstrap';
+
+/**
+ * 로그인·게스트 시작 응답이 주는 1회용 기기 등록 자격. 서버가 못 박은 대로 **저장소·로그·공용 캐시에
+ * 남기지 않는다**(`DeviceBootstrapHeader.java` 머리 주석, 계정 LLD §2.1) — 그래서 `LoginResult`
+ * (앱 상태에 실려 AsyncStorage 로 갈 수 있다)에 싣지 않고, 리프레시 토큰에 묶어 이 변수에 **메모리로만**
+ * 둔다. 새 로그인이 값을 가져오면 덮어쓴다. 결과 재생(응답 유실 복구)·refresh 응답에는 헤더가 없다.
+ */
+let pendingDeviceBootstrap: { refreshToken: string; value: string } | null = null;
+
+/**
+ * 이 세션(RT)의 bootstrap 을 한 번만 꺼내 준다. RT 가 다르거나, 이미 꺼냈거나, 서버가 주지 않았으면
+ * undefined — 호출부는 그때 자격 없는 기존 등록 경로로 내려간다. 다른 RT 로 부른 시도는 값을 지우지 않는다.
+ */
+export function takeDeviceBootstrap(refreshToken: string): string | undefined {
+  const pending = pendingDeviceBootstrap;
+  if (pending?.refreshToken !== refreshToken) return undefined;
+  pendingDeviceBootstrap = null;
+  return pending.value;
+}
+
+/**
+ * {@link saveSession} 에 bootstrap 을 RT 로 묶는 일을 «공개 전에» 끼운다. 세션 공개 알림
+ * (`subscribeSession`)은 `login()` 이 반환하기 전에 오므로, 반환 뒤에 묶으면 구독자가 못 꺼낸다.
+ * 공개하지 못했으면(세대 변경 `false`·저장소 오류) 값을 버린다 — 이 RT 는 쓰이지 않는 세션이다.
+ * 서버는 빈 값을 싣지 않는 것이 계약이라 비어 있으면 «없음»이다.
+ */
+async function saveSessionHoldingBootstrap(
+  session: Session,
+  generation: number,
+  bootstrap: string,
+  onPublished?: (session: Session, generation: number) => void,
+): Promise<boolean> {
+  const mine = bootstrap.trim() ? { refreshToken: session.refreshToken, value: bootstrap } : null;
+  if (mine) pendingDeviceBootstrap = mine;
+  let published = false;
+  try {
+    published = await saveSession(session, generation, onPublished);
+  } finally {
+    // 그 사이 더 새 로그인이 덮어썼다면 그 값은 건드리지 않는다.
+    if (mine && !published && pendingDeviceBootstrap === mine) pendingDeviceBootstrap = null;
+  }
+  return published;
 }
 
 const GUEST_DEVICE_ID_KEY = 'gromo.guestDeviceId';
@@ -188,15 +236,18 @@ export async function guestLogin(): Promise<LoginResult> {
   }
   if (generation !== sessionGeneration())
     throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+  let bootstrap = '';
   const result = await request<LoginResult>('/auth/sessions/guest', {
     method: 'POST',
     auth: false,
     generation,
     headers: { 'X-Device-Id': deviceId },
+    onHeaders: (headers) => (bootstrap = headers?.get?.(DEVICE_BOOTSTRAP_HEADER) ?? ''),
   });
-  const published = await saveSession(
+  const published = await saveSessionHoldingBootstrap(
     { accessToken: result.accessToken, refreshToken: result.refreshToken, userId: result.userId },
     generation,
+    bootstrap,
   );
   if (!published) {
     revokeUnlessCurrent(result.refreshToken);
@@ -244,6 +295,7 @@ export async function login(
   // 준비: 전환 «전에» 이전 세션의 RT 와 세대를 쥔다. 새 세션을 커밋한 뒤엔 꺼낼 수 없다.
   const generation = sessionGeneration();
   const previous = getSession();
+  let bootstrap = '';
   const result = await request<LoginResult>('/auth/sessions', {
     method: 'POST',
     auth: attachCurrentSession,
@@ -255,12 +307,13 @@ export async function login(
       termsVersion,
       ...(accountSwitchConfirmed ? { accountSwitchConfirmed: true } : {}),
     },
+    onHeaders: (headers) => (bootstrap = headers?.get?.(DEVICE_BOOTSTRAP_HEADER) ?? ''),
   });
   // commit: 3키 + 마커가 다 쓰인 뒤에만 새 세션이 공개된다(session.saveSession).
   // 응답이 request 의 세대 검사를 통과한 «뒤»에도 저장은 다시 양보한다 — 그 사이 로그아웃이나 두
   // 번째 로그인이 끝났으면 saveSession 이 잡아 둔 세대를 보고 저장을 버린다. 직렬화는 session.ts 의
   // single-flight 가 맡는다. 여기서 잠금을 들고 request 를 부르면 401 정리와 교착한다.
-  const published = await saveSession(
+  const published = await saveSessionHoldingBootstrap(
     {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -268,6 +321,7 @@ export async function login(
       provider,
     },
     generation,
+    bootstrap,
     onSessionPublished,
   );
   if (!published) {
@@ -286,9 +340,10 @@ export async function login(
  * 로그아웃하지 않으므로 기다리지 않고 결과도 보지 않는다.
  *
  * 판정은 사용자 UUID 가 아니라 **세션**이다 — 같은 사용자 s1→s2 재로그인도 전환이다. 앱이 sid 를
- * 들고 있지 않아 RT 값으로 세션을 가른다: 2.0 표면엔 refresh 가 없어 같은 sid 의 RT 회전이 없고,
- * 같은 attemptId 재시도로 재생된 «같은» 세션은 RT 가 같아 여기서 걸러진다(그 RT 를 폐기하면
- * 방금 채택한 세션이 끊긴다). sid 가 앱에 노출되면 그때 sid 비교로 바꾼다.
+ * 들고 있지 않아 RT 값으로 세션을 가른다: refresh(`client.ts`, GROMO-2035)는 AT 만 바꾸고 서버가
+ * RT 를 회전하지 않아(`refreshToken:null`) 같은 sid 의 RT 가 그대로이고, 같은 attemptId 재시도로
+ * 재생된 «같은» 세션은 RT 가 같아 여기서 걸러진다(그 RT 를 폐기하면 방금 채택한 세션이 끊긴다).
+ * sid 가 앱에 노출되거나 서버가 RT 회전을 켜면 그때 sid 비교로 바꾼다.
  */
 function revokeUnlessCurrent(refreshToken: string): void {
   if (refreshToken === getSession()?.refreshToken) return;

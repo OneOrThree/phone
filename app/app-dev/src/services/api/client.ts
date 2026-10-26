@@ -2,7 +2,9 @@
  * 모든 백엔드 호출이 지나는 한 곳. 도메인 모듈(`auth.ts` 등)은 여기 `request()` 만 쓴다.
  *
  * 공개 표면은 business-api 의 **무접두** 경로다(`/auth/sessions`·`/me`·`/islands/...`).
- * `/api/v1/*` 는 레거시 1.x 표면이므로 2.0 앱은 쓰지 않는다.
+ * `/api/v1/*` 는 레거시 1.x 표면이므로 2.0 앱은 쓰지 않는다. **첫 예외**: 기기 푸시 토큰
+ * (`PUT·DELETE /api/v1/users/me/device-token`)은 서버가 `/api/v1` 에만 둔 호환 표면이다 —
+ * `services/api/deviceToken.ts` 한 곳만 부른다(응답은 봉투 없는 본문, 오류는 legacy `{code,message}`).
  *
  * 계약 두 가지를 여기서 벗긴다:
  *  - 성공: `{ "data": ... }` 봉투 → `data` 만 돌려준다(`ApiResponseAdvice`).
@@ -197,6 +199,12 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** 성공 응답의 HTTP 상태를 받는다 — 같은 본문을 201(새로 만듦)·200(이미 있음)으로 나누는 계약에서만 쓴다. */
   onStatus?: (status: number) => void;
+  /**
+   * 성공(2xx) 응답의 헤더를 받는다 — 로그인 201 의 `X-Device-Bootstrap` 처럼 성공 응답에만 실리는 값을
+   * 읽는 용도다. 오류 응답·네트워크 실패·세션이 바뀐 응답(`CLIENT_STALE_SESSION`)에서는 불리지 않는다.
+   * 받은 헤더가 자격이면 호출부가 저장소·로그에 남기지 않는다.
+   */
+  onHeaders?: (headers: Headers) => void;
 }
 
 /**
@@ -402,6 +410,7 @@ async function requestAttempt<T>(
   }
 
   options.onStatus?.(response.status);
+  options.onHeaders?.(response.headers);
   // 무접두 공개 경로는 `{data}` 봉투다. 봉투가 없는 응답은 본문 그대로 돌려준다.
   const envelope = payload as { data?: unknown } | null;
   return (

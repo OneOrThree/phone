@@ -214,11 +214,15 @@ test('401 은 세션을 지우고 세션 상실을 알린다', async () => {
   assert.equal(sessionGeneration(), before + 1);
 });
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(
+  status: number,
+  body: unknown,
+  responseHeaders: Record<string, string> = {},
+): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: { get: () => null },
+    headers: { get: (name: string) => responseHeaders[name] ?? null },
     text: async () => JSON.stringify(body),
   } as unknown as Response;
 }
@@ -605,4 +609,80 @@ test('헤더만 오고 본문이 멈춰도 같은 타임아웃에 끊는다', as
   const error = await pending;
   jest.useRealTimers();
   assert.equal(error.code, CLIENT_TIMEOUT);
+});
+
+test('onHeaders — 성공(2xx) 응답의 헤더를 본문을 돌려주기 전에 한 번 받는다', async () => {
+  stub(201, { data: { ok: true } }, { 'X-Probe': 'v1' });
+  const seen: (string | null)[] = [];
+
+  const result = await request('/auth/sessions', {
+    method: 'POST',
+    auth: false,
+    body: {},
+    onHeaders: (headers) => seen.push(headers.get('X-Probe')),
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(seen, ['v1']);
+});
+
+test('onHeaders — 4xx·5xx·네트워크 실패에서는 불리지 않는다 — 오류 응답의 헤더는 읽지 않는다', async () => {
+  const onHeaders = jest.fn();
+  // 오류 응답에 같은 헤더가 실려 있어도 읽지 않는다 — 성공 응답에만 실리는 자격을 오류에서 집어 가지 않게.
+  const leaked = { 'X-Device-Bootstrap': 'LEAK' };
+  stub(409, { error: { code: 'SOCIAL_ACCOUNT_ALREADY_LINKED', message: '충돌' } }, leaked);
+  await failed(request('/auth/sessions', { method: 'POST', auth: false, body: {}, onHeaders }));
+  stub(503, { error: { code: 'UPSTREAM_UNAVAILABLE', message: '잠시 후' } }, leaked);
+  await failed(request('/me', { onHeaders }));
+  (global as any).fetch = jest.fn(async () => {
+    throw new Error('Network request failed');
+  });
+  await failed(request('/me', { onHeaders }));
+
+  assert.equal(onHeaders.mock.calls.length, 0);
+});
+
+test('onHeaders — 응답 도중 세션이 교체돼 CLIENT_STALE_SESSION 이면 불리지 않는다', async () => {
+  const onHeaders = jest.fn();
+  (global as any).fetch = jest.fn(async () => {
+    // 응답이 돌아오기 전에 재로그인이 끝난 상황 — 버려진 세션의 자격을 건네면 안 된다.
+    await saveSession({ accessToken: 'NEW', refreshToken: 'NEW', userId: 'u2' });
+    return jsonResponse(200, { data: { id: 'u1' } }, { 'X-Device-Bootstrap': 'LEAK' });
+  });
+
+  const error = await failed(request('/me', { onHeaders }));
+
+  assert.equal(error.code, CLIENT_STALE_SESSION);
+  assert.equal(onHeaders.mock.calls.length, 0);
+});
+
+test('onHeaders — 401 갱신 뒤 재시도가 성공하면 재시도 응답의 헤더만 한 번 받는다', async () => {
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'RT', userId: 'u1' });
+  const responses = [
+    jsonResponse(
+      401,
+      { error: { code: 'UNAUTHORIZED', message: 'expired' } },
+      { 'X-Probe': 'from-401' },
+    ),
+    jsonResponse(
+      200,
+      { data: { accessToken: 'NEW_AT', refreshToken: null } },
+      { 'X-Probe': 'from-refresh' },
+    ),
+    jsonResponse(200, { data: { ok: true } }, { 'X-Probe': 'from-retry' }),
+  ];
+  (global as any).fetch = jest.fn(async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return responses.shift()!;
+  });
+  const seen: (string | null)[] = [];
+
+  const result = await request('/me', {
+    onHeaders: (headers) => seen.push(headers.get('X-Probe')),
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls.length, 3);
+  // 401 응답과 refresh 응답(내부 요청이라 호출부 콜백이 닿지 않는다)의 헤더는 건너뛴다.
+  assert.deepEqual(seen, ['from-retry']);
 });
