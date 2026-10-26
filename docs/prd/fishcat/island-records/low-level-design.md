@@ -10,7 +10,7 @@
 > - **측정 창**(RC-D04): `measuredAt ∈ [날짜 00:00Z, 서버+1분]`, 보고 마감 다음 날 12:00Z. 설정 `island-records.screen-time.{future-tolerance,report-grace}`.
 > - **기간 resolver**(§2, RC-D03): 합계는 지난 날짜가 전부 authorized 일 때만, 기간 상태 = 가장 최근 날짜 상태, 최근이 denied 면 과거 authorized 날짜를 series 에서 뺀다.
 > - **스냅샷·커서**(§3, RC-P12-적용): scope=island 는 커서를 발급하지 않고(정원 15 < 페이지 30, 들어온 커서 400), scope=me 만 본인 기록 스냅샷(`focus_statistics_snapshots`, 15분)에서 30건씩 잇는다. 커서는 Business HMAC(스냅샷 id·offset + 사용자·섬·기간 지문). 타인 PII 사본이 없으므로 공통 lifecycle 잠금·전 사용자 역색인은 두지 않았다. 스냅샷은 탈퇴 TX 에서 지운다. `limit` query 는 받지 않는다.
-> - **집계 세션**(RC-D05·범위): ACTIVE·PAUSED·COMPLETED 인 v0.3 세션만. 진행 중 열린 구간은 asOf 로 임시로 닫는다. 주민 목록은 현재 활성 주민만.
+> - **집계 세션**(RC-D05·범위): ACTIVE·PAUSED·COMPLETED 인 v0.3 세션만. 진행 중 열린 구간은 asOf 로 임시로 닫는다. 주민 목록은 현재 활성 주민만 — 요청자와 차단 관계(어느 방향이든)인 주민은 집중·스크린타임 island scope 에서 뺀다(2026-10-26 GROMO-2469, 결정 로그 RP-차단양방향).
 
 ## 1. 원본 요청·응답 보존
 

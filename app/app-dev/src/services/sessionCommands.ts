@@ -11,6 +11,8 @@ import {
   currentFocusSession as apiCurrent,
   finishFocusSession as apiFinish,
   FocusFinishView,
+  FocusSeat,
+  focusSeat,
   FocusSessionStartInput,
   FocusSessionView,
   pauseFocusSession as apiPause,
@@ -315,14 +317,18 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           deps.dispatch({ type: 'TUTORIAL_FISH_CONFIRMED', sessionId });
         return result;
       }),
-    // 시작 — islandId 는 memberships 의 current 에서만 온다(화면이 고르지 않는다)
-    start: (input: { subject: string; targetMinutes?: number }) =>
+    // 시작 — islandId 는 memberships 의 current 에서만 온다(화면이 고르지 않는다).
+    // seat(GROMO-2478) 는 고른 집중섬 자리 — 0~100 밖(옛 저장 좌표)·없음이면 키를 생략한다.
+    // 멱등 키는 본문 JSON 기준이라 같은 의도의 재시도는 같은 seat 로 간다.
+    start: (input: { subject: string; targetMinutes?: number; seat?: FocusSeat }) =>
       call(async () => {
         const g = generation(),
           islandId = deps.getSnap()?.currentIslandId;
         if (!islandId) throw new ApiError('ISLAND_NOT_CURRENT', '현재 소속된 섬이 없어요.', 403);
-        const body: FocusSessionStartInput = { islandId, subject: input.subject };
+        const body: FocusSessionStartInput = { islandId, subject: input.subject },
+          seat = focusSeat(input.seat);
         if (input.targetMinutes !== undefined) body.targetMinutes = input.targetMinutes;
+        if (seat) body.seat = seat;
         const raw = JSON.stringify(body),
           view = await api.start(body, scoped().keys.key('start', raw));
         alive(g);

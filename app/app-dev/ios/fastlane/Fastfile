@@ -10,7 +10,7 @@ PRODUCTION_API_URL = "https://catus-api.oneorthree.world".freeze
 # 팀 dev 서버 — src/services/api/client.ts 의 DEV_API_URL 과 같은 값
 DEV_API_URL = "https://oneorthree.dev.mooo.com".freeze
 # expo-updates(OTA) 설정 — 운영과 같은 채널(production)·runtime(2.0.0)을 쓴다
-EXPO_PLIST = File.join(IOS_DIR, "GROMO/Supporting/Expo.plist").freeze
+EXPO_PLIST = File.join(IOS_DIR, "Cattus/Supporting/Expo.plist").freeze
 
 def asc_api_key
   app_store_connect_api_key(
@@ -21,7 +21,7 @@ def asc_api_key
 end
 
 def marketing_version
-  File.read(File.join(IOS_DIR, "GROMO.xcodeproj/project.pbxproj"))[/MARKETING_VERSION = ([\d.]+)/, 1]
+  File.read(File.join(IOS_DIR, "Cattus.xcodeproj/project.pbxproj"))[/MARKETING_VERSION = ([\d.]+)/, 1]
 end
 
 def compute_build_number(api_key)
@@ -31,7 +31,7 @@ def compute_build_number(api_key)
     version: marketing_version,
     initial_build_number: 0,
   )
-  current = File.read(File.join(IOS_DIR, "GROMO.xcodeproj/project.pbxproj"))[/CURRENT_PROJECT_VERSION = (\d+);/, 1].to_i
+  current = File.read(File.join(IOS_DIR, "Cattus.xcodeproj/project.pbxproj"))[/CURRENT_PROJECT_VERSION = (\d+);/, 1].to_i
   [latest.to_i, current].max + 1
 end
 
@@ -56,12 +56,12 @@ def archive_and_upload(changelog: nil)
   UI.user_error!("Hermes compiler를 찾지 못했어요: #{HERMES_CLI_PATH}") unless File.executable?(HERMES_CLI_PATH)
 
   increment_build_number(
-    xcodeproj: File.join(IOS_DIR, "GROMO.xcodeproj"),
+    xcodeproj: File.join(IOS_DIR, "Cattus.xcodeproj"),
     build_number: build_number,
   )
   build_app(
-    workspace: File.join(IOS_DIR, "GROMO.xcworkspace"),
-    scheme: "GROMO",
+    workspace: File.join(IOS_DIR, "Cattus.xcworkspace"),
+    scheme: "Cattus",
     configuration: "Release",
     export_method: "app-store",
     export_options: {
@@ -107,6 +107,9 @@ platform :ios do
 
     # 청중은 lane 이 정한다 — 셸에 GROMO_IOS_AUDIENCE=dev 가 남아 있어도 운영 빌드는 운영 가드(운영 주소 요구)를 탄다
     ENV["GROMO_IOS_AUDIENCE"] = "prod"
+    # GROMO-2226 — JS 는 EXPO_PUBLIC_ENV 로 Google 클라이언트 행을 고른다. 셸에 값이 없으면 Expo 가 .env 를 인라인하므로
+    # .env 의 EXPO_PUBLIC_ENV=dev 가 운영 번들에 섞이지 않게 lane 이 prod 로 고정한다(beta_dev 가 dev 로 고정하는 것과 대칭).
+    ENV["EXPO_PUBLIC_ENV"] = "prod"
     archive_and_upload
   end
 

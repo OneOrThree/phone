@@ -62,8 +62,13 @@ jest.mock('@/screens/focus/FishingIsland', () => {
       <View testID="focus-world">{children(640, 640 / 1.5, 1)}</View>
     ),
     FishingActor: () => <View />,
-    FishingPeerActorView: ({ actor, outfit }: any) => (
-      <View testID={`peer-${actor.userId}`} testPropOutfit={outfit} />
+    FishingPeerActorView: ({ actor, outfit, onPress }: any) => (
+      <View
+        testID={`peer-${actor.userId}`}
+        testPropOutfit={outfit}
+        accessibilityRole="button"
+        onTouchEnd={onPress}
+      />
     ),
     FishingWalker: () => <View />,
   };
@@ -265,4 +270,27 @@ test('다른 섬 낚시 구경의 ‹ 도 「섬으로 돌아가기」이고 누
   await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
   expect(e.replace).toHaveBeenCalledWith('visitIsland', 'v1');
   expect(e.home).not.toHaveBeenCalled();
+});
+
+test('낚시 구경에서 주민을 누르면 그 주민 정보창(이름·친구 요청)이 뜨고 × 로 닫힌다(GROMO-2474)', async () => {
+  mockFocusMembers = [
+    {
+      userId: 'u1',
+      name: '두부',
+      catColor: 'gray',
+      appearance: null,
+      sessionId: 's1',
+      subject: '수학',
+      activeSeconds: 60,
+      status: 'active',
+      anchorMs: 0,
+    },
+  ];
+  const { screen } = await mount(visitState('none'));
+  expect(screen.queryByTestId('cat-info-name')).toBeNull();
+  await fireEvent(screen.getByTestId('peer-u1'), 'touchEnd');
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('두부');
+  expect(screen.getByLabelText('친구 요청')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  expect(screen.queryByTestId('cat-info-name')).toBeNull();
 });

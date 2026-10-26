@@ -6,7 +6,7 @@
 - Bundle ID: `com.oneorthree.focuscat.screentimereport`
 - App Group: `group.com.oneorthree.focuscat`
 - Xcode 제품 유형: ExtensionKit extension
-- 앱 번들 위치: `GROMO.app/Extensions/screentimereport.appex`
+- 앱 번들 위치: `Cattus.app/Extensions/screentimereport.appex`
 - 서명: `dev-cat-screentimereport` / `distribution-cat-screentimereport` (Manual)
 - 연결 화면: `Library.tsx` 내 일기장 스크린타임 페이지, `Screens.tsx` 기존 기록 화면
 - 색상 정본: `src/design-system/tokens.ts` → `npm run gen:report-palette`

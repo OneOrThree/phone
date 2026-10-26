@@ -25,12 +25,11 @@ import type {
 import { pinToTelescope } from '@/services/api/telescope';
 import { pinErrorText } from '@/screens/island/useTelescopePin';
 import { t } from '@/i18n';
-import { formatDate, formatDuration } from '@/i18n/format';
+import { formatDate, formatDuration, islandTitle } from '@/i18n/format';
 import { T, useGowun } from '@/screens/island/sceneKit';
 import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
 import { useAppLayout } from '@/utils/layout';
 import { AdCell } from './AdCell';
-import { islandTitle } from './islandTitle';
 import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
@@ -256,7 +255,7 @@ export function MagazineReader({
   // MAX_BLEED(그 이상 걸친 드문 꾸미기는 끝이 잘린다 — 칸이 너무 작아지지 않게)
   const bleed = issueBleed(loaded?.cells ?? []);
   const { W, H, innerW, innerH, cellW, cellPad } = readerGeometry(L, bleed);
-  const largeText = L.fontScale >= R.largeTextThreshold;
+  const largeText = L.fontScale >= semanticTokens.typography.largeTextThreshold;
   const text = (size: number, color: string = semanticTokens.color.text) => ({
     fontFamily: font,
     fontSize: size,

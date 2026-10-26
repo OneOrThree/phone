@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { act, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { AppState, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
@@ -36,6 +36,7 @@ import {
   fishingCatchPlacement,
   fishingCatchFootprintOnLand,
   fishingPeerCatchVisible,
+  underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -368,6 +369,17 @@ test('주민 11명 이상이어도 스크린리더의 기본 빈 자리를 안�
       );
     }
   }
+});
+
+test('DEFAULT_SPOT 의 고정 물고기 더미는 바로 곁 더미 자리 고양이를 덮고, PEER_SPOTS 는 덮지 않는다', () => {
+  const { left, top } = DEFAULT_CATCH_PLACEMENT!,
+    // 더미 그림 한가운데(프레임은 고양이 크기의 1.1배)
+    pile = {
+      x: DEFAULT_SPOT.x + (left - 0.5 + 0.55) * 7.7,
+      y: DEFAULT_SPOT.y + (top - 0.90625 + 0.55) * 11.55,
+    };
+  assert.ok(underDefaultCatch(pile));
+  assert.ok(!PEER_SPOTS.some((spot) => underDefaultCatch(spot)));
 });
 
 test('숨겨진 resident 보상은 mine placement obstacle이 아니다', () => {
@@ -796,6 +808,60 @@ test('낚시섬 주민은 넘겨받은 머리·목을 입는다 (GROMO-2390)', a
     neck: null,
   });
   await screen.unmount();
+});
+
+test('다른 주민은 누르는 자리(44pt 이상·「이름 정보 보기」)가 생기고, 내 고양이(FishingActor)는 누를 수 없다(GROMO-2474)', async () => {
+  const noop = jest.fn();
+  const onPress = jest.fn();
+  const peer = await render(
+    React.createElement(FishingPeerActorView, {
+      actor: {
+        userId: 'u1',
+        sessionId: 's1',
+        name: '두부',
+        color: 'ginger',
+        subject: '수학',
+        seconds: 0,
+        status: 'active',
+        key: 'u1:s1',
+        slot: 0,
+        spot: PEER_SPOTS[0],
+        position: PEER_SPOTS[0],
+        phase: 'fishing',
+        visible: true,
+        generation: 1,
+      } as any,
+      size: 320,
+      sizeY: 320 / 1.5,
+      reduce: true,
+      onEntered: noop,
+      onCast: noop,
+      onPausedExit: noop,
+      onStretch: noop,
+      onCompletedExit: noop,
+      onPress,
+    }),
+  );
+  const target = peer.getByLabelText('두부 정보 보기');
+  const box = StyleSheet.flatten(target.props.style);
+  assert.ok(box.width >= 44 && box.height >= 44);
+  await fireEvent.press(target);
+  expect(onPress).toHaveBeenCalledTimes(1);
+  await peer.unmount();
+  const me = await render(
+    React.createElement(FishingActor, {
+      spot: { ...DEFAULT_SPOT, face: 1 },
+      size: 640,
+      sizeY: 640 / 1.5,
+      color: 'black',
+      name: '나',
+      me: true,
+      seconds: 0,
+      reduce: true,
+    }),
+  );
+  expect(me.queryByRole('button')).toBeNull();
+  await me.unmount();
 });
 
 test('축음기 그림 위·바로 앞은 앉을 수 없다', () => {

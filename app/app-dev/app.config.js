@@ -4,9 +4,10 @@ const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
 // iOS 스토어 버전(1.0.2)은 아래 version(2.0.0, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
-// GROMO-2215 — 2.0 전용 프로젝트(263851348176). src/services/socialLogin.ts 와 같은 값이어야 한다.
-const googleIosClientId =
-  '263851348176-8ochua7scca7h6ldmdk7v3iqc9uoit50.apps.googleusercontent.com';
+// GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
+// 여기서는 expo prebuild 가 Info.plist 에 심을 URL 스킴만 dev.ios 에서 만든다(이 레포는 체크인된 ios/ 를 쓴다).
+// 체크인된 Info.plist 에는 dev·prod 스킴을 둘 다 등록한다(규칙은 src/config/googleClientIds.md).
+const googleIosClientId = require('./src/config/googleClientIds.json').dev.ios;
 const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.replace(
   '.apps.googleusercontent.com',
   '',
@@ -14,7 +15,9 @@ const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.repla
 
 module.exports = {
   expo: {
-    name: 'catus',
+    name: 'cattus',
+    // 홈 화면·권한 창 이름 — 한국어 기기 집중할고양, 그 외 cattus(GROMO-2458). ios/Cattus/Supporting/*.lproj/InfoPlist.strings 와 같은 값
+    locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
     version: '2.0.0',
@@ -26,8 +29,8 @@ module.exports = {
       },
       fallbackToCacheTimeout: 0,
       enableBsdiffPatchSupport: true,
-      // 정적 이미지·오디오는 네이티브 바이너리에만 포함한다.
-      // OTA는 JS 중심으로 배포하고 새 에셋 참조는 assets:verify로 검사한다.
+      // `src/assets/ota/**` 만 OTA 업데이트에 싣는다. 그 밖의 에셋은 바이너리에만 있으니
+      // 새 그림은 ota/ 아래에 둔다(README 「문구·이미지 추가 규칙」). 자동 검사는 없다.
       assetPatternsToBeBundled: ['src/assets/ota/**/*'],
     },
     extra: {
@@ -57,8 +60,14 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 4,
+      versionCode: 20,
+      // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
+      runtimeVersion: '2.0.0-no-special-use',
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
+      blockedPermissions: [
+        'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
+        'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+      ],
       adaptiveIcon: {
         image: './src/assets/icon.png',
         backgroundColor: '#FDEFD5',
@@ -69,7 +78,15 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
-      ['expo-audio', { microphonePermission: false, recordAudioAndroid: false }],
+      // 현재 음원은 앱 안에서만 재생하므로 미디어 포그라운드 서비스를 추가하지 않는다.
+      [
+        'expo-audio',
+        {
+          microphonePermission: false,
+          recordAudioAndroid: false,
+          enableBackgroundPlayback: false,
+        },
+      ],
       'expo-localization',
       'expo-apple-authentication',
       [
@@ -82,6 +99,7 @@ module.exports = {
       ],
       withLegacyAndroidKakao,
       withIosStoreVersion,
+      // prebuild 전용 입력 — 체크인된 ios/Cattus/Info.plist 가 실제 스킴 정본이다(위 주석)
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
       // GROMO-2380 고운돋움을 앱에 넣어 첫 화면부터 글꼴을 기다리지 않는다(웹만 useFonts 로 불러온다).

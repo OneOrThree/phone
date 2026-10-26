@@ -41,7 +41,8 @@ class DeploymentGuardTest(unittest.TestCase):
     def test_이미지_번들의_원본과_현재체인을_검증한다(self):
         manifest = deploy.rebase.load_manifest()
         current = deploy.bundled_history(manifest)
-        self.assertEqual(['0'], [item['version'] for item in current])
+        # V0 + 후속 V1(GROMO-2477) — 후속 migration 이 추가되면 이 목록도 늘어난다.
+        self.assertEqual(['0', '1'], [item['version'] for item in current])
         self.assertEqual(manifest['v0_checksum'], current[0]['checksum'])
 
     def test_현재체인의_V1_BASELINE과_실패이력은_허용하지_않는다(self):

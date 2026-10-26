@@ -119,6 +119,37 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 });
 
+test('내 고양이 이름표는 닉네임이고 닉네임이 비면 「나」/「Me」다 (GROMO-2475)', async () => {
+  const state = initialState(true);
+  state.name = '  하늘  ';
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('하늘')).toBeTruthy();
+  state.name = '';
+  await screen.rerender(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('나')).toBeTruthy();
+  await applyLocalePref('en');
+  await screen.rerender(<FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('Me')).toBeTruthy();
+  await applyLocalePref('ko');
+});
+
+test('태블릿(짧은 변 600pt 이상)에서 홈 이름표 글자는 공용 Text 의 1.25배다 (GROMO-2475)', async () => {
+  const rn = jest.requireActual('react-native');
+  const spy = jest
+    .spyOn(rn, 'useWindowDimensions')
+    .mockReturnValue({ width: 820, height: 1180, scale: 2, fontScale: 1 });
+  try {
+    const state = initialState(true);
+    state.name = '하늘';
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const text = within(screen.getByTestId('home-cat-name')).getByText('하늘');
+    expect(StyleSheet.flatten(text.props.style).fontSize).toBeCloseTo(11 * 1.25);
+    await screen.unmount();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
 test('일반 이미지 섬의 새 편지 터치 영역은 펠리컨 전체를 포함하고 팻말 위치는 유지한다', async () => {
   const state = initialState();
   state.islands.find((island) => island.id === state.islandId)!.buildings = ['mail'];
@@ -1414,6 +1445,37 @@ test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 �
     const english = screen.getByTestId('building-name-tower').props.style;
     expect(english.width).toBeGreaterThan(korean.width);
     expect(english.height).toBe(korean.height);
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
+// 위 테스트는 기존 마을(팻말) 경로다. 새 마을 장면에는 팻말이 없고 문 Pressable 의 접근성 라벨만 건물명을 싣는다 —
+// 장면 경로에서도 라벨이 언어 전환을 따라가는지 따로 본다(GROMO-2253).
+test('마을 장면 경로에서도 언어를 바꾸면 문 라벨이 새 언어로 바뀐다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const id of ['hall', 'tower'] as const)
+    if (!island.buildings.includes(id)) island.buildings.push(id);
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  try {
+    const screen = await render(home());
+    await fireEvent.press(screen.getByTestId('village-preview-toggle'));
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 장면에는 팻말이 없다
+    expect(screen.getByRole('button', { name: '전망대' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '마을회관' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '모닥불' })).toBeTruthy();
+
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByTestId('village-preview-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 리렌더 뒤에도 장면이 유지된다
+    expect(screen.getByRole('button', { name: 'Lookout Tower' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Town Hall' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Campfire' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '전망대' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '모닥불' })).toBeNull();
   } finally {
     applyLocalePref('system');
   }

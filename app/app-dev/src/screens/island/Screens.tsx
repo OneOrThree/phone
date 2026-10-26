@@ -17,16 +17,12 @@ import {
   type WithdrawalIntent,
 } from '@/services/withdrawalIntent';
 import { clearStudyWidget } from '@/services/studyWidget';
-import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   AppState,
   View,
-  Image,
   Pressable,
   ScrollView,
-  FlatList,
-  Share,
   PanResponder,
   StyleSheet,
   Platform,
@@ -35,25 +31,20 @@ import {
   Keyboard,
   BackHandler,
 } from 'react-native';
-import Svg, { Path, Line } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  islandFocusRecord,
   State,
   Friend,
-  Building,
   Color,
   displayIsland as currentIsland,
   mainIsland,
   serverHome,
   isHost,
   sessionSeconds,
-  questRate,
-  canBuild,
   canBuy,
   products,
   costs,
-  buildingNames,
   colors,
   colorName,
   residentCount,
@@ -63,10 +54,8 @@ import {
   hoursMinutes,
   CAPACITY_MIN,
   CAPACITY_MAX,
-  inviteCodeOf,
   findIslandByInviteCode,
   balance,
-  dayKey,
   kstMonthDay,
   kstHourMinute,
   trackNames,
@@ -86,14 +75,13 @@ import {
   type LocalePref,
 } from '@/i18n';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
+import { stripNicknameWhitespace } from '@/utils/nickname';
 import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
-import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
-import { CatSprite } from '@/components/CatSprite';
+import { FinalIsland } from '@/screens/island/WorldMap';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { Ticking } from '@/hooks/useNow';
-import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets, cat } from '@/constants/assets';
 import { seaLoaf, telescopeSea } from '@/screens/sea/seaAssets';
 import {
@@ -101,7 +89,6 @@ import {
   DEFAULT_FREE_AUDIO_TRACK_IDS,
   hasBundledAudio,
 } from '@/constants/audio';
-import { Flag } from '@/screens/cosmetics/Cosmetics';
 import {
   appearanceOutfit,
   CatOutfitLayers,
@@ -113,10 +100,8 @@ import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
-import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { componentTokens } from '@/design-system/tokens';
 import {
-  art,
   C,
   k,
   Txt,
@@ -124,26 +109,18 @@ import {
   Btn,
   Group,
   Row,
-  Seg,
   Chips,
   Field,
   Toggle,
-  Bar,
   Badge,
   Strip,
   Page,
-  Overlay,
   Wheel,
-  Graph,
   EmptyState,
   NavBtn,
 } from '@/design-system/patterns';
 import {
   IslandSheet,
-  IslandPopup,
-  WoodBoard,
-  QuestNote,
-  NoticePaper,
   st,
   sheetInput,
   SheetRow,
@@ -153,7 +130,6 @@ import {
   Avatar,
   Preview,
   IslandThumb,
-  RaftCatArt,
   Cta,
   SearchField,
 } from '@/screens/island/IslandSheet';
@@ -208,7 +184,6 @@ const buildingArt: Record<string, string> = {
 };
 // 전망대 순위 행의 «소속됨» 배지 — Badge 는 기본이 왼쪽 위 정렬(DESIGN §7.5)이라 행 안 세로 가운데에 둔다
 const rankJoinedBadge = { alignSelf: 'center' } as const;
-const pad = (n: number) => String(n).padStart(2, '0');
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
 const hm = kstHourMinute;
@@ -322,18 +297,27 @@ function BlackRaftCat({ id, outfit }: { id: string; outfit: Outfit }) {
     </View>
   );
 }
-// mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄. v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
+// mini = 내 정보의 한 줄 3칸 정사각(그림이 칸을 채우고 이름 글자는 읽는 이름으로만, GROMO-2473), six = 가로 온보딩의 6칸 한 줄.
+// v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
 function AvatarGrid({ value, onChange, mini = false, six = false, disabled = false }: any) {
-  const per = mini || six ? 6 : 3,
-    gap = mini ? 6 : six ? 8 : 10,
-    size = mini ? 11 : six ? 12 : 13,
+  const per = six ? 6 : 3,
+    gap = mini ? 12 : six ? 8 : 10,
+    size = six ? 12 : 13,
     [width, setWidth] = useState(0);
-  // 가로 6칸은 칸이 좁아지면(작은 가로 폰) 그림을 칸 안쪽 폭(여백 2·테두리 2)에 맞춰 줄인다
-  const avatarSize = mini ? 40 : six ? (width ? Math.min(54, (width - gap * 5) / 6 - 8) : 54) : 64;
+  // 가로 6칸은 칸이 좁아지면(작은 가로 폰) 그림을 칸 안쪽 폭(여백 2·테두리 2)에 맞춰 줄이고, 3칸 정사각은 칸 폭(테두리 2) 그대로다
+  const avatarSize = mini
+    ? width
+      ? (width - gap * 2) / 3 - 4
+      : 96
+    : six
+      ? width
+        ? Math.min(54, (width - gap * 5) / 6 - 8)
+        : 54
+      : 64;
   return (
     <View
       style={{ gap }}
-      onLayout={six ? (ev) => setWidth(ev.nativeEvent.layout.width) : undefined}
+      onLayout={mini || six ? (ev) => setWidth(ev.nativeEvent.layout.width) : undefined}
     >
       {[colors.slice(0, per), colors.slice(per)]
         .filter((line) => line.length)
@@ -353,10 +337,10 @@ function AvatarGrid({ value, onChange, mini = false, six = false, disabled = fal
                     flex: 1,
                     alignItems: 'center',
                     gap: 6,
-                    paddingTop: mini || six ? 6 : 10,
-                    paddingBottom: mini ? 4 : six ? 6 : 8,
-                    paddingHorizontal: mini || six ? 2 : 6,
-                    borderRadius: mini ? 12 : 18,
+                    paddingTop: mini ? 0 : six ? 6 : 10,
+                    paddingBottom: mini ? 0 : six ? 6 : 8,
+                    paddingHorizontal: mini ? 0 : six ? 2 : 6,
+                    borderRadius: 18,
                     borderWidth: 2,
                     borderColor: on ? C.brown : 'transparent',
                     backgroundColor: on ? C.soft : C.paper,
@@ -366,18 +350,20 @@ function AvatarGrid({ value, onChange, mini = false, six = false, disabled = fal
                   <Pic
                     id={'avatar/' + c}
                     w={avatarSize}
-                    style={{ borderRadius: mini ? 10 : 16, backgroundColor: C.sky }}
+                    style={{ borderRadius: 16, backgroundColor: C.sky }}
                   />
-                  <Txt
-                    style={{
-                      fontSize: size,
-                      lineHeight: size * 1.45,
-                      fontWeight: on ? '700' : '600',
-                      color: on ? C.ink : C.muted,
-                    }}
-                  >
-                    {colorName(colors.indexOf(c))}
-                  </Txt>
+                  {!mini && (
+                    <Txt
+                      style={{
+                        fontSize: size,
+                        lineHeight: size * 1.45,
+                        fontWeight: on ? '700' : '600',
+                        color: on ? C.ink : C.muted,
+                      }}
+                    >
+                      {colorName(colors.indexOf(c))}
+                    </Txt>
+                  )}
                 </Pressable>
               );
             })}
@@ -401,26 +387,9 @@ const SEC = {
 // 한 줄 입력칸 줄 높이는 웹에서만(iOS 한 줄 TextInput은 lineHeight를 주면 글자가 아래로 밀린다). 여러 줄은 모든 플랫폼
 const INP: any = { letterSpacing: -0.15, ...(Platform.OS === 'web' ? { lineHeight: 23.2 } : null) };
 const INP_TA = { lineHeight: 23.2, letterSpacing: -0.15 } as const;
-// 한국어 문장을 단어 단위로 줄바꿈(시안 word-break:keep-all). iOS는 lineBreakStrategyIOS로
-const KEEP: any = Platform.OS === 'web' ? { wordBreak: 'keep-all' } : null;
 // CSS 그라데이션: 웹은 background-image, 네이티브는 experimental_backgroundImage
 const gradient = (css: string): any =>
   Platform.OS === 'web' ? { backgroundImage: css } : { experimental_backgroundImage: css };
-// 행 오른쪽 꺾쇠(시안 .chev 18px)
-function Chev() {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 24 24">
-      <Path
-        d="M9 6l6 6-6 6"
-        stroke={C.brown}
-        strokeWidth={2.4}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
 // 드럼 위아래 흐림(시안 .wheel:before/:after). 드럼을 감싼 칸 안에 겹친다
 function WheelFade({ h }: { h: number }) {
   return (
@@ -616,33 +585,6 @@ function Onboard({
     </View>
   );
 }
-function MiniRadio({ on }: any) {
-  return (
-    <View
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        borderWidth: 2,
-        borderColor: C.brown,
-        backgroundColor: C.paper,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {on && (
-        <View
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: 6,
-            backgroundColor: C.pink,
-          }}
-        />
-      )}
-    </View>
-  );
-}
 // v2 목업(build-redesign-gallery.py ICON)의 선 아이콘. 연필·보내기·체크는 24칸, 나머지는 32칸
 const ICON: Record<string, string> = {
   hammer: 'M6 3L17 3L22 8L18 12L15 9L4 24L8 28L19 14L23 18L29 12L23 6',
@@ -770,31 +712,6 @@ function AvStack({ list }: { list: string[] }) {
     </View>
   );
 }
-// 재생 중 막대(eq)
-function Eq() {
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        gap: 2,
-        height: 14,
-      }}
-    >
-      {[6, 13, 9, 12].map((h, i) => (
-        <View
-          key={i}
-          style={{
-            width: 3,
-            height: h,
-            borderRadius: 1,
-            backgroundColor: '#D95C7F',
-          }}
-        />
-      ))}
-    </View>
-  );
-}
 // 언어 화면 pick() 의 겹침 탭 가드 — route 분기 안이라 useRef 를 못 써(조건부 훅 금지) 모듈 플래그로 둔다.
 let pickingLocale = false;
 export function RedesignScreens({ e }: any) {
@@ -833,23 +750,12 @@ export function RedesignScreens({ e }: any) {
     previewAudio,
     setPreviewAudio,
     walkTo,
-    newQuest,
   } = e;
-  const [period, setPeriod] = useState('주'),
-    [fan, setFan] = useState(false),
-    [emote, setEmote] = useState<string | null>(null),
-    [custom, setCustom] = useState(false),
-    [memberMenu, setMemberMenu] = useState<string | null>(null),
-    [questHours, setQuestHours] = useState('0시간'),
-    [questMins, setQuestMins] = useState('30분'),
-    [search, setSearch] = useState(''),
-    // 섬 관리: 이름·소개 편집 모드, 정원 드럼 팝업 / 새 섬 만들기와 같이 쓰는 정원 선택값
-    [editing, setEditing] = useState(false),
-    [capacityOpen, setCapacityOpen] = useState(false),
-    [capacityPick, setCapacityPick] = useState(
-      t('onboarding.createIsland.capacityUnit', { count: 15 }),
-    ),
+  const [search, setSearch] = useState(''),
+    // 새 섬 만들기 정원 선택값. 숫자로 두고 휠 라벨은 렌더 시점에 로케일대로 만든다
+    [capacityPick, setCapacityPick] = useState(15),
     [profileName, setProfileName] = useState(state.name),
+    [profileNameError, setProfileNameError] = useState(''),
     [profileColor, setProfileColor] = useState<Color>(state.color),
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
     // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
@@ -875,9 +781,8 @@ export function RedesignScreens({ e }: any) {
     // 서버 탈퇴(또는 로컬 탈퇴)는 끝났는데 기기의 로컬 데이터 소유자 정리를 확정하지 못한 상태.
     // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
     [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
-  const chat = useRef<ScrollView>(null),
-    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+  const profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    profileErrorScope = useRef<object>({}),
     serverWriting = useRef(false),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
@@ -888,13 +793,8 @@ export function RedesignScreens({ e }: any) {
   routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
-    setCustom(false);
-    setFan(false);
-    setMemberMenu(null);
     setSearch('');
-    setEditing(false);
-    setCapacityOpen(false);
-    setCapacityPick(t('onboarding.createIsland.capacityUnit', { count: 15 }));
+    setCapacityPick(15);
     setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
@@ -977,7 +877,7 @@ export function RedesignScreens({ e }: any) {
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
-    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound', 'focus'].includes(route),
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
     islandId: snap?.currentIslandId ?? null,
     route,
     category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
@@ -1126,32 +1026,24 @@ export function RedesignScreens({ e }: any) {
     return () => backSub.remove();
   }, [soundDialog]);
   useEffect(() => {
+    profileErrorScope.current = {};
     if (route !== 'profile') return;
     setProfileName(state.name);
     setProfileColor(state.color);
+    setProfileNameError('');
+    return () => {
+      profileErrorScope.current = {};
+    };
   }, [route, state.name, state.color]);
   useEffect(() => {
     if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
   }, [route, currentMainIslandId]);
-  useEffect(() => {
-    if (route !== 'questEdit') return;
-    const q = island.quests.find((q) => q.id === detail);
-    const target = q?.target ?? (body === 'screen' ? 120 : 30);
-    setQuestHours(`${Math.floor(target / 60)}시간`);
-    setQuestMins(`${String(target % 60).padStart(2, '0')}분`);
-  }, [route, detail, body]);
   // 20b: 첫 집중 후 홈에 오면 바로 done으로 기록하고 창만 띄운다. 알겠어를 안 누르고 홈을 떠나도 다시 뜨지 않는다
   useEffect(() => {
     if (route !== 'home' || state.hallGuide !== 'pending') return;
     if (!island.buildings.includes('hall')) setHallGuideOpen(true);
     dispatch({ type: 'HALL_GUIDE_DONE' });
   }, [route, state.hallGuide]);
-  useEffect(
-    () => () => {
-      if (emoteTimer.current) clearTimeout(emoteTimer.current);
-    },
-    [],
-  );
   const act = (type: string, p: any = {}) => dispatch({ type, ...p });
   const host = !island.members.some((m) => m.role === 'host');
   // 이름으로 지금 방장인지(공지 작성자·공동 구매자 표시)
@@ -1165,44 +1057,16 @@ export function RedesignScreens({ e }: any) {
       aria-hidden={true}
       style={{ flex: 1 }}
     >
-      <IslandHome
+      <FinalIsland
         state={state}
         go={go}
         build={build}
         libraryState={e.buildingIndicators?.libraryState}
         showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
-        showHud={route !== 'focusSetup'}
         showActions={false}
-        motion={route === 'focusSetup' ? 'tilt' : undefined}
         boardStatus={e.boardStatus}
       />
     </View>
-  );
-  const sceneBg = (key: string) => (
-    <View style={{ flex: 1 }}>
-      <Pic id={key} w="100%" h="100%" cover />
-    </View>
-  );
-  const footer = (
-    primary: string,
-    fn: () => void,
-    ghost?: string,
-    gfn?: () => void,
-    note?: string,
-    disabled = false,
-  ) => (
-    <>
-      {note && (
-        <Txt kind="meta" style={{ textAlign: 'center' }}>
-          {note}
-        </Txt>
-      )}
-      {/* v2 CTA 바: 가로 폰에서도 주 버튼 아래 고스트 버튼을 쌓는다 */}
-      <View style={{ gap: semanticTokens.spacing.control }}>
-        <Btn title={primary} onPress={fn} disabled={disabled} />
-        {ghost && <Btn title={ghost} onPress={gfn} kind="ghost" />}
-      </View>
-    </>
   );
   const join = (i: any) => {
     if (i.kicked) {
@@ -1222,25 +1086,6 @@ export function RedesignScreens({ e }: any) {
     } else go('arrival');
   };
   const setTrack = (value: string) => act('TRACK', { value });
-  const startFocus = () => {
-    if (!island.joined) {
-      notify('섬에 가입한 뒤 집중할 수 있어요.');
-      e.replace('sea');
-      return;
-    }
-    // 카운트업 집중: 목표 시간은 받지 않는다
-    act('START', { subject: text });
-    go('focus');
-  };
-  const endFocus = () =>
-    confirm(
-      '집중을 마칠까요?',
-      `지금까지 집중한 ${Math.floor(sessionSeconds(state.session) / 60)}분 ${Math.floor(sessionSeconds(state.session) % 60)}초를 기록해요.`,
-      () => {
-        act('FINISH');
-        reset('focusResult');
-      },
-    );
   // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
   const [sheetToast, setSheetToast] = useState(''),
     // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
@@ -1262,31 +1107,6 @@ export function RedesignScreens({ e }: any) {
     });
     return () => sub?.remove();
   }, [previewAudio]);
-  const hallSwitch = (x: string) => {
-    go(x === '기록' ? 'stats' : 'construction');
-  };
-  const hall = (selected: string, children: any, foot?: any) => (
-    <IslandSheet
-      bg="hall"
-      sign="bld/hall"
-      title="마을회관"
-      tall={selected === '마을 발전'}
-      action="⚙"
-      actionPress={() => go('manage')}
-      onClose={home}
-      footer={foot}
-    >
-      <FTabs
-        items={[
-          ['기록', 'clock'],
-          ['마을 발전', 'hammer'],
-        ]}
-        value={selected}
-        onChange={hallSwitch}
-      />
-      {children}
-    </IslandSheet>
-  );
   if (route === 'login' && e.loginProviders) {
     return (
       <LoginScreen
@@ -1551,7 +1371,7 @@ export function RedesignScreens({ e }: any) {
         cta={
           <Btn
             title={t('character.startWithCat')}
-            disabled={!state.name.trim() || serverBusy}
+            disabled={!state.name || serverBusy}
             onPress={() => {
               if (!server) {
                 // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
@@ -1561,7 +1381,7 @@ export function RedesignScreens({ e }: any) {
               // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
               // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
               // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
-              const name = state.name.trim();
+              const name = state.name;
               const signature = JSON.stringify([name, state.color]);
               if (characterSaveIntent.current?.signature !== signature)
                 characterSaveIntent.current = { signature, key: uuid() };
@@ -1614,7 +1434,7 @@ export function RedesignScreens({ e }: any) {
           value={state.name}
           disabled={serverBusy}
           onChange={(name: string) => {
-            if (!serverBusy) act('PROFILE', { name });
+            if (!serverBusy) act('PROFILE', { name: stripNicknameWhitespace(name) });
           }}
           inputStyle={INP}
         />
@@ -1634,6 +1454,10 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'createIsland') {
+    // 라벨은 렌더 시점에 현재 로케일로 만든다 — 선택값은 숫자(capacityPick)로만 든다
+    const capacityItems = Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
+      t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
+    );
     const capacityWheel = (
       <View style={{ gap: 6 }}>
         <Txt kind="meta" style={{ fontWeight: '600' }}>
@@ -1644,11 +1468,9 @@ export function RedesignScreens({ e }: any) {
           <Wheel
             a11yLabel={t('onboarding.createIsland.capacityA11y')}
             row={layout.compact ? 24 : 44}
-            items={Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
-              t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
-            )}
-            value={capacityPick}
-            onChange={setCapacityPick}
+            items={capacityItems}
+            value={capacityItems[capacityPick - CAPACITY_MIN]}
+            onChange={(v: string) => setCapacityPick(capacityItems.indexOf(v) + CAPACITY_MIN)}
           />
           <WheelFade h={layout.compact ? 14 : 30} />
         </View>
@@ -1686,22 +1508,12 @@ export function RedesignScreens({ e }: any) {
               onPress={() => {
                 // 서버 모드: 응답만으로 성공 처리하지 않고 App 이 /me/islands 재조회로 확정한다
                 if (server) {
-                  const capacity = parseInt(capacityPick, 10);
-                  if (capacity < CAPACITY_MIN || capacity > CAPACITY_MAX) {
-                    setServerError(
-                      t('onboarding.createIsland.capacityRangeError', {
-                        min: CAPACITY_MIN,
-                        max: CAPACITY_MAX,
-                      }),
-                    );
-                    return;
-                  }
                   run(async () => {
                     await server.create({
                       name: text.trim(),
                       intro: body.trim() || undefined,
                       approvalRequired: approval,
-                      maxMembers: capacity,
+                      maxMembers: capacityPick,
                     });
                     setServerDone(text.trim());
                   });
@@ -1711,7 +1523,7 @@ export function RedesignScreens({ e }: any) {
                   name: text,
                   intro: body,
                   approval,
-                  capacity: parseInt(capacityPick, 10),
+                  capacity: capacityPick,
                 });
                 go('arrival');
               }}
@@ -2248,25 +2060,6 @@ export function RedesignScreens({ e }: any) {
       </Onboard>
     );
   }
-  if (route === 'arrival' || route === 'travel')
-    return (
-      <Sailing
-        state={state}
-        from={route === 'arrival' ? '나의 작은 배' : island.name}
-        destination={
-          route === 'arrival'
-            ? island.name
-            : state.islands.find((i) => i.id === visited)?.name || '새로운 섬'
-        }
-        onArrive={() =>
-          route === 'arrival'
-            ? go('guide')
-            : state.islands.find((i) => i.id === visited)?.joined
-              ? (act('SWITCH_ISLAND', { id: visited }), home())
-              : go('visit', visited)
-        }
-      />
-    );
   if (route === 'guide') {
     const lines = [
       t('onboarding.guide.line1'),
@@ -2337,7 +2130,7 @@ export function RedesignScreens({ e }: any) {
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        <IslandHome
+        <FinalIsland
           state={state}
           go={go}
           build={build}
@@ -2400,63 +2193,9 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
-  if (route === 'focusSetup')
-    return (
-      <Overlay close={home} background={backgroundHome}>
-        <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Txt kind="h">집중 준비</Txt>
-            <View style={{ width: 36, height: 36, position: 'relative' }}>
-              <View style={{ position: 'absolute', left: 18, top: 30 }}>
-                <CatSprite
-                  color={state.color}
-                  motion="tilt"
-                  size={36}
-                  reduce={state.settings.reduceMotion}
-                />
-              </View>
-            </View>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="닫기"
-            onPress={home}
-            style={{
-              width: 44,
-              height: 44,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Svg width={22} height={22} viewBox="0 0 22 22">
-              <Line
-                x1={5}
-                y1={5}
-                x2={17}
-                y2={17}
-                stroke={C.ink}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-              />
-              <Line
-                x1={17}
-                y1={5}
-                x2={5}
-                y2={17}
-                stroke={C.ink}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-              />
-            </Svg>
-          </Pressable>
-        </View>
-        <Field label="오늘의 할 일" value={text} onChange={setText} placeholder="수학 문제 풀기" />
-        <Btn title="집중 시작" id="start-focus" disabled={!text.trim()} onPress={startFocus} />
-      </Overlay>
-    );
   const focusScene = (
     <View style={{ flex: 1 }}>
-      <FocusSea state={state} emote={emote} />
+      <FocusSea state={state} emote={null} />
       <View
         pointerEvents="none"
         style={{
@@ -2521,94 +2260,6 @@ export function RedesignScreens({ e }: any) {
       )}
     </View>
   );
-  if (route === 'focus')
-    return (
-      <View style={{ flex: 1 }}>
-        {focusScene}
-        <View
-          style={{
-            position: 'absolute',
-            left: (layout.width - layout.floatingWidth) / 2,
-            width: layout.floatingWidth,
-            bottom: ins.bottom + 12,
-          }}
-        >
-          {fan && (
-            <View
-              style={{
-                position: 'absolute',
-                left: 0,
-                bottom: 64,
-                flexDirection: 'row',
-                gap: 8,
-                padding: 6,
-                borderRadius: 999,
-                borderWidth: 1.5,
-                borderColor: C.brown,
-                backgroundColor: '#FFFDFAD9',
-              }}
-            >
-              {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((v, n) => (
-                <Pressable
-                  key={v}
-                  accessibilityRole="button"
-                  accessibilityLabel={['인사', '응원', '졸림', '웃음', '하트뿅뿅'][n]}
-                  onPress={() => {
-                    setEmote(v);
-                    if (emoteTimer.current) clearTimeout(emoteTimer.current);
-                    emoteTimer.current = setTimeout(() => setEmote(null), 3000);
-                  }}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    backgroundColor: emote === v ? C.soft : undefined,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Pic id={'emote/' + v} w={30} />
-                </Pressable>
-              ))}
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="이모티콘"
-              onPress={() => setFan(!fan)}
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: 26,
-                borderWidth: 2,
-                borderColor: C.brown,
-                backgroundColor: '#FFFDFAD0',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0px 3px 0px ' + C.brown,
-              }}
-            >
-              <Pic id={'emote/' + (emote || 'hello')} w={32} />
-            </Pressable>
-            <Btn title="휴식하기" style={{ flex: 1 }} onPress={() => go('rest')} />
-            <Btn title="종료" kind="glass" onPress={endFocus} />
-          </View>
-        </View>
-      </View>
-    );
-  if (route === 'rest')
-    return (
-      <RestWorld
-        state={state}
-        travel={e.restTravel}
-        resume={() => {
-          act('RESUME');
-          go('focus');
-        }}
-        home={home}
-      />
-    );
   if (route === 'sound') {
     const gramophone = componentTokens.gramophone;
     const scene = !!state.session;
@@ -2632,7 +2283,7 @@ export function RedesignScreens({ e }: any) {
           ...ownedTrackIds,
           ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
         ];
-    const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
+    const largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
     const dialogProduct = soundDialog?.product;
     const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
       if (!server) {
@@ -3092,1292 +2743,6 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
-  if (route === 'focusResult') {
-    // 20: 부두로 돌아온 섬 위 팝업. 카운트업이라 목표 배지 없음, 게시판 버튼 없음
-    const r = state.lastResult;
-    return (
-      <IslandPopup
-        bg="dock"
-        onClose={home}
-        side={
-          <>
-            {island.buildings.includes('board') && (
-              <>
-                <Txt kind="section" style={layout.compact ? { marginTop: 0 } : undefined}>
-                  이번 퀘스트
-                </Txt>
-                <Group>
-                  {island.quests.map((q) => {
-                    const rate = questRate(state, q);
-                    return (
-                      <Row
-                        key={q.id}
-                        title={q.title}
-                        sub={<Bar value={rate} />}
-                        tail={rate === 100 ? <CheckDot /> : <Txt kind="meta">진행 중</Txt>}
-                      />
-                    );
-                  })}
-                </Group>
-              </>
-            )}
-            <Btn
-              title="섬으로 돌아가기"
-              onPress={home}
-              style={{ marginTop: layout.compact ? 'auto' : 4 }}
-            />
-          </>
-        }
-      >
-        <View style={[k.row, { alignItems: 'flex-end', gap: 12 }]}>
-          <Pic id="cat/black/sitting" w={96} />
-          <View style={{ flex: 1, gap: 6, paddingBottom: 8 }}>
-            <Txt kind="meta">{r?.subject || '아직 기록이 없어요.'}</Txt>
-            <Txt style={[k.number, { fontSize: 44, lineHeight: 46 }]}>{clock(r?.seconds || 0)}</Txt>
-          </View>
-        </View>
-        <View
-          style={[
-            k.row,
-            {
-              gap: 10,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 16,
-              borderWidth: 1.5,
-              borderColor: C.brown,
-              backgroundColor: '#E3F4FC',
-            },
-          ]}
-        >
-          <Pic id="fish" w={36} />
-          <View style={{ gap: 1 }}>
-            <Txt
-              style={{
-                fontSize: 22,
-                lineHeight: 24,
-                fontWeight: '800',
-                fontVariant: ['tabular-nums'],
-              }}
-            >
-              +{r?.fish || 0}
-            </Txt>
-            <Txt kind="meta" style={{ fontSize: 12, lineHeight: 14 }}>
-              물고기
-            </Txt>
-          </View>
-        </View>
-      </IslandPopup>
-    );
-  }
-  if (['hall', 'stats', 'ledger'].includes(route)) {
-    const records = state.records.filter(
-        (r) =>
-          islandFocusRecord(r, island.id) &&
-          r.at > Date.now() - (period === '주' ? 7 : 30) * 86400000,
-      ),
-      total = records.reduce((s, r) => s + r.seconds, 0),
-      days = Array.from({ length: 7 }, (_, i) =>
-        records
-          .filter((r) => new Date(r.at).getDay() === (i + 1) % 7)
-          .reduce((s, r) => s + r.seconds / 60, 0),
-      );
-    const periodSeg = (
-      <Seg
-        small
-        items={['주', '월']}
-        value={period}
-        onChange={setPeriod}
-        style={{ width: 88, height: 32 }}
-      />
-    );
-    // 24: 회관 기록 판의 "주민 N명의 기록 보기"로 들어오는 시트 안 2단계(stats + detail "residents")
-    if (detail === 'residents')
-      return (
-        <IslandSheet bg="hall" sign="bld/hall" title="주민 기록" onBack={back} onClose={home}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {periodSeg}
-            <Txt kind="meta" style={{ flex: 1 }}>
-              이번 {period} · 매일의 공부 시간은 모두에게 보여요
-            </Txt>
-          </View>
-          <Group>
-            <Row
-              title={state.name + ' · 나'}
-              icon={'avatar/' + state.color}
-              sub={<Bar value={100} />}
-              right={clock(total)}
-            />
-            {island.members.map((m) => (
-              <Row
-                key={m.id}
-                title={m.name}
-                icon={'avatar/' + m.color}
-                sub={<Bar value={Math.min(100, m.seconds / 36)} />}
-                right={clock(m.seconds)}
-              />
-            ))}
-          </Group>
-        </IslandSheet>
-      );
-    const head = (icon: string, title: string, right: any) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Icon name={icon} size={20} />
-        <Txt style={{ flex: 1, fontSize: 17, lineHeight: 23, fontWeight: '800' }}>{title}</Txt>
-        {right}
-      </View>
-    );
-    const big = (value: string, meta: string) => (
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'baseline',
-          flexWrap: 'wrap',
-          gap: 10,
-        }}
-      >
-        <Txt style={[k.number, { fontSize: 36, lineHeight: 42 }]}>{value}</Txt>
-        <Txt kind="meta">{meta}</Txt>
-      </View>
-    );
-    const divider = (
-      <View
-        style={{
-          height: 2,
-          borderRadius: 1,
-          marginVertical: 2,
-          backgroundColor: '#8B695622',
-        }}
-      />
-    );
-    // 22~25: 스위치 없이 집중 → 스크린타임 → 주민 기록이 한 판에 이어진다
-    return hall(
-      '기록',
-      <>
-        <View style={{ gap: 10 }}>
-          {head('clock', '집중', periodSeg)}
-          {big(
-            `${Math.floor(total / 3600)}:${pad(Math.floor(total / 60) % 60)}`,
-            `이번 ${period} · ${period === '주' ? 7 : 30}일 합계`,
-          )}
-          <Graph values={days} />
-          <Txt kind="section">최근 기록</Txt>
-          <Group flat>
-            {records.length ? (
-              records
-                .slice()
-                .reverse()
-                .map((r) => (
-                  <Row key={r.id} title={r.subject} sub={md(r.at)} right={clock(r.seconds)} />
-                ))
-            ) : (
-              <Row title="아직 기록이 없어요" />
-            )}
-          </Group>
-        </View>
-        {divider}
-        <View style={{ gap: 10 }}>
-          {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
-          {state.settings.permission &&
-          state.settings.screenTimeMeasurementReady &&
-          (Platform.OS !== 'android' || state.settings.screenTimeMeasurementDay === dayKey(now)) ? (
-            <>
-              <Txt kind="meta">
-                {Platform.OS === 'android'
-                  ? '오늘 · 전체 앱 사용 시간'
-                  : '오늘 · 선택한 앱의 사용 시간'}
-              </Txt>
-              <Group flat>
-                <Row
-                  title="오늘 폰 사용"
-                  sub={md(now)}
-                  right={
-                    Platform.OS === 'android' ? (
-                      <Txt>{state.screenMinutes}분</Txt>
-                    ) : (
-                      <ScreenTimeReportView
-                        reportContext="Compact Activity"
-                        style={{
-                          width: primitiveTokens.space[16] * 2,
-                          minHeight: primitiveTokens.size.tapMin,
-                        }}
-                      />
-                    )
-                  }
-                />
-                <Row
-                  title="측정 권한"
-                  sub="앱 설정에서 켜고 끌 수 있어요"
-                  chevron
-                  onPress={() => go('settings')}
-                />
-              </Group>
-            </>
-          ) : (
-            <>
-              <View
-                style={{
-                  paddingVertical: 22,
-                  paddingHorizontal: 18,
-                  gap: 8,
-                  borderRadius: 18,
-                  borderWidth: 2,
-                  borderStyle: 'dashed',
-                  borderColor: '#D9C6B8',
-                  alignItems: 'center',
-                }}
-              >
-                <Txt kind="h17">
-                  {state.settings.permission
-                    ? Platform.OS === 'android'
-                      ? '오늘 사용 시간을 확인하고 있어요'
-                      : '측정할 앱을 선택해야 해요'
-                    : '스크린타임 연결이 꺼져 있어요'}
-                </Txt>
-                <Txt kind="meta" style={{ textAlign: 'center' }}>
-                  {state.settings.permission
-                    ? Platform.OS === 'android'
-                      ? '오늘 측정이 확인되면 사용 시간을 표시해요.'
-                      : `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
-                    : `연결하면 오늘 폰 사용 시간을 여기서 볼 수 있어요.\n기록이 없는 것과 0분은 달라요.`}
-                </Txt>
-                <Btn
-                  title={
-                    state.settings.permission
-                      ? Platform.OS === 'android'
-                        ? '측정 권한 확인하기'
-                        : '측정 앱 선택하기'
-                      : '설정에서 켜기'
-                  }
-                  small
-                  kind="sec"
-                  style={{ marginTop: 4 }}
-                  onPress={() => go('settings')}
-                />
-              </View>
-              <Group flat>
-                <Row title="아직 기록이 없어요" sub="연결한 날부터 쌓여요" />
-              </Group>
-            </>
-          )}
-        </View>
-        {divider}
-        <Group flat>
-          <Row
-            lead={
-              <AvStack list={[state.color, ...island.members.map((m) => m.color)].slice(0, 3)} />
-            }
-            title={`주민 ${island.members.length + 1}명의 기록 보기`}
-            sub="매일의 공부 시간은 모두에게 보여요"
-            chevron
-            onPress={() => go('stats', 'residents')}
-          />
-        </Group>
-      </>,
-    );
-  }
-  if (route === 'manage' || route === 'members') {
-    const shareInvite = () =>
-      Share.share({
-        message: `${island.name}에 함께해요! 초대 코드: ${inviteCodeOf(island)}`,
-      }).catch(() => notify('초대 코드: ' + inviteCodeOf(island)));
-    const saveEdit = () => {
-      act('MANAGE', { name: text || island.name, intro: body || island.intro });
-      setEditing(false);
-      notify('저장했어요.');
-    };
-    const people = [
-      { id: 'me', name: state.name, color: state.color, isHost: host },
-      ...island.members.map((m) => ({
-        id: m.id,
-        name: m.name,
-        color: m.color,
-        isHost: m.role === 'host',
-      })),
-    ];
-    const member = island.members.find((m) => m.id === memberMenu);
-    // 정원은 지금 주민 수보다 작게 줄일 수 없다
-    const minCapacity = Math.max(CAPACITY_MIN, residentCount(island));
-    const capacityItems = Array.from(
-      { length: Math.max(0, CAPACITY_MAX - minCapacity + 1) },
-      (_, n) => n + minCapacity + '명',
-    );
-    const panelW = Math.min(540 + ins.right, layout.width - ins.left - 80);
-    const option = (title: string, onPress: () => void, tone = '') => (
-      <Pressable
-        key={title}
-        accessibilityRole="button"
-        accessibilityLabel={title}
-        onPress={onPress}
-        style={{
-          height: 54,
-          borderRadius: 14,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: tone === 'cancel' ? C.cream : undefined,
-        }}
-      >
-        <Txt
-          style={{
-            fontSize: 17,
-            fontWeight: '700',
-            color: tone === 'red' ? '#B84A32' : tone === 'cancel' ? C.muted : C.ink,
-          }}
-        >
-          {title}
-        </Txt>
-      </Pressable>
-    );
-    // 액션 시트·정원 팝업이 떠 있으면 뒤 시트는 스크린리더에서 숨긴다
-    const covered = !!member || capacityOpen;
-    return (
-      <View style={{ flex: 1 }}>
-        <View
-          style={{ flex: 1 }}
-          accessibilityElementsHidden={covered}
-          importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
-          aria-hidden={covered}
-        >
-          <IslandSheet
-            keepOnBackdrop
-            bg="hall"
-            sign="bld/hall"
-            title="섬 관리"
-            tall
-            onBack={back}
-            onClose={home}
-            action={editing ? '완료' : undefined}
-            actionPress={saveEdit}
-            footer={member ? undefined : footer('친구 초대하기', shareInvite)}
-          >
-            {editing ? (
-              <>
-                <Field
-                  label="섬 이름"
-                  value={text}
-                  onChange={setText}
-                  maxLength={ISLAND_NAME_MAX}
-                />
-                <Field
-                  label="섬 소개"
-                  value={body}
-                  onChange={setBody}
-                  multiline
-                  maxLength={ISLAND_INTRO_MAX}
-                />
-              </>
-            ) : (
-              <>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                  }}
-                >
-                  <Txt kind="h" style={{ flexShrink: 1 }}>
-                    {island.name}
-                  </Txt>
-                  {host && (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="섬 이름·소개 수정"
-                      onPress={() => {
-                        setText(island.name);
-                        setBody(island.intro);
-                        setEditing(true);
-                      }}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 17,
-                        borderWidth: 1.5,
-                        borderColor: C.brown,
-                        backgroundColor: C.paper,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Icon name="pencil" size={16} />
-                    </Pressable>
-                  )}
-                </View>
-                {!!island.intro && (
-                  <Txt kind="meta" style={{ marginTop: -6 }}>
-                    {island.intro}
-                  </Txt>
-                )}
-              </>
-            )}
-            <Group flat>
-              <Row
-                title="승인 후 가입"
-                tail={
-                  <Toggle
-                    label="승인 후 가입"
-                    value={island.approval}
-                    onChange={(v: boolean) =>
-                      host ? act('MANAGE', { approval: v }) : notify('방장만 바꿀 수 있어요.')
-                    }
-                  />
-                }
-              />
-              <Row
-                title="정원"
-                sub={`최대 ${CAPACITY_MAX}명`}
-                right={`${capacityOf(island)}명`}
-                chevron={host}
-                onPress={
-                  host
-                    ? () => {
-                        setCapacityPick(capacityOf(island) + '명');
-                        setCapacityOpen(true);
-                      }
-                    : undefined
-                }
-              />
-            </Group>
-            {host && !island.requestResolved && (
-              <>
-                <Txt kind="section">
-                  가입 요청{' '}
-                  <Txt kind="section" style={{ color: '#D95C7F' }}>
-                    1
-                  </Txt>
-                </Txt>
-                <Group>
-                  <Row
-                    title="새봄"
-                    icon="avatar/white"
-                    sub={'어제 · "같이 집중하고 싶어요"'}
-                    style={{ backgroundColor: '#FFF3CF' }}
-                    tail={
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        <Btn
-                          small
-                          title="승인"
-                          onPress={() =>
-                            isFull(island)
-                              ? notify('정원이 가득 찼어요. 정원을 늘린 뒤 승인해 주세요.')
-                              : act('ADD_MEMBER')
-                          }
-                        />
-                        <Btn
-                          small
-                          kind="sec"
-                          title="거절"
-                          onPress={() =>
-                            confirm('가입 요청을 거절할까요?', '새봄님의 요청을 거절해요.', () =>
-                              act('REJECT_MEMBER'),
-                            )
-                          }
-                        />
-                      </View>
-                    }
-                  />
-                </Group>
-              </>
-            )}
-            <Txt kind="section">주민 {people.length}</Txt>
-            {/* 명부 타일: 고양이 사진 · 방장 왕관 · 나는 분홍. 방장이 다른 주민 타일을 누르면 액션 시트 */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-              {people.map((p) => {
-                const selected = memberMenu === p.id;
-                const tile = (
-                  <>
-                    <View
-                      style={{
-                        width: '100%',
-                        aspectRatio: 1,
-                        borderRadius: 16,
-                        borderWidth: 2,
-                        borderColor: C.brown,
-                        backgroundColor: p.id === 'me' ? C.soft : '#E3F4FC',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0px 3px 0px ' + C.brown,
-                        outlineWidth: selected ? 3 : 0,
-                        outlineStyle: 'solid',
-                        outlineColor: C.pink,
-                        outlineOffset: 2,
-                      }}
-                    >
-                      <Pic id={'cat/' + p.color} w="86%" h="86%" />
-                      {p.isHost && (
-                        <View
-                          style={{
-                            position: 'absolute',
-                            top: -8,
-                            right: -8,
-                            width: 26,
-                            height: 26,
-                            borderRadius: 13,
-                            borderWidth: 1.5,
-                            borderColor: C.brown,
-                            backgroundColor: C.butter,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Icon name="crown" size={14} stroke={2.4} fill={C.butter} />
-                        </View>
-                      )}
-                    </View>
-                    <Txt
-                      numberOfLines={1}
-                      style={{
-                        fontSize: 13,
-                        lineHeight: 18,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {p.name}
-                      {p.id === 'me' ? ' · 나' : ''}
-                    </Txt>
-                  </>
-                );
-                const style = {
-                  width: '22.5%',
-                  alignItems: 'center',
-                  gap: 5,
-                } as const;
-                return host && p.id !== 'me' ? (
-                  <Pressable
-                    key={p.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={p.name + ' 메뉴'}
-                    accessibilityState={{ selected }}
-                    onPress={() => setMemberMenu(p.id)}
-                    style={style}
-                  >
-                    {tile}
-                  </Pressable>
-                ) : (
-                  <View key={p.id} style={style}>
-                    {tile}
-                  </View>
-                );
-              })}
-            </View>
-            <Btn
-              title="섬 탈퇴"
-              kind="danger"
-              style={{ alignSelf: 'center' }}
-              onPress={() =>
-                confirm('섬에서 나갈까요?', '이 섬의 주민 목록에서 나가요.', () => {
-                  const hasOtherIsland = state.islands.some(
-                    (candidate) => candidate.joined && candidate.id !== island.id,
-                  );
-                  act('LEAVE');
-                  if (hasOtherIsland) home();
-                  else reset('sea');
-                })
-              }
-            />
-          </IslandSheet>
-        </View>
-        {member && (
-          // 28: 주민 액션 시트(시트 아래, 가로 폰은 패널 안)
-          <View style={StyleSheet.absoluteFill}>
-            <Pressable
-              accessible={false}
-              importantForAccessibility="no-hide-descendants"
-              onPress={() => setMemberMenu(null)}
-              style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3955' }]}
-            />
-            <View
-              style={[
-                {
-                  position: 'absolute',
-                  bottom: 0,
-                  gap: 6,
-                  paddingTop: 10,
-                  paddingHorizontal: 12,
-                  paddingBottom: ins.bottom + 12,
-                  backgroundColor: C.paper,
-                  borderColor: C.brown,
-                },
-                layout.compact
-                  ? {
-                      right: 0,
-                      width: panelW,
-                      paddingRight: 12 + ins.right,
-                      borderTopWidth: 2,
-                      borderLeftWidth: 2,
-                      borderTopLeftRadius: 26,
-                    }
-                  : layout.tablet
-                    ? {
-                        left: (layout.width - layout.modalWidth) / 2,
-                        width: layout.modalWidth,
-                        bottom: ins.bottom + 24,
-                        borderWidth: 2,
-                        borderRadius: 26,
-                      }
-                    : {
-                        left: 0,
-                        right: 0,
-                        borderTopWidth: 2,
-                        borderTopLeftRadius: 26,
-                        borderTopRightRadius: 26,
-                      },
-              ]}
-            >
-              <Txt kind="meta" style={{ textAlign: 'center', paddingTop: 6, paddingBottom: 4 }}>
-                {member.name}
-              </Txt>
-              {option('방장 위임', () =>
-                confirm('방장을 위임할까요?', `${member.name}님에게 방장 권한을 넘겨요.`, () => {
-                  act('TRANSFER', { id: member.id });
-                  setMemberMenu(null);
-                }),
-              )}
-              {option(
-                '섬에서 내보내기',
-                () =>
-                  confirm('주민을 내보낼까요?', `${member.name}님이 이 섬에서 나가요.`, () => {
-                    act('KICK', { id: member.id });
-                    setMemberMenu(null);
-                  }),
-                'red',
-              )}
-              {option('취소', () => setMemberMenu(null), 'cancel')}
-            </View>
-          </View>
-        )}
-        {capacityOpen && (
-          // 정원 행을 누르면 뜨는 작은 드럼 팝업
-          <View
-            style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
-          >
-            <Pressable
-              accessible={false}
-              importantForAccessibility="no-hide-descendants"
-              onPress={() => setCapacityOpen(false)}
-              style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3955' }]}
-            />
-            <View
-              style={{
-                width: layout.compact ? 400 : layout.modalWidth,
-                gap: 10,
-                paddingTop: 20,
-                paddingHorizontal: 20,
-                paddingBottom: 18,
-                borderRadius: 22,
-                borderWidth: 2,
-                borderColor: C.brown,
-                backgroundColor: C.paper,
-                boxShadow: '0px 6px 0px ' + C.brown,
-              }}
-            >
-              <Txt kind="h17">정원</Txt>
-              <Txt kind="meta">
-                지금 주민 {residentCount(island)}명보다 적게 줄일 수 없어요. 최대 {CAPACITY_MAX}명
-              </Txt>
-              <View style={k.row}>
-                <Wheel
-                  a11yLabel="정원"
-                  items={capacityItems}
-                  value={capacityPick}
-                  onChange={setCapacityPick}
-                />
-              </View>
-              <View style={[k.row, { justifyContent: 'flex-end' }]}>
-                <Btn title="취소" kind="ghost" onPress={() => setCapacityOpen(false)} />
-                <Btn
-                  title="정원 저장"
-                  onPress={() => {
-                    const value = parseInt(capacityPick);
-                    act('CAPACITY', { value });
-                    setCapacityOpen(false);
-                    notify(`정원을 ${value}명으로 바꿨어요.`);
-                  }}
-                />
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
-    );
-  }
-  if (route === 'construction') {
-    const selected =
-        island.nextBuilding ||
-        (['tower', 'mail', 'gram', 'shop'] as Building[]).find(
-          (b) => !island.buildings.includes(b),
-        ) ||
-        'tower',
-      all = ['tower', 'mail', 'gram', 'shop'] as Building[];
-    // 상점 설명의 "배" 꾸미기는 정책상 뺐다(배는 기본 뗏목 고정)
-    const desc = {
-      tower: '다른 섬 기록 보기 · 다른 섬 참가',
-      mail: '섬 전체 편지방',
-      gram: '집중 중 함께 듣는 소리',
-      shop: '캐릭터·섬 꾸미기',
-    };
-    return hall(
-      '마을 발전',
-      <>
-        <Strip label="섬 물고기" value={island.points.toLocaleString() + 'P'} />
-        {/* 건물 카드: 세로 2열, 가로 폰 4열. 선택 = 분홍 + 체크, 잠김·완료·방장 아님 = 흐리게 */}
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: layout.compact ? 10 : 12,
-          }}
-        >
-          {all.map((b) => {
-            const made = island.buildings.includes(b),
-              locked =
-                b === 'shop' &&
-                (!island.buildings.includes('tower') || !island.buildings.includes('mail')),
-              on = selected === b,
-              disabled = made || locked || !host;
-            return (
-              <Pressable
-                key={b}
-                accessibilityRole="button"
-                accessibilityLabel={buildingNames[b]}
-                accessibilityState={{ selected: on, disabled }}
-                disabled={disabled}
-                onPress={() => act('SELECT_BUILDING', { building: b })}
-                style={{
-                  width: layout.compact ? '23%' : '48%',
-                  alignItems: 'center',
-                  gap: 4,
-                  paddingTop: 8,
-                  paddingHorizontal: layout.compact ? 6 : 10,
-                  paddingBottom: layout.compact ? 8 : 10,
-                  borderRadius: 18,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: on ? C.soft : C.paper,
-                  boxShadow: on ? '0px 4px 0px ' + C.brown : 'none',
-                  opacity: disabled ? 0.45 : 1,
-                }}
-              >
-                <View
-                  style={{
-                    width: '100%',
-                    height: layout.compact ? 66 : 84,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Pic
-                    id={b === 'gram' ? 'gram' : 'bld/' + buildingArt[b]}
-                    w={layout.compact ? 62 : 80}
-                  />
-                </View>
-                <Txt
-                  style={{
-                    fontSize: layout.compact ? 14 : 16,
-                    fontWeight: '800',
-                    textAlign: 'center',
-                  }}
-                >
-                  {buildingNames[b]}
-                </Txt>
-                <Txt style={{ fontSize: 15, fontWeight: '800', color: '#D95C7F' }}>
-                  {made ? '건설 완료' : costs[b] + 'P'}
-                </Txt>
-                <Txt
-                  kind="meta"
-                  style={{
-                    fontSize: layout.compact ? 11 : 12,
-                    lineHeight: 16,
-                    textAlign: 'center',
-                  }}
-                >
-                  {desc[b as keyof typeof desc]}
-                </Txt>
-                {on && (
-                  <View style={{ position: 'absolute', right: 10, top: 10 }}>
-                    <CheckDot size={24} />
-                  </View>
-                )}
-                {locked && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: 10,
-                      top: 10,
-                      paddingHorizontal: 8,
-                      paddingVertical: 1,
-                      borderRadius: 999,
-                      borderWidth: 1.5,
-                      borderColor: '#D9C6B8',
-                      backgroundColor: C.paper,
-                    }}
-                  >
-                    <Txt
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '700',
-                        color: C.muted,
-                      }}
-                    >
-                      전망대·우체통 먼저
-                    </Txt>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-      </>,
-      footer(
-        island.buildings.includes(selected)
-          ? '건설 완료'
-          : `${buildingNames[selected]} 짓기 · ${costs[selected]}P`,
-        () => build(selected),
-        undefined,
-        undefined,
-        `건설 후 잔액 ${Math.max(0, island.points - costs[selected]).toLocaleString()}P`,
-        !!canBuild(state, selected),
-      ),
-    );
-  }
-  const editQuest = (q: any) => {
-    go('questEdit', q.id);
-    setText(q.title);
-    setBody(q.type);
-    setQuestHours(Math.floor(q.target / 60) + '시간');
-    setQuestMins(pad(q.target % 60) + '분');
-    e.setWindowStart(q.windowStart || '00:00');
-    e.setWindowEnd(q.windowEnd || '24:00');
-  };
-  if (route === 'board') {
-    // 32·37: 섬 위 나무 게시판. 탭은 실제로 전환되고, 쪽지를 누르면 상세로
-    const onNotice = tab === '공지';
-    return (
-      <WoodBoard
-        tab={onNotice ? 'notice' : 'quest'}
-        onTab={(nextTab) => setTab(nextTab === 'notice' ? '공지' : '퀘스트')}
-        onMake={() =>
-          !host
-            ? notify('방장만 만들 수 있어요.')
-            : onNotice
-              ? go('noticeEdit')
-              : (setQuestHours('0시간'), setQuestMins('30분'), newQuest())
-        }
-        onClose={home}
-      >
-        {onNotice
-          ? island.notices.map((n, i) => {
-              const author = n.author || '알 수 없음';
-              return (
-                <NoticePaper
-                  key={n.id}
-                  i={i}
-                  title={n.title}
-                  meta={n.at ? `${author} · ${md(n.at)}` : author}
-                  comments={n.comments.length}
-                  badge={isHostName(author) ? '방장' : undefined}
-                  onPress={() => go('notice', n.id)}
-                />
-              );
-            })
-          : island.quests.map((q, i) => (
-              <QuestNote
-                key={q.id}
-                i={i}
-                title={q.title}
-                pct={questRate(state, q)}
-                onPress={() => go('quest', q.id)}
-              />
-            ))}
-      </WoodBoard>
-    );
-  }
-  if (route === 'quest') {
-    const q = island.quests.find((q) => q.id === detail) || island.quests[0];
-    if (!q)
-      return (
-        <IslandSheet
-          bg="board"
-          sign="bld/notice-board"
-          title="그룹원 달성률"
-          tall
-          onBack={back}
-          onClose={home}
-        >
-          <Txt>진행 중인 퀘스트가 없어요.</Txt>
-        </IslandSheet>
-      );
-    const rate = questRate(state, q);
-    const people: {
-      id: string;
-      name: string;
-      color: string;
-      pct: number | null;
-    }[] = [
-      { id: 'me', name: state.name, color: state.color, pct: rate },
-      ...island.members.map((m, i) => ({
-        id: m.id,
-        name: m.name,
-        color: m.color,
-        pct: [100, 80, 35][i % 3],
-      })),
-    ];
-    return (
-      <IslandSheet
-        bg="board"
-        sign="bld/notice-board"
-        title="그룹원 달성률"
-        tall
-        onBack={back}
-        onClose={home}
-        action={host ? '수정' : undefined}
-        actionPress={() => editQuest(q)}
-        footer={footer(
-          q.claimed ? '보상 받음' : '달성 보상 받기 · 10P',
-          () => {
-            act('CLAIM', { id: q.id });
-            notify('섬 물고기 10P를 받았어요.');
-          },
-          undefined,
-          undefined,
-          '모두 100%가 되면 섬 물고기가 섬에 쌓여요',
-          q.claimed || rate !== 100,
-        )}
-      >
-        <Txt kind="h">{q.title}</Txt>
-        <Txt kind="meta">
-          {q.type === 'focus'
-            ? `${q.windowStart || '00:00'} – ${q.windowEnd || '24:00'} · ${q.target}분 집중 · 시간대 집중 퀘스트`
-            : '하루 폰 사용 · 스크린타임 기준 · 다음 날 정산'}
-        </Txt>
-        {/* 현상수배 포스터: 세로 2열, 가로 폰 4열. 100%면 분홍 "달성" 도장 */}
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: 12,
-            paddingTop: 4,
-            paddingHorizontal: 4,
-          }}
-        >
-          {people.map((p, n) => {
-            const done = p.pct === 100;
-            return (
-              <View
-                key={p.id}
-                style={{
-                  width: layout.compact ? '22.5%' : '47.5%',
-                  alignItems: 'center',
-                  gap: 4,
-                  paddingTop: 8,
-                  paddingHorizontal: 8,
-                  paddingBottom: 10,
-                  borderRadius: 8,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: '#F7EAD0',
-                  boxShadow: '0px 4px 0px ' + C.brown,
-                  transform: [{ rotate: n % 2 ? '1.1deg' : '-1.2deg' }],
-                }}
-              >
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: 4,
-                    right: 4,
-                    top: 4,
-                    bottom: 4,
-                    borderRadius: 5,
-                    borderWidth: 1.5,
-                    borderStyle: 'dashed',
-                    borderColor: '#8B695666',
-                  }}
-                />
-                <View
-                  style={{
-                    width: '100%',
-                    aspectRatio: 4 / 3,
-                    borderRadius: 6,
-                    borderWidth: 1.5,
-                    borderColor: C.brown,
-                    backgroundColor: '#E3F4FC',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Pic id={'cat/' + p.color} w="88%" h="88%" />
-                </View>
-                <Txt numberOfLines={1} style={{ marginTop: 2, fontSize: 15, fontWeight: '800' }}>
-                  {p.name}
-                </Txt>
-                <Txt
-                  style={{
-                    fontSize: p.pct === null ? 15 : 23,
-                    lineHeight: 26,
-                    fontWeight: '800',
-                    fontVariant: ['tabular-nums'],
-                    color: done ? '#D95C7F' : C.ink,
-                  }}
-                >
-                  {p.pct === null ? '확인 필요' : p.pct + '%'}
-                </Txt>
-                <View style={{ alignSelf: 'stretch' }}>
-                  <Bar value={p.pct} />
-                </View>
-                {done && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      right: 8,
-                      top: 30,
-                      paddingHorizontal: 6,
-                      paddingVertical: 1,
-                      borderRadius: 6,
-                      borderWidth: 2,
-                      borderColor: '#D95C7F',
-                      backgroundColor: '#FFFDFAD9',
-                      transform: [{ rotate: '14deg' }],
-                    }}
-                  >
-                    <Txt
-                      style={{
-                        fontSize: 11,
-                        lineHeight: 15,
-                        fontWeight: '800',
-                        color: '#D95C7F',
-                      }}
-                    >
-                      달성
-                    </Txt>
-                  </View>
-                )}
-              </View>
-            );
-          })}
-        </View>
-      </IslandSheet>
-    );
-  }
-  if (route === 'questEdit') {
-    const type = body === 'screen' ? 'screen' : 'focus',
-      target = parseInt(questHours) * 60 + parseInt(questMins),
-      hours = Array.from({ length: 25 }, (_, i) => pad(i) + ':00');
-    return (
-      <IslandSheet
-        bg="board"
-        sign="bld/notice-board"
-        title={detail ? '퀘스트 수정' : '퀘스트 만들기'}
-        tall
-        onBack={back}
-        onClose={home}
-        keepOnBackdrop
-        footer={footer(
-          '게시판에 붙이기',
-          () => {
-            act('QUEST_SAVE', {
-              id: detail,
-              title: text,
-              kind: type,
-              target,
-              windowStart: e.windowStart,
-              windowEnd: e.windowEnd,
-            });
-            replace('board');
-          },
-          undefined,
-          undefined,
-          undefined,
-          !text.trim() || target <= 0 || (type === 'focus' && e.windowStart >= e.windowEnd),
-        )}
-      >
-        <Seg
-          items={['집중 시간', '폰 사용 시간']}
-          value={type === 'focus' ? '집중 시간' : '폰 사용 시간'}
-          onChange={(v: string) => setBody(v === '집중 시간' ? 'focus' : 'screen')}
-        />
-        <Field
-          label="퀘스트 제목"
-          value={text}
-          onChange={setText}
-          placeholder={type === 'focus' ? '저녁에 한 시간 집중하기' : '오늘 폰 사용 두 시간 이내'}
-        />
-        {type === 'focus' && (
-          <>
-            <Txt kind="meta">집중 시간대</Txt>
-            <View style={k.row}>
-              <Wheel
-                row={layout.compact ? 33 : 44}
-                label="시작"
-                items={hours.slice(0, 24)}
-                value={e.windowStart}
-                onChange={e.setWindowStart}
-              />
-              <Wheel
-                row={layout.compact ? 33 : 44}
-                label="끝"
-                items={hours.slice(1)}
-                value={e.windowEnd}
-                onChange={e.setWindowEnd}
-              />
-            </View>
-          </>
-        )}
-        <Txt kind="meta">
-          {type === 'focus' ? '이 시간대 안에서 집중할 시간' : '하루 폰 사용 상한'}
-        </Txt>
-        <View style={k.row}>
-          <Wheel
-            row={layout.compact ? 33 : 44}
-            label="시간"
-            items={Array.from({ length: 25 }, (_, i) => i + '시간')}
-            value={questHours}
-            onChange={setQuestHours}
-          />
-          <Wheel
-            row={layout.compact ? 33 : 44}
-            label="분"
-            items={Array.from({ length: 12 }, (_, i) => pad(i * 5) + '분')}
-            value={questMins}
-            onChange={setQuestMins}
-          />
-        </View>
-        {type === 'screen' && <Txt kind="meta">스크린타임을 연결한 주민만 달성률이 계산돼요.</Txt>}
-      </IslandSheet>
-    );
-  }
-  const tabletMail = route === 'mail' && layout.tablet;
-  const composer = (placeholder: string, send: () => void) => (
-    <View style={[k.row, { gap: 10 }]}>
-      <View style={{ flex: 1 }}>
-        <Field
-          placeholder={placeholder}
-          value={text}
-          onChange={setText}
-          inputStyle={
-            tabletMail
-              ? {
-                  fontSize: 18,
-                  lineHeight: 26,
-                  minHeight: 58,
-                  paddingVertical: 14,
-                }
-              : undefined
-          }
-          placeholderColor={tabletMail ? C.muted : undefined}
-          tabletScale={tabletMail ? 1 : undefined}
-        />
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="보내기"
-        disabled={!text.trim()}
-        onPress={send}
-        style={{
-          width: tabletMail ? 56 : 48,
-          height: tabletMail ? 56 : 48,
-          borderRadius: tabletMail ? 28 : 24,
-          borderWidth: 2,
-          borderColor: C.brown,
-          backgroundColor: C.pink,
-          opacity: text.trim() ? 1 : 0.4,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="send" size={tabletMail ? 24 : 20} stroke={2.4} />
-      </Pressable>
-    </View>
-  );
-  if (route === 'notice') {
-    const n = island.notices.find((n) => n.id === detail) || island.notices[0];
-    if (!n)
-      return (
-        <IslandSheet
-          bg="board"
-          sign="bld/notice-board"
-          title="공지"
-          tall
-          onBack={back}
-          onClose={home}
-        />
-      );
-    const author = n.author || '알 수 없음';
-    return (
-      <IslandSheet
-        keepOnBackdrop
-        bg="board"
-        sign="bld/notice-board"
-        title="공지"
-        tall
-        onBack={back}
-        onClose={home}
-        action={host ? '수정' : undefined}
-        actionPress={() => {
-          go('noticeEdit', n.id);
-          setText(n.title);
-          setBody(n.body);
-        }}
-        footer={composer('댓글을 남겨요', () => {
-          act('COMMENT', { id: n.id, text });
-          setText('');
-        })}
-      >
-        <Txt kind="h">{n.title}</Txt>
-        <Txt kind="meta">
-          {[author, isHostName(author) && '방장', n.at && md(n.at)].filter(Boolean).join(' · ')}
-        </Txt>
-        <Txt>{n.body}</Txt>
-        <View style={{ height: 1, backgroundColor: '#8B695633', marginVertical: 2 }} />
-        <Txt kind="section">댓글 {n.comments.length}</Txt>
-        {n.comments.map((c) => (
-          <ChatBubble
-            key={c.id}
-            name={c.name}
-            text={c.text}
-            color="ginger"
-            at={c.at ? hm(c.at) : ''}
-            avatar={36}
-          />
-        ))}
-      </IslandSheet>
-    );
-  }
-  if (route === 'noticeEdit')
-    return (
-      <IslandSheet
-        bg="board"
-        sign="bld/notice-board"
-        title={detail ? '공지 수정' : '공지 작성'}
-        tall
-        onBack={back}
-        onClose={home}
-        keepOnBackdrop
-        action={detail ? '삭제' : undefined}
-        actionPress={() =>
-          confirm('공지를 삭제할까요?', '삭제한 공지는 되돌릴 수 없어요.', () => {
-            act('NOTICE_DELETE', { id: detail });
-            replace('board');
-            setTab('공지');
-          })
-        }
-        footer={footer(
-          '공지 저장',
-          () => {
-            act('NOTICE_SAVE', { id: detail, title: text, body });
-            replace('board');
-            setTab('공지');
-          },
-          undefined,
-          undefined,
-          undefined,
-          !text.trim() || !body.trim(),
-        )}
-      >
-        <Field label="제목" value={text} onChange={setText} />
-        <Field label="본문" value={body} onChange={setBody} multiline />
-      </IslandSheet>
-    );
   if (route === 'tower') {
     // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
     if (server) {
@@ -4388,7 +2753,7 @@ export function RedesignScreens({ e }: any) {
         // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
         joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
         // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
-        largeText = (layout.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
+        largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
       return (
         <IslandSheet
           bg="tower"
@@ -4690,70 +3055,6 @@ export function RedesignScreens({ e }: any) {
       </IslandSheet>
     );
   }
-  if (route === 'mail')
-    return (
-      <IslandSheet
-        bg="mail"
-        sign="bld/mailbox"
-        title="우리 섬 편지방"
-        tall
-        onClose={home}
-        keepOnBackdrop
-        scrollRef={chat}
-        footer={composer('우리 섬 모두에게', () => {
-          act('MESSAGE', { text });
-          setText('');
-          setTimeout(
-            () =>
-              chat.current?.scrollToEnd({
-                animated: !state.settings.reduceMotion,
-              }),
-            80,
-          );
-        })}
-      >
-        <Txt
-          kind="meta"
-          style={{
-            textAlign: 'center',
-            ...(layout.tablet ? { fontSize: 15, lineHeight: 22 } : {}),
-          }}
-        >
-          {island.name} · {island.members.length + 1}명이 함께 나누는 이야기
-        </Txt>
-        <View
-          style={{
-            gap: layout.tablet ? 28 : 20,
-            paddingTop: layout.tablet ? 16 : 10,
-          }}
-        >
-          {island.messages.map((m) => (
-            <View key={m.id}>
-              <ChatBubble
-                large={layout.tablet}
-                name={m.memberId === 'me' ? '나' : m.name}
-                color={m.color}
-                text={m.text}
-                own={m.memberId === 'me'}
-                at={new Date(m.at).toLocaleTimeString('ko-KR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                })}
-              />
-              {m.status === 'failed' && (
-                <Btn
-                  small
-                  title="다시 보내기"
-                  kind="ghost"
-                  onPress={() => act('RETRY_MESSAGE', { id: m.id })}
-                />
-              )}
-            </View>
-          ))}
-        </View>
-      </IslandSheet>
-    );
   // 뗏목 위 고양이 그림. 합성 그림은 검정 고양이만 있어서 다른 털색은 뗏목 + 고양이를 겹쳐 그린다
   const raftCat = (h: number) =>
     state.color === 'black' ? (
@@ -5103,8 +3404,11 @@ export function RedesignScreens({ e }: any) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '나만 미리듣기'}
+              disabled={!player.playbackAllowed}
+              accessibilityState={{ disabled: !player.playbackAllowed }}
               onPress={() => {
                 try {
+                  if (!player.playbackAllowed) return;
                   if (previewAudio) {
                     player.pause();
                     setPreviewAudio(false);
@@ -5112,8 +3416,7 @@ export function RedesignScreens({ e }: any) {
                     player.replace(assets['audio/' + p.id + '.wav']);
                     // 미리듣기는 한 번만(끝나면 재생 종료 이벤트로 버튼을 되돌린다)
                     player.loop = false;
-                    player.play();
-                    setPreviewAudio(true);
+                    setPreviewAudio(player.play());
                   }
                 } catch {
                   notify('음원을 불러오지 못했어요.');
@@ -5633,7 +3936,7 @@ export function RedesignScreens({ e }: any) {
       <IslandSheet
         bg="dock"
         sign="boat/raft"
-        title="내 꾸미기"
+        title={t('wardrobe.title')}
         tall
         tight
         onBack={back}
@@ -5732,7 +4035,8 @@ export function RedesignScreens({ e }: any) {
       onReject: () => void,
       safetyMenu?: React.ReactNode,
     ) => {
-      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      const stacked =
+        !!safetyMenu && layout.fontScale >= semanticTokens.typography.largeTextThreshold;
       return (
         <View
           testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
@@ -5979,16 +4283,7 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet
-          bg="dock"
-          sign="boat/raft"
-          title="친구 관리"
-          tall
-          onBack={back}
-          onClose={home}
-          action={serverMode ? t('account.blocked.title') : undefined}
-          actionPress={serverMode ? () => go('blockedUsers') : undefined}
-        >
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -6074,6 +4369,54 @@ export function RedesignScreens({ e }: any) {
     const mustTransferHost = state.islands.some(
       (candidate) => isHost(candidate) && candidate.members.length > 0,
     );
+    // 「저장」은 시트 머리 글자가 아니라 아래 버튼 줄의 가득 폭 Btn 이다(GROMO-2473). 처리 중에는 입력과 같이 막는다.
+    const saveProfile = () => {
+      const name = profileName;
+      setProfileNameError('');
+      if (!name) {
+        notify(t('account.profile.nicknameRequired'));
+        return;
+      }
+      if (!server) {
+        act('PROFILE', { name, color: profileColor });
+        notify(t('account.profile.saved'));
+        back();
+        return;
+      }
+      const signature = JSON.stringify([name, profileColor]);
+      if (profileSaveIntent.current?.signature !== signature) {
+        profileSaveIntent.current = { signature, key: uuid() };
+      }
+      const intent = profileSaveIntent.current;
+      const errorScope = profileErrorScope.current;
+      const gen = sessionGeneration();
+      run(
+        () =>
+          updateProfile({ name, catColor: profileColor }, intent.key)
+            .then((saved) => {
+              if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
+              act('PROFILE', {
+                name: saved.name ?? name,
+                color: saved.catColor ?? profileColor,
+              });
+              notify(t('account.profile.saved'));
+              back();
+            })
+            .catch((thrown) => {
+              if (thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID') {
+                if (
+                  profileErrorScope.current === errorScope &&
+                  routeNowRef.current === 'profile' &&
+                  sessionGeneration() === gen
+                )
+                  setProfileNameError(thrown.message);
+                return;
+              }
+              throw thrown;
+            }),
+        notify,
+      );
+    };
     return (
       <IslandSheet
         bg="dock"
@@ -6083,38 +4426,7 @@ export function RedesignScreens({ e }: any) {
         tall
         onBack={back}
         onClose={home}
-        action={t('common.save')}
-        actionPress={() => {
-          const name = profileName.trim();
-          if (!name) {
-            notify(t('account.profile.nicknameRequired'));
-            return;
-          }
-          if (!server) {
-            act('PROFILE', { name, color: profileColor });
-            notify(t('account.profile.saved'));
-            back();
-            return;
-          }
-          const signature = JSON.stringify([name, profileColor]);
-          if (profileSaveIntent.current?.signature !== signature) {
-            profileSaveIntent.current = { signature, key: uuid() };
-          }
-          const intent = profileSaveIntent.current;
-          run(
-            () =>
-              updateProfile({ name, catColor: profileColor }, intent.key).then((saved) => {
-                if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
-                act('PROFILE', {
-                  name: saved.name ?? name,
-                  color: saved.catColor ?? profileColor,
-                });
-                notify(t('account.profile.saved'));
-                back();
-              }),
-            notify,
-          );
-        }}
+        footer={<Btn title={t('common.save')} onPress={saveProfile} disabled={serverBusy} />}
       >
         <View style={{ alignItems: 'center' }}>
           <Avatar color={profileColor} size={96} />
@@ -6129,10 +4441,19 @@ export function RedesignScreens({ e }: any) {
           label={t('account.profile.nickname')}
           placeholder={t('account.profile.nicknamePlaceholder')}
           value={profileName}
-          onChange={serverBusy ? () => {} : setProfileName}
+          onChange={(value: string) => {
+            if (serverBusy) return;
+            setProfileName(stripNicknameWhitespace(value));
+            setProfileNameError('');
+          }}
           disabled={serverBusy}
           inputStyle={sheetInput}
         />
+        {!!profileNameError && (
+          <Txt kind="meta" accessibilityRole="alert" style={{ color: semanticTokens.color.danger }}>
+            {profileNameError}
+          </Txt>
+        )}
         <SheetGroup>
           <SheetRow
             title={t('account.profile.linkedAccount')}
@@ -6310,6 +4631,15 @@ export function RedesignScreens({ e }: any) {
         </SheetGroup>
         {sec(t('settings.safetySection'))}
         <SheetGroup flat>
+          {/* 차단한 사용자 관리는 친구 관리 머리가 아니라 여기(안전 첫 줄)다(GROMO-2473). 목업에는 차단 API 가 없다 */}
+          {server && (
+            <SheetRow
+              title={t('account.blocked.title')}
+              sub={t('settings.blockedUsersSub')}
+              chevron
+              onPress={() => go('blockedUsers')}
+            />
+          )}
           <SheetRow
             title={t('settings.report.title')}
             sub={t('settings.report.sub')}
@@ -6429,98 +4759,6 @@ export function RedesignScreens({ e }: any) {
     <Page title={t('onboardingStory.brand')} back={home}>
       <Btn title="섬으로 돌아가기" onPress={home} />
     </Page>
-  );
-}
-function ChatBubble({ name, text, color, own = false, at = '', large = false, avatar }: any) {
-  return (
-    <View
-      style={{
-        flexDirection: own ? 'row-reverse' : 'row',
-        alignItems: 'flex-start',
-        gap: large ? 14 : 10,
-      }}
-    >
-      <Pic
-        id={'avatar/' + color}
-        w={avatar ?? (large ? 48 : 40)}
-        style={{
-          borderRadius: 14,
-          backgroundColor: C.sky,
-          borderWidth: 1.5,
-          borderColor: C.brown,
-        }}
-      />
-      <View
-        style={{
-          maxWidth: large ? 560 : '78%',
-          flexShrink: 1,
-          gap: large ? 8 : 6,
-          alignItems: own ? 'flex-end' : 'flex-start',
-        }}
-      >
-        <Txt
-          tabletScale={large ? 1 : undefined}
-          kind="meta"
-          style={
-            large
-              ? {
-                  fontSize: 16,
-                  lineHeight: 23,
-                  fontWeight: '600',
-                  color: C.ink,
-                }
-              : undefined
-          }
-        >
-          {name}
-          {at ? (
-            <Txt
-              tabletScale={large ? 1 : undefined}
-              kind="meta"
-              style={large ? { fontSize: 14, lineHeight: 23, fontWeight: '400' } : undefined}
-            >
-              {' · ' + at}
-            </Txt>
-          ) : null}
-        </Txt>
-        <View
-          style={{
-            backgroundColor: own ? C.soft : C.paper,
-            borderWidth: 2,
-            borderColor: C.brown,
-            borderRadius: 18,
-            paddingHorizontal: large ? 18 : 14,
-            paddingVertical: large ? 14 : 11,
-          }}
-        >
-          <Svg
-            width={14}
-            height={18}
-            viewBox="0 0 14 18"
-            style={{
-              position: 'absolute',
-              top: 9,
-              ...(own ? { right: -12, transform: [{ scaleX: -1 }] } : { left: -12 }),
-            }}
-          >
-            <Path
-              d="M14 1 C8 1 4 1 2 3 C0 5 8 7 12 16"
-              fill={own ? C.soft : C.paper}
-              stroke={C.brown}
-              strokeWidth={2}
-              strokeLinecap="round"
-            />
-            <Path d="M13 1 L13 15" stroke={own ? C.soft : C.paper} strokeWidth={3} />
-          </Svg>
-          <Txt
-            tabletScale={large ? 1 : undefined}
-            style={large ? { fontSize: 19, lineHeight: 29, fontWeight: '500' } : undefined}
-          >
-            {text}
-          </Txt>
-        </View>
-      </View>
-    </View>
   );
 }
 function Volume({ value, onChange }: any) {

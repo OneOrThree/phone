@@ -51,7 +51,7 @@ test('Android uses the 2.0 Kakao app identity and OAuth callback scheme', () => 
 test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', () => {
   const iosKey = '1280641e9b639a279b7406f24b059703';
   const kakaoPlugin = appConfig.plugins.find(([name]) => name === '@react-native-kakao/core');
-  const plist = fs.readFileSync(path.join(appDevRoot, 'ios/GROMO/Info.plist'), 'utf8');
+  const plist = fs.readFileSync(path.join(appDevRoot, 'ios/Cattus/Info.plist'), 'utf8');
 
   expect(appConfig.ios.bundleIdentifier).toBe('com.oneorthree.focuscat');
   expect(kakaoPlugin[1].nativeAppKey).toBe(iosKey);
@@ -64,7 +64,7 @@ test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', (
 test('Android/iOS release require real terms and the production API URL', () => {
   const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
   const xcode = fs.readFileSync(
-    path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'),
+    path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'),
     'utf8',
   );
   const fastfile = fs.readFileSync(path.join(appDevRoot, 'ios/fastlane/Fastfile'), 'utf8');
@@ -86,7 +86,7 @@ test('Android/iOS release require real terms and the production API URL', () => 
 
 test('iOS dev TestFlight lane pins the team dev server and keeps the production gate', () => {
   const xcode = fs.readFileSync(
-    path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'),
+    path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'),
     'utf8',
   );
   const fastfile = fs.readFileSync(path.join(appDevRoot, 'ios/fastlane/Fastfile'), 'utf8');
@@ -239,24 +239,37 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
   const { spawnSync } = require('node:child_process');
   const os = require('node:os');
   const script = xcodeShellScript(
-    fs.readFileSync(path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'), 'utf8'),
+    fs.readFileSync(path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'), 'utf8'),
     'Check iOS release Apple audience readiness',
   );
   const prodUrl = 'https://catus-api.oneorthree.world';
   const devUrl = 'https://oneorthree.dev.mooo.com';
-  const run = (audience, apiUrl) =>
-    spawnSync('/bin/sh', ['-c', script], {
+  // SRCROOT 는 .xcode.env 없는 빈 ios/ 폴더. 그 옆 src/config/googleClientIds.json 은 GROMO-2226 가드가 읽는다(기본: prod 채움).
+  const run = (audience, apiUrl, { prodIds = { ios: 'p-ios', web: 'p-web' }, publicEnv } = {}) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gromo-gate-'));
+    fs.mkdirSync(path.join(root, 'ios'));
+    fs.mkdirSync(path.join(root, 'src/config'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'src/config/googleClientIds.json'),
+      JSON.stringify({ dev: { ios: 'd-ios', web: 'd-web' }, prod: prodIds }),
+    );
+    // publicEnv: null = 셸에 없음, '' = 빈 값, 생략 = 청중에 맞는 값(dev → dev, 그 외 → prod)
+    const env =
+      publicEnv === null ? undefined : (publicEnv ?? (audience === 'dev' ? 'dev' : 'prod'));
+    return spawnSync('/bin/sh', ['-c', script], {
       env: {
         PATH: process.env.PATH,
         CONFIGURATION: 'Release',
-        SRCROOT: fs.mkdtempSync(path.join(os.tmpdir(), 'gromo-gate-')), // .xcode.env 없는 빈 폴더
+        SRCROOT: path.join(root, 'ios'),
         EXPO_PUBLIC_TERMS_VERSION: '2026-09',
         EXPO_PUBLIC_APPLE_LOGIN_ENABLED: '1',
         EXPO_PUBLIC_API_URL: apiUrl,
         ...(audience === undefined ? {} : { GROMO_IOS_AUDIENCE: audience }),
+        ...(env === undefined ? {} : { EXPO_PUBLIC_ENV: env }),
       },
       encoding: 'utf8',
     }).status;
+  };
 
   // 미설정(=운영)·dev 외 값은 운영 주소만, dev 는 dev 주소만 통과한다
   expect(run(undefined, prodUrl)).toBe(0);
@@ -265,4 +278,18 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
   expect(run('staging', devUrl)).toBe(1);
   expect(run('dev', devUrl)).toBe(0);
   expect(run('dev', prodUrl)).toBe(1);
+
+  // GROMO-2226 — 운영 청중은 prod Google 클라이언트 id 가 둘 다 있어야 하고, dev 청중은 prod 칸이 비어도 된다
+  const empty = { ios: '', web: '' };
+  expect(run(undefined, prodUrl, { prodIds: empty })).toBe(1);
+  expect(run('prod', prodUrl, { prodIds: { ios: 'p-ios', web: '' } })).toBe(1);
+  expect(run('dev', devUrl, { prodIds: empty })).toBe(0);
+  // 청중 ↔ EXPO_PUBLIC_ENV(JS 가 Google 행을 고르는 기준) 불일치는 양쪽 다 막는다
+  expect(run('dev', devUrl, { publicEnv: 'prod' })).toBe(1);
+  expect(run('prod', prodUrl, { publicEnv: 'dev' })).toBe(1);
+  expect(run('prod', prodUrl, { publicEnv: 'prod' })).toBe(0);
+  // Release 는 EXPO_PUBLIC_ENV 를 명시해야 한다 — 없거나 빈 값이면 청중과 무관하게 막는다(.env* 파일에 기대지 않음)
+  expect(run('prod', prodUrl, { publicEnv: null })).toBe(1);
+  expect(run(undefined, prodUrl, { publicEnv: '' })).toBe(1);
+  expect(run('dev', devUrl, { publicEnv: null })).toBe(1);
 });

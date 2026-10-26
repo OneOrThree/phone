@@ -55,6 +55,7 @@ import {
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { useIslandNews } from '@/screens/magazine/useIslandNews';
 import {
   ISLAND_GREETING_MAX,
   ISLAND_INTRO_MAX,
@@ -206,8 +207,9 @@ export function Hall({ e }: any) {
     host = isHost(i),
     // 다른 섬을 구경 중(주민 아님)이면 섬 정보 카드를 방문자 뷰로 보여 준다
     visitor = !!s.visitingIslandId,
-    // 서버 훅이 부를 섬 — 서버 모드 current 는 로컬 목업 섬 목록에 없다(GROMO-2138). 목업은 기존 섬 id
-    liveIslandId = s.serverIslands?.currentIslandId ?? i.id;
+    // 서버 훅이 부를 섬 — 서버 모드 current 는 로컬 목업 섬 목록에 없다(GROMO-2138). 서버 모드(e.islands)에선
+    // 서버 id 가 도착하기 전(null)에 목업 id 로 소식·관리를 부르지 않는다(GROMO-2460). 목업은 기존 섬 id
+    liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : i.id;
   // review/demo에는 서버가 없으므로 관리 hook을 열지 않고 기존 시연 섬 정보를 유지한다.
   const liveManagement = (r === 'manage' || r === 'members') && !visitor && !ledgerMockMode();
   // `manage`/`members`는 실제 App 경로(CurrentScreens → Hall)다. 로컬 Island를 서버 DTO로
@@ -298,7 +300,7 @@ export function Hall({ e }: any) {
   const mockLedger = ledgerMockMode();
   const serverLedger = useLedgerScreen({
     active: r === 'ledger' && !visitor && !mockLedger,
-    islandId: liveIslandId,
+    islandId: liveIslandId ?? i.id, // URL 에 안 쓰는 값이라 타입만 지킨다
     currentMonth: thisMonth,
   });
   // 건설 화면도 같은 서버 정본 규칙 — 방문자·모크 모드는 로컬 시연 UI 를 유지한다.
@@ -397,6 +399,8 @@ export function Hall({ e }: any) {
     busy: visitorJoinBusy,
     serverJoin,
   } = useVisitorJoin(e, s, i, notify);
+  // 섬 소식(GROMO-2282) — 주민 전용 목록이라 구경 중이 아닐 때 관리·주민 카드에서만 부른다. 실패·403 은 빈 목록이다
+  const news = useIslandNews((r === 'manage' || r === 'members') && !visitor, liveIslandId);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -1299,9 +1303,10 @@ export function Hall({ e }: any) {
         : st === 'locked' || (!!i.construction && st === 'none');
     };
     const gap = land ? 10 : 12.9,
-      // 격자 폭 = 패널 폭 − 테두리 4 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16)
-      gridW = land ? W - side - 16 - 4 - 32 : W - 36.2 - 4 - 33.6,
-      // 가로는 카드가 140 이상일 때만 3열
+      // 격자 폭 = 패널 폭 − 테두리 2.6×2 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16).
+      // 테두리를 4 로 빼면 393(iPhone 15)·375(SE)에서 두 카드 + 간격이 실제 안쪽 폭을 넘어 둘째 카드가 다음 줄로 밀렸다(GROMO-2486)
+      gridW = land ? W - side - 16 - 5.2 - 32 : W - 36.2 - 5.2 - 33.6,
+      // 가로는 격자가 450 이상(카드 약 143)일 때만 3열
       cols = land && gridW >= 450 ? 3 : 2,
       // 내림: 소수 폭이면 iOS 가 둘째 카드를 다음 줄로 넘긴다
       cardW = Math.floor((gridW - gap * (cols - 1)) / cols);
@@ -1410,7 +1415,7 @@ export function Hall({ e }: any) {
             transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
-          {cards.map((b) => {
+          {cards.map((b, idx) => {
             const st = status(b),
               off = dim(b),
               item = liveConstruction ? liveItem(b) : undefined,
@@ -1428,8 +1433,9 @@ export function Hall({ e }: any) {
                 disabled={!tappable}
                 onPress={() => setPlan(b)}
                 style={{
-                  // 홀수 마지막 카드(상점)도 같은 폭 — 혼자 한 줄 전체를 차지하지 않는다
-                  width: cardW,
+                  // 마지막 줄에 혼자 남는 카드(2열의 상점)는 한 줄 전체 폭(GROMO-2486 — 2413 의 같은 폭 규칙을 뒤집음).
+                  // 3열 가로에서는 5장이 3+2 라 혼자 남지 않는다
+                  width: idx === cards.length - 1 && cards.length % cols === 1 ? gridW : cardW,
                   gap: 3.9,
                   minHeight: land ? 100 : 113.6,
                   paddingVertical: 9,
@@ -1442,23 +1448,6 @@ export function Hall({ e }: any) {
                   opacity: off ? 0.6 : 1,
                 }}
               >
-                {st === 'done' && (
-                  <Image
-                    testID={`hall-completion-stamp-${b}`}
-                    source={require('@/assets/ui/construction-complete.png')}
-                    accessible={false}
-                    resizeMode="contain"
-                    fadeDuration={0}
-                    style={{
-                      alignSelf: 'flex-end',
-                      width: completionStamp.width,
-                      height: completionStamp.height,
-                      marginRight: completionStamp.inset,
-                      marginBottom: completionStamp.inset,
-                      transform: [{ rotate: completionStamp.rotation }],
-                    }}
-                  />
-                )}
                 {st === 'build' && (
                   <View
                     style={{
@@ -1503,6 +1492,26 @@ export function Hall({ e }: any) {
                     </T>
                   </View>
                 </View>
+                {/* 완공 도장은 그림·글 위에 겹쳐 찍는다(10/26 오스카) — 흐름에 두면 글이 아래로 밀려 도장 띠가 생긴다 */}
+                {st === 'done' && (
+                  <Image
+                    testID={`hall-completion-stamp-${b}`}
+                    source={require('@/assets/ui/construction-complete.png')}
+                    accessible={false}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                    style={{
+                      // 오른쪽 아래 — 건물 이름은 가리지 않고 설명 위에 비스듬히 찍힌다(10/26 오스카). 살짝 비쳐 밑 글이 읽힌다
+                      position: 'absolute',
+                      bottom: completionStamp.bottomInset,
+                      right: completionStamp.inset,
+                      width: completionStamp.width,
+                      height: completionStamp.height,
+                      opacity: completionStamp.opacity,
+                      transform: [{ rotate: completionStamp.rotation }],
+                    }}
+                  />
+                )}
               </Pressable>
             );
           })}
@@ -1998,7 +2007,8 @@ export function Hall({ e }: any) {
   );
   // 관리 표면은 server snapshot을 받기 전 로컬 Island를 대체 화면으로 쓰지 않는다.
   if (liveManagement) {
-    if (management.loading && !management.detail) {
+    // 서버 섬 id 가 오기 전(GROMO-2460)에도 같은 로딩 화면 — 빈 카드·초대·탈퇴를 그리지 않는다
+    if (!liveIslandId || (management.loading && !management.detail)) {
       return shell(
         managementFrame(
           <View
@@ -2539,7 +2549,9 @@ export function Hall({ e }: any) {
     const capacity = setting(
       '주민 정원',
       `현재 ${liveManagement ? (management.members?.length ?? 0) : residentCount(i)}명 · 최대 ${CAPACITY_MAX}명`,
-      <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>{draft.capacity}명</T>,
+      <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>
+        {t('onboarding.createIsland.capacityUnit', { count: draft.capacity })}
+      </T>,
       {
         testID: 'hall-capacity',
         onPress: () => {
@@ -2547,7 +2559,11 @@ export function Hall({ e }: any) {
             CAPACITY_MIN,
             liveManagement ? (management.members?.length ?? CAPACITY_MIN) : residentCount(i),
           );
-          let picked = `${draft.capacity}명`;
+          let picked: number = draft.capacity;
+          // 라벨은 숫자에서 만든다 — 고른 값은 숫자로만 든다(로케일을 바꿔도 저장값 유지)
+          const items = Array.from({ length: CAPACITY_MAX - min + 1 }, (_, n) =>
+            t('onboarding.createIsland.capacityUnit', { count: n + min }),
+          );
           setDialog({
             title: '주민 정원',
             text: '현재 주민 수보다 작게 줄일 수는 없어요.',
@@ -2556,14 +2572,14 @@ export function Hall({ e }: any) {
                 <Wheel
                   label=""
                   a11yLabel="주민 정원"
-                  items={Array.from({ length: CAPACITY_MAX - min + 1 }, (_, n) => `${n + min}명`)}
-                  value={picked}
-                  onChange={(v: string) => (picked = v)}
+                  items={items}
+                  value={items[picked - min]}
+                  onChange={(v: string) => (picked = items.indexOf(v) + min)}
                 />
               </View>
             ),
             ok: '정하기',
-            onOk: () => setDraft((d) => ({ ...d, capacity: parseInt(picked, 10) })),
+            onOk: () => setDraft((d) => ({ ...d, capacity: picked })),
           });
         },
       },
@@ -2955,6 +2971,28 @@ export function Hall({ e }: any) {
         </View>,
         `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
+      {news.length > 0 &&
+        section(
+          t('magazine.news.title'),
+          news.map((n) => (
+            <View
+              key={n.id}
+              testID={`hall-news-${n.id}`}
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                paddingVertical: 5,
+              }}
+            >
+              <T style={g(15, 24, { color: CARD_INK, flexShrink: 1 })}>
+                {t('magazine.news.promotionRow')}
+              </T>
+              <T style={g(15, 24, { color: MUTED })}>{kstMonthDay(Date.parse(n.createdAt))}</T>
+            </View>
+          )),
+        )}
       {!visitor && (
         <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
           {displayHost && (

@@ -135,6 +135,34 @@ gradle.taskGraph.whenReady { taskGraph ->
             "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
         )
     }
+    // GROMO-2226 — JS 의 Google 클라이언트 행은 EXPO_PUBLIC_ENV 로 고른다. 청중과 어긋나면 빈 prod 행(dev 청중) 또는 dev 행(운영)이 실린다.
+    // release 는 이 값을 셸에 명시해야 한다 — .env* 파일은 Expo 가 .env.local·.env.production 을 우선해 가드가 번들과 같은 값을 보장할 수 없다.
+    def publicEnv = System.getenv("EXPO_PUBLIC_ENV")
+    if (includesReleaseArtifactTask && (publicEnv == null || publicEnv.trim().isEmpty())) {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_ENV 를 dev 또는 prod 로 명시하세요(Google 클라이언트 행 선택 — .env 파일에 기대지 않습니다)."
+        )
+    }
+    if (includesReleaseArtifactTask && devAudience && publicEnv != "dev") {
+        throw new GradleException(
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_ENV=dev 로 번들해야 합니다(Google 클라이언트 행 선택)."
+        )
+    }
+    if (includesReleaseArtifactTask && !devAudience && publicEnv == "dev") {
+        throw new GradleException(
+            "Android release 차단: 운영 청중인데 EXPO_PUBLIC_ENV=dev 입니다 — dev Google 클라이언트가 운영 번들에 실립니다."
+        )
+    }
+    // GROMO-2226 — 운영 Google 클라이언트 id(prod.web)가 비어 있으면 운영 앱의 유일한 소셜 로그인(Google)이
+    // CLIENT_PROVIDER_UNAVAILABLE 로 거절된다. iOS testflight.sh·ota-update.sh 와 같은 가드. dev 청중은 dev 행을 쓰므로 통과.
+    if (includesReleaseArtifactTask && !devAudience) {
+        def googleIds = new groovy.json.JsonSlurper().parse(new File(rootDir, "../src/config/googleClientIds.json"))
+        if (!googleIds.prod?.web?.trim()) {
+            throw new GradleException(
+                "Android release 차단: 운영 Google 클라이언트 id 미발급 — src/config/googleClientIds.json prod 칸을 채운 뒤 다시 실행하세요."
+            )
+        }
+    }
     if (includesReleaseArtifactTask && !releaseKeystorePropertiesFile.exists()) {
         throw new GradleException(
             "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
@@ -187,7 +215,7 @@ android {
         }
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
+        versionCode 20
         versionName "2.0.0"
         // dev 청중(Play 내부 테스트용 팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
         // 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다. iOS dev 빌드는 Fastfile beta_dev 가 같은 일을 한다.

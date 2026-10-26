@@ -1,6 +1,8 @@
 import React from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { act, fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
+import { semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
 import {
   FIT_REVEAL_FALLBACK_MS,
   IslandPopup,
@@ -46,6 +48,7 @@ test.each([
 
     expect(getByLabelText('마지막 항목')).toBeTruthy();
     const clipStyle = StyleSheet.flatten(getByTestId('island-sheet-content-clip').props.style);
+    // 스타일 계약 검증(실제 레이아웃 아님)
     expect(clipStyle).toMatchObject({
       overflow: 'hidden',
       borderBottomLeftRadius: compact || tablet ? 28 : 0,
@@ -54,6 +57,32 @@ test.each([
     if (hasFooter) expect(getByText('저장')).toBeTruthy();
   },
 );
+
+// 머리 줄의 뒤로·액션·닫기는 눈에 보이는 크기와 무관하게 누르는 자리가 양 축 44pt 이상이어야 한다(GROMO-2283)
+test.each([
+  ['⚙ 아이콘 액션', '⚙', t('common.manageIsland')],
+  ['글자 액션', '완료', '완료'],
+] as const)('시트 머리 줄의 뒤로·%s 는 터치 영역이 44pt 이상이다', async (_name, action, label) => {
+  const { getByLabelText } = await render(
+    <IslandSheet
+      bg="hall"
+      sign="boat/raft"
+      title="설정"
+      onClose={() => {}}
+      onBack={() => {}}
+      action={action}
+      actionPress={() => {}}
+    >
+      <Text>내용</Text>
+    </IslandSheet>,
+  );
+  const back = StyleSheet.flatten(getByLabelText('뒤로').props.style);
+  expect(back.width).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(back.height).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  const actionBox = StyleSheet.flatten(getByLabelText(label).props.style);
+  expect(actionBox.minWidth).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(actionBox.minHeight).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+});
 
 test('SheetRow는 selected를 accessibilityState.selected로 반영한다(언어 선택 화면 등)', async () => {
   const { getByLabelText } = await render(

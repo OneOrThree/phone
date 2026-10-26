@@ -59,7 +59,7 @@ public class FriendService {
      * friend 는 L3 이라 참조가 아래로 간다 — {@code DomainLayerRulesTest} 가 이 방향을 위해 층을 갈라 뒀다.
      */
     private final LetterRepository letterRepository;
-    /** 차단은 친구 관계와 독립이지만, 목록·검색에서는 blocker 관점으로만 상대를 숨긴다 (GROMO-1975). */
+    /** 차단은 친구 관계와 독립이며, 친구 목록·검색에서는 양쪽 모두 상대를 숨긴다. */
     private final UserBlockService userBlockService;
     /**
      * GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
@@ -334,7 +334,7 @@ public class FriendService {
      */
     public List<FriendResponse> getFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
-        Set<UUID> blockedIds = userBlockService.blockedIds(me);
+        Set<UUID> blockedIds = userBlockService.blockedEitherIds(me);
         List<User> others = friendshipRepository.findAcceptedByUser(meUser).stream()
                 .map(f -> counterpart(f, me))
                 .filter(other -> !blockedIds.contains(other.getId()))
@@ -374,7 +374,7 @@ public class FriendService {
         User meUser = getUser(me);
         boolean received = "received".equalsIgnoreCase(type);
         // 내가 차단한 상대와의 대기 요청은 받은·보낸 양쪽 목록에서 뺀다 (GROMO-2185) — 행은 PENDING 그대로다.
-        // 수락은 GROMO-2179 의 서버 거절이 따로 막는다. 방향은 getFriends 와 같은 blocker 관점이다.
+        // 수락은 GROMO-2179 의 서버 거절이 따로 막는다. 요청 목록의 방향은 기존 blocker 관점이다.
         Set<UUID> blockedIds = userBlockService.blockedIds(me);
         List<Friendship> requests = (received
                 ? friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
@@ -424,7 +424,7 @@ public class FriendService {
         User meUser = getUser(me);
         Set<UUID> friendIds = friendRelationLookup.collectFriendIds(meUser);
         Set<UUID> pendingIds = friendRelationLookup.collectPendingIds(meUser);
-        Set<UUID> blockedIds = userBlockService.blockedIds(me);
+        Set<UUID> blockedIds = userBlockService.blockedEitherIds(me);
 
         return strategy.search(me, query).stream()
                 .filter(r -> !r.getUserId().equals(me))

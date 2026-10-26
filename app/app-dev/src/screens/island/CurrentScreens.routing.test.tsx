@@ -1,8 +1,9 @@
-// Screens.tsx 의 해당 분기는 번역하지 않은 죽은 코드 — 이 가로채기가 사라지면 한국어가 샌다(GROMO-2252).
 // `CurrentScreensContent`(CurrentScreens.tsx)는 'arrival'·'travel'·'focusTravel'·'fishingArrival'·
 // 'focusSetup'·'focus'·'rest'·'focusResult'·'returnTravel' 9개 라우트를 Screens.tsx 의
-// `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로챈다. 이 가로채기가 지워지면
-// 번역되지 않은 `Screens.tsx` 분기가 다시 살아나 한국어 문자열이 영어 빌드에 섞여 나온다.
+// `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로채고, 'manage'·'members' 는 `Hall` 로 보낸다.
+// GROMO-2463 에서 지운 hall·stats·ledger·construction·board·quest·notice·mail 분기도 같다.
+// 옛 번역 안 된 `Screens.tsx` 분기는 GROMO-2254 에서 지웠다 — 이 가로채기가 지워지면 그 라우트가
+// `RedesignScreens` 의 기본 화면으로 떨어지므로 여기서 고정한다(GROMO-2252).
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
@@ -22,6 +23,26 @@ jest.mock('@/screens/world/DepartureStory', () => ({
     );
   },
 }));
+
+// manage·members 는 Hall 이 그린다 — 가짜 Hall 로 도달 여부와 route 만 본다.
+jest.mock('@/screens/island/Hall', () => {
+  const { View } = require('react-native');
+  return { Hall: ({ e }: any) => <View testID="hall-mock" accessibilityLabel={e.route} /> };
+});
+
+// hall·stats·board 등 옛 Screens.tsx 분기가 있던 라우트는 Library·Hall·InteriorRoute 가 그린다 — 도달 여부와 route 만 본다.
+jest.mock('@/screens/island/Library', () => {
+  const { View } = require('react-native');
+  return { Library: ({ e }: any) => <View testID="library-mock" accessibilityLabel={e.route} /> };
+});
+jest.mock('@/screens/interiors/BuildingInteriors', () => {
+  const actual = jest.requireActual('@/screens/interiors/BuildingInteriors');
+  const { View } = require('react-native');
+  return {
+    ...actual,
+    InteriorRoute: ({ e }: any) => <View testID="interior-mock" accessibilityLabel={e.route} />,
+  };
+});
 
 // 가로채기 고정 대상: RedesignScreens 를 호출 기록용 가짜로 바꾸되 나머지 export 는 실제 구현을 유지한다.
 jest.mock('@/screens/island/Screens', () => {
@@ -198,8 +219,7 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
 
-// Screens.tsx 의 route === 'arrival'/'travel'·'focusSetup'·'focus'·'rest'·'focusResult' 분기가 번역되지
-// 않은 죽은 코드인 근거가 된 9개 라우트. CurrentScreensContent 가 Travel·FocusFlow 로 먼저 가로챈다.
+// Screens.tsx 에서 분기를 지운 근거가 된 9개 라우트. CurrentScreensContent 가 Travel·FocusFlow 로 먼저 가로챈다.
 const interceptedRoutes: Route[] = [
   'arrival',
   'travel',
@@ -213,9 +233,43 @@ const interceptedRoutes: Route[] = [
 ];
 
 test.each(interceptedRoutes)(
-  '라우트 %s 는 CurrentScreensContent 가 가로채 RedesignScreens(번역 안 된 Screens.tsx 분기)를 부르지 않는다',
+  '라우트 %s 는 CurrentScreensContent 가 가로채 RedesignScreens 를 부르지 않는다',
   async (route) => {
     const screen = await mount(route);
+    expect(redesignScreensMock).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+// manage·members(마을회관 관리·주민)는 로컬 모드에서도 Hall 로 가고 RedesignScreens 는 부르지 않는다.
+test.each(['manage', 'members'] as const)(
+  '로컬 모드 라우트 %s 는 Hall 이 그리고 RedesignScreens 를 부르지 않는다',
+  async (route) => {
+    const screen = await mount(route, initialState(true), { islands: undefined });
+    expect(screen.getByTestId('hall-mock').props.accessibilityLabel).toBe(route);
+    expect(redesignScreensMock).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+// GROMO-2463: Screens.tsx 에서 지운 분기(hall·stats·ledger·construction·board·quest·questEdit·notice·noticeEdit·mail)는
+// 모두 아래 화면이 가로채 RedesignScreens 에 닿지 않는다. 이 단언이 깨지면 지운 분기가 되살아나야 하는 라우트다.
+test.each([
+  ['stats', 'library-mock'],
+  ['hall', 'hall-mock'],
+  ['ledger', 'hall-mock'],
+  ['construction', 'hall-mock'],
+  ['board', 'interior-mock'],
+  ['quest', 'interior-mock'],
+  ['questEdit', 'interior-mock'],
+  ['notice', 'interior-mock'],
+  ['noticeEdit', 'interior-mock'],
+  ['mail', 'interior-mock'],
+] as const)(
+  '지운 Screens.tsx 분기 라우트 %s 는 %s 가 그리고 RedesignScreens 를 부르지 않는다',
+  async (route, testID) => {
+    const screen = await mount(route, initialState(true), { islands: undefined });
+    expect(screen.getByTestId(testID).props.accessibilityLabel).toBe(route);
     expect(redesignScreensMock).not.toHaveBeenCalled();
     await screen.unmount();
   },

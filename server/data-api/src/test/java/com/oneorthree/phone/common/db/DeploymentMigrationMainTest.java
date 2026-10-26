@@ -50,7 +50,9 @@ class DeploymentMigrationMainTest {
 
         DeploymentMigrationMain.configuration("current", environment).load().migrate();
 
-        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class)).containsExactly("0");
+        // V0 체인(후속 V1 = GROMO-2477) 그대로 — 반복 배포·기본데이터 콜백은 이력에 행을 더하지 않는다.
+        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
+                .containsExactly("0", "1");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audio_tracks", Integer.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items", Integer.class)).isEqualTo(110);
     }

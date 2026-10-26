@@ -483,7 +483,7 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
   const s: State = e.state;
   const L = useAppLayout();
   // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
-  const largeText = (L.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
+  const largeText = (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
   const liveList = useTelescope({
     active: !previewItems && (!!e.islands || isTelescopeMock()),
     beforeLoad: e.islandBootError ? e.islands?.sync : undefined,

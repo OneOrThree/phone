@@ -26,6 +26,7 @@
  * 유실 재호출 때 키가 바뀌어 멱등이 깨지므로 필수 인자다.
  */
 import { ApiError, request } from './client';
+import type { FocusSeat } from './focusSessions';
 import { CANONICAL_BUILDINGS, CLIENT_CONTRACT_ERROR, type BuildingId } from './home';
 
 export type IslandSummary = {
@@ -330,6 +331,8 @@ export type FocusMember = {
   subject: string;
   activeSeconds: number;
   status: 'active' | 'paused';
+  /** 시작 때 고른 집중섬 자리(GROMO-2477) — 고르지 않았으면 null, 옛 서버는 키가 없다. */
+  seat?: FocusSeat | null;
 };
 
 export type RestMember = {

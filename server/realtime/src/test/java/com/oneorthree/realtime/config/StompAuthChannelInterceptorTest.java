@@ -283,6 +283,26 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("SUBSCRIBE — 가드 검사를 지난 뒤 소켓이 닫혀 끝난 세션이 되면 방금 남긴 구독 기록을 통째로 지운다")
+    void subscriptionRecordOfEndedSessionIsForgotten() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE);
+        accessor.setSessionId(SESSION);
+        accessor.setSubscriptionId("sub-1");
+        accessor.setDestination("/user/queue/errors");
+        accessor.setUser(new ChatPrincipal(userId, BEARER));
+        java.util.Map<String, Object> socketAttributes = new java.util.concurrent.ConcurrentHashMap<>();
+        accessor.setSessionAttributes(socketAttributes);
+        // 종료 정리(disconnected·closed)가 이 등록보다 먼저 지나갔다 — 표시는 그 정리보다 앞선다.
+        EndedSessionGuard.markEnded(socketAttributes);
+
+        interceptor.preSend(message(accessor), null);
+
+        assertThat((java.util.Map<?, ?>) org.springframework.test.util.ReflectionTestUtils.getField(registry,
+                "subscriptions")).as("끝난 세션의 구독 기록이 남지 않는다").isEmpty();
+    }
+
+    @Test
     @DisplayName("SUBSCRIBE — 재전송 되돌림 큐도 열려 있다. 막혀 있으면 재전송이 영원히 응답을 못 받는다")
     void duplicateEchoQueueSubscriptionPasses() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));

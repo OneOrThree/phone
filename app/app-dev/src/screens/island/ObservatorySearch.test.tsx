@@ -5,7 +5,7 @@
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
 import { SEARCH_DEBOUNCE_MS } from '@/screens/island/useIslandSearch';
 import { applyLocalePref } from '@/i18n';
@@ -233,8 +233,8 @@ test('가입 신청 중인 섬은 «신청 중» 배지가 붙지만 망원경�
 
 test.each([
   [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, false],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
   '검색 행 «소속됨»·«신청 중» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
@@ -301,6 +301,18 @@ test('핀이 가득 차 밀려난 섬이 있으면 같은 토스트에 한 줄 �
   expect(e.notify).toHaveBeenCalledWith(
     '망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요\n바람섬이 망원경에서 빠졌어요',
   );
+});
+
+test('밀려난 섬 이름이 이미 「섬」으로 끝나면 토스트에 「섬」을 한 번 더 붙이지 않는다', async () => {
+  searchMock.mockResolvedValue(page([island('i1', { name: '단풍섬' })]));
+  pinMock.mockResolvedValue(pinned('i1', { islandId: 'old', name: '단풍섬' }));
+  const { screen, e } = await search('단풍');
+  await fireEvent.press(screen.getByRole('button', { name: /^단풍섬/ }));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  expect(e.notify).toHaveBeenCalledTimes(1);
+  const toast = e.notify.mock.calls[0][0] as string;
+  expect(toast).toContain('단풍섬이 망원경에서 빠졌어요');
+  expect(toast).not.toContain('단풍섬섬');
 });
 
 test('확인 버튼을 연달아 눌러 같은 확인 동작이 두 번 불려도 요청은 한 번만 나간다', async () => {
@@ -454,6 +466,7 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
   const screen = await render(<ObservatorySearch e={e} />);
   screen.getByText('Find islands');
   await fireEvent.changeText(screen.getByLabelText('Island name'), 'm');
+  screen.getByLabelText('Clear search'); // 입력이 있으면 지우기 버튼의 읽는 이름도 번역된다
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
   });
@@ -466,7 +479,7 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
   expect(opts).toEqual({ ok: 'Add to telescope' });
   await act(async () => e.confirm.mock.calls[0][2]());
   expect(e.notify).toHaveBeenCalledWith(
-    "Added to your telescope — see it in your raft's telescope\nBreeze was removed from your telescope",
+    "Added to your telescope — see it in your raft's telescope\nBreeze Island was removed from your telescope",
   );
 });
 

@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { art } from '@/constants/art';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
@@ -187,6 +187,8 @@ function Harness({
   friendsScreen,
   conversion,
   playback,
+  soundPlayer,
+  onPreviewAudio,
   localePref = 'system',
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
@@ -281,9 +283,14 @@ function Harness({
         setVisited: jest.fn(),
         guideStep: 0,
         setGuideStep: jest.fn(),
-        player: { addListener: () => ({ remove() {} }), replace() {}, play() {}, pause() {} },
+        player: soundPlayer ?? {
+          addListener: () => ({ remove() {} }),
+          replace() {},
+          play() {},
+          pause() {},
+        },
         previewAudio: false,
-        setPreviewAudio: jest.fn(),
+        setPreviewAudio: onPreviewAudio ?? jest.fn(),
         walkTo: jest.fn(),
         newQuest: jest.fn(),
         walkRequest: null,
@@ -1503,16 +1510,26 @@ test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', asyn
   assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
-test('앱 설정은 개인정보처리방침 하나만 남기고 차단 관리를 숨긴다', async () => {
-  const s = await render(<Harness route="settings" full api={() => ({})} />);
+test('앱 설정은 개인정보처리방침 하나만 남기고 안전 첫 줄에서 차단 사용자 목록으로 진입한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
   assert.equal(s.queryByText('개인정보 처리 안내'), null);
-  assert.equal(s.queryByText('차단한 사용자'), null);
   assert.equal(s.getAllByText('개인정보처리방침').length, 1);
   assert.ok(s.getByTestId('settings-app-version'));
+  // 안전 그룹 첫 줄 — 신고센터보다 앞(GROMO-2473). SheetRow 는 읽는 이름에 제목을 넣으므로 버튼 순서로 본다
+  const rows = s
+    .getAllByRole('button')
+    .map((node: any) => String(node.props.accessibilityLabel ?? ''));
+  const blocked = rows.findIndex((label) => label.includes('차단한 사용자'));
+  const report = rows.findIndex((label) => label.includes('신고센터'));
+  assert.ok(blocked >= 0 && blocked < report);
+  await fireEvent.press(s.getByText('차단한 사용자'));
+  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
 
-test('친구 관리에서 차단 사용자 목록으로 진입한다', async () => {
-  let exposed: any;
+test('친구 관리 머리에는 차단한 사용자 진입이 없다', async () => {
   const friendsScreen = {
     data: { friends: [], friendRequests: [], sentFriendRequests: [] },
     status: 'ready',
@@ -1526,16 +1543,9 @@ test('친구 관리에서 차단 사용자 목록으로 진입한다', async () 
     command: jest.fn(),
   };
   const s = await render(
-    <Harness
-      route="friends"
-      full
-      api={() => ({})}
-      friendsScreen={friendsScreen}
-      expose={(value: any) => (exposed = value)}
-    />,
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
   );
-  await fireEvent.press(s.getByText('차단한 사용자'));
-  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
+  assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
 test('앱 설정의 언어 행은 기기 언어 따름이면 그 문구를 보여주고 탭하면 언어 화면으로 이동한다', async () => {
@@ -1796,11 +1806,23 @@ test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 
     <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
-  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  for (const value of [
+    ' 구 름 이 ',
+    '구\t름\n이',
+    '구\u3000름이',
+    '구\u00a0름이',
+    '구\u0085름이',
+    '구\ufeff름이',
+    '구\u2028름이',
+    '구\u202f름이',
+  ]) {
+    await fireEvent.changeText(s.getByLabelText('닉네임'), value);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  }
   await fireEvent.press(s.getByText('저장'));
   await fireEvent.press(s.getByText('저장'));
   assert.equal(mockUpdateProfile.mock.calls.length, 1);
-  // 본문은 trim 된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
+  // 입력 시 공백이 제거된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
   assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '구름이', catColor: 'black' });
   assert.ok(!exposed.actions.includes('PROFILE'));
 
@@ -1840,6 +1862,62 @@ test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서
   await fireEvent.press(s.getByText('저장'));
   await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
   assert.equal(mockUpdateProfile.mock.calls[0][1], mockUpdateProfile.mock.calls[1][1]);
+});
+
+test('닉네임 형식 거절은 서버 메시지를 칸 아래에 표시하고 편집하면 지운다', async () => {
+  let exposed: any;
+  const message = '서버가 보낸 닉네임 형식 안내';
+  mockUpdateProfile.mockRejectedValue(new ApiError('NICKNAME_INVALID', message, 400));
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+
+  expect(await s.findByText(message)).toBeTruthy();
+  expect(s.getByRole('alert')).toBeTruthy();
+  expect(exposed.actions).not.toContain('PROFILE');
+  expect(backMock).not.toHaveBeenCalled();
+  expect(notifyMock.mock.calls.some((call) => call[0] === message)).toBe(false);
+  await waitFor(() => expect(s.getByLabelText('닉네임').props.editable).toBe(true));
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '새 이름');
+  expect(s.getByLabelText('닉네임').props.value).toBe('새이름');
+  expect(s.queryByText(message)).toBeNull();
+});
+
+test('다시 연 프로필에 이전 저장 요청의 늦은 닉네임 오류를 표시하지 않는다', async () => {
+  let rejectRequest: (reason: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(
+    () => new Promise((_resolve, reject) => (rejectRequest = reject)),
+  );
+  const api = () => ({});
+  const s = await render(<Harness route="profile" full api={api} />);
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+  await s.rerender(<Harness route="settings" full api={api} />);
+  await s.rerender(<Harness route="profile" full api={api} />);
+  await act(async () => rejectRequest(new ApiError('NICKNAME_INVALID', '이전 요청의 오류', 400)));
+  await waitFor(() => expect(s.getByLabelText('닉네임').props.editable).toBe(true));
+
+  expect(s.queryByText('이전 요청의 오류')).toBeNull();
+  expect(s.getByLabelText('닉네임').props.value).toBe('수빈');
+});
+
+test('기존 공백 닉네임은 저장 요청과 저장 응답 반영 후에도 원문을 유지한다', async () => {
+  const legacy = '\u00a0검은 고양이\ufeff';
+  const initial = { ...initialState(true), name: legacy, profileNames: [legacy] };
+  mockUpdateProfile.mockResolvedValue({ name: legacy, catColor: 'black' });
+  const s = await render(<Harness route="profile" full initial={initial} api={() => ({})} />);
+  expect(s.getByLabelText('닉네임').props.value).toBe(legacy);
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => expect(backMock).toHaveBeenCalledTimes(1));
+
+  expect(mockUpdateProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ name: legacy }),
+    expect.any(String),
+  );
+  expect(s.getByLabelText('닉네임').props.value).toBe(legacy);
 });
 
 test('프로필 저장 중에는 후속 편집을 받지 않는다', async () => {
@@ -2324,6 +2402,46 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
   assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
 });
 
+// 정원 휠 선택값은 숫자 상태다 — 라벨은 렌더 시점의 로케일로 만들고 create 에는 그 숫자가 간다.
+const wheelWeight = (label: string, s: any) =>
+  StyleSheet.flatten(s.getByText(label).props.style)?.fontWeight;
+
+test('섬 만들기 정원 휠에서 «3명» 을 고르면 create 에 maxMembers 3 이 간다(ko)', async () => {
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15명', s), '800');
+  await fireEvent.press(s.getByLabelText('정원 3명'));
+  assert.equal(wheelWeight('3명', s), '800');
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+  await fireEvent.press(s.getByLabelText('섬 만들기'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 maxMembers 3 이 간다(en)', async () => {
+  applyLocalePref('en');
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15 residents', s), '800');
+  await fireEvent.press(s.getByLabelText('Capacity 3 residents'));
+  assert.equal(wheelWeight('3 residents', s), '800');
+  await fireEvent.changeText(s.getByLabelText('Island Name'), 'New Island');
+  await fireEvent.press(s.getByLabelText('Create Island'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 화면에서 언어를 바꿔도 고른 정원 항목이 강조된 채 남는다', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await fireEvent.press(s.getByLabelText('정원 7명'));
+  assert.equal(wheelWeight('7명', s), '800');
+  applyLocalePref('en');
+  // 새 엘리먼트로 다시 그린다 — 같은 엘리먼트면 React 가 렌더를 건너뛴다
+  await s.rerender(<Harness route="createIsland" api={() => ({})} />);
+  assert.equal(wheelWeight('7 residents', s), '800');
+  assert.equal(wheelWeight('15 residents', s), '400');
+});
+
 test('대표 섬 선택은 서버 소속만 표시하고 저장 성공 뒤에 닫는다', async () => {
   const initial = reducer(initialState(true), {
     type: 'ISLAND_SYNC',
@@ -2497,6 +2615,15 @@ describe('en', () => {
 
     assert.ok(s.getByText('My Info'));
     assert.ok(s.getByText('Nickname'));
+  });
+
+  test('en 로케일 — 내 꾸미기 제목은 영문이다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="wardrobe" full />);
+
+    assert.ok(s.getByText('My Outfits'));
+    assert.equal(s.queryByText('내 꾸미기'), null);
   });
 
   test('en 로케일 — 앱 설정은 영문 섹션·행을 보여준다', async () => {
@@ -2726,8 +2853,8 @@ test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어�
 
 test.each([
   [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, false],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
   '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
@@ -2909,3 +3036,34 @@ test('신규 계정은 여섯 고양이 선택으로 진입하고 출항 완료 
   expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
   expect(screen.queryByLabelText('닉네임')).toBeNull();
 });
+
+test.each([false, true])(
+  '음원 미리듣기는 재생 허용 %s일 때만 음원과 버튼 상태를 바꾼다',
+  async (allowed) => {
+    const player = {
+      playbackAllowed: allowed,
+      replace: jest.fn(),
+      play: jest.fn(() => allowed),
+      pause: jest.fn(),
+      addListener: () => ({ remove() {} }),
+      loop: true,
+    };
+    const onPreviewAudio = jest.fn();
+    const screen = await render(
+      <Harness
+        route="product"
+        detail="rain"
+        full
+        soundPlayer={player}
+        onPreviewAudio={onPreviewAudio}
+      />,
+    );
+    const button = screen.getByLabelText('나만 미리듣기');
+    expect(button.props.accessibilityState.disabled).toBe(!allowed);
+    await fireEvent.press(button);
+    expect(player.replace).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(player.play).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(onPreviewAudio).toHaveBeenCalledWith(true);
+    else expect(onPreviewAudio).not.toHaveBeenCalled();
+  },
+);

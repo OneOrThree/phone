@@ -9,7 +9,8 @@ import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJo
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { errorTextOr, t } from '@/i18n';
+import { errorTextOr, getLocale, t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -75,6 +76,7 @@ import {
   fishingSpotsForActors,
   useFishingPeerActors,
   type FishingPeer,
+  type FishingPeerActor,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
@@ -85,6 +87,7 @@ import {
   FiButton,
   FiModal,
   FishingActor,
+  FishingCatArt,
   FishingIsland,
   FishingPeerActorView,
   FishingWalker,
@@ -111,7 +114,7 @@ import {
 import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { outfitOf } from '@/components/CatOutfitLayers';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import {
   GuideBox,
@@ -151,10 +154,12 @@ import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
+import { josa } from '@/i18n/format';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import { CatInfoPopup, FriendActionContext } from '@/screens/island/CatInfoPopup';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import {
   isScreenTimeAvailable,
@@ -387,7 +392,17 @@ export function CurrentScreens({ e }: any) {
   if (owner && guides.data?.focusDone && e.route === 'guide') return null;
   return (
     <>
-      <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      {/* 다른 고양이 정보창(GROMO-2474)의 친구 행동 — 친구 관리와 같은 서버 상태, 목업은 로컬 친구 목록 */}
+      <FriendActionContext.Provider
+        value={{
+          friendsScreen: serverIslands ? friendsScreen : null,
+          conversion: e.conversion,
+          friends: e.state.friends,
+          dispatch,
+        }}
+      >
+        <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      </FriendActionContext.Provider>
       {pending && !guides.data && (
         <Modal
           transparent
@@ -708,7 +723,15 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
-        <Txt kind="h17">{t('home.lock.missing', { building: buildingNames[required] })}</Txt>
+        <Txt kind="h17">
+          {t('home.lock.missing', {
+            // 한국어는 건물명 받침에 맞춰 이/가(전망대가·축음기가). 영어 단어에는 조사를 붙이지 않는다
+            building:
+              getLocale() === 'ko'
+                ? josa(buildingNames[required], '이', '가')
+                : buildingNames[required],
+          })}
+        </Txt>
         <Txt kind="meta">
           {required === 'library' ? t('home.lock.libraryLocked') : t('home.lock.lockedGeneric')}
         </Txt>
@@ -834,7 +857,7 @@ async function openScreenTimeSettings(notify: (message: string) => void) {
       await Linking.openSettings();
     }
   } catch {
-    notify('설정을 열지 못했어요. 기기의 설정 앱에서 권한을 확인해 주세요.');
+    notify(t('settings.permissions.errors.settingsOpen'));
   }
 }
 
@@ -842,13 +865,15 @@ function ScreenTimePermissionHelp() {
   return (
     <Txt kind="meta">
       {Platform.OS === 'android'
-        ? '사용 정보 접근 설정에서 이 앱을 허용해 주세요.'
-        : '허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.'}
+        ? t('settings.permissions.help.android')
+        : t('settings.permissions.help.ios')}
     </Txt>
   );
 }
 
 function AppPermissionManager({ e }: any) {
+  const supportsFocusShield =
+    Platform.OS !== 'android' || screenTimeNative?.supportsFocusShield !== false;
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
   const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -862,27 +887,36 @@ function AppPermissionManager({ e }: any) {
   const selectedCount = selectionCount(selection);
   const selectionDescription =
     selectionStatus === 'loading'
-      ? '선택 상태 확인 중'
+      ? t('settings.permissions.status.checking')
       : selectionStatus === 'error'
-        ? '선택 상태를 확인하지 못했어요'
+        ? t('settings.permissions.status.failed')
         : selection?.allApps
-          ? `전체 앱${selection.pending ? ' · 내일부터 적용' : ''}`
+          ? t(
+              selection.pending
+                ? 'settings.permissions.status.allAppsPending'
+                : 'settings.permissions.status.allApps',
+            )
           : selectedCount
-            ? `${selectedCount}개 선택됨${selection?.pending ? ' · 내일부터 적용' : ''}`
-            : '아직 선택하지 않았어요';
+            ? t(
+                selection?.pending
+                  ? 'settings.permissions.status.selectedCountPending'
+                  : 'settings.permissions.status.selectedCount',
+                { count: selectedCount },
+              )
+            : t('settings.permissions.status.none');
   const permissionDescription =
     status === 'loading'
-      ? '확인 중'
+      ? t('settings.permissions.status.permissionChecking')
       : approved
-        ? '연결됨'
+        ? t('settings.permissions.connected')
         : unavailable
-          ? '사용 불가'
-          : '연결 필요';
+          ? t('settings.permissions.unavailable')
+          : t('settings.permissions.needed');
 
   useEffect(() => {
     let active = true;
     const syncPermissionState = () => {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === 'android' && supportsFocusShield) {
         void screenTimeNative
           ?.canDrawOverlays?.()
           .then((value) => {
@@ -914,22 +948,24 @@ function AppPermissionManager({ e }: any) {
         })
         .catch(() => active && setSelectionStatus('error'));
     };
-    void screenTime
-      .getFocusAllowSafariWeb()
-      .then((value) => {
-        if (active) setAllowSafari(value);
-      })
-      .catch(() => {
-        if (active) e.notify('Safari 허용 설정을 확인하지 못했어요.');
-      });
-    void screenTime
-      .getAllowedSelectionCounts()
-      .then((value) => {
-        if (active) setAllowedCount(selectionCount(value));
-      })
-      .catch(() => {
-        if (active) e.notify('허용 앱 설정을 확인하지 못했어요.');
-      });
+    if (supportsFocusShield) {
+      void screenTime
+        .getFocusAllowSafariWeb()
+        .then((value) => {
+          if (active) setAllowSafari(value);
+        })
+        .catch(() => {
+          if (active) e.notify(t('settings.permissions.errors.safariCheck'));
+        });
+      void screenTime
+        .getAllowedSelectionCounts()
+        .then((value) => {
+          if (active) setAllowedCount(selectionCount(value));
+        })
+        .catch(() => {
+          if (active) e.notify(t('settings.permissions.errors.allowedCheck'));
+        });
+    }
     syncPermissionState();
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') syncPermissionState();
@@ -943,7 +979,7 @@ function AppPermissionManager({ e }: any) {
   const requestConnection = async () => {
     if (approved) return true;
     if (unavailable) {
-      e.notify('이 기기에서는 스크린타임을 연결할 수 없어요.');
+      e.notify(t('settings.permissions.errors.unavailable'));
       return false;
     }
     if (busy) return;
@@ -956,12 +992,12 @@ function AppPermissionManager({ e }: any) {
       if (nextStatus !== 'approved')
         e.notify(
           Platform.OS === 'android'
-            ? '사용 정보 접근 설정에서 권한을 허용해 주세요.'
-            : 'iOS 설정에서 스크린타임 권한을 허용해 주세요.',
+            ? t('settings.permissions.errors.grantAndroid')
+            : t('settings.permissions.errors.grantIos'),
         );
       return nextStatus === 'approved';
     } catch {
-      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      e.notify(t('settings.permissions.errors.requestFailed'));
       return false;
     } finally {
       setBusy(false);
@@ -984,9 +1020,9 @@ function AppPermissionManager({ e }: any) {
     e.go('screenTimeApps', 'settings');
   };
 
-  if (allowedPicker)
+  if (supportsFocusShield && allowedPicker)
     return (
-      <Sheet e={e} title="집중 중 허용 앱">
+      <Sheet e={e} title={t('settings.permissions.sheet.allowedApps')}>
         <AndroidAppPicker
           mode="allowed"
           notify={e.notify}
@@ -1001,15 +1037,15 @@ function AppPermissionManager({ e }: any) {
       </Sheet>
     );
   return (
-    <Sheet e={e} title="앱 권한 관리">
-      <Txt kind="section">스크린타임</Txt>
+    <Sheet e={e} title={t('settings.permissionManage')}>
+      <Txt kind="section">{t('settings.permissions.screenTime.title')}</Txt>
       <Group>
         <Row
-          title="스크린타임 연결"
-          sub={`${permissionDescription} · 폰 사용 퀘스트와 기록에 사용해요`}
+          title={t('settings.permissions.screenTime.connect')}
+          sub={t('settings.permissions.screenTime.sub', { description: permissionDescription })}
           tail={
             <Toggle
-              label="스크린타임 연결"
+              label={t('settings.permissions.screenTime.connect')}
               value={approved}
               disabled={busy || status === 'loading' || unavailable}
               onChange={(next: boolean) => {
@@ -1019,82 +1055,88 @@ function AppPermissionManager({ e }: any) {
           }
         />
         <Row
-          title="측정 앱"
+          title={t('settings.permissions.measuredApps.title')}
           sub={selectionDescription}
-          accessibilityLabel={`측정 앱, ${selectionDescription}`}
+          accessibilityLabel={t('settings.permissions.measuredApps.a11y', {
+            description: selectionDescription,
+          })}
           chevron
           onPress={openMeasuredApps}
         />
       </Group>
-      <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
-      <Txt kind="section">집중 중 허용</Txt>
-      <Group>
-        <Row
-          title="허용 앱"
-          sub={`${allowedCount}개 선택됨`}
-          chevron
-          disabled={busy}
-          onPress={async () => {
-            if (!(approved || (await requestConnection()))) return;
-            if (Platform.OS === 'android') {
-              setAllowedPicker(true);
-              return;
-            }
-            setBusy(true);
-            try {
-              const picked = await screenTime.presentAllowedAppManager();
-              if (picked) setAllowedCount(selectionCount(picked));
-            } catch {
-              e.notify('허용 앱을 변경하지 못했어요.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-        {Platform.OS === 'ios' && (
-          <Row
-            title="Safari 웹사이트 차단 해제"
-            sub="위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요"
-            tail={
-              <Toggle
-                label="집중 중 Safari 웹사이트 차단 해제"
-                value={allowSafari}
-                disabled={busy || !approved}
-                onChange={async (value: boolean) => {
-                  setBusy(true);
-                  try {
-                    await screenTime.setFocusAllowSafariWeb(value);
-                    setAllowSafari(value);
-                  } catch {
-                    e.notify('Safari 허용 설정을 변경하지 못했어요.');
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+      <Txt kind="meta">{t('settings.permissions.disconnectNote')}</Txt>
+      {supportsFocusShield && (
+        <>
+          <Txt kind="section">{t('settings.permissions.allowed.section')}</Txt>
+          <Group>
+            <Row
+              title={t('settings.permissions.allowed.title')}
+              sub={t('settings.permissions.allowed.count', { count: allowedCount })}
+              chevron
+              disabled={busy}
+              onPress={async () => {
+                if (!(approved || (await requestConnection()))) return;
+                if (Platform.OS === 'android') {
+                  setAllowedPicker(true);
+                  return;
+                }
+                setBusy(true);
+                try {
+                  const picked = await screenTime.presentAllowedAppManager();
+                  if (picked) setAllowedCount(selectionCount(picked));
+                } catch {
+                  e.notify(t('settings.permissions.errors.allowedChange'));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+            {Platform.OS === 'ios' && (
+              <Row
+                title={t('settings.permissions.safari.title')}
+                sub={t('settings.permissions.safari.sub')}
+                tail={
+                  <Toggle
+                    label={t('settings.permissions.safari.a11y')}
+                    value={allowSafari}
+                    disabled={busy || !approved}
+                    onChange={async (value: boolean) => {
+                      setBusy(true);
+                      try {
+                        await screenTime.setFocusAllowSafariWeb(value);
+                        setAllowSafari(value);
+                      } catch {
+                        e.notify(t('settings.permissions.errors.safariChange'));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                }
               />
-            }
-          />
-        )}
-      </Group>
-      {Platform.OS === 'android' && (
+            )}
+          </Group>
+        </>
+      )}
+      {Platform.OS === 'android' && supportsFocusShield && (
         <Group>
           <Row
-            title="다른 앱 위에 표시"
+            title={t('settings.permissions.android.overlay.title')}
             sub={
               overlayGranted
-                ? '허용됨 · 집중 중 앱 차단에 사용해요'
-                : '앱 차단을 위해 허용이 필요해요'
+                ? t('settings.permissions.android.overlay.on')
+                : t('settings.permissions.android.overlay.off')
             }
             chevron
             onPress={() =>
               screenTimeNative
                 ?.requestOverlayPermission?.()
-                .catch(() => e.notify('차단 권한 설정을 열지 못했어요.'))
+                .catch(() => e.notify(t('settings.permissions.errors.overlayOpen')))
             }
           />
           <Row
-            title="집중 상태 알림"
-            sub="알림·잠금화면에서 집중 시간을 확인해요"
+            title={t('settings.permissions.android.notice.title')}
+            sub={t('settings.permissions.android.notice.sub')}
             chevron
             onPress={async () => {
               if (Number(Platform.Version) >= 33) {
@@ -1187,7 +1229,7 @@ function ScreenTimePermission({ e }: any) {
       const next = await syncStatus();
       if (next === 'approved') finish();
     } catch {
-      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      e.notify(t('settings.permissions.errors.requestFailed'));
     } finally {
       setBusy(false);
     }
@@ -1196,7 +1238,7 @@ function ScreenTimePermission({ e }: any) {
     return (
       <Sheet
         e={e}
-        title="측정 권한"
+        title={t('settings.permissions.gate.title')}
         onBack={boardFirst ? skip : undefined}
         onClose={boardFirst ? skip : undefined}
       >
@@ -1209,75 +1251,94 @@ function ScreenTimePermission({ e }: any) {
   return (
     <Sheet
       e={e}
-      title="측정 권한"
+      title={t('settings.permissions.gate.title')}
       onBack={boardFirst ? skip : undefined}
       onClose={boardFirst ? skip : undefined}
     >
       <Pic id="cat/black/sitting" w={82} />
-      <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
-      <Txt>선택한 앱의 사용 시간만 기록해요.</Txt>
+      <Txt kind="h17">{t('settings.permissions.gate.heading')}</Txt>
+      <Txt>{t('settings.permissions.gate.sub')}</Txt>
       <Group flat>
         <Row
-          title="스크린타임 권한"
+          title={t('settings.permissions.gate.row')}
           sub={
             unavailable
-              ? '이 기기에서는 사용할 수 없어요'
+              ? t('settings.permissions.gate.rowUnavailable')
               : status === 'approved'
-                ? '연결됨'
+                ? t('settings.permissions.connected')
                 : status === 'denied'
-                  ? '권한이 꺼져 있어요. 다시 요청할 수 있어요'
-                  : '아직 연결하지 않았어요'
+                  ? t('settings.permissions.gate.rowDenied')
+                  : t('settings.permissions.gate.rowNone')
           }
         />
       </Group>
       {Platform.OS === 'android' && status === 'approved' && (
         <Btn
-          title="사용 정보 접근 설정 열기"
+          title={t('settings.permissions.gate.openUsage')}
           kind="sec"
           onPress={async () => {
             if (!(await screenTime.openUsageAccessSettings()))
-              e.notify('사용 정보 접근 설정을 열지 못했어요.');
+              e.notify(t('settings.permissions.errors.usageOpenFailed'));
           }}
         />
       )}
       {status === 'approved' ? (
         <Btn
-          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          title={
+            boardFirst
+              ? t('settings.permissions.measuredApps.pick')
+              : measuredApps
+                ? t('settings.permissions.gate.continue')
+                : t('settings.permissions.gate.done')
+          }
           onPress={finish}
         />
       ) : !unavailable && (status === 'denied' || requestAttempted) ? (
         <>
           <ScreenTimePermissionHelp />
           <Btn
-            title={busy ? '권한 요청 중…' : '권한 다시 요청하기'}
+            title={
+              busy
+                ? t('settings.permissions.gate.requesting')
+                : t('settings.permissions.gate.retry')
+            }
             disabled={busy}
             onPress={request}
           />
           <Btn
-            title="시스템 설정 열기"
+            title={t('settings.permissions.gate.openSystem')}
             kind="sec"
             disabled={busy}
             onPress={() => openScreenTimeSettings(e.notify)}
           />
           <Btn
-            title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
+            title={boardFirst ? t('settings.permissions.gate.laterBoard') : t('common.later')}
             kind="ghost"
             onPress={skip}
           />
         </>
       ) : unavailable ? (
-        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={skip} />
+        <Btn
+          title={boardFirst ? t('settings.permissions.gate.openBoard') : t('common.ok')}
+          onPress={skip}
+        />
       ) : (
         <>
           <Btn
-            title={busy ? '권한 요청 중…' : '스크린타임 연결하기'}
+            title={
+              busy
+                ? t('settings.permissions.gate.requesting')
+                : t('settings.permissions.gate.connectBtn')
+            }
             disabled={busy}
             onPress={request}
           />
-          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={skip} />}
+          {boardFirst && (
+            <Btn title={t('settings.permissions.gate.laterBoard')} kind="ghost" onPress={skip} />
+          )}
         </>
       )}
-      <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="meta">{t('settings.permissions.gate.note')}</Txt>
     </Sheet>
   );
 }
@@ -1292,7 +1353,12 @@ function MeasuredAppPicker({ e }: any) {
       } else e.back();
     };
     return (
-      <Sheet e={e} title="측정 앱" onBack={finish} onClose={finish}>
+      <Sheet
+        e={e}
+        title={t('settings.permissions.measuredApps.title')}
+        onBack={finish}
+        onClose={finish}
+      >
         <AndroidAppPicker mode="measured" notify={e.notify} onDone={finish} />
       </Sheet>
     );
@@ -1339,13 +1405,13 @@ function IOSMeasuredAppPicker({ e }: any) {
         e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
         e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         e.dispatch({ type: 'SCREEN_TIME', value: minutes });
-        e.notify(`측정 앱 ${count}개를 바로 적용했어요.`);
+        e.notify(t('settings.permissions.errors.appliedNow', { count }));
       } else {
-        e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
+        e.notify(t('settings.permissions.errors.appliedTomorrow', { count }));
       }
       finish();
     } catch {
-      e.notify('측정 앱 선택 화면을 열지 못했어요.');
+      e.notify(t('settings.permissions.errors.pickerOpen'));
     } finally {
       pickerInFlight.current = false;
       setBusy(false);
@@ -1361,14 +1427,14 @@ function IOSMeasuredAppPicker({ e }: any) {
   return (
     <Sheet
       e={e}
-      title="측정 앱"
+      title={t('settings.permissions.measuredApps.title')}
       onBack={boardFirst ? finish : undefined}
       onClose={boardFirst ? finish : undefined}
     >
       {busy ? (
         <ActivityIndicator color={C.ink} />
       ) : (
-        <Btn title="측정 앱 고르기" onPress={openPicker} />
+        <Btn title={t('settings.permissions.measuredApps.pick')} onPress={openPicker} />
       )}
     </Sheet>
   );
@@ -1625,6 +1691,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : (i.members ?? [])
         .filter((member) => member.focusing)
@@ -1648,6 +1715,8 @@ function FocusVisit({ e, islandId, onBack }: any) {
   transitionHandler.current = peerFlow.onTransition;
   const peers = peerFlow.actors.filter((actor) => actor.visible);
   const spots = fishingSpotsForActors(peerFlow.actors);
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다(그 사이 자리를 떠나도 창은 그대로)
+  const [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -1656,6 +1725,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         onRaft={close}
         raftLabel={visiting ? t('focusFlow.common.raftLabelVisiting') : undefined}
         gram={i.buildings.includes('gram')}
+        inert={!!catInfo}
       >
         {(size, sizeY, zoom) => {
           const shown = new Set<string>(),
@@ -1685,28 +1755,33 @@ function FocusVisit({ e, islandId, onBack }: any) {
                 kept.push(box);
                 shown.add(label.id);
               });
-          return peers.map((actor) => (
-            <FishingPeerActorView
-              key={actor.key}
-              actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-              outfit={lookOf(
-                live.looks,
-                actor.userId,
-                live.focus.find((m) => m.userId === actor.userId),
-              )}
-              size={size}
-              sizeY={sizeY}
-              reduce={reduce}
-              onEntered={peerFlow.entered}
-              onCast={peerFlow.cast}
-              onPausedExit={peerFlow.leftForPause}
-              onStretch={peerFlow.stretched}
-              onCompletedExit={peerFlow.leftForComplete}
-            />
-          ));
+          return peers.map((actor) => {
+            const outfit = lookOf(
+              live.looks,
+              actor.userId,
+              live.focus.find((m) => m.userId === actor.userId),
+            );
+            return (
+              <FishingPeerActorView
+                key={actor.key}
+                actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                outfit={outfit}
+                size={size}
+                sizeY={sizeY}
+                reduce={reduce}
+                onEntered={peerFlow.entered}
+                onCast={peerFlow.cast}
+                onPausedExit={peerFlow.leftForPause}
+                onStretch={peerFlow.stretched}
+                onCompletedExit={peerFlow.leftForComplete}
+                onPress={() => setCatInfo({ actor, outfit })}
+              />
+            );
+          });
         }}
       </FishingIsland>
       <View
+        {...a11yHidden(!!catInfo)}
         style={{
           position: 'absolute',
           zIndex: 30,
@@ -1724,6 +1799,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
       {liveIslandId && live.status === 'loading' ? (
         <View
           pointerEvents="none"
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1733,6 +1809,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         </View>
       ) : liveIslandId && live.status === 'error' ? (
         <View
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1770,6 +1847,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
       ) : !peers.length ? (
         <View
           pointerEvents="none"
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1792,7 +1870,36 @@ function FocusVisit({ e, islandId, onBack }: any) {
           </View>
         </View>
       ) : null}
+      {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
     </View>
+  );
+}
+type FishingCatInfoTarget = { actor: FishingPeerActor; outfit?: Outfit };
+/** 집중섬 다른 주민 정보창(GROMO-2474) — 낚시 자리와 같은 낚시 자세로 그린다. 주민 집중·낚시 구경이 같이 쓴다. */
+function FishingCatInfo({
+  target,
+  onClose,
+}: {
+  target: FishingCatInfoTarget;
+  onClose: () => void;
+}) {
+  const { actor, outfit } = target;
+  return (
+    <CatInfoPopup
+      key={actor.userId}
+      userId={actor.userId}
+      name={actor.name}
+      catColor={actor.color}
+      art={
+        <FishingCatArt
+          spot={actor.spot}
+          color={actor.color}
+          outfit={outfit}
+          size={componentTokens.catInfoPopup.catSize}
+        />
+      }
+      onClose={onClose}
+    />
   );
 }
 function FocusFlow({ e: environment }: any) {
@@ -1835,6 +1942,8 @@ function FocusFlow({ e: environment }: any) {
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
+    // 누른 주민 정보창(GROMO-2474)
+    [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null),
     [error, setError] = useState(''),
     [setupHeight, setSetupHeight] = useState(0),
     // 화면 높이 대신 실제 영역 높이(키보드가 뜨면 줄어듦)로 준비 카드 위치를 잡는다
@@ -1859,6 +1968,8 @@ function FocusFlow({ e: environment }: any) {
   useEffect(() => {
     if (r !== 'fishingArrival') returningFromArrival.current = false;
   }, [r]);
+  // 자리 고르기·집중 화면을 떠나면(준비·휴식·결과) 열린 정보창을 닫는다
+  useEffect(() => setCatInfo(null), [r]);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
@@ -2305,9 +2416,30 @@ function FocusFlow({ e: environment }: any) {
     advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
     e.reset('focusResult');
   };
-  // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
-  const minePoint =
-      s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
+  // 내 자리: 진행 중 세션은 서버가 기억한 내 seat 가 정본 — 다른 기기에서 시작한 세션을 복구하면 focusSpot 은 지난
+  // 세션 좌표다(SESSION_SYNC 는 focusSpot 을 바꾸지 않음). 내 항목은 아래 peerMembers 에서 거르므로 거르기 전에 꺼낸다.
+  // 서버 seat 가 없으면(옛 앱으로 시작) 로컬 focusSpot, 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
+  const liveSeat = s.session
+    ? live.focus.find((m) => m.userId === myId && m.sessionId === s.session?.id)?.seat
+    : null;
+  // 결과 화면·다른 기기 종료(SESSION_SYNC 가 세션을 먼저 지움)에선 서버가 내 항목을 지우므로 이번 세션에서 마지막으로
+  // 받은 seat 를 이어 쓴다. 세션 id 를 알면 일치할 때만, 모르면(세션·결과 id 없음) 그대로 — 새 세션은 자리 고르기·준비를
+  // 거치며 비운다
+  const lastServerSeat = useRef<{ sessionId: string; seat: Point } | null>(null);
+  // 서버는 0~100 범위만 검사하므로 물 위 seat 는 쓰지 않고 로컬 focusSpot/LANDING 으로 대체한다
+  if (s.session && liveSeat && onLand(fishingGrid, liveSeat))
+    lastServerSeat.current = { sessionId: s.session.id, seat: liveSeat };
+  else if (r === 'focusSetup' || r === 'fishingArrival') lastServerSeat.current = null;
+  const knownSessionId = s.session?.id ?? resultSessionId,
+    serverSeat =
+      (r === 'focus' || r === 'rest' || r === 'focusResult') &&
+      lastServerSeat.current &&
+      (knownSessionId == null || lastServerSeat.current.sessionId === knownSessionId)
+        ? lastServerSeat.current.seat
+        : null,
+    minePoint =
+      serverSeat ??
+      (s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;
@@ -2327,6 +2459,7 @@ function FocusFlow({ e: environment }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : i.members
         .filter((m) => m.focusing)
@@ -2380,6 +2513,12 @@ function FocusFlow({ e: environment }: any) {
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
     snapshotTransitions: live.snapshotTransitions,
+    // 내 자리는 이번 흐름에서 고른 뒤(준비·집중·휴식·결과)에만 비켜 준다 — 자리 고르기 중의 focusSpot 은
+    // 지난 세션 좌표라 예약하면 그 자리에 앉은 주민의 seat 가 밀려난다
+    mine:
+      r === 'focusSetup' || r === 'focus' || r === 'rest' || r === 'focusResult'
+        ? minePoint
+        : undefined,
   });
   transitionHandler.current = (transition) => {
     // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로
@@ -2732,10 +2871,11 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     if (e.focus) {
-      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다.
+      // 고른 자리(focusSpot)를 함께 보내 다른 주민 화면에도 같은 자리에 앉는다(GROMO-2478)
       setError('');
       e.focus
-        .start({ subject })
+        .start({ subject, seat: s.focusSpot })
         .then(() => {
           advanceTutorial(8, 9);
           e.go('focus');
@@ -3131,7 +3271,7 @@ function FocusFlow({ e: environment }: any) {
           gram={i.buildings.includes('gram')}
           onGram={focusing ? () => setDialog('music') : undefined}
           seated={seated}
-          inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
+          inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
           overlay={
             r === 'focusSetup'
@@ -3232,35 +3372,43 @@ function FocusFlow({ e: environment }: any) {
                     />
                   );
                 })}
-                {peers.map((actor) => (
-                  <FishingPeerActorView
-                    key={actor.key}
-                    actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-                    outfit={lookOf(
-                      live.looks,
-                      actor.userId,
-                      live.focus.find((m) => m.userId === actor.userId),
-                    )}
-                    size={size}
-                    sizeY={sizeY}
-                    emote={emoteByUser.get(actor.userId) ?? null}
-                    reduce={reduce}
-                    goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
-                    goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
-                    onEntered={peerFlow.entered}
-                    onCast={peerFlow.cast}
-                    onPausedExit={peerFlow.leftForPause}
-                    onStretch={peerFlow.stretched}
-                    onCompletedExit={peerFlow.leftForComplete}
-                  />
-                ))}
+                {peers.map((actor) => {
+                  const outfit = lookOf(
+                    live.looks,
+                    actor.userId,
+                    live.focus.find((m) => m.userId === actor.userId),
+                  );
+                  return (
+                    <FishingPeerActorView
+                      key={actor.key}
+                      actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                      outfit={outfit}
+                      size={size}
+                      sizeY={sizeY}
+                      emote={emoteByUser.get(actor.userId) ?? null}
+                      reduce={reduce}
+                      goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
+                      goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
+                      onEntered={peerFlow.entered}
+                      onCast={peerFlow.cast}
+                      onPausedExit={peerFlow.leftForPause}
+                      onStretch={peerFlow.stretched}
+                      onCompletedExit={peerFlow.leftForComplete}
+                      onPress={
+                        (r === 'focus' || r === 'fishingArrival') && !dialog
+                          ? () => setCatInfo({ actor, outfit })
+                          : undefined
+                      }
+                    />
+                  );
+                })}
                 {seated ? (
                   <FishingActor
                     spot={mine}
                     size={size}
                     sizeY={sizeY}
                     color={s.color}
-                    name={t('focusFlow.common.me')}
+                    name={ownCatName(s.name)}
                     me
                     subject={shown.has('me') ? mySubject : null}
                     seconds={
@@ -3313,6 +3461,7 @@ function FocusFlow({ e: environment }: any) {
                     left={walker.left}
                     reduce={reduce}
                     outfit={myOutfit}
+                    name={ownCatName(s.name)}
                   />
                 )}
               </>
@@ -3322,6 +3471,7 @@ function FocusFlow({ e: environment }: any) {
         {r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21) && (
           <View
             pointerEvents="box-none"
+            {...a11yHidden(!!catInfo)}
             style={{
               position: 'absolute',
               top: safe.top + semanticTokens.spacing.control,
@@ -3340,6 +3490,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {liveIslandId && live.status === 'error' && (
           <View
+            {...a11yHidden(!!catInfo)}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -3373,7 +3524,7 @@ function FocusFlow({ e: environment }: any) {
           <>
             <View
               pointerEvents="none"
-              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
                 position: 'absolute',
                 zIndex: 5,
@@ -3405,7 +3556,7 @@ function FocusFlow({ e: environment }: any) {
               </Text>
             </View>
             <View
-              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
                 position: 'absolute',
                 zIndex: 5,
@@ -3496,6 +3647,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}
+        {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
       </View>
       {goldenCutsceneOverlay}
     </TutorialScene>

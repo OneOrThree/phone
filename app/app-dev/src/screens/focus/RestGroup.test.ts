@@ -58,6 +58,7 @@ test('모닥불: 정원 15명이 모두 화면 안에 서로 겹치지 않게 �
 
 test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () => {
   const state = initialState(true);
+  state.name = '하늘이';
   state.session = {
     id: 'focus-session',
     islandId: state.islandId,
@@ -80,6 +81,8 @@ test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () =>
 
   assert.ok(screen.getByTestId('paused-focus-info'));
   assert.ok(screen.getByText('휴식 중...'));
+  assert.ok(screen.getByText('하늘이')); // 내 이름표는 「나」가 아니라 닉네임(GROMO-2475)
+  expect(screen.queryByText('나')).toBeNull();
   assert.ok(screen.getByTestId('loaf-1'));
   expect(screen.queryByTestId('end-rest')).toBeNull();
   expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
@@ -115,6 +118,53 @@ test('집중 세션 없는 모닥불은 본인 휴식과 타이머를 만들지 
   expect(home).toHaveBeenCalledTimes(1);
   expect(resume).not.toHaveBeenCalled();
   expect(state.session).toBeFalsy();
+  await screen.unmount();
+});
+
+test('다른 주민 식빵을 누르면 정보창이 뜨고(GROMO-2474), 내 고양이는 누를 자리가 없다', async () => {
+  const state = initialState(true);
+  state.session = {
+    id: 'focus-session',
+    islandId: state.islandId,
+    subject: '영어',
+    startedAt: 0,
+    restStartedAt: 123_000,
+    seconds: 60,
+    status: 'paused',
+    intervals: [],
+  };
+  const live = {
+    status: 'ready',
+    clockOffset: 0,
+    rest: [
+      {
+        userId: 'peer',
+        name: '두부',
+        catColor: 'cream',
+        restStartedAt: new Date().toISOString(),
+        restSeat: 1,
+      },
+    ],
+  } as any;
+  const screen = await render(
+    React.createElement(RestGroup, { state, live, home: jest.fn(), resume: jest.fn() }),
+  );
+  // 내 자리(1번 loaf-1)에는 누르는 자리가 없다
+  assert.ok(screen.getByTestId('loaf-1'));
+  assert.equal(screen.queryByTestId('rest-cat-me'), null);
+  await fireEvent.press(screen.getByLabelText('두부 정보 보기'));
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('두부');
+  // 정보창이 떠 있는 동안 뒤 장면(주민 누르는 자리·집중 이어가기)은 스크린리더에서 숨는다(안드로이드 no-hide-descendants 포함)
+  assert.equal(screen.queryByLabelText('두부 정보 보기'), null);
+  assert.equal(screen.queryByTestId('resume-focus'), null);
+  const hidden = screen.getByLabelText('두부 정보 보기', { includeHiddenElements: true });
+  let scene: any = hidden.parent;
+  while (scene && scene.props.importantForAccessibility !== 'no-hide-descendants')
+    scene = scene.parent;
+  assert.equal(scene?.props.accessibilityElementsHidden, true);
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  assert.ok(screen.getByLabelText('두부 정보 보기'));
+  assert.equal(screen.queryByTestId('cat-info-name'), null);
   await screen.unmount();
 });
 

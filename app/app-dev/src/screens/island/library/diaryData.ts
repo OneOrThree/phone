@@ -29,9 +29,19 @@ export const weekday = (key: string) => weekdays[new Date(`${key}T00:00:00Z`).ge
 export const longDate = (key: string) =>
   `${Number(key.slice(5, 7))}월 ${Number(key.slice(8))}일 ${weekday(key)}요일`;
 
+/**
+ * 일기장 주간 — 그 날짜가 든 월요일~일요일(GROMO-2488). {@code offset} 은 주 단위(0 이번 주, −1 지난주).
+ * 섬 랭킹·`/screens/library` 이번 주 조각의 일~토 축(`utcPeriodRange`)과 다른 축이라 섞지 않는다.
+ */
+export const weekRange = (key: string, offset: number) => {
+  const from = shiftDate(key, -((new Date(`${key}T00:00:00Z`).getUTCDay() + 6) % 7) + offset * 7);
+  return { from, to: shiftDate(from, 6) };
+};
+
 export function diaryRange(period: Period, offset: number, now: number, utc: boolean) {
-  // 로컬 기록도 서버와 같은 일요일~토요일 배치를 쓰되 각자의 날짜 축은 보존한다.
+  // 로컬 기록도 서버와 같은 날짜 범위를 쓰되 각자의 날짜 축은 보존한다. 주는 월~일(GROMO-2488), 일·월은 종전대로
   const key = dateKey(now, utc);
+  if (period === '주') return weekRange(key, offset);
   return utcPeriodRange(period, offset, Date.parse(`${key}T12:00:00Z`));
 }
 

@@ -17,6 +17,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type ImageStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Ellipse, Path } from 'react-native-svg';
@@ -43,9 +44,9 @@ import {
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
 export const fishingGrid: Grid = land;
-export const INK = '#493B39',
-  OUTLINE = '#8B6956',
-  ME = '#B83D63';
+export const INK = componentTokens.nameplate.ink,
+  OUTLINE = componentTokens.nameplate.outline,
+  ME = componentTokens.nameplate.me;
 
 const afterForegroundMs = (callback: () => void, durationMs: number) => {
   let remainingMs = durationMs;
@@ -141,6 +142,24 @@ const castReach = (spot: Spot) => {
   if (spot.bx == null || spot.by == null) return 5.6;
   const distance = Math.hypot(spot.bx - spot.x, (spot.by - spot.y) / FISHING_MAP_ASPECT);
   return Math.min(5.6, distance * 0.65);
+};
+// 낚싯대 그림 — 고양이 상자(한 변 a)의 발 기준점에서 찌 방향으로 뻗는다. 낚시 자리와 정보창(GROMO-2474)이 같이 쓴다.
+const rodStyle = (spot: Spot, a: number): ImageStyle => {
+  const direction = castAngle(spot),
+    rodSize = a * 0.6,
+    rodTipDistance = (a * castReach(spot)) / 7.7;
+  return {
+    position: 'absolute',
+    width: rodSize,
+    height: rodSize,
+    left: a / 2 + Math.cos(direction) * rodTipDistance - rodSize * 0.96,
+    top: a * 0.90625 + Math.sin(direction) * rodTipDistance - rodSize * 0.04,
+    transform: [
+      { scale: castReach(spot) / 5.6 },
+      { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` },
+    ],
+    transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
+  };
 };
 // 줄은 회전된 낚싯대 끝에서 시작하며, 지도 좌표의 y를 화면 거리로 되돌린다.
 export const castLineStart = (spot: Spot): Point => {
@@ -298,6 +317,13 @@ const DEFAULT_CATCH_RESERVATION: Spot = {
   ...defaultCatchSpot,
   catchPlacement: DEFAULT_CATCH_PLACEMENT,
 };
+// spot 고양이의 물고기 더미(placement)가 other 에 앉은 고양이를 덮는지
+export const catchOverlapsCat = (spot: Point, placement: FishingCatchPlacement, other: Point) =>
+  boundsOverlap(catchBounds(spot, placement), catBounds(other));
+// 내가 DEFAULT_SPOT 에 앉으면 물고기 더미는 주민을 피하지 않는 고정 자리다 — 그 더미가 p 에 앉은 고양이를 덮는지
+export const underDefaultCatch = (p: Point) =>
+  DEFAULT_CATCH_PLACEMENT != null &&
+  boundsOverlap(catBounds(p), catchBounds(defaultCatchSpot, DEFAULT_CATCH_PLACEMENT));
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // resident 자리/보상은 섬 건물 상태와 무관하게 같은 좌표를 쓰도록 축음기 설치 상태 기준으로 미리 배치한다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
@@ -829,12 +855,12 @@ const label = {
   color: INK,
   textAlign: 'center' as const,
 };
-const nameText = (me: boolean) => ({
+export const nameText = (me: boolean) => ({
   fontSize: 11,
   lineHeight: 17.6,
   fontWeight: '900' as const,
   color: me ? ME : INK,
-  textShadowColor: '#FFFDFA',
+  textShadowColor: componentTokens.nameplate.shadow,
   textShadowOffset: { width: 0, height: 0 },
   textShadowRadius: 5,
 });
@@ -975,10 +1001,6 @@ export function FishingActor({
   }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
-    direction = castAngle(spot),
-    rodSize = a * 0.6,
-    rodTipDistance = (a * castReach(spot)) / 7.7,
-    rodScale = castReach(spot) / 5.6,
     catchPlacement = fishingCatchPlacement(
       spot,
       catchAvoidSpots,
@@ -1058,18 +1080,7 @@ export function FishingActor({
           source={assets['props/fishing/fishing-rod.png']}
           resizeMode="contain"
           testID="fishing-actor-rod"
-          style={{
-            position: 'absolute',
-            width: rodSize,
-            height: rodSize,
-            left: a / 2 + Math.cos(direction) * rodTipDistance - rodSize * 0.96,
-            top: a * 0.90625 + Math.sin(direction) * rodTipDistance - rodSize * 0.04,
-            transform: [
-              { scale: rodScale },
-              { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` },
-            ],
-            transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
-          }}
+          style={rodStyle(spot, a)}
         />
       )}
       {/* DESIGN.md §8.3: 다른 주민의 물고기 획득은 공개하지 않는다 — 물보라·물고기는 내 고양이만. */}
@@ -1170,6 +1181,7 @@ export function FishingPeerActorView({
   onPausedExit,
   onStretch,
   onCompletedExit,
+  onPress,
 }: {
   actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
   /** 남의 고양이 머리·목(GROMO-2390). */
@@ -1185,6 +1197,8 @@ export function FishingPeerActorView({
   onPausedExit: (key: string, generation: number) => void;
   onStretch: (key: string, generation: number) => void;
   onCompletedExit: (key: string, generation: number) => void;
+  /** 누르면 정보창(GROMO-2474). 없으면 지금처럼 누를 수 없다. */
+  onPress?: () => void;
 }) {
   const { Animated: NativeAnimated } = require('react-native');
   const left = useRef(
@@ -1360,32 +1374,96 @@ export function FishingPeerActorView({
           ? 'stretch'
           : undefined;
   const spriteSpot = motion === 'walk' ? { ...actor.spot, face: walkFace } : actor.spot;
+  const a = size * 0.077,
+    touch = Math.max(semanticTokens.size.tapMin, a);
   return (
-    <FishingActor
-      spot={spriteSpot}
-      size={size}
-      sizeY={sizeY}
-      color={actor.color}
-      outfit={outfit}
-      name={actor.name}
-      subject={actor.subject}
-      seconds={actor.seconds}
-      emote={emote}
-      reduce={reduce}
-      goldenFishCount={goldenFishCount}
-      goldenCatchToken={goldenCatchToken}
-      motion={motion}
-      catchVisible={fishingPeerCatchVisible(actor)}
-      onMotionFinish={
-        actor.phase === 'casting'
-          ? () => onCast(actor.key, actor.generation)
-          : actor.phase === 'finishing'
-            ? () => onStretch(actor.key, actor.generation)
-            : undefined
-      }
-      generation={actor.generation}
-      animatedPosition={{ left, top }}
-    />
+    <>
+      <FishingActor
+        spot={spriteSpot}
+        size={size}
+        sizeY={sizeY}
+        color={actor.color}
+        outfit={outfit}
+        name={actor.name}
+        subject={actor.subject}
+        seconds={actor.seconds}
+        emote={emote}
+        reduce={reduce}
+        goldenFishCount={goldenFishCount}
+        goldenCatchToken={goldenCatchToken}
+        motion={motion}
+        catchVisible={fishingPeerCatchVisible(actor)}
+        onMotionFinish={
+          actor.phase === 'casting'
+            ? () => onCast(actor.key, actor.generation)
+            : actor.phase === 'finishing'
+              ? () => onStretch(actor.key, actor.generation)
+              : undefined
+        }
+        generation={actor.generation}
+        animatedPosition={{ left, top }}
+      />
+      {/* 누르는 자리는 그림(눌리지 않음)과 따로 둔다 — 이름표가 바다 누르기(자리 고르기)를 가리지 않게 고양이 몸 위 44pt 만 */}
+      {onPress && (
+        <NativeAnimated.View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: a,
+            height: a,
+            zIndex: 20 + Math.round(actor.spot.y),
+            transform: [{ translateX: left }, { translateY: top }],
+          }}
+        >
+          <Pressable
+            testID={`fishing-peer-${actor.userId}`}
+            accessibilityRole="button"
+            accessibilityLabel={t('catInfo.open', { name: actor.name })}
+            onPress={onPress}
+            style={{
+              position: 'absolute',
+              left: (a - touch) / 2,
+              top: (a - touch) / 2,
+              width: touch,
+              height: touch,
+            }}
+          />
+        </NativeAnimated.View>
+      )}
+    </>
+  );
+}
+/** 정보창(GROMO-2474)의 낚시 고양이 — 낚시 자리와 같은 낚시 자세·낚싯대를 멈춘 채 그린다. */
+export function FishingCatArt({
+  spot,
+  color,
+  outfit,
+  size,
+}: {
+  spot: Spot;
+  color: Color;
+  outfit?: Outfit;
+  size: number;
+}) {
+  return (
+    <View style={{ width: size, height: size }}>
+      <CatSprite
+        color={color}
+        motion="focus"
+        size={size}
+        left={spot.face < 0}
+        reduce
+        anchored={false}
+        outfit={outfit}
+      />
+      <Image
+        source={assets['props/fishing/fishing-rod.png']}
+        resizeMode="contain"
+        style={rodStyle(spot, size)}
+      />
+    </View>
   );
 }
 // 서 있거나 걷는 내 고양이(fi-walker): 낚시 고양이와 같은 크기·발 기준점, 걷는 동안만 걷기 그림.
@@ -1398,7 +1476,9 @@ export function FishingWalker({
   left,
   reduce,
   outfit,
+  name,
 }: {
+  name: string;
   p: Point;
   size: number;
   sizeY: number;
@@ -1428,7 +1508,7 @@ export function FishingWalker({
         outfit={outfit}
       />
       <View style={{ position: 'absolute', top: a * (0.98 - 0.90625), left: -100, width: 200 }}>
-        <Text style={[nameText(true), { textAlign: 'center' }]}>{t('focusFlow.common.me')}</Text>
+        <Text style={[nameText(true), { textAlign: 'center' }]}>{name}</Text>
       </View>
     </View>
   );

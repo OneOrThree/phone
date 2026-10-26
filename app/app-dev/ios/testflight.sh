@@ -26,6 +26,12 @@ if [[ "$AUDIENCE" == "prod" ]]; then
     echo "   서버 dual-audience 배포와 검증을 마친 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요." >&2
     exit 1
   fi
+  # GROMO-2226 — 운영 Google 클라이언트 id(prod.ios·prod.web)가 비어 있으면 운영 앱이 Google 로그인을 못 한다.
+  # 이 스크립트는 ios/ 에서 도므로 JSON 은 ../src/config 에 있다.
+  if ! node -e "const g=require('../src/config/googleClientIds.json').prod; process.exit(g.ios && g.web ? 0 : 1)"; then
+    echo "❌ iOS release/TestFlight 차단: 운영 Google 클라이언트 id 미발급 — src/config/googleClientIds.json prod 칸을 채운 뒤 다시 실행하세요." >&2
+    exit 1
+  fi
 else
   # dev 빌드는 서버 주소를 여기서 고정한다 — 운영 주소를 실수로 넘겨도 dev lane 이 다시 덮어쓴다
   export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"

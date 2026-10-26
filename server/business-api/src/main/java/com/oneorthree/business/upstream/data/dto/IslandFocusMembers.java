@@ -20,13 +20,19 @@ public record IslandFocusMembers(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String serverNow,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<MemberWatermark> watermarks) {
 
-    /** {@code name} 만 null 허용(탈퇴·미설정) — 키는 항상 실린다. {@code status} 는 active/paused. */
+    /**
+     * {@code name} 만 null 허용(탈퇴·미설정) — 키는 항상 실린다. {@code status} 는 active/paused.
+     *
+     * <p>{@code seat}(GROMO-2477)는 <b>필수로 받지 않는다</b> — 롤링 배포 중 자리를 모르는 옛 Data 가 키 없이 보내면
+     * 필수 수신은 502 가 된다({@link FocusSessionState} 의 {@code kind} 와 같은 이유). 키가 없거나 null 이면 자리 없음이다.
+     */
     public record Item(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String userId,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String name,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String sessionId,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String subject,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long activeSeconds,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status,
+            FocusSeat seat) {
     }
 }

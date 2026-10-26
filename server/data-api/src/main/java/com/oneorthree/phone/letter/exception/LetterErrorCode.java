@@ -32,8 +32,8 @@ public enum LetterErrorCode implements ErrorCode {
      * LLD §4 결정 2 = C): <b>발송은 항상 가능하고 열람만 게이트한다.</b> 그래서 이 코드는 목록·상세에서만
      * 나가고 {@code POST /letters} 에서는 절대 나가지 않는다.
      *
-     * <p>이름을 {@code MAILBOX_LOCKED} 로 짓지 않은 것은 의도다 — 섬 우체통 편지방(GROMO-1775)이
-     * {@code GroupErrorCode.MAILBOX_LOCKED} 를 쓰고 있어, 같은 이름을 두 도메인에 두면 오류 계약 규약
+     * <p>이름을 {@code MAILBOX_LOCKED} 로 짓지 않은 것은 의도다 — 과거 채팅에서 쓰던
+     * {@code GroupErrorCode.MAILBOX_LOCKED} 계약을 순차 배포 호환을 위해 보존하므로, 같은 이름을 두 도메인에 두면 오류 계약 규약
      * (「도메인 간 code 이름 재사용 금지」, {@code docs/conventions/error-contract.md})을 깬다.
      */
     LETTER_MAILBOX_LOCKED(HttpStatus.FORBIDDEN, "우체통을 지으면 편지를 주고받을 수 있어요"),

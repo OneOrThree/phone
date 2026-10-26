@@ -29,7 +29,7 @@ import Svg, {
 import { useGowun } from './sceneKit';
 import { C, art, k, Txt, Pic, Btn, Gear, NavBtn } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
 import { CatAvatar } from '@/components/CatAvatar';
 import type { Outfit } from '@/components/CatOutfitLayers';
@@ -229,20 +229,7 @@ export function IslandSheet({
           box,
         ]}
       >
-        {!panel && !L.tablet && (
-          <View
-            style={{
-              position: 'absolute',
-              top: 9,
-              left: '50%',
-              width: 44,
-              height: 5,
-              marginLeft: -22,
-              borderRadius: 3,
-              backgroundColor: '#D9C6B8',
-            }}
-          />
-        )}
+        {/* 시트 위 손잡이 막대는 두지 않는다(GROMO-2473) — 끌어 닫는 동작이 없어 눌리는 것처럼만 보였다 */}
         <View
           style={{
             position: 'absolute',
@@ -285,7 +272,9 @@ export function IslandSheet({
           }}
         >
           {/* 뒤로 ‹·닫기 × 는 공용 NavBtn(DESIGN §7.14). 뒤로는 한 단계 위, 닫기는 시트를 접고 섬으로 */}
-          {onBack && <NavBtn label="뒤로" onPress={onBack} style={{ marginLeft: -10 }} />}
+          {onBack && (
+            <NavBtn label={t('common.back')} onPress={onBack} style={{ marginLeft: -10 }} />
+          )}
           <Txt
             accessibilityRole="header"
             numberOfLines={1}
@@ -304,7 +293,14 @@ export function IslandSheet({
               accessibilityRole="button"
               accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
               onPress={actionPress}
-              style={{ paddingVertical: 6, paddingHorizontal: 4 }}
+              // 뒤로·닫기 NavBtn 과 같은 44 상자 — 보이는 아이콘·글자는 가운데에 그대로 둔다
+              style={{
+                minWidth: semanticTokens.size.tapMin,
+                minHeight: semanticTokens.size.tapMin,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 4,
+              }}
             >
               {action === '⚙' ? (
                 <Gear />
@@ -1356,7 +1352,7 @@ export function SearchField({
         {!!value && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="검색어 지우기"
+            accessibilityLabel={t('common.clearSearch')}
             onPress={() => onChange('')}
             style={{
               position: 'absolute',

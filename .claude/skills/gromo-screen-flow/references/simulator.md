@@ -33,9 +33,9 @@ git status --short app/app-dev/ios/Podfile.lock app/app-dev/package.json
 ```sh
 cd <레포>/app/app-dev/ios
 diff -q Podfile.lock Pods/Manifest.lock        # 다르면 pod install 이 필요한 상태 — 직접 하지 말고 오스카에게 알린다
-xcodebuild -workspace GROMO.xcworkspace -scheme GROMO -configuration Debug -sdk iphonesimulator \
+xcodebuild -workspace Cattus.xcworkspace -scheme Cattus -configuration Debug -sdk iphonesimulator \
   -destination "id=$U" -derivedDataPath <스크래치패드>/simbuild/DerivedData build > <스크래치패드>/simbuild/build.log 2>&1
-xcrun simctl install $U <스크래치패드>/simbuild/DerivedData/Build/Products/Debug-iphonesimulator/GROMO.app
+xcrun simctl install $U <스크래치패드>/simbuild/DerivedData/Build/Products/Debug-iphonesimulator/Cattus.app
 ```
 
 - 백그라운드로 돌린다. 5~10분 걸렸다.

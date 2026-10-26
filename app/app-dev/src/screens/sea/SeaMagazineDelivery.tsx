@@ -19,6 +19,7 @@ import { VideoCutscene } from '@/components/VideoCutscene';
 import { assets } from '@/constants/assets';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { t } from '@/i18n';
+import { useGowun } from '@/screens/island/sceneKit';
 import { seaAssets } from './seaAssets';
 
 const D = c.magazineReader.seaDelivery;
@@ -43,6 +44,8 @@ export function SeaMagazineDelivery({
 }) {
   const insets = useScreenInsets();
   const title = t('magazine.delivery.noMailbox');
+  // 배달 말풍선·버튼 글자도 고운돋움(DESIGN.md 그림 장면 위 화면 규칙)
+  const gowun = useGowun();
   // 첫 그림은 창 크기로 — onLayout 전 기준 크기(402×874)로 그렸다가 튀지 않게
   const screen = useWindowDimensions();
   const [intro, setIntro] = useState(true);
@@ -95,7 +98,7 @@ export function SeaMagazineDelivery({
                 <Txt
                   accessibilityRole="header"
                   accessibilityLiveRegion="polite"
-                  style={styles.text}
+                  style={[styles.text, { fontFamily: gowun }]}
                 >
                   {title}
                 </Txt>
@@ -124,12 +127,14 @@ export function SeaMagazineDelivery({
             </View>
             <View style={styles.actions}>
               <Btn
+                font={gowun}
                 id="sea-magazine-open"
                 dynamicHeight
                 title={t('magazine.delivery.open')}
                 onPress={onOpen}
               />
               <Btn
+                font={gowun}
                 id="sea-magazine-later"
                 dynamicHeight
                 kind="ghost"

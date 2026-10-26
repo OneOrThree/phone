@@ -91,9 +91,9 @@ Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활�
 
 ## 3. ingress와 인가 경계
 
-Business의공개2경로는인증된내부Realtime어댑터로전달한다. 필요한서버 간추가면은 POST `/internal/islands/{islandId}/messages`와 GET 같은경로다(GROMO-1775 로 realtime 에 구현 — `InternalMailboxController`, 자격은 `SVC_TOKEN_BIZ_TO_REALTIME` 하나, 주체는 `X-User-Id`, 인가는 하지 않는다). Data 쪽은 세 경로다: GET `/internal/islands/{islandId}/mailbox-access`(주민·시설 인가 + 요청자 표시), POST `/internal/islands/{islandId}/message-authors`(페이지 sender 집합의 표시 projection), POST `/internal/islands/{islandId}/message-events`(`message.created` 적재). 셋 다 caller=business 허용목록에만 있다. Realtime 수신용 서비스 자격과 caller=business의exact method/path허용목록과검증 주체위임을사용한다. legacy REST/STOMP 클라이언트는내부 어댑터를직접호출할수없다. 이경로추가시gateway/헬스/기존/api/v1의auth예외를넓히지않는다.
+Business의공개2경로는인증된내부Realtime어댑터로전달한다. 필요한서버 간추가면은 POST `/internal/islands/{islandId}/messages`와 GET 같은경로다(GROMO-1775 로 realtime 에 구현 — `InternalMailboxController`, 자격은 `SVC_TOKEN_BIZ_TO_REALTIME` 하나, 주체는 `X-User-Id`, 인가는 하지 않는다). Data 쪽은 세 경로다: GET `/internal/islands/{islandId}/mailbox-access`(활성 사용자·살아 있는 섬·주민 인가 + 요청자 표시, 시설 완공 불필요), POST `/internal/islands/{islandId}/message-authors`(페이지 sender 집합의 표시 projection), POST `/internal/islands/{islandId}/message-events`(`message.created` 적재). 셋 다 caller=business 허용목록에만 있다. Realtime 수신용 서비스 자격과 caller=business의exact method/path허용목록과검증 주체위임을사용한다. legacy REST/STOMP 클라이언트는내부 어댑터를직접호출할수없다. 이경로추가시gateway/헬스/기존/api/v1의auth예외를넓히지않는다.
 
-Realtime은Data의신뢰된 권한 조회어댑터에서현재활성 사용자/세션,해당island주민,우체통완공,승인된집중제한상태와revision을확인한다. Data의기존멤버십TTL캐시만으로허용하지않는다. 이권한어댑터는미통합기반과중복신설하지말고기존service auth/session검증을확장한다. legacyBearer를임의내부위임JWT로신뢰하거나없는sid/gen을DB현재값으로보충하지않는다.
+Realtime은Data의신뢰된 권한 조회어댑터에서현재활성 사용자/세션,해당island주민과revision을확인한다. 채팅 인가에는 우체통 완공을 요구하지 않고 집중·휴식 상태로 막지 않는다(M01·M12). Data의기존멤버십TTL캐시만으로허용하지않는다. 이권한어댑터는미통합기반과중복신설하지말고기존service auth/session검증을확장한다. legacyBearer를임의내부위임JWT로신뢰하거나없는sid/gen을DB현재값으로보충하지않는다.
 
 - history/POST각각의현재 인가조회가해당행위의선형화경계다. 그검사이후Data에서권한이바뀌어이미허용된chat INSERT가완료될수있는분산경계를명시한다. Data와chat저장을같은 TX라고주장하지않는다. 이보다강한“이탈commit후저장0”제품요구가있으면별도입장리스/해지barrier프로토콜이선행돼야하며현재설계가보장하지않는다.
 - read결과전달직전에도권한을재검증하고실패하면성공본문을반환하지않는다. POST후재검증실패는이미저장된메시지를롤백하지못한다. 성공원 결과를보여줄현재권한이없으면403이며,나중에허가받은원키재시도만중복결과를읽는다.
@@ -145,10 +145,10 @@ ChatRoomService:58의unreadCount는본인배지, :113의markRead는해당방메�
 
 2026-10-01 [결정 로그](../decision-log.md) RP-섬글조회필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단.
 
-- **대상:** `GET /islands/{islandId}/messages`(신규 히스토리)의 반환 items. 요청자가 **차단한**(요청자=blocker) 사용자가 보낸 메시지를 뺀다. **한 방향**이다 — 상대가 나를 차단했다는 이유로 내 화면에서 상대 글을 빼지 않는다.
+- **대상:** `GET /islands/{islandId}/messages`(신규 히스토리)의 반환 items. 요청자와 **차단 관계인**(요청자가 차단했거나 요청자를 차단한) 사용자가 보낸 메시지를 뺀다. **양방향**이다(2026-10-26 GROMO-2469, 결정 로그 RP-차단양방향 — 2181 은 요청자=blocker 한 방향이었고 상대가 나를 차단한 경우는 빼지 않았다).
 - **원문은 지우지 않는다.** `gromo_chat` 의 메시지 행과 senderId 는 그대로이며, 차단을 해제하면 다음 조회부터 다시 보인다. 필터는 조회 시점의 차단 관계로만 판정하고 제외 표지를 따로 저장하지 않는다.
 - **실시간은 이 절의 범위가 아니다.** legacy 그룹 채팅 프레임(`/topic/groups/{id}`)과 응원의 차단 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182)(2182)이 맡는다. **신규 섬 채팅 알림 `message.created` 는 2182 가 거르지 않는다** — 본문은 이 절의 REST 필터가 막지만 차단 상대가 새 메시지를 보냈다는 신호는 전달되며, §4.3 미결 목록에 남아 있다. 이 절만으로 「차단 상대의 채팅이 보이지 않는다」를 주장하지 않는다.
 - **페이징 불변식은 유지한다.** 제외 때문에 한 페이지가 limit 보다 짧아질 수 있다. 그래도 제외한 행 때문에 다음 페이지에서 메시지가 빠지거나 겹치면 안 된다.
-- **구현(PR #1054, main 머지).** 메시지 정본이 `gromo_chat` 이라 Data 쿼리로 뺄 수 없으므로 **판정은 Data, 제외는 Business** 가 한다. Data 의 `POST /internal/islands/{islandId}/message-authors`(§5) 응답에 `hiddenUserIds`(요청한 sender 중 요청자가 차단한 사람)를 추가하고 그 사람은 `authors` 에서 뺀다. Business `IslandMailboxUseCase` 가 그 sender 의 메시지를 제외하고, 페이지가 모자라면 같은 요청 안에서 다음 과거 페이지를 더 읽어 채운다(첫 읽기 포함 최대 3회, `MAX_FILL_ROUNDS`). limit 에 닿으면 **마지막으로 담은 메시지 id** 를 다음 anchor 로 쓴다 — Realtime 커서가 「이 id 보다 과거」라서 누락·중복이 없다. 상한에 닿으면 짧은(빈) 페이지와 non-null 커서가 나갈 수 있다.
+- **구현(PR #1054, main 머지).** 메시지 정본이 `gromo_chat` 이라 Data 쿼리로 뺄 수 없으므로 **판정은 Data, 제외는 Business** 가 한다. Data 의 `POST /internal/islands/{islandId}/message-authors`(§5) 응답에 `hiddenUserIds`(요청한 sender 중 요청자와 차단 관계인 사람 — GROMO-2469 부터 어느 방향이든)를 추가하고 그 사람은 `authors` 에서 뺀다. Business `IslandMailboxUseCase` 가 그 sender 의 메시지를 제외하고, 페이지가 모자라면 같은 요청 안에서 다음 과거 페이지를 더 읽어 채운다(첫 읽기 포함 최대 3회, `MAX_FILL_ROUNDS`). limit 에 닿으면 **마지막으로 담은 메시지 id** 를 다음 anchor 로 쓴다 — Realtime 커서가 「이 id 보다 과거」라서 누락·중복이 없다. 상한에 닿으면 짧은(빈) 페이지와 non-null 커서가 나갈 수 있다.
 - **차단 조회 실패**를 「차단 없음」으로 간주해 전부 내려보내지 않는다. `message-authors` 호출 실패는 기존 공통 오류(503·504 등)로 드러낸다(§1 공통 규칙). 단 PR #1054 는 **`hiddenUserIds` 필드 자체가 없는 옛 Data 응답**을 배포 순서 호환을 위해 「숨길 사람 없음」으로 읽는다 — 호출 실패가 아니라 필드 부재이며, Data 가 먼저 배포되면 사라지는 창이다.
 - 적용 범위 밖: legacy `/api/v1/chat` 히스토리의 차단 필터는 이 결정이 정하지 않았다(결정 로그 미결 목록). 실시간 §4.3 은 legacy 그룹 채팅 프레임까지 거르므로, legacy 히스토리를 다시 읽으면 차단 상대 메시지가 보이는 비대칭이 남는다 — 별도 결정으로 다룬다.

@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "뒤로",
     "characterLimit": "{{max}}자까지 쓸 수 있어요 · {{count}}/{{max}}",
     "cancel": "취소",
     "ok": "확인",
@@ -8,6 +9,7 @@
     "save": "저장",
     "later": "나중에",
     "manageIsland": "섬 관리",
+    "clearSearch": "검색어 지우기",
     "readyStampA11y": "준비 완료 도장",
     "caughtItem": "낚은 아이템",
     "newBadge": "NEW!"
@@ -19,7 +21,7 @@
     "INVALID_IDEMPOTENCY_KEY": "명령 키가 올바르지 않습니다.",
     "INVALID_CURSOR": "목록 커서가 올바르지 않습니다.",
     "UNSUPPORTED_PROVIDER": "지원하지 않는 소셜 로그인 제공자입니다.",
-    "NICKNAME_INVALID": "닉네임은 앞뒤 공백 제외 2~10자여야 합니다.",
+    "NICKNAME_INVALID": "닉네임은 공백 없이 2~10자여야 합니다.",
     "BANNED_WORD": "사용할 수 없는 표현이 포함돼 있어요.",
     "HOST_WITHDRAW": "섬 방장을 위임한 뒤 탈퇴할 수 있습니다.",
     "REFRESH_TOKEN": "로그인 자격이 유효하지 않습니다.",
@@ -101,6 +103,114 @@
     "permissionSection": "권한",
     "permissionManage": "앱 권한 관리",
     "permissionManageSub": "스크린타임 권한 · 측정 앱",
+    "permissions": {
+      "gate": {
+        "title": "측정 권한",
+        "heading": "사용 시간을 정확히 기록할게요",
+        "sub": "선택한 앱의 사용 시간만 기록해요.",
+        "row": "스크린타임 권한",
+        "rowUnavailable": "이 기기에서는 사용할 수 없어요",
+        "rowDenied": "권한이 꺼져 있어요. 다시 요청할 수 있어요",
+        "rowNone": "아직 연결하지 않았어요",
+        "openUsage": "사용 정보 접근 설정 열기",
+        "done": "완료",
+        "continue": "계속",
+        "retry": "권한 다시 요청하기",
+        "requesting": "권한 요청 중…",
+        "openSystem": "시스템 설정 열기",
+        "laterBoard": "나중에 하고 게시판 열기",
+        "openBoard": "게시판 열기",
+        "connectBtn": "스크린타임 연결하기",
+        "note": "권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요."
+      },
+      "status": {
+        "permissionChecking": "확인 중",
+        "checking": "선택 상태 확인 중",
+        "failed": "선택 상태를 확인하지 못했어요",
+        "allApps": "전체 앱",
+        "allAppsPending": "전체 앱 · 내일부터 적용",
+        "selectedCount": "{{count}}개 선택됨",
+        "selectedCountPending": "{{count}}개 선택됨 · 내일부터 적용",
+        "none": "아직 선택하지 않았어요"
+      },
+      "connected": "연결됨",
+      "unavailable": "사용 불가",
+      "needed": "연결 필요",
+      "sheet": {
+        "allowedApps": "집중 중 허용 앱"
+      },
+      "screenTime": {
+        "title": "스크린타임",
+        "connect": "스크린타임 연결",
+        "sub": "{{description}} · 폰 사용 퀘스트와 기록에 사용해요"
+      },
+      "measuredApps": {
+        "title": "측정 앱",
+        "a11y": "측정 앱, {{description}}",
+        "pick": "측정 앱 고르기"
+      },
+      "disconnectNote": "연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.",
+      "allowed": {
+        "section": "집중 중 허용",
+        "title": "허용 앱",
+        "count": "{{count}}개 선택됨"
+      },
+      "safari": {
+        "title": "Safari 웹사이트 차단 해제",
+        "sub": "위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요",
+        "a11y": "집중 중 Safari 웹사이트 차단 해제"
+      },
+      "android": {
+        "overlay": {
+          "title": "다른 앱 위에 표시",
+          "on": "허용됨 · 집중 중 앱 차단에 사용해요",
+          "off": "앱 차단을 위해 허용이 필요해요"
+        },
+        "notice": {
+          "title": "집중 상태 알림",
+          "sub": "알림·잠금화면에서 집중 시간을 확인해요"
+        }
+      },
+      "help": {
+        "android": "사용 정보 접근 설정에서 이 앱을 허용해 주세요.",
+        "ios": "허용 창이 안 뜨면 시스템 설정에서 허용해 주세요."
+      },
+      "errors": {
+        "usageOpenFailed": "사용 정보 접근 설정을 열지 못했어요.",
+        "settingsOpen": "설정을 열지 못했어요. 기기의 설정 앱에서 권한을 확인해 주세요.",
+        "safariCheck": "Safari 허용 설정을 확인하지 못했어요.",
+        "allowedCheck": "허용 앱 설정을 확인하지 못했어요.",
+        "unavailable": "이 기기에서는 스크린타임을 연결할 수 없어요.",
+        "grantAndroid": "사용 정보 접근 설정에서 권한을 허용해 주세요.",
+        "grantIos": "iOS 설정에서 스크린타임 권한을 허용해 주세요.",
+        "requestFailed": "스크린타임 권한을 요청하지 못했어요.",
+        "allowedChange": "허용 앱을 변경하지 못했어요.",
+        "safariChange": "Safari 허용 설정을 변경하지 못했어요.",
+        "overlayOpen": "차단 권한 설정을 열지 못했어요.",
+        "appliedNow": "측정 앱 {{count}}개를 바로 적용했어요.",
+        "appliedTomorrow": "측정 앱 {{count}}개를 내일부터 적용해요.",
+        "pickerOpen": "측정 앱 선택 화면을 열지 못했어요."
+      },
+      "androidPicker": {
+        "savedAllowed": "집중 중 허용 앱을 저장했어요.",
+        "savedTomorrow": "측정 앱을 내일부터 적용해요.",
+        "savedNow": "선택한 앱의 측정을 시작했어요.",
+        "syncLater": "앱 선택은 저장했어요. 사용량은 다시 확인할게요.",
+        "saveFailed": "앱 선택을 저장하지 못했어요. 다시 시도해 주세요.",
+        "loadFailed": "설치된 앱 목록을 불러오지 못했어요.",
+        "loading": "앱 목록을 불러오는 중이에요.",
+        "descAllowed": "선택한 앱은 집중 중에도 사용할 수 있어요. 선택하지 않으면 추가 허용 앱이 없어요.",
+        "descMeasured": "최초 선택은 바로, 기존 대상 변경은 다음 날 한국 시각 자정부터 적용해요.",
+        "allApps": "전체 앱 측정",
+        "search": "앱 검색",
+        "select": "{{label}} 선택",
+        "none": "일치하는 앱이 없어요.",
+        "more": "앱 더 보기",
+        "saving": "저장 중…",
+        "save": "선택 저장",
+        "back": "돌아가기"
+      }
+    },
     "safetySection": "안전",
     "blockedUsersSub": "차단 목록을 확인하고 해제해요",
     "helpSection": "도움말",
@@ -159,6 +269,7 @@
       "appleNoCredential": "Apple 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
       "googleCancelled": "Google 로그인 취소",
       "googleNoCredential": "Google 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
+      "googleNotConfigured": "이 빌드에서는 Google 로그인을 쓸 수 없어요.",
       "guestFailed": "게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
       "socialFailed": "로그인을 완료하지 못했어요. 다시 시도해 주세요."
     }
@@ -265,7 +376,6 @@
       "approvalAfterJoinSub": "방장이 확인한 뒤 주민이 돼요",
       "title": "새 섬 만들기",
       "submit": "섬 만들기",
-      "capacityRangeError": "정원은 {{min}}~{{max}}명이에요.",
       "doneTitle": "섬을 만들었어요",
       "doneSub": "「{{island}}」이 내 섬이 됐어요.",
       "nameLabel": "섬 이름",
@@ -363,7 +473,6 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "오늘 집중",
       "visiting": "{{name}} 구경 중",
       "focusingNow": "지금 {{count}}명이 낚시섬에서 집중 중",
       "quietNow": "지금 낚시섬은 조용해요",
@@ -402,7 +511,7 @@
       "ok": "알겠어"
     },
     "lock": {
-      "missing": "아직 {{building}}이 없어요",
+      "missing": "아직 {{building}} 없어요",
       "libraryLocked": "도서관을 짓기 전에는 지난 기록을 볼 수 없어요.",
       "lockedGeneric": "완공 후 이용할 수 있어요.",
       "viewNext": "회관에서 다음 건물 보기"
@@ -415,6 +524,7 @@
     },
     "door": {
       "mailNewLetter": "우체통, 친구에게 받은 새 편지가 있어요",
+      "inboxNewLetters": "받은 편지 열기, 새 편지 {{count}}통",
       "mailNewMagazine": "우체통, 새 고양이 잡지가 왔어요",
       "newComment": "{{label}}, 새 댓글이 있어요",
       "unreadNotice": "{{label}}, 읽지 않은 새 소식이 있어요",
@@ -432,11 +542,7 @@
       "membersOnly": "주민만 이용할 수 있어요"
     },
     "a11y": {
-      "walk": "섬 산책하기",
       "campfire": "모닥불",
-      "gram": "꽃나팔 방송기",
-      "boat": "내 배",
-      "dock": "부두",
       "todayFocusClock": "{{name}} 오늘 집중 {{clock}}",
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
@@ -446,7 +552,7 @@
     "raft": {
       "title": "뗏목",
       "fishingIsland": "낚시섬",
-      "toIsland": "{{name}}섬으로",
+      "toIsland": "{{name}}으로",
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
@@ -461,6 +567,7 @@
     }
   },
   "wardrobe": {
+    "title": "내 꾸미기",
     "default": "기본",
     "defaultFor": "{{slot}} 기본",
     "section": {
@@ -480,12 +587,12 @@
     "memberArrived": "{{name}}님이 도착했어요",
     "common": {
       "holdEndFocus": "종료하기",
-      "holdEndHint": "3초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.",
-      "holdEndA11yHint": "두 번 탭하면 3초 후 집중을 종료해요. 다시 두 번 탭하면 취소해요.",
-      "holdEndStart": "3초 후 집중 종료",
+      "holdEndHint": "1.5초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.",
+      "holdEndA11yHint": "두 번 탭하면 1.5초 후 집중을 종료해요. 다시 두 번 탭하면 취소해요.",
+      "holdEndStart": "1.5초 후 집중 종료",
       "holdEndCancel": "집중 종료 취소",
       "holdEndCancelHint": "다시 두 번 탭하면 집중 종료를 취소해요.",
-      "holdEndStarted": "3초 후 종료해요. 다시 두 번 탭하면 취소해요.",
+      "holdEndStarted": "1.5초 후 종료해요. 다시 두 번 탭하면 취소해요.",
       "ourIsland": "우리 섬",
       "fishingIsland": "낚시섬",
       "myLittleBoat": "나의 작은 배",
@@ -583,7 +690,7 @@
       "step14": "이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.",
       "step15": "같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.",
       "step16": "아까 골랐던 자리로 돌아왔어.\n할 일과 집중 시간도 쉬기 전 그대로 이어졌지?",
-      "step17": "이제 집중 종료 버튼을 3초 동안 꾹 눌러 봐.",
+      "step17": "이제 집중 종료 버튼을 1.5초 동안 꾹 눌러 봐.",
       "step18": "집중 종료를 눌러 마쳐 봐.",
       "step19": "방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.",
       "step20": "집중해서 낚은 물고기도 여기에서 확인할 수 있어.",
@@ -748,9 +855,12 @@
     "pin": "망원경에 넣기",
     "pinBody": "뗏목의 망원경에서 이 섬을 볼 수 있어요. 직접 넣은 섬이 가득 차면 가장 먼저 넣은 섬이 빠져요.",
     "pinned": "망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요",
-    "pinnedEvicted": "{{name}}섬이 망원경에서 빠졌어요",
+    "pinnedEvicted": "{{name}}이 망원경에서 빠졌어요",
     "pinForbidden": "이 섬에는 넣을 수 없어요",
     "pinAlreadyMember": "이미 내가 속한 섬이에요"
+  },
+  "mailbox": {
+    "systemSender": "섬 알림"
   },
   "magazine": {
     "islandTitle": "{{name}}섬",
@@ -831,7 +941,9 @@
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
-      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요"
+      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요",
+      "title": "섬 소식",
+      "promotionRow": "섬장이 잡지 홍보에 60마리를 썼어요"
     },
     "reader": {
       "title": "냐옹",
@@ -1035,6 +1147,8 @@
     "remarkLocked": "한마디는 고친 뒤 5분 동안 바꿀 수 없어요",
     "remarkFailed": "한마디를 띄우지 못했어요. 바다에서 다시 써 주세요.",
     "emoteTooFrequent": "이모트는 잠시 뒤에 다시 보낼 수 있어요",
+    "rejoining": "바다에 다시 들어가는 중이에요. 잠시 뒤 다시 보내 주세요.",
+    "upstreamUnavailable": "바다 상태를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요.",
     "backBlocked": "진행 중인 집중은 [집중 마치기]로 마칠 수 있어요",
     "finishChecking": "항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.",
     "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요.",
@@ -1043,11 +1157,17 @@
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
     "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요.",
-    "focusTime": "집중 시간",
-    "requestFriend": "친구 요청",
-    "friendRequested": "친구 요청 보냄",
-    "friendExists": "이미 친구이거나 보낸 요청이 있어요.",
-    "friendUnavailable": "친구 요청을 보낼 수 없는 상대예요."
+    "focusTime": "집중 시간"
+  },
+  "catInfo": {
+    "open": "{{name}} 정보 보기",
+    "todayFocus": "오늘 집중 {{duration}}",
+    "request": "친구 요청",
+    "accept": "친구 요청 수락",
+    "requested": "요청 중",
+    "processing": "처리 중…",
+    "friends": "친구",
+    "failed": "요청을 보내지 못했어요. 다시 눌러 시도해 주세요."
   },
   "safety": {
     "blockTitle": "차단하기",

@@ -67,6 +67,11 @@ public class UserBlockService {
         return blocks.findBlockedIdsByBlockerId(blockerId);
     }
 
+    /** 친구 검색·목록의 양방향 숨김 기준. 차단 관리 목록의 단방향 계약과 구분한다. */
+    public Set<UUID> blockedEitherIds(UUID userId) {
+        return blocks.findBlockedEitherIds(userId);
+    }
+
     /**
      * 두 유저 사이에 어느 방향이든 차단이 있는가 (GROMO-2179, policy RP-차단 「한쪽이 차단하면 서버가 양방향
      * 편지 발송과 친구 요청을 거절한다」). 직접 연락 게이트가 공통으로 쓴다.

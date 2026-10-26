@@ -20,6 +20,8 @@ on:
       - '.github/ci/**'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
+      # 앱 errors 동치 테스트(i18n/index.test.ts)가 서버의 ApiErrorCode.java 를 읽는다 — 서버만 바뀐 PR 에서도 돌아야 한다 (GROMO-2253)
+      - 'server/business-api/**/ApiErrorCode.java'
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
     paths:
@@ -41,6 +43,8 @@ on:
       - '.github/ci/**'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
+      # 앱 errors 동치 테스트(i18n/index.test.ts)가 서버의 ApiErrorCode.java 를 읽는다 — 서버만 바뀐 PR 에서도 돌아야 한다 (GROMO-2253)
+      - 'server/business-api/**/ApiErrorCode.java'
 
 # 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
 # (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.

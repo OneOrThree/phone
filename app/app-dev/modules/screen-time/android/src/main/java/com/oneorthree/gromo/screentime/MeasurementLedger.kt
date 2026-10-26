@@ -33,7 +33,6 @@ internal class MeasurementLedger(
     require(owner.isNotBlank())
     val value = load()
     if (value.optString("owner") == owner) return
-    context.stopService(android.content.Intent(context, FocusShieldService::class.java))
     context.getSharedPreferences("gromo_screen_time", Context.MODE_PRIVATE).edit().remove("allowedPackages").commit()
     save(JSONObject().put("owner", owner).put("since", now()))
   }

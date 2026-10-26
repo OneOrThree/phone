@@ -374,12 +374,13 @@ class InboundEventServiceTest {
                 mock(RealtimeEventDelivery.class), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         UUID kicked = UUID.randomUUID();
         UUID blocker = UUID.randomUUID();
+        UUID blocked = UUID.randomUUID();
         UUID leaver = UUID.randomUUID();
         given(membership.evict(kicked)).willReturn(true);
 
         plain.accept(objectMapper.readTree(membersUpdated(UUID.randomUUID(), "MEMBER_REMOVED", kicked, 4)));
         plain.accept(objectMapper.readTree(blocksUpdated(UUID.randomUUID().toString(),
-                "\"blockerUserId\":\"" + blocker + "\"")));
+                "\"blockerUserId\":\"" + blocker + "\",\"blockedUserId\":\"" + blocked + "\"")));
         plain.accept(objectMapper.readTree(withdrawn(leaver, 1)));
 
         // 순서: ON 모드 허용 결정(2342) → 원 캐시·펜스 → 전달 직전 허용(2340)
@@ -389,6 +390,9 @@ class InboundEventServiceTest {
         order.verify(cache).evictUser(kicked);
         order.verify(blocks).advanceGeneration(blocker);
         order.verify(cache).evictUser(blocker);
+        // 숨김이 양방향(GROMO-2469)이라 차단당한 쪽의 허용도 지운다 — 세대는 차단자 것만 올린다.
+        order.verify(cache).evictUser(blocked);
+        verify(blocks, never()).advanceGeneration(blocked);
         order.verify(decisions).evictUser(leaver);
         order.verify(fence).withdraw(leaver, 1);
         order.verify(cache).evictUser(leaver);

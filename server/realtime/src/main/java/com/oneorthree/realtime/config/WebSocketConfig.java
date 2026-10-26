@@ -2,6 +2,7 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.movement.stomp.MovementOutboundInterceptor;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -9,6 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -25,6 +29,7 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 /**
  * STOMP 배선.
@@ -72,6 +77,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final MovementOutboundInterceptor movementOutboundInterceptor;
     private final OutboundSendBudget outboundSendBudget;
     private final OutboundAuthzCache outboundAuthzCache;
+    private final MeterRegistry meterRegistry;
+    private final WebSocketConnectionDiagnostics connectionDiagnostics = new WebSocketConnectionDiagnostics();
 
     /** 서버 heartbeat 송신 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000 과 같은 값이 기본이다. */
     @Value("${chat.websocket.heartbeat.server-ms:10000}")
@@ -92,6 +99,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     /** 수신 STOMP 메시지 크기 상한. */
     @Value("${chat.websocket.transport.message-size-limit-bytes:65536}")
     private int messageSizeLimitBytes;
+
+    @Value("${chat.websocket.inbound.threads:4}")
+    private int inboundThreads;
+
+    @Value("${chat.websocket.inbound.queue-capacity:256}")
+    private int inboundQueueCapacity;
 
     /** 거절 ERROR 프레임을 보낼 통로. 이 설정이 채널을 만드는 쪽이라 순환을 피해 늦게 받는다. */
     @Lazy
@@ -118,6 +131,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws/chat", "/ws/realtime")
+                .setHandshakeHandler(new NoCompressionHandshakeHandler())
+                .addInterceptors(connectionDiagnostics)
                 .setAllowedOriginPatterns(allowedOrigins);
         registry.setErrorHandler(chatStompErrorHandler);
         // 한 세션이 연달아 보낸 SEND 를 받은 순서대로 처리한다(GROMO-1741 §①). 끄면 인바운드 채널이 스레드
@@ -135,6 +150,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registration.setSendTimeLimit(sendTimeLimitMillis)
                 .setSendBufferSizeLimit(sendBufferSizeLimitBytes)
                 .setMessageSizeLimit(messageSizeLimitBytes);
+        registration.addDecoratorFactory(connectionDiagnostics);
         registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
             @Override
             public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -171,6 +187,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.enableSimpleBroker("/topic", "/queue")
                 .setHeartbeatValue(new long[] {heartbeatServerMillis, heartbeatClientMillis})
                 .setTaskScheduler(realtimeHeartbeatScheduler());
+        // 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 여기로 다시 보낸다 — 같은 가드로 버리고 보상한다.
+        registry.configureBrokerChannel().interceptors(endedSessionGuard());
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
@@ -194,7 +212,28 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      */
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new RejectAsErrorFrame(), movementSubscriptions);
+        // Boot가 유일한 AsyncTaskExecutor인 heartbeat scheduler를 고르는 기본 배선을 명시적으로 덮는다.
+        // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
+        registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
+        // 끝난 세션의 늦은 CONNECT·SUBSCRIBE 를 맨 앞에서 버린다 — 포화 중 종료 DISCONNECT 가 그것들을 추월한다.
+        registration.interceptors(endedSessionGuard(), new RejectAsErrorFrame(), movementSubscriptions);
+    }
+
+    /** 끝난 세션의 늦은 프레임을 수신·브로커 채널 양쪽에서 버리고 보상한다 — 상태는 소켓 세션 속성에만 있다. */
+    @Bean
+    EndedSessionGuard endedSessionGuard() {
+        return new EndedSessionGuard(meterRegistry);
+    }
+
+    /**
+     * 소켓이 실제로 닫힐 때만 끝난 세션으로 표시한다. {@code StompSubProtocolHandler.afterSessionEnded} 가 종료 DISCONNECT 를
+     * 보내기 직전에 같은 스레드로 이 이벤트를 발행한다(클라이언트 DISCONNECT 프레임은 발행하지 않는다). 앞선 리스너가
+     * 던지면 뒤 리스너가 불리지 않으므로 맨 먼저 돈다.
+     */
+    @EventListener
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void markEndedSession(SessionDisconnectEvent event) {
+        EndedSessionGuard.markEnded(SimpMessageHeaderAccessor.getSessionAttributes(event.getMessage().getHeaders()));
     }
 
     /**

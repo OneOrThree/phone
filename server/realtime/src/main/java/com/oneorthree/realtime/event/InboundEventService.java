@@ -329,19 +329,20 @@ public class InboundEventService {
      */
     private void advanceBlockGeneration(String eventId, JsonNode envelope) {
         JsonNode params = envelope.get("params");
-        JsonNode blocker = params == null || !params.isObject() ? null : params.get("blockerUserId");
-        UUID blockerId;
-        try {
-            blockerId = blocker == null || !blocker.isString() ? null : UUID.fromString(blocker.stringValue());
-        } catch (IllegalArgumentException e) {
-            blockerId = null;
-        }
+        UUID blockerId = params == null || !params.isObject() ? null : uuidOrNull(params.get("blockerUserId"));
         if (blockerId == null) {
             log.warn("차단 사건에 blockerUserId 가 없다 — 세대를 올리지 않는다. eventId={}", eventId);
             return;
         }
         blockedUsers.advanceGeneration(blockerId);
         outboundAuthzCache.evictUser(blockerId);
+        // 숨김은 양방향(GROMO-2469)이라 차단당한 쪽 세션이 들고 있던 「차단자의 프레임 허용」도 지운다. 세대는 차단자 것 하나면
+        // 된다 — 전달 직전 판정이 두 집합 중 차단자의 집합에서 이 관계를 읽기 때문이다. 옛 사건엔 필드가 없을 수 있다.
+        UUID blockedId = uuidOrNull(params.get("blockedUserId"));
+        if (blockedId != null) {
+            outboundAuthzCache.evictUser(blockedId);
+        }
+        seaRooms.refreshBlockVisibility(blockerId);
     }
 
     /**
@@ -409,7 +410,7 @@ public class InboundEventService {
             }
         }
         currentMembershipCache.evictUser(userId);
-        CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+        CloseStatus status = RealtimeSessionRegistry.SESSION_REVOKED;
         boolean failed = false;
         for (String stompId : revoked) {
             outboundAuthzCache.evictSession(stompId);

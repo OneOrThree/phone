@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Back",
     "characterLimit": "Up to {{max}} characters · {{count}}/{{max}}",
     "cancel": "Cancel",
     "ok": "OK",
@@ -8,6 +9,7 @@
     "save": "Save",
     "later": "Later",
     "manageIsland": "Manage island",
+    "clearSearch": "Clear search",
     "readyStampA11y": "Ready stamp",
     "caughtItem": "Caught item",
     "newBadge": "NEW!"
@@ -19,7 +21,7 @@
     "INVALID_IDEMPOTENCY_KEY": "The request key is invalid.",
     "INVALID_CURSOR": "The list position is invalid.",
     "UNSUPPORTED_PROVIDER": "This social login provider isn't supported.",
-    "NICKNAME_INVALID": "Nicknames must be 2–10 characters, not counting leading or trailing spaces.",
+    "NICKNAME_INVALID": "Nicknames must be 2–10 characters without whitespace.",
     "BANNED_WORD": "It contains words that aren't allowed.",
     "HOST_WITHDRAW": "Hand over your island host role before leaving the island.",
     "REFRESH_TOKEN": "Your login is no longer valid.",
@@ -101,6 +103,114 @@
     "permissionSection": "Permissions",
     "permissionManage": "Manage App Permissions",
     "permissionManageSub": "Screen Time permission · Measured apps",
+    "permissions": {
+      "gate": {
+        "title": "Measurement permission",
+        "heading": "We'll record your usage accurately",
+        "sub": "Only the apps you select are recorded.",
+        "row": "Screen Time permission",
+        "rowUnavailable": "Not available on this device",
+        "rowDenied": "Permission is off. You can request it again.",
+        "rowNone": "Not connected yet",
+        "openUsage": "Open Usage Access settings",
+        "done": "Done",
+        "continue": "Continue",
+        "retry": "Ask for permission again",
+        "requesting": "Requesting permission…",
+        "openSystem": "Open system settings",
+        "laterBoard": "Skip for now and open the board",
+        "openBoard": "Open the board",
+        "connectBtn": "Connect Screen Time",
+        "note": "Without permission, phone-use quests show “Needs check” instead of 0 minutes."
+      },
+      "status": {
+        "permissionChecking": "Checking",
+        "checking": "Checking selection",
+        "failed": "Couldn't check the selection",
+        "allApps": "All apps",
+        "allAppsPending": "All apps · Applies from tomorrow",
+        "selectedCount": "{{count}} selected",
+        "selectedCountPending": "{{count}} selected · Applies from tomorrow",
+        "none": "Nothing selected yet"
+      },
+      "connected": "Connected",
+      "unavailable": "Unavailable",
+      "needed": "Connection needed",
+      "sheet": {
+        "allowedApps": "Apps allowed during focus"
+      },
+      "screenTime": {
+        "title": "Screen Time",
+        "connect": "Connect Screen Time",
+        "sub": "{{description}} · Used for phone-use quests and records"
+      },
+      "measuredApps": {
+        "title": "Measured apps",
+        "a11y": "Measured apps, {{description}}",
+        "pick": "Pick measured apps"
+      },
+      "disconnectNote": "If you turn this off, phone-use quest progress shows “Needs check”.",
+      "allowed": {
+        "section": "Allowed during focus",
+        "title": "Allowed apps",
+        "count": "{{count}} selected"
+      },
+      "safari": {
+        "title": "Unblock Safari websites",
+        "sub": "Also pick Safari in the allowed apps above to browse the web",
+        "a11y": "Unblock Safari websites during focus"
+      },
+      "android": {
+        "overlay": {
+          "title": "Display over other apps",
+          "on": "Allowed · Used to block apps during focus",
+          "off": "Permission needed to block apps"
+        },
+        "notice": {
+          "title": "Focus status notification",
+          "sub": "See your focus time in notifications and on the lock screen"
+        }
+      },
+      "help": {
+        "android": "Allow this app in Usage Access settings.",
+        "ios": "If the permission prompt doesn't appear, allow it in system Settings."
+      },
+      "errors": {
+        "usageOpenFailed": "Couldn't open Usage Access settings.",
+        "settingsOpen": "Couldn't open settings. Check the permission in your device's Settings app.",
+        "safariCheck": "Couldn't check the Safari setting.",
+        "allowedCheck": "Couldn't check the allowed apps setting.",
+        "unavailable": "Screen Time can't be connected on this device.",
+        "grantAndroid": "Allow the permission in Usage Access settings.",
+        "grantIos": "Allow Screen Time in iOS Settings.",
+        "requestFailed": "Couldn't request Screen Time permission.",
+        "allowedChange": "Couldn't change allowed apps.",
+        "safariChange": "Couldn't change the Safari setting.",
+        "overlayOpen": "Couldn't open the blocking permission settings.",
+        "appliedNow": "Applied {{count}} measured apps right away.",
+        "appliedTomorrow": "{{count}} measured apps will apply from tomorrow.",
+        "pickerOpen": "Couldn't open the measured apps picker."
+      },
+      "androidPicker": {
+        "savedAllowed": "Saved your allowed apps.",
+        "savedTomorrow": "Measured apps will apply from tomorrow.",
+        "savedNow": "Started measuring the selected apps.",
+        "syncLater": "Saved your selection. We'll check usage again.",
+        "saveFailed": "Couldn't save your selection. Please try again.",
+        "loadFailed": "Couldn't load the installed apps.",
+        "loading": "Loading apps…",
+        "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
+        "descMeasured": "Your first selection applies right away. Changes to existing apps apply from midnight KST the next day.",
+        "allApps": "Measure all apps",
+        "search": "Search apps",
+        "select": "Select {{label}}",
+        "none": "No matching apps.",
+        "more": "Show more apps",
+        "saving": "Saving…",
+        "save": "Save selection",
+        "back": "Back"
+      }
+    },
     "safetySection": "Safety",
     "blockedUsersSub": "Review and unblock your blocked list",
     "helpSection": "Help",
@@ -159,6 +269,7 @@
       "appleNoCredential": "Couldn't get your Apple sign-in info. Please try again.",
       "googleCancelled": "Google sign-in cancelled",
       "googleNoCredential": "Couldn't get your Google sign-in info. Please try again.",
+      "googleNotConfigured": "Google sign-in isn't available in this build.",
       "guestFailed": "Couldn't open a guest account. Please try again in a moment.",
       "socialFailed": "Couldn't finish signing in. Please try again."
     }
@@ -271,7 +382,6 @@
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
       "submit": "Create Island",
-      "capacityRangeError": "Capacity must be between {{min}} and {{max}}.",
       "doneTitle": "Island Created!",
       "doneSub": "\"{{island}}\" is now your island.",
       "nameLabel": "Island Name",
@@ -372,7 +482,6 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "Focus today",
       "visiting": "Visiting {{name}}",
       "focusingNow": "{{count}} focusing on Fishing Island now",
       "quietNow": "Fishing Island is quiet right now",
@@ -442,6 +551,7 @@
     },
     "door": {
       "mailNewLetter": "Mailbox, you have a new letter from a friend.",
+      "inboxNewLetters": "Open received letters, {{count}} new",
       "mailNewMagazine": "Mailbox, a new cat magazine arrived.",
       "newComment": "{{label}}, there's a new comment.",
       "unreadNotice": "{{label}}, there's an unread notice.",
@@ -459,11 +569,7 @@
       "membersOnly": "Only residents can use this."
     },
     "a11y": {
-      "walk": "Walk around the island",
       "campfire": "Campfire",
-      "gram": "Gramophone",
-      "boat": "My Boat",
-      "dock": "Dock",
       "todayFocusClock": "{{name}}, focus today {{clock}}",
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
@@ -488,6 +594,7 @@
     }
   },
   "wardrobe": {
+    "title": "My Outfits",
     "default": "Default",
     "defaultFor": "{{slot}}: default",
     "section": {
@@ -507,12 +614,12 @@
     "memberArrived": "{{name}} has arrived",
     "common": {
       "holdEndFocus": "End",
-      "holdEndHint": "Hold for 3 seconds to end focus. Release early to cancel.",
-      "holdEndA11yHint": "Double-tap to end focus after 3 seconds. Double-tap again to cancel.",
-      "holdEndStart": "End focus after 3 seconds",
+      "holdEndHint": "Hold for 1.5 seconds to end focus. Release early to cancel.",
+      "holdEndA11yHint": "Double-tap to end focus after 1.5 seconds. Double-tap again to cancel.",
+      "holdEndStart": "End focus after 1.5 seconds",
       "holdEndCancel": "Cancel ending focus",
       "holdEndCancelHint": "Double-tap again to cancel ending focus.",
-      "holdEndStarted": "Ending in 3 seconds. Double-tap again to cancel.",
+      "holdEndStarted": "Ending in 1.5 seconds. Double-tap again to cancel.",
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
       "myLittleBoat": "My Little Raft",
@@ -610,7 +717,7 @@
       "step14": "Let's take a quick break this time.\nTap Take a Break below.",
       "step15": "If other residents on the same island are on a break, you can see them together here at the campfire.\nOnce you've rested enough, tap Resume Focus.",
       "step16": "You're back at the spot you picked earlier.\nYour to-do and focus time picked up right where they left off before your break, didn't they?",
-      "step17": "Now hold the end focus button for 3 seconds.",
+      "step17": "Now hold the end focus button for 1.5 seconds.",
       "step18": "Tap End Focus to finish.",
       "step19": "The time you just focused has been recorded.\nTime spent on break isn't included in your focus time.",
       "step20": "You can also check the fish you caught by focusing here.",
@@ -782,6 +889,9 @@
     "pinForbidden": "You can't add this island",
     "pinAlreadyMember": "This is already one of your islands"
   },
+  "mailbox": {
+    "systemSender": "Island notice"
+  },
   "magazine": {
     "islandTitle": "{{name}} Island",
     "cell": {
@@ -861,7 +971,9 @@
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
-      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue"
+      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue",
+      "title": "Island news",
+      "promotionRow": "The host spent 60 fish on a magazine promotion"
     },
     "reader": {
       "title": "Nyaong",
@@ -1065,6 +1177,8 @@
     "remarkLocked": "You can change your message again 5 minutes after editing it.",
     "remarkFailed": "Could not share your message. Please write it again at sea.",
     "emoteTooFrequent": "You can send another emote in a moment.",
+    "rejoining": "Rejoining the sea. Please send it again in a moment.",
+    "upstreamUnavailable": "Could not load the sea. Please try again in a moment.",
     "backBlocked": "Use [Finish focusing] to end this focus session.",
     "finishChecking": "Checking your voyage result. It will continue once connected.",
     "finishUnconfirmed": "Could not confirm your voyage result. Please check your records.",
@@ -1073,11 +1187,17 @@
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
     "welcomeBody": "You arrived at \"{{island}}\" as a new resident.",
-    "focusTime": "Focus time",
-    "requestFriend": "Add friend",
-    "friendRequested": "Request sent",
-    "friendExists": "You are already friends or have a pending request.",
-    "friendUnavailable": "You cannot send a friend request to this user."
+    "focusTime": "Focus time"
+  },
+  "catInfo": {
+    "open": "View {{name}}",
+    "todayFocus": "Focused today {{duration}}",
+    "request": "Add friend",
+    "accept": "Accept friend request",
+    "requested": "Requested",
+    "processing": "Processing…",
+    "friends": "Friends",
+    "failed": "Couldn't send the request. Tap to try again."
   },
   "safety": {
     "blockTitle": "Block user",
