@@ -53,7 +53,7 @@ if ! node -e "const g=require('./src/config/googleClientIds.json').prod; process
   exit 1
 fi
 
-# 플랫폼별 runtimeVersion 이 있으면 eas update 가 그 값으로 발행한다(GROMO-2415 — Android 만 분리).
+# 플랫폼별 runtimeVersion 이 있으면 eas update 가 그 값으로 발행한다(GROMO-2415 Android·GROMO-2523 iOS 분리).
 IOS_RUNTIME="$(node -p "const e=require('./app.config.js').expo; e.ios?.runtimeVersion ?? e.runtimeVersion")"
 ANDROID_RUNTIME="$(node -p "const e=require('./app.config.js').expo; e.android?.runtimeVersion ?? e.runtimeVersion")"
 COMMIT="$(git rev-parse --short HEAD)"

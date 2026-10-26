@@ -9,7 +9,7 @@ HERMES_CLI_PATH = File.expand_path("../node_modules/hermes-compiler/hermesc/osx-
 PRODUCTION_API_URL = "https://catus-api.oneorthree.world".freeze
 # 팀 dev 서버 — src/services/api/client.ts 의 DEV_API_URL 과 같은 값
 DEV_API_URL = "https://oneorthree.dev.mooo.com".freeze
-# expo-updates(OTA) 설정 — 운영과 같은 채널(production)·runtime(2.0.0)을 쓴다
+# expo-updates(OTA) 설정 — 운영과 같은 채널(production)·runtime(iOS 2.0.0-push, app.config.js ios.runtimeVersion)을 쓴다
 EXPO_PLIST = File.join(IOS_DIR, "Cattus/Supporting/Expo.plist").freeze
 
 def asc_api_key
