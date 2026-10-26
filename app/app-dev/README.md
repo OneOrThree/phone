@@ -174,7 +174,7 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 **새 도메인은 `src/services/api/<도메인>.ts` 를 새로 만듭니다.** `auth.ts` 에 얹지 않습니다 — 한 파일에 몰면 병렬 티켓이 서로의 머지 충돌이 됩니다. 요청은 전부 `client.ts` 의 `request()` 를 지나고, 명령성 요청(PATCH `/me` · DELETE `/me` · PATCH `/me/settings`)은 `uuid()` 로 만든 `idempotencyKey` 를 넘기며 **재시도는 같은 값으로** 보냅니다.
 
-**계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 재발급·B 세션 bootstrap 재등록·`deliveryTag` 대조와 commit 직후의 결과 세션 채택 확인 요청은 기기·푸시 등록 티켓 몫입니다.
+**계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 교체·B 세션 bootstrap 재등록·`deliveryTag` 대조는 `services/push.ts` 가 합니다(GROMO-2525 — 계정이 바뀌면 표시 알림을 지우고 이전 토큰을 지운 뒤 새 토큰으로 등록). 서버는 그 세션의 첫 인가 성공·refresh·bootstrap 소비로 결과 세션 채택을 기록합니다(계정 LLD 「결과 세션 채택」).
 
 토큰 갱신(`POST /auth/sessions/current/refresh`, GROMO-2035)과 게스트 세션 발급(`POST /auth/sessions/guest`, GROMO-2036)은 2.0 공개 표면에 있고 앱이 호출합니다 — 401 은 갱신을 한 번 시도한 뒤 실패하면 재로그인입니다. 로그인 화면 제공자는 iOS 애플·구글, Android 구글입니다(계정 정책 LOGIN-D04). Kakao·LINE SDK 와 버튼 코드는 남아 있어 `src/services/loginProviders.ts` 목록만 바꾸면 되돌릴 수 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap`(1회용 기기 등록 자격)은 서버가 로그인 201·게스트 시작 응답 헤더로 싣습니다(결과 재생·refresh 응답에는 없음). `login()`·`guestLogin()` 이 `request()` 의 `onHeaders` 로 받아 리프레시 토큰에 묶어 **메모리에만** 두고, 기기 등록이 `takeDeviceBootstrap(refreshToken)` 으로 한 번 꺼내 씁니다(저장소·로그에 남기지 않음). 기기 토큰 API(`PUT`·`DELETE /api/v1/users/me/device-token`)는 2.0 앱이 `/api/v1` 을 부르는 첫 예외이며 `services/api/deviceToken.ts` 에만 있습니다.
 
@@ -202,7 +202,7 @@ cd ios
 ./testflight.sh --dev
 ```
 
-App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 자동으로 이 빌드를 올리는 워크플로는 티켓 2219 에서 다룹니다.
+App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 이 dev 빌드를 자동으로 올리는 워크플로는 `.github/workflows/app-ios-testflight-dev.yml` 이고, 러너 맥 등록·푸시 설정 파일 배치는 `docs/conventions/ios-testflight-dev-runner.md` 를 따릅니다.
 
 ### 푸시 설정 파일 `GoogleService-Info.plist` (GROMO-2523)
 
