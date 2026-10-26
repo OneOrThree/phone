@@ -387,11 +387,10 @@ class DispatchService {
             // 수신 확인 태그는 «이 기기 등록»의 값이라 기기별 렌더 직후에 싣는다(GROMO-2520) — 크기 검사도 태그를
             // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다. 태그는 ownership_version 과 같은 등록
             // UPSERT 에서만 바뀌므로, 판정 뒤 재등록으로 태그가 바뀌면 stillOurs 의 세대 대조가 이 발송을 거른다.
+            // 관리자 템플릿 저장·미리보기는 AdminCatalog.renderDraft 가 같은 길이의 자리표시를 더해 미리 잰다.
             String tag = (String) token.get("delivery_tag");
             if (tag != null) {
-                Map<String, String> data = new LinkedHashMap<>(push.data());
-                data.put("deliveryTag", tag);
-                push = new RenderedPush(push.title(), push.body(), data, push.silent());
+                push = push.withDeliveryTag(tag);
             }
             try {
                 FcmPayload.requireFits(push, sound, collapseEventId(ready));

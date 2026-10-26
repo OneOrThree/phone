@@ -18,6 +18,8 @@ import java.util.UUID;
 class AdminCatalog {
 
     private static final Set<String> LOCALES = Set.of("ko", "en", "ja", "zh-Hant");
+    /** deliveryTag 자리표시. 실제 태그는 UUID 문자열(DeviceService)이라 항상 36자 — 같은 UUID 문자열로 길이를 맞춘다. */
+    private static final String TAG_PLACEHOLDER = new UUID(0L, 0L).toString();
     private final Store store;
     private final AdminAudit audit;
     private final Renderer renderer;
@@ -250,7 +252,10 @@ class AdminCatalog {
     RenderedPush renderDraft(Map<String, Object> template, Map<String, Object> params) {
         try {
             RenderedPush push = renderer.renderTemplate(template, params);
-            FcmPayload.requireFits(push, true, "template-preview");
+            // 실제 발송은 기기마다 deliveryTag 를 더한 봉투로 같은 한도를 잰다(GROMO-2520). 태그 없이 재면 한도에
+            // 가까운 템플릿이 저장은 되고 태그 있는 기기로 갈 때만 FCM_PAYLOAD_TOO_LARGE 로 재시도 없이 FAILED 가
+            // 된다 — 그래서 태그 길이만큼 자리를 예약해 잰다. 미리보기 화면에는 태그를 보이지 않으니 반환은 원래 push.
+            FcmPayload.requireFits(push.withDeliveryTag(TAG_PLACEHOLDER), true, "template-preview");
             return push;
         } catch (IllegalArgumentException invalid) {
             throw new NotificationFailure(400, "INVALID_TEMPLATE_SYNTAX");
