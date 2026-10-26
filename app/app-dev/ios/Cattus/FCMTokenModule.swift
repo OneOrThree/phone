@@ -32,6 +32,9 @@ final class FCMTokenModule: RCTEventEmitter, MessagingDelegate {
         }
         guard let messaging = configuredMessaging(reject) else { return }
         messaging.apnsToken = apnsToken
+        // deleteToken 이 꺼 둔 자동 초기화를 되돌린다(계정 전환 rotate 는 delete 직후 get 이라 여기서 복원된다).
+        // APNs 토큰을 먼저 넣은 뒤 켜야 켜는 순간 시작되는 토큰 요청에도 APNs 토큰이 실린다.
+        messaging.isAutoInitEnabled = true
         messaging.token { token, error in
             if let token, !token.isEmpty {
                 resolve(token)
@@ -42,12 +45,15 @@ final class FCMTokenModule: RCTEventEmitter, MessagingDelegate {
     }
 
     // 지운 뒤 getToken 은 새 토큰을 받는다(계정 전환·알림 끄기).
+    // 지우기 전에 자동 초기화를 끈다 — 켜 둔 채면 앱 시작 때 Firebase 가 등록이 없다고 보고 새 토큰을 만든다.
+    // 값은 Firebase 가 앱 재시작 뒤에도 유지하고, 켤 때는 getToken 이 되돌린다. Info.plist 키는 쓰지 않는다(첫 실행 기본 동작 유지).
     @objc(deleteToken:rejecter:)
     func deleteToken(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         guard let messaging = configuredMessaging(reject) else { return }
+        messaging.isAutoInitEnabled = false
         messaging.deleteToken { error in
             if let error {
                 reject("TOKEN_ERROR", error.localizedDescription, error)
