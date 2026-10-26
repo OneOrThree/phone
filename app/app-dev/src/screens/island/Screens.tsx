@@ -4766,8 +4766,8 @@ export function RedesignScreens({ e }: any) {
 // 설정 「알림」 토글(GROMO-2526). «실제로 받는지»를 보인다 — 시스템 권한이 허용일 때만 켜진 것으로 그리고, 아직 안 물음·거부는
 // 앱 설정이 켜져 있어도(기본값이 켜짐이다) 꺼진 것으로 그린다. 켜진 채로 두면 첫 누름이 앱 설정만 끄고 팝업·시스템 설정은 두 번째
 // 누름에야 간다. 시트가 열릴 때와 앱이 활성으로 돌아올 때(시스템 설정에서 돌아온 때) 권한을 다시 읽는다. 푸시 브리지가 없는
-// 바이너리(Android·옛 iOS·웹)는 'unavailable' 이라 앱 설정 그대로다. 읽지 못한 경우('error')는 확인 못 한 것이라 허용이 아니다 —
-// 꺼진 것으로 그리고, 누르면 다시 읽는다.
+// 바이너리(Android·옛 iOS·웹)는 'unavailable' 이라 앱 설정 그대로다. 읽지 못한 경우('error')도 앱 설정(사용자의 뜻)을 그대로
+// 보이되 「확인하지 못했어요」 를 붙여 확인된 것처럼 보이지 않게 한다 — 꺼진 것으로 그리면 앱에서 끌 수 없다.
 function NotificationToggle({ e }: any) {
   // null = 아직 안 읽음
   const [permission, setPermission] = useState<PushPermission | null>(null);
@@ -4803,14 +4803,15 @@ function NotificationToggle({ e }: any) {
       );
   };
   // 읽기 전에는 iOS 만 꺼진 것으로 그린다(푸시 브리지가 iOS 에만 있어 허용인지 아직 모른다) — 켜진 것으로 그렸다 꺼지는 깜빡임이 없다.
-  // 읽은 뒤에는 허용·브리지 없음('unavailable')만 앱 설정을 따른다.
+  // 읽은 뒤에는 허용·브리지 없음('unavailable')·확인 못 함('error')이 앱 설정을 따른다. 아직 안 물음·거부는 꺼진 것으로 그린다.
   const receiving =
     permission === null
       ? Platform.OS !== 'ios'
-      : permission === 'granted' || permission === 'unavailable';
+      : permission === 'granted' || permission === 'unavailable' || permission === 'error';
   return (
     <SheetRow
       title={t('settings.notifications')}
+      sub={permission === 'error' ? t('settings.permissions.notifications.error') : undefined}
       tail={
         <Toggle
           label={t('settings.notifications')}
