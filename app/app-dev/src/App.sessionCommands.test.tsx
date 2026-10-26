@@ -206,6 +206,8 @@ beforeEach(async () => {
   mockGuestLogin.mockReset();
   mockPrepareLogout.mockReset();
   mockPrepareLogout.mockResolvedValue(undefined);
+  mockRequestPushPermission.mockReset();
+  mockRequestPushPermission.mockResolvedValue('granted');
   mockCheckSession.mockResolvedValue({ status: 'offline' });
   mockRestoreSession.mockResolvedValue(null);
   mockBootRoute = 'login';
@@ -3052,6 +3054,11 @@ test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
 // 알림 권한은 화면 전환 방패(350ms)가 걷힌 뒤에 묻는다 — 느린 CI 에서도 기본 1초 대기를 넘지 않게 넉넉히 기다린다.
 const promptAsked = () =>
   waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1), { timeout: 3000 });
+// 방패가 걷힌 뒤까지 기다린다 — 「안 묻는다」는 단언이 방패 때문에 겉으로만 통과하지 않게(잘못 묻는다면 방패가 걷힌 뒤에 묻는다).
+const afterShield = async () => {
+  await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
+  await settle();
+};
 // 서버 홈 스냅샷 — 알림 권한은 이 스냅샷이 현재 섬 것으로 적용돼 홈이 실제로 그려진 뒤에만 묻는다. 스냅샷 전에는 홈 자리에 로딩·오류 화면이 뜬다.
 const homeFacts = (islandId: string) => ({
   status: 'loaded' as const,
@@ -3098,7 +3105,7 @@ test('서버 세션이 있는 섬 홈에 들어오면 알림 권한을 한 번�
 
   await act(async () => captured.reset('settings'));
   await act(async () => captured.reset('home'));
-  await settle();
+  await afterShield();
   expect(captured.route).toBe('home');
   expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
   await app.unmount();
@@ -3110,7 +3117,7 @@ test('홈 스냅샷이 아직 오지 않았으면(로딩 화면) 묻지 않고, 
     resolve = done;
   });
   const app = await pushApp({ snapshot: () => pending });
-  await settle();
+  await afterShield();
   expect(captured.route).toBe('home');
   expect(captured.homeError).toBe(false);
   expect(captured.state.serverIslands.home).toBeFalsy();
@@ -3131,7 +3138,7 @@ test('홈 스냅샷을 못 받아 오류 화면이면 묻지 않고, 다시 시�
     },
   });
   await waitFor(() => expect(captured.homeError).toBe(true));
-  await settle();
+  await afterShield();
   expect(mockRequestPushPermission).not.toHaveBeenCalled();
 
   offline = false;
@@ -3157,7 +3164,7 @@ test('옛 스냅샷이 남아 있어도 홈을 다시 읽다 실패해 오류가
   await act(async () => captured.retryHome());
   await waitFor(() => expect(captured.homeError).toBe(true));
   await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: true }));
-  await settle();
+  await afterShield();
   expect(captured.state.serverIslands.home.islandId).toBe('i1');
   expect(mockRequestPushPermission).not.toHaveBeenCalled();
 
@@ -3187,7 +3194,7 @@ test('화면 전환 방패가 홈을 덮는 동안에는 묻지 않고, 방패�
 test('튜토리얼 중에는 묻지 않고, 튜토리얼이 끝나면(step 22 이상 — state.tutorial 은 끝난 뒤에도 남는다) 묻는다', async () => {
   const app = await pushApp({ before: (dispatch) => dispatch({ type: 'GUIDE_STEP', step: 4 }) });
   await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
-  await settle();
+  await afterShield();
   expect(captured.route).toBe('home');
   expect(captured.state.tutorial).toEqual({ step: 4 });
   expect(mockRequestPushPermission).not.toHaveBeenCalled();
@@ -3217,7 +3224,44 @@ test.each([
   ],
 ])('알림 권한을 묻지 않는다 — %s', async (_case, options) => {
   const app = await pushApp(options);
-  await settle();
+  await afterShield();
   expect(mockRequestPushPermission).not.toHaveBeenCalled();
   await app.unmount();
 });
+
+test('권한 조회가 일시적으로 실패해(unavailable) 못 물었으면 다음 홈 진입에서 다시 묻고, 답을 받은 뒤에는 묻지 않는다', async () => {
+  mockRequestPushPermission.mockResolvedValueOnce('unavailable');
+  const app = await pushApp();
+  await promptAsked();
+  // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다(effect 는 의존값이 바뀔 때만 돈다).
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  await act(async () => captured.reset('settings'));
+  await act(async () => captured.reset('home'));
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
+
+  // 이번에는 답이 왔다(granted) — 더는 묻지 않는다.
+  await act(async () => captured.reset('settings'));
+  await act(async () => captured.reset('home'));
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+  await app.unmount();
+});
+
+test.each(['granted', 'denied'] as const)(
+  '권한 요청이 %s 로 끝나면 이 실행에서는 홈에 다시 들어와도 다시 묻지 않는다',
+  async (answer) => {
+    mockRequestPushPermission.mockResolvedValueOnce(answer);
+    const app = await pushApp();
+    await promptAsked();
+
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    await app.unmount();
+  },
+);

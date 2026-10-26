@@ -101,7 +101,7 @@ import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
-import { pushPermissionStatus, requestPushPermission } from '@/services/push';
+import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { componentTokens } from '@/design-system/tokens';
 import {
   C,
@@ -4615,26 +4615,7 @@ export function RedesignScreens({ e }: any) {
         </SheetGroup>
         {sec(t('settings.generalSection'))}
         <SheetGroup flat>
-          {/* 알림은 켤 때 시스템 권한도 맞춘다(GROMO-2526) — 아직 안 물음이면 시스템 팝업, 거부면 시스템 설정(앱에서는 다시 켤 수 없다) */}
-          <SheetRow
-            title={t('settings.notifications')}
-            tail={
-              <Toggle
-                label={t('settings.notifications')}
-                value={state.settings.notifications}
-                onChange={async (value: boolean) => {
-                  act('SETTING', { key: 'notifications', value });
-                  if (!value) return;
-                  const permission = await pushPermissionStatus();
-                  if (permission === 'undetermined') await requestPushPermission();
-                  else if (permission === 'denied')
-                    await Linking.openSettings().catch(() =>
-                      notify(t('settings.permissions.errors.settingsOpen')),
-                    );
-                }}
-              />
-            }
-          />
+          <NotificationToggle e={e} />
           {toggle(t('settings.sound'), 'sound')}
           {toggle(t('settings.haptics'), 'haptics')}
           {toggle(t('settings.reduceMotion'), 'reduceMotion')}
@@ -4780,6 +4761,53 @@ export function RedesignScreens({ e }: any) {
     <Page title={t('onboardingStory.brand')} back={home}>
       <Btn title="섬으로 돌아가기" onPress={home} />
     </Page>
+  );
+}
+// 설정 「알림」 토글(GROMO-2526). «실제로 받는지»를 보인다 — 앱 설정이 켜져 있어도 시스템 권한이 거부면 꺼진 것으로 그린다.
+// 켜진 채로 두면 한 번 눌러 앱 설정만 끄고, 시스템 설정까지 가려면 두 번 눌러야 한다. 시트가 열릴 때와 앱이 활성으로 돌아올 때
+// (시스템 설정에서 돌아온 때) 권한을 다시 읽는다. 푸시 브리지가 없는 바이너리(Android·옛 iOS·웹)는 'unavailable' 이라 앱 설정 그대로다.
+function NotificationToggle({ e }: any) {
+  const [permission, setPermission] = useState<PushPermission>('unavailable');
+  useEffect(() => {
+    let active = true;
+    const read = () => {
+      void pushPermissionStatus().then((next) => {
+        if (active) setPermission(next);
+      });
+    };
+    read();
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') read();
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+  const change = async (value: boolean) => {
+    // 거부 때문에 꺼져 보이던 토글을 누르면 앱 설정은 이미 그 값이다 — 다시 쓰지 않는다.
+    if (value !== e.state.settings.notifications)
+      e.dispatch({ type: 'SETTING', key: 'notifications', value });
+    if (!value) return;
+    // 켤 때 시스템 권한도 맞춘다 — 아직 안 물음이면 시스템 팝업, 거부면 시스템 설정(앱에서는 다시 켤 수 없다).
+    const current = await pushPermissionStatus();
+    if (current === 'undetermined') setPermission(await requestPushPermission());
+    else if (current === 'denied')
+      await Linking.openSettings().catch(() =>
+        e.notify(t('settings.permissions.errors.settingsOpen')),
+      );
+  };
+  return (
+    <SheetRow
+      title={t('settings.notifications')}
+      tail={
+        <Toggle
+          label={t('settings.notifications')}
+          value={!!e.state.settings.notifications && permission !== 'denied'}
+          onChange={change}
+        />
+      }
+    />
   );
 }
 function Volume({ value, onChange }: any) {
