@@ -73,12 +73,14 @@ let writes: Promise<unknown> = Promise.resolve();
 /** 이 실행에서 처리한 알림 응답 — 같은 탭이 리스너와 콜드 스타트 조회로 두 번 와도 한 번만 연다. */
 const handledResponses = new Set<string>();
 
-/** 기록 전체를 한 번에 쓴다(원자 저장). 쓰기를 줄 세워 마지막 메모리 값이 마지막에 남고, 끝나기를 기다릴 수 있다. */
-function persist(): Promise<unknown> {
-  writes = writes
-    .then(() => SecureStore.setItemAsync(DEVICE_KEY, JSON.stringify(device)))
-    .catch(() => {});
-  return writes;
+/**
+ * 기록 전체를 한 번에 쓴다(원자 저장). 쓰기를 줄 세워 마지막 메모리 값이 마지막에 남는다. 돌려준 약속은 이 쓰기가
+ * 실패하면 거절한다 — 기다리는 곳(등록 전·409)은 그 실행을 끝내고, 기다리지 않는 곳은 `.catch` 로 삼킨다.
+ */
+function persist(): Promise<void> {
+  const done = writes.then(() => SecureStore.setItemAsync(DEVICE_KEY, JSON.stringify(device)));
+  writes = done.catch(() => {});
+  return done;
 }
 
 /** 브리지·OS 호출이 끝나지 않으면 직렬 큐가 영영 막힌다 — 이 시간이 지나면 그 실행만 끝내고(던짐) 다음 트리거에 다시 한다. */
@@ -91,6 +93,22 @@ function within<T>(work: Promise<T>): Promise<T> {
       timer = setTimeout(() => reject(new Error('PUSH_STEP_TIMEOUT')), STEP_TIMEOUT_MS);
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+/** getToken 을 부른 뒤로 지우지 않았다 — 시간 초과로 끝낸 getToken 이 늦게 만든 토큰은 기록에 없어 이것으로 지운다. */
+let tokenMayExist = false;
+/** 마지막 FCM 브리지 호출(오류는 삼킴). */
+let bridgeInflight: Promise<unknown> = Promise.resolve();
+
+/**
+ * FCM 브리지 호출은 하나씩 한다 — 시간 초과로 끝낸 deleteToken 이 늦게 끝나며 새 getToken 이 막 받은 토큰을 지우지
+ * 않게, 앞 호출이 끝난 뒤에만 시작한다. 앞 호출이 아직 걸려 있으면 이 실행을 끝낸다(다음 트리거에 다시).
+ */
+async function bridge<T>(call: () => Promise<T>): Promise<T> {
+  await within(bridgeInflight);
+  const work = call();
+  bridgeInflight = work.catch(() => {});
+  return within(work);
 }
 
 function readDevice(stored: string | null): PushDevice {
@@ -179,13 +197,16 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (device.userId && device.userId !== session.userId) {
       // 계정 전환(A→B) — 알림 설정·권한과 상관없이 먼저 한다: 이전 계정의 표시 알림을 지우고 FCM 토큰을 바꾼다. 못
       // 바꾸면(던짐) 등록하지 않고 다음 트리거에 다시 한다 — A 의 토큰을 B 로 올리면 A 앞으로 남은 발송이 B 에게 뜬다.
-      // 이 사이 앱이 죽어 자동 초기화가 꺼진 채 남아도 다음 시작의 getToken 이 되돌린다. 기록에 토큰이 없으면 우리 코드가
-      // 이미 지웠다(알림 끄기·앞선 교체) — 빈 저장소의 deleteToken 은 거절될 수 있어 부르지 않는다(그러면 B 를 영영
-      // 등록하지 못한다).
+      // 이 사이 앱이 죽어 자동 초기화가 꺼진 채 남아도 다음 시작의 getToken 이 되돌린다. 기록에 토큰이 없고 getToken 뒤로
+      // 이미 지웠으면(알림 끄기·앞선 교체) 부르지 않는다 — 빈 저장소의 deleteToken 은 거절될 수 있어, 그러면 B 를 영영
+      // 등록하지 못한다.
       await within(N.dismissAllNotificationsAsync()).catch(() => {});
-      if (device.fcmToken) await within(fcm.deleteToken());
+      if (device.fcmToken || tokenMayExist) {
+        await bridge(() => fcm.deleteToken());
+        tokenMayExist = false;
+      }
       device = {};
-      persist();
+      persist().catch(() => {});
       if (!current()) return;
     }
     if (!isEnabled() || !granted(N, await within(N.getPermissionsAsync()))) {
@@ -193,10 +214,12 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       // transport_invalid 만 세우고 소유권을 남기므로, 다시 켜면 새 토큰을 그 소유권(CAS)으로 올린다. 꺼진 동안에는
       // getToken 을 부르지 않는다 — 브리지의 getToken 은 자동 초기화를 다시 켜 토큰을 되살린다.
       // 못 지우면(던짐) 기록을 그대로 둔다 — fcmToken 이 남아 다음 트리거에 다시 지우고, 소유권은 다시 켤 때 CAS 로 쓴다.
-      if (!device.fcmToken || !current()) return;
-      await within(fcm.deleteToken());
+      // 기록에 없어도 시간 초과로 끝낸 getToken 이 늦게 토큰을 만들었을 수 있으면(tokenMayExist) 지운다.
+      if (!(device.fcmToken || tokenMayExist) || !current()) return;
+      await bridge(() => fcm.deleteToken());
+      tokenMayExist = false;
       device = { ...device, fcmToken: undefined };
-      persist();
+      persist().catch(() => {});
       return;
     }
     if (!live()) return;
@@ -206,7 +229,10 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (!hex || hex === invalidHex || !live()) return;
     let token: string;
     try {
-      token = await within(fcm.getToken(hex));
+      token = await bridge(() => {
+        tokenMayExist = true;
+        return fcm.getToken(hex);
+      });
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === NOT_CONFIGURED) disabled = true;
@@ -237,19 +263,28 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     pending = bundle;
     // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
     // 지우지 않고(fcmToken 없음) A→B 가 토큰을 바꾸지 않는다(userId 없음). 같은 계정이면 옛 소유권(이미 CAS 본문에
-    // 있다)·태그(새 응답이 바꿀 때까지)와 그 확인 토큰을 남긴다 — 확인 토큰이 새 토큰과 달라 「확인 전」으로 남는다.
-    if (!sameUser || device.fcmToken !== token) {
-      device = { ...(sameUser ? device : {}), userId: session.userId, fcmToken: token };
-      // 디스크에 닿은 뒤에 보낸다 — PUT 이 서버에 닿은 직후 앱이 죽어도 토큰·계정이 남는다.
-      await within(persist());
-      if (!live()) return;
+    // 있다)·태그(새 응답이 바꿀 때까지)를 남기되 확인은 지운다 — 같은 토큰을 bootstrap 으로 다시 등록하다 응답을 잃어도
+    // 「확인 전」으로 남아, 앱을 다시 시작하면 다시 보낸다.
+    if (!sameUser || device.fcmToken !== token || device.registeredToken !== undefined) {
+      device = {
+        ...(sameUser ? device : {}),
+        userId: session.userId,
+        fcmToken: token,
+        registeredToken: undefined,
+      };
     }
+    // 디스크에 닿은 뒤에 보낸다 — PUT 이 서버에 닿은 직후 앱이 죽어도 토큰·계정이 남는다. 늘 쓴다: 앞 실행의 쓰기가
+    // 실패했으면 메모리만 바뀌어 있어, 조건부로 쓰면 다시 쓰지 않고 보내게 된다. 실패하면(던짐) 이 실행을 끝낸다.
+    await within(persist());
+    // 보내기 직전에 다시 본다 — 그 사이 세션이 바뀌었거나 알림을 껐으면(곧 지울 토큰) 등록하지 않는다.
+    if (!live() || !isEnabled()) return;
     let registered: DeviceRegistration;
     try {
       registered = await registerDevice(body, bundle.key);
     } catch (error) {
-      const { code, status } = error instanceof ApiError ? error : { code: '', status: -1 };
-      // 네트워크·타임아웃(상태 0)·408·429·5xx 는 같은 묶음으로 다음 트리거에 다시 보낸다.
+      // 네트워크·타임아웃(상태 0)·408·429·5xx·ApiError 가 아닌 던짐은 같은 묶음으로 다음 트리거에 다시 보낸다.
+      if (!(error instanceof ApiError)) return;
+      const { code, status } = error;
       const transient = (status === 0 && code !== CLIENT_STALE_SESSION) || status === 408;
       if (transient || status === 429 || status >= 500) return;
       pending = undefined;
@@ -262,9 +297,11 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         bootstrap = undefined;
         device = { userId: session.userId, fcmToken: token };
         await within(persist());
-        await within(fcm.deleteToken());
+        await bridge(() => fcm.deleteToken());
+        tokenMayExist = false;
+        // 토큰을 실제로 지운 뒤에만 덮어쓴다 — 그 사이 세션이 끝나 남긴 기록을 덮어도 빠지는 것은 지운 토큰뿐이다(의도).
         device = { userId: session.userId };
-        persist();
+        persist().catch(() => {});
         rotatedForConflict = generation;
         again = true;
         return;
@@ -280,7 +317,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 응답으로 통째로 덮는다 — 태그 없는 200(V13 전 저장 응답 재생·서버 롤백)이면 저장 태그도 지운다. 남기면 이후
     // 푸시를 전부 버린다.
     device = { userId: session.userId, fcmToken: token, registeredToken: token, ...registered };
-    persist();
+    persist().catch(() => {});
   };
 
   // 브리지 호출은 겹치면 순서가 정해지지 않는다 — 한 번에 하나만 돌리고, 도는 중에 온 트리거는 「한 번 더」로 접는다.
@@ -325,7 +362,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 로그아웃·401·탈퇴 확인으로 세션이 끝났다 — 네트워크 없이 표시 알림을 지우고 CAS·태그를 버린다.
     void N.dismissAllNotificationsAsync().catch(() => {});
     device = { userId: device.userId, fcmToken: device.fcmToken };
-    persist();
+    persist().catch(() => {});
   };
 
   void SecureStore.getItemAsync(DEVICE_KEY).then(
@@ -453,5 +490,5 @@ export function unregisterPushDevice(): void {
   // 곧 지워질 이 세션으로는 다시 등록하지 않고, 진행 중이던 등록의 응답도 버린다.
   pending = undefined;
   haltedGeneration = sessionGeneration();
-  persist();
+  persist().catch(() => {});
 }

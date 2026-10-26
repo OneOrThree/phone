@@ -117,6 +117,9 @@ V10은 과거 kind·템플릿을 비활성화하고 대기 발송을 억제하�
 V12는 `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `MAIN_ISLAND_TRANSFERRED`, `ISLAND_KICKED`의 표시 문구(4종 × 4로케일)에서 닉네임과 섬 이름을 뺍니다.
 `counterpartNickname`·`islandName`은 계약 안정성 때문에 계속 받지만 표시 문구에는 쓰지 않습니다.
 
+V13은 기기 등록마다 수신 확인 태그(`deliveryTag`)를 새로 발급해 등록 응답과 그 기기로 가는 모든 푸시 data에 싣습니다.
+같은 `Idempotency-Key`의 재생은 같은 태그를 돌려줍니다. V13 전에 등록한 기기 행에는 태그가 없어 그 기기로 가는 푸시에도 키를 싣지 않습니다.
+
 관리자 서비스 자격과 `Idempotency-Key`로 다음 경로를 사용합니다.
 
 - `GET /internal/admin/dispatch`: 발송 게이트 상태
@@ -127,3 +130,16 @@ V12는 `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `MAIN_ISLAND_TRANSFERRED`, `ISLAND_K
 기존 `/internal/admin/migration/**`와 `/internal/users/{userId}/result-ack/**` 경로는 제거했습니다.
 기존 `bundle-flush` 잡의 활성 여부·크론·실행 이력은 `delivery-dispatch`로 승계합니다.
 사용자 설정 저장과 기기 등록은 발송 게이트가 닫혀 있어도 동작합니다.
+
+### FCM 프로젝트 불일치(`SENDER_ID_MISMATCH`)
+
+FCM이 `403 SENDER_ID_MISMATCH`로 답하면 그 토큰은 서버의 `FCM_PROJECT_ID`와 다른 Firebase 프로젝트에서 발급된 것입니다. `UNREGISTERED`처럼 그 기기의 `transport_invalid`만 켜고 소유권은 유지하며, 로그에 `FCM 프로젝트 불일치(SENDER_ID_MISMATCH)` 경고를 한 줄 남깁니다(토큰·응답 본문은 남기지 않습니다).
+경고 줄 수로 판정합니다. 기기 하나에서만 나면 그 앱의 `GoogleService-Info.plist` 프로젝트가 틀린 것이니 앱을 고치고, 여러 기기에서 한꺼번에 나면 서버의 `FCM_PROJECT_ID`·`FCM_SERVICE_ACCOUNT_JSON`이 틀린 것입니다. 앱은 같은 유저·같은 토큰이면 다시 등록하지 않아 설정을 고쳐도 저절로 돌아오지 않으므로, 서버 설정을 고친 뒤 DB에서 무효 표시를 되돌립니다.
+
+```sql
+-- 먼저 대상 수를 확인한다(경고 줄 수와 비슷해야 한다). 크게 다르면 실행하지 말고 첫 경고 시각을 다시 확인한다.
+SELECT count(*) FROM device_tokens WHERE active AND transport_invalid AND updated_at >= '<첫 경고 시각>';
+UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_invalid AND updated_at >= '<첫 경고 시각>';
+```
+
+`<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. 다만 `NO_ACTIVE_DEVICE`로 60초마다 재시도 중이던 발송이 이어서 나가므로 오래된 알림이 한꺼번에 갈 수 있습니다.

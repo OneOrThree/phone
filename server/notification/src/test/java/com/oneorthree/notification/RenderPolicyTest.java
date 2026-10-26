@@ -80,6 +80,29 @@ class RenderPolicyTest {
                         "errorCode", "INVALID_ARGUMENT"))))))).isFalse();
     }
 
+    /**
+     * 403 은 두 갈래다(GROMO-2521). 다른 FCM 프로젝트에서 발급된 토큰({@code SENDER_ID_MISMATCH})은 서버 프로젝트로
+     * 영원히 못 보내므로 {@code UNREGISTERED} 와 같은 결과여야 한다 — 재시도로 남으면 매분 영구 재시도된다.
+     * 같은 403 이라도 서버 쪽 사정({@code THIRD_PARTY_AUTH_ERROR} · 권한)은 토큰 탓이 아니므로 재시도로 남는다.
+     */
+    @Test
+    void senderIdMismatchTakesTheUnregisteredPathWhileOtherAuthErrorsStayRetryable() {
+        assertThat(FcmTransport.classify(403, fcmError(403, "PERMISSION_DENIED", "SENDER_ID_MISMATCH")))
+                .isEqualTo(PushTransport.Result.UNREGISTERED);
+        // 상태만 같다고 토큰을 죽이지 않는다 — FcmError.errorCode 가 SENDER_ID_MISMATCH 여야 한다.
+        assertThat(FcmTransport.classify(403, fcmError(403, "PERMISSION_DENIED", "THIRD_PARTY_AUTH_ERROR")))
+                .isEqualTo(PushTransport.Result.RETRY);
+        assertThat(FcmTransport.classify(401, fcmError(401, "UNAUTHENTICATED", "THIRD_PARTY_AUTH_ERROR")))
+                .isEqualTo(PushTransport.Result.RETRY);
+        // FcmError 상세가 없는 403(API 비활성 · IAM 권한 등 서버 자격 문제)도 재시도다.
+        assertThat(FcmTransport.classify(403, Json.write(Map.of("error",
+                Map.of("code", 403, "status", "PERMISSION_DENIED", "message", "Permission denied")))))
+                .isEqualTo(PushTransport.Result.RETRY);
+        // errorCode 가 같아도 상태가 403 이 아니면 이 갈래가 아니다(404 UNREGISTERED 와 같은 상태 결합).
+        assertThat(FcmTransport.classify(500, fcmError(500, "INTERNAL", "SENDER_ID_MISMATCH")))
+                .isEqualTo(PushTransport.Result.RETRY);
+    }
+
     @Test
     void finalPayloadIncludesUtf8TextDataAndEventIdInItsLimit() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> FcmTransport.payload("device",
@@ -99,6 +122,12 @@ class RenderPolicyTest {
         return Json.write(Map.of("error", Map.of("status", "INVALID_ARGUMENT", "details", List.of(
                 Map.of("@type", "type.googleapis.com/google.rpc.BadRequest",
                         "fieldViolations", List.of(Map.of("field", field, "description", "invalid")))))));
+    }
+
+    /** FCM v1 이 돌려주는 실제 오류 모양 — HTTP 상태, gRPC status, 상세의 {@code FcmError.errorCode}. */
+    static String fcmError(int code, String status, String errorCode) {
+        return Json.write(Map.of("error", Map.of("code", code, "status", status, "details", List.of(
+                Map.of("@type", "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode", errorCode)))));
     }
 
     @Test
