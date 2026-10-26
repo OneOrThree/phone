@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   changes:
@@ -29,6 +30,8 @@ jobs:
         with:
           fetch-depth: 0
       - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/satellite-ci-plan.py
       - name: dev 배포 대상 기록
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

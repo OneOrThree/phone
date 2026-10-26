@@ -52,6 +52,7 @@ jobs:
       build-services: false
     permissions:
       contents: read
+      actions: read
 
   # release의 arm64 이미지 검증·발행은 prod-ci가 맡는다.
   # 여기서는 위성 경계 계약만 검사하고 JAR·이미지를 중복 생성하지 않는다.

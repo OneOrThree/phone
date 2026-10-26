@@ -113,6 +113,7 @@ jobs:
     uses: ./.github/workflows/satellite-check.yml
     permissions:
       contents: read
+      actions: read
 
   images:
     name: ${{ matrix.service }} 이미지
