@@ -963,6 +963,43 @@ test('같은 attempt 의 원 응답과 헤더 없는 재생이 함께 도착해 
   assert.equal(calls.length, 2);
 });
 
+test('헤더 없는 재생이 먼저 공개되고 같은 RT 의 원 응답이 세대 검사로 버려져도 묶어 둔 bootstrap 은 공개된 세션에 남는다', async () => {
+  stub([
+    session('BOOT16', 'u2'), // 결과 재생 — 같은 RT, 헤더 없음. 먼저 처리돼 먼저 공개된다
+    bootstrapped('BOOT16', 'u2', 'SECRET-16'), // 원 응답 — 줄 뒤에서 세대 검사로 버려진다
+  ]);
+  // 앞 테스트와 같은 경합이되 순서가 반대다 — 저장소 쓰기를 문 뒤에 세운다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const replay = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  const original = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  // 마이크로태스크가 모두 빠진 뒤 — 두 응답이 다 돌아와 저장이 줄에 선 뒤 — 문을 연다.
+  setTimeout(open, 0);
+
+  const originalError = await original.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await replay;
+  write.mockImplementation(realWrite);
+
+  // 재생의 세션만 공개되고, 원 응답은 같은 세대를 잡고 왔다가 세대 검사로 버려진다.
+  assert.equal(getSession()?.refreshToken, 'BOOT16_RT');
+  assert.equal(originalError?.code, CLIENT_STALE_SESSION);
+  // 버려진 원 응답이 묶은 값의 RT 는 공개된 세션의 RT 와 같다 — «자기 RT 의 항목»이라고 지우면
+  // 공개된 세션이 자격을 잃는다.
+  assert.equal(takeDeviceBootstrap('BOOT16_RT'), 'SECRET-16');
+  assert.equal(takeDeviceBootstrap('BOOT16_RT'), undefined);
+  // 같은 RT 라 서버 폐기 요청도 가지 않는다(가면 방금 공개한 세션이 끊긴다).
+  assert.equal(calls.length, 2);
+});
+
 test('다른 RT 의 값은 서로 독립이다 — 나중 로그인이 앞선 값을 덮지 않고 한쪽을 꺼내도 다른 쪽이 남는다', async () => {
   stub([
     bootstrapped('BOOT5', 'u1', 'SECRET-5'),

@@ -103,7 +103,9 @@ export function takeDeviceBootstrap(refreshToken: string): string | undefined {
  * {@link saveSession} 에 bootstrap 을 RT 로 묶는 일을 «공개 전에» 끼운다. 세션 공개 알림
  * (`subscribeSession`)은 `login()` 이 반환하기 전에 오므로, 반환 뒤에 묶으면 구독자가 못 꺼낸다.
  * 공개하지 못했으면(세대 변경 `false`·저장소 오류) **자기 RT 의 항목만** 버린다 — 이 RT 는 쓰이지 않는
- * 세션이고, 다른 로그인이 묶어 둔 값은 그대로다. 서버는 빈 값을 싣지 않는 것이 계약이라 비어 있으면 «없음»이다.
+ * 세션이고, 다른 로그인이 묶어 둔 값은 그대로다. 단 같은 RT 의 세션을 다른 응답(같은 attempt 의 결과
+ * 재생)이 먼저 공개했다면 그 세션이 쓸 값이라 남긴다. 서버는 빈 값을 싣지 않는 것이 계약이라 비어
+ * 있으면 «없음»이다.
  */
 async function saveSessionHoldingBootstrap(
   session: Session,
@@ -123,7 +125,8 @@ async function saveSessionHoldingBootstrap(
   try {
     published = await saveSession(session, generation, onPublished);
   } finally {
-    if (held && !published) pendingDeviceBootstrap.delete(session.refreshToken);
+    if (held && !published && getSession()?.refreshToken !== session.refreshToken)
+      pendingDeviceBootstrap.delete(session.refreshToken);
   }
   return published;
 }
