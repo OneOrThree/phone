@@ -904,17 +904,17 @@ test('409 충돌 뒤 deleteToken 이 실패하면 살아 있는 토큰을 기록
   t.stop();
 });
 
-test.each<[string, Parameters<typeof setup>[0], (t: ReturnType<typeof setup>) => jest.Mock]>([
-  ['권한 조회', {}, (t) => t.notifications.getPermissionsAsync],
-  ['APNs 토큰 조회', {}, (t) => t.notifications.getDevicePushTokenAsync],
-  ['FCM 토큰 받기', {}, (t) => t.fcm.getToken],
-  ['알림 끄기의 FCM 토큰 지우기', { stored: REGISTERED, enabled: false }, (t) => t.fcm.deleteToken],
+// FCM 브리지 호출(getToken·deleteToken)의 시간 초과는 아래 두 테스트가 본다 — 앞 호출이 끝나야 다음을 부르므로
+// 「영영 안 끝나는」 브리지 호출 뒤에는 다음 브리지 호출도 시작하지 않는다(의도).
+test.each<[string, (t: ReturnType<typeof setup>) => jest.Mock]>([
+  ['권한 조회', (t) => t.notifications.getPermissionsAsync],
+  ['APNs 토큰 조회', (t) => t.notifications.getDevicePushTokenAsync],
 ])(
   '%s 가 끝나지 않아도 20초 뒤 그 실행만 끝내 직렬 큐를 비우고, 다음 트리거가 다시 한다',
-  async (_step, options, stepOf) => {
+  async (_step, stepOf) => {
     jest.useFakeTimers();
     try {
-      const t = setup(options);
+      const t = setup();
       const step = stepOf(t);
       step.mockImplementationOnce(() => new Promise(() => {}));
       await settle();
@@ -1037,5 +1037,105 @@ test('같은 계정이 등록 응답을 기다리는 사이 다시 로그인하�
   const written = t.secureStore.setItemAsync.mock.calls.map(([, value]) => value);
   expect(written.some((value) => value.includes('rotated-tag'))).toBe(false);
   expect(t.stored()).toStrictEqual(registeredWith(FCM_3));
+  t.stop();
+});
+
+test('시간 초과로 끝낸 getToken 이 늦게 토큰을 만들 수 있어, 기록에 토큰이 없어도 알림을 끄면 FCM 토큰을 지운다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup();
+    let lateToken!: (token: string) => void;
+    t.fcm.getToken.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          lateToken = resolve;
+        }),
+    );
+    await settle();
+    jest.advanceTimersByTime(20_000);
+    await settle();
+    // 늦게 끝나 Firebase 에는 토큰이 생겼지만 기록에는 없다.
+    lateToken(FCM);
+    await settle();
+    expect(t.stored()).toBeNull();
+
+    t.switchOn.value = false;
+    t.push.refreshPush();
+    await settle();
+    expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+    expect(t.registerDevice).not.toHaveBeenCalled();
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('시간 초과로 끝낸 deleteToken 이 끝나기 전에는 다음 실행이 getToken 을 부르지 않는다 — 늦게 끝난 삭제가 새 토큰을 지우지 않게', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ stored: REGISTERED, enabled: false });
+    let finishDelete!: () => void;
+    t.fcm.deleteToken.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          finishDelete = () => resolve(undefined);
+        }),
+    );
+    await settle();
+    // 이 실행은 20초 뒤 끝나 큐가 빈다 — 다음 트리거의 실행은 돈다.
+    jest.advanceTimersByTime(20_000);
+    await settle();
+    t.switchOn.value = true;
+    t.push.refreshPush();
+    await settle();
+    expect(t.notifications.getPermissionsAsync).toHaveBeenCalled();
+    expect(t.fcm.getToken).not.toHaveBeenCalled();
+
+    finishDelete();
+    await settle();
+    expect(t.fcm.getToken).toHaveBeenCalledTimes(1);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('ApiError 가 아닌 던짐도 네트워크·5xx 처럼 묶음을 두고 다음 트리거에 같은 키·같은 본문으로 다시 보낸다', async () => {
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.registerDevice.mockRejectedValueOnce(new TypeError('Network request failed'));
+  await settle();
+  t.foreground();
+  await settle();
+
+  const [failed, retried] = t.registerDevice.mock.calls;
+  expect(failed[0]).toStrictEqual({ deviceToken: FCM_2, ownershipToken: OWN });
+  expect(retried).toStrictEqual(failed);
+  expect(t.stored()).toStrictEqual(registeredWith(FCM_2));
+  t.stop();
+});
+
+test('등록 전 기록을 쓰는 사이 알림을 끄면 등록하지 않고, 이어서 그 토큰을 지운다', async () => {
+  const t = setup();
+  const write = t.secureStore.setItemAsync.getMockImplementation()!;
+  let release!: () => void;
+  t.secureStore.setItemAsync.mockImplementationOnce(
+    (key: string, value: string) =>
+      new Promise<void>((resolve) => {
+        release = () => {
+          write(key, value).then(resolve);
+        };
+      }),
+  );
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+
+  // 도는 중에 끈다 — 「한 번 더」로 접혀 이 실행이 끝난 뒤 알림 끄기가 돈다.
+  t.switchOn.value = false;
+  t.push.refreshPush();
+  release();
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
   t.stop();
 });
