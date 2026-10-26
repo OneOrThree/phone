@@ -78,6 +78,7 @@ import {
   reducer,
   displayIsland as currentIsland,
   viewIsland,
+  serverHome,
   sessionSeconds,
   questRate,
   canBuild,
@@ -1524,18 +1525,21 @@ function Gromo() {
   useEffect(() => {
     refreshPush();
   }, [state.settings.notifications]);
-  // 알림 권한(GROMO-2526) — 섬 홈에 들어올 때 시스템 팝업으로 한 번 묻는다. 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을
-  // 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이 바다에 있으면(route 가 home 이 아님) 묻지 않는다
-  // — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다: state.tutorial 은 끝난 뒤에도 남는다.
+  // 알림 권한(GROMO-2526) — 섬 홈이 실제로 그려진 뒤 시스템 팝업으로 한 번 묻는다: 서버 홈 스냅샷이 현재 섬 것으로 적용되고
+  // 오류가 없을 때다. 그 전에는 홈 자리에 로딩·오류 화면이 떠 있어 그 위로 팝업이 뜨고 한 번뿐인 기회가 쓰인다. 아직 안 물음일
+  // 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이 바다에 있으면
+  // (route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다: state.tutorial 은
+  // 끝난 뒤에도 남는다.
   const pushAsked = useRef(false);
   const inTutorial = !!state.tutorial && state.tutorial.step < 22;
+  const islandHomeShown = !homeError && !!serverHome(state);
   useEffect(() => {
     if (pushAsked.current || !loaded || REVIEW || DEMO) return;
-    if (route !== 'home' || !hasServerSession || inTutorial) return;
+    if (route !== 'home' || !hasServerSession || inTutorial || !islandHomeShown) return;
     if (state.settings.notifications === false) return;
     pushAsked.current = true;
     void requestPushPermission();
-  }, [loaded, route, hasServerSession, inTutorial, state.settings.notifications]);
+  }, [loaded, route, hasServerSession, inTutorial, islandHomeShown, state.settings.notifications]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);

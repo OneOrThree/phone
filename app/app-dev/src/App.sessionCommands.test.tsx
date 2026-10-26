@@ -3049,15 +3049,34 @@ test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
 });
 
 // ── 알림 권한 팝업(GROMO-2526) — 섬 홈 첫 진입에서 한 번 ──
+// 서버 홈 스냅샷 — 알림 권한은 이 스냅샷이 현재 섬 것으로 적용돼 홈이 실제로 그려진 뒤에만 묻는다. 스냅샷 전에는 홈 자리에 로딩·오류 화면이 뜬다.
+const homeFacts = (islandId: string) => ({
+  status: 'loaded' as const,
+  facts: {
+    islandId,
+    home: {
+      island: { id: islandId, name: '소다 섬', role: 'host', memberCount: 1, maxMembers: 15 },
+      wallets: { villagePoints: 0 },
+    },
+    completedBuildings: ['hall'],
+    members: [],
+  },
+});
+// 스냅샷 조건을 채워 둔다 — 다른 조건(세션·화면)만 묻지 않는 이유가 되게 한다.
+const applySnapshot = (dispatch: (action: any) => void) =>
+  dispatch({ type: 'SERVER_HOME', facts: homeFacts('i1').facts });
 const pushApp = async ({
   session = true,
   route = 'home',
   before,
+  snapshot = async () => homeFacts('i1'),
 }: {
   session?: boolean;
   route?: Route;
   before?: (dispatch: (action: any) => void) => void;
+  snapshot?: () => Promise<unknown>;
 } = {}) => {
+  mockLoadHomeSnapshot = jest.fn(snapshot);
   if (session) await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'push-user' });
   const app = await render(<App />);
   await waitFor(() => expect(captured).toBeTruthy());
@@ -3082,8 +3101,72 @@ test('서버 세션이 있는 섬 홈에 들어오면 알림 권한을 한 번�
   await app.unmount();
 });
 
+test('홈 스냅샷이 아직 오지 않았으면(로딩 화면) 묻지 않고, 적용돼 홈이 그려진 뒤에 한 번 묻는다', async () => {
+  let resolve!: (result: ReturnType<typeof homeFacts>) => void;
+  const pending = new Promise<ReturnType<typeof homeFacts>>((done) => {
+    resolve = done;
+  });
+  const app = await pushApp({ snapshot: () => pending });
+  await settle();
+  expect(captured.route).toBe('home');
+  expect(captured.homeError).toBe(false);
+  expect(captured.state.serverIslands.home).toBeFalsy();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => resolve(homeFacts('i1')));
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  await app.unmount();
+});
+
+test('홈 스냅샷을 못 받아 오류 화면이면 묻지 않고, 다시 시도해 받으면 한 번 묻는다', async () => {
+  let offline = true;
+  const app = await pushApp({
+    snapshot: async () => {
+      if (offline) throw new Error('offline');
+      return homeFacts('i1');
+    },
+  });
+  await waitFor(() => expect(captured.homeError).toBe(true));
+  await settle();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  offline = false;
+  await act(async () => captured.retryHome());
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  expect(captured.homeError).toBe(false);
+  await app.unmount();
+});
+
+test('옛 스냅샷이 남아 있어도 홈을 다시 읽다 실패해 오류가 떠 있으면 묻지 않고, 다시 시도해 읽히면 묻는다', async () => {
+  let offline = false;
+  const app = await pushApp({
+    // 알림을 끈 채 스냅샷이 적용된 홈에서 시작해, 오류가 뜬 뒤에 켠다.
+    before: (dispatch) => dispatch({ type: 'SETTING', key: 'notifications', value: false }),
+    snapshot: async () => {
+      if (offline) throw new Error('offline');
+      return homeFacts('i1');
+    },
+  });
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+
+  offline = true;
+  await act(async () => captured.retryHome());
+  await waitFor(() => expect(captured.homeError).toBe(true));
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: true }));
+  await settle();
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  offline = false;
+  await act(async () => captured.retryHome());
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1));
+  await app.unmount();
+});
+
 test('튜토리얼 중에는 묻지 않고, 튜토리얼이 끝나면(step 22 이상 — state.tutorial 은 끝난 뒤에도 남는다) 묻는다', async () => {
   const app = await pushApp({ before: (dispatch) => dispatch({ type: 'GUIDE_STEP', step: 4 }) });
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
   await settle();
   expect(captured.route).toBe('home');
   expect(captured.state.tutorial).toEqual({ step: 4 });
@@ -3103,7 +3186,8 @@ test.each([
         dispatch({ type: 'SETTING', key: 'notifications', value: false }),
     },
   ],
-  ['서버 세션이 없다', { session: false }],
+  ['서버 세션이 없다', { session: false, before: applySnapshot }],
+  ['홈이 아닌 화면에 있다', { route: 'settings' as Route, before: applySnapshot }],
   [
     '소속 섬 없이 바다에 있다(홈이 아니다)',
     {
