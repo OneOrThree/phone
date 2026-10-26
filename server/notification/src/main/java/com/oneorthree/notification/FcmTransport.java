@@ -1,6 +1,7 @@
 package com.oneorthree.notification;
 
 import com.google.auth.oauth2.GoogleCredentials;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+@Slf4j
 @Component
 @Profile("!ci")
 class FcmTransport implements PushTransport {
@@ -57,7 +59,17 @@ class FcmTransport implements PushTransport {
                     .retrieve().toBodilessEntity();
             return Result.SENT;
         } catch (RestClientResponseException failure) {
-            return classify(failure.getStatusCode().value(), failure.getResponseBodyAsString());
+            int status = failure.getStatusCode().value();
+            String body = failure.getResponseBodyAsString();
+            if (isSenderIdMismatch(status, body)) {
+                // 토큰 하나가 무효인 것처럼 조용히 접히지만, 서버의 FCM_PROJECT_ID·서비스 계정이 틀리면 모든 기기가
+                // 한꺼번에 이 길로 온다. 앱은 같은 유저·같은 토큰이면 재등록하지 않아 설정을 고쳐도 저절로 돌아오지
+                // 않으므로, 이 줄이 운영자가 알아챌 신호다. 토큰·응답 본문은 남기지 않는다(프로젝트 ID 는 공개값).
+                log.warn("FCM 프로젝트 불일치(SENDER_ID_MISMATCH) — 서버 프로젝트={}."
+                        + " 기기 하나면 앱의 GoogleService-Info.plist, 한꺼번에 나면 서버의 FCM_PROJECT_ID·서비스 계정을"
+                        + " 의심한다. server/notification/README.md 의 복구 절차 참고", project);
+            }
+            return classify(status, body);
         } catch (IOException | org.springframework.web.client.RestClientException unavailable) {
             return Result.RETRY;
         }
