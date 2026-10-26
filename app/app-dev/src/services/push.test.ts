@@ -216,10 +216,78 @@ test('첫 등록은 그 세션의 bootstrap 을 싣고, 응답을 userId·토큰
   const [body, key] = t.registerDevice.mock.calls[0];
   expect(body).toStrictEqual({ deviceToken: FCM, deviceBootstrap: 'boot-1' });
   expect(key).toMatch(KEY);
-  // 원자 저장 — 네 값이 쓰기 한 번에 함께 들어간다.
-  expect(t.secureStore.setItemAsync).toHaveBeenCalledTimes(1);
+  // 원자 저장 — 응답(소유권·태그)은 userId·토큰과 함께 기록 하나로 한 번에 쓴다.
+  const writes = t.secureStore.setItemAsync.mock.calls.map(([, value]) => JSON.parse(value));
+  expect(writes.filter((write) => 'ownershipToken' in write)).toStrictEqual([REGISTERED]);
   expect(t.stored()).toStrictEqual(REGISTERED);
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+  t.stop();
+});
+
+test('첫 등록의 응답을 잃어도(네트워크) 받은 토큰과 계정은 먼저 적혀 있다 — 알림을 끄면 그 토큰을 지운다', async () => {
+  const t = setup({ bootstrap: 'boot-1' });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
+  await settle();
+  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM });
+
+  t.switchOn.value = false;
+  t.push.refreshPush();
+  await settle();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.stored()).toStrictEqual({ userId: USER });
+  t.stop();
+});
+
+test('첫 등록의 응답을 잃은 뒤 A 가 로그아웃하고 B 가 로그인하면 그 토큰을 지운 뒤에 B 를 등록한다', async () => {
+  const t = setup({ bootstrap: 'boot-1' });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_TIMEOUT', 0));
+  await settle();
+
+  // A 로그아웃 — 서버 행 삭제도 먼저 적어 둔 토큰으로 시작한다.
+  t.push.unregisterPushDevice();
+  expect(t.deleteDevice).toHaveBeenCalledWith(FCM, undefined, expect.stringMatching(KEY));
+  t.publish(null);
+  await settle();
+
+  t.fcm.getToken.mockResolvedValue(FCM_2);
+  t.publish(sessionOf(OTHER), 'boot-b');
+  await settle();
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.registerDevice).toHaveBeenLastCalledWith(
+    { deviceToken: FCM_2, deviceBootstrap: 'boot-b' },
+    expect.stringMatching(KEY),
+  );
+  expect(t.fcm.deleteToken.mock.invocationCallOrder[0]).toBeLessThan(
+    t.registerDevice.mock.invocationCallOrder[1],
+  );
+  t.stop();
+});
+
+test('첫 등록의 응답을 잃으면 다음 트리거에 같은 키·같은 본문으로 다시 보내 재생 응답의 소유권·태그를 저장한다', async () => {
+  const t = setup({ bootstrap: 'boot-1' });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_TIMEOUT', 0));
+  await settle();
+  t.foreground();
+  await settle();
+
+  const [lost, replayed] = t.registerDevice.mock.calls;
+  expect(lost[0]).toStrictEqual({ deviceToken: FCM, deviceBootstrap: 'boot-1' });
+  expect(replayed).toStrictEqual(lost);
+  expect(t.stored()).toStrictEqual(REGISTERED);
+  t.stop();
+});
+
+test('알림을 다시 켠 등록(CAS)의 응답을 잃으면 같은 상태로 보고 건너뛰지 않고 다음 트리거에 같은 키·본문으로 다시 보낸다', async () => {
+  // 알림을 껐다가(토큰만 지움, 소유권·태그는 남김) 다시 켠 기기.
+  const t = setup({ stored: { userId: USER, ownershipToken: OWN, deliveryTag: TAG } });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
+  await settle();
+  t.foreground();
+  await settle();
+
+  const [lost, retried] = t.registerDevice.mock.calls;
+  expect(lost[0]).toStrictEqual({ deviceToken: FCM, ownershipToken: OWN });
+  expect(retried).toStrictEqual(lost);
   t.stop();
 });
 

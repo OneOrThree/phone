@@ -189,8 +189,10 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (!live()) return;
     const sameUser = device.userId === session.userId;
     const deviceBootstrap = bootstrap?.generation === generation ? bootstrap.value : undefined;
-    // 같은 계정·같은 토큰·소유권 있음·꺼낼 bootstrap 없음이면 그대로 둔다(머리 주석 — 태그 회전).
-    if (sameUser && device.fcmToken === token && device.ownershipToken && !deviceBootstrap) return;
+    // 같은 계정·같은 토큰·소유권 있음·꺼낼 bootstrap 없음이면 그대로 둔다(머리 주석 — 태그 회전). 응답을 못 받은
+    // 등록(pending)이 있으면 건너뛰지 않는다 — 그 등록을 같은 키·같은 본문으로 다시 보내야 한다.
+    const settled = sameUser && device.fcmToken === token && device.ownershipToken;
+    if (settled && !deviceBootstrap && !pending) return;
     const body: DeviceRegistrationBody = {
       deviceToken: token,
       ...(sameUser && device.ownershipToken ? { ownershipToken: device.ownershipToken } : {}),
@@ -202,6 +204,17 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         ? pending
         : { key: uuid(), body };
     pending = bundle;
+    // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
+    // 지우지 않고(fcmToken 없음) A→B 가 토큰을 바꾸지 않는다(userId 없음). 같은 계정이면 옛 소유권(이미 CAS 본문에
+    // 있다)·태그(새 응답이 바꿀 때까지)를 남긴다. 같은 계정이 이미 토큰을 적어 두었으면(토큰 회전) 그대로 둔다 — 새
+    // 토큰을 옛 소유권과 함께 적으면 확인되지 않은 등록이 「같은 상태」로 보여 실패 뒤에 다시 보내지 않는다.
+    // ponytail: 알림을 다시 켠 등록(같은 계정·기록에 토큰 없음)은 새 토큰을 옛 소유권 옆에 적는다. 그 CAS 응답을 잃고
+    // 다시 보내기 전에 앱이 꺼지면 기록이 「같은 상태」로 보여, 다음 로그인(bootstrap)이나 토큰 갱신(409 → 토큰 교체)까지
+    // 다시 등록하지 않는다. 막으려면 기록에 「확인 전」 표시를 두거나 이 쓰기에서 소유권을 빼야 한다.
+    if (!sameUser || !device.fcmToken) {
+      device = { ...(sameUser ? device : {}), userId: session.userId, fcmToken: token };
+      persist();
+    }
     let registered: DeviceRegistration;
     try {
       registered = await registerDevice(body, bundle.key);
