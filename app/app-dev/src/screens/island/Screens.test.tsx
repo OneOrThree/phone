@@ -10,6 +10,7 @@ import {
   BackHandler,
   Keyboard,
   Linking,
+  Platform,
   StyleSheet,
   View,
   type AppStateStatus,
@@ -3090,8 +3091,10 @@ test.each([false, true])(
 // ── 설정 「알림」 토글의 시스템 권한(GROMO-2526) ──
 describe('설정 「알림」 토글', () => {
   // RN jest 설정이 이미 목으로 둔 함수라 spyOn 은 새 스파이를 만들지 않는다 — 호출 기록과 구현을, 단언이 실패한 뒤에도 새지 않게
-  // 매 테스트 앞뒤로 직접 되돌린다.
+  // 매 테스트 앞뒤로 직접 되돌린다. 플랫폼도 되돌린다.
+  const originalOS = Platform.OS;
   const resetPlatformMocks = () => {
+    Platform.OS = originalOS;
     jest.mocked(Linking.openSettings).mockReset();
     jest
       .mocked(AppState.addEventListener)
@@ -3112,13 +3115,12 @@ describe('설정 「알림」 토글', () => {
   };
 
   test.each([
-    ['undetermined', 1],
-    ['granted', 0],
+    ['granted'],
     // 푸시 브리지가 없는 바이너리(Android·옛 iOS·웹) — 토글은 앱 설정 그대로다.
-    ['unavailable', 0],
+    ['unavailable'],
   ] as const)(
-    '설정 「알림」 — 권한이 %s 면 켜진 채로 보이고, 끌 때는 권한을 보지 않으며, 다시 켜면 시스템 팝업 %i회(시스템 설정은 열지 않는다)',
-    async (permission, requests) => {
+    '설정 「알림」 — 권한이 %s 면 앱 설정대로 켜진 채로 보이고, 끌 때는 권한을 보지 않으며, 다시 켜도 시스템 팝업·시스템 설정을 열지 않는다',
+    async (permission) => {
       mockPushPermissionStatus.mockResolvedValue(permission);
       const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
       const ui = await render(<Harness route="settings" full />);
@@ -3135,12 +3137,75 @@ describe('설정 「알림」 토글', () => {
       expect(mockRequestPushPermission).not.toHaveBeenCalled();
       expect(openSettings).not.toHaveBeenCalled();
 
-      // 켜기 — 아직 안 물음이면 시스템 팝업.
+      // 켜기 — 이미 허용(또는 브리지 없음)이라 팝업도 시스템 설정도 없다.
       await fireEvent.press(toggle());
       await flush();
       expect(toggle().props.accessibilityState.checked).toBe(true);
-      expect(mockRequestPushPermission).toHaveBeenCalledTimes(requests);
+      expect(mockRequestPushPermission).not.toHaveBeenCalled();
       expect(openSettings).not.toHaveBeenCalled();
+    },
+  );
+
+  test('설정 「알림」 — 권한을 아직 안 물었으면 앱 설정이 켜져 있어도 꺼진 것으로 보이고, 첫 누름은 앱 설정을 끄지 않고 시스템 팝업을 띄우며, 허용하면 켜진 것으로 보인다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('granted');
+    let exposed: any;
+    const ui = await render(
+      <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    // 앱 설정은 이미 켜져 있다 — 첫 누름이 끄지도(SETTING false) 다시 쓰지도 않는다.
+    expect(exposed.actions).not.toContain('SETTING');
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 앱 설정이 꺼져 있고 권한을 아직 안 물었으면 누를 때 앱 설정을 켜고 시스템 팝업을 띄운다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('granted');
+    const ui = await render(
+      <Harness
+        route="settings"
+        full
+        seed={(d: any) => d({ type: 'SETTING', key: 'notifications', value: false })}
+      />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    // 허용돼 켜진 것으로 보이려면 앱 설정도 켜졌어야 한다.
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test.each([
+    ['ios', false],
+    // 푸시 브리지가 없는 플랫폼은 읽기 전에도 앱 설정 그대로 그린다 — 읽은 뒤 바뀌는 깜빡임이 없다.
+    ['android', true],
+  ] as const)(
+    '설정 「알림」 — 권한을 읽기 전(%s)에는 켜진 것으로 보이는가: %s, 읽은 뒤에는 앱 설정대로 켜진 것으로 보인다',
+    async (os, shownBeforeRead) => {
+      Platform.OS = os;
+      let answer!: (permission: string) => void;
+      mockPushPermissionStatus.mockReturnValue(
+        new Promise((done) => {
+          answer = done;
+        }),
+      );
+      const ui = await render(<Harness route="settings" full />);
+      const toggle = () => ui.getByRole('switch', { name: '알림' });
+      expect(toggle().props.accessibilityState.checked).toBe(shownBeforeRead);
+
+      await act(async () => answer(os === 'ios' ? 'granted' : 'unavailable'));
+      expect(toggle().props.accessibilityState.checked).toBe(true);
     },
   );
 
@@ -3196,19 +3261,25 @@ describe('설정 「알림」 토글', () => {
     await waitFor(() => expect(toggle().props.accessibilityState.checked).toBe(true));
   });
 
-  test('설정 「알림」 — 시스템 팝업에서 거부하면 앱 설정이 켜져 있어도 바로 꺼진 것으로 보인다', async () => {
+  test('설정 「알림」 — 시스템 팝업에서 거부하면 꺼진 채로 보이고, 다시 누르면 팝업 없이 시스템 설정을 연다', async () => {
     mockPushPermissionStatus.mockResolvedValue('undetermined');
     mockRequestPushPermission.mockResolvedValue('denied');
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
     const ui = await render(<Harness route="settings" full />);
     await flush();
     const toggle = () => ui.getByRole('switch', { name: '알림' });
 
     await fireEvent.press(toggle());
     await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    // 이제 시스템 권한은 거부다 — 다시 누르면 시스템 설정으로 보낸다.
+    mockPushPermissionStatus.mockResolvedValue('denied');
     await fireEvent.press(toggle());
     await flush();
     expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
-    expect(toggle().props.accessibilityState.checked).toBe(false);
+    expect(openSettings).toHaveBeenCalledTimes(1);
   });
 
   test('설정 「알림」 — 권한이 거부인데 시스템 설정을 열지 못하면 안내한다', async () => {
