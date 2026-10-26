@@ -4,6 +4,8 @@
  * 공개 표면은 business-api 의 **무접두** 경로다(`/auth/sessions`·`/me`·`/islands/...`).
  * `/api/v1/*` 는 레거시 1.x 표면이므로 2.0 앱은 쓰지 않는다. **첫 예외**: 기기 푸시 토큰
  * (`PUT·DELETE /api/v1/users/me/device-token`)은 서버가 `/api/v1` 에만 둔 호환 표면이다 —
+ * dev 2.0 nginx 허용 목록(`server/scripts/nginx-dev-2.0-routes.conf.example:9-10`)이 이 경로를 연다
+ * (운영 라우팅은 Infra 저장소 소관).
  * `services/api/deviceToken.ts` 한 곳만 부른다(응답은 봉투 없는 본문, 오류는 legacy `{code,message}`).
  *
  * 계약 두 가지를 여기서 벗긴다:

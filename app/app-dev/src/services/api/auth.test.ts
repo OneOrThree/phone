@@ -910,6 +910,59 @@ test('헤더가 없거나(결과 재생·refresh) 비어 있으면 꺼낼 것이
   assert.equal(takeDeviceBootstrap('BOOT4_RT'), undefined);
 });
 
+test('같은 attempt 의 결과 재생(같은 RT·헤더 없음)이 다시 공개돼도 묶어 둔 bootstrap 은 지워지지 않는다', async () => {
+  // 서버는 재생 응답에 헤더를 싣지 않고 RT 는 첫 응답과 같다 —
+  // 헤더 없는 저장이 그 RT 의 값을 지우면 안 된다.
+  stub([bootstrapped('BOOT14', 'u2', 'SECRET-14'), session('BOOT14', 'u2')]);
+  const before = sessionGeneration();
+
+  await login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  await login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+
+  // 재생은 첫 세션이 공개된 «뒤에» 세대를 잡고 시작하므로 세대 검사에 버려지지 않는다 —
+  // 같은 RT 로 다시 공개되어 세대가 두 번 오른다.
+  assert.equal(sessionGeneration(), before + 2);
+  assert.equal(takeDeviceBootstrap('BOOT14_RT'), 'SECRET-14');
+  assert.equal(takeDeviceBootstrap('BOOT14_RT'), undefined);
+});
+
+test('같은 attempt 의 원 응답과 헤더 없는 재생이 함께 도착해 재생의 저장이 세대 검사로 버려져도 묶어 둔 bootstrap 은 남는다', async () => {
+  stub([
+    bootstrapped('BOOT15', 'u2', 'SECRET-15'),
+    session('BOOT15', 'u2'), // 같은 attempt 의 결과 재생 — 같은 RT, 헤더 없음
+  ]);
+  // 첫 saveSession 이 직렬 큐에서 끝나기 전에 재생 응답이 도착하는 경합 — 저장소 쓰기를 문 뒤에 세운다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const original = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  const replay = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  // 마이크로태스크가 모두 빠진 뒤 — 두 응답이 다 돌아와 저장이 줄에 선 뒤 — 문을 연다.
+  setTimeout(open, 0);
+
+  const replayError = await replay.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await original;
+  write.mockImplementation(realWrite);
+
+  // 원 응답의 세션만 공개되고, 재생은 같은 세대를 잡고 왔다가 세대 검사로 버려진다.
+  assert.equal(getSession()?.refreshToken, 'BOOT15_RT');
+  assert.equal(replayError?.code, CLIENT_STALE_SESSION);
+  // 재생은 헤더가 없어 묶은 값이 없지만 RT 는 공개된 세션과 같다 — 버려진 저장의 정리가
+  // «자기 RT 의 항목»을 지우면 원 응답이 묶은 값까지 사라진다.
+  assert.equal(takeDeviceBootstrap('BOOT15_RT'), 'SECRET-15');
+  assert.equal(takeDeviceBootstrap('BOOT15_RT'), undefined);
+  // 같은 RT 라 서버 폐기 요청도 가지 않는다(가면 방금 공개한 세션이 끊긴다).
+  assert.equal(calls.length, 2);
+});
+
 test('다른 RT 의 값은 서로 독립이다 — 나중 로그인이 앞선 값을 덮지 않고 한쪽을 꺼내도 다른 쪽이 남는다', async () => {
   stub([
     bootstrapped('BOOT5', 'u1', 'SECRET-5'),
