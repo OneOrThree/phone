@@ -321,6 +321,8 @@ export type State = {
     permission: boolean;
     haptics: boolean;
     screenTimeBoardPromptSeen?: boolean;
+    /** 튜토리얼 집중을 정상 완료한 뒤 다음 집중 시작에서 iOS 앱 차단 안내를 한 번 보여 준다. */
+    screenTimeFocusBlockingIntroPending?: boolean;
     screenTimeSyncError?: boolean;
     screenTimeMeasurementReady?: boolean;
     screenTimeMeasurementDay?: string;
@@ -798,6 +800,7 @@ export function initialState(full = false): State {
       permission: full,
       haptics: true,
       screenTimeBoardPromptSeen: false,
+      screenTimeFocusBlockingIntroPending: false,
       screenTimeMeasurementReady: full,
       screenTimeHistoryReady: full,
     },
@@ -1731,6 +1734,7 @@ export function reducer(state: State, a: Action): State {
         return state;
       const step = a.step as number;
       if (s.focusGuideDone && step < 22) return state;
+      if (step === 22 && !s.focusGuideDone) s.settings.screenTimeFocusBlockingIntroPending = true;
       if (step >= 22) s.focusGuideDone = true;
       if ([0, 4, 99].includes(step)) delete s.tutorialExperience;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;

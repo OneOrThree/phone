@@ -60,6 +60,23 @@ test('다른 세션·완료·건너뛰기·기존 사용자에게 이전 안내�
   expect(reconcileTutorial(state, 'rest', true)).toBe(0);
 });
 
+test('튜토리얼 집중 정상 완료만 다음 집중의 앱 차단 안내를 예약한다', () => {
+  const completed = reducer(progress(21), { type: 'GUIDE_STEP', step: 22 });
+  expect(completed.settings.screenTimeFocusBlockingIntroPending).toBe(true);
+
+  const seen = reducer(completed, {
+    type: 'SETTING',
+    key: 'screenTimeFocusBlockingIntroPending',
+    value: false,
+  });
+  expect(
+    reducer(seen, { type: 'GUIDE_STEP', step: 22 }).settings.screenTimeFocusBlockingIntroPending,
+  ).toBe(false);
+
+  const skipped = reducer(progress(21), { type: 'GUIDE_STEP', step: 99 });
+  expect(skipped.settings.screenTimeFocusBlockingIntroPending).toBe(false);
+});
+
 test('로그아웃·다시보기는 이전 세션과의 연결을 제거한다', () => {
   const state = progress(15);
   expect(reducer(state, { type: 'LOGOUT' }).tutorial).toBeUndefined();

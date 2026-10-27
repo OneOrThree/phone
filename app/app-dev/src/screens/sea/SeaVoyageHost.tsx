@@ -378,7 +378,9 @@ export function SeaVoyageHost({ e }: { e: any }) {
   const withEmote = (p: SeaParticipant): SeaParticipant =>
     emotes[p.userId] ? { ...p, emote: emotes[p.userId] } : p;
   const mine = members.find((m) => m.userId === selfId);
-  const message = remark ? remark.text : mine?.message;
+  const message = remark
+    ? remark.text
+    : (mine?.message ?? (e.focusBlockingIntroPreview ? session?.subject : undefined));
   const self = withEmote({
     userId: selfId,
     name: s.name,
@@ -401,7 +403,13 @@ export function SeaVoyageHost({ e }: { e: any }) {
       result={arrival}
       messageCooldownSeconds={seaRemarkCooldownSeconds(now)}
       onFinish={async (sessionId) => {
-        if (!session || session.id !== sessionId || !e.focus) throw new Error('stale voyage');
+        if (!session || session.id !== sessionId) throw new Error('stale voyage');
+        if (e.focusBlockingIntroPreview && !e.focus) {
+          e.dispatch({ type: 'SESSION_SYNC', session: null });
+          setDepartFrom(destinationName);
+          return;
+        }
+        if (!e.focus) throw new Error('stale voyage');
         const name = destinationName;
         let finished: FocusFinishView;
         try {

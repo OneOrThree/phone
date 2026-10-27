@@ -6,7 +6,10 @@ import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
-import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
+import {
+  CurrentScreens as RedesignScreens,
+  FocusBlockingIntro,
+} from '@/screens/island/CurrentScreens';
 import React, { useState, useReducer, useEffect, useMemo, useRef } from 'react';
 import {
   View,
@@ -42,7 +45,7 @@ import {
   shouldReconcileExpiredRest,
   syncLiveActivity,
 } from '@/services/liveActivity';
-import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { shouldGateFocusBlockingIntro, shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { saveAccountGuides } from '@/services/accountGuides';
 import { reconcileTutorial } from '@/services/tutorial';
 import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
@@ -181,6 +184,13 @@ import { isDemoMode, isReviewMode } from '@/services/demoMode';
 // 판정 정본은 services/demoMode — 회관·게시판·우체통·posthog 도 같은 함수를 본다
 const REVIEW = isReviewMode();
 const DEMO = isDemoMode();
+// 목업에서 GROMO-2491 앱 차단 안내를 검토하는 진입점. 네이티브는 개발 번들에서만 켠다.
+const FOCUS_BLOCKING_PREVIEW =
+  DEMO &&
+  ((__DEV__ && process.env.EXPO_PUBLIC_FOCUS_BLOCKING_PREVIEW === '1') ||
+    (Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).has('focus-blocking-preview')));
 // 검토·데모 모드 전용 언어 고정(`?review=1&lang=en`) — 저장된 gromo.locale 을 읽지 않는 mock 부팅에서
 // 쓴다. 없으면 'ko' 로 폴백(기존 캡처 스크립트가 한국어 이름을 찾는다), 지원 밖 값은 applyLocalePref 가
 // 이미 'system' 으로 정규화한다.
@@ -353,7 +363,9 @@ function Gromo() {
     [hasServerSession, setHasServerSession] = useState(
       () => !REVIEW && !DEMO && getSession() !== null,
     ),
-    [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    [route, setRoute] = useState<Route>(
+      FOCUS_BLOCKING_PREVIEW ? 'telescope' : DEMO ? 'home' : 'login',
+    ),
     // 언어 설정 — 바뀌면 이 state 의 재렌더로 화면의 t() 문구가 새 언어로 다시 그려진다.
     [localePref, setLocalePref] = useState<LocalePref>('system'),
     [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
@@ -410,10 +422,23 @@ function Gromo() {
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
+    [focusBlockingGate, setFocusBlockingGate] = useState<{
+      route: Route;
+      detail: string;
+      onContinue?: () => void;
+    } | null>(null),
+    [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
+  const focusBlockingGateRef = useRef(focusBlockingGate);
+  focusBlockingGateRef.current = focusBlockingGate;
+  const focusBlockingRequestInFlight = useRef(false);
+  useEffect(() => {
+    setFocusBlockingGate(null);
+    setFocusBlockingPermissionBusy(false);
+  }, [tutorialOwner, tutorialGeneration]);
   const setGuideStep = (step: number, expected?: { step: number; revision: number }) => {
     if (sessionGeneration() !== tutorialGeneration || getSession()?.userId !== tutorialOwner)
       return;
@@ -559,13 +584,35 @@ function Gromo() {
     islandId: state.serverIslands?.currentIslandId ?? null,
     dispatch,
   });
-  const performGo = (r: Route, id = '', options: { sessionIsAlreadyPaused?: boolean } = {}) => {
+  const performGo = (
+    r: Route,
+    id = '',
+    options: { sessionIsAlreadyPaused?: boolean; skipFocusBlockingIntro?: boolean } = {},
+  ) => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
       isAndroid: Platform.OS === 'android',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
       visiting: !!state.visitingIslandId,
     });
+    const gateFocusBlocking =
+      !options.skipFocusBlockingIntro &&
+      ((FOCUS_BLOCKING_PREVIEW && r === 'focusTravel') ||
+        shouldGateFocusBlockingIntro(r, {
+          isIOS: Platform.OS === 'ios',
+          promptPending: !!state.settings.screenTimeFocusBlockingIntroPending,
+          visiting: !!state.visitingIslandId,
+        }));
+    if (gateFocusBlocking) {
+      Keyboard.dismiss();
+      dispatch({
+        type: 'SETTING',
+        key: 'screenTimeFocusBlockingIntroPending',
+        value: false,
+      });
+      setFocusBlockingGate({ route: r, detail: id });
+      return;
+    }
     const nextRoute: Route = gateBoard ? 'permission' : r;
     const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
     if (r === 'home' || route === 'home') setWalkRequest(null);
@@ -579,6 +626,65 @@ function Gromo() {
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+  };
+  const continueFocusBlockingTravel = () => {
+    const pending = focusBlockingGate;
+    if (!pending) return;
+    setFocusBlockingGate(null);
+    if (pending.onContinue) pending.onContinue();
+    else performGo(pending.route, pending.detail, { skipFocusBlockingIntro: true });
+  };
+  const beforeSeaVoyage = (onContinue: () => void) => {
+    if (
+      FOCUS_BLOCKING_PREVIEW ||
+      shouldGateFocusBlockingIntro('focusTravel', {
+        isIOS: Platform.OS === 'ios',
+        promptPending: !!state.settings.screenTimeFocusBlockingIntroPending,
+        visiting: !!state.visitingIslandId,
+      })
+    ) {
+      Keyboard.dismiss();
+      dispatch({ type: 'SETTING', key: 'screenTimeFocusBlockingIntroPending', value: false });
+      setFocusBlockingGate({ route: 'sea', detail: '', onContinue });
+    } else onContinue();
+  };
+  const requestFocusBlockingPermission = async () => {
+    if (!focusBlockingGate || focusBlockingRequestInFlight.current) return;
+    const gate = focusBlockingGate;
+    const generation = sessionGeneration();
+    const owner = getSession()?.userId;
+    const isCurrent = () =>
+      focusBlockingGateRef.current === gate &&
+      sessionGeneration() === generation &&
+      getSession()?.userId === owner;
+    focusBlockingRequestInFlight.current = true;
+    setFocusBlockingPermissionBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      if (!isCurrent()) return;
+      const status = await screenTime.getAuthorizationStatus();
+      if (!isCurrent()) return;
+      dispatch({ type: 'SETTING', key: 'permission', value: status === 'approved' });
+      if (status !== 'approved') {
+        notify(t('settings.permissions.errors.grantIos'));
+        return;
+      }
+      // Family Controls 권한창이 완전히 닫힌 다음 picker를 present해야 iOS가 두 번째 시트를 누락하지 않는다.
+      await new Promise<void>((resolve) => setTimeout(resolve, 450));
+      if (!isCurrent()) return;
+      try {
+        await screenTime.presentAllowedAppManager();
+      } catch {
+        if (isCurrent()) notify(t('settings.permissions.errors.allowedChange'));
+        return;
+      }
+      if (isCurrent()) continueFocusBlockingTravel();
+    } catch {
+      if (isCurrent()) notify(t('settings.permissions.errors.requestFailed'));
+    } finally {
+      focusBlockingRequestInFlight.current = false;
+      setFocusBlockingPermissionBusy(false);
+    }
   };
   const go = (r: Route, id = '', onTransitionCancel?: () => void) => {
     const direction =
@@ -1527,6 +1633,7 @@ function Gromo() {
   }, [state.settings.notifications]);
   // 화면 전환 덮개(경로 전환 방패·건물·불 전환)가 앱 내용을 덮는 동안이다 — 접근성 트리에서도 내용을 숨기는 그 조건이다.
   const appContentHidden =
+    !!focusBlockingGate ||
     routeTransitionShielded ||
     buildingRouteCovered ||
     buildingTransitionActive ||
@@ -1781,6 +1888,12 @@ function Gromo() {
       .catch(() => notify(t('app.restoreFailed')))
       .finally(() => setLoaded(true));
   }, []);
+  useEffect(() => {
+    if (!loaded || !FOCUS_BLOCKING_PREVIEW) return;
+    setRoute('telescope');
+    setDetail('');
+    setFocusBlockingGate(null);
+  }, [loaded]);
   const kickedDestination =
     ['visit', 'travel'].includes(route) &&
     state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
@@ -2158,6 +2271,10 @@ function Gromo() {
     // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
     // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
     // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
+    if (focusBlockingGate) {
+      if (!focusBlockingPermissionBusy) setFocusBlockingGate(null);
+      return true;
+    }
     if (modal) {
       setModal(null);
       return true;
@@ -2194,7 +2311,15 @@ function Gromo() {
       hardwareBack.current(),
     );
     return () => subscription.remove();
-  }, [history, route, modal, state.visitingIslandId, island.id]);
+  }, [
+    history,
+    route,
+    modal,
+    focusBlockingGate,
+    focusBlockingPermissionBusy,
+    state.visitingIslandId,
+    island.id,
+  ]);
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;
   // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
@@ -2445,6 +2570,8 @@ function Gromo() {
           // 언어 화면은 e.setLocalePref(applyLocalePref(pref)) 로 바꾼다.
           localePref,
           setLocalePref,
+          beforeSeaVoyage,
+          focusBlockingIntroPreview: FOCUS_BLOCKING_PREVIEW,
         }}
       />
     );
@@ -2497,6 +2624,22 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
+        {focusBlockingGate && (
+          <FocusBlockingIntro
+            e={{
+              onClose: () => {
+                if (!focusBlockingPermissionBusy) setFocusBlockingGate(null);
+              },
+              onLater: () => {
+                if (!focusBlockingPermissionBusy) continueFocusBlockingTravel();
+              },
+              onAllow: () => {
+                void requestFocusBlockingPermission();
+              },
+              busy: focusBlockingPermissionBusy,
+            }}
+          />
+        )}
         <RouteTransitionShield
           visible={routeTransitionShielded || buildingRouteCovered}
           coverLoading={buildingRouteCovered}
