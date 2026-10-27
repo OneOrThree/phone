@@ -1040,8 +1040,8 @@ export function Hall({ e }: any) {
         </Pressable>
       );
     };
-    // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰 가운데)
-    // 그림 속 종이 영역 비율로 글을 둔다
+    // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(세로는 폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰
+    // 가운데) 그림 속 종이 영역 비율로 글을 둔다
     const A = LG.art;
     const bookLeft = land ? side : LG.side;
     const room = W - bookLeft - (land ? LG.landRight : LG.side);
@@ -1049,10 +1049,14 @@ export function Hall({ e }: any) {
     const bookTop = land
       ? LG.landTop
       : Math.max(L.insets.top + LG.topBelowInset, H - LG.bottom - LG.maxHeight);
-    const sc = Math.min(
-      room / A.width,
-      (H - bookTop - (land ? LG.landBottom : LG.bottom)) / A.height,
-    );
+    const visibleH = H - bookTop - (land ? LG.landBottom : LG.bottom);
+    // 가로는 높이에 맞춰 줄이지 않는다 — 세로 폰과 비슷한 폭으로 크게 두고 아래쪽을 화면 밖으로 잘라 낸다(2026-10-27 오스카)
+    const sc = land
+      ? Math.min(room, LG.landscapeBookWidth) / A.width
+      : Math.min(room / A.width, visibleH / A.height);
+    const artH = A.height * sc;
+    // 보이는 책 몸통 높이 — 세로는 그림 높이 그대로, 가로는 화면 아래 여백에서 잘린다
+    const bodyH = Math.min(artH, visibleH);
     const paper = {
       left: A.paperLeft * sc,
       top: A.paperTop * sc,
@@ -1128,11 +1132,12 @@ export function Hall({ e }: any) {
             left: bookLeft + (room - bookW) / 2,
             top: bookTop - rise,
             width: frameW,
-            height: A.height * sc + rise,
+            height: bodyH + rise,
           },
           web({ filter: 'drop-shadow(rgba(60, 38, 27, 0.384) 0px 14.2px 15.5px)' }),
         ]}
       >
+        {/* 책 몸통은 보이는 높이에서 그림을 자른다. 포스트잇은 몸통 밖 형제라 잘리지 않는다 */}
         <View
           testID="ledger-book-body"
           style={{
@@ -1141,14 +1146,22 @@ export function Hall({ e }: any) {
             left: 0,
             top: rise,
             width: bookW,
-            height: A.height * sc,
+            height: bodyH,
+            overflow: 'hidden',
           }}
         >
           <Image
             testID="ledger-book-art"
             source={ledgerArt.book}
             resizeMode="contain"
-            style={[fill, { zIndex: LG.artZ }]}
+            style={{
+              position: 'absolute',
+              zIndex: LG.artZ,
+              left: 0,
+              top: 0,
+              width: bookW,
+              height: artH,
+            }}
           />
           {/* 펼친 장 종이에 그 장 포스트잇 색을 곱하기로 옅게 덮는다 */}
           <View
@@ -1160,14 +1173,15 @@ export function Hall({ e }: any) {
               left: paper.left,
               right: paper.right,
               top: paper.top,
-              bottom: paper.bottom,
+              height: artH - paper.top - paper.bottom,
               borderRadius: LG.tintRadius,
               backgroundColor: LG.tabColors[labels.findIndex((x) => TAB_KEY[x] === ledger.tab)],
               opacity: LG.tintOpacity,
               mixBlendMode: 'multiply',
             }}
           />
-          {/* 종이 안: 낮은 화면·긴 내역은 종이 안에서 스크롤한다 */}
+          {/* 종이 안: 낮은 화면·긴 내역은 종이 안에서 스크롤한다. 아래 끝은 그림의 종이 바닥과 보이는 몸통 아래 끝 중
+              위쪽(− 여백) — 가로에서 잘린 책이어도 글이 화면 밖으로 숨지 않고 스크롤된다 */}
           <ScrollView
             testID="ledger-page"
             showsVerticalScrollIndicator={false}
@@ -1177,7 +1191,7 @@ export function Hall({ e }: any) {
               left: paper.left + LG.contentInsetX,
               right: paper.right + LG.contentInsetX,
               top: paper.top + LG.contentInsetY,
-              bottom: paper.bottom + LG.contentInsetY,
+              bottom: Math.max(0, bodyH - artH + paper.bottom) + LG.contentInsetY,
             }}
           >
             <View

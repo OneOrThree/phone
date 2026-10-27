@@ -204,7 +204,7 @@ test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종
 });
 
 test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다 — 안드로이드는 부모 밖 터치를 자른다(GROMO-2487)', async () => {
-  // 402×874 시안, 360×640 안드로이드(포스트잇 줄이 책보다 넓다), 852×393 가로(책이 낮고 좁다)
+  // 402×874 시안, 360×640 안드로이드(포스트잇 줄이 책보다 넓다), 852×393 가로(책을 크게 두고 아래를 자른다)
   const layouts = [
     DESIGN_LAYOUT,
     {
@@ -255,6 +255,74 @@ test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다
       if (layout.width === 360) {
         // 포스트잇 줄이 책보다 넓은 화면 — 바깥 상자가 오른쪽으로 늘어 품는다
         assert.ok(frame.width > style(screen.getByTestId('ledger-book-body')).width);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    Object.assign(mockLayout, DESIGN_LAYOUT);
+  }
+});
+
+test('가로 화면은 책을 세로 폰 폭(360)으로 크게 두고 아래를 잘라 낸다 — 글 칸이 넉넉하고 종이 글은 보이는 부분 안에서 스크롤한다(GROMO-2487)', async () => {
+  // 2026-10-27 오스카: 높이에 맞춰 줄이면 852×393 에서 글 칸이 0 이 된다
+  const layouts = [
+    {
+      width: 852,
+      height: 393,
+      insets: { top: 0, bottom: 21, left: 59, right: 59 },
+      landscape: true,
+    },
+    { width: 667, height: 375, insets: { top: 0, bottom: 0, left: 0, right: 0 }, landscape: true },
+  ];
+  try {
+    for (const layout of layouts) {
+      Object.assign(mockLayout, layout);
+      townHallMock.mockResolvedValue(screenBody({ items: [entry('e1')] }));
+      const screen = await render(<Hall e={e()} />);
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-e1')));
+      const at = `${layout.width}×${layout.height}`;
+      const frame = style(screen.getByTestId('ledger-book'));
+      const body = style(screen.getByTestId('ledger-book-body'));
+      const art = style(screen.getByTestId('ledger-book-art'));
+      const pageBox = style(screen.getByTestId('ledger-page'));
+
+      // 책 폭 = 토큰 360(두 화면 모두 쓸 수 있는 폭이 더 넓다). 그림은 비율 그대로라 화면보다 길다
+      assert.equal(body.width, 360, at);
+      assert.ok(Math.abs(art.width - 360) < 1e-9, at);
+      assert.ok(Math.abs(art.height - (1546 * 360) / 804) < 1e-9, at);
+      // 몸통은 책 윗변(46)부터 화면 아래 여백(12)까지만 보이고 그림을 자른다
+      assert.equal(body.overflow, 'hidden', at);
+      assert.ok(body.height < art.height, `${at}: 몸통 ${body.height} ≥ 그림 ${art.height}`);
+      const bodyTop = frame.top + body.top;
+      assert.ok(Math.abs(bodyTop - 46) < 1e-9, `${at}: 책 윗변 ${bodyTop}`);
+      assert.ok(Math.abs(bodyTop + body.height - (layout.height - 12)) < 1e-9, `${at}: 몸통 아래`);
+
+      // 종이 안 글 폭: 날짜 48 + 금액 60 + 간격 8×2 + 내용 100 이상
+      const textW = body.width - pageBox.left - pageBox.right;
+      assert.ok(textW >= 48 + 60 + 16 + 100, `${at}: 글 폭 ${textW}`);
+      // 종이 스크롤 아래 끝은 그림의 종이 바닥이 아니라 보이는 몸통 아래 끝 − 여백 10
+      const pageBottom = body.height - pageBox.bottom;
+      assert.ok(
+        Math.abs(pageBottom - (body.height - 10)) < 1e-9,
+        `${at}: 스크롤 아래 끝 ${pageBottom}`,
+      );
+      assert.ok(pageBottom > pageBox.top, at);
+
+      // 포스트잇: 화면 위로 안 나가고, 바깥 상자 안·책 폭 안. 바깥 상자는 책 폭 그대로다
+      assert.ok(frame.top >= 0, `${at}: 바깥 상자 위가 화면 밖 ${frame.top}`);
+      assert.equal(frame.width, body.width, at);
+      assert.ok(
+        frame.left + frame.width <= layout.width - layout.insets.right,
+        `${at}: 오른쪽 화면 밖`,
+      );
+      for (const label of ['잔액', '적립', '지출']) {
+        const node = screen.getByTestId(`ledger-tab-${label}`);
+        const t = style(node);
+        const slop = node.props.hitSlop as number;
+        assert.ok(t.top - slop >= 0, `${at} ${label}: 위가 부모 밖`);
+        assert.ok(t.left - slop >= 0, `${at} ${label}: 왼쪽이 부모 밖`);
+        assert.ok(t.top + t.height + slop <= frame.height, `${at} ${label}: 아래가 부모 밖`);
+        assert.ok(t.left + t.width + slop <= body.width, `${at} ${label}: 책 폭 밖`);
       }
       await screen.unmount();
     }
