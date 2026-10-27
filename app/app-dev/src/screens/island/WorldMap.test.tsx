@@ -693,27 +693,38 @@ test.each([false, true])(
   },
 );
 
-test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
+test('홈 모닥불은 낮에도 밤과 같은 화덕 경계에서 불꽃을 재생하고, 동작 줄이기에선 켜진 정지 불꽃이다(GROMO-2483)', async () => {
   observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
-  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
-  const screen = await render(<WorldMap state={state} />);
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
+  const lit = expect.arrayContaining([
+    expect.objectContaining({
+      left: worldLeft + 405 * worldScale,
+      top: worldTop + 437 * worldScale,
+      width: 140 * worldScale,
+      height: 93 * worldScale,
+    }),
+  ]);
+  const shown = (view: Awaited<ReturnType<typeof render>>, index: number) =>
+    StyleSheet.flatten(view.getByTestId(`fire-motion-frame-${index}`).props.style).opacity;
 
-  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe('모닥불, 낮, 연기');
-  expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        left: worldLeft + 402 * worldScale,
-        top: worldTop + 425 * worldScale,
-        width: 116 * worldScale,
-        height: 77 * worldScale,
-      }),
-    ]),
-  );
+  // 낮 12시와 밤 9시 모두 같은 자리·같은 불꽃 — 쉬는 주민 수·시간과 무관하게 늘 켜져 있다
+  for (const time of ['2026-06-15T12:00:00', '2026-06-15T21:00:00']) {
+    jest.setSystemTime(new Date(time));
+    const screen = await render(<WorldMap state={state} />);
+    expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe('모닥불, 불꽃');
+    expect(screen.getByTestId('world-fire-motion').props.style).toEqual(lit);
+    expect(shown(screen, 1)).toBe(1);
+    await act(async () => jest.advanceTimersByTime(155));
+    expect(shown(screen, 2)).toBe(1);
+    expect(screen.queryByTestId('fire-motion-glow')).toBeNull();
+    await screen.unmount();
+  }
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const screen = await render(<WorldMap state={state} />);
   expect(screen.getByTestId('world-raft-water-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -724,29 +735,16 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
       }),
     ]),
   );
-  await act(async () => jest.advanceTimersByTime(360));
-  expect(
-    StyleSheet.flatten(screen.getByTestId('fire-motion-frame-day-1').props.style),
-  ).toMatchObject({ opacity: 1 });
-
   await screen.unmount();
-  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
-  const night = await render(<WorldMap state={state} />);
-  expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-    '모닥불, 저녁, 불꽃',
+
+  // 동작 줄이기: 낮에도 켜진 불꽃 한 장(1번)에서 멈춘다
+  const still = await render(
+    <WorldMap state={{ ...state, settings: { ...state.settings, reduceMotion: true } }} />,
   );
-  expect(night.getByTestId('world-fire-motion').props.style).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        left: worldLeft + 405 * worldScale,
-        top: worldTop + 437 * worldScale,
-        width: 140 * worldScale,
-        height: 93 * worldScale,
-      }),
-    ]),
-  );
-  expect(night.queryByTestId('fire-motion-glow')).toBeNull();
-  await night.unmount();
+  expect(shown(still, 1)).toBe(1);
+  await act(async () => jest.advanceTimersByTime(5_000));
+  expect(shown(still, 1)).toBe(1);
+  await still.unmount();
   jest.useRealTimers();
 });
 
@@ -757,14 +755,25 @@ test('demo night 쿼리는 현재 시간이 낮이어도 저녁 모습을 고정
   const previousLocation = window.location;
   (Platform as { OS: string }).OS = 'web';
   Object.defineProperty(window, 'location', {
-    value: { search: '?demo=1&night=1' },
+    value: { search: '?demo=1' },
     configurable: true,
   });
 
   try {
+    // 대조: 같은 낮 12시에 night 쿼리가 없으면 회관은 낮 프레임이다
+    const day = await render(<WorldMap state={initialState(true)} />);
+    expect(day.getByTestId('village-hall-frame-0').props.source).toBe(
+      require('@/assets/village-world/motion/hall/frame-0.png'),
+    );
+    await day.unmount();
+    Object.defineProperty(window, 'location', {
+      value: { search: '?demo=1&night=1' },
+      configurable: true,
+    });
     const screen = await render(<WorldMap state={initialState(true)} />);
-    expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-      '모닥불, 저녁, 불꽃',
+    // 모닥불은 낮밤이 같다(GROMO-2483) — 밤 고정은 회관 밤 프레임으로 본다
+    expect(screen.getByTestId('village-hall-frame-0').props.source).toBe(
+      require('@/assets/village-world/motion/hall/night-frame-0.png'),
     );
     await screen.unmount();
   } finally {

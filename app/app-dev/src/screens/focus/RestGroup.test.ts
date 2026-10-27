@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
-import { Animated, AppState } from 'react-native';
+import { Animated, AppState, StyleSheet } from 'react-native';
 import { RestGroup, restSeats, seatBox } from '@/screens/focus/RestGroup';
 import { restPose, useRestClock } from '@/screens/focus/RestCampfireMotion';
 import { initialState } from '@/services/model';
@@ -252,6 +252,15 @@ test.each([
     expect(loop).toHaveBeenCalledTimes(loops);
     screen.getByTestId('rest-campfire-back');
     screen.getByTestId('rest-campfire-front');
+    if (reduceMotion) {
+      // 동작 줄이기에서도 모닥불은 켜진 정지 불꽃 한 장이다(GROMO-2483) — 연기·불티만 뺀다
+      const lit = ([1, 2, 3] as const).filter(
+        (f) =>
+          StyleSheet.flatten(screen.getByTestId(`rest-campfire-flame-${f}`).props.style).opacity ===
+          1,
+      );
+      expect(lit).toEqual([1]);
+    }
     await screen.unmount();
   } finally {
     loop.mockRestore();
