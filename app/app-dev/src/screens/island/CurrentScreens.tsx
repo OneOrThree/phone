@@ -2887,7 +2887,9 @@ function FocusFlow({ e: environment }: any) {
   const musicModal =
     dialog === 'music' && !goldenReeling ? (
       <FiModal>
-        <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>축음기 음악</Text>
+        <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
+          {t('focusFlow.music.title')}
+        </Text>
         <Text
           style={{
             fontSize: 13,
@@ -2896,32 +2898,36 @@ function FocusFlow({ e: environment }: any) {
             marginBottom: wide ? 10 : 15,
           }}
         >
-          {activeFocus
-            ? '곡을 고르고 재생 상태를 바꿀 수 있어요.'
-            : '집중 전에도 곡을 구매하고 다음 곡을 골라 둘 수 있어요.'}
+          {t(activeFocus ? 'focusFlow.music.activeSubtitle' : 'focusFlow.music.inactiveSubtitle')}
         </Text>
         {soundPurchase ? (
           <View style={{ gap: 12 }}>
             <Text style={[fiTitle(wide ? 17 : 19), { textAlign: 'center' }]}>
               {soundPurchase.kind === 'confirm'
-                ? `${soundPurchase.product.title}를 구매할까요?`
+                ? t('focusFlow.music.purchaseConfirm', { title: soundPurchase.product.title })
                 : soundPurchase.kind === 'success'
-                  ? '구매했어요'
-                  : '물고기가 부족해요'}
+                  ? t('focusFlow.music.purchaseSuccess')
+                  : t('focusFlow.music.insufficientFish')}
             </Text>
             {soundPurchase.kind === 'confirm' && (
               <Text
                 style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857', textAlign: 'center' }}
               >
-                구매한 곡은 같은 섬 주민 모두가 함께 사용할 수 있어요.
+                {t('focusFlow.music.sharedPurchaseHint')}
               </Text>
             )}
             {soundPurchase.kind === 'confirm' ? (
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <FiButton title="취소" style={{ flex: 1 }} onPress={() => setSoundPurchase(null)} />
+                <FiButton
+                  title={t('common.cancel')}
+                  style={{ flex: 1 }}
+                  onPress={() => setSoundPurchase(null)}
+                />
                 <FiButton
                   primary
-                  title={`${soundPurchase.product.price}마리로 구매`}
+                  title={t('focusFlow.music.buyForFish', {
+                    price: soundPurchase.product.price,
+                  })}
                   style={{ flex: 1 }}
                   onPress={buyFocusTrack}
                 />
@@ -2929,7 +2935,11 @@ function FocusFlow({ e: environment }: any) {
             ) : (
               <FiButton
                 primary
-                title={soundPurchase.kind === 'success' ? '이 곡으로 바꾸기' : '확인'}
+                title={
+                  soundPurchase.kind === 'success'
+                    ? t('focusFlow.music.switchTrack')
+                    : t('common.ok')
+                }
                 onPress={async () => {
                   if (soundPurchase.kind === 'success') {
                     if (!(await changeFocusTrack(soundPurchase.product.id))) return;
@@ -2945,13 +2955,13 @@ function FocusFlow({ e: environment }: any) {
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                 <FiButton
                   primary={i.playing}
-                  title="재생"
+                  title={t('focusFlow.music.play')}
                   style={{ flex: 1 }}
                   onPress={() => void changeFocusPlaying(true)}
                 />
                 <FiButton
                   primary={!i.playing}
-                  title="정지"
+                  title={t('focusFlow.music.stop')}
                   style={{ flex: 1 }}
                   onPress={() => void changeFocusPlaying(false)}
                 />
@@ -2960,13 +2970,13 @@ function FocusFlow({ e: environment }: any) {
             {e.islands && focusShop.error ? (
               <View style={{ gap: 8 }}>
                 <Text style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857' }}>
-                  곡 목록을 불러오지 못했어요.
+                  {t('focusFlow.music.loadFailed')}
                 </Text>
-                <FiButton title="다시 시도" onPress={focusShop.retry} />
+                <FiButton title={t('common.retry')} onPress={focusShop.retry} />
               </View>
             ) : e.islands && focusShop.loading ? (
               <Text style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857' }}>
-                곡 목록을 불러오는 중이에요.
+                {t('focusFlow.music.loading')}
               </Text>
             ) : (
               <View style={{ gap: 8 }}>
@@ -2983,9 +2993,9 @@ function FocusFlow({ e: environment }: any) {
                     return null;
                   const status = owned
                     ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
-                      ? '무료'
-                      : '보유'
-                    : `${product.price}마리로 구매`;
+                      ? t('focusFlow.music.free')
+                      : t('focusFlow.music.owned')
+                    : t('focusFlow.music.buyForFish', { price: product.price });
                   return (
                     <FiButton
                       key={id}
@@ -3002,7 +3012,7 @@ function FocusFlow({ e: environment }: any) {
               </View>
             )}
             <View style={{ marginTop: wide ? 12 : 18 }}>
-              <FiButton primary title="자리로 돌아가기" onPress={closeMusic} />
+              <FiButton primary title={t('focusFlow.music.backToSpot')} onPress={closeMusic} />
             </View>
           </>
         )}

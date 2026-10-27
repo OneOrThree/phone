@@ -9,6 +9,7 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
 import { clearSession, saveSession } from '@/services/api/session';
 import { getTelescope } from '@/services/api/telescope';
 import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
@@ -292,6 +293,25 @@ test('활성 집중섬 축음기는 기본곡·판매곡과 재생·정지 조�
   await fireEvent.press(screen.getByText('정지'));
   expect(playback.update).toHaveBeenCalledWith({ playing: false });
   await screen.unmount();
+});
+
+test('영어 설정에서는 집중섬 축음기 조작 문구를 영어로 표시한다', async () => {
+  applyLocalePref('en');
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  const screen = await mount('focus', withGramophone(serverFocusState()), { playback });
+
+  try {
+    await fireEvent.press(screen.getByTestId('focus-gram'));
+    screen.getByText('Gramophone Music');
+    screen.getByText('Choose a track and control playback.');
+    screen.getByText('Play');
+    screen.getByText('Stop');
+    screen.getByText('Raindrops · Buy for 30 fish');
+    screen.getByText('Back to My Spot');
+  } finally {
+    await screen.unmount();
+    applyLocalePref('ko');
+  }
 });
 
 test('집중 전 낚시섬은 곡 구매·변경만 제공하고 재생·정지는 노출하지 않는다', async () => {
