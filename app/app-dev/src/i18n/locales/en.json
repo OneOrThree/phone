@@ -655,17 +655,15 @@
     "spot": {
       "pickPrompt": "Choose a spot to focus!",
       "backToMainIsland": "← Main island",
-      "onWater": "You can't sit on the water.",
       "occupied": "A resident is sitting here. Please sit a little further over.",
       "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",
       "nearRaft": "This is where the raft docks. Please sit a little further over.",
-      "noCatchRoom": "There's no room to place a fish here. Please sit a little further over.",
       "unreachable": "Please choose a spot connected by land.",
       "noneFound": "Couldn't find an open spot. Please try again in a moment.",
-      "groundA11y": "Fishing Island ground · Tap where you want to sit",
+      "groundA11y": "Fishing Island ground · Tap where you want to walk",
       "sitEmptyA11y": "Sit in an empty spot",
       "sitEmptyButton": "Take a spot on empty ground",
-      "available": "Available focus spot"
+      "start": "Start Focus"
     },
     "setup": {
       "title": "Get Ready to Focus",
@@ -735,8 +733,8 @@
       "backByBoat": "By Boat to Our Island"
     },
     "tutorial": {
-      "step5": "Tap an empty spot on the ground to choose your seat.",
-      "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
+      "step5": "Walk to where you want to focus, then tap Start Focus below.",
+      "step6": "You can't start where another resident sits.\nStep aside a little and try again.",
       "step6SkipButton": "Stop Showing This Guide",
       "step7": "Write what you want to do, or skip this step.",
       "step7Done": "Done",

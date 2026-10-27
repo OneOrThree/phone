@@ -426,6 +426,21 @@ const hit = (a: { l: number; t: number; r: number; b: number }, b: typeof raftRe
   a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
 export const nearRaft = (p: Point) =>
   hit(catRect(p), raftRect) || hit(catRect(p), catRect(LANDING));
+// 서 있는 자리에서 집중을 시작할 수 있는지 — 뗏목 · 축음기 · 앉은 주민만 본다. 고양이는 걸을 수 있는 칸('1')으로만
+// 걸어가므로 물·나무·바위는 볼 필요가 없다. 물고기 더미는 놓을 땅이 없으면 숨기므로 자리 조건이 아니다.
+export type SeatProblem = 'occupied' | 'nearGram' | 'nearRaft';
+export const seatProblem = (
+  p: Point,
+  peerSpots: Point[],
+  gramBuilt: boolean,
+): SeatProblem | null =>
+  occupied(p, peerSpots)
+    ? 'occupied'
+    : gramBuilt && nearGram(p)
+      ? 'nearGram'
+      : nearRaft(p)
+        ? 'nearRaft'
+        : null;
 // 뒤 화면을 스크린리더에서 숨긴다(모달·준비 카드가 떠 있을 때)
 export const a11yHidden = (hidden: boolean) =>
   hidden
@@ -490,6 +505,7 @@ export function FishingIsland({
   ratio = 0.5,
   spots,
   onTap,
+  onSitAccessible,
   onRaft,
   raftLabel = t('focusFlow.common.raftLabel'),
   gram = false,
@@ -505,6 +521,8 @@ export function FishingIsland({
   ratio?: number;
   spots: Spot[];
   onTap?: (p: Point) => void;
+  /** 스크린리더 「빈 자리에 앉기」 동작. 없으면 onTap(DEFAULT_SPOT). */
+  onSitAccessible?: () => void;
   onRaft: () => void;
   raftLabel?: string;
   // 축음기(우리 섬에 지었을 때만 보임). onGram 이 없으면 그림만(누를 수 없음), 누르면 음악 고르기만 열리고 고양이는 걷지 않는다
@@ -668,7 +686,9 @@ export function FishingIsland({
             accessibilityActions={
               onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
             }
-            onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
+            onAccessibilityAction={() =>
+              onSitAccessible ? onSitAccessible() : onTap?.(DEFAULT_SPOT)
+            }
             style={StyleSheet.absoluteFill}
             onPress={(e) => {
               if (dragged.current || !onTap) return;

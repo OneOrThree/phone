@@ -36,6 +36,7 @@ import {
   fishingCatchPlacement,
   fishingCatchFootprintOnLand,
   fishingPeerCatchVisible,
+  seatProblem,
   underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
 
@@ -97,6 +98,27 @@ test('물고기 더미는 나무·바위 칸에는 걸쳐도 되고 물에는 �
   assert.equal(fishingCatchFootprintOnLand({ x: 45, y: 60 }, { left: 1, top: 0.5 }), true);
   // 기본 자리 바로 위로 올린 더미는 연못에 걸친다
   assert.equal(fishingCatchFootprintOnLand(DEFAULT_SPOT, { left: 0.5, top: 0 }), false);
+});
+
+test('집중 시작 자리 검사: 앞으로 올 주민 자리를 예약하지 않아 걸을 수 있는 칸 거의 전부에서 시작하고 뗏목 옆·축음기 앞·앉은 주민만 막는다', () => {
+  let walkable = 0,
+    sittable = 0;
+  for (let c = 0; c < fishingGrid.cells.length; c++) {
+    if (fishingGrid.cells[c] !== '1') continue;
+    walkable++;
+    const p = {
+      x: ((c % fishingGrid.cols) + 0.5) * 2,
+      y: (Math.floor(c / fishingGrid.cols) + 0.5) * 2,
+    };
+    if (!seatProblem(p, [], true)) sittable++;
+  }
+  // 뗏목 내리는 곳·축음기 앞만 빠진다(2516 격자의 걷기 칸 998개 기준)
+  assert.ok(sittable >= walkable * 0.85, `앉을 수 있는 칸 ${sittable}/${walkable}`);
+  assert.equal(seatProblem(LANDING, [], true), 'nearRaft');
+  assert.equal(seatProblem({ x: GRAM.x, y: GRAM.y + 2 }, [], true), 'nearGram');
+  assert.equal(seatProblem({ x: GRAM.x, y: GRAM.y + 2 }, [], false), null);
+  assert.equal(seatProblem(DEFAULT_SPOT, [DEFAULT_SPOT], true), 'occupied');
+  assert.equal(seatProblem(DEFAULT_SPOT, [], true), null);
 });
 
 test('앉은 자리에서 가까운 물 쪽으로 낚싯줄을 던진다', () => {
