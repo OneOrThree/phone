@@ -18,7 +18,6 @@ import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataShopClient;
 import com.oneorthree.business.upstream.data.dto.ShopViews;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -72,7 +71,7 @@ public class ShopUseCase {
             Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)));
 
     private final DataShopClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     /** 공개 카탈로그 한 쪽. */
     public record Products(List<ShopCatalogItem> items, String nextCursor) {
@@ -92,7 +91,7 @@ public class ShopUseCase {
         CursorScope scope = new CursorScope(claims.userId(), "islands/shop/products",
                 Map.of("islandId", islandId.toString(), "category", category), "display-asc", limit);
         CatalogAnchor anchor = cursor == null ? null
-                : CatalogAnchor.of(codec().decode(cursor, scope, FIELD_CURSOR));
+                : CatalogAnchor.of(codec.decode(cursor, scope, FIELD_CURSOR));
         ShopViews.ProductPage page = required(relay(() -> data.fetchShopProducts(claims.userId(), islandId,
                 category, anchor == null ? null : anchor.publicationVersion(),
                 anchor == null ? null : anchor.displayOrder(), anchor == null ? null : anchor.productId(), limit,
@@ -102,7 +101,7 @@ public class ShopUseCase {
             if (page.publicationVersion() == null || page.lastDisplayOrder() == null || page.lastProductId() == null) {
                 throw new UpstreamContractMismatchException("다음 쪽이 있다면서 경계가 없습니다");
             }
-            next = codec().encode(scope, new CursorBoundary(
+            next = codec.encode(scope, new CursorBoundary(
                     page.publicationVersion() + ":" + page.lastDisplayOrder(), page.lastProductId()));
         }
         return new Products(page.items().stream().map(ShopCatalogItem::from).toList(), next);
@@ -137,7 +136,7 @@ public class ShopUseCase {
         CursorScope scope = new CursorScope(claims.userId(), "islands/shop/orders",
                 Map.of("islandId", islandId.toString(), "scope", scopeName), "created-desc", limit);
         OrderAnchor anchor = cursor == null ? null
-                : OrderAnchor.of(codec().decode(cursor, scope, FIELD_CURSOR));
+                : OrderAnchor.of(codec.decode(cursor, scope, FIELD_CURSOR));
         ShopViews.OrderPage page = required(relay(() -> data.fetchShopOrders(claims.userId(), islandId, scopeName,
                 anchor == null ? null : anchor.createdAt(), anchor == null ? null : anchor.id(), limit, deadline)));
         String next = null;
@@ -146,7 +145,7 @@ public class ShopUseCase {
                 throw new UpstreamContractMismatchException("다음 쪽이 있다면서 행이 없습니다");
             }
             ShopViews.OrderItem last = page.items().get(page.items().size() - 1);
-            next = codec().encode(scope,
+            next = codec.encode(scope,
                     new CursorBoundary(last.createdAt().toString(), last.id().toString()));
         }
         return new Orders(page.items().stream().map(ShopOrderItem::from).toList(), next);
@@ -194,18 +193,6 @@ public class ShopUseCase {
             throw new UpstreamContractMismatchException("상점 응답이 없습니다");
         }
         return value;
-    }
-
-    /**
-     * 서명기는 {@code business.cursor.enabled=true} 일 때만 있다. 커서 없는 첫 쪽은 서명기 없이도 읽되, 다음 쪽을
-     * 만들거나 받은 커서를 풀어야 할 때 없으면 «없는 셈» 치지 않고 503 이다({@code IslandNoticeUseCase} 와 같은 결).
-     */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     /** 카탈로그 경계 — 서명은 통과했는데 값이 형식에 맞지 않으면 위조·손상이다(같은 400). */

@@ -58,7 +58,6 @@ class SessionLogoutIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> SERVICE_TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "POST " + PATH);
         registry.add("internal.api.callers.notification.token", () -> "test-notification-session-logout");

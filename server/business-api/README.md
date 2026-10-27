@@ -252,13 +252,12 @@ Data가 자체 `PublicCommandFingerprint`로 저장 지문을 계산하므로 Bu
 400 `INVALID_CURSOR`, 만료는 409 `CURSOR_EXPIRED`다. 커서는 현재 접근 권한을 대체하지 않는다.
 서명은 암호화가 아니므로 boundary에 검색어·개인정보를 넣지 않는다. 정렬 동률을 풀 키도 반드시 포함한다.
 
-커서 빈은 기본 비활성이다. 후속 목록을 연결할 때 외부 설정 파일에 다음처럼 주입한다.
+커서 서명기는 항상 있다(티켓 2535 — `business.cursor.enabled`를 걷었다). 프로파일별 설정 파일에 다음처럼 키를 주입한다.
 아래 환경변수 이름은 이 예시의 placeholder이며 저장소가 자동 생성해 주는 시크릿은 아니다.
 
 ```yaml
 business:
   cursor:
-    enabled: true
     active-key: k2
     keys:
       k1: ${CURSOR_KEY_K1_BASE64}
@@ -266,9 +265,10 @@ business:
 ```
 
 키마다 별도로 생성한 최소 32바이트를 표준 Base64로 인코딩한다. JWT 키와 공유하지 않는다.
-활성 key ID는 keys에 있어야 하고 ID는 영숫자·밑줄·하이픈 1~32자다. 잘못된 키 설정은 활성화 시 부팅을 실패시킨다.
+활성 key ID는 keys에 있어야 하고 ID는 영숫자·밑줄·하이픈 1~32자다. 키가 없거나 치환되지 않았거나 base64가 아니거나 32바이트보다 짧으면 `CursorConfig`가 `RequiredConfig`로 부팅을 실패시킨다.
 현재 `CursorConfig`의 TTL은 **15분 고정**이며 설정 프로퍼티로 노출하지 않았다.
 회전은 모든 인스턴스에 k2 검증키 배포 → active-key를 k2로 전환 → 마지막 k1 발급 뒤 15분 이상 유지 → k1 제거 순서다.
+keys에 남은 키도 부팅 검사(32바이트·base64·치환)를 받으므로, 옛 키를 뺄 때는 yml의 `keys` 항목과 그 env를 함께 지운다.
 이전 키를 너무 일찍 제거하면 아직 유효한 커서도 400이 된다. 목록은 keyset 조회 경계이며 여러 페이지 전체의
 DB snapshot을 보장하지 않는다.
 
@@ -331,8 +331,7 @@ Servlet의 모든 클라이언트 연결 종료를 자동 감지해 이 context�
 | 각 대상의 `.max-attempts` / `.retry-delay` | 총 2회 / 50ms, 유효 Retry-After가 있으면 그 대기 적용 |
 | 각 대상의 `.max-connections` / `.queue-capacity` | 4 / 64, 대상별 HTTP 연결·worker와 대기열 |
 | 각 대상의 `.failure-threshold` / `.open-duration` | 연속 5회 / 10s, 대상별 circuit breaker |
-| `business.cursor.enabled` | 미설정 시 비활성 |
-| `business.cursor.active-key` / `.keys` | 기본 서명키 없음, 활성화 시 독립 키 필수 |
+| `business.cursor.active-key` / `.keys` | 기본 서명키 없음, 독립 키 필수 — 없으면 부팅 실패 |
 
 위 용량은 초기 안전 상한이며 운영 처리량/SLO 보장값은 아니다.
 대상별 HTTP worker 셋과 조합 worker의 **합계는 18 이하**(Data 4 · Notification 4 · Link 4 · Realtime 2 · 조합 4)로 기동 시 검증한다. 환경 설정으로 한 대상만

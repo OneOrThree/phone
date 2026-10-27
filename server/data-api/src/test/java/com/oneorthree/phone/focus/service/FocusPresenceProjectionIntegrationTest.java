@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>실제 Flyway PostgreSQL · 실제 Redis 위에서 본다. 리스는 Lua 조건부 연산이라 목으로는 한 글자도
  * 검증되지 않고, 순번({@code presence_order})은 DB 시퀀스가 INSERT 때 채운다.
  */
-@SpringBootTest(properties = {"focus.presence.enabled=true", "focus.session.start-enabled=true"})
+@SpringBootTest(properties = "focus.presence.enabled=true")
 class FocusPresenceProjectionIntegrationTest {
 
     @SuppressWarnings("resource")

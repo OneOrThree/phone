@@ -11,7 +11,6 @@ import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.Magazines;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -33,7 +32,7 @@ public class MagazineUseCase {
     private static final String SORT_APPLIED_ASC = "applied-asc";
 
     private final DataIslandClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     public Magazines.Today today(AccessTokenClaims claims, Deadline deadline) {
         return required(data.fetchMagazineToday(claims.userId(), deadline));
@@ -51,7 +50,7 @@ public class MagazineUseCase {
             Deadline deadline) {
         CursorScope scope = new CursorScope(claims.userId(), RESOURCE_ISSUE, Map.of("issueId", issueId.toString()),
                 SORT_APPLIED_ASC, limit);
-        CursorBoundary boundary = codec().decode(cursor, scope);
+        CursorBoundary boundary = codec.decode(cursor, scope);
         Instant afterAppliedAt = null;
         UUID afterPromotionId = null;
         if (boundary != null) {
@@ -68,7 +67,7 @@ public class MagazineUseCase {
         if ((page.nextAppliedAt() == null) != (page.nextPromotionId() == null)) {
             throw new UpstreamContractMismatchException("잡지 호 페이지의 다음 경계가 반쪽입니다");
         }
-        String next = page.nextAppliedAt() == null ? null : codec().encode(scope,
+        String next = page.nextAppliedAt() == null ? null : codec.encode(scope,
                 new CursorBoundary(page.nextAppliedAt().toString(), page.nextPromotionId().toString()));
         return new Magazines.IssueView(page.issue(), page.editorial(), page.cells(), next);
     }
@@ -76,15 +75,6 @@ public class MagazineUseCase {
     public Magazines.Receipt receipt(AccessTokenClaims claims, UUID issueId, String place, Boolean deferred,
             Boolean opened, Deadline deadline) {
         return required(data.recordMagazineReceipt(claims.userId(), issueId, place, deferred, opened, deadline));
-    }
-
-    /** {@link IslandNoticeUseCase} 와 같은 이유로 서명기가 없으면 첫 페이지로 접지 않고 503 이다. */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     private static <T> T required(T value) {

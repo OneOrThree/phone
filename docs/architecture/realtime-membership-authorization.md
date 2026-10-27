@@ -123,10 +123,10 @@ sequenceDiagram
 | internal.realtime.authorization.enabled | 기본 false. 환경 변수 REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED로 연결. 미설정/false이면 controller 미등록(정상 내부 인증을 통과해도 해당 route404) |
 | application-realtime-authorization.yml | 기본 Data 배포에 포함한다. 내부 섬 목록·집중·차단 조회 자격을 등록하며, 세션별 인가 기능의 활성화는 별도 스위치다 |
 | SVC_TOKEN_REALTIME_TO_DATA | Data와 Realtime에 필수인 전용 서비스 비밀. 값을 문서·로그에 기록하지 않음 |
-| internal.api.enabled | 기존 내부 표면 인증 설정. 이것만 켠다고 새 인가 제공자가 열리는 것은 아님 |
-| island-management.host-transfer-enabled | 기존 false 유지. 인가 제공자만 준비됐다고 true로 바꾸지 않음 |
+| internal.api.callers.* | 기존 내부 표면 인증 설정(caller 별 토큰·허용목록). 켜고 끄는 스위치는 없다(10-27, 티켓 2535). 이것만으로 새 인가 제공자가 열리는 것은 아님 |
+| island-management.host-transfer-enabled | 걷었다(10-27, 티켓 2535) — 방장 위임은 항상 켜짐 |
 
-프로필은 realtime caller에 `POST /internal/realtime/membership-authorization`와 현재 기능에 필요한 제한된 GET 경로를 허용한다. `GET /internal/users/*/islands`는 폐기한 공개 그룹 API를 대체하며, 요청자 AT를 로컬 검증한 `GroupClient`가 서비스 토큰과 일치하는 `X-User-Id`를 보내 `items[].id`를 읽는다. 이 목록 조회는 인가 기능 스위치와 무관하게 사용한다. Business·Notification 토큰을 재사용하거나 `/internal/**`를 넓게 허용하지 않는다. 이 프로필 자체는 `internal.api.enabled`를 켜지 않는다. 다만 활성 내부 표면과 함께 로드하면 feature가 false여도 기존 `validateWhenEnabled`가 등록된 realtime caller의 고유 토큰을 요구한다. `SVC_TOKEN_REALTIME_TO_DATA`를 실제 주입해야 하며 편의상 빈 토큰·다른 caller 토큰을 허용하지 않는다. 서비스/query bean이 있어도 controller가 비활성이면 내부 HTTP 진입점은 열리지 않는다. 프로필·서비스별 자격·feature 스위치·caller 구현의 배포 준비를 각각 확인한다. 비밀을 저장소/로그에 넣거나 이 문서 작성만으로 운영 환경에 주입하지 않는다.
+프로필은 realtime caller에 `POST /internal/realtime/membership-authorization`와 현재 기능에 필요한 제한된 GET 경로를 허용한다. `GET /internal/users/*/islands`는 폐기한 공개 그룹 API를 대체하며, 요청자 AT를 로컬 검증한 `GroupClient`가 서비스 토큰과 일치하는 `X-User-Id`를 보내 `items[].id`를 읽는다. 이 목록 조회는 인가 기능 스위치와 무관하게 사용한다. Business·Notification 토큰을 재사용하거나 `/internal/**`를 넓게 허용하지 않는다. 이 프로필 자체는 내부 표면 caller 설정을 바꾸지 않는다. 다만 내부 표면과 함께 로드하면 feature가 false여도 기존 `validate`가 등록된 realtime caller의 고유 토큰을 요구한다. `SVC_TOKEN_REALTIME_TO_DATA`를 실제 주입해야 하며 편의상 빈 토큰·다른 caller 토큰을 허용하지 않는다. 서비스/query bean이 있어도 controller가 비활성이면 내부 HTTP 진입점은 열리지 않는다. 프로필·서비스별 자격·feature 스위치·caller 구현의 배포 준비를 각각 확인한다. 비밀을 저장소/로그에 넣거나 이 문서 작성만으로 운영 환경에 주입하지 않는다.
 
 새 코드는 서비스 토큰·AT 원문·전체 헤더/body를 직접 기록하지 않고 DTO의 toString도 식별 필드를 가린다. parser가 원 body를 담는 예외 메시지·원인도 고정 문구로 대체한다. 후속 운영 지표에는 결과 종류·처리 시간·추적 ID 등 필요한 자료만 사용한다. 기존 P6Spy·활동 로그 및 외부 sink 전체의 PII 파기/수집 제한까지 이 PR에서 완료됐다고 해석하지 않는다. allowed=false의 세부 원인을 개인 정보 응답으로 확장하지 않는다. 정상 거절과 장애는 운영 지표로 구분한다.
 

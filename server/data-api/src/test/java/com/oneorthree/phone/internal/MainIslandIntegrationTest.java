@@ -58,7 +58,6 @@ class MainIslandIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
     }
 

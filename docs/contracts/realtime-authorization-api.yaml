@@ -10,7 +10,6 @@ info:
     Realtime의 AT 서명·만료·sid/gen 파싱과 이 경로 호출은 realtime.authorization-client.enabled(기본 false) 뒤에
     기존 그룹 채팅 경계 한정으로 구현됐다(docs/architecture/realtime-current-membership-client.md).
     신규 채널의 최종 프레임 가드, snapshot·재연결은 후속 구현이다.
-    기존 host-transfer-enabled=false를 유지한다.
 servers:
   - url: http://data-api:8080
     description: 내부 Data primary 연결 서비스. 외부 nginx에 노출하지 않는다.
@@ -19,7 +18,7 @@ paths:
     post:
       summary: 단일 인증 주체의 현재 섬 멤버십 자격 조회
       description: |
-        internal.api.enabled 및 전용 caller 허용목록과 별도로
+        전용 caller 허용목록과 별도로
         internal.realtime.authorization.enabled가 true여야 등록되는 내부 경로다.
         기본값은 false이다. realtime-authorization 프로필은 전용 caller를 추가할 뿐
         내부 표면이나 공개 기능을 자동 활성화하지 않는다.

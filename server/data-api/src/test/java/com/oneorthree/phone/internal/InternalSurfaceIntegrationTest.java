@@ -63,7 +63,6 @@ class InternalSurfaceIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> BIZ_TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/users/*/activation");
         registry.add("internal.api.callers.business.allow[1]",

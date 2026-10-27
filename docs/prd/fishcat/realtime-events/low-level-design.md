@@ -209,7 +209,7 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
   - **차단 세대:** Data 가 차단·해제 트랜잭션 안에서 내부 제어 사건 `user.blocks.updated`(REALTIME outbox, aggregate `USER_BLOCKS`/blocker, `params.blockerUserId`)를 적는다. 실제로 행이 바뀐 경우에만 적어 멱등 재요청은 세대를 올리지 않는다. Realtime `InboundEventService` 는 이를 받아 `cache:chat:blockgen:{userId}` 를 INCR 한다. 세대 키는 만료되지 않는다.
   - **차단 집합:** `cache:chat:block:{userId}` 에 `<세대>|<id>,…` 로 캐시한다. 세대가 다르면 버리고 Data 의 기존 `GET /internal/users/{userId}/blocks` 를 다시 읽는다. 조회 전에 읽은 세대로 적재하므로, 늦게 끝난 옛 조회가 세대를 넘어 살아남지 않는다. TTL 120초는 사건 유실·relay OFF 의 백스톱일 뿐이다.
   - **fail-closed:** 조회에는 호출 단위 총 deadline(기본 1500ms)과 동시 호출 상한(기본 16)이 있다. 상태·Content-Type·redirect·크기(256KiB)·형식이 어긋나면 판정 불가로 보고 프레임을 버린다. 이전 캐시로 대신하지 않는다.
-  - **스위치:** Data `USER_BLOCKS_REALTIME_EVENTS_ENABLED`, Realtime `REALTIME_BLOCKS_FILTER_ENABLED` 가 **둘 다 기본 OFF** 다. 머지만으로는 동작이 바뀌지 않는다. **OFF 는 조회도 필터도 하지 않는 기존 동작(필터 없음)** 이며, 위 fail-closed 는 Realtime 필터 ON 에서만 성립한다 — OFF 를 fail-open 버그로도, 이미 차단되는 상태로도 읽지 않는다. 즉시성은 Data 생산 스위치와 relay 가 모두 ON 일 때만 주장한다. Realtime 필터만 ON 이고 Data 생산이 OFF 면 세대가 오르지 않아 차단 변경이 캐시 TTL(120초) 뒤에야 반영된다.
+  - **스위치:** Data 의 `user.blocks.updated` 생산은 **항상 켜짐(10-27, 티켓 2535)** 이다 — 종전 생산 스위치(`user-blocks.realtime-events-enabled`)를 걷었다. Realtime `REALTIME_BLOCKS_FILTER_ENABLED` 는 **기본 OFF** 로 남는다. **OFF 는 조회도 필터도 하지 않는 기존 동작(필터 없음)** 이며, 위 fail-closed 는 Realtime 필터 ON 에서만 성립한다 — OFF 를 fail-open 버그로도, 이미 차단되는 상태로도 읽지 않는다. 즉시성은 relay 가 ON 일 때만 주장한다. relay 가 꺼져 있으면 세대가 오르지 않아 차단 변경이 캐시 TTL(120초) 뒤에야 반영된다.
 - **이 절이 정하지 않는 것.** legacy 채팅 히스토리 REST·방 목록 미리보기·`/user/queue/duplicates` 는 #1059 도 거르지 않는다(결정 로그 미결 목록). 새 내부 계약을 만들면 `docs/contracts/` 에 먼저 적는다. 정책의 「차단 성공 응답 전에 Realtime 적용·기존 fanout 배출 확인」까지 이 결정이 확정한 것은 아니다 — 이번 범위는 송신 직전 재확인과 옛 세대 폐기다.
 - REST 히스토리·게시판 조회 필터는 [우체통 LLD §7](../island-mailbox/low-level-design.md#7-차단-필터--rest-조회2181)·[게시판 LLD §6](../island-board/low-level-design.md#6-차단-필터--rest-조회2181)(2181)이 맡는다.
 
@@ -318,11 +318,11 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 
 ## 9. 배포·운영 — 주민 첫 도착 사건(GROMO-2302)
 
-`island.member.arrived` 는 Data 생산 스위치 `island.arrival.realtime-events-enabled`(env `ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED`, **기본 false**) 뒤에 있다. 꺼져 있어도 도착 API 와 `arrivedBefore` 판정은 그대로 동작하고, 사건만 적지 않는다(skip 메트릭 `island.arrival.events.skipped`).
+`island.member.arrived` 의 Data 생산은 **항상 켜짐(10-27, 티켓 2535)** 이다 — 종전 스위치 `island.arrival.realtime-events-enabled` 와 skip 메트릭 `island.arrival.events.skipped` 를 걷었다. 첫 도착마다 사건을 적고, 도착 API 와 `arrivedBefore` 판정은 그대로다.
 
-**① 배포 순서(강제).** Realtime(이 type 을 받는 버전) → Data → 스위치 ON. dev 는 Secrets Manager `gromo/dev/env` 에 `ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED=true` 를 넣고 `ops-redeploy.dev` 로 data-api 를 다시 띄운다. 순서가 뒤집히면 옛 Realtime 이 400 을 돌려주고 relay 가 그 행을 재시도해도 풀리지 않아 `ISLAND_ARRIVAL/{islandId}` 축이 막힌다 — 축이 `island.updated` 의 `ISLAND` 와 나뉘어 있어 **그 섬의 도착 소식만** 멈추고 다른 섬 사건은 영향 없다.
+**① 배포 순서(강제).** Realtime(이 type 을 받는 버전) → Data. 스위치가 없어 Data 가 뜨는 즉시 생산이 시작된다. 순서가 뒤집히면 옛 Realtime 이 400 을 돌려주고 relay 가 그 행을 재시도해도 풀리지 않아 `ISLAND_ARRIVAL/{islandId}` 축이 막힌다 — 축이 `island.updated` 의 `ISLAND` 와 나뉘어 있어 **그 섬의 도착 소식만** 멈추고 다른 섬 사건은 영향 없다.
 
-**② ON 직후 10분 점검 SQL.** `event_outbox_deliveries` 에는 상태 열이 없다 — 상태는 `delivered_at`(전달 완료)·`attempt_count`·`last_error`·`next_attempt_at` 조합으로 읽는다(`schema.dbml`, relay 는 재시도 불가 실패도 행을 지우지 않고 `last_error` 에 남긴다).
+**② 배포 직후 10분 점검 SQL.** `event_outbox_deliveries` 에는 상태 열이 없다 — 상태는 `delivered_at`(전달 완료)·`attempt_count`·`last_error`·`next_attempt_at` 조합으로 읽는다(`schema.dbml`, relay 는 재시도 불가 실패도 행을 지우지 않고 `last_error` 에 남긴다).
 
 ```sql
 -- 최근 10분 생산 건수
@@ -339,10 +339,10 @@ SELECT CASE WHEN d.delivered_at IS NOT NULL THEN 'delivered'
  GROUP BY 1;
 ```
 
-**③ ON 직후 1회성 소식.** V127 은 백필하지 않으므로(`member_arrived_at` NULL) 기존 주민의 다음 망원경 도착 1회는 «첫 도착» 으로 판정돼 소식이 나갈 수 있다. 사람·섬당 최대 1건이고 정상이다.
+**③ 배포 직후 1회성 소식.** V127 은 백필하지 않으므로(`member_arrived_at` NULL) 기존 주민의 다음 망원경 도착 1회는 «첫 도착» 으로 판정돼 소식이 나갈 수 있다. 사람·섬당 최대 1건이고 정상이다.
 
 **④ 되돌릴 신호.**
-- `failing` 행이 쌓이고 `last_error` 가 `HTTP 400` — Realtime 이 이 type 을 모르는 버전이다(①의 순서 위반). 스위치를 OFF 로 돌리고 Realtime 을 먼저 배포한다.
+- `failing` 행이 쌓이고 `last_error` 가 `HTTP 400` — Realtime 이 이 type 을 모르는 버전이다(①의 순서 위반). Data 를 직전 이미지로 되돌리고 Realtime 을 먼저 배포한다.
 - `events` 구독 거절 폭증(`realtime.island.subscribe.total{channel=events,result=deny}`, `code` 태그로 `NOT_A_MEMBER`·`MOVEMENT_TOO_FREQUENT` 등을 가른다; 거절 ERROR 프레임에는 헤더 `channel: events` 가 실린다 — 앱은 이걸로 events 거절을 가르고, 없으면 종전 코드 분류 폴백) — 앱이 주민이 아닌 화면(방문)에서 구독 중이다. 앱 쪽 수정 대상이지 서버 롤백 사유가 아니다.
 - `MOVEMENT_TOO_FREQUENT` 증가 — `events` 시도 창 초과도 같은 코드를 쓰지만 위 카운터의 `channel` 태그로 이동과 갈라 본다.
 

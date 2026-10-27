@@ -3,50 +3,6 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
 
-# 명령 기반만 구현했다. 기본은 OFF — prod 개방은 별도 결정이다. dev 는 2026-09-29 relay ON 뒤 강퇴 직후 채팅
-# 차단(GROMO-2140)까지 검증하고 env 로 켰다(GROMO-2156).
-island-management:
-  host-transfer-enabled: ${ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED:false}
-  # GROMO-1802 섬 관리 명령 4종(정보 수정·가입 승인/거절·강퇴·나가기). 위임과 같은 이유로 기본 비활성이고
-  # 꺼져 있으면 receipt·쓰기보다 먼저 503 ISLAND_MANAGEMENT_NOT_READY 다. 주민·신청자 목록 조회는 게이트가 없다.
-  commands-enabled: ${ISLAND_MANAGEMENT_COMMANDS_ENABLED:false}
-
-# GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
-# 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.
-# 그래도 기본값은 OFF 로 둔다: prod 개방은 별도 릴리스 결정이고, dev 는 ISLAND_BOARD_WRITES_ENABLED 로 켠다.
-# GROMO-2182 차단 변경 사건(user.blocks.updated → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이
-# 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 차단자 축이 permanent 로 막힌다).
-user-blocks:
-  realtime-events-enabled: ${USER_BLOCKS_REALTIME_EVENTS_ENABLED:false}
-
-# GROMO-2350 세션 폐기 사건(auth.session.revoked)을 NOTI 에 더해 realtime 에도 보내는 스위치. 기본 OFF — 이 type 을 받는
-# Realtime 이 먼저 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → relay 가 permanent 로 표시하지만 A18 보류라 폐기하지 않고 백오프 재시도를
-# 계속해, 그동안 그 사용자의 USER 축이 막혀 탈퇴 전파가 늦어진다).
-# 켜기: realtime 이 이 type 을 받는 버전으로 배포됐는지 머지 PR 의 deployed:dev-realtime 라벨(Deployments dev-server/realtime)로 확인
-# (deploy-failed:dev-realtime 이면 켜지 않는다) → SM gromo/dev/env 에 =true 등록 → ops-redeploy.dev data-api.
-# 끄기: SM 값을 false 로(또는 삭제) → ops-redeploy.dev data-api. 이미 쌓인 REALTIME 행은 relay 가 계속 보내므로 realtime 이 살아 있으면 무해.
-auth:
-  session-revoked:
-    realtime-events-enabled: ${AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED:false}
-
-# GROMO-2299 바다 방 사건(sea.member.updated → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이 먼저
-# 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 사용자의 USER 축이 permanent 로 막혀 탈퇴 전파까지 멈춘다).
-focus:
-  sea:
-    realtime-events-enabled: ${FOCUS_SEA_REALTIME_EVENTS_ENABLED:false}
-
-# GROMO-2302 주민 첫 도착 사건(island.member.arrived → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이
-# 먼저 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 섬의 ISLAND_ARRIVAL 축이 permanent 로 막혀 도착 소식만 멈춘다).
-island:
-  arrival:
-    realtime-events-enabled: ${ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED:false}
-
-# GROMO-2289 고양이 잡지. 기본 OFF — 꺼져 있으면 홍보 신청·고치기가 receipt·잠금보다 먼저 503 MAGAZINE_NOT_READY 다
-# (60마리를 빼는 신청 API 도 이 스위치 뒤에 있다). 재료 목록·쓰기 화면 불러오기·섬 소식은 읽기라 막지 않는다.
-# dev 에서 먼저 MAGAZINE_ENABLED 로 켜고, 앱 잡지 화면이 배포된 뒤 prod 에서 켠다(잡지 구현 계획 §8-8).
-magazine:
-  enabled: ${MAGAZINE_ENABLED:false}
-
 # GROMO-2349 주간 섬 랭킹 분자(island_weekly_focus)를 기동 직후 «이번 주» 로 한 번 다시 채우는 운영 손잡이.
 # 기본 OFF — 켠 채로 두면 재기동마다 테이블 잠금(수 초)을 쥔다. 켜기: SM gromo/dev/env 에 =true → ops-redeploy.dev data-api →
 # 로그 «주간 섬 랭킹 분자 재계산» 확인 → 값을 false 로 되돌려 다시 배포. 대조 SQL·절차는 island-rankings/ops-runbook.md.
@@ -54,8 +10,9 @@ ranking:
   weekly-focus:
     recompute-on-startup: ${RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP:false}
 
+# GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
+# 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.
 island-board:
-  writes-enabled: ${ISLAND_BOARD_WRITES_ENABLED:false}
   # UTF-16 단위 — 2026-09-25 결정 GROMO-2136 으로 확정값이다(BQ03).
   notice-body-max-length: 5000
   comment-max-length: 500
@@ -77,7 +34,6 @@ island-quest:
 
 internal:
   api:
-    enabled: ${INTERNAL_API_ENABLED:false}
     callers:
       business:
         token: ${SVC_TOKEN_BIZ_TO_DATA}
@@ -329,26 +285,24 @@ outbox:
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
       # GROMO-2350 세션 폐기 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 그 sid 의 STOMP 연결을 닫는다.
-      # 생산은 auth.session-revoked.realtime-events-enabled(위)가 켜야 시작된다.
       "[auth.session.revoked]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
       # GROMO-2182 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 차단자의 차단 세대를 올린다.
-      # 생산은 user-blocks.realtime-events-enabled(아래)가 켜야 시작된다.
       "[user.blocks.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
-      # GROMO-2299 바다 방 상태 — 앱으로 나가지 않는 내부 제어 사건. 생산은 focus.sea.realtime-events-enabled(아래)가 켠다.
+      # GROMO-2299 바다 방 상태 — 앱으로 나가지 않는 내부 제어 사건.
       "[sea.member.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
-      # GROMO-2302 주민 첫 도착 — 그 섬 events 채널의 현재 주민에게. 생산은 island.arrival.realtime-events-enabled(위)가 켠다.
+      # GROMO-2302 주민 첫 도착 — 그 섬 events 채널의 현재 주민에게.
       "[island.member.arrived]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events

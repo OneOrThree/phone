@@ -23,7 +23,6 @@ import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,15 +43,8 @@ public class InternalHostTransferService {
     private final GroupMembershipMutationLocks locks;
     private final PublicCommandService commands;
 
-    @Value("${island-management.host-transfer-enabled:false}")
-    private boolean enabled;
-
-    /** 기본 비활성은 receipt 선점·역할·버전·outbox 변경보다 앞서 거절한다. */
     @Transactional
     public HostTransferResponse transfer(UUID islandId, UUID userId, UUID key, HostTransferRequest request) {
-        if (!enabled) {
-            throw new GroupException(GroupErrorCode.REALTIME_NOT_READY);
-        }
         var locked = GroupMemberUserLocks.lock(users, userId, request.targetUserId());
         var command = new PublicCommandRequest(userId, "POST:/islands/" + islandId + "/host-transfer", key,
                 tree(Map.of("targetUserId", request.targetUserId().toString())));

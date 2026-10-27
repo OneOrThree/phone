@@ -18,7 +18,6 @@ import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.JoinRequestAnswer;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearanceState;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
@@ -98,7 +97,7 @@ public class IslandManagementUseCase {
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, null)));
 
     private final DataIslandClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
     private final BlockedProfileMask mask;
 
     /** 섬 정보 수정 (LLD §3.1). {@code fields} 는 앱이 보낸 키만 담는다 — 부재가 «미변경» 이다. */
@@ -123,7 +122,7 @@ public class IslandManagementUseCase {
     public MembersPage members(AccessTokenClaims claims, UUID islandId, String cursor, int limit,
             Deadline deadline) {
         CursorScope scope = scope(claims, RESOURCE_MEMBERS, islandId, limit);
-        CursorBoundary boundary = codec().decode(cursor, scope);
+        CursorBoundary boundary = codec.decode(cursor, scope);
         IslandMembersPage page = relay(() -> data.fetchIslandMembers(claims.userId(), islandId,
                 boundary == null ? null : instant(boundary.sortKey()),
                 boundary == null ? null : id(boundary.tieBreaker()), limit, deadline), Map.of());
@@ -131,7 +130,7 @@ public class IslandManagementUseCase {
                 || (page.nextJoinedAt() == null) != (page.nextMembershipId() == null)) {
             throw new UpstreamContractMismatchException("주민 목록 응답이 완전하지 않습니다");
         }
-        String next = page.nextJoinedAt() == null ? null : codec().encode(scope,
+        String next = page.nextJoinedAt() == null ? null : codec.encode(scope,
                 new CursorBoundary(page.nextJoinedAt().toString(), page.nextMembershipId().toString()));
         Set<UUID> blocked = mask.blockedAmong(claims.userId(),
                 page.items().stream().filter(Objects::nonNull).map(IslandMembersPage.Item::id).toList(), deadline);
@@ -143,7 +142,7 @@ public class IslandManagementUseCase {
     public JoinRequestsPage joinRequests(AccessTokenClaims claims, UUID islandId, String cursor, int limit,
             Deadline deadline) {
         CursorScope scope = scope(claims, RESOURCE_JOIN_REQUESTS, islandId, limit);
-        CursorBoundary boundary = codec().decode(cursor, scope);
+        CursorBoundary boundary = codec.decode(cursor, scope);
         IslandJoinRequestsPage page = relay(() -> data.fetchIslandJoinRequests(claims.userId(), islandId,
                 boundary == null ? null : instant(boundary.sortKey()),
                 boundary == null ? null : id(boundary.tieBreaker()), limit, deadline), Map.of());
@@ -151,7 +150,7 @@ public class IslandManagementUseCase {
                 || (page.nextCreatedAt() == null) != (page.nextRequestId() == null)) {
             throw new UpstreamContractMismatchException("신청자 목록 응답이 완전하지 않습니다");
         }
-        String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
+        String next = page.nextCreatedAt() == null ? null : codec.encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextRequestId().toString()));
         return new JoinRequestsPage(page.items().stream().map(IslandJoinRequestView::from).toList(), next);
     }
@@ -190,15 +189,6 @@ public class IslandManagementUseCase {
     private static CursorScope scope(AccessTokenClaims claims, String resource, UUID islandId, int limit) {
         return new CursorScope(claims.userId(), resource, Map.of("islandId", islandId.toString()),
                 SORT_CREATED_ASC, limit);
-    }
-
-    /** 커서 서명기 — 없으면 첫 페이지로 접지 않고 503 이다({@code IslandMembershipUseCase#codec} 와 같은 이유). */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     /** 서명은 통과했어도 경계 값 자체는 다시 검증한다. */

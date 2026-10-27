@@ -59,10 +59,9 @@ writer="$(dirname "$0")/write-compose-env.py"
 json=$(secrets)  # SM 한 번만 읽음. 값은 셸 변수에만 두고 디스크엔 필터 결과만 씀
 printf '%s' "$json" | python3 "$writer" --report-unused --output "$dir/dev.env" --app-image "$image"
 # Data 컨테이너 env (satellites.data.dev.yml 이 env_file 로 통째 교체). 예전엔 VM 에 손으로 둔 파일.
-# 비밀 아닌 설정 2개는 SM 대신 여기 고정: 내부 API 스위치(business·notification 이 Data 내부 API 호출)
+# 비밀 아닌 설정은 SM 대신 여기 고정: 프로파일(DATA_API_PROFILES). 내부 API 는 항상 켜져 있어 스위치가 없다(티켓 2535).
 if [ "$data_api_running" = true ]; then
   printf '%s' "$json" \
-    | jq '. + {INTERNAL_API_ENABLED: "true"}' \
     | python3 "$writer" --service data-api --environment dev --data-profiles "$DATA_API_PROFILES" \
         --output "$dir/data-api.env" --image "$image"
   echo "DATA_API_ENV_FILE=$dir/data-api.env" >> "${GITHUB_ENV:-/dev/null}"

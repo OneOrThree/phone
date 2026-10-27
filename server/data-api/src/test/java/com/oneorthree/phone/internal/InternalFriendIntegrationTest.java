@@ -70,7 +70,6 @@ class InternalFriendIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         // 배포 yml 의 7줄과 같다 — yml 자체와 컨트롤러의 대조는 InternalFriendAllowlistTest 가 맡는다.
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/users/*/friends");

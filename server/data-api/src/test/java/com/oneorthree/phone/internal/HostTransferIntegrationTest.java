@@ -31,7 +31,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -70,11 +69,7 @@ class HostTransferIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("island-membership.commands-enabled", () -> true);
-        registry.add("island-management.host-transfer-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]",
                 () -> "POST /internal/islands/*/host-transfer");
@@ -135,26 +130,6 @@ class HostTransferIntegrationTest {
                 f.islandId().toString())).isZero();
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='HOST_TRANSFER'", f.islandId().toString())).isEqualTo(1);
-    }
-
-    @Test
-    void flagRejectsBeforeAnyReceiptOrDomainWrite() throws Exception {
-        Fixture f = fixture();
-        long before = version(f);
-        long receipts = receiptCount(f.owner());
-        ReflectionTestUtils.setField(service, "enabled", false);
-        try {
-            mvc.perform(post(path(f)).header("Authorization", "Bearer " + TOKEN)
-                            .header("X-User-Id", f.owner().id()).header("Idempotency-Key", UUID.randomUUID())
-                            .contentType("application/json").content(body(f.owner(), f.target().id())))
-                    .andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.code").value("REALTIME_NOT_READY"));
-        } finally {
-            ReflectionTestUtils.setField(service, "enabled", true);
-        }
-        assertOwner(f, f.owner());
-        assertThat(version(f)).isEqualTo(before);
-        assertThat(receiptCount(f.owner())).isEqualTo(receipts);
     }
 
     @Test

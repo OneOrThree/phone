@@ -14,7 +14,6 @@ import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
@@ -78,15 +77,13 @@ class FocusSessionMarkerDesyncTest {
     @Mock private com.oneorthree.phone.ranking.service.IslandWeeklyFocusService weeklyFocus;
 
     private FocusSessionLifecycleService service() {
-        return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
+        return new FocusSessionLifecycleService(userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
                 new SeaSessionPredicate(), customizationRewards,
-                null, new SeaSessionEvents(outboxCommandPort,
-                new org.springframework.beans.factory.support.StaticListableBeanFactory()
-                        .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
+                null, new SeaSessionEvents(outboxCommandPort),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
                 Clock.fixed(NOW, ZoneOffset.UTC), null, weeklyFocus);
     }

@@ -72,9 +72,7 @@ class IslandInvitationArrivalIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/invitations/resolve",
             "POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island"};
@@ -551,10 +549,10 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("주민 첫 도착 사건 스위치가 꺼져 있으면(기본) 사건은 0건이고 arrivedBefore 는 그대로 계산한다 (GROMO-2302)")
-    void firstMemberArrivalWithTheSwitchOffPublishesNothing() {
+    @DisplayName("주민 첫 도착은 사건을 정확히 1건 남기고 두 번째 도착은 남기지 않는다 (GROMO-2302)")
+    void firstMemberArrivalPublishesExactlyOneEvent() {
         UUID host = newUser();
-        UUID islandId = island("스위치섬", false, false);
+        UUID islandId = island("첫도착섬", false, false);
         joinAs(host, islandId, GroupMemberRole.OWNER);
         UUID user = newUser();
         joins.join(user, islandId, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
@@ -563,8 +561,8 @@ class IslandInvitationArrivalIntegrationTest {
 
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isFalse();
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
-        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
-                islandId.toString())).isZero();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?"
+                + " and params->>'userId'=?", islandId.toString(), user.toString())).isEqualTo(1);
     }
 
     @Test
@@ -584,8 +582,8 @@ class IslandInvitationArrivalIntegrationTest {
                 .as("주민 도착 기록은 멤버십 시작 이후다").isTrue();
 
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
-        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
-                islandId.toString())).isZero();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?"
+                + " and params->>'userId'=?", islandId.toString(), user.toString())).isZero();
     }
 
     // ---------------------------------------------------------------- 도구

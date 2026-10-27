@@ -21,7 +21,7 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
 | 서비스 | 필수 자격 |
 |---|---|
 | data-api | API_DB 3종, BIZ_TO_DATA·NOTI_TO_DATA·REALTIME_TO_DATA·DATA_TO_NOTI 서비스 토큰, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
-| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, REALTIME_BASE_URL, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
+| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, REALTIME_BASE_URL, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
 | notification | NOTI_DB 3종, FCM 2종, BIZ_TO_NOTI·DATA_TO_NOTI·CONSOLE_TO_NOTI·NOTI_TO_DATA 서비스 토큰, DATA_API_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
 
 표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. Data·Realtime에는 같은 `REALTIME_TO_DATA` 토큰을 공급하고 Data 프로파일에 `satellites,realtime-authorization`을 포함한다. `LINK_BASE_URL`은 현재 섬 초대 공유 주소이며, `LINK_PROXY_SECRET`은 게스트 요청의 프록시 신뢰 검증용이다. 폐기한 독립 Link 자격과 OpenAI 키는 주입하지 않는다. `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
@@ -68,7 +68,7 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 |---|---|---|
 | 0 | `data-api-cd.dev.yml` 조건부 오버레이 + `ops-kafka.dev.yml` 머지. `phone-kafka` 미실행이고 `/var/lib/gromo/runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
-| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
+| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`(내부 API 는 스위치가 없다 — caller 토큰이 문이다, 10-27 티켓 2535). 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
 | 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1, GROMO-2407 로 완료). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
 | 5 | ~~`NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향**~~ → 스위치 삭제(#1247, 티켓 2421): Data 에 구 FCM 발송 경로가 없어 Notification 이 유일한 발송 경로다 | — |
@@ -111,7 +111,6 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
 | 스위치 | 초기값 | 전환 조건 |
 |---|---|---|
-| Data `INTERNAL_API_ENABLED` | false | 서비스별 caller/token 설정 검증 후 true |
 | Data `OUTBOX_RELAY_ENABLED` | false | A18 재시도 정책 입력과 Kafka/HTTP 목적지 준비 후 true |
 | ~~Data `NOTIFICATION_DISPATCH_MODE`~~ | ~~LEGACY~~ | ~~구 FCM·리스너·flush 정지/drain 후 OUTBOX~~ → 스위치 삭제(#1247, 위 5단계) |
 | Notification `NOTIFICATION_KAFKA_ENABLED` | false | `.DLT`까지 토픽 준비 후 true. 수신·내구 적재만 시작 |

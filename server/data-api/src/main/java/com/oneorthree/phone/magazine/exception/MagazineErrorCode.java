@@ -6,8 +6,7 @@ import org.springframework.http.HttpStatus;
 
 /**
  * 고양이 잡지의 실패 코드 (GROMO-2289, 잡지 구현 계획 §3-1). 상수 이름은 계약이다 — Business 가 같은 이름·같은 상태의
- * 공개 코드로 그대로 옮긴다. {@link #MAGAZINE_NOT_READY} 는 공개 {@code SERVICE_UNAVAILABLE},
- * {@link #PROMOTION_REPORT_OWN_ISLAND} 는 공개 {@code FORBIDDEN} 으로 바뀐다.
+ * 공개 코드로 그대로 옮긴다. {@link #PROMOTION_REPORT_OWN_ISLAND} 는 공개 {@code FORBIDDEN} 으로 바뀐다.
  *
  * <p>그대로 빌려 쓰는 기존 코드: 섬장 아님 {@code NOT_OWNER} · 이 호에 이미 신청 {@code PROMOTION_ALREADY_REQUESTED_TODAY}
  * (그룹) · 잔액 부족 {@code INSUFFICIENT_FUNDS}(건설) · 금칙어 {@code BANNED_WORD}(공통) · 게스트
@@ -41,10 +40,7 @@ public enum MagazineErrorCode implements ErrorCode {
     PROMOTION_NOT_FOUND(HttpStatus.NOT_FOUND, "홍보를 찾을 수 없어요"),
 
     /** 없는 호, 또는 최근 7호보다 오래된 호(MAG-07 — 지난 호는 최근 7호까지만). */
-    MAGAZINE_ISSUE_NOT_FOUND(HttpStatus.NOT_FOUND, "잡지 호를 찾을 수 없어요"),
-
-    /** 기능 스위치 {@code magazine.enabled} 가 꺼져 있다 — 쓰기(신청·고치기)가 receipt·잠금보다 먼저 막힌다. */
-    MAGAZINE_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "고양이 잡지는 아직 준비 중이에요");
+    MAGAZINE_ISSUE_NOT_FOUND(HttpStatus.NOT_FOUND, "잡지 호를 찾을 수 없어요");
 
     private final HttpStatus status;
     private final String message;

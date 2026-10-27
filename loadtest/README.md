@@ -59,8 +59,6 @@ make write-fixture SLOTS=50
 make test-existing BASE_URL=http://localhost:18088 PARAMS_DIR=$PWD/.local/params PROFILE=smoke RATE=2 DURATION=1m K6_SCRIPT=k6/scenarios/island_switch.js
 ```
 
-`join_approval`은 Data의 `ISLAND_MANAGEMENT_COMMANDS_ENABLED=true`가 필요하다(기본 false — 운영 기본에선 승인·나가기가 503 `ISLAND_MANAGEMENT_NOT_READY`). 로컬 compose(`infra/local/compose.yml`)는 켜 두었다.
-
 정리 호출(나가기·신청 취소)과 `join_approval`의 첫 신청은 예상 4xx(404·409)를 `http_req_failed`에서 제외한다.
 
 **쓰기 시나리오는 한 번에 하나만 실행한다** — 같은 slot을 공유해 `join_approval`이 남기는 시스템 편지가 `letter_exchange`의 `GET /letters` 응답 시간을 오염시킨다.

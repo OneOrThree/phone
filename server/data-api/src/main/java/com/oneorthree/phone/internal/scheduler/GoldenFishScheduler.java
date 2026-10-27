@@ -3,7 +3,6 @@ package com.oneorthree.phone.internal.scheduler;
 import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.focus.support.FocusRewardAccrualGate;
 import com.oneorthree.phone.internal.service.GoldenFishService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,21 +37,12 @@ public class GoldenFishScheduler {
 
     private final FocusSessionDetailRepository details;
     private final GoldenFishService goldenFish;
-    /**
-     * 분당 적립 크론과 <b>같은 스위치</b>를 쓴다 — 황금 물고기도 분 단위 지급이라, 혼합 버전 배포에서
-     * 옛 이미지가 도는 동안에는 켜지 않는다. 별도 flag 를 두면 「적립은 꺼져 있는데 보너스만 나가는」
-     * 조합이 생겨, 옛 finish 가 세션 전체를 다시 지급할 때 그 위에 보너스까지 얹힌다.
-     */
-    private final FocusRewardAccrualGate gate;
     private final Clock clock;
 
     /** 매분 20초 — ACTIVE 가 2명 이상인 섬만 추첨한다. */
     @Scheduled(cron = "20 * * * * *", zone = "UTC", scheduler = SchedulingConfig.FOCUS_REWARD_SCHEDULER)
     @SchedulerLock(name = "golden-fish-draw")
     public void drawDueIslands() {
-        if (!gate.isOpen()) {
-            return;
-        }
         Instant minute = clock.instant().truncatedTo(ChronoUnit.MINUTES);
         for (UUID islandId : details.findIslandIdsWithAtLeast(
                 FocusSessionLifecycle.ACTIVE, GoldenFishService.MIN_MEMBERS)) {

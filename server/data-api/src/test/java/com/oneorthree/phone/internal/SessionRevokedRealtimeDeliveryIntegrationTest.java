@@ -27,8 +27,8 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.within;
 
 /**
- * GROMO-2350 — 스위치 {@code auth.session-revoked.realtime-events-enabled} ON 이면 세션 폐기 사건이 NOTI 에 더해
- * REALTIME 으로도 남는다. 기본 OFF 에서 NOTI 1행뿐인 것은 {@code SatelliteCoreContractIntegrationTest} 가 잡는다.
+ * GROMO-2350 — 세션 폐기 사건은 NOTI 에 더해 REALTIME 으로도 남는다(항상, 티켓 2535 — 종전 생산 스위치
+ * {@code auth.session-revoked.realtime-events-enabled} 를 걷었다).
  */
 @SpringBootTest
 class SessionRevokedRealtimeDeliveryIntegrationTest {
@@ -36,7 +36,6 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("auth.session-revoked.realtime-events-enabled", () -> true);
     }
 
     @Autowired
@@ -53,7 +52,7 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
     EventOutboxDeliveryRepository eventOutboxDeliveryRepository;
 
     @Test
-    @DisplayName("스위치 ON — 로그아웃의 auth.session.revoked 는 NOTI(noti.sessionRevoked)와 REALTIME(auth.session.revoked) 2행이다")
+    @DisplayName("로그아웃의 auth.session.revoked 는 NOTI(noti.sessionRevoked)와 REALTIME(auth.session.revoked) 2행이다")
     void logoutAddsRealtimeDelivery() {
         LoginSessionResult login = authService.guestSession(java.util.UUID.randomUUID().toString());
         UUID userId = jwtProvider.extractUserId(login.accessToken());
