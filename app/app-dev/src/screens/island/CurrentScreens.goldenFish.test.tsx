@@ -1418,6 +1418,39 @@ test.each(['', '   '])('할 일이 %j이면 기본 주제로 집중을 시작한
   await screen.unmount();
 });
 
+test('서버 섬에서 고른 자리로 집중을 시작하고 낚시 화면에서도 그 자리에 앉는다', async () => {
+  const state = focusedState();
+  state.session = null;
+  state.focusSpot = undefined;
+  state.islands.find((island) => island.id === state.islandId)!.joined = false;
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  const spot = { x: 18.5, y: 39.5 },
+    selected = reducer(state, { type: 'FOCUS_SPOT', spot });
+  expect(selected.focusSpot).toEqual(spot);
+
+  const start = jest.fn().mockResolvedValue({});
+  const screen = await render(
+    screenElement(selected, 'focusSetup', undefined, undefined, undefined, undefined, {
+      focus: { start },
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('start-focus'));
+  expect(start).toHaveBeenCalledWith({ subject: '집중', seat: spot });
+  await screen.unmount();
+
+  selected.session = { ...focusedState().session!, seconds: 60 };
+  selected.settings.reduceMotion = true;
+  mockRealSelfFishingActor = true;
+  const focus = await render(screenElement(selected));
+  expect(focus.getByTestId('fishing-actor-cat').parent?.props.style.left).toBeCloseTo(
+    (640 * spot.x) / 100 - (640 * 0.077) / 2,
+  );
+  expect(focus.getByTestId('fishing-actor-catch').props.source).toEqual(
+    assets['props/fishing/catch/single.png'],
+  );
+  await focus.unmount();
+});
+
 test('준비 창 X는 집중 시작 없이 자리 선택으로 돌아간다', async () => {
   const state = focusedState();
   state.session = null;
