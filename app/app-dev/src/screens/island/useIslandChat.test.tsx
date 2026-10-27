@@ -305,6 +305,8 @@ test('차단 목록을 읽지 못하면 글을 숨기고(fail-closed) 오류를 
   const hook = await open();
   assert.deepEqual(hook.result.current.messages, []);
   assert.equal(hook.result.current.error?.code, 'BLOCKED_USERS_UNAVAILABLE');
+  // 차단 목록 실패는 로딩을 끝내 오류·재시도가 보여야 한다(로딩에 머물지 않는다)
+  assert.equal(hook.result.current.loading, false);
   assert.equal(listMessagesMock.mock.calls.length, 0);
   await hook.unmount();
 });

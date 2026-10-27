@@ -608,6 +608,16 @@ export const componentTokens = {
   },
   // 우체통 첫 화면의 행동 버튼(잡지 보기 · 잡지 꽂이, GROMO-2289) — 편지 칸과 같은 짙은 나무 테·바닥 그림자를
   // 쓰고 바탕만 역할 색이다. 우체통 장면 팔레트가 바뀌면 여기 한 곳을 고친다.
+  // 우리 섬 채팅방 말풍선(GROMO-2499) — 내 말풍선·남의 말풍선이 같은 여백·반경을 공유한다.
+  // tail* 은 프로필을 향하는 각진 모서리(내 말풍선은 오른쪽 아래, 남의 말풍선은 왼쪽 위)
+  islandChatBubble: {
+    gap: space[2],
+    paddingVertical: space[2],
+    paddingHorizontal: space[3],
+    radius: 16,
+    tailRadius: space[1],
+    mineMaxWidth: '82%' as const,
+  },
   // 우체통 첫 화면 큰 칸의 고양이 잡지(GROMO-2500 C안) — 칸 바탕(옆 하늘·분홍 편지 칸과 구분되는 버터색)·표지,
   // 칸 안 [지난 호] 작은 알약, 안 읽음 점(점 테두리는 편지 종이색)
   mailboxAction: {

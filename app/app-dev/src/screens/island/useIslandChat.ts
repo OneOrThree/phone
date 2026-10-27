@@ -273,7 +273,9 @@ export function useIslandChat({ islandId, active }: { islandId: string | null; a
       return {
         ...state,
         messages: [],
-        loading: blockedUsers.status === 'loading' || state.loading,
+        // 차단 목록 조회가 실패하면 로딩을 끝내 오류·재시도를 노출한다 — 이력 effect 는 ready 가 아니면
+        // 돌지 않아 state.loading 이 초기 true 로 남으므로, 여기서는 차단 목록 조회 상태만 본다.
+        loading: blockedUsers.status === 'loading',
         error: blockedListError ?? state.error,
       };
     }

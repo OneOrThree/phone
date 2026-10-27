@@ -5,13 +5,16 @@ import React, { useEffect, useRef } from 'react';
 import { ScrollView, View } from 'react-native';
 import { Btn, C, Txt, k } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandSheet, Avatar, sheetInput } from '@/screens/island/IslandSheet';
 import { appearanceOutfit, type Outfit } from '@/components/CatOutfitLayers';
 import { ApiError } from '@/services/api/client';
 import { currentIsland, dayKey, type State } from '@/services/model';
 import type { IslandChat } from '@/screens/island/useIslandChat';
 import { t } from '@/i18n';
+
+const BUBBLE = componentTokens.islandChatBubble;
+const stroke = semanticTokens.stroke;
 
 // 채팅 시각: 방금 · N분 전 · N시간 전 · 그 전은 M월 D일
 export const chatTime = (at: number, now: number) => {
@@ -144,11 +147,12 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
         ? status(t('islandChat.loading'))
         : server && chat.error && !rows.length
           ? retryBox(chat.error, 'chat-retry')
-          : !rows.length
+          : !rows.length && !chat.messagesCursor
             ? status(t('islandChat.empty'))
             : null}
       {server && chat.error && rows.length > 0 && retryBox(chat.error, 'chat-refresh-retry')}
-      {server && chat.messagesCursor && rows.length > 0 ? (
+      {/* 최신 페이지가 모두 차단한 사용자의 글이면 rows 는 비어도 커서는 남는다 — 표시 수가 아니라 커서로 버튼을 낸다 */}
+      {server && chat.messagesCursor ? (
         <Btn
           id="chat-more"
           small
@@ -163,13 +167,13 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
             key={m.id}
             style={{
               alignSelf: 'flex-end',
-              maxWidth: '82%',
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderWidth: 1.5,
+              maxWidth: BUBBLE.mineMaxWidth,
+              paddingVertical: BUBBLE.paddingVertical,
+              paddingHorizontal: BUBBLE.paddingHorizontal,
+              borderWidth: stroke.default,
               borderColor: C.brown,
-              borderRadius: 16,
-              borderBottomRightRadius: 4,
+              borderRadius: BUBBLE.radius,
+              borderBottomRightRadius: BUBBLE.tailRadius,
               backgroundColor: C.soft,
             }}
           >
@@ -193,18 +197,21 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
             )}
           </View>
         ) : (
-          <View key={m.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+          <View
+            key={m.id}
+            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: BUBBLE.gap }}
+          >
             <Avatar color={m.color ?? 'gray'} outfit={m.color ? m.outfit : undefined} size={36} />
             {/* 꼬리(왼쪽 위 각진 모서리)는 프로필을 향한다(DESIGN §8.5) */}
             <View
               style={{
                 flexShrink: 1,
-                paddingVertical: 8,
-                paddingHorizontal: 12,
-                borderWidth: 1.5,
+                paddingVertical: BUBBLE.paddingVertical,
+                paddingHorizontal: BUBBLE.paddingHorizontal,
+                borderWidth: stroke.default,
                 borderColor: C.brown,
-                borderRadius: 16,
-                borderTopLeftRadius: 4,
+                borderRadius: BUBBLE.radius,
+                borderTopLeftRadius: BUBBLE.tailRadius,
                 backgroundColor: C.paper,
               }}
             >

@@ -140,6 +140,14 @@ test('더 오래된 글이 있으면 「이전 글 더 보기」로 이어 읽�
   await ui.unmount();
 });
 
+test('보이는 글이 없어도 커서가 있으면 「이전 글 더 보기」를 두고 빈 안내는 숨긴다(차단 필터 회귀 방지)', async () => {
+  const chat = chatOf({ messages: [], messagesCursor: 'old' });
+  const ui = await render(<Harness e={env()} chat={chat} />);
+  ui.getByTestId('chat-more');
+  expect(ui.queryByText('아직 남긴 글이 없어요.')).toBeNull();
+  await ui.unmount();
+});
+
 test('닫기 × 는 이전 화면으로 돌아간다', async () => {
   const e = env();
   const ui = await render(<Harness e={e} chat={chatOf()} />);
