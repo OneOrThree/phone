@@ -673,6 +673,7 @@
       "title": "축음기 음악",
       "subtitle": "보유한 음원 중에서 골라요.",
       "changeFailed": "음악을 바꾸지 못했어요.",
+      "purchaseFailed": "음원을 구매하지 못했어요.",
       "backToSpot": "자리로 돌아가기",
       "gramA11y": "축음기 · 음악 고르기"
     },

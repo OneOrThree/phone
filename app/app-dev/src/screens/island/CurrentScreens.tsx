@@ -7,7 +7,11 @@ import { PermissionsAndroid } from 'react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
-import { hasBundledAudio } from '@/constants/audio';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, getLocale, t } from '@/i18n';
 import { ownCatName } from '@/i18n/format';
@@ -60,6 +64,8 @@ import {
   islandWeeklyAverage,
   hoursMinutes,
   trackNames,
+  products,
+  canBuy,
   SERVER_VISIT_ROUTES,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -125,6 +131,7 @@ import {
   useSpotlightTarget,
 } from '@/screens/island/NpcGuide';
 import { useBoardHomeIndicator } from '@/screens/island/useBoardHomeIndicator';
+import { useShop } from '@/screens/island/useShop';
 import { CatSprite } from '@/components/CatSprite';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
@@ -2032,6 +2039,10 @@ function FocusFlow({ e: environment }: any) {
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
+    [soundPurchase, setSoundPurchase] = useState<{
+      kind: 'confirm' | 'success' | 'error';
+      product: any;
+    } | null>(null),
     // 누른 주민 정보창(GROMO-2474)
     [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null),
     [error, setError] = useState(''),
@@ -2108,6 +2119,18 @@ function FocusFlow({ e: environment }: any) {
   // GROMO-2010 — 서버 모드에서는 같은 섬 주민의 실시간 집중/휴식·응원이 정본이다.
   // 응원 채널은 내 진행 서버 세션이 이 섬에 있을 때만 구독·발신한다(없으면 서버가 거절한다).
   const liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : null;
+  const musicRoute = ['fishingArrival', 'focusSetup', 'focus'].includes(r);
+  // 집중섬 축음기는 세션 시작 전에도 구매·곡 변경이 가능하다. 일반 섬 축음기와 달리
+  // 판매 목록·공동 인벤토리·지갑을 함께 읽되, 실제 기기 재생은 App 의 active 세션 gate 가 맡는다.
+  const focusShop = useShop({
+    active: !!e.islands && musicRoute && i.buildings.includes('gram'),
+    islandId: liveIslandId,
+    route: 'sound',
+    category: 'personal',
+    orderScope: 'personal',
+    productId: null,
+    dispatch: e.dispatch,
+  });
   const emoteSessionId =
     liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
       ? s.session.id
@@ -2785,6 +2808,206 @@ function FocusFlow({ e: environment }: any) {
     const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
     if (!walkTo(LANDING, sail)) sail();
   };
+  const activeFocus = r === 'focus' && s.session?.status === 'active' && !leg;
+  const focusAudioProducts: any[] = e.islands
+    ? focusShop.items
+    : products.filter((product) => product.kind === 'audio');
+  const focusOwnedTrackIds = (
+    e.islands && focusShop.shared ? focusShop.shared.audio : i.sharedOwned
+  ).filter(hasBundledAudio);
+  const focusTrackIds = [
+    ...focusOwnedTrackIds,
+    ...focusAudioProducts
+      .map((product) => product.id)
+      .filter((id) => !focusOwnedTrackIds.includes(id)),
+  ];
+  const focusTrackLabel = (id: string) =>
+    trackNames[id] ??
+    focusShop.titles[id] ??
+    focusAudioProducts.find((p) => p.id === id)?.title ??
+    id;
+  const changeFocusTrack = async (trackId: string) => {
+    if (!e.playback) {
+      e.dispatch({ type: 'TRACK_SELECT', value: trackId });
+      return true;
+    }
+    try {
+      // 곡 선택과 재생은 별개다. 집중 전에도 선택할 수 있지만 실제 재생은 active 집중에서만 한다.
+      await e.playback.update({ trackId });
+      return true;
+    } catch (thrown) {
+      e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed'));
+      return false;
+    }
+  };
+  const changeFocusPlaying = async (playing: boolean) => {
+    if (!activeFocus) return;
+    if (!e.playback) {
+      e.dispatch({ type: 'PLAY', value: playing });
+      return;
+    }
+    try {
+      await e.playback.update({ playing });
+    } catch (thrown) {
+      e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed'));
+    }
+  };
+  const buyFocusTrack = async () => {
+    const product = soundPurchase?.product;
+    if (!product) return;
+    if (e.islands) {
+      try {
+        await focusShop.buy(product);
+        setSoundPurchase({ kind: 'success', product });
+      } catch (thrown) {
+        if (e.conversion?.offer(thrown)) {
+          setSoundPurchase(null);
+          return;
+        }
+        if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS') {
+          setSoundPurchase({ kind: 'error', product });
+          return;
+        }
+        setSoundPurchase(null);
+        e.notify(errorTextOr(thrown, 'focusFlow.music.purchaseFailed'));
+      }
+      return;
+    }
+    if (canBuy(s, product)) {
+      setSoundPurchase({ kind: 'error', product });
+      return;
+    }
+    e.dispatch({ type: 'BUY', id: product.id });
+    setSoundPurchase({ kind: 'success', product });
+  };
+  const closeMusic = () => {
+    setSoundPurchase(null);
+    setDialog(null);
+  };
+  const musicModal =
+    dialog === 'music' && !goldenReeling ? (
+      <FiModal>
+        <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>축음기 음악</Text>
+        <Text
+          style={{
+            fontSize: 13,
+            lineHeight: 20.8,
+            color: '#7C6857',
+            marginBottom: wide ? 10 : 15,
+          }}
+        >
+          {activeFocus
+            ? '곡을 고르고 재생 상태를 바꿀 수 있어요.'
+            : '집중 전에도 곡을 구매하고 다음 곡을 골라 둘 수 있어요.'}
+        </Text>
+        {soundPurchase ? (
+          <View style={{ gap: 12 }}>
+            <Text style={[fiTitle(wide ? 17 : 19), { textAlign: 'center' }]}>
+              {soundPurchase.kind === 'confirm'
+                ? `${soundPurchase.product.title}를 구매할까요?`
+                : soundPurchase.kind === 'success'
+                  ? '구매했어요'
+                  : '물고기가 부족해요'}
+            </Text>
+            {soundPurchase.kind === 'confirm' && (
+              <Text
+                style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857', textAlign: 'center' }}
+              >
+                구매한 곡은 같은 섬 주민 모두가 함께 사용할 수 있어요.
+              </Text>
+            )}
+            {soundPurchase.kind === 'confirm' ? (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <FiButton title="취소" style={{ flex: 1 }} onPress={() => setSoundPurchase(null)} />
+                <FiButton
+                  primary
+                  title={`${soundPurchase.product.price}마리로 구매`}
+                  style={{ flex: 1 }}
+                  onPress={buyFocusTrack}
+                />
+              </View>
+            ) : (
+              <FiButton
+                primary
+                title={soundPurchase.kind === 'success' ? '이 곡으로 바꾸기' : '확인'}
+                onPress={async () => {
+                  if (soundPurchase.kind === 'success') {
+                    if (!(await changeFocusTrack(soundPurchase.product.id))) return;
+                  }
+                  setSoundPurchase(null);
+                }}
+              />
+            )}
+          </View>
+        ) : (
+          <>
+            {activeFocus && (
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                <FiButton
+                  primary={i.playing}
+                  title="재생"
+                  style={{ flex: 1 }}
+                  onPress={() => void changeFocusPlaying(true)}
+                />
+                <FiButton
+                  primary={!i.playing}
+                  title="정지"
+                  style={{ flex: 1 }}
+                  onPress={() => void changeFocusPlaying(false)}
+                />
+              </View>
+            )}
+            {e.islands && focusShop.error ? (
+              <View style={{ gap: 8 }}>
+                <Text style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857' }}>
+                  곡 목록을 불러오지 못했어요.
+                </Text>
+                <FiButton title="다시 시도" onPress={focusShop.retry} />
+              </View>
+            ) : e.islands && focusShop.loading ? (
+              <Text style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857' }}>
+                곡 목록을 불러오는 중이에요.
+              </Text>
+            ) : (
+              <View style={{ gap: 8 }}>
+                {focusTrackIds.map((id) => {
+                  const owned = focusOwnedTrackIds.includes(id);
+                  const product = focusAudioProducts.find((item) => item.id === id);
+                  const bundled = BUNDLED_AUDIO_TRACK_IDS.includes(
+                    id as (typeof BUNDLED_AUDIO_TRACK_IDS)[number],
+                  );
+                  if (
+                    !owned &&
+                    (!bundled || product?.available === false || product?.price == null)
+                  )
+                    return null;
+                  const status = owned
+                    ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                      ? '무료'
+                      : '보유'
+                    : `${product.price}마리로 구매`;
+                  return (
+                    <FiButton
+                      key={id}
+                      left
+                      primary={owned && i.track === id}
+                      title={`${focusTrackLabel(id)} · ${status}`}
+                      onPress={() => {
+                        if (owned) void changeFocusTrack(id);
+                        else setSoundPurchase({ kind: 'confirm', product });
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            )}
+            <View style={{ marginTop: wide ? 12 : 18 }}>
+              <FiButton primary title="자리로 돌아가기" onPress={closeMusic} />
+            </View>
+          </>
+        )}
+      </FiModal>
+    ) : null;
   // 뒤로가기: 자리 선택 중에는 귀환하고, 나머지 걷기·항해 중에는 막는다. 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return true;
@@ -2806,8 +3029,12 @@ function FocusFlow({ e: environment }: any) {
       claimed(open.length > 1);
       return true;
     }
+    if (soundPurchase) {
+      setSoundPurchase(null);
+      return true;
+    }
     if (dialog) {
-      setDialog(null);
+      closeMusic();
       return true;
     }
     if (r === 'focusResult') {
@@ -3193,7 +3420,7 @@ function FocusFlow({ e: environment }: any) {
     );
   const seated = r !== 'fishingArrival' && !leg,
     spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
-  const focusing = r === 'focus' && !!s.session && !leg,
+  const focusing = activeFocus,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
@@ -3359,7 +3586,7 @@ function FocusFlow({ e: environment }: any) {
           onTap={r === 'fishingArrival' ? selectSpot : undefined}
           onRaft={raft}
           gram={i.buildings.includes('gram')}
-          onGram={focusing ? () => setDialog('music') : undefined}
+          onGram={musicRoute ? () => setDialog('music') : undefined}
           seated={seated}
           inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
@@ -3689,52 +3916,9 @@ function FocusFlow({ e: environment }: any) {
                 />
               </View>
             </View>
-            {dialog === 'music' && !goldenReeling && (
-              <FiModal>
-                <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
-                  {t('focusFlow.music.title')}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 20.8,
-                    color: '#7C6857',
-                    marginBottom: wide ? 10 : 15,
-                  }}
-                >
-                  {t('focusFlow.music.subtitle')}
-                </Text>
-                <View style={{ gap: 8 }}>
-                  {i.sharedOwned.filter(hasBundledAudio).map((id) => (
-                    <FiButton
-                      key={id}
-                      left
-                      primary={i.track === id}
-                      title={trackNames[id]}
-                      onPress={() => {
-                        if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
-                        else
-                          e.playback
-                            .update({ trackId: id, playing: true })
-                            .catch((thrown: unknown) =>
-                              e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed')),
-                            );
-                      }}
-                    />
-                  ))}
-                </View>
-                <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-                  <FiButton
-                    primary
-                    title={t('focusFlow.music.backToSpot')}
-                    style={{ flex: 1 }}
-                    onPress={() => setDialog(null)}
-                  />
-                </View>
-              </FiModal>
-            )}
           </>
         )}
+        {musicModal}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}
         {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}

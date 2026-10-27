@@ -23,7 +23,6 @@ import {
   View,
   Pressable,
   ScrollView,
-  PanResponder,
   StyleSheet,
   Platform,
   Animated,
@@ -42,7 +41,6 @@ import {
   mainIsland,
   serverHome,
   isHost,
-  sessionSeconds,
   canBuy,
   products,
   costs,
@@ -81,8 +79,6 @@ import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/so
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland } from '@/screens/island/WorldMap';
-import { FocusSea, clock } from '@/screens/focus/FocusSea';
-import { Ticking } from '@/hooks/useNow';
 import { assets, cat } from '@/constants/assets';
 import { seaLoaf, telescopeSea } from '@/screens/sea/seaAssets';
 import {
@@ -624,13 +620,6 @@ function PlayIcon({ pause = false, size = 18 }: any) {
     </Svg>
   );
 }
-function StopIcon({ size = 16 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Path d="M6 6h12v12H6z" fill={C.ink} />
-    </Svg>
-  );
-}
 // 분홍 원 체크(퀘스트 달성·선택한 카드·착용 중)
 function CheckDot({ size = 22 }: any) {
   return (
@@ -1087,7 +1076,6 @@ export function RedesignScreens({ e }: any) {
       else go('approval', i.id);
     } else go('arrival');
   };
-  const setTrack = (value: string) => act('TRACK', { value });
   // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
   const [sheetToast, setSheetToast] = useState(''),
     // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
@@ -2195,76 +2183,8 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
-  const focusScene = (
-    <View style={{ flex: 1 }}>
-      <FocusSea state={state} emote={null} />
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: layout.compact ? ins.left + 20 : 0,
-          right: layout.compact ? undefined : 0,
-          top: ins.top + 12,
-          alignItems: layout.compact ? 'flex-start' : 'center',
-          gap: 2,
-        }}
-      >
-        <View
-          style={{
-            backgroundColor: '#FFFDFAD9',
-            borderRadius: 999,
-            paddingHorizontal: 12,
-            paddingVertical: 4,
-          }}
-        >
-          <Txt style={{ fontSize: 13, fontWeight: '600' }}>{state.session?.subject || '집중'}</Txt>
-        </View>
-        <Txt
-          style={{
-            fontSize: layout.compact ? 38 : 46,
-            lineHeight: layout.compact ? 46 : 56,
-            fontWeight: '800',
-            fontVariant: ['tabular-nums'],
-            textShadowColor: C.paper,
-            textShadowRadius: 6,
-          }}
-        >
-          {/* 경과 시간 글자만 매초 다시 그린다(GROMO-2372) */}
-          <Ticking>{(at) => clock(sessionSeconds(state.session, at))}</Ticking>
-        </Txt>
-      </View>
-      {island.buildings.includes('gram') && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="현재 음악"
-          onPress={() => go('sound')}
-          style={[
-            k.row,
-            {
-              position: 'absolute',
-              right: ins.right + 16,
-              top: ins.top + 12,
-              height: 34,
-              paddingHorizontal: 8,
-              gap: 6,
-              borderRadius: 999,
-              backgroundColor: '#FFFDFAE0',
-              borderWidth: 1.5,
-              borderColor: C.brown,
-            },
-          ]}
-        >
-          <Pic id="gram" w={22} />
-          <Txt style={{ fontSize: 12, fontWeight: '700' }}>
-            {island.playing && island.track ? trackNames[island.track] : '음악 선택'}
-          </Txt>
-        </Pressable>
-      )}
-    </View>
-  );
   if (route === 'sound') {
     const gramophone = componentTokens.gramophone;
-    const scene = !!state.session;
     const audioProducts: any[] = server
       ? shopApi.items
       : products.filter((p) => p.kind === 'audio');
@@ -2274,45 +2194,21 @@ export function RedesignScreens({ e }: any) {
       hasBundledAudio,
     );
     const trackLabel = (id: string) => trackNames[id] ?? shopApi.titles[id] ?? id;
-    const hasOwnedTracks = ownedTrackIds.length > 0;
-    const currentTrack = typeof island.track === 'string' ? island.track : null;
-    const serverPlaybackReady = !server || !!e.playback?.state;
-    const hasCurrentTrack =
-      serverPlaybackReady && currentTrack !== null && ownedTrackIds.includes(currentTrack);
-    const trackIds = scene
-      ? ownedTrackIds
-      : [
-          ...ownedTrackIds,
-          ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
-        ];
+    const trackIds = [
+      ...ownedTrackIds,
+      ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
+    ];
     const largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
     const dialogProduct = soundDialog?.product;
-    const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
-      if (!server) {
-        if (patch.trackId) setTrack(patch.trackId);
-        else if (patch.playing !== undefined) act('PLAY', { value: patch.playing });
-        return true;
-      }
-      try {
-        await e.playback.update(patch);
-        return true;
-      } catch (thrown) {
-        if (e.conversion?.offer(thrown)) return false;
-        notify(serverErrorText(thrown) || '재생 상태를 바꾸지 못했어요. 다시 시도해 주세요.');
-        return false;
-      }
-    };
     const selectTrack = (id: string) => {
-      if (ownedTrackIds.includes(id)) changePlayback({ trackId: id, playing: true });
-      else {
-        const product = audioProducts.find((item) => item.id === id);
-        if (
-          !localAudioIds.has(id) ||
-          (server && (product?.available === false || product?.price == null))
-        )
-          return;
-        if (product) setSoundDialog({ kind: 'confirm', productId: id, product });
-      }
+      if (ownedTrackIds.includes(id)) return;
+      const product = audioProducts.find((item) => item.id === id);
+      if (
+        !localAudioIds.has(id) ||
+        (server && (product?.available === false || product?.price == null))
+      )
+        return;
+      if (product) setSoundDialog({ kind: 'confirm', productId: id, product });
     };
     const buyTrack = async () => {
       if (!dialogProduct) return;
@@ -2366,48 +2262,40 @@ export function RedesignScreens({ e }: any) {
             aria-hidden={true}
             style={StyleSheet.absoluteFill}
           >
-            {scene ? focusScene : <Pic id="interior/gram" w="100%" h="100%" cover />}
+            <Pic id="interior/gram" w="100%" h="100%" cover />
           </View>
           <NavBtn
-            label={
-              state.session?.status === 'paused'
-                ? '휴식으로 돌아가기'
-                : scene
-                  ? '집중으로 돌아가기'
-                  : '섬으로 돌아가기'
-            }
+            label="섬으로 돌아가기"
             onPress={back}
             style={{ position: 'absolute', left: 20 + ins.left, top: 16 + ins.top }}
           />
-          {!scene && (
-            <View
-              style={[
-                gradient(
-                  `linear-gradient(90deg, ${gramophone.signStart}, ${gramophone.signCenter} 50%, ${gramophone.signEnd})`,
-                ),
-                {
-                  position: 'absolute',
-                  top: 20 + ins.top,
-                  alignSelf: 'center',
-                  minWidth: 124,
-                  height: 40,
-                  borderWidth: 1.5,
-                  borderColor: gramophone.woodBorder,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: gramophone.signShadow,
-                },
-              ]}
+          <View
+            style={[
+              gradient(
+                `linear-gradient(90deg, ${gramophone.signStart}, ${gramophone.signCenter} 50%, ${gramophone.signEnd})`,
+              ),
+              {
+                position: 'absolute',
+                top: 20 + ins.top,
+                alignSelf: 'center',
+                minWidth: 124,
+                height: 40,
+                borderWidth: 1.5,
+                borderColor: gramophone.woodBorder,
+                borderRadius: 8,
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: gramophone.signShadow,
+              },
+            ]}
+          >
+            <Txt
+              tabletScale={1}
+              style={{ color: gramophone.signForeground, fontSize: 17, lineHeight: 24 }}
             >
-              <Txt
-                tabletScale={1}
-                style={{ color: gramophone.signForeground, fontSize: 17, lineHeight: 24 }}
-              >
-                축음기
-              </Txt>
-            </View>
-          )}
+              축음기
+            </Txt>
+          </View>
           <View
             style={{
               position: 'absolute',
@@ -2437,11 +2325,7 @@ export function RedesignScreens({ e }: any) {
                   }}
                 >
                   <View
-                    accessibilityLabel={
-                      hasCurrentTrack
-                        ? `${trackLabel(currentTrack!)} 레코드판`
-                        : '재생할 수 있는 곡이 없는 레코드판'
-                    }
+                    accessibilityLabel="축음기 레코드판"
                     style={{
                       width: gramophone.recordSize,
                       height: gramophone.recordSize,
@@ -2477,49 +2361,12 @@ export function RedesignScreens({ e }: any) {
                       }}
                     />
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="재생"
-                      accessibilityState={{ disabled: !hasCurrentTrack }}
-                      disabled={!hasCurrentTrack}
-                      onPress={() => changePlayback({ playing: true })}
-                      style={{
-                        width: gramophone.controlWidth,
-                        height: gramophone.touchMin,
-                        borderWidth: 1.5,
-                        borderColor: C.brown,
-                        borderRadius: 8,
-                        backgroundColor: C.pink,
-                        opacity: hasCurrentTrack ? 1 : 0.5,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0px 2px 0px ' + C.brown,
-                      }}
-                    >
-                      <PlayIcon />
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="정지"
-                      accessibilityState={{ disabled: !serverPlaybackReady }}
-                      disabled={!serverPlaybackReady}
-                      onPress={() => changePlayback({ playing: false })}
-                      style={{
-                        width: gramophone.controlWidth,
-                        height: gramophone.touchMin,
-                        borderWidth: 1.5,
-                        borderColor: C.brown,
-                        borderRadius: 8,
-                        backgroundColor: C.paper,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0px 2px 0px ' + C.brown,
-                      }}
-                    >
-                      <StopIcon />
-                    </Pressable>
-                  </View>
+                  <Txt
+                    tabletScale={1}
+                    style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
+                  >
+                    섬에서 들을 곡을 구매해요
+                  </Txt>
                 </View>
                 <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
                   <View
@@ -2530,31 +2377,15 @@ export function RedesignScreens({ e }: any) {
                       tabletScale={1}
                       style={{ color: gramophone.foreground, ...gramophone.titleText }}
                     >
-                      {hasCurrentTrack
-                        ? trackLabel(currentTrack!)
-                        : hasOwnedTracks
-                          ? '재생할 곡을 골라 주세요'
-                          : '보유한 곡이 없어요'}
+                      음원 구매
                     </Txt>
                     <Txt
                       tabletScale={1}
                       style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
                     >
-                      {hasCurrentTrack
-                        ? island.playing
-                          ? '재생 중'
-                          : '정지됨'
-                        : hasOwnedTracks
-                          ? '보유곡에서 선택해 주세요'
-                          : scene
-                            ? '섬에서 곡을 구매할 수 있어요'
-                            : '곡을 구매해 주세요'}
+                      재생과 곡 변경은 집중섬 축음기에서 할 수 있어요
                     </Txt>
                   </View>
-                  <Volume
-                    value={state.settings.volume ?? 0.55}
-                    onChange={(value: number) => act('SETTING', { key: 'volume', value })}
-                  />
                   <ScrollView
                     style={{ flex: 1 }}
                     contentContainerStyle={{ gap: 4, paddingRight: 4 }}
@@ -2563,7 +2394,6 @@ export function RedesignScreens({ e }: any) {
                     {trackIds.map((id) => {
                       const owned = ownedTrackIds.includes(id);
                       const product = audioProducts.find((item) => item.id === id);
-                      const selected = island.track === id;
                       const unavailable =
                         !owned &&
                         (!localAudioIds.has(id) ||
@@ -2588,8 +2418,8 @@ export function RedesignScreens({ e }: any) {
                                 ? `${trackLabel(id)}, ${status}`
                                 : `${trackLabel(id)}, ${product?.price}마리로 구매`
                           }
-                          accessibilityState={{ selected, disabled: unavailable }}
-                          disabled={unavailable}
+                          accessibilityState={{ disabled: owned || unavailable }}
+                          disabled={owned || unavailable}
                           onPress={() => selectTrack(id)}
                           style={{
                             minHeight: gramophone.rowMinHeight,
@@ -2600,8 +2430,8 @@ export function RedesignScreens({ e }: any) {
                             borderWidth: 1.25,
                             borderColor: C.brown,
                             borderRadius: 7,
-                            backgroundColor: selected ? C.pink : owned ? C.paper : C.butter,
-                            opacity: unavailable ? 0.62 : 1,
+                            backgroundColor: owned ? C.paper : C.butter,
+                            opacity: owned || unavailable ? 0.72 : 1,
                           }}
                         >
                           <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
@@ -2624,7 +2454,7 @@ export function RedesignScreens({ e }: any) {
                               ...gramophone.rowStatusText,
                             }}
                           >
-                            {selected && island.playing ? '재생 중' : status}
+                            {status}
                           </Txt>
                         </Pressable>
                       );
@@ -2723,19 +2553,10 @@ export function RedesignScreens({ e }: any) {
                   </View>
                 ) : (
                   <Btn
-                    title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
+                    title="확인"
                     dynamicHeight={largeText}
                     disabled={server && shopApi.writing}
-                    onPress={async () => {
-                      if (soundDialog.kind === 'success') {
-                        const changed = await changePlayback({
-                          trackId: dialogProduct.id,
-                          playing: true,
-                        });
-                        if (!changed) return;
-                      }
-                      setSoundDialog(null);
-                    }}
+                    onPress={() => setSoundDialog(null)}
                   />
                 )}
               </ScrollView>
@@ -4844,68 +4665,6 @@ function NotificationToggle({ e }: any) {
     />
   );
 }
-function Volume({ value, onChange }: any) {
-  const [width, setWidth] = useState(1),
-    ref = useRef({ value, onChange, width });
-  ref.current = { value, onChange, width };
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) =>
-        ref.current.onChange(Math.max(0, Math.min(1, e.nativeEvent.locationX / ref.current.width))),
-      onPanResponderMove: (e) =>
-        ref.current.onChange(Math.max(0, Math.min(1, e.nativeEvent.locationX / ref.current.width))),
-    }),
-  ).current;
-  // 시안 .slider: 좌우 4px 안쪽의 6px 막대 + 24px 손잡이. 잡기 쉽게 손잡이 높이만큼 칸을 두고, 늘어난 높이는 위아래 여백으로 되돌린다
-  return (
-    <View
-      accessibilityRole="adjustable"
-      accessibilityLabel="내 기기 음량"
-      accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}
-      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-      onAccessibilityAction={(e) =>
-        onChange(
-          Math.max(0, Math.min(1, value + (e.nativeEvent.actionName === 'increment' ? 0.1 : -0.1))),
-        )
-      }
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      {...pan.panHandlers}
-      style={{
-        height: 44,
-        marginHorizontal: 4,
-        justifyContent: 'center',
-      }}
-    >
-      <View style={{ height: 6, borderRadius: 3, backgroundColor: '#EADFD2' }}>
-        <View
-          style={{
-            height: 6,
-            width: `${value * 100}%`,
-            backgroundColor: C.pink,
-            borderRadius: 3,
-          }}
-        />
-      </View>
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: width * value - 12,
-          top: 10,
-          width: 24,
-          height: 24,
-          borderRadius: 12,
-          borderWidth: 2,
-          borderColor: C.brown,
-          backgroundColor: C.paper,
-        }}
-      />
-    </View>
-  );
-}
-
 // 친구 찾기 목업 사용자. 닉네임이 같은 사람이 여럿일 수 있다(시안 보리 2명)
 const friendDirectory: Omit<Friend, 'status' | 'messages'>[] = [
   { id: 'saebom', name: '새봄', color: 'white', island: '딸기 섬' },

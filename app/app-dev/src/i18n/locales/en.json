@@ -700,6 +700,7 @@
       "title": "Gramophone Music",
       "subtitle": "Choose from the tracks you own.",
       "changeFailed": "Couldn't change the music.",
+      "purchaseFailed": "Couldn't purchase the track.",
       "backToSpot": "Back to My Spot",
       "gramA11y": "Gramophone · Choose music"
     },

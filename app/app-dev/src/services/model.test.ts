@@ -371,6 +371,20 @@ test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
   assert.equal(currentIsland(s).playbackReset, 1);
   assert.equal(trackNames.rain, '빗방울 소리');
 });
+
+test('TRACK_SELECT는 집중 전 곡만 바꾸고 공용 재생 상태를 켜지 않는다', () => {
+  let state = initialState(true);
+  const island = currentIsland(state);
+  island.buildings = ['hall', 'board', 'gram'];
+  island.sharedOwned = ['waves', 'rain'];
+  island.track = 'waves';
+  island.playing = false;
+
+  state = act(state, 'TRACK_SELECT', { value: 'rain' });
+
+  assert.equal(currentIsland(state).track, 'rain');
+  assert.equal(currentIsland(state).playing, false);
+});
 test('PLAYBACK_SYNC는 서버가 확정한 곡과 재생 상태를 섬에 반영한다', () => {
   const before = initialState(false);
   const island = currentIsland(before);

@@ -2607,6 +2607,9 @@ export function reducer(state: State, a: Action): State {
         i.playing = true;
       }
       break;
+    case 'TRACK_SELECT':
+      if (i.buildings.includes('gram') && i.sharedOwned.includes(a.value)) i.track = a.value;
+      break;
     case 'PLAY':
       if (
         i.buildings.includes('gram') &&
