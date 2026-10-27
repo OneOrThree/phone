@@ -4258,6 +4258,9 @@
         "properties": {
           "ownershipToken": {
             "type": "string"
+          },
+          "deliveryTag": {
+            "type": "string"
           }
         }
       },
