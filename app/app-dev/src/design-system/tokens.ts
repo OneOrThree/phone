@@ -72,6 +72,14 @@ export const primitiveTokens = {
     fishingSplashRing: '#FFF4CE',
     fishingFloatRing: '#FFF6D5',
     fishingGlint: '#FFF9DC',
+    // 공동 가계부 장부 종이 위 보조 글자·표 줄(GROMO-2487 승인 시안 A안 통장)
+    ledgerFaint: '#8A7461',
+    ledgerRule: '#C9AD87',
+    ledgerDash: '#D8C3A3',
+    // 잔액·적립·지출 장의 고양이 포스트잇 색 — 펼친 장 종이에 옅게 덮는 틴트로 쓴다
+    ledgerTabPink: '#F2C1C8',
+    ledgerTabButter: '#F1D77F',
+    ledgerTabSky: '#ACD5DF',
   },
   space: {
     0: 0,
@@ -442,6 +450,91 @@ export const componentTokens = {
     rotation: '-14deg',
     // 글 위에 겹쳐 찍으므로 밑 글이 비쳐 읽히게 — 잉크 도장의 반투명 느낌(2026-10-26)
     opacity: 0.85,
+  },
+  // 공동 가계부 — 세 장짜리 책(GROMO-2487 A안 통장, 2026-10-27). 장부 그림 한 장을 비율 유지로 깔고 그 종이
+  // 영역 비율로 글을 둔다. 수치는 승인 시안(screen-review.html 의 ledgerFrame · T['2487'] A안)의 px 다.
+  ledger: {
+    // 원본 그림(804×1546) 좌표: 책 위 페이지 단면 띠 바닥 y 147, 빈 종이 x 60~758 · y 147~1359
+    art: {
+      width: 804,
+      height: 1546,
+      bandBottom: 147,
+      paperLeft: 60,
+      paperTop: 147,
+      paperRight: 758,
+      paperBottom: 1359,
+    },
+    // 잔액·적립·지출 장의 페이지 단면 y(분홍 142 · 노랑 118 · 파랑 96) — 안 고른 포스트잇 아래가 여기 걸친다
+    pageEdges: [142, 118, 96],
+    tabColors: [color.ledgerTabPink, color.ledgerTabButter, color.ledgerTabSky],
+    // 세로: 좌우 18.1 · 아래 28.4 · 874 화면 책 높이 635.3 · 낮은 화면은 뒤로 버튼·명판 아래(안전영역 위 + 94).
+    // 가로: 위 46 · 오른쪽 18 · 아래 12(왼쪽은 회관 패널 자리 side)
+    side: 18.1,
+    bottom: 28.4,
+    maxHeight: 635.3,
+    topBelowInset: 94,
+    landTop: 46,
+    landRight: 18,
+    landBottom: 12,
+    // 가로 화면 책 폭(쓸 수 있는 폭이 더 좁으면 그 폭) — 세로 iPhone 15 책 폭(393 − 18.1×2 ≈ 357)과 비슷하게 크게 두고
+    // 책 아래쪽은 화면 아래 여백에서 잘라 낸다(2026-10-27 오스카). 높이에 맞춰 줄이면 852×393 에서 글 칸이 0 이 된다
+    landscapeBookWidth: 360,
+    // 포스트잇 상자 80(그림은 상자 위 0.94 까지 채움), 종이 왼쪽 +4 부터 간격 2. 펼친 장은 단면 띠 바닥 +4,
+    // 나머지는 제 색 단면 +6 에 아래가 걸친다. 세 장 모두 책 그림 앞 층(펼친 장이 맨 앞)
+    tabSize: 80,
+    tabArtBottom: 0.94,
+    tabLeft: 4,
+    tabGap: 2,
+    tabOpenOverlap: 4,
+    tabRestOverlap: 6,
+    // 누르는 자리 84×84 = 상자 80 + 사방 2. 책을 감싼 바깥 상자는 이 자리까지 품도록 위·오른쪽으로 늘어난다(안드로이드 부모 밖 터치)
+    tabHitSlop: 2,
+    // 라벨은 그림 세로 0.5 자리
+    tabLabelTop: 0.5,
+    tabLabel: { fontSize: 15.5, lineHeight: 19.375 },
+    artZ: 4,
+    tintZ: 5,
+    contentZ: 6,
+    tabZ: 8,
+    tabOpenZ: 9,
+    // 펼친 장 종이에 포스트잇 색을 곱하기로 옅게
+    tintOpacity: 0.18,
+    tintRadius: 6,
+    contentInsetX: 14,
+    contentInsetY: 10,
+    earn: color.focusInk,
+    spend: color.danger,
+    faint: color.ledgerFaint,
+    rule: color.ledgerRule,
+    dash: color.ledgerDash,
+    // 글자(크기/줄높이). 고운돋움은 글리프가 커서 줄높이가 크기와 같으면 숫자 윗부분이 잘린다 — 줄높이는 늘 크기보다 크다
+    navArrow: { fontSize: 16.8, lineHeight: 26.88 },
+    month: { fontSize: 14, lineHeight: 22 },
+    balance: { fontSize: 34, lineHeight: 40 },
+    unit: { fontSize: 14, lineHeight: 20 },
+    caption: { fontSize: 13, lineHeight: 20 },
+    tableHead: { fontSize: 12, lineHeight: 16 },
+    date: { fontSize: 13, lineHeight: 18 },
+    reason: { fontSize: 15.5, lineHeight: 20 },
+    // 내용 뒤에 붙는 「 · 3회」(내용 줄 안의 작은 글자)
+    countFontSize: 12,
+    amount: { fontSize: 18, lineHeight: 22 },
+    // 월 이동 ‹ › 는 글자만 보이고 버튼 상자는 semanticTokens.size.tapMin(44) 정사각 이상이다. 이번 달이면 › 를 흐리게 막는다
+    navGap: 6.5,
+    navDisabledOpacity: 0.35,
+    fishSize: 26,
+    headGap: space[2],
+    headTop: 6,
+    summaryTop: 2,
+    tableTop: 10,
+    columnGap: space[2],
+    dateWidth: 48,
+    amountMinWidth: 60,
+    tableHeadPadding: { top: 6, bottom: 4 },
+    rowPaddingVertical: space[2],
+    cellPaddingHorizontal: 2,
+    headRule: 1.3,
+    rowRule: stroke.subtle,
   },
   tileFacility: {
     outline: color.cream,
