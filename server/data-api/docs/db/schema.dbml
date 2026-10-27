@@ -670,9 +670,25 @@ Table island_wallet_transactions [note: '섬 공동 원장 — user 지갑의 cu
   }
 }
 
+Table construction_buildings [note: '건물 종류 정본. id는 기존 API·시설·가격표의 변경 불가 계약 문자열. 이름·표시 순서·모금 방식은 DB에서 읽는다'] {
+  id            varchar(30)  [pk, note: '소문자 계약 ID']
+  display_name  varchar(100) [not null, note: '빈 문자열·공백만 허용하지 않음']
+  display_order integer      [not null, note: '오름차순 표시. 동순위는 id 순']
+  funding       varchar(20)  [not null, note: 'WALLET_TOTAL / RESIDENT_SPLIT']
+}
+
+Table construction_building_prerequisites [note: '건물별 직접 선행 관계. 선행 건물이 모두 COMPLETED여야 선택 가능'] {
+  building_id      varchar(30) [not null]
+  prerequisite_id  varchar(30) [not null, note: '자기 자신은 선행으로 지정할 수 없음']
+
+  indexes {
+    (building_id, prerequisite_id) [pk]
+  }
+}
+
 Table construction_cost_policies [note: '불변 건설 비용 revision (GROMO-1767, 정책 C10) — revision 은 한 번 쓰면 바꾸지 않는다. 「건설 가격·공사 시간」표(D4, 1829 코멘트 #11077)가 revision 1: hall 60마리·1분 / board 240·15분 / gram 1360·30분 / library 2720·1시간 / mail 4080·1시간30분 / tower 5440·2시간30분 / shop 6800·4시간'] {
   revision      integer     [not null, note: '(revision, building_id) 복합 PK — 같은 revision 안에서 건물별 1행']
-  building_id   varchar(30) [not null, note: 'hall/board/gram/library/mail/tower/shop — ConstructionBuilding.id()']
+  building_id   varchar(30) [not null, note: 'hall/board/gram/library/mail/tower/shop — construction_buildings.id 계약']
   cost          integer     [not null, note: 'CHECK cost >= 0']
   build_seconds integer     [not null, note: 'CHECK build_seconds >= 0 — 공사 시간(초)']
   created_at    timestamptz [not null, default: `now()`]
@@ -1206,6 +1222,8 @@ Table onboarding_islands [note: '첫 소속 없는 사용자의 개인 무인도
 
 // 물리 FK와 두 논리 관계. 복합 FK는 컬럼별 단일 관계로 나누지 않는다.
 Ref: audio_tracks.product_id - catalog_assets.product_id [delete: restrict]
+Ref: construction_building_prerequisites.building_id > construction_buildings.id [delete: restrict]
+Ref: construction_building_prerequisites.prerequisite_id > construction_buildings.id [delete: restrict]
 Ref: construction_guide_recipients.(island_id, building_id) > island_facilities.(island_id, building_id) [delete: cascade]
 Ref: construction_guide_recipients.user_id > users.id [delete: cascade]
 Ref: customization_asset_meta.(product_id, kind) > catalog_assets.(product_id, kind) [delete: restrict]

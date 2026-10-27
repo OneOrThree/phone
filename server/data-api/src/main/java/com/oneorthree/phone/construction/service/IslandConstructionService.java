@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.construction.exception.ConstructionErrorCode;
 import com.oneorthree.phone.construction.exception.ConstructionException;
 import com.oneorthree.phone.construction.repository.ConstructionCostPolicyRepository;
+import com.oneorthree.phone.construction.repository.ConstructionBuildingRepository;
 import com.oneorthree.phone.construction.repository.CostPolicyPublicationRepository;
 import com.oneorthree.phone.construction.repository.IslandConstructionContributionRepository;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
@@ -96,6 +97,7 @@ public class IslandConstructionService {
     private final ConstructionGuideRecipientRepository guideRecipients;
     private final FocusFishEarningsRepository earnings;
     private final ConstructionCostPolicyRepository policies;
+    private final ConstructionBuildingRepository buildings;
     private final CostPolicyPublicationRepository publication;
     private final IslandWalletService walletService;
     private final IslandLayoutService layouts;
@@ -161,7 +163,7 @@ public class IslandConstructionService {
                 state == null ? null : state.getUpdatedAt());
 
         List<ConstructionOptionItem> items = new ArrayList<>();
-        for (ConstructionBuilding building : ConstructionBuilding.values()) {
+        for (ConstructionBuilding building : buildings.findAllOrdered()) {
             // 완료 시설은 options 에서 제외한다(LLD §2).
             if (completed.contains(building.id())) {
                 continue;
@@ -191,7 +193,7 @@ public class IslandConstructionService {
     private ConstructionResidentProgress residentProgress(String targetBuildingId,
             Map<String, ConstructionCostPolicy> priceBook, List<UUID> targetIds,
             Map<UUID, Integer> contributed) {
-        ConstructionBuilding building = ConstructionBuilding.byId(targetBuildingId).orElse(null);
+        ConstructionBuilding building = buildings.findById(targetBuildingId).orElse(null);
         if (building == null || building.funding() != ConstructionBuilding.Funding.RESIDENT_SPLIT) {
             return null;
         }
@@ -222,7 +224,7 @@ public class IslandConstructionService {
     @Transactional
     public ConstructionTargetView setTarget(UUID islandId, UUID userId, String buildingId,
                                             long expectedVersion, UUID idempotencyKey) {
-        ConstructionBuilding building = ConstructionBuilding.byId(buildingId)
+        ConstructionBuilding building = buildings.findById(buildingId)
                 .orElseThrow(() -> new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE));
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "PUT:/islands/" + islandId + "/construction-target", idempotencyKey,
@@ -285,7 +287,7 @@ public class IslandConstructionService {
     public ConstructionStartedView start(UUID islandId, UUID userId, String buildingId,
                                          long expectedVersion, long expectedCostPolicyVersion,
                                          UUID idempotencyKey) {
-        ConstructionBuilding building = ConstructionBuilding.byId(buildingId)
+        ConstructionBuilding building = buildings.findById(buildingId)
                 .orElseThrow(() -> new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE));
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/constructions", idempotencyKey,
@@ -413,12 +415,9 @@ public class IslandConstructionService {
                 CURRENCY, selectable, buildable, blockedReason);
     }
 
-    /**
-     * 선행 조건 — 회관→게시판만 고정이고 게시판 뒤 넷은 자유 순서, 상점만 그 넷 전부를 요구한다
-     * (정책 C01, GROMO-1999). 잠금 없는 읽기용.
-     */
+    /** DB에서 읽은 선행 건물 전부가 완공됐는지 판정한다. 잠금 없는 읽기용. */
     private static boolean prerequisiteMet(ConstructionBuilding building, Set<String> completed) {
-        return building.prerequisites().stream().allMatch(p -> completed.contains(p.id()));
+        return completed.containsAll(building.prerequisites());
     }
 
     /** 선행 조건 — 잠금 아래 재검사용(TX 안). 선행이 여럿이라 시설 행을 한 번만 읽고 대조한다. */

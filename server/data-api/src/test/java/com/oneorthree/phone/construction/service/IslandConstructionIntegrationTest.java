@@ -3,6 +3,7 @@ package com.oneorthree.phone.construction.service;
 import com.oneorthree.phone.construction.exception.ConstructionErrorCode;
 import com.oneorthree.phone.construction.exception.ConstructionException;
 import com.oneorthree.phone.construction.repository.IslandConstructionContributionRepository;
+import com.oneorthree.phone.construction.repository.ConstructionBuildingRepository;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
@@ -71,6 +72,8 @@ class IslandConstructionIntegrationTest {
     @Autowired
     IslandConstructionService service;
     @Autowired
+    ConstructionBuildingRepository buildings;
+    @Autowired
     IslandConstructionScheduler scheduler;
     @Autowired
     IslandFacilityCompletionService completion;
@@ -94,6 +97,39 @@ class IslandConstructionIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     PlatformTransactionManager transactionManager;
+
+    @Test
+    @DisplayName("V2 건물 행은 기존 API ID·순서·모금 방식·선행 그래프를 보존한다")
+    void migrationSeedsBuildingContract() {
+        assertThat(buildings.findAllOrdered()).extracting(building -> building.id())
+                .containsExactly("hall", "board", "gram", "library", "mail", "tower", "shop");
+        assertThat(buildings.findById("hall").orElseThrow().funding().name()).isEqualTo("WALLET_TOTAL");
+        assertThat(buildings.findById("gram").orElseThrow().funding().name()).isEqualTo("RESIDENT_SPLIT");
+        assertThat(buildings.findById("board").orElseThrow().prerequisites()).containsExactly("hall");
+        assertThat(buildings.findById("shop").orElseThrow().prerequisites())
+                .containsExactlyInAnyOrder("gram", "library", "mail", "tower");
+        assertThat(buildings.findById("HALL")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("DB에 건물·가격을 추가하면 재배포 없이 건설 옵션에 새 이름과 순서가 반영된다")
+    void optionsReadNewBuildingFromDatabase() {
+        Fixture f = islandOnly();
+        jdbc.update("INSERT INTO construction_buildings (id, display_name, display_order, funding) "
+                + "VALUES ('garden', '정원', 0, 'WALLET_TOTAL')");
+        jdbc.update("INSERT INTO construction_cost_policies (revision, building_id, cost, build_seconds) "
+                + "VALUES (1, 'garden', 10, 60)");
+        try {
+            var items = service.options(f.islandId, f.ownerId).items();
+            assertThat(items).extracting(item -> item.id())
+                    .containsExactly("garden", "hall", "board", "gram", "library", "mail", "tower", "shop");
+            assertThat(items.get(0).name()).isEqualTo("정원");
+            assertThat(items.get(0).selectable()).isTrue();
+        } finally {
+            jdbc.update("DELETE FROM construction_cost_policies WHERE revision=1 AND building_id='garden'");
+            jdbc.update("DELETE FROM construction_buildings WHERE id='garden'");
+        }
+    }
 
     @Test
     @DisplayName("건설 시작은 총액을 한 번 차감하고 BUILDING·시각·목표 해제를 확정한다 — 같은 키 재생은 추가 차감이 없다")
