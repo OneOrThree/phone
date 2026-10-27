@@ -136,13 +136,15 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 
 dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
 
-1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다.
+1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다. 프로젝트가 앱과 어긋나면 열자마자 [FCM 프로젝트 불일치](#fcm-프로젝트-불일치sender_id_mismatch) 증상이 납니다.
 2. 열기 전 대기 발송을 `GET /internal/admin/deliveries?status=PENDING`·`status=DEFERRED`로 확인합니다. 쌓인 발송은 열자마자 한꺼번에 나갑니다.
-3. `PUT /internal/admin/jobs/delivery-dispatch`로 잡을 켭니다. PUT은 전체 수정이라 `GET /internal/admin/jobs`의 지금 값에서 `enabled`만 바꿔 `{"enabled":true,"cron":"0/5 * * * * *","config":{}}`처럼 보냅니다.
-4. `POST /internal/admin/dispatch/open`을 새 멱등 키로 보냅니다.
+3. `PUT /internal/admin/jobs/delivery-dispatch`로 잡을 켭니다. PUT은 전체 수정이라 `GET /internal/admin/jobs`의 `delivery-dispatch` 항목에서 `cron`·`config`를 그대로 두고 `enabled`만 `true`로 바꿔 보냅니다(예: `{"enabled":true,"cron":"0/5 * * * * *","config":{}}`).
+4. `POST /internal/admin/dispatch/open`을 보냅니다.
 5. `GET /internal/admin/dispatch`가 `enabled=true`이고 `delivery-dispatch`의 `lastCompletedAt`이 5초마다 전진하는지 확인합니다.
 
-관리 API는 공개 nginx에 없습니다(`/internal/`은 404). dev VM에서 `docker exec phone-notification-1`로 컨테이너 안의 `localhost:8082`를 부르고, 콘솔 토큰(`SVC_TOKEN_CONSOLE_TO_NOTI`)은 컨테이너 안에서만 읽어 출력하지 않습니다.
+쓰기(3·4단계)에는 `Idempotency-Key`(1~200자)가 필요합니다. 요청마다 새 값을 씁니다(예: `uuidgen`). 같은 키에 다른 본문을 보내면 `409 IDEMPOTENCY_KEY_CONFLICT`, 닫힌 뒤 예전 open 키를 다시 보내면 `409 DISPATCH_CLOSED`입니다.
+
+관리 API는 공개 nginx에 없습니다(`/internal/`은 404). dev VM에서 notification 컨테이너(이름은 `docker ps`로 확인 — 지금은 `phone-notification-1`) 안의 `localhost:8082`를 부릅니다. `Authorization: Bearer`에는 `SVC_TOKEN_CONSOLE_TO_NOTI`(`member-1:<토큰>,member-2:<토큰>` 목록)에서 자기 행위자 항목의 `<토큰>` 부분만 넣습니다. 토큰은 컨테이너 안에서만 읽고 출력하지 않습니다.
 
 ### FCM 프로젝트 불일치(`SENDER_ID_MISMATCH`)
 
