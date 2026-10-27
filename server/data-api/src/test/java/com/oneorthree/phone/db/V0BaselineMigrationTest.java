@@ -38,11 +38,11 @@ class V0BaselineMigrationTest {
     @Test
     void 빈_DB는_V0만_적용하고_사용자나_봇을_생성하지_않는다() {
         migrate("classpath:db/v0");
-        // V0 체인 — 후속 V1(GROMO-2477)부터 같은 디렉터리에서 이어 붙는다. 과거 V1~V138 은 섞이지 않는다.
+        // V0 체인만 적용한다. 과거 V1~V138 은 섞이지 않는다.
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0", "1");
+                .containsExactly("0", "1", "2");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_tables WHERE schemaname='public' "
-                + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(77);
+                + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(79);
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.islands') IS NOT NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.groups') IS NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();

@@ -1,14 +1,13 @@
 package com.oneorthree.phone.construction.service;
 
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
-import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
+import com.oneorthree.phone.construction.repository.ConstructionBuildingRepository;
 import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -40,11 +39,13 @@ import java.util.stream.Collectors;
 public class IslandFacilityQueryService {
 
     private final IslandFacilityRepository facilities;
+    private final ConstructionBuildingRepository buildings;
     private final boolean enforce;
 
-    public IslandFacilityQueryService(IslandFacilityRepository facilities,
+    public IslandFacilityQueryService(IslandFacilityRepository facilities, ConstructionBuildingRepository buildings,
             @Value("${construction.facility-gates.enforce:false}") boolean enforce) {
         this.facilities = facilities;
+        this.buildings = buildings;
         this.enforce = enforce;
     }
 
@@ -54,33 +55,38 @@ public class IslandFacilityQueryService {
                 .filter(facility -> facility.getStatus() == FacilityStatus.COMPLETED)
                 .map(facility -> facility.getBuildingId())
                 .collect(Collectors.toSet());
-        return Arrays.stream(ConstructionBuilding.values()).map(ConstructionBuilding::id)
+        return buildings.findAllOrdered().stream().map(building -> building.id())
                 .filter(completed::contains).toList();
     }
 
     /** 이 섬의 전망대가 완공됐는가 — 섬 검색 진입·이동 게이트({@code OBSERVATORY_LOCKED}). */
     public boolean hasObservatory(UUID islandId) {
-        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.TOWER.id());
+        return !enforce || facilities.existsCompleted(islandId, requiredBuildingId("tower"));
     }
 
     /** 이 섬의 우체통이 완공됐는가 — 우체통 편지방 게이트({@code MAILBOX_LOCKED}). */
     public boolean hasMailbox(UUID islandId) {
-        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.MAIL.id());
+        return !enforce || facilities.existsCompleted(islandId, requiredBuildingId("mail"));
     }
 
     /** 이 섬의 게시판이 완공됐는가 — 섬 게시판 공지·댓글 게이트({@code BOARD_LOCKED}, GROMO-1771). */
     public boolean hasBoard(UUID islandId) {
-        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.BOARD.id());
+        return !enforce || hasBoardCompleted(islandId);
     }
 
     /** 이 섬의 방송기가 완공됐는가 — 공용 음악 조회·변경 게이트({@code GRAM_LOCKED}, GROMO-1779). */
     public boolean hasGram(UUID islandId) {
-        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.GRAM.id());
+        return !enforce || facilities.existsCompleted(islandId, requiredBuildingId("gram"));
     }
 
     /** 이 섬의 도서관이 완공됐는가 — 도서관 물고기 장 게이트({@code LIBRARY_LOCKED}, GROMO-1895). */
     public boolean hasLibrary(UUID islandId) {
-        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.LIBRARY.id());
+        return !enforce || facilities.existsCompleted(islandId, requiredBuildingId("library"));
+    }
+
+    /** 게시판의 실제 완공 상태 — 롤아웃 플래그와 무관하게 퀘스트에서 사용한다. */
+    public boolean hasBoardCompleted(UUID islandId) {
+        return facilities.existsCompleted(islandId, requiredBuildingId("board"));
     }
 
     /**
@@ -95,6 +101,11 @@ public class IslandFacilityQueryService {
             return false;
         }
         return !enforce
-                || facilities.existsCompletedInAny(ConstructionBuilding.MAIL.id(), List.copyOf(islandIds));
+                || facilities.existsCompletedInAny(requiredBuildingId("mail"), List.copyOf(islandIds));
+    }
+
+    private String requiredBuildingId(String id) {
+        return buildings.findById(id)
+                .orElseThrow(() -> new IllegalStateException("필수 건물 종류가 없습니다: " + id)).id();
     }
 }
