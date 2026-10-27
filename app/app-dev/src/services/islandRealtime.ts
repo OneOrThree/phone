@@ -24,6 +24,7 @@ import { focusSeat } from '@/services/api/focusSessions';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
 import { parseAppearanceEvent, type MemberLook } from '@/services/memberAppearance';
+import { isUserBlocked } from '@/services/blockedUsers';
 import {
   focusMembers,
   restMembers,
@@ -148,7 +149,7 @@ export function parseMemberArrivedEvent(raw: unknown, islandId: string): MemberA
 
 /**
  * 도착 사건 필터 — `eventId` 로 중복만 거르고(`aggregateVersion` 은 섬 전체 카운터라 (섬, 사용자) 워터마크와 비교하지 않는다)
- * 내 도착은 버린다. 받는 사람 기준 차단은 서버가 이미 걸렀다.
+ * 내 도착은 버린다. 서버의 받는 사람 기준 차단 필터는 배포 스위치(기본 꺼짐)라, 내가 차단한 상대의 도착도 여기서 버린다(GROMO-2470).
  */
 export function memberArrivalFilter(islandId: string, selfId: () => string | undefined) {
   const seen = new Set<string>();
@@ -159,7 +160,7 @@ export function memberArrivalFilter(islandId: string, selfId: () => string | und
     seen.add(event.eventId);
     order.push(event.eventId);
     if (order.length > 200) seen.delete(order.shift()!);
-    return event.userId === selfId() ? null : event;
+    return event.userId === selfId() || isUserBlocked(event.userId) ? null : event;
   };
 }
 
@@ -863,7 +864,8 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const arrivalFilter = memberArrivalFilter(islandId, sessionSelfId);
   const projection = new IslandProjection(islandId);
   projection.onVisitorEmote = (emote) => {
-    if (!disposed && alive()) deps.onVisitorEmote?.(emote);
+    // 내가 차단한 방문자의 응원 알림은 띄우지 않는다(GROMO-2470)
+    if (!disposed && alive() && !isUserBlocked(emote.userId)) deps.onVisitorEmote?.(emote);
   };
   let disposed = false;
   let resyncing = false;

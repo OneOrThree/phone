@@ -8,6 +8,7 @@ import { Animated, AppState } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 import type { IslandChannelOpts } from '@/services/islandRealtime';
 import { imageToWorld, worldToImage, worldToCell, type WorldPoint } from '@/utils/worldCoords';
 import { loadNav } from '@/utils/nav-path';
@@ -860,6 +861,61 @@ it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동�
   expect(myMotion(screen)).toBe('walking');
   expect(notify).not.toHaveBeenCalled();
   await screen.unmount();
+});
+
+describe('차단한 주민 숨김 (GROMO-2470)', () => {
+  afterEach(() => replaceBlockedUsers([]));
+
+  it('차단에 성공하면 다시 열지 않아도 그 주민의 고정 자리·동기화 위치·누르는 자리가 사라지고 다른 주민 자리는 그대로, 해제하면 다시 보인다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    expect(standing(screen)).toEqual([`standing-resident-${U1}`, `standing-resident-${U2}`].sort());
+    // UserSafetySheet 의 차단 성공 경로와 같은 신호
+    await act(async () => markUserBlocked(U1));
+    expect(standing(screen)).toEqual([`standing-resident-${U2}`]);
+    expect(screen.queryByTestId(`home-resident-${U1}`)).toBeNull();
+    // U2 는 0번으로 당겨지지 않고 1번 자리 그대로다
+    expectStandingAt(screen, U2, 1);
+    expect(otherCats(screen)).toBe(1);
+    // 차단 뒤 도착한 실시간 위치도 그 주민을 다시 그리지 않는다
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
+    expect(residents(screen)).toEqual([`remote-resident-${U2}`]);
+    expect(otherCats(screen)).toBe(1);
+    await act(async () => markUserUnblocked(U1));
+    expect(residents(screen)).toEqual([`remote-resident-${U1}`, `remote-resident-${U2}`].sort());
+    expect(screen.getByTestId(`home-resident-${U1}`)).toBeTruthy();
+    await screen.unmount();
+  });
+
+  it('서버가 차단 상대를 catColor null 로 가려 보내도 다음 주민은 명단 순서 자리 그대로다', async () => {
+    jest.useFakeTimers();
+    const islandId = nextIsland();
+    const state = serverState(islandId) as any;
+    state.serverIslands.home.members[1].catColor = null; // U1 — 서버 마스킹
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    expect(standing(screen)).toEqual([`standing-resident-${U2}`]);
+    expectStandingAt(screen, U2, 1);
+    await screen.unmount();
+  });
+
+  it('정보창이 열린 채 그 주민을 차단하면 정보창이 닫힌다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId(`home-resident-${U1}`));
+    expect(screen.getByTestId('cat-info-name')).toBeTruthy();
+    await act(async () => markUserBlocked(U1));
+    expect(screen.queryByTestId('cat-info-name')).toBeNull();
+    // 해제해도 닫힌 정보창이 저절로 다시 뜨지 않는다
+    await act(async () => markUserUnblocked(U1));
+    expect(screen.queryByTestId('cat-info-name')).toBeNull();
+    await screen.unmount();
+  });
 });
 
 describe('이동 보기 오버레이 (GROMO-2249)', () => {

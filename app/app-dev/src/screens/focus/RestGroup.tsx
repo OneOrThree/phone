@@ -26,6 +26,7 @@ import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/
 import { CatSprite } from '@/components/CatSprite';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { lookOf } from '@/services/memberAppearance';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import {
@@ -204,6 +205,7 @@ export function RestGroup({
     color: Color;
     outfit?: Outfit;
   } | null>(null);
+  const blockedIds = useBlockedUserIds(false);
   const restTime = (now: number, restStartedAt?: number) =>
     hms(Math.max(0, (now - (restStartedAt || started)) / 1000));
   // 서버 모드는 실시간 rest 멤버가 정본 — 휴식 시작 시각은 서버 시계를 단말 시계로 환산한다.
@@ -266,10 +268,11 @@ export function RestGroup({
     () => restSeats(seatCount, W, H, { top: it, bottom: ib, left: il, right: ir }),
     [seatCount, W, H, it, ib, il, ir],
   );
-  // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다)
+  // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다).
+  // 차단한 상대(GROMO-2470)는 자리 번호·좌석 수에는 넣고 그리기만 뺀다 — 다른 주민이 그 자리로 옮겨 앉지 않는다.
   const placed = actors.flatMap((a) => {
     const seat = seats[a.seat];
-    if (!seat) return [];
+    if (!seat || blockedIds.has(a.id)) return [];
     const { dx, n, top, x } = seat;
     return {
       ...a,

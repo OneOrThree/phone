@@ -19,6 +19,7 @@ import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import { seaBubble } from '@/screens/sea/SeaScene';
 import { acceptFriendRequest, friendErrorKind, sendFriendRequest } from '@/services/api/friends';
 import { sessionGeneration } from '@/services/api/session';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import type { Color, Friend } from '@/services/model';
 
 const P = componentTokens.catInfoPopup;
@@ -186,6 +187,12 @@ export function CatInfoPopup({
     });
     return () => subscription.remove();
   }, []);
+  // 열려 있는 동안 그 상대를 차단하면(GROMO-2470) 장면이 고양이를 지우듯 정보창도 닫는다 — 네 장면 공통
+  const blocked = useBlockedUserIds(false).has(userId);
+  useEffect(() => {
+    if (blocked) close.current();
+  }, [blocked]);
+  if (blocked) return null;
   return (
     // 장면 HUD(zIndex)가 정보창 위로 올라오지 않게 한 층 위에 띄운다. iOS 스크린리더는 이 층만 읽는다
     <View

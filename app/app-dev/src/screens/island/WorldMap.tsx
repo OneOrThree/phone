@@ -123,6 +123,7 @@ import { CatInfoPopup } from './CatInfoPopup';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import {
   lookOf,
   newerLook,
@@ -2219,22 +2220,34 @@ function FinalIslandScene({
   // 홈 섬 다른 주민(GROMO-2476) — 서버 홈은 facts.members, 목업 섬은 i.members 순서 그대로. 털색을 고른 주민만
   // (catColor null 은 임의 색으로 채우지 않는다). 동기화 위치가 있으면 RemoteResident, 없으면 이 순서의 고정 자리(spot)다.
   // name 은 홈 섬 이름표(GROMO-2475)에 쓴다.
+  // 차단한 상대(GROMO-2470)는 그리지 않는다. 고정 자리는 거르기 전 명단 순서로 먼저 정한다 — 차단 상대·털색 미선택
+  // (서버는 내가 차단한 주민의 catColor 를 null 로 가린다)을 빼도 다른 주민 자리가 당겨지지 않게.
+  const blockedIds = useBlockedUserIds(false);
   const residents = useMemo(() => {
     const myId = getSession()?.userId;
     const others = facts
       ? facts.members
-          .filter((m) => m.id !== myId && m.catColor)
+          .filter((m) => m.id !== myId)
           .map((m) => ({
             id: m.id,
             name: m.name,
+            drawn: !!m.catColor,
             color: catColor(m.catColor),
             outfit: lookOf(looks, m.id, m),
           }))
       : i.members
           .filter((m) => m.id !== 'me')
-          .map((m) => ({ id: m.id, name: m.name, color: m.color as Color, outfit: undefined }));
-    return others.map((m, n) => ({ ...m, spot: residentSpot(grid, n) }));
-  }, [i.members, facts, looks, grid]);
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            drawn: true,
+            color: m.color as Color,
+            outfit: undefined,
+          }));
+    return others
+      .map((m, n) => ({ ...m, spot: residentSpot(grid, n) }))
+      .filter((m) => m.drawn && !blockedIds.has(m.id));
+  }, [i.members, facts, looks, grid, blockedIds]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
