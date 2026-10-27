@@ -37,3 +37,15 @@ INSERT INTO construction_building_prerequisites (building_id, prerequisite_id) V
     ('shop', 'library'),
     ('shop', 'mail'),
     ('shop', 'tower');
+
+-- 기존 문자열 참조도 DB 정본을 가리키게 한다. 알 수 없는 ID가 운영 데이터에 있다면
+-- 이 이행을 실패시켜 조용히 완공 시설이 사라지는 일을 막는다.
+ALTER TABLE construction_cost_policies
+    ADD CONSTRAINT construction_cost_policies_building_id_fkey
+        FOREIGN KEY (building_id) REFERENCES construction_buildings(id) ON DELETE RESTRICT;
+ALTER TABLE island_facilities
+    ADD CONSTRAINT island_facilities_building_id_fkey
+        FOREIGN KEY (building_id) REFERENCES construction_buildings(id) ON DELETE RESTRICT;
+ALTER TABLE island_construction_states
+    ADD CONSTRAINT island_construction_states_target_building_id_fkey
+        FOREIGN KEY (target_building_id) REFERENCES construction_buildings(id) ON DELETE RESTRICT;

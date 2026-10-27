@@ -8,6 +8,8 @@ import com.oneorthree.phone.construction.repository.IslandConstructionStateRepos
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
+import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
+import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding.Funding;
 import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.repository.domain.IslandFacilityId;
@@ -42,6 +44,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -101,13 +104,15 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("V2 건물 행은 기존 API ID·순서·모금 방식·선행 그래프를 보존한다")
     void migrationSeedsBuildingContract() {
-        assertThat(buildings.findAllOrdered()).extracting(building -> building.id())
-                .containsExactly("hall", "board", "gram", "library", "mail", "tower", "shop");
-        assertThat(buildings.findById("hall").orElseThrow().funding().name()).isEqualTo("WALLET_TOTAL");
-        assertThat(buildings.findById("gram").orElseThrow().funding().name()).isEqualTo("RESIDENT_SPLIT");
-        assertThat(buildings.findById("board").orElseThrow().prerequisites()).containsExactly("hall");
-        assertThat(buildings.findById("shop").orElseThrow().prerequisites())
-                .containsExactlyInAnyOrder("gram", "library", "mail", "tower");
+        assertThat(buildings.findAllOrdered()).containsExactly(
+                new ConstructionBuilding("hall", "회관", Funding.WALLET_TOTAL, Set.of()),
+                new ConstructionBuilding("board", "게시판", Funding.WALLET_TOTAL, Set.of("hall")),
+                new ConstructionBuilding("gram", "방송기", Funding.RESIDENT_SPLIT, Set.of("board")),
+                new ConstructionBuilding("library", "도서관", Funding.RESIDENT_SPLIT, Set.of("board")),
+                new ConstructionBuilding("mail", "우체통", Funding.RESIDENT_SPLIT, Set.of("board")),
+                new ConstructionBuilding("tower", "전망대", Funding.RESIDENT_SPLIT, Set.of("board")),
+                new ConstructionBuilding("shop", "상점", Funding.RESIDENT_SPLIT,
+                        Set.of("gram", "library", "mail", "tower")));
         assertThat(buildings.findById("HALL")).isEmpty();
     }
 

@@ -23,10 +23,21 @@ public class ConstructionBuildingRepository {
     }
 
     public List<ConstructionBuilding> findAllOrdered() {
+        return load("");
+    }
+
+    public Optional<ConstructionBuilding> findById(String id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return load("WHERE b.id = ?", id).stream().findFirst();
+    }
+
+    private List<ConstructionBuilding> load(String filter, Object... args) {
         String sql = "SELECT b.id, b.display_name, b.funding, p.prerequisite_id "
                 + "FROM construction_buildings b "
                 + "LEFT JOIN construction_building_prerequisites p ON p.building_id = b.id "
-                + "ORDER BY b.display_order, b.id, p.prerequisite_id";
+                + filter + " ORDER BY b.display_order, b.id, p.prerequisite_id";
         return jdbc.query(sql, rs -> {
             Map<String, BuildingRow> rows = new LinkedHashMap<>();
             while (rs.next()) {
@@ -46,14 +57,7 @@ public class ConstructionBuildingRepository {
             rows.forEach((id, row) -> buildings.add(new ConstructionBuilding(
                     id, row.displayName, row.funding, Set.copyOf(row.prerequisites))));
             return buildings;
-        });
-    }
-
-    public Optional<ConstructionBuilding> findById(String id) {
-        if (id == null) {
-            return Optional.empty();
-        }
-        return findAllOrdered().stream().filter(building -> building.id().equals(id)).findFirst();
+        }, args);
     }
 
     private static final class BuildingRow {
