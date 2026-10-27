@@ -561,8 +561,8 @@ class IslandInvitationArrivalIntegrationTest {
 
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isFalse();
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
-        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
-                islandId.toString())).isEqualTo(1);
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?"
+                + " and params->>'userId'=?", islandId.toString(), user.toString())).isEqualTo(1);
     }
 
     @Test
@@ -582,8 +582,8 @@ class IslandInvitationArrivalIntegrationTest {
                 .as("주민 도착 기록은 멤버십 시작 이후다").isTrue();
 
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
-        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
-                islandId.toString())).isZero();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?"
+                + " and params->>'userId'=?", islandId.toString(), user.toString())).isZero();
     }
 
     // ---------------------------------------------------------------- 도구
