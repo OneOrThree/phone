@@ -15,6 +15,7 @@ export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="${EXPO_PUBLIC_DATADOG_CLIENT_TOKEN:-pub
 # GROMO-2523 Firebase 프로젝트 ID — 각 환경 알림 서버의 FCM_PROJECT_ID(공개값). 빌드 단계
 # scripts/firebase-plist-xcode.sh 가 GoogleService-Info.plist 의 PROJECT_ID 와 대조한다.
 # dev 는 dev 알림 서버(phone-notification-1)의 값을 2026-10-26 에 확인했다.
-# prod 는 운영 SM 을 확인하기 전이라 비워 둔다 — 비어 있으면 prod plist 를 둔 빌드를 막는다.
+# prod 는 dev 와 나눈 운영 전용 프로젝트 catus-prod(2026-10-27) — 운영 알림 서버의 FCM_PROJECT_ID·서비스
+# 계정도 이 프로젝트여야 운영 앱이 받는다(dev 자격으로 운영 사용자에게 보내지 못하게 나눴다).
 export GROMO_FIREBASE_PROJECT_ID_DEV="${GROMO_FIREBASE_PROJECT_ID_DEV:-catus-dev}"
-export GROMO_FIREBASE_PROJECT_ID_PROD="${GROMO_FIREBASE_PROJECT_ID_PROD:-}"
+export GROMO_FIREBASE_PROJECT_ID_PROD="${GROMO_FIREBASE_PROJECT_ID_PROD:-catus-prod}"
