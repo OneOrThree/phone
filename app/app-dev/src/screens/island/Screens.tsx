@@ -3882,22 +3882,35 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const requestActions = (
-      onAccept: () => void,
-      onReject: () => void,
+    // 줄 끝 버튼과 ··· — 큰 글자에서는 이름 칸이 줄지 않게 세로로 쌓는다(받은·보낸 요청·검색 결과 공통)
+    const rowActions = (
+      actions: React.ReactNode,
       safetyMenu?: React.ReactNode,
+      testID?: string,
     ) => {
       const stacked =
         !!safetyMenu && layout.fontScale >= semanticTokens.typography.largeTextThreshold;
       return (
         <View
-          testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
+          testID={safetyMenu ? testID : undefined}
           style={{
             flexDirection: stacked ? 'column' : 'row',
             alignItems: 'center',
             gap: 8,
           }}
         >
+          {actions}
+          {safetyMenu}
+        </View>
+      );
+    };
+    const requestActions = (
+      onAccept: () => void,
+      onReject: () => void,
+      safetyMenu?: React.ReactNode,
+    ) =>
+      rowActions(
+        <>
           <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
           <Btn
             small
@@ -3906,10 +3919,10 @@ export function RedesignScreens({ e }: any) {
             disabled={serverMode && friendsScreen.busy}
             onPress={onReject}
           />
-          {safetyMenu}
-        </View>
+        </>,
+        safetyMenu,
+        'friend-request-actions-with-safety',
       );
-    };
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
       <SheetRow
         key={friend.id}
@@ -3986,28 +3999,32 @@ export function RedesignScreens({ e }: any) {
         />
       );
     });
-    const serverSentRows = (data?.sentFriendRequests ?? []).map((friend) => (
-      <SheetRow
-        key={friend.requestId}
-        title={friend.nickname ?? '탈퇴한 사용자'}
-        sub="수락 기다리는 중"
-        lead={
-          <Avatar
-            color={friend.catColor ?? 'white'}
-            outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
-          />
-        }
-        tail={
-          <Btn
-            small
-            kind="sec"
-            title="요청 취소"
-            disabled={friendsScreen.busy}
-            onPress={() => friendCmd(() => cancelFriendRequest(friend.requestId))}
-          />
-        }
-      />
-    ));
+    const serverSentRows = (data?.sentFriendRequests ?? []).map((friend) => {
+      const name = friend.nickname ?? '탈퇴한 사용자';
+      return (
+        <SheetRow
+          key={friend.requestId}
+          title={name}
+          sub="수락 기다리는 중"
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
+          tail={rowActions(
+            <Btn
+              small
+              kind="sec"
+              title="요청 취소"
+              disabled={friendsScreen.busy}
+              onPress={() => friendCmd(() => cancelFriendRequest(friend.requestId))}
+            />,
+            friendMenu(friend.userId, name),
+          )}
+        />
+      );
+    });
     const serverFriendRows = (data?.friends ?? []).map((friend) => {
       const name = friend.nickname ?? '탈퇴한 사용자';
       return (
@@ -4051,7 +4068,7 @@ export function RedesignScreens({ e }: any) {
                 outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
               />
             }
-            tail={
+            tail={rowActions(
               friend.relation === 'NONE' ? (
                 <Btn
                   small
@@ -4066,8 +4083,9 @@ export function RedesignScreens({ e }: any) {
                   disabled
                   title={friend.relation === 'PENDING' ? '요청 중' : '친구'}
                 />
-              )
-            }
+              ),
+              friendMenu(friend.userId, friend.nickname),
+            )}
           />
         ))
       : localResults.map((candidate) => {
@@ -4186,7 +4204,19 @@ export function RedesignScreens({ e }: any) {
             targetUserId={safetyTarget.id}
             targetName={safetyTarget.name}
             onClose={() => setSafetyTarget(null)}
-            onChanged={friendsScreen?.refresh ?? (() => {})}
+            onChanged={() => {
+              // 차단 성공 뒤에만 불린다. 그 상대에게 보낸 대기 요청이 있으면 취소한다(GROMO-2467) —
+              // 보낸 요청 목록은 방금 차단으로 이미 걸러졌을 수 있어 거르기 전 목록에서 찾는다.
+              // 취소 실패는 알리지 않는다: 요청 줄은 차단 필터로 이미 숨겨져 있다.
+              const pending = friendsScreen.unfilteredSentFriendRequests.find(
+                (request) => request.userId === safetyTarget.id,
+              );
+              if (!pending) friendsScreen.refresh();
+              else
+                cancelFriendRequest(pending.requestId)
+                  .catch(() => {})
+                  .finally(friendsScreen.refresh);
+            }}
             onMessage={notify}
             extraAction={
               safetyTarget.onDelete
