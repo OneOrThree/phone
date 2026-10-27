@@ -103,13 +103,15 @@ test('배경 오버레이는 공용 component token을 사용한다', async () =
   );
 });
 
-test('시트 뒤에 우체통 그림을 깔지 않고 딤 위에 시트 장식만 띄운다(GROMO-2467)', async () => {
+test('시트 뒤에 우체통 그림도 둘레 장식(편지봉투·펠리컨·고양이)도 없이 딤 위에 시트만 띄운다(GROMO-2467)', async () => {
   const screen = await render(<UserSafetySheet {...props()} />);
   const tree = JSON.stringify(screen.toJSON());
 
   assert.doesNotMatch(tree, /mail-cute-v1/);
-  assert.match(tree, /cat-black-sitting/);
+  assert.doesNotMatch(tree, /letter-envelope-v1|on-mailbox|cat-black-sitting/);
   assert.ok(screen.getByTestId('user-safety-overlay'));
+  // 바깥을 누르면 닫히는 영역은 그대로다
+  assert.ok(screen.getByTestId('user-safety-background', { includeHiddenElements: true }));
 });
 
 afterEach(() => {
