@@ -151,7 +151,11 @@ def domain_of(op, service, method, path):
     """operation 의 첫 태그(컨트롤러)로 도메인을 찾는다. 대응표에 없으면 실패한다.
     컨트롤러 하나가 태그 하나라 첫 태그만 본다. `@Tag(name=...)` 을 직접 단 컨트롤러는
     그 이름이 대소문자 그대로 키가 된다."""
-    tag = (op.get("tags") or [""])[0]
+    if not op.get("tags"):
+        raise SystemExit(
+            f"::error::{service} {method.upper()} {path} 에 태그가 없다 — springdoc 기본 태그가 "
+            f"빠진 이유(OpenApiCustomizer 등)를 확인하라. 대응표를 고쳐서는 풀리지 않는다.")
+    tag = op["tags"][0]
     controller = re.sub(r"^internal-|-controller$", "", tag)
     domain = CONTROLLER_DOMAIN.get(controller)
     if domain is None:
