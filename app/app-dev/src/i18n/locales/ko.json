@@ -1021,7 +1021,10 @@
     },
     "mail": {
       "open": "고양이 잡지 보기 · {{no}}호",
-      "unreadA11y": "고양이 잡지 보기 {{no}}호, 아직 안 읽음"
+      "unreadA11y": "고양이 잡지 보기 {{no}}호, 아직 안 읽음",
+      "slot": "고양이 잡지",
+      "issueNo": "{{no}}호",
+      "pastIssues": "지난 호"
     },
     "delivery": {
       "mailbox": "우체통에 고양이 잡지가 왔어요!",

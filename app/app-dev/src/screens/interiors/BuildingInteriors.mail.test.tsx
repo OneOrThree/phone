@@ -245,17 +245,22 @@ beforeEach(async () => {
   listSystemMock.mockResolvedValue(slice([]));
 });
 
-test('우체통 첫 칸 — 글자는 덮개 그림 아래에서 시작하고(새 편지 줄이 붙어도), 네이티브 채팅방 종이에 줄이 있다(GROMO-2409)', async () => {
-  // 앱 문맥 없이 시안(우체통 첫 화면)으로 그린다 — 네이티브 경로의 줄 종이를 본다
+test('우체통 편지 칸 — 글자는 덮개 그림 아래에서 시작한다(새 편지 줄이 붙어도, GROMO-2409)', async () => {
   const ui = await renderMail(null);
   // 글자 칸은 가운데 정렬이라 줄이 늘면 위로 올라온다 — 시작선(paddingTop)이 그림 바닥보다 아래여야 덮개에 안 가린다
-  for (const i of [0, 1, 2]) {
+  for (const i of [1, 2]) {
     const card = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}`).props.style);
     const art = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}-art`).props.style);
     assert.ok(card.paddingTop > art.top + art.height, `칸 ${i}: 글자 시작이 그림 바닥 아래`);
   }
-  // 줄 종이 66 높이에 12 간격 줄 다섯 개(웹 repeating-linear-gradient 와 같은 자리)
-  assert.equal(ui.getByTestId('mail-home-0-art').props.children.filter(Boolean).length, 5);
+  await ui.unmount();
+});
+
+test('우체통 첫 칸은 고양이 잡지다 — 채팅방 칸·길이 없다(GROMO-2500)', async () => {
+  const ui = await renderMail(null);
+  assert.ok(ui.getByTestId('mail-home-0-art'));
+  assert.ok(ui.getByText('고양이 잡지'));
+  expect(ui.queryByText('우리 섬 채팅방')).toBeNull();
   await ui.unmount();
 });
 
@@ -692,7 +697,7 @@ test('우체통 첫 화면에는 「우리 섬 홍보 쓰기」 입구가 없다
   }
 });
 
-test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와 잡지 꽂이(GROMO-2289 · C4·C5)', async () => {
+test('우체통 첫 칸 고양이 잡지 — 누르면 최근 호(안 읽음 점), 칸 안 [지난 호] 는 잡지 꽂이(GROMO-2500 C안)', async () => {
   const restore = webMockMode('?review');
   try {
     const issue = {
@@ -704,26 +709,31 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
     };
     const e = makeE({ tab: '', magazineToday: { issue, receipt: null } });
     const ui = await renderMail(e);
-    assert.ok(ui.getByText('고양이 잡지 보기 · 19호'));
+    assert.ok(ui.getByText('고양이 잡지'));
+    assert.ok(ui.getByText('19호'));
     assert.equal(
       ui.getByTestId('mail-home-magazine').props.accessibilityLabel,
       '고양이 잡지 보기 19호, 아직 안 읽음',
     );
-    assert.ok(ui.getByTestId('mail-home-magazine-dot'));
-    // 빨간 점은 알약 테두리에 걸치지 않고 안쪽에 있다(GROMO-2409)
+    // 빨간 점은 칸 테두리 안쪽 오른쪽 위에 있다
     const dot = StyleSheet.flatten(ui.getByTestId('mail-home-magazine-dot').props.style);
-    assert.ok(dot.top >= 0 && dot.right >= 0);
-    // 잡지 꽂이는 잡지 보기 옆에서 글자 폭만큼 차지하고 줄지 않는다 — flex: 0 이면 웹에서 세로로 접힌다
+    assert.ok(dot.top > 0 && dot.right > 0);
+    await fireEvent.press(ui.getByTestId('mail-home-magazine'));
+    expect(e.go).toHaveBeenCalledWith('magazine', 'mock-issue-19');
+    // [지난 호] 는 누르는 자리가 44 이상이다
     const rack = StyleSheet.flatten(ui.getByTestId('mail-home-rack').props.style);
-    assert.equal(rack.flexShrink, 0);
-    assert.equal(rack.flex, undefined);
+    assert.ok(rack.minHeight >= 44);
+    assert.equal(ui.getByTestId('mail-home-rack').props.accessibilityLabel, '지난 호');
     await fireEvent.press(ui.getByTestId('mail-home-rack'));
     await waitFor(() => assert.ok(ui.getByTestId('magazine-rack-13')));
     await fireEvent.press(ui.getByTestId('magazine-rack-17'));
     expect(e.go).toHaveBeenCalledWith('magazine', 'mock-issue-17');
+    // 위쪽 알약 줄(잡지 보기·꽂이)은 없다
+    expect(ui.queryByText('고양이 잡지 보기 · 19호')).toBeNull();
+    expect(ui.queryByText('잡지 꽂이')).toBeNull();
     await ui.unmount();
 
-    // 읽은 오늘 호는 점이 없다 · 오늘 호가 없으면(발행 지연) 꽂이만 · 잡지가 아예 없으면 둘 다 없다
+    // 읽은 오늘 호는 점이 없다 · 발행이 늦어 지난 호만 있어도 칸은 그 호를 연다 · 잡지가 아예 없으면 칸만 남고 꽂이는 없다
     const read = await renderMail(
       makeE({
         tab: '',
@@ -733,17 +743,22 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
         },
       }),
     );
-    assert.equal(read.queryByTestId('mail-home-magazine-dot'), null);
-    await fireEvent.press(read.getByTestId('mail-home-magazine'));
+    expect(read.queryByTestId('mail-home-magazine-dot')).toBeNull();
     await read.unmount();
-    const stale = await renderMail(
-      makeE({ tab: '', magazineToday: { issue: { ...issue, current: false }, receipt: null } }),
-    );
-    assert.equal(stale.queryByTestId('mail-home-magazine'), null);
+    const staleE = makeE({
+      tab: '',
+      magazineToday: { issue: { ...issue, current: false }, receipt: null },
+    });
+    const stale = await renderMail(staleE);
+    await fireEvent.press(stale.getByTestId('mail-home-magazine'));
+    expect(staleE.go).toHaveBeenCalledWith('magazine', 'mock-issue-19');
     assert.ok(stale.getByTestId('mail-home-rack'));
     await stale.unmount();
-    const none = await renderMail(makeE({ tab: '' }));
-    assert.equal(none.queryByTestId('mail-home-rack'), null);
+    const noneE = makeE({ tab: '' });
+    const none = await renderMail(noneE);
+    expect(none.queryByTestId('mail-home-rack')).toBeNull();
+    expect(none.queryByText('19호')).toBeNull();
+    assert.equal(none.getByTestId('mail-home-magazine').props.accessibilityState?.disabled, true);
     await none.unmount();
   } finally {
     restore();

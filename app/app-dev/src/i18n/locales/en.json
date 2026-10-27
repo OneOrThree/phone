@@ -1051,7 +1051,10 @@
     },
     "mail": {
       "open": "Read Cat Magazine · No. {{no}}",
-      "unreadA11y": "Read Cat Magazine No. {{no}}, unread"
+      "unreadA11y": "Read Cat Magazine No. {{no}}, unread",
+      "slot": "Cat Magazine",
+      "issueNo": "No. {{no}}",
+      "pastIssues": "Past issues"
     },
     "delivery": {
       "mailbox": "A cat magazine arrived in your mailbox!",
