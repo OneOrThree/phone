@@ -411,14 +411,17 @@ test.each(['button', 'hardware'] as const)(
       screenElement(state, 'fishingArrival', backOverride, go, undefined, dispatch),
     );
     await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    // 섬 안쪽으로 조금 걸어 들어간 뒤 — 귀환도 걸어서 돌아간다
+    await act(async () => jest.advanceTimersByTime(1000));
     expect(go).not.toHaveBeenCalled();
     if (method === 'button') await fireEvent.press(screen.getByTestId('leave-fishing-arrival'));
     else
       await act(async () => {
         expect(backOverride.current?.()).toBe(true);
       });
-    // 귀환 도중 땅을 다시 눌러도 이전 자리 선택으로 돌아가지 않는다.
+    // 귀환 도중 땅을 다시 누르거나 [집중 시작]을 눌러도 귀환 걷기가 끊기지 않는다.
     await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    await fireEvent.press(screen.getByTestId('focus-start'));
     await act(async () => jest.advanceTimersByTime(20000));
     expect(go).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenCalledWith('returnTravel');

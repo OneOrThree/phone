@@ -3279,6 +3279,8 @@ function FocusFlow({ e: environment }: any) {
   };
   // [집중 시작]: 걷는 중이면 그 자리에 멈춰 선 채로 검사한다.
   const startHere = () => {
+    // 뗏목으로 돌아가는 중이면 귀환 걷기를 끊지 않는다(끊으면 귀환 콜백이 사라져 화면에 갇힌다)
+    if (returningFromArrival.current) return;
     if (walker.walking) {
       walkingToken.current++;
       setWalker((w) => ({ ...w, walking: false }));
