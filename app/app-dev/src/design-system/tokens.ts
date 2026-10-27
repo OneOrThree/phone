@@ -624,8 +624,19 @@ export const componentTokens = {
   // 칸 안 [지난 호] 작은 알약, 안 읽음 점(점 테두리는 편지 종이색)
   mailboxAction: {
     slot: '#f5e2a6',
+    // 칸 외형 — 옆 편지 칸과 같은 우체통 홈 칸 모양(안쪽 아래 그림자 + 스티커 그림자, 반경 5, 살짝 기울임)
+    slotShadow: 'inset 0 -8px #c99870,0 3px 0 #3f1d18',
+    slotRadius: 5,
+    slotRotate: '-1deg',
+    slotMinHeight: 151,
+    slotPaddingTop: 10,
+    slotPaddingBottom: 9,
+    slotPaddingHorizontal: 7,
     coverWidth: 92,
     coverHeight: 110,
+    coverTilt: '-4deg',
+    coverMarginBottom: space[1],
+    pastIssuesPaddingVertical: 3,
     paddingHorizontal: 10,
     pillRadius: 22,
     dotSize: 14,

@@ -7836,14 +7836,14 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       testID="mail-home-0"
       style={[
         {
-          minHeight: 151,
-          paddingBottom: 9,
+          minHeight: M.slotMinHeight,
+          paddingBottom: M.slotPaddingBottom,
           borderWidth: M.borderWidth,
           borderColor: M.border,
-          borderRadius: 5,
+          borderRadius: M.slotRadius,
           backgroundColor: M.slot,
-          boxShadow: 'inset 0 -8px #c99870,0 3px 0 #3f1d18',
-          transform: [{ rotate: '-1deg' }],
+          boxShadow: M.slotShadow,
+          transform: [{ rotate: M.slotRotate }],
         },
         webOnly({ gridRow: 'span 2' }),
       ]}
@@ -7868,8 +7868,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           flexGrow: 1,
           alignItems: 'center',
           justifyContent: 'flex-end',
-          paddingTop: 10,
-          paddingHorizontal: 7,
+          paddingTop: M.slotPaddingTop,
+          paddingHorizontal: M.slotPaddingHorizontal,
         }}
       >
         <Image
@@ -7879,8 +7879,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           style={{
             width: M.coverWidth,
             height: M.coverHeight,
-            marginBottom: 4,
-            transform: [{ rotate: '-4deg' }],
+            marginBottom: M.coverMarginBottom,
+            transform: [{ rotate: M.coverTilt }],
           }}
         />
         <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
@@ -7908,7 +7908,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         >
           <View
             style={{
-              paddingVertical: 3,
+              paddingVertical: M.pastIssuesPaddingVertical,
               paddingHorizontal: M.paddingHorizontal,
               borderWidth: M.borderWidth,
               borderColor: M.border,
