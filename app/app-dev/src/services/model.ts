@@ -1678,8 +1678,14 @@ export function reducer(state: State, a: Action): State {
     'BUILD',
   ];
   if (hostOnly.includes(a.type) && !isHost(currentIsland(state))) return state;
+  // 서버 섬의 소속은 serverIslands가 정본이다. 로컬 목업 섬은 미가입이어도 자리 선택을 저장해야 한다.
+  if (a.type === 'FOCUS_SPOT') {
+    const hasCurrentIsland = state.serverIslands
+      ? state.serverIslands.currentIslandId !== null
+      : currentIsland(state).joined;
+    if (!hasCurrentIsland || state.visitingIslandId) return state;
+  }
   const joinedOnly = [
-    'FOCUS_SPOT',
     'START',
     'COMMENT',
     'MESSAGE',
