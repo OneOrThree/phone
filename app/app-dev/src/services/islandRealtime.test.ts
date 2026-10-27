@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { t } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
+import { replaceBlockedUsers } from '@/services/blockedUsers';
 import {
   friendlyRealtimeErrorMessage,
   IslandProjection,
@@ -552,6 +553,30 @@ function start(
 }
 
 describe('startIslandRealtime', () => {
+  test('내가 차단한 방문자의 응원은 알림 콜백으로 넘기지 않는다 (GROMO-2470)', () => {
+    replaceBlockedUsers([{ id: 'blocked', name: '밍키' }]);
+    const got: string[] = [];
+    let onEvent: (raw: unknown) => void = () => {};
+    const rt = startIslandRealtime({
+      islandId: 'i1',
+      onView: () => {},
+      onVisitorEmote: (emote) => got.push(emote.userId),
+      connect: (opts) => {
+        onEvent = opts.onEvent;
+        return { send: () => false, setEmoteEnabled: () => {}, reopen: () => {}, close: () => {} };
+      },
+      loadSnapshots: async () => ({ focus: focusSnap([]), rest: restSnap([]) }),
+    });
+    try {
+      onEvent(emoteEvent('v1', { userId: 'blocked', visitor: true, sessionId: undefined }));
+      onEvent(emoteEvent('v2', { userId: 'guest', visitor: true, sessionId: undefined }));
+      assert.deepEqual(got, ['guest']);
+    } finally {
+      rt.dispose();
+      replaceBlockedUsers([]);
+    }
+  });
+
   test('같은 서버 이벤트를 받은 두 앱은 각각 한 번만 컷신 신호를 받고 중복 봉투는 버린다', () => {
     const firstChannel = fakeChannel();
     const secondChannel = fakeChannel();
@@ -2216,6 +2241,17 @@ describe('island.member.arrived (GROMO-2311)', () => {
     expect(f(ev())).toBeNull();
     expect(f(ev({ eventId: 'e2', aggregateVersion: 1 }))).not.toBeNull();
     expect(f(ev({ eventId: 'e3' }, 'me'))).toBeNull();
+  });
+
+  test('내가 차단한 상대의 도착은 토스트로 넘기지 않는다 — 서버 필터 스위치와 무관 (GROMO-2470)', () => {
+    replaceBlockedUsers([{ id: 'u2', name: '모모' }]);
+    try {
+      const f = memberArrivalFilter('isl', () => 'me');
+      expect(f(ev())).toBeNull();
+      expect(f(ev({ eventId: 'e2' }, 'u3'))).not.toBeNull();
+    } finally {
+      replaceBlockedUsers([]);
+    }
   });
 });
 

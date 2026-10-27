@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { sessionGeneration } from '@/services/api/session';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import type { Color } from '@/services/model';
 import { newerLook, type MemberLook } from '@/services/memberAppearance';
 import {
@@ -141,6 +142,18 @@ export function useIslandPresence(
   useEffect(() => {
     rt.current?.setEmoteSessionId(emoteSessionId ?? null);
   }, [emoteSessionId]);
+
+  // 차단을 풀면(GROMO-2470 D1) 스냅숏을 다시 읽는다 — 서버가 차단 중 가렸던 집중 주민 이름(「차단한 주민」)을
+  // 정본으로 되돌린다. 숨김 자체는 장면이 차단 목록으로 그리기만 빼므로 차단할 때는 다시 읽지 않는다.
+  const blockedIds = useBlockedUserIds(false);
+  const previousBlocked = useRef({ generation, ids: blockedIds });
+  useEffect(() => {
+    const previous = previousBlocked.current;
+    previousBlocked.current = { generation, ids: blockedIds };
+    // 계정이 바뀌어 목록이 비는 것은 해제가 아니다 — 채널은 위 effect 가 새로 연다
+    if (previous.generation !== generation) return;
+    if ([...previous.ids].some((id) => !blockedIds.has(id))) rt.current?.resync('manual');
+  }, [blockedIds, generation]);
 
   return {
     ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),

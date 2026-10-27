@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
@@ -548,13 +549,18 @@ export function useFishingPeerActors({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 배치·내 자리가 같으면 결과도 같다
     [layout, mineX, mineY],
   );
+  // 차단한 상대(GROMO-2470)는 휴식 중 주민처럼 자리를 쥔 채 그리지 않는다(visible false) — 다른 주민 자리·물고기
+  // 더미 회피는 그대로이고, 낚싯줄·이름표·누르는 자리·응원 말풍선은 visible 인 actor 에만 붙는다.
+  // ponytail: 숨긴 동안 입장·퇴장 모션 콜백이 오지 않아 완료한 상대도 다음 스냅숏까지 자리를 쥔다 — 자리 다툼이 보이면 숨김 중 완료를 즉시 반납한다.
+  const blockedIds = useBlockedUserIds(false);
   const shown = useMemo(
     () =>
       actors.map((actor) => {
         const spot = placed.get(actor.key);
-        return spot && spot !== actor.spot ? { ...actor, spot } : actor;
+        const next = spot && spot !== actor.spot ? { ...actor, spot } : actor;
+        return next.visible && blockedIds.has(actor.userId) ? { ...next, visible: false } : next;
       }),
-    [actors, placed],
+    [actors, placed, blockedIds],
   );
   return { actors: shown, onTransition, entered, cast, leftForPause, stretched, leftForComplete };
 }

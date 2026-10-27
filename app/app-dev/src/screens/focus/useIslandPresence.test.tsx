@@ -7,6 +7,7 @@ import { act, renderHook } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 import { clearSession, saveSession } from '@/services/api/session';
 import { useIslandPresence } from '@/screens/focus/useIslandPresence';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 import type {
   GoldenFishEvent,
   IslandPresenceTransition,
@@ -93,6 +94,27 @@ test('계정(세션 세대)이 바뀌면 이전 채널을 해제하고 새로 �
   await rerender({ active: true, islandId: 'i1' });
   assert.equal(sessions.length, 2);
   assert.equal((sessions[0].dispose as jest.Mock).mock.calls.length, 1);
+});
+
+test('차단을 풀면 가려졌던 이름을 되돌리려 스냅숏을 다시 읽고, 차단·계정 전환으로는 다시 읽지 않는다 (GROMO-2470 D1)', async () => {
+  replaceBlockedUsers([]);
+  const resyncs = () =>
+    (sessions.at(-1)!.resync as jest.Mock).mock.calls
+      .map((call) => String(call[0] ?? 'open'))
+      .join(',');
+  await mount({ active: true, islandId: 'i1' });
+  assert.equal(resyncs(), 'open');
+  await act(async () => markUserBlocked('u2'));
+  assert.equal(resyncs(), 'open');
+  await act(async () => markUserUnblocked('u2'));
+  assert.equal(resyncs(), 'open,manual');
+  await act(async () => markUserBlocked('u3'));
+  // 계정이 바뀌어 차단 목록이 비는 것은 해제가 아니다 — 새 채널의 첫 재동기화만 있다
+  await act(async () => {
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'other' });
+  });
+  assert.equal(sessions.length, 2);
+  assert.equal(resyncs(), 'open');
 });
 
 test('포그라운드 복귀는 reconnect 출처로 스냅숏을 재동기화한다', async () => {

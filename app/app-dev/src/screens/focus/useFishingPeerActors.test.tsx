@@ -19,6 +19,7 @@ import {
   underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
 import { onLand } from '@/utils/world-grid';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 const peer: FishingPeer = {
   userId: 'u1',
@@ -925,4 +926,47 @@ test('서버 자리 주민이 없으면 고정 칸의 물고기 더미는 미리
   assert.equal(result.current.actors.length, PEER_SPOTS.length);
   for (const actor of result.current.actors)
     assert.equal(actor.spot.catchPlacement, PEER_SPOTS[actor.slot].catchPlacement);
+});
+
+test('차단한 주민(GROMO-2470)은 자리를 쥔 채 숨고(낚싯줄 없음) 다른 주민 슬롯은 스냅숏을 다시 받아도 그대로, 해제하면 같은 자리에 다시 보인다', async () => {
+  replaceBlockedUsers([]);
+  const members: FishingPeer[] = [
+    { ...peer, userId: 'blocked', sessionId: 's-a' },
+    { ...peer, userId: 'other', sessionId: 's-b' },
+  ];
+  const { result, rerender } = await renderHook(
+    (p: { snapshotVersion: number }) =>
+      useFishingPeerActors({
+        members,
+        ready: true,
+        reduce: false,
+        realtime: true,
+        snapshotVersion: p.snapshotVersion,
+      }),
+    { initialProps: { snapshotVersion: 1 } },
+  );
+  const before = result.current.actors.map((actor) => [actor.userId, actor.slot, actor.spot]);
+  assert.deepEqual(
+    before.map(([id, slot]) => [id, slot]),
+    [
+      ['blocked', 0],
+      ['other', 1],
+    ],
+  );
+  // UserSafetySheet 의 차단 성공 신호 — 화면을 다시 열지 않아도 바로 숨는다
+  await act(async () => markUserBlocked('blocked'));
+  const hidden = result.current.actors.find((actor) => actor.userId === 'blocked')!;
+  assert.equal(hidden.visible, false);
+  assert.equal(hidden.spot, before[0][2]);
+  assert.deepEqual(fishingSpotsForActors(result.current.actors), [before[1][2]]);
+  // 재연결 스냅숏(같은 명단)이 와도 숨은 주민이 자리를 쥐고 있어 다른 주민이 0번으로 옮기지 않는다
+  await rerender({ snapshotVersion: 2 });
+  const other = result.current.actors.find((actor) => actor.userId === 'other')!;
+  assert.equal(other.slot, 1);
+  assert.equal(result.current.actors.find((actor) => actor.userId === 'blocked')!.visible, false);
+  await act(async () => markUserUnblocked('blocked'));
+  const back = result.current.actors.find((actor) => actor.userId === 'blocked')!;
+  assert.equal(back.visible, true);
+  assert.equal(back.slot, 0);
+  await act(async () => replaceBlockedUsers([]));
 });
