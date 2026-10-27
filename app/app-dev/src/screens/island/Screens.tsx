@@ -3,6 +3,7 @@ import appManifest from '../../../package.json';
 import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
 import { GuideBox } from '@/screens/island/NpcGuide';
 import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
+import { HomeChatLog, type HomeChatLine } from '@/screens/island/HomeChatLog';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
@@ -762,6 +763,8 @@ export function RedesignScreens({ e }: any) {
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
     // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
     [hallGuideOpen, setHallGuideOpen] = useState(false),
+    // 홈 펠리컨 잡지 안내창이 떠 있는 동안 — 왼쪽 아래 채팅 줄이 비킨다(GROMO-2501)
+    [magazinePrompt, setMagazinePrompt] = useState(false),
     [discoveryIndex] = useState(() => Math.floor(Math.random() * 10)),
     // 섬 찾기에서 ‹ ›·가입 신청으로 고른 섬 id
     [discoveryPick, setDiscoveryPick] = useState<string | null>(null),
@@ -2130,6 +2133,28 @@ export function RedesignScreens({ e }: any) {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
     const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
+    // 최근 채팅 줄(GROMO-2501) — 서버는 섬 채팅 훅, 목업은 로컬 섬 글(최신 것부터라 뒤집는다).
+    // 안내창(회관·펠리컨·튜토리얼)·집중·구경·화면 전환 중에는 비킨다
+    const chatLines: HomeChatLine[] = server
+      ? (e.islandChat?.messages ?? []).map((m: any) => ({
+          id: m.id,
+          name: m.name ?? t('islandChat.unknown'),
+          text: m.text,
+          at: Date.parse(m.createdAt),
+        }))
+      : [...island.messages].reverse().map((m) => ({
+          id: m.id,
+          name: m.name,
+          text: m.text,
+          at: m.at,
+        }));
+    const chatBlocked =
+      hallGuide ||
+      magazinePrompt ||
+      guideStep === 4 ||
+      !!state.session ||
+      !!state.visitingIslandId ||
+      !!e.routeTransitionShielded;
     return (
       <View style={{ flex: 1 }}>
         <FinalIsland
@@ -2161,6 +2186,9 @@ export function RedesignScreens({ e }: any) {
           showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
           showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
           onServerBuilt={e.islands ? e.retryHome : undefined}
+          homeChat={
+            chatBlocked ? undefined : <HomeChatLog lines={chatLines} onOpen={() => go('chat')} />
+          }
         />
         <MagazineHomeLayer
           today={e.magazineToday ?? null}
@@ -2173,6 +2201,7 @@ export function RedesignScreens({ e }: any) {
             !!e.routeTransitionShielded
           }
           go={go}
+          onPromptChange={setMagazinePrompt}
         />
         {hallGuide && (
           <GuideBox

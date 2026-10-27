@@ -113,9 +113,11 @@ export function IslandSheet({
   fit = false,
   children,
 }: {
-  bg: IslandBgKey;
+  // 없으면 건물 배경을 깔지 않는다 — 부르는 쪽이 섬 홈을 뒤에 깐다(채팅방)
+  bg?: IslandBgKey;
   sign: string;
-  signKind?: '' | 'npc' | 'av';
+  // island = 섬 그림을 원 안에 꽉 채운다(cover). 그 밖은 원 안에 그림을 그대로(contain)
+  signKind?: '' | 'npc' | 'av' | 'island';
   title: string;
   tall?: boolean;
   // 시안 .scroll.tight: 세로 시트 안 간격 10(가로 패널은 원래 12)
@@ -249,7 +251,9 @@ export function IslandSheet({
         >
           <Pic
             id={sign}
-            w={g.img[signKind]}
+            w={signKind === 'island' ? '100%' : g.img[signKind]}
+            h={signKind === 'island' ? '100%' : undefined}
+            cover={signKind === 'island'}
             style={
               signKind === 'npc'
                 ? { marginTop: g.npcTop }

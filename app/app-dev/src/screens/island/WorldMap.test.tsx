@@ -8,7 +8,7 @@ import {
   render,
   renderHook,
 } from '@testing-library/react-native';
-import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet, View } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -1678,4 +1678,32 @@ test('구경 중 하단 두 버튼은 폭을 나눠 쓰고, 큰 글자에서는 
   );
   expect(row().flexDirection).toBe('column');
   mockFontScale = 1;
+});
+
+test('홈 채팅 줄은 집중 시작 버튼 왼쪽 아래에 두고, 건설 카드가 있으면 그 위로 올린다(GROMO-2501)', async () => {
+  const chat = <View testID="chat-content" />;
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.buildings = island.buildings.filter((b) => b !== 'board');
+  island.construction = undefined;
+  const screen = await render(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} homeChat={chat} />,
+  );
+  screen.getByTestId('chat-content');
+  const slot = () => StyleSheet.flatten(screen.getByTestId('home-chat-slot').props.style);
+  // 세로 폰: 왼쪽 20 · 오른쪽은 집중 버튼(오른쪽 20 + 지름 88) + 간격 12 · 건설 카드(아래 52) 위 8
+  expect(slot()).toMatchObject({ left: 20, right: 120, bottom: 60 });
+  await fireEvent(screen.getByTestId('local-build-card'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 209, height: 90 } },
+  });
+  expect(slot().bottom).toBe(150);
+
+  // 건설 카드가 없으면 집중 버튼과 같은 바닥 높이(아래 44)
+  island.buildings.push('board');
+  await screen.rerender(
+    <FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} homeChat={chat} />,
+  );
+  expect(screen.queryByTestId('local-build-card')).toBeNull();
+  expect(slot()).toMatchObject({ left: 20, right: 120, bottom: 44 });
+  await screen.unmount();
 });

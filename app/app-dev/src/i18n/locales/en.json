@@ -906,6 +906,26 @@
   "mailbox": {
     "systemSender": "Island notice"
   },
+  "islandChat": {
+    "title": "Island chat",
+    "open": "Open island chat",
+    "placeholder": "Message to all residents",
+    "send": "Send",
+    "loading": "Loading messages…",
+    "empty": "No messages yet.",
+    "more": "Load earlier messages",
+    "loadingMore": "Loading…",
+    "failed": "Not sent",
+    "resend": "Resend",
+    "me": "Me",
+    "unknown": "Unknown",
+    "emptyText": "Write a message first",
+    "sendFailed": "Couldn't send the message",
+    "justNow": "just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago",
+    "date": "{{month}}/{{date}}"
+  },
   "magazine": {
     "islandTitle": "{{name}} Island",
     "cell": {
@@ -1031,7 +1051,10 @@
     },
     "mail": {
       "open": "Read Cat Magazine · No. {{no}}",
-      "unreadA11y": "Read Cat Magazine No. {{no}}, unread"
+      "unreadA11y": "Read Cat Magazine No. {{no}}, unread",
+      "slot": "Cat Magazine",
+      "issueNo": "No. {{no}}",
+      "pastIssues": "Past issues"
     },
     "delivery": {
       "mailbox": "A cat magazine arrived in your mailbox!",
