@@ -2175,7 +2175,13 @@ export function RedesignScreens({ e }: any) {
           showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
           onServerBuilt={e.islands ? e.retryHome : undefined}
           homeChat={
-            chatBlocked ? undefined : <HomeChatLog lines={chatLines} onOpen={() => go('chat')} />
+            chatBlocked ? undefined : (
+              <HomeChatLog
+                lines={chatLines}
+                pending={server && !!e.islandChat?.loading}
+                onOpen={() => go('chat')}
+              />
+            )
           }
         />
         <MagazineHomeLayer

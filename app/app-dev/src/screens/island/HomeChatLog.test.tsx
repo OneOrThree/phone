@@ -103,10 +103,22 @@ test('차단·권한 상실로 lines 에서 빠진 글은 띄워 둔 줄에서�
   await ui.unmount();
 });
 
-test('lines 가 잠깐 비는 동안(차단 재검증 중)에는 띄운 줄을 지우지 않는다', async () => {
+test('남은 글이 모두 빠져 lines 가 비면 띄운 줄도 바로 지운다', async () => {
   const ui = await render(<HomeChatLog lines={[line(1)]} onOpen={() => {}} />);
   expect(shownTexts(ui)).toEqual([1]);
+  // 하나뿐인 글의 작성자를 차단하면 빈 목록이 온다 — 8초를 기다리지 않는다
   await ui.rerender(<HomeChatLog lines={[]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([]);
+  await ui.unmount();
+});
+
+test('다시 받는 중(pending)에 잠깐 빈 목록은 띄운 줄을 지우지 않는다', async () => {
+  const ui = await render(<HomeChatLog lines={[line(1)]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([1]);
+  await ui.rerender(<HomeChatLog lines={[]} pending onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([1]);
+  // 다시 받은 목록에 같은 글이 있으면 그대로 남는다
+  await ui.rerender(<HomeChatLog lines={[line(1)]} onOpen={() => {}} />);
   expect(shownTexts(ui)).toEqual([1]);
   await ui.unmount();
 });

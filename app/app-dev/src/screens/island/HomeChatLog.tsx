@@ -16,7 +16,16 @@ const T = componentTokens.homeChatLog;
 export type HomeChatLine = { id: string; name: string; text: string; at: number };
 type Shown = HomeChatLine & { expiresAt: number };
 
-export function HomeChatLog({ lines, onOpen }: { lines: HomeChatLine[]; onOpen: () => void }) {
+export function HomeChatLog({
+  lines,
+  pending = false,
+  onOpen,
+}: {
+  lines: HomeChatLine[];
+  /** 채팅 목록을 다시 받는 중(차단 목록 재검증 등)이라 잠깐 비어 있을 뿐이면 true — 띄운 줄을 지우지 않는다. */
+  pending?: boolean;
+  onOpen: () => void;
+}) {
   const reduceMotion = useContext(MotionContext);
   const [shown, setShown] = useState<Shown[]>([]);
   const [paused, setPaused] = useState(false);
@@ -26,13 +35,14 @@ export function HomeChatLog({ lines, onOpen }: { lines: HomeChatLine[]; onOpen: 
   const pausedAt = useRef(0);
 
   useEffect(() => {
+    // 다시 받는 중(pending)에 잠깐 빈 목록은 띄운 줄을 지우지 않는다(복귀 뒤 다시 채워진다).
+    if (pending) return;
     const fresh = lines.filter((l) => !seen.current.has(l.id) && l.at >= newest.current);
     for (const l of lines) seen.current.add(l.id);
-    // 차단·권한 상실로 lines 에서 빠진 글은 띄워 둔 줄에서도 바로 뺀다 — 차단 필터가 홈에서도 적용돼야 한다.
-    // 단 lines 가 잠깐 비는 경우(차단 목록 재검증 중 messages: [])에는 지우지 않는다(복귀 뒤 다시 채워진다).
+    // 차단·권한 상실로 lines 에서 빠진 글은 띄워 둔 줄에서도 바로 뺀다 — 남은 글이 없어 lines 가 비어도 뺀다.
     const present = new Set(lines.map((l) => l.id));
     if (!fresh.length) {
-      if (lines.length) setShown((prev) => prev.filter((l) => present.has(l.id)));
+      setShown((prev) => prev.filter((l) => present.has(l.id)));
       return;
     }
     newest.current = Math.max(newest.current, ...fresh.map((l) => l.at));
@@ -42,7 +52,7 @@ export function HomeChatLog({ lines, onOpen }: { lines: HomeChatLine[]; onOpen: 
         -T.maxLines,
       ),
     );
-  }, [lines]);
+  }, [lines, pending]);
 
   // 앱이 뒤로 가 있는 동안은 8초가 흐르지 않는다 — 돌아오면 멈춘 만큼 뒤로 민다
   useEffect(() => {
