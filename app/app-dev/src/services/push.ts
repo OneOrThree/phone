@@ -383,9 +383,11 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     //  · 첫 관찰(부팅 복구)인데 기록이 확인 전이다: 마지막 등록이 서버에 닿았는지, 닿았다면 어느 세션에 묶였는지 모른다(bootstrap 은
     //    메모리뿐이라 앱이 죽으면 사라진다). 확인받은 기록은 그대로 둔다 — 매 실행 다시 등록하지 않는다.
     // ponytail: 기존 409 경로와 같은 서버 `legacy-device-registration` 창에 기댄다. 남는 틈은 이 순간의 보안 저장소 쓰기 실패뿐이다
-    // (이번 실행의 메모리 기록은 이미 고쳐져 있다). 비용은 토큰 회전 한 번이다 — 확인 전 등록 도중 앱이 죽었을 때, 그리고 서버가
+    // (이번 실행의 메모리 기록은 이미 고쳐져 있고 등록하면 PUT 전 맞춤의 저장이 다시 쓴다 — 그 전에 앱이 죽거나 알림이 꺼져 PUT 이
+    // 없으면 다음 부팅까지 남는다). 비용은 토큰 회전 한 번이다 — 확인 전 등록 도중 앱이 죽었을 때, 그리고 서버가
     // X-Device-Bootstrap 을 아예 안 주거나(옛 business-api) auth.ts 4칸 맵에서 밀려나면 같은 계정의 재로그인마다. 서버 먼저 배포하면
-    // 뒤의 경우는 없다.
+    // 뒤의 경우는 없다. 첫 관찰이 세션 없음(보안 저장소를 못 읽음)이면 뒤의 로그인은 첫 관찰이 아니라 확인 전 소유권이 새 bootstrap 과
+    // 함께 나가는데, 서버는 bootstrap 이 있으면 옛 세션의 해시를 물려주지 않아(DeviceService.registerLocked) 새 세션에 묶인다.
     const unbound = first ? device.registeredToken === undefined : !value;
     if (session && unbound && device.userId === session.userId && device.ownershipToken) {
       device = { ...device, ownershipToken: undefined, registeredToken: undefined };
