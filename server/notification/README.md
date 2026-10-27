@@ -136,7 +136,7 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 
 dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
 
-1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고(`NOTIFICATION_KAFKA_ENABLED=true`도 필요) `ops-redeploy.dev`로 notification을 재기동합니다.
+1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다.
 2. 열기 전 대기 발송을 `GET /internal/admin/deliveries?status=PENDING`·`status=DEFERRED`로 확인합니다. 쌓인 발송은 열자마자 한꺼번에 나갑니다.
 3. `PUT /internal/admin/jobs/delivery-dispatch`로 잡을 켭니다. PUT은 전체 수정이라 `GET /internal/admin/jobs`의 지금 값에서 `enabled`만 바꿔 `{"enabled":true,"cron":"0/5 * * * * *","config":{}}`처럼 보냅니다.
 4. `POST /internal/admin/dispatch/open`을 새 멱등 키로 보냅니다.

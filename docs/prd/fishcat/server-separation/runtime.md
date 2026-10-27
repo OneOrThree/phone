@@ -72,7 +72,7 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 | 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1, GROMO-2407 로 완료). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
 | 5 | ~~`NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향**~~ → 스위치 삭제(#1247, 티켓 2421): Data 에 구 FCM 발송 경로가 없어 Notification 이 유일한 발송 경로다 | — |
-| 6 | Notification 발송 게이트 상시 개방(dev 만, 2026-10-27 티켓 2522): SM `NOTIFICATION_SCHEDULING_ENABLED=true` → `ops-redeploy.dev` notification → 열기 전 대기 발송 확인 → `PUT /internal/admin/jobs/delivery-dispatch`(`enabled=true`) → `POST /internal/admin/dispatch/open`(새 멱등 키). 절차는 [notification README](../../../../server/notification/README.md#dev-발송-게이트) | `POST /internal/admin/dispatch/close`(진행 중 발송 drain) |
+| 6 | Notification 발송 게이트 상시 개방(dev 만, 2026-10-27 티켓 2522): SM `NOTIFICATION_SCHEDULING_ENABLED=true` → `ops-redeploy.dev` notification → 열기 전 대기 발송 확인 → `PUT /internal/admin/jobs/delivery-dispatch`(`enabled=true`) → `POST /internal/admin/dispatch/open`(새 멱등 키). 절차는 [notification README](../../../../server/notification/README.md#dev-발송-게이트) | `POST /internal/admin/dispatch/close`(새 멱등 키, 진행 중 발송 drain) |
 
 ### relay ON 체크리스트
 
@@ -113,7 +113,7 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 |---|---|---|
 | Data `INTERNAL_API_ENABLED` | false | 서비스별 caller/token 설정 검증 후 true |
 | Data `OUTBOX_RELAY_ENABLED` | false | A18 재시도 정책 입력과 Kafka/HTTP 목적지 준비 후 true |
-| Data `NOTIFICATION_DISPATCH_MODE` | LEGACY | 구 FCM·리스너·flush 정지/drain 후 OUTBOX |
+| ~~Data `NOTIFICATION_DISPATCH_MODE`~~ | ~~LEGACY~~ | ~~구 FCM·리스너·flush 정지/drain 후 OUTBOX~~ → 스위치 삭제(#1247, 위 5단계) |
 | Notification `NOTIFICATION_KAFKA_ENABLED` | false | `.DLT`까지 토픽 준비 후 true. 수신·내구 적재만 시작 |
 | Notification `NOTIFICATION_GENERATION_REQUIRED` | false | gen 발급 롤아웃 + 구 AT 최대수명 대기 후 true |
 | Notification `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | true | 소유권·bootstrap 미지원 구 앱 지원 종료 후 false. AT의 gen 존재와 별개인 앱 롤아웃 축 |
