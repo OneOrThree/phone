@@ -80,9 +80,6 @@ class BannedWordsIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("island-board.writes-enabled", () -> true);
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "POST /internal/users/*/letters");
     }

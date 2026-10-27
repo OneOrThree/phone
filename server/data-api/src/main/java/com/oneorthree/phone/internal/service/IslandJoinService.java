@@ -41,7 +41,6 @@ import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -102,10 +101,6 @@ public class IslandJoinService {
      * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
      */
     private final Clock clock;
-
-    /** 섬 관리 명령 게이트(GROMO-1802) — {@code IslandManagementService} 와 같은 스위치다. 기본은 닫혀 있다. */
-    @Value("${island-management.commands-enabled:false}")
-    private boolean managementEnabled;
 
     // ---------------------------------------------------------------- §3.7 join
 
@@ -329,9 +324,6 @@ public class IslandJoinService {
     @Transactional
     public JoinRequestAnswerView answer(UUID userId, UUID islandId, UUID requestId, boolean approve,
                                         UUID idempotencyKey) {
-        if (!managementEnabled) {
-            throw new GroupException(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY);
-        }
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "PATCH:/islands/" + islandId + "/join-requests/" + requestId,
                 idempotencyKey, InternalJson.tree(Map.of("decision", approve ? "approve" : "reject")));

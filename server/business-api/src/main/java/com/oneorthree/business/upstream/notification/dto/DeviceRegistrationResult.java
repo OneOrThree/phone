@@ -12,7 +12,12 @@ import com.fasterxml.jackson.annotation.Nulls;
  * 그래서 값을 <b>요청에도 실어</b> CAS 한다 — 그 값을 여기서 발급한다.
  *
  * @param ownershipToken 다음 등록·삭제 요청에 실을 CAS 값
+ * @param deliveryTag    이 등록의 수신 확인 태그(GROMO-2520) — 이 기기로 가는 모든 푸시 data 의 {@code deliveryTag}.
+ *                       <b>없어도 정상이다</b>: 알림 서버 V13 전에 저장된 등록 응답은 같은 키로 탈퇴 전까지 재생되므로
+ *                       부재는 일시 상태가 아니다. 여기서 거절하면 그 키의 재시도가 영구 502 가 되고 앱은 새
+ *                       {@code ownershipToken} 까지 잃는다 — 그래서 필수·형식 검사를 두지 않는다
  */
 public record DeviceRegistrationResult(
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String ownershipToken) {
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String ownershipToken,
+        String deliveryTag) {
 }

@@ -32,8 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 바다 한마디 · 바다 상태 · 친구 id (GROMO-2299)를 <b>실제 Flyway PostgreSQL</b> 위에서 내부 표면으로 본다. 사건 스위치는
- * 켠 상태다 — 한마디 변경이 {@code sea.member.updated(remark)} 를 USER 축으로 남기는지도 함께 본다.
+ * 바다 한마디 · 바다 상태 · 친구 id (GROMO-2299)를 <b>실제 Flyway PostgreSQL</b> 위에서 내부 표면으로 본다.
+ * 한마디 변경이 {@code sea.member.updated(remark)} 를 USER 축으로 남기는지도 함께 본다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -46,9 +46,6 @@ class SeaRemarkIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
-        registry.add("focus.sea.realtime-events-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> BUSINESS);
         registry.add("internal.api.callers.realtime.token", () -> REALTIME);
         List<String> business = List.of("PUT /internal/users/*/sea-remark",

@@ -163,7 +163,7 @@ GROMO-2280. 섬별 «최근 7일 주민 1명당 하루 평균 집중»(`island_f
 
 - 경로: `POST /internal/admin/island-focus-averages/snapshots?date=YYYY-MM-DD`(`date` 는 선택). Data 서버 안에서만 부른다 — nginx 는 `/internal/` 을 404 로 막는다.
 - 응답: `{"snapshotDate": "…", "inserted": N}`. `inserted` 는 새로 적힌 행 수다. 같은 날을 다시 부르면 `0` 이고 행이 늘거나 바뀌지 않는다.
-- 거부: `400` 은 아직 닫히지 않은 날짜이거나 형식 오류, `401` 은 토큰 불일치 또는 토큰 미등록, `403` 은 다른 caller 의 토큰, `404` 는 내부 표면이 꺼진 환경(`INTERNAL_API_ENABLED=false`)이다.
+- 거부: `400` 은 아직 닫히지 않은 날짜이거나 형식 오류, `401` 은 토큰 불일치 또는 토큰 미등록, `403` 은 다른 caller 의 토큰, `404` 는 내부 표면에 caller 설정이 없는 환경(`satellites` 프로파일 미적용)이다.
 
 ### 4-1. 스위치
 

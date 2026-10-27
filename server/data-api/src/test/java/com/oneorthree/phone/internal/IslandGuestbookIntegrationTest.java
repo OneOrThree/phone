@@ -65,7 +65,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 섬 인사말 · 방명록 (GROMO-2262)을 <b>실제 Flyway PostgreSQL</b> 위에서 생산 진입점(내부 표면)으로 검증한다.
- * 시설 게이트·섬 관리 명령 스위치를 켜고, 시계는 고정한다(KST 하루 경계). 시드는 전부 생산 엔티티·서비스다 —
+ * 시설 게이트를 켜고, 시계는 고정한다(KST 하루 경계). 시드는 전부 생산 엔티티·서비스다 —
  * 게시판만 {@code island_facilities} 행으로 «지어진 것» 으로 둔다.
  */
 @SpringBootTest
@@ -80,8 +80,6 @@ class IslandGuestbookIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("construction.facility-gates.enforce", () -> true);
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"PATCH /internal/islands/*", "GET /internal/islands/*",
             "GET /internal/islands/*/guestbook",

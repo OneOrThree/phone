@@ -60,12 +60,10 @@ import java.util.stream.Collectors;
  * 쓰기는 시설 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는
  * {@code construction.facility-gates.enforce} 를 따른다(기본 OFF — 적립 경로 배포 전엔 어느 섬도 지을 수 없다).
  *
- * <h2>쓰기 게이트 — {@code island-board.writes-enabled} (기본 OFF)</h2>
+ * <h2>쓰기는 항상 열려 있다</h2>
  * 정책 BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정으로 확정됐다(island-board policy) —
- * 공지 삭제는 댓글을 함께 지우고(DB {@code ON DELETE CASCADE}, V103), 탈퇴자의 댓글은 원문째 지운다. 그래도
- * 스위치 기본값은 그대로 OFF 다: prod 개방은 별도 릴리스 결정, dev 는 {@code ISLAND_BOARD_WRITES_ENABLED} 로 켠다.
- * 네 쓰기(+댓글 삭제)는 이 스위치가 꺼져 있으면 receipt 선점·잠금보다 먼저 503
- * {@code NOTICE_WRITE_UNAVAILABLE} 로 거절한다({@code InternalHostTransferService} 와 같은 모양).
+ * 공지 삭제는 댓글을 함께 지우고(DB {@code ON DELETE CASCADE}, V103), 탈퇴자의 댓글은 원문째 지운다. 쓰기 스위치
+ * ({@code island-board.writes-enabled})는 2026-10-27(티켓 2535)에 걷었다.
  *
  * <h2>잠금 순서 (LLD §3)</h2>
  * users 공유 → 섬(islands) 배타 → 공통 명령 receipt → 공지 aggregate 순서다.
@@ -102,7 +100,6 @@ public class IslandNoticeService {
     private final AggregateVersionRepository aggregateVersions;
     private final PublicCommandService publicCommands;
     private final BannedWords bannedWords;
-    private final boolean writesEnabled;
     private final int bodyMaxLength;
     private final int commentMaxLength;
 
@@ -111,7 +108,6 @@ public class IslandNoticeService {
             GroupAnnouncementCommentRepository comments, IslandFacilityQueryService facilities,
             IslandNoticeEvents noticeEvents, AggregateVersionRepository aggregateVersions,
             PublicCommandService publicCommands, BannedWords bannedWords,
-            @Value("${island-board.writes-enabled:false}") boolean writesEnabled,
             @Value("${island-board.notice-body-max-length:5000}") int bodyMaxLength,
             @Value("${island-board.comment-max-length:500}") int commentMaxLength) {
         this.users = users;
@@ -125,7 +121,6 @@ public class IslandNoticeService {
         this.aggregateVersions = aggregateVersions;
         this.publicCommands = publicCommands;
         this.bannedWords = bannedWords;
-        this.writesEnabled = writesEnabled;
         this.bodyMaxLength = bodyMaxLength;
         this.commentMaxLength = commentMaxLength;
     }
@@ -200,7 +195,6 @@ public class IslandNoticeService {
     /** 공지 작성 — 새 noticeId 는 최초 성공 명령에서 한 번 발급되고 같은 키 재생은 그 결과를 돌려준다. */
     @Transactional
     public IslandNoticeViews.Notice create(UUID islandId, UUID userId, String title, String body, UUID key) {
-        requireWritesEnabled();
         Map<String, Object> semantic = new LinkedHashMap<>();
         semantic.put("title", title);
         semantic.put("body", body);
@@ -226,7 +220,6 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.Notice update(UUID islandId, UUID noticeId, UUID userId, String title, String body,
             UUID key) {
-        requireWritesEnabled();
         Map<String, Object> semantic = new LinkedHashMap<>();
         if (title != null) {
             semantic.put("title", title);
@@ -257,7 +250,6 @@ public class IslandNoticeService {
      */
     @Transactional
     public IslandNoticeViews.Deleted delete(UUID islandId, UUID noticeId, UUID userId, UUID key) {
-        requireWritesEnabled();
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(Map.of())),
                 IslandNoticeService::requireHost, () -> {
@@ -272,7 +264,6 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.CommentCreated comment(UUID islandId, UUID noticeId, UUID userId, String text,
             UUID key) {
-        requireWritesEnabled();
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/notices/" + noticeId + "/comments", key,
                 InternalJson.tree(Map.of("text", text))), member -> { },
@@ -312,7 +303,6 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.Deleted deleteComment(UUID islandId, UUID noticeId, UUID commentId, UUID userId,
             UUID key) {
-        requireWritesEnabled();
         CommentDeleted result = run(userId, islandId, new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/notices/" + noticeId + "/comments/" + commentId, key,
                 InternalJson.tree(Map.of())), member -> { },
@@ -450,12 +440,6 @@ public class IslandNoticeService {
             return;
         }
         throw new GroupException(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN);
-    }
-
-    private void requireWritesEnabled() {
-        if (!writesEnabled) {
-            throw new GroupException(GroupErrorCode.NOTICE_WRITE_UNAVAILABLE);
-        }
     }
 
     private void requireBodyLength(String body) {

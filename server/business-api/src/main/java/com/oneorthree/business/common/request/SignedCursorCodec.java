@@ -22,6 +22,9 @@ import java.util.Objects;
  */
 public final class SignedCursorCodec {
 
+    /** 서명키 최소 길이(256비트) — 이보다 짧은 키는 부팅에서 거절한다. */
+    public static final int MIN_KEY_BYTES = 32;
+
     private static final int MAX_TOKEN_LENGTH = 4096;
     private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
@@ -35,7 +38,7 @@ public final class SignedCursorCodec {
             Duration lifetime, ObjectMapper mapper) {
         this.keys = new HashMap<>();
         signingKeys.forEach((id, key) -> {
-            if (!id.matches("[a-zA-Z0-9_-]{1,32}") || key.length < 32) {
+            if (!id.matches("[a-zA-Z0-9_-]{1,32}") || key.length < MIN_KEY_BYTES) {
                 throw new IllegalArgumentException("커서 서명키 ID와 256비트 이상의 독립 키가 필요합니다.");
             }
             this.keys.put(id, key.clone());

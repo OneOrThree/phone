@@ -66,6 +66,7 @@
     "expo-font": "~57.0.3",
     "expo-haptics": "~57.0.1",
     "expo-localization": "~57.0.2",
+    "expo-notifications": "57.0.17",
     "expo-screen-orientation": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
@@ -101,5 +102,14 @@
     "playwright": "1.63.0",
     "prettier": "^3.8.3",
     "typescript": "~6.0.3"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": [
+          "expo-notifications"
+        ]
+      }
+    }
   }
 }

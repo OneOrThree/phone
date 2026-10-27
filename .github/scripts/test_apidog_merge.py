@@ -1,4 +1,4 @@
-"""apidog-merge.py 단위 테스트 (GROMO-2069).
+"""apidog-merge.py 단위 테스트 (GROMO-2069 · GROMO-2534).
 
 실행: python3 -m unittest .github/scripts/test_apidog_merge.py -v
 """
@@ -16,12 +16,13 @@ sys.modules["apidog_merge"] = merge_mod
 spec.loader.exec_module(merge_mod)
 
 
-def make_spec(paths, schemas=None, refs_to=None):
-    """paths: {path: [methods]} — 각 operation 에 최소 필드만 채운다."""
+def make_spec(paths, schemas=None, refs_to=None, tag="friend-controller"):
+    """paths: {path: [methods]} — 각 operation 에 최소 필드만 채운다. tag 는 springdoc 기본 태그."""
     spec = {"openapi": "3.0.3", "info": {"title": "t", "version": "1"}, "paths": {}}
     for path, methods in paths.items():
         spec["paths"][path] = {
             m: {"operationId": f"op_{m}_{path.strip('/').replace('/', '_') or 'root'}",
+                "tags": [tag],
                 "responses": {"200": {"description": "ok"}}}
             for m in methods
         }
@@ -45,13 +46,39 @@ class ApidogMergeTest(unittest.TestCase):
     def op(self, merged, path, method):
         return merged["paths"][path][method]
 
-    def test_각_operation에_서비스_폴더가_붙는다(self):
+    def test_각_operation에_서비스_도메인_폴더가_붙는다(self):
         merged = self.merge(
-            **{"business-api": make_spec({"/me": ["get"]}),
-               "data-api": make_spec({"/internal/users/{id}": ["get"]})})
-        self.assertEqual(self.op(merged, "/me", "get")["x-apidog-folder"], "business-api")
+            **{"business-api": make_spec({"/me": ["get"]}, tag="island-notice-controller"),
+               "data-api": make_spec({"/internal/users/{id}": ["get"]},
+                                     tag="internal-island-notice-controller")})
+        # data 의 internal- 접두 컨트롤러도 business 와 같은 도메인 폴더로 모인다.
+        self.assertEqual(self.op(merged, "/me", "get")["x-apidog-folder"], "business-api/섬 소통")
         self.assertEqual(
-            self.op(merged, "/internal/users/{id}", "get")["x-apidog-folder"], "data-api")
+            self.op(merged, "/internal/users/{id}", "get")["x-apidog-folder"], "data-api/섬 소통")
+
+    def test_대응표에_없는_컨트롤러면_실패(self):
+        with self.assertRaises(SystemExit) as ctx:
+            self.merge(**{"business-api": make_spec({"/me": ["get"]}, tag="brand-new-controller")})
+        self.assertIn("brand-new", str(ctx.exception))
+        # @Tag(name=...) 을 직접 단 이름도 대응표에 없으면 같은 실패다.
+        with self.assertRaises(SystemExit):
+            self.merge(**{"business-api": make_spec({"/me": ["get"]}, tag="Health")})
+
+    def test_legacy_전용_컨트롤러도_대응표에_없으면_실패(self):
+        with self.assertRaises(SystemExit):
+            self.merge(**{"business-api": make_spec({"/api/v1/x": ["get"]},
+                                                    tag="brand-new-controller")})
+
+    def test_태그가_없으면_실패(self):
+        for tags in (None, []):
+            with self.subTest(tags=tags):
+                spec = make_spec({"/me": ["get"]})
+                if tags is None:
+                    del spec["paths"]["/me"]["get"]["tags"]
+                else:
+                    spec["paths"]["/me"]["get"]["tags"] = tags
+                with self.assertRaises(SystemExit):
+                    self.merge(**{"business-api": spec})
 
     def test_business의_api_v1은_legacy_하위폴더로_격리된다(self):
         merged = self.merge(**{"business-api": make_spec({"/api/v1/users/me": ["get"],
@@ -59,7 +86,7 @@ class ApidogMergeTest(unittest.TestCase):
         self.assertEqual(
             self.op(merged, "/api/v1/users/me", "get")["x-apidog-folder"],
             "business-api/legacy")
-        self.assertEqual(self.op(merged, "/me", "get")["x-apidog-folder"], "business-api")
+        self.assertEqual(self.op(merged, "/me", "get")["x-apidog-folder"], "business-api/친구")
 
     def test_같은_이름_스키마가_공존하고_ref가_따라간다(self):
         schema = {"type": "object", "properties": {"code": {"type": "string"}}}

@@ -50,6 +50,8 @@
 		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		C25230000000000000000001 /* FCMTokenModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = C25230000000000000000011 /* FCMTokenModule.swift */; };
+		C25230000000000000000002 /* FCMTokenModule.m in Sources */ = {isa = PBXBuildFile; fileRef = C25230000000000000000012 /* FCMTokenModule.m */; };
 		CA7724580000000000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = CA7724580000000000000002 /* InfoPlist.strings */; };
 		CA7724580000000000000011 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = CA7724580000000000000012 /* InfoPlist.strings */; };
 		D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB802E10F6288401A5062C2 /* CompactActivityView.swift */; };
@@ -175,6 +177,8 @@
 		B6506CBA4CF0F42171FF60F9 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Cattus/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		C25230000000000000000011 /* FCMTokenModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FCMTokenModule.swift; path = Cattus/FCMTokenModule.swift; sourceTree = "<group>"; };
+		C25230000000000000000012 /* FCMTokenModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FCMTokenModule.m; path = Cattus/FCMTokenModule.m; sourceTree = "<group>"; };
 		CA7724580000000000000003 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = Cattus/Supporting/ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		CA7724580000000000000004 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Cattus/Supporting/en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		CA7724580000000000000013 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -257,6 +261,8 @@
 				A19831000000000000000002 /* ScreenTimeModule.m */,
 				B18650000000000000000011 /* LiveActivityModule.swift */,
 				B18650000000000000000012 /* LiveActivityModule.m */,
+				C25230000000000000000011 /* FCMTokenModule.swift */,
+				C25230000000000000000012 /* FCMTokenModule.m */,
 				F11748442D0722820044C1D9 /* Cattus-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
@@ -463,6 +469,7 @@
 				36EEE7D751D04F900361AFFA /* Embed Report Extension */,
 				F19640000000000000000001 /* Upload PostHog native symbols */,
 				7382D70F4C2E00CA0B974178 /* [Airbridge] Copy airbridge.json */,
+				C25230000000000000000021 /* [Firebase] Copy GoogleService-Info.plist */,
 				DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */,
 			);
 			buildRules = (
@@ -779,8 +786,14 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoDevice/ExpoDevice_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoLocalization/ExpoLocalization_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoNotifications/ExpoNotifications_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseCore/FirebaseCore_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseCoreInternal/FirebaseCoreInternal_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseInstallations/FirebaseInstallations_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseMessaging/FirebaseMessaging_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/GTMAppAuth/GTMAppAuth_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/GTMSessionFetcher/GTMSessionFetcher_Core_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleDataTransport/GoogleDataTransport_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleSignIn/GoogleSignIn.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUtilities/GoogleUtilities_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashCore.bundle",
@@ -800,6 +813,7 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-timing/React-timing_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/nanopb/nanopb_Privacy.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
@@ -815,8 +829,14 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoDevice_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoLocalization_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoNotifications_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FirebaseCore_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FirebaseCoreInternal_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FirebaseInstallations_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FirebaseMessaging_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMAppAuth_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMSessionFetcher_Core_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleDataTransport_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleSignIn.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleUtilities_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashCore.bundle",
@@ -836,6 +856,7 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-timing_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/nanopb_Privacy.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -877,6 +898,21 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Cattus/Pods-Cattus-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
+		};
+		C25230000000000000000021 /* [Firebase] Copy GoogleService-Info.plist */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "[Firebase] Copy GoogleService-Info.plist";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/../scripts/firebase-plist-xcode.sh\"\n";
 		};
 		DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -936,6 +972,8 @@
 				A19830000000000000000003 /* FocusActivityAttributes.swift in Sources */,
 				B18650000000000000000001 /* LiveActivityModule.swift in Sources */,
 				B18650000000000000000002 /* LiveActivityModule.m in Sources */,
+				C25230000000000000000001 /* FCMTokenModule.swift in Sources */,
+				C25230000000000000000002 /* FCMTokenModule.m in Sources */,
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				8F402AD4E43832218A192350 /* ExpoModulesProvider.swift in Sources */,
 				4E75A7010F4CF32FE42CC580 /* ScreenTimeReportUIView.swift in Sources */,

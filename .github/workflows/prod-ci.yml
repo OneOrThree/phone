@@ -6,6 +6,7 @@ on:
     paths:
       - 'server/**'
       - '.github/actions/ci-jar/**'
+      - '.github/workflows/be-gradle.yml'
       - '.github/scripts/ci-jar.py'
       - '.dockerignore'
       - '.github/scripts/catus-*'
@@ -20,6 +21,7 @@ on:
     paths:
       - 'server/**'
       - '.github/actions/ci-jar/**'
+      - '.github/workflows/be-gradle.yml'
       - '.dockerignore'
       - '.github/scripts/**'
       - '.github/workflows/prod-ci.yml'
@@ -101,9 +103,23 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  images:
+  checks:
     needs: [contracts, plan]
-    if: needs.plan.outputs.build_any == 'true'
+    if: needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: ${{ matrix.service }}
+      business-pdf: ${{ matrix.service == 'business-api' }}
+      publish-jar: true
+      artifact-name: prod-${{ matrix.service }}-reports
+      artifact-path: build/reports/
+
+  images:
+    needs: [contracts, plan, checks]
+    if: needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -114,37 +130,10 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: temurin
-      - uses: gradle/actions/setup-gradle@v4
-      - name: 서비스 전용 Gradle 홈
-        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-${{ matrix.service }}" >> "$GITHUB_ENV"
-      - name: Business PDF 도구 이미지
-        if: matrix.service == 'business-api'
-        run: docker build --target test -t catus-business-test server/business-api
-      - name: Business 실제 검사
-        if: matrix.service == 'business-api'
-        run: |
-          mkdir -p "$GRADLE_USER_HOME"
-          docker run --rm --network host --user "$(id -u):$(id -g)" \
-            --group-add "$(stat -c '%g' /var/run/docker.sock)" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -v "$GRADLE_USER_HOME:/gradle" \
-            -e GRADLE_USER_HOME=/gradle -e SPRING_PROFILES_ACTIVE=ci \
-            -e TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1 \
-            -w "$GITHUB_WORKSPACE/server/business-api" catus-business-test ./gradlew build --no-daemon
-      - name: JVM 서비스 실제 검사
-        if: matrix.service != 'business-api'
-        env:
-          SPRING_PROFILES_ACTIVE: ci
-        working-directory: server/${{ matrix.service }}
-        run: ./gradlew build --no-daemon
       - uses: ./.github/actions/ci-jar
         with:
           service: ${{ matrix.service }}
-          operation: pack
+          operation: verify
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Catus 발행 역할 (PR 제외)
@@ -216,7 +205,7 @@ jobs:
           name: catus-prod-plan
           path: plan-input
       - uses: actions/download-artifact@v4
-        if: needs.plan.outputs.build_any == 'true'
+        if: needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
         with:
           pattern: catus-*-digest
           merge-multiple: true

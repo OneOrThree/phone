@@ -11,12 +11,12 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 내부 표면({@code /internal/*}) 의 인증 설정 — <b>기본값은 「꺼짐」이다</b> (A22 ㊀ · ㉱).
+ * 내부 표면({@code /internal/*}) 의 인증 설정 (A22 ㊀ · ㉱).
  *
- * <h2>왜 기본이 꺼짐인가</h2>
- * 이 표면이 들어가는 시점에 Business 도 알림 서버도 아직 배포돼 있지 않다. 켜진 채로 들어가면
- * 토큰 없이 뜬 인스턴스가 「누구나 {@code X-User-Id} 를 실어 남의 데이터를 쓰는」 구멍이 된다.
- * 그래서 <b>caller 가 하나도 없으면 경로 전체가 존재하지 않는 것처럼</b> 동작한다.
+ * <h2>켜고 끄는 스위치는 없다</h2>
+ * 표면은 항상 켜져 있고(2026-10-27, 티켓 2535 — {@code internal.api.enabled} 를 걷었다) 문은 아래 caller 별
+ * 토큰과 허용목록이다. 토큰 없이 뜬 인스턴스가 「누구나 {@code X-User-Id} 를 실어 남의 데이터를 쓰는」 구멍이
+ * 되지 않도록, <b>토큰이 있는 caller 가 하나도 없으면 경로 전체가 존재하지 않는 것처럼</b> 동작한다.
  *
  * <h2>caller 별 토큰 + 경로 허용목록</h2>
  * 이름만 나누는 것으로는 최소 권한이 서지 않는다(㉱) — 알림 자격으로 {@code /internal/auth/*} 나
@@ -31,9 +31,6 @@ import java.util.Map;
 @Setter
 @ConfigurationProperties(prefix = "internal.api")
 public class InternalApiProperties {
-
-    /** 꺼짐이 기본이다. caller 설정이 실제로 주입된 뒤 켠다. */
-    private boolean enabled = false;
 
     /**
      * caller 이름 → 자격·허용목록. 이름은 로그·거부 사유에만 쓰이고 판정은 토큰이 한다.
@@ -70,22 +67,15 @@ public class InternalApiProperties {
     }
 
     /**
-     * 켜진 경우에만 검증한다 — 꺼져 있으면 아무 값도 요구하지 않는다.
+     * 기동 때 caller 설정을 검증한다 — caller 가 하나도 없으면 요구할 값이 없다(토큰이 있는 caller 가 없으면 표면이 존재하지 않는 것처럼 동작한다).
      *
-     * <p>여기서 죽는 편이 낫다: 토큰이 빈 채로 켜지면 「빈 문자열 토큰」이 통과하는 구멍이 되고,
+     * <p>여기서 죽는 편이 낫다: 토큰이 빈 채로 뜨면 「빈 문자열 토큰」이 통과하는 구멍이 되고,
      * 허용목록이 빈 caller 는 아무것도 못 하면서 자격만 들고 있는 상태라 둘 다 배선 사고다. 예외는
      * 선택 caller({@code optional})의 빈 토큰 하나다 — 그 caller 만 비활성으로 두고 건너뛴다.
      *
      * @throws IllegalStateException 필수값이 비었거나 허용 항목의 형식이 어긋날 때
      */
-    public void validateWhenEnabled() {
-        if (!enabled) {
-            return;
-        }
-        if (callers.isEmpty()) {
-            throw new IllegalStateException(
-                    "internal.api.enabled=true 인데 caller 가 하나도 없습니다 — 켤 이유가 없는 설정입니다.");
-        }
+    public void validate() {
         List<String> activeTokens = new ArrayList<>();
         callers.forEach((name, caller) -> {
             if (caller.isOptional() && !caller.hasToken()) {

@@ -28,4 +28,4 @@
 | BQ02 | ① 삭제 주체 = 작성자 본인 또는 방장(B11) ② 공지 삭제 시 댓글 = **함께 삭제**(DB `ON DELETE CASCADE`, V103) ③ 탈퇴 후 댓글 원문 = **보존하지 않음**(삭제, `GroupAnnouncementCommentRepository.deleteAllOfUser`) — 공지 자체(작성자만 detach)와는 다르다 ④ 댓글 DELETE endpoint = **이번 범위에 포함**(GROMO-2137) |
 | BQ03 | 제목 100 UTF-16, 본문 5000 UTF-16, 댓글 500 UTF-16 — `island-board.notice-body-max-length`·`island-board.comment-max-length` |
 
-정책 미답을 빈 댓글/가짜 commentCount0 또는 임의 권한으로 숨기지 않는다. 기술 수치인 페이지 기본30/최대100은 정책상의 게시물 제한이 아니며 성능 검증으로 조정 가능하다. 쓰기 스위치(`island-board.writes-enabled`) 기본값은 결정 완료 뒤에도 OFF 로 남는다 — prod 개방은 별도 릴리스 결정이고, dev 는 `ISLAND_BOARD_WRITES_ENABLED` 로 켠다.
+정책 미답을 빈 댓글/가짜 commentCount0 또는 임의 권한으로 숨기지 않는다. 기술 수치인 페이지 기본30/최대100은 정책상의 게시물 제한이 아니며 성능 검증으로 조정 가능하다. 쓰기는 항상 열려 있다(10-27, 티켓 2535) — 종전 쓰기 스위치(`island-board.writes-enabled`)를 걷었다.

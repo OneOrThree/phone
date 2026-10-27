@@ -109,7 +109,7 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `SVC_TOKEN_DATA_TO_REALTIME` | Realtime(dev.env → `realtime.yml`) · Data(satellites 프로파일, `data-api.env` 선택) | Realtime `POST /internal/events` 가 401 → Data relay 의 REALTIME 행이 전달되지 않고 재시도로 남는다. Data 는 relay OFF 면 무영향, relay ON 이면 기동 거부 |
 | `REALTIME_BASE_URL` | Business(`business-api.env` **필수**) · Data(satellites, 선택) | Business: writer 가 env 생성 단계에서 거부(수동 누락 시 부팅 fail-fast). Data: relay ON 이면 기동 거부 |
 | `SVC_TOKEN_BIZ_TO_REALTIME` | Business(**필수**) · Realtime(dev.env → `realtime.yml`) | Realtime 쪽이 비면 우체통 내부 어댑터 `/internal/*` 401 → 섬 편지 저장 실패. `SVC_TOKEN_DATA_TO_REALTIME`과 같은 값이면 writer 가 모든 모드에서 거부한다(Data 자격으로 우체통을 부를 수 있게 되므로) |
-| `BUSINESS_CURSOR_ENABLED` · `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부. 손으로 비우면 부팅·헬스는 정상인데 커서 목록(`GET /islands`·`/islands/discover`·`/islands/{id}/members`·`/islands/{id}/join-requests`·`/me/join-requests`)만 503 |
+| `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부(부팅 fail-fast). 커서 서명기는 항상 있어(티켓 2535 — 켜는 스위치를 걷었다) 손으로 비우거나 32바이트보다 짧으면 Business 가 부팅에서 죽는다 |
 | `BUSINESS_CURSOR_ACTIVE_KEY` | Business(선택) | `v1` |
 | `APPLE_TEAM_ID` · `APPLE_KEY_ID` · `APPLE_PRIVATE_KEY` | Business(선택) | 부팅·헬스는 정상, 시작 시 WARN 한 줄. 탈퇴 요청에 `appleAuthorizationCode` 가 와도 Apple 토큰 폐기를 건너뛰고 WARN 만 남긴다(탈퇴는 성공, GROMO-2401). 값은 Apple Developer 의 「Sign in with Apple」 키(.p8)에서 온다 — Team ID · Key ID · PKCS#8 PEM 전문(개행은 `\n` 리터럴이어도 된다). `APPLE_CLIENT_ID`(Data 의 aud 목록)와 별개다 — Business 는 client_id 를 yml(`apple.revoke.client-id`)에 둔다 |
 | `LOGIN_ATTEMPT_DIGEST_SECRET` | Business(**필수**) | writer 가 거부(부팅 fail-fast) |
@@ -121,20 +121,13 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `REALTIME_EVENTS_KAFKA_ENABLED` | Realtime(dev.env) | `false` — `realtime-events` 소비자가 뜨지 않는다 |
 | `REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED` | Realtime(dev.env → `realtime.yml`) | `true`(기본, 비어 있어도 ON) — 섬마다 소유자 리스 `movement:owner:*` 를 든 한 대가 이동 방을 돌리고 나머지는 `chat:movement:cmd:v1`·`frames:v1` 로 중계한다(GROMO-2339, ADR A26). 1대여도 같은 경로라 리스 갱신이 1초마다 돈다. `false` 로 끄면 Redis 를 쓰지 않는 단일 인스턴스 현행 경로 — **끈 채 2대 이상이면 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다**. PING 은 소유자별 채널 `chat:movement:cmd:v1:<instanceId>`(GROMO-2352)로 가므로 1대면 소유자가 자기라 PING 이 안 나가고, poll p95 기준치는 2대(2353) 뒤에 잡는다. |
 | `KAFKA_BOOTSTRAP_SERVERS` | Realtime(dev.env) · Data·Notification(서비스 env) | Realtime·Data 는 `kafka:9092`. Notification 은 필수 |
-| `FOCUS_SESSION_START_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 새 집중 start 만 503 |
 | `FOCUS_PRESENCE_ENABLED` | Data(같은 경로) | `false` — 프레즌스를 쓰지 않는다 |
 | `SVC_TOKEN_REALTIME_TO_DATA` | Realtime(dev.env → `realtime.yml`) · Data(`data-api.env`), **필수** | env writer와 Compose가 배포 준비를 거부한다. 섬 목록 `GET /internal/users/{userId}/islands`를 포함한 내부 조회에 쓰며, Data와 Realtime에 같은 값을 넣는다 |
 | `REALTIME_AUTHORIZATION_DATA_URL` | Realtime(선택) | 미지정이면 응원·차단 조회는 fail-closed로 거절한다. 현재 멤버십 인가 클라이언트를 켠 배포는 기동 검증에서 거부한다. 섬 목록이 쓰는 `DATA_API_BASE_URL`과 별도 설정이다 |
-| `REALTIME_BLOCKS_FILTER_ENABLED` · `USER_BLOCKS_REALTIME_EVENTS_ENABLED` | Realtime(dev.env → `realtime.yml`) · Data(`data-api.env` 선택) | `false` — 받는 사람 기준 차단 필터(GROMO-2182)가 꺼져 있고 Data 는 `user.blocks.updated` 를 만들지 않는다. 켜는 순서는 `server/realtime/CLAUDE.md` Contracts 6번 |
+| `REALTIME_BLOCKS_FILTER_ENABLED` | Realtime(dev.env → `realtime.yml`) | `false` — 받는 사람 기준 차단 필터(GROMO-2182)가 꺼져 있다. Data 는 `user.blocks.updated` 를 항상 만든다(티켓 2535). 켜는 순서는 `server/realtime/CLAUDE.md` Contracts 6번 |
 | `REALTIME_AUTHORIZATION_WAIT_TIMEOUT` · `REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS` | Realtime(선택, `REALTIME_AUTHORIZATION_CLIENT_ENABLED=true` 일 때만 의미) | `200ms`·`30` — 현재 멤버십 HTTP 판정의 동시 상한(`REALTIME_AUTHORIZATION_MAX_IN_FLIGHT`, 16)이 찼을 때 기다리는 시간(총 예산 1.5s 에 포함, `0` = 바로 503)과 «허용» 결정 캐시 TTL(초, `0` = 끔; 거절은 캐시 안 함, 멤버십 사건·탈퇴가 즉시 지움. 사건은 한 인스턴스에만 닿으므로 다중 인스턴스에서 즉시성이 필요하면 `0`). GROMO-2342 |
 | `CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS` · `CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS` | Realtime(선택, dev.env → `realtime.yml`) | `10000`·`10000` — STOMP heartbeat(GROMO-2341). CONNECTED 가 `heart-beat:<server>,<client>` 로 협상하고, 클라이언트가 3×max(client, 앱 송신 주기) 동안 아무것도 안 보내면 브로커가 세션을 닫는다(ERROR `Session closed.` 를 보내며 1002 종료). 앱(`islandRealtime.ts`) 10s/10s 와 맞추고 Cloudflare 유휴 100s 보다 짧게 둔다 |
 | `CHAT_DATA_API_MAX_CONCURRENCY` | Realtime(선택, OFF 모드 `GroupClient`) | `32` — 캐시 미스 시 내부 `GET /internal/users/{userId}/islands` 동시 호출 상한. 넘으면 `chat.data-api.timeout-ms`(2s)까지 기다리다 503. 연결·읽기 타임아웃 2s 는 `SimpleClientHttpRequestFactory`(소켓 읽기마다 적용), keep-alive 는 JDK 기본. GROMO-2342 |
-| `FOCUS_SEA_REALTIME_EVENTS_ENABLED` | Data(`data-api.env` 선택) | `false` — Data 는 바다 방 사건 `sea.member.updated`(GROMO-2299)를 만들지 않는다. **Realtime 이 이 type 을 받는 버전으로 먼저 배포된 것을 확인한 뒤 켠다** — 옛 Realtime 은 400 → relay 가 그 사용자의 USER 축을 영구 차단하고 USER 축은 `user.withdrawn` 과 같은 축이라 탈퇴 전파까지 멈춘다. 배포 순서는 `doc/sea-voyage-2026-10-17/contract.md` §8 |
-| `AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED` | Data(`data-api.env` 선택) | `false` — Data 는 세션 폐기 사건 `auth.session.revoked`(GROMO-2350)를 NOTI 에만 보내고 Realtime 에는 보내지 않는다(폐기된 세션의 STOMP 연결이 AT 만료까지 산다). **Realtime 이 이 type 을 받는 버전으로 먼저 배포된 것을 확인한 뒤 켠다** — 옛 Realtime 은 400 → relay 가 그 행을 permanent 로 표시하지만(A18 보류라 폐기하지는 않고) 백오프 재시도(지수, 상한 2^16 초)를 계속해 그동안 그 사용자의 USER 축이 막혀 탈퇴 전파가 늦어진다. **켜기:** realtime 이 이 type 을 받는 버전으로 배포됐는지 머지 PR 의 `deployed:dev-realtime` 라벨(Deployments `dev-server/realtime`)로 확인(`deploy-failed:dev-realtime` 이면 켜지 않는다) → SM `gromo/dev/env` 에 `=true` 등록 → `ops-redeploy.dev` data-api. **끄기:** SM 값을 `false` 로(또는 삭제) → `ops-redeploy.dev` data-api — 이미 쌓인 REALTIME 행은 relay 가 계속 보내므로 realtime 이 살아 있으면 무해 |
-| `ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED` | Data(`data-api.env` 선택) | `false` — Data 는 주민 첫 도착 사건 `island.member.arrived`(GROMO-2302)를 만들지 않는다(도착 API 는 그대로 동작하고 `arrivedBefore` 도 계산된다). **Realtime 이 이 type 을 받는 버전으로 먼저 배포된 것을 확인한 뒤 켠다** — 옛 Realtime 은 400 → relay 가 그 섬의 `ISLAND_ARRIVAL` 축을 영구 차단한다(그 섬 도착 소식만 영향). 배포 순서는 `doc/sea-voyage-2026-10-18/contract.md` §1.6 |
-| `FOCUS_REWARD_ACCRUAL_ENABLED` | Data(같은 경로) | `false` — 분당 적립 크론이 돌지 않는다. 적립은 finish 가 한 번에 확정하므로 정상 종료는 제값을 받지만, **finish 를 안 거치는 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다**. 켜는 것은 배포가 한 버전으로 수렴한 뒤 — 혼합 버전 창에서는 새 크론과 옛 `finish` 가 다른 멱등 키로 이중 지급한다 |
-| `ISLAND_BOARD_WRITES_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 섬 게시판 공지 작성·수정·삭제·댓글 작성·댓글 삭제 5종이 503 `NOTICE_WRITE_UNAVAILABLE`. BQ02·BQ03 는 2026-09-25 결정(GROMO-2136)으로 확정됐지만 prod 개방은 별도 릴리스 결정이라 기본값은 그대로 `false` |
-| `ISLAND_MANAGEMENT_COMMANDS_ENABLED` · `ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 섬 정보 수정·가입 승인/거절·강퇴·나가기 4종이 503 `ISLAND_MANAGEMENT_NOT_READY`, 방장 위임이 503 `REALTIME_NOT_READY`. dev 는 2026-09-29 relay ON·강퇴 채팅 차단 검증(GROMO-2140) 뒤 켰다. prod 개방은 별도 결정 |
 
 섬 목록·멤버십·차단 조회는 Realtime 서비스 자격으로 Data 내부 API를 호출합니다. `SVC_TOKEN_REALTIME_TO_DATA`는 공유 dev env와 Data 전용 env 모두 필수이며, Data 기본 프로파일은 `<환경>,satellites,realtime-authorization`입니다. `--data-profiles`로 덮어쓸 때도 두 내부 API 프로파일을 포함해야 합니다. 응원 인가와 받는 사람 기준 차단 필터의 활성화 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)를 따릅니다.
 
@@ -291,8 +284,8 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 
 [`dev-notification-kafka-cutover.sh`](dev-notification-kafka-cutover.sh)는 사람이 수행해야 하는 dev
 컷오버를 8단계로 안내합니다. Kafka 기동, relay 재시도 정책 기록, Notification 소비자 준비,
-`notification-events`와 `notification-events.DLT`의 3파티션 검증, relay drain, 단방향 OUTBOX 전환을
-순서대로 확인합니다.
+`notification-events`와 `notification-events.DLT`의 3파티션 검증, relay drain, end-to-end 검증을
+순서대로 확인합니다. dev 발송 gate는 2026-10-27부터 상시 열어 둡니다(티켓 2522).
 
 ```bash
 ./server/scripts/dev-notification-kafka-cutover.sh
@@ -301,3 +294,17 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 실행 기록은 기본적으로 gitignored `doc/dev-notification-cutover.env`에 0600으로 저장됩니다.
 스크립트는 Secrets Manager의 값을 자동 변경하거나 발송 gate를 열지 않습니다. 각 비가역 단계에서 사람이
 실제 상태를 확인하고 승인해야 다음 단계로 진행합니다.
+
+
+## 배포·검사 실행 계약
+
+- PR의 smoke 변경은 `smoke-check.yml`에서 셸 문법·mock API·격리 Python 계약으로 검증합니다. 실제 dev/prod API나 DB를 호출하지 않습니다.
+- 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. Business PDF 테스트는 Docker test 이미지의 poppler를 유지합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
+- release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci.yml`이 담당합니다.
+- main CI·앱 업로드·smoke의 진행 중 실행은 유지하고, 같은 그룹의 대기는 최신 하나만 남깁니다. VM을 공유하는 Data·Realtime 공동 CD·Satellite CD·smoke execute의 잠금 대기는 `queue: max`를 유지합니다. 같은 SHA의 서로 다른 배포 작업이 서로를 취소하지 않게 하기 위한 별도 자원 잠금입니다.
+- 자동 smoke는 실제 생성된 서버 CI·배포의 완료를 기다립니다. 앱·문서만 바뀌어 서버 배포가 없으면 게스트 생성·300초 대기·15개 검사를 생략하고 「미실행」을 기록합니다. nav.json·paths.json처럼 서버 배포를 시작하는 공유 입력은 검사 대상에 남습니다.
+- 잠금 안의 `smoke-target.py`가 변경된 서비스의 실제 OCI revision과 요청 SHA를 비교하고 네 서비스의 image ID·RepoDigests를 `smoke-results/targets.json`에 보관합니다. 변경되지 않은 서비스는 이전 SHA를 유지할 수 있습니다. 검사 중 버전 유지도 확인합니다.
+- 요청 SHA 이후의 이미지가 이미 배포됐다면 git 조상 관계가 확인된 경우에만 「후속 SHA로 대체됨」으로 생략합니다. 알 수 없는 SHA·조상 이미지·다른 분기 이미지는 실패합니다. 취소된 CI도 실제 후속 main 실행과 조상 관계를 확인해야 대체로 처리합니다. 공동 CD가 기다리던 위성 실행이 취소되면 후속 위성 배포 완료를 기다립니다.
+- 「미실행」·「대체됨」은 15개 TC 통과 증거가 아닙니다. 해당 SHA의 릴리스 기능 검증으로 인용하지 않습니다. 수동 smoke는 배포 대기 없이 현재 환경을 검사하고 실제 버전을 함께 남깁니다.
+- `ops-redeploy.dev.yml`은 요청 접수 뒤 원본 run의 새 attempt에서 정확히 해당 배포 job이 끝날 때까지 기다립니다. 배포 job 실패·취소·시간 초과는 복구 실패이며, 완료 배지는 원본 CI/CD의 시도별 배포 결과 산출물로 갱신합니다.
+- 후속 CD는 main 실행, 배지 게시 job은 신뢰한 main 배포 또는 release 수동 운영 배포에만 반응합니다. GitHub가 생성한 기존 동일 SHA 체크가 release PR에 표시되는 것은 별도의 Android release PR 실행을 뜻하지 않습니다.

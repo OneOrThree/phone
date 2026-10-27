@@ -53,7 +53,7 @@ class AuthSessionServiceRequireActiveTest {
     @BeforeEach
     void setUp() {
         service = new AuthSessionService(authSessionRepository, loginAttemptRepository, outboxCommandPort,
-                Clock.fixed(Instant.parse("2026-10-24T00:00:00Z"), ZoneOffset.UTC), false, 3600L);
+                Clock.fixed(Instant.parse("2026-10-24T00:00:00Z"), ZoneOffset.UTC), 3600L);
     }
 
     @Test

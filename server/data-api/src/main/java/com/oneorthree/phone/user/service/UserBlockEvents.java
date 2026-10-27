@@ -4,7 +4,6 @@ import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,9 +22,9 @@ import java.util.UUID;
  * <p>앱으로 나가지 않는 내부 제어 사건이다 — realtime-events 의 14종 공개 계약에 속하지 않는다. 식별자만
  * 싣고(닉네임 등 PII 없음) 수신자 권한 근거로 쓰지 않는다.
  *
- * <p><b>생산 스위치 {@code user-blocks.realtime-events-enabled}(기본 false).</b> 이 type 을 모르는 옛 Realtime 에
- * 보내면 400 → relay 가 그 차단자 축({@code USER_BLOCKS})을 permanent 로 막는다. Data 와 Realtime 의 배포 순서는
- * 보장되지 않으므로, Realtime 이 이 type 을 받는 버전으로 배포된 것을 확인한 뒤 env 로 켠다. 꺼져 있으면 적지 않는다.
+ * <p><b>항상 적는다</b>(2026-10-27, 티켓 2535 — 종전 생산 스위치를 걷었다). 이 type 을 모르는 옛 Realtime 에 보내면
+ * 400 → relay 가 그 차단자 축({@code USER_BLOCKS})을 permanent 로 막으므로, Realtime 은 이 type 을 받는 버전이 먼저
+ * 배포돼 있어야 한다.
  */
 @Service
 @Transactional(propagation = Propagation.MANDATORY)
@@ -35,12 +34,9 @@ public class UserBlockEvents {
     public static final String AGGREGATE_TYPE = "USER_BLOCKS";
 
     private final OutboxCommandPort outbox;
-    private final boolean enabled;
 
-    public UserBlockEvents(OutboxCommandPort outbox,
-            @Value("${user-blocks.realtime-events-enabled:false}") boolean enabled) {
+    public UserBlockEvents(OutboxCommandPort outbox) {
         this.outbox = outbox;
-        this.enabled = enabled;
     }
 
     /** 실제로 관계가 생겼을 때만 부른다 — 이미 있던 차단의 재요청은 세대를 올릴 이유가 없다. */
@@ -54,9 +50,6 @@ public class UserBlockEvents {
     }
 
     private void append(UUID blockerId, UUID blockedId, String changeKind) {
-        if (!enabled) {
-            return;
-        }
         Map<String, Object> params = Map.of(
                 "blockerUserId", blockerId.toString(),
                 "blockedUserId", blockedId.toString(),

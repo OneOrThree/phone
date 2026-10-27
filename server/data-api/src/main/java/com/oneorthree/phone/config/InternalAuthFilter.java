@@ -30,7 +30,7 @@ import java.util.UUID;
  *
  * <h2>통과 조건 넷</h2>
  * <ol>
- *   <li><b>켜져 있을 것</b> — caller 설정이 없으면 이 경로는 «존재하지 않는다»(404).</li>
+ *   <li><b>토큰이 있는 caller 가 하나라도 있을 것</b> — 없으면 이 경로는 «존재하지 않는다»(404).</li>
  *   <li><b>{@code Authorization: Bearer} 가 알려진 caller 의 토큰일 것</b> — 비교는 상수 시간이다.</li>
  *   <li><b>그 caller 의 허용목록에 {@code METHOD + 경로} 가 있을 것</b>(㉱) — 이름만 나누면 최소
  *       권한이 안 선다.</li>
@@ -79,28 +79,27 @@ public class InternalAuthFilter extends OncePerRequestFilter {
     private final Map<String, List<AllowedCall>> allowByCaller;
 
     /**
-     * @param properties 내부 표면 설정. 꺼져 있으면 어떤 caller 도 만들지 않는다
+     * @param properties 내부 표면 설정. 토큰이 있는 caller 가 하나라도 있을 것 — 없으면 404
      */
     public InternalAuthFilter(InternalApiProperties properties) {
-        this.enabled = properties.isEnabled() && !properties.getCallers().isEmpty();
         Map<String, String> tokens = new LinkedHashMap<>();
         Map<String, List<AllowedCall>> allow = new LinkedHashMap<>();
-        if (this.enabled) {
-            properties.getCallers().forEach((name, caller) -> {
-                if (!caller.hasToken()) {
-                    // 빈 토큰을 맵에 넣으면 `Bearer ` 뒤가 빈 요청이 이 caller 로 통과한다(상수 시간 비교가 빈 값끼리 같다고
-                    // 답한다). 토큰이 빈 선택 caller 는 «없는» caller 다.
-                    return;
-                }
-                tokens.put(caller.getToken(), name);
-                List<AllowedCall> parsed = new ArrayList<>();
-                caller.getAllow().forEach(entry -> {
-                    String[] parts = entry.trim().split("\\s+");
-                    parsed.add(new AllowedCall(parts[0].toUpperCase(Locale.ROOT), parts[1]));
-                });
-                allow.put(name, List.copyOf(parsed));
+        properties.getCallers().forEach((name, caller) -> {
+            if (!caller.hasToken()) {
+                // 빈 토큰을 맵에 넣으면 `Bearer ` 뒤가 빈 요청이 이 caller 로 통과한다(상수 시간 비교가 빈 값끼리 같다고
+                // 답한다). 토큰이 빈 선택 caller 는 «없는» caller 다.
+                return;
+            }
+            tokens.put(caller.getToken(), name);
+            List<AllowedCall> parsed = new ArrayList<>();
+            caller.getAllow().forEach(entry -> {
+                String[] parts = entry.trim().split("\\s+");
+                parsed.add(new AllowedCall(parts[0].toUpperCase(Locale.ROOT), parts[1]));
             });
-        }
+            allow.put(name, List.copyOf(parsed));
+        });
+        // 등록된 토큰이 하나도 없으면 «없는» 표면이다 — 토큰이 빈 선택 caller 만 배선돼 있어도 401 이 아니라 404 로 답한다.
+        this.enabled = !tokens.isEmpty();
         this.callerByToken = Map.copyOf(tokens);
         this.allowByCaller = Map.copyOf(allow);
     }

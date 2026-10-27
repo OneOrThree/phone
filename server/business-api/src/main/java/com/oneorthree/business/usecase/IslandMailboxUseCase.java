@@ -20,7 +20,6 @@ import com.oneorthree.business.upstream.realtime.dto.RealtimeMessage;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeStoreResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -86,7 +85,7 @@ public class IslandMailboxUseCase {
 
     private final DataIslandClient data;
     private final RealtimeApiClient realtime;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     /**
      * 목록 — 최신 묶음부터 과거로, 묶음 안에서는 오름차순(M06).
@@ -97,7 +96,7 @@ public class IslandMailboxUseCase {
     public MailboxPageResponse list(AccessTokenClaims claims, UUID islandId, String cursorToken, int limit,
             Deadline deadline) {
         CursorScope scope = scope(claims, islandId, limit);
-        UUID anchor = anchorOf(codec().decode(cursorToken, scope));
+        UUID anchor = anchorOf(codec.decode(cursorToken, scope));
         return present(claims, islandId, scope, history(claims, islandId, anchor, limit, deadline), limit, deadline);
     }
 
@@ -194,7 +193,7 @@ public class IslandMailboxUseCase {
             items.add(publicMessage(message, names.get(message.senderId())));
         }
         String cursor = next == null ? null
-                : codec().encode(scope, new CursorBoundary(next.toString(), next.toString()));
+                : codec.encode(scope, new CursorBoundary(next.toString(), next.toString()));
         return new MailboxPageResponse(items, cursor);
     }
 
@@ -304,19 +303,6 @@ public class IslandMailboxUseCase {
     private static MailboxMessageResponse publicMessage(RealtimeMessage message, String name) {
         return new MailboxMessageResponse(message.messageId(), message.clientMessageId(), message.senderId(), name,
                 message.content(), message.sentAt());
-    }
-
-    /**
-     * {@code SignedCursorCodec} 은 {@code business.cursor.enabled=true} 와 독립 서명키가 있을 때만 등록된다
-     * (1759 와 같은 블록·같은 env). 키가 없는 환경에서 커서를 «없는 셈» 치고 첫 페이지를 돌려주면 위조 커서를
-     * 조용히 허용하는 것과 같으므로 명시적으로 실패시킨다 — {@code IslandMembershipUseCase#codec} 과 같은 모양.
-     */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     /** 커서 본문의 anchor(저장소 id). 서명은 통과했는데 값이 UUID 가 아니면 위조·손상이다 — 같은 400. */

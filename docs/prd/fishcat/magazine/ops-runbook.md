@@ -8,18 +8,9 @@ GROMO-2289 고양이 잡지(냐옹)를 운영할 때 쓰는 SQL·설정 절차�
 - 시각은 DB 에 UTC 로 저장된다. 「며칠 호」는 KST 날짜(`issue_date`)다. 07:00 KST = 전날 22:00 UTC 다.
 - 누가 어떤 경로로 prod DB 에 붙는지는 아직 정해지지 않았다(서버·인프라 담당 확인 필요). 정해지면 이 문서 맨 위에 적는다.
 
-## 1. 기능 스위치 켜기·끄기
+## 1. 기능 스위치 — 항상 켜짐(10-27, 티켓 2535)
 
-설정값 `magazine.enabled` 이고, 환경 변수는 `MAGAZINE_ENABLED` 다. 기본값은 꺼짐이다.
-
-| 상태 | 홍보 신청·고치기 | 07시 발행 잡 | 읽기(재료 목록·쓰기 화면·잡지) |
-| --- | --- | --- | --- |
-| 꺼짐 | 503 (공개 `SERVICE_UNAVAILABLE`) | 돌지 않는다 | 열려 있다. 호가 없으면 `issue: null` |
-| 켜짐 | 07~24시 KST 에 열림 | 07:00~23:50 KST, 10분마다 | 열려 있다 |
-
-- dev: Secrets Manager `gromo/dev/env` 에 `MAGAZINE_ENABLED=true` 를 넣고 Data 서버를 다시 배포한다.
-- prod: 앱의 잡지 화면(A3)이 배포된 뒤에 켠다. 켜는 날 07~23시 사이면 다음 10분 틱이 그날 호를 바로 낸다.
-- 끄면 그 순간부터 신청이 막히고 다음 날부터 호가 나오지 않는다. 이미 낸 홍보비는 돌려주지 않는다.
+종전 스위치 `magazine.enabled` 를 걷었다. 홍보 신청·고치기는 07~24시 KST 에 열리고, 07시 발행 잡은 07:00~23:50 KST 에 10분마다 돌며, 읽기(재료 목록·쓰기 화면·잡지)는 늘 열려 있다. 호가 없으면 `issue: null` 이다. Data 가 이 버전으로 뜨는 날 07~23시 사이면 다음 10분 틱이 그날 호를 바로 낸다. 끄는 설정이 없으므로 멈추려면 Data 를 직전 이미지로 되돌린다. 이미 낸 홍보비는 돌려주지 않는다.
 
 ## 2. 신고로 숨겨진 칸
 
@@ -189,7 +180,7 @@ SELECT u.id
 - cron 이 10분이고 `lockAtMostFor` 가 PT9M 이라 펼치기가 9분을 넘기면 틱이 겹칠 수 있다. 선점·결정적 키가 중복을 막고, 겹친 틱이 같은 사용자에서 서로 기다릴 수 있다.
 - 한 호를 펼치는 중에는 `NOTIFICATION_DISPATCH_MODE` 를 바꾸지 않는다. 두 경로의 중복 키가 달라 같은 호가 두 번 나간다.
 - 하루 중간에 배포하면 그날 호 알림이 그 시각에 나간다(DROP 은 조용한 시간만 버린다). 23:50 이후~07:00 전 배포는 다음 07:00 틱이 정상 경로로 처리한다(cron `0 0/10 7-23`).
-- 알림 쪽은 `MAGAZINE_ENABLED` 를 보지 않는다 — 스위치가 꺼져 있어도 오늘 날짜 호 행이 있고 `notified_at IS NULL` 이면 펼친다. 스위치는 발행(`MagazinePublishService`)만 막고, 틱은 발행 결과와 상관없이 `notifyIfPending` 을 부르며 그 호가 없으면 조용히 끝난다.
+- 틱은 발행 결과와 상관없이 `notifyIfPending` 을 부른다 — 오늘 날짜 호 행이 있고 `notified_at IS NULL` 이면 펼치고, 그 호가 없으면 조용히 끝난다.
 - `NOTIFICATION_DISPATCH_MODE=OUTBOX` 면 `notification_sent_logs` 는 LEGACY 기록이라 0 건이 정상이다. 발송 확인은 알림 서버 DB 의 `deliveries` 에서 한다(`kind = 'MAGAZINE_PUBLISHED'`, `event_id` 는 `noti:MAGAZINE_PUBLISHED:<userId>:<호 id>:<KST 날짜>`, `status` 가 `SENT`/`SUPPRESSED`/`FAILED`). 처리 못 한 레코드는 Kafka `notification-events.DLT` 토픽에 쌓인다 — DLT 를 비우거나 다시 읽는 절차 문서는 아직 없다(담당자 보강).
 - `OUTBOX` 로 전환하기 전에 알림 서버 V8 적용을 확인한다.
 

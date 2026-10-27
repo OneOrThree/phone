@@ -78,6 +78,7 @@ import {
   reducer,
   displayIsland as currentIsland,
   viewIsland,
+  serverHome,
   sessionSeconds,
   questRate,
   canBuild,
@@ -156,6 +157,12 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
+import {
+  refreshPush,
+  requestPushPermission,
+  startPushSync,
+  unregisterPushDevice,
+} from '@/services/push';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -1505,11 +1512,68 @@ function Gromo() {
       else resetPostHogUser();
     });
     const stopSocialAnalytics = startSocialAnalytics();
+    // 푸시 등록·수신·탭(GROMO-2525) — iOS 이고 FCM 브리지가 든 바이너리에서만 돈다.
+    const stopPushSync = startPushSync(() => stateRef.current.settings.notifications !== false);
     return () => {
+      stopPushSync();
       stopSocialAnalytics();
       unsubscribe();
     };
   }, [loaded]);
+  // 설정 「알림」이 바뀌면 바로 맞춘다 — 끄면 FCM 토큰을 지워야 OS 가 띄우는 백그라운드 푸시도 멈춘다. 렌더 뒤
+  // effect 라 동기화가 읽는 stateRef 는 이미 새 값이고, 동기화가 돌기 전(첫 렌더·부팅 LOAD)에는 아무 일도 하지 않는다.
+  useEffect(() => {
+    refreshPush();
+  }, [state.settings.notifications]);
+  // 화면 전환 덮개(경로 전환 방패·건물·불 전환)가 앱 내용을 덮는 동안이다 — 접근성 트리에서도 내용을 숨기는 그 조건이다.
+  const appContentHidden =
+    routeTransitionShielded ||
+    buildingRouteCovered ||
+    buildingTransitionActive ||
+    fireTransition.phase !== 'idle';
+  // 알림 권한(GROMO-2526) — 섬 홈이 실제로 그려진 뒤 시스템 팝업으로 한 번 묻는다: 서버 홈 스냅샷이 현재 섬 것으로 적용되고
+  // 오류가 없을 때다. 그 전에는 홈 자리에 로딩·오류 화면이 떠 있어 그 위로 팝업이 뜨고 한 번뿐인 기회가 쓰인다. 전환 덮개도
+  // 걷힌 뒤여야 한다 — 방패(350ms)는 화면 전환 직후의 터치가 새 화면에 닿지 않게 막는데, 시스템 팝업은 그 바깥이라 그 터치를 받는다.
+  // 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이
+  // 바다에 있으면(route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다:
+  // state.tutorial 은 끝난 뒤에도 남는다. 권한을 읽는 사이 이 조건이 사라질 수 있다(홈을 떠남·로그아웃) — 조건 전체를 렌더마다
+  // ref 에 두고, requestPushPermission 이 팝업 직전에 다시 본다(shouldAsk).
+  const pushAsked = useRef(false);
+  const inTutorial = !!state.tutorial && state.tutorial.step < 22;
+  const islandHomeShown = !homeError && !!serverHome(state);
+  // 앱이 앞에 있는가('active' 만 앞이다) — 백그라운드에서는 시스템 팝업을 사용자가 못 본다. 앞/뒤를 조건에 넣어, 돌아올 때 effect 가
+  // 다시 돌아 되돌려진(error) 한 번뿐인 기회를 다시 쓰게 한다. 팝업이 떠 있는 동안은 'inactive' 지만, shouldAsk 는 팝업 직전에 보고
+  // 요청이 도는 동안은 pushAsked 가 참이라 다시 묻지 않는다.
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) =>
+      setAppActive(next === 'active'),
+    );
+    return () => subscription.remove();
+  }, []);
+  const pushPromptReady =
+    loaded &&
+    !REVIEW &&
+    !DEMO &&
+    route === 'home' &&
+    hasServerSession &&
+    !inTutorial &&
+    islandHomeShown &&
+    !appContentHidden &&
+    appActive &&
+    state.settings.notifications !== false;
+  const pushPromptReadyRef = useRef(pushPromptReady);
+  pushPromptReadyRef.current = pushPromptReady;
+  useEffect(() => {
+    if (pushAsked.current || !pushPromptReady) return;
+    pushAsked.current = true;
+    void requestPushPermission(() => pushPromptReadyRef.current).then((permission) => {
+      // 못 물었으면 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다: 네이티브가 일시적으로 실패했거나
+      // ('error'), 브리지가 없거나('unavailable'), 읽는 사이 조건이 사라져 팝업을 막았다('undetermined' 그대로).
+      if (permission === 'error' || permission === 'unavailable' || permission === 'undetermined')
+        pushAsked.current = false;
+    });
+  }, [pushPromptReady]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);
@@ -1525,6 +1589,8 @@ function Gromo() {
       setConvUi(null);
       setTerms(false);
       settleSwitch(false);
+      // 보관 중이던 링크는 끝난 세션의 것이다 — 다음 로그인에서 열지 않는다.
+      setIncomingAppLink(null);
       dispatch({ type: 'LOGOUT' });
       void endLiveActivities().catch(() => {});
       reset('login');
@@ -2273,10 +2339,14 @@ function Gromo() {
     setConvUi(null);
     setTerms(false);
     settleSwitch(false);
+    // 보관 중이던 링크는 떠나는 세션의 것이다 — 다음 로그인에서 열지 않는다.
+    setIncomingAppLink(null);
     void endLiveActivities().catch(() => {});
     // 안드로이드 홈 위젯을 비운다 — 로그아웃 뒤에도 런처에 이전 계정의 공부시간이 남지 않게(1.x 로그아웃과
     // 같은 처리). 탈퇴 완료도 이 경로를 지난다. best-effort 라 로그아웃을 막지 않는다.
     void clearStudyWidget();
+    // 푸시 기기 삭제는 logout 이 세션을 지우기 전에 시작한다 — 요청이 첫 await 전에 지금 AT 를 싣는다(GROMO-2525).
+    unregisterPushDevice();
     // 확인한 준비 결과를 실제 정리에 넘긴다 — logout 이 다시 준비하면 그 실패는 여기서 못 본다.
     logout(preparation).catch(() => {});
     return true;
@@ -2397,11 +2467,6 @@ function Gromo() {
         <T>{t('account.loadingIsland')}</T>
       </SafeAreaView>
     );
-  const appContentHidden =
-    routeTransitionShielded ||
-    buildingRouteCovered ||
-    buildingTransitionActive ||
-    fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>

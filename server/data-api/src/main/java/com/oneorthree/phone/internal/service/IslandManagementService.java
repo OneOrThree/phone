@@ -38,7 +38,6 @@ import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -54,11 +53,6 @@ import java.util.UUID;
 /**
  * 섬 관리·주민 잔여 계약 (GROMO-1802, 섬 관리 LLD §3.1~§3.3·§3.6·§3.7) — 정보 수정·주민 목록·신청자 목록·
  * 강퇴·나가기. 승인/거절(§3.4)은 가입 전이를 공유하므로 {@link IslandJoinService#answer} 에 있다.
- *
- * <h2>명령은 기본 비활성</h2>
- * {@code island-management.commands-enabled} 가 false 면 네 명령(수정·승인/거절·강퇴·나가기)은 receipt 선점·
- * 잠금·쓰기보다 앞서 503 이다 — 방장 위임 게이트({@code InternalHostTransferService})와 같은 모양이다.
- * 전용 Realtime 수신·인가 철회·주민 snapshot 복구가 검증되기 전에는 열지 않는다. 조회 둘은 게이트가 없다.
  *
  * <h2>권한은 DB 의 현재 역할로만</h2>
  * Business 의 사전 판정·캐시를 믿지 않는다. 쓰기는 {@code users → islands → memberships} 잠금 아래에서
@@ -89,9 +83,6 @@ public class IslandManagementService {
     private final UserIslandContextRepository userIslandContexts;
     private final InternalLetterService letters;
 
-    @Value("${island-management.commands-enabled:false}")
-    private boolean enabled;
-
     // ---------------------------------------------------------------- §3.1 manage
 
     /**
@@ -107,7 +98,6 @@ public class IslandManagementService {
      */
     @Transactional
     public IslandManageView manage(UUID userId, UUID islandId, IslandManageCommandRequest body, UUID key) {
-        requireEnabled();
         if (body.name() != null && body.name().isBlank()) {
             throw new GroupException(GroupErrorCode.ISLAND_NAME_BLANK);
         }
@@ -263,7 +253,6 @@ public class IslandManagementService {
      */
     @Transactional
     public IslandMemberRemovedView kick(UUID userId, UUID islandId, UUID targetUserId, UUID key) {
-        requireEnabled();
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/members/" + targetUserId, key, InternalJson.tree(Map.of()));
         JsonNode data = publicCommands.run(command,
@@ -292,7 +281,6 @@ public class IslandManagementService {
      */
     @Transactional
     public IslandLeftView leave(UUID userId, UUID islandId, UUID key) {
-        requireEnabled();
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/memberships/me:" + userId, key, InternalJson.tree(Map.of()));
         JsonNode data = publicCommands.run(command,
@@ -318,12 +306,6 @@ public class IslandManagementService {
     private NextLocationView nextLocationOf(UUID userId) {
         return new NextLocationView(userIslandContexts.findById(userId)
                 .map(UserIslandContext::getCurrentIslandId).orElse(null));
-    }
-
-    private void requireEnabled() {
-        if (!enabled) {
-            throw new GroupException(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY);
-        }
     }
 
     /**

@@ -36,7 +36,6 @@ import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.focus.service.FocusPresenceProjection;
 import com.oneorthree.phone.focus.service.SeaSessionEvents;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
-import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -89,7 +88,7 @@ import java.util.function.Function;
  * 섬·멤버십·상세 순서로 잠그며, 강퇴와의 경합도 이 순서를 따른다. 잠금 전에 필요한 소유 정보는
  * {@link FocusSessionOwnership}으로 읽는다.
  *
- * <p>시작에는 {@link FocusSessionStartGate}와 활성 보상 정책이 필요하다. 시작 시 정책 revision을
+ * <p>시작에는 활성 보상 정책이 필요하다. 시작 시 정책 revision을
  * 고정하고 종료 시 같은 정책으로 정산한다. 정책이 없는 기록은 임의 값으로 정산하지 않는다.
  *
  * <p>기본 세션이 이미 닫혔는데 상세만 진행 중인 기록은 {@link #abandonIfMarkerClosed}로 정리한다.
@@ -112,7 +111,6 @@ public class FocusSessionLifecycleService {
     private static final List<FocusSessionLifecycle> PROGRESSING =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
 
-    private final FocusSessionStartGate startGate;
     private final UserQueryService userQueryService;
     private final GroupMembershipMutationLocks membershipLocks;
     private final GroupMemberRepository groupMemberRepository;
@@ -137,7 +135,7 @@ public class FocusSessionLifecycleService {
     private final CustomizationRewardService customizationRewards;
     /** 바다 세션 start 의 목적지 검증 — 지금 망원경 목록(GROMO-2299). */
     private final TelescopeService telescopeService;
-    /** 바다 방 사건 {@code sea.member.updated} — 스위치가 꺼져 있으면 적지 않는다. */
+    /** 바다 방 사건 {@code sea.member.updated}. */
     private final SeaSessionEvents seaSessionEvents;
     /**
      * 섬의 집중·휴식 투영과 공유 프레즌스 리스를 함께 갱신한다.
@@ -153,14 +151,10 @@ public class FocusSessionLifecycleService {
     /**
      * {@code POST /focus-sessions} — LLD §2 start.
      *
-     * <p><b>가장 앞에서</b> {@link FocusSessionStartGate}를 본다 — 입력 검증보다도 먼저다. 게이트가 막는 한
-     * 진행 행 자체가 생기지 않는다. 보상 정책 revision 이 없어도 같은 503 이다(클래스 주석).
+     * <p>보상 정책 revision 이 없으면 503 {@code SESSION_START_UNAVAILABLE} 이다(클래스 주석).
      */
     @Transactional
     public FocusSessionView start(UUID userId, FocusSessionStartCommandRequest body, UUID idempotencyKey) {
-        if (!startGate.isOpen()) {
-            throw new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE);
-        }
         String subject = validateSubject(body == null ? null : body.subject());
         Integer targetMinutes = validateTargetMinutes(body == null ? null : body.targetMinutes());
         UUID islandId = requireIslandId(body == null ? null : body.islandId());
@@ -192,7 +186,7 @@ public class FocusSessionLifecycleService {
     /**
      * {@code POST /focus-sessions/sea} — 바다 집중 세션 시작 (GROMO-2299, 바다 항해 계약 §2).
      *
-     * <p>섬 세션과 같은 공통부({@link #startSession} — 게이트·활성 계정·진행 중 부재·멱등·마커/상세/구간)를 쓰되
+     * <p>섬 세션과 같은 공통부({@link #startSession} — 활성 계정·진행 중 부재·멱등·마커/상세/구간)를 쓰되
      * 섬 소속·현재 섬 검사는 하지 않고, 목적지가 <b>지금 망원경 목록</b>에 있는지만 본다. 항해 분은 그 항목 값으로
      * 고정한다(목록은 1시간 버킷 스냅샷으로 고정된다 — GROMO-2306, N6 정정). 목표 분은 항해 분이다.
      *
@@ -200,9 +194,6 @@ public class FocusSessionLifecycleService {
      */
     @Transactional
     public FocusSessionView startSea(UUID userId, SeaFocusSessionStartCommandRequest body, UUID idempotencyKey) {
-        if (!startGate.isOpen()) {
-            throw new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE);
-        }
         UUID destination = body == null ? null : body.destinationIslandId();
         if (destination == null) {
             throw new FocusException(FocusErrorCode.SEA_DESTINATION_UNAVAILABLE);
@@ -678,7 +669,7 @@ public class FocusSessionLifecycleService {
         boolean sea = seaSessions.isSea(detail);
         // 마지막 틱 이후에 «찬» 분을 여기서 확정한다 — 구간을 닫은 뒤라 activeSeconds 와 같은 값을 본다.
         // 「종료 시 추가 지급 없음」은 자투리(1분이 안 찬 초)를 주지 않는다는 뜻이지, 이미 찬 분을 버린다는
-        // 뜻이 아니다. 크론 게이트가 닫혀 있는 동안에는 이 호출이 그 세션의 «유일한» 지급 경로다.
+        // 뜻이 아니다.
         rewardAccruals.accrue(sessionId);
         // 그렇게 확정된 적립 합을 그대로 옮겨 적는다(GROMO-1990 — 여기서 새로 계산하지 않는다). 바다 세션은 틱도 이
         // 호출도 적립하지 않았으므로 0 이다.

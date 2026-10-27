@@ -1,6 +1,7 @@
 package com.oneorthree.notification;
 
 import com.google.auth.oauth2.GoogleCredentials;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+@Slf4j
 @Component
 @Profile("!ci")
 class FcmTransport implements PushTransport {
@@ -57,11 +59,25 @@ class FcmTransport implements PushTransport {
                     .retrieve().toBodilessEntity();
             return Result.SENT;
         } catch (RestClientResponseException failure) {
-            return unusableToken(failure.getStatusCode().value(), failure.getResponseBodyAsString())
-                    ? Result.UNREGISTERED : Result.RETRY;
+            int status = failure.getStatusCode().value();
+            String body = failure.getResponseBodyAsString();
+            if (isSenderIdMismatch(status, body)) {
+                // 토큰 하나가 무효인 것처럼 조용히 접히지만, 서버의 FCM_PROJECT_ID·서비스 계정이 틀리면 모든 기기가
+                // 한꺼번에 이 길로 온다. 앱은 같은 유저·같은 토큰이면 재등록하지 않아 설정을 고쳐도 저절로 돌아오지
+                // 않으므로, 이 줄이 운영자가 알아챌 신호다. 토큰·응답 본문은 남기지 않는다(프로젝트 ID 는 공개값).
+                log.warn("FCM 프로젝트 불일치(SENDER_ID_MISMATCH) — 서버 프로젝트={}."
+                        + " 기기 하나면 앱의 GoogleService-Info.plist, 한꺼번에 나면 서버의 FCM_PROJECT_ID·서비스 계정을"
+                        + " 의심한다. server/notification/README.md 의 복구 절차 참고", project);
+            }
+            return classify(status, body);
         } catch (IOException | org.springframework.web.client.RestClientException unavailable) {
             return Result.RETRY;
         }
+    }
+
+    /** @return FCM 오류 응답의 결과 — 토큰 고유 오류면 {@code UNREGISTERED}, 그 밖에는 재시도 */
+    static Result classify(int status, String body) {
+        return unusableToken(status, body) ? Result.UNREGISTERED : Result.RETRY;
     }
 
     /**
@@ -73,12 +89,15 @@ class FcmTransport implements PushTransport {
      * 구 {@code FcmPushNotificationClient} 는 그 응답을 무효 토큰으로 정리해 왔으므로, 정리하지 않는
      * 것은 서버를 가르면서 생긴 회귀다.
      *
+     * <p>다른 FCM 프로젝트에서 발급된 토큰({@code 403 SENDER_ID_MISMATCH})도 같은 길을 탄다 —
+     * {@link #isSenderIdMismatch}.
+     *
      * @param status HTTP 상태
      * @param body   응답 본문
      * @return 정리 대상인가
      */
     static boolean unusableToken(int status, String body) {
-        return isUnregistered(status, body) || isInvalidToken(status, body);
+        return isUnregistered(status, body) || isInvalidToken(status, body) || isSenderIdMismatch(status, body);
     }
 
     /**
@@ -134,15 +153,38 @@ class FcmTransport implements PushTransport {
     }
 
     static boolean isUnregistered(int status, String body) {
-        if (status != 404) {
-            return false;
-        }
+        return status == 404 && hasFcmErrorCode(body, "UNREGISTERED");
+    }
+
+    /**
+     * {@code 403 SENDER_ID_MISMATCH} — 이 토큰은 «다른 FCM 프로젝트»에서 발급됐다.
+     *
+     * <p>앱의 {@code GoogleService-Info.plist} 프로젝트가 서버의 {@code FCM_PROJECT_ID} 와 다르면, 그 앱이
+     * 받은 토큰은 이 서버 프로젝트로 영원히 보낼 수 없다. 재시도로 돌리면 {@code retry} 가 60초마다 같은
+     * 토큰으로 다시 보내므로, 이벤트 만료가 없는 알림은 끝나지 않는다.
+     *
+     * <p>토큰 고유 오류라 {@code UNREGISTERED} 와 같은 길이다 — 전송 자격({@code transport_invalid})만 내리고
+     * 소유권({@code active})은 유지해, 앱이 올바른 프로젝트의 새 토큰을 올리면 CAS 로 교체된다.
+     *
+     * <p>상태만 보고 판정하지 않는다. 같은 403 이라도 서버 자격·권한 문제({@code PERMISSION_DENIED})는 토큰
+     * 탓이 아니고, {@code THIRD_PARTY_AUTH_ERROR}(APNs 키·인증서)는 서버 설정 오류라 둘 다 재시도로 남긴다.
+     *
+     * @param status HTTP 상태
+     * @param body   응답 본문
+     * @return 프로젝트가 다른 토큰인가
+     */
+    static boolean isSenderIdMismatch(int status, String body) {
+        return status == 403 && hasFcmErrorCode(body, "SENDER_ID_MISMATCH");
+    }
+
+    /** @return 응답 상세의 {@code FcmError} 가 이 errorCode 를 돌려줬는가 — 본문이 JSON 이 아니면 아니다 */
+    private static boolean hasFcmErrorCode(String body, String errorCode) {
         try {
             Object details = Json.map(Json.map(body).get("error")).get("details");
             if (details instanceof List<?> list) {
                 return list.stream().filter(item -> item instanceof Map<?, ?>).map(Json::map).anyMatch(item ->
                         "type.googleapis.com/google.firebase.fcm.v1.FcmError".equals(item.get("@type"))
-                                && "UNREGISTERED".equals(item.get("errorCode")));
+                                && errorCode.equals(item.get("errorCode")));
             }
         } catch (RuntimeException invalid) {
             return false;

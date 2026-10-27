@@ -26,6 +26,18 @@ def baseline(source):
 
 
 class SelectivePlanTests(unittest.TestCase):
+    def test_공통_Gradle_검사_변경은_모든_서비스_지문에_반영된다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = '.github/workflows/be-gradle.yml'
+            path = root / name
+            path.parent.mkdir(parents=True)
+            path.write_text('before')
+            before, _ = planner.fingerprints(root, [name])
+            path.write_text('after')
+            after, _ = planner.fingerprints(root, [name])
+            self.assertTrue(all(before[s] != after[s] for s in planner.SERVICES))
+
     def setUp(self):
         self.source = {service: hashlib.sha256(service.encode()).hexdigest() for service in planner.SERVICES}
         self.migrations = {service: 'd' * 64 for service in planner.SERVICES}

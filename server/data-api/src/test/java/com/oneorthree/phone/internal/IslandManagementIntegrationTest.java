@@ -45,7 +45,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.ArrayList;
@@ -71,7 +70,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 섬 관리·주민 잔여 6종 (GROMO-1802)을 <b>실제 Flyway PostgreSQL</b> 위에서 생산 진입점으로 검증한다.
  *
- * <p>권한 행렬의 칸(방장·주민·방문자·pending 신청자·다른 섬 방장·삭제 계정)을 계약마다 채우고, 기능 게이트·
+ * <p>권한 행렬의 칸(방장·주민·방문자·pending 신청자·다른 섬 방장·삭제 계정)을 계약마다 채우고,
  * 멱등 재생·승인 정원·경합·이탈 가드를 본다. 시드는 전부 생산 엔티티·서비스로 만든다.
  */
 @SpringBootTest
@@ -84,9 +83,7 @@ class IslandManagementIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"PATCH /internal/islands/*", "GET /internal/islands/*/members",
             "GET /internal/islands/*/join-requests", "PATCH /internal/islands/*/join-requests/*",
@@ -123,40 +120,6 @@ class IslandManagementIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
-
-    // ---------------------------------------------------------------- 게이트
-
-    @Test
-    @DisplayName("게이트가 꺼지면 명령 4종은 receipt·쓰기·사건보다 먼저 503 이고 조회 둘은 그대로 열린다")
-    void disabledGateRejectsEveryCommandBeforeAnyWrite() {
-        Fixture f = fixture(true);
-        UUID request = pendingRequest(f.islandId());
-        long receipts = count("select count(*) from command_idempotency");
-        long outbox = count("select count(*) from event_outbox");
-        ReflectionTestUtils.setField(management, "enabled", false);
-        ReflectionTestUtils.setField(joins, "managementEnabled", false);
-        try {
-            List<Runnable> commands = List.of(
-                () -> management.manage(f.host(), f.islandId(),
-                        new IslandManageCommandRequest("새이름", null, null, null), UUID.randomUUID()),
-                () -> joins.answer(f.host(), f.islandId(), request, true, UUID.randomUUID()),
-                () -> management.kick(f.host(), f.islandId(), f.member(), UUID.randomUUID()),
-                () -> management.leave(f.member(), f.islandId(), UUID.randomUUID()));
-            for (Runnable command : commands) {
-                assertThatThrownBy(command::run)
-                        .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY);
-            }
-            assertThat(management.members(f.host(), f.islandId(), null, null, 30).items()).hasSize(2);
-            assertThat(management.joinRequests(f.host(), f.islandId(), null, null, 30).items()).hasSize(1);
-        } finally {
-            ReflectionTestUtils.setField(management, "enabled", true);
-            ReflectionTestUtils.setField(joins, "managementEnabled", true);
-        }
-        assertThat(count("select count(*) from command_idempotency")).isEqualTo(receipts);
-        assertThat(count("select count(*) from event_outbox")).isEqualTo(outbox);
-        assertThat(requestStatus(request)).isEqualTo("PENDING");
-        assertThat(active(f.islandId(), f.member())).isTrue();
-    }
 
     // ---------------------------------------------------------------- §3.1 manage
 

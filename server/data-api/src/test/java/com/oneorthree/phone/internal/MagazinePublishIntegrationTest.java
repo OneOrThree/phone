@@ -43,8 +43,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.test.util.AopTestUtils;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -97,8 +95,6 @@ class MagazinePublishIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("magazine.enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"GET /internal/users/*/magazine/today", "GET /internal/users/*/magazine/issues",
             "GET /internal/users/*/magazine/issues/*", "PUT /internal/users/*/magazine/issues/*/receipt"};
@@ -321,19 +317,6 @@ class MagazinePublishIntegrationTest {
 
         assertThat(inserted.get()).as("발행 도중 받음은 커밋됐다(그때는 1호가 아직 최근 7호)").isEqualTo(1);
         assertThat(receiptRows(firstIssue)).as("발행 뒤 정리가 그 행까지 지운다").isZero();
-    }
-
-    @Test
-    @DisplayName("magazine.enabled 가 꺼져 있으면 발행하지 않는다")
-    void switchedOffDoesNotPublish() {
-        Object target = AopTestUtils.getUltimateTargetObject(publisher);
-        ReflectionTestUtils.setField(target, "enabled", false);
-        try {
-            assertThat(publisher.publish(date)).isEmpty();
-            assertThat(jdbc.queryForObject("select count(*) from magazine_issues", Integer.class)).isZero();
-        } finally {
-            ReflectionTestUtils.setField(target, "enabled", true);
-        }
     }
 
     // ---------------------------------------------------------------- 읽기

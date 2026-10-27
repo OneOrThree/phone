@@ -60,12 +60,12 @@ public enum FocusErrorCode implements ErrorCode {
     /**
      * 이 세션에 고정된 보상 정책 revision 이 없다 — finish 는 이 코드로 막힌다. 값을 지어내 "0원 지급 성공"으로
      * 위장하지 않는다(policy.md). GROMO-1924 이후 start 는 정책 revision 없이 세션을 만들지 않으므로
-     * 그 이전에 생긴 행에서만 나온다(시작 게이트가 닫혀 있어 실제로는 없다).
+     * 그 이전에 생긴 행에서만 나온다.
      */
     REWARD_POLICY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "보상 정책이 아직 준비되지 않았습니다."),
     /**
-     * 시작 경로 비활성 — {@link com.oneorthree.phone.focus.support.FocusSessionStartGate}(배포 설정)가
-     * 닫혀 있거나 현재 보상 정책 revision 이 없으면 start 는 이 코드로 막힌다(GROMO-1924).
+     * 시작 경로 비활성 — 현재 보상 정책 revision 이 없으면 start 는 이 코드로 막힌다(GROMO-1924). 시작 게이트
+     * 설정은 2026-10-27(티켓 2535)에 걷어, 이제 이 사유 하나뿐이다.
      *
      * <p>{@link #REWARD_POLICY_UNAVAILABLE}과 같은 503이지만 코드를 나눈다 — 한쪽은 «새 세션을 열지 않는다»,
      * 다른 쪽은 «이 세션을 정산할 근거가 없다»라 앱·운영이 대응이 다르다.

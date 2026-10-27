@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-@SpringBootTest(properties = {"focus.session.start-enabled=true", "focus.live-activity.poll-ms=3600000"})
+@SpringBootTest(properties = "focus.live-activity.poll-ms=3600000")
 class FocusLiveActivityIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {

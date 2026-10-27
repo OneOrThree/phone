@@ -317,6 +317,13 @@ const DEFAULT_CATCH_RESERVATION: Spot = {
   ...defaultCatchSpot,
   catchPlacement: DEFAULT_CATCH_PLACEMENT,
 };
+// spot 고양이의 물고기 더미(placement)가 other 에 앉은 고양이를 덮는지
+export const catchOverlapsCat = (spot: Point, placement: FishingCatchPlacement, other: Point) =>
+  boundsOverlap(catchBounds(spot, placement), catBounds(other));
+// 내가 DEFAULT_SPOT 에 앉으면 물고기 더미는 주민을 피하지 않는 고정 자리다 — 그 더미가 p 에 앉은 고양이를 덮는지
+export const underDefaultCatch = (p: Point) =>
+  DEFAULT_CATCH_PLACEMENT != null &&
+  boundsOverlap(catBounds(p), catchBounds(defaultCatchSpot, DEFAULT_CATCH_PLACEMENT));
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // resident 자리/보상은 섬 건물 상태와 무관하게 같은 좌표를 쓰도록 축음기 설치 상태 기준으로 미리 배치한다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게

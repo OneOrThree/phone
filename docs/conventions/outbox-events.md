@@ -172,7 +172,6 @@
 | `outbox.relay.enabled` | 전송 | 봉투는 **적힌다.** 켜면 밀린 분이 나간다 |
 | `outbox.relay.realtime-kafka-enabled` | REALTIME 전송 경로 선택(HTTP ↔ Kafka) | HTTP 로 간다. 켜기 전에 realtime `REALTIME_EVENTS_KAFKA_ENABLED` 를 먼저 켠다 |
 | `island-playback.events-enabled` | `playback.updated` **생산** | 행을 쓰지 않고 receipt `events` 는 빈 배열 |
-| `island-management.commands-enabled` 등 명령 스위치 | 명령 자체(503) | 명령이 없으니 사건도 없다 — 생산 스위치가 아니다 |
 
 **전송만 막을 때는 적고 보내지 않는다. 생산을 막을 때는 적지 않고 receipt `events` 를 비운다.** 적어 두고 「생산 꺼짐」이라
 부르면 켜는 날 계약이 안 맞는 옛 사건이 한꺼번에 나간다.
@@ -212,13 +211,13 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 | 호출 지점 | 사건 `type` | 대상 | 순서 축 | eventId |
 | --- | --- | --- | --- | --- |
 | `auth/service/AuthSessionService.java:317` | `auth.generation.bumped` | NOTI | USER | `<type>:<userId>:<generation>` |
-| `auth/service/AuthSessionService.java:386` | `auth.session.revoked` | NOTI·REALTIME(`auth.session-revoked.realtime-events-enabled` ON 일 때만) | USER | `<type>:<sessionId>` — params `accessTokenExpiresAt`(ISO-8601) = revokedAt + `jwt.access-expiration`, realtime 폐기 펜스 TTL 의 근거 |
+| `auth/service/AuthSessionService.java:386` | `auth.session.revoked` | NOTI·REALTIME | USER | `<type>:<sessionId>` — params `accessTokenExpiresAt`(ISO-8601) = revokedAt + `jwt.access-expiration`, realtime 폐기 펜스 TTL 의 근거 |
 | `user/service/UserSatelliteCommandService.java:282` | `notification.deviceToken.deleted` · `notification.settings.changed` | NOTI | USER | UUID |
 | `user/service/UserOnboardingEvents.java:43`(호출: `UserService` 의 setup·update·공개 PATCH 공통 전이 경계) | `user.onboarded` | SCORE | USER | `<type>:<userId>` |
 | `withdrawal/service/WithdrawalSatelliteCommandService.java:54` | `user.withdrawn` | KAFKA·REALTIME·SCORE | USER | `<type>:<userId>` |
 | `notification/producer/NotificationOutboxProducer.java` | `notification.requested` | KAFKA | USER | `noti:<KIND>:<userId>:<subjectId\|none>:<시간축\|none>` |
 | `group/service/IslandStateEvents.java:58` | `island.updated` | REALTIME | `ISLAND` | UUID |
-| `group/service/IslandArrivalEvents#arrived`(호출: `IslandMembershipService.arrive` — 주민 첫 도착만, 스위치 `island.arrival.realtime-events-enabled`) | `island.member.arrived` | REALTIME | `ISLAND_ARRIVAL` | UUID |
+| `group/service/IslandArrivalEvents#arrived`(호출: `IslandMembershipService.arrive` — 주민 첫 도착만) | `island.member.arrived` | REALTIME | `ISLAND_ARRIVAL` | UUID |
 | `group/service/IslandMembershipEvents.java:50` | `island.members.updated` | REALTIME | `ISLAND_MEMBERS` | UUID |
 | `group/service/IslandNoticeEvents.java:53` | `notice.updated` | REALTIME | `NOTICE` | UUID |
 | `group/service/IslandJoinRequestEvents.java:77` | `join.request.updated` | REALTIME | `JOIN_REQUEST` | `<type>:<requestId>:<recipient>:<status>:<ver>` |

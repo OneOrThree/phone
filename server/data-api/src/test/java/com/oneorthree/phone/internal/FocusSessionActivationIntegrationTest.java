@@ -38,6 +38,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -63,10 +64,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 집중 세션 시작 게이트를 연 뒤의 경로 (GROMO-1924) — <b>실제 Flyway PostgreSQL</b> 위에서 본다.
+ * 집중 세션 시작 경로 (GROMO-1924) — <b>실제 Flyway PostgreSQL</b> 위에서 본다.
  *
- * <p>게이트는 {@code focus.session.start-enabled} 로 연다. 잠금·부분 UNIQUE·CHECK·V67 이 전부 DB 에
- * 있는 규칙이라 mock 으로는 의미가 없다.
+ * <p>잠금·부분 UNIQUE·CHECK·V67 이 전부 DB 에 있는 규칙이라 mock 으로는 의미가 없다. 분당 적립 틱은 운영 크론과
+ * 같은 진입점({@code FocusRewardScheduler#accrueDueSessions})을 테스트가 직접 부른다(크론은 {@code ci} 프로파일에서 돌지 않는다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -79,10 +80,6 @@ class FocusSessionActivationIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("focus.session.start-enabled", () -> true);
-        // 분당 적립 크론은 기본 꺼짐(FocusRewardAccrualGate) — 이 테스트는 켠 상태의 운영을 본다.
-        registry.add("focus.reward.accrual-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         List<String> allow = List.of(
                 "POST /internal/users/*/focus-sessions",
@@ -131,11 +128,11 @@ class FocusSessionActivationIntegrationTest {
     @Autowired
     MockMvc mvc;
 
-    // ---------------------------------------------------------------- 게이트를 연 뒤의 전체 흐름
+    // ---------------------------------------------------------------- 전체 흐름
 
     @Test
-    @DisplayName("게이트를 열면 내부 표면으로 start 201 → current 200 → pause 200 → resume 200 → finish 200 → summary 200")
-    void openedGateRunsTheWholeLifecycleOverTheInternalSurface() throws Exception {
+    @DisplayName("내부 표면으로 start 201 → current 200 → pause 200 → resume 200 → finish 200 → summary 200")
+    void theWholeLifecycleRunsOverTheInternalSurface() throws Exception {
         UUID user = newUser();
         UUID island = islands.create(user, new CreateIslandCommandRequest("전체흐름섬", null, false, null),
                 UUID.randomUUID()).id();
@@ -788,6 +785,15 @@ class FocusSessionActivationIntegrationTest {
         assertThat(context.getBean(SchedulingConfig.FOCUS_REWARD_SCHEDULER))
                 .as("두 풀이 같은 빈이면 이름만 다른 공용 풀이라 격리가 성립하지 않는다")
                 .isNotSameAs(context.getBean(SchedulingConfig.SETTLEMENT_SCHEDULER));
+    }
+
+    @Test
+    @DisplayName("테스트 프로파일(ci)에서는 @Scheduled 트리거가 꺼져 있다 — 항상 켜진 분당 적립 크론이 다른 테스트의 데이터를 바꾸지 않는다")
+    void scheduledTriggersAreOffUnderTheTestProfile() {
+        assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class))
+                .as("ci 프로필에서 예약 작업이 켜지면 분당 적립 크론(FocusRewardScheduler)이 통합 테스트 데이터를 바꾼다 — "
+                        + "application-ci.yml 의 app.scheduling.enabled=false 확인")
+                .isEmpty();
     }
 
     @Test

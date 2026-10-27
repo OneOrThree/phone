@@ -20,6 +20,7 @@
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
+import { focusSeat } from '@/services/api/focusSessions';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
 import { parseAppearanceEvent, type MemberLook } from '@/services/memberAppearance';
@@ -250,6 +251,7 @@ export class IslandProjection {
       this.focusMap.set(m.userId, {
         ...m,
         status: m.status === 'paused' ? 'paused' : 'active',
+        seat: focusSeat(m.seat),
         anchorMs: Number.isFinite(anchorMs) ? anchorMs : Date.now(),
       });
     }
@@ -359,16 +361,25 @@ export class IslandProjection {
             : null,
         };
       }
-      const profile = prev ?? this.profiles.get(userId);
+      const profile = prev ?? this.profiles.get(userId),
+        sessionId = str(p?.sessionId) ?? prev?.sessionId ?? '';
       this.focusMap.set(userId, {
         userId,
         name: profile?.name ?? null,
         catColor: profile?.catColor ?? null,
         appearance: profile?.appearance ?? null,
-        sessionId: str(p?.sessionId) ?? prev?.sessionId ?? '',
+        sessionId,
         subject: str(p?.subject) ?? prev?.subject ?? '',
         activeSeconds: num(p?.activeSeconds) ?? 0,
         status: status === 'paused' ? 'paused' : 'active',
+        // 자리(GROMO-2478) — seat 키가 있으면 그 값이 정본(null = 자리 없이 시작). 키가 없는 옛 서버 이벤트는
+        // 같은 세션일 때만 이전 자리를 잇는다 — 새 세션이 이전 세션 완료보다 먼저 와도 옛 좌표를 물려받지 않게
+        seat:
+          p && 'seat' in p
+            ? focusSeat(p.seat)
+            : prev?.sessionId === sessionId
+              ? (prev.seat ?? null)
+              : null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
       });
       const current = this.focusMap.get(userId)!;

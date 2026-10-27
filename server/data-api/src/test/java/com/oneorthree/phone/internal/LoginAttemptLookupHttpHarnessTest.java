@@ -51,7 +51,6 @@ class LoginAttemptLookupHttpHarnessTest {
         registry.add("spring.flyway.enabled", () -> false);
         registry.add("app.scheduling.enabled", () -> false);
         registry.add("management.health.redis.enabled", () -> false);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> BUSINESS_TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "POST " + LOOKUP_PATH);
     }

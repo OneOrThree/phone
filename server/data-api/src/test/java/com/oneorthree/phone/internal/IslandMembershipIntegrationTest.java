@@ -67,8 +67,6 @@ class IslandMembershipIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/users/*/islands");
@@ -385,10 +383,8 @@ class IslandMembershipIntegrationTest {
         UUID other = publicIsland("다른섬");
         joinAs(user, other, GroupMemberRole.MEMBER);
 
-        // v0.3 수명주기 start 는 FocusSessionStartGate 가 아직 «항상 닫혀» 있다 — 그 게이트가 적은
-        // 선행 조건 1번이 바로 이 티켓(현재 섬을 채우는 경로)이다. 그래서 오늘 실제로 만들어지는
-        // 진행 세션인 «레거시 마커» 로 검증한다. 가드가 신·구 프로토콜을 가리지 않고 같은 조회
-        // (endedAt=null) 로 잡는다는 것까지 여기서 함께 확인된다.
+        // 진행 세션을 «레거시 마커»(endedAt=null 인 focus_sessions 행)로 만든다. 가드가 신·구 프로토콜을
+        // 가리지 않고 같은 조회(endedAt=null) 로 잡는다는 것까지 여기서 함께 확인된다.
         jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
                 UUID.randomUUID(), user);
 

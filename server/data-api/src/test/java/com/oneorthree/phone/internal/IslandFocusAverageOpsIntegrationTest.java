@@ -54,7 +54,6 @@ class IslandFocusAverageOpsIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.ops.token", () -> OPS_TOKEN);
         registry.add("internal.api.callers.ops.optional", () -> true);
         registry.add("internal.api.callers.ops.allow[0]", () -> "POST " + PATH);

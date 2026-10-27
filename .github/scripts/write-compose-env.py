@@ -31,11 +31,7 @@ REQUIRED_KEYS = (
 LEGACY_OPTIONAL_KEYS = (
     "FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
     "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64",
-    "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED", "FOCUS_REWARD_ACCRUAL_ENABLED",
-    # GROMO-1771 섬 게시판 쓰기 게이트(GROMO-2136 이 BQ02·BQ03 확정, 기본값은 여전히 false).
-    "ISLAND_BOARD_WRITES_ENABLED",
-    # GROMO-1802 섬 관리 명령 4종·방장 위임 게이트(GROMO-2156 — dev 에서 켠 값을 재생성에도 유지).
-    "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
+    "FOCUS_PRESENCE_ENABLED",
     # docker-compose.realtime.yml — GROMO-1954 Data 사건 수신 · GROMO-1775 우체통 · R-1 Kafka 입구
     "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME",
     # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상과 차단 필터 스위치.
@@ -74,10 +70,10 @@ SERVICE_REQUIRED_KEYS = {
         # GROMO-1908 로그인 시도 자격 digest 비밀. JWT_SECRET 과 «다른 값»(계정 LLD §3).
         # 없으면 Business 가 부팅에서 fail-fast 한다(CredentialDigest).
         "LOGIN_ATTEMPT_DIGEST_SECRET",
-        # GROMO-1759 목록 커서 서명. «필수» 인 이유: 없으면 컨테이너는 정상 부팅하고 GET /islands ·
-        # /islands/discover 만 첫 요청에서 503 이 된다 — 부팅 로그·헬스체크가 조용해 배포 뒤에야 드러난다.
-        # 여기서 막으면 배포 «전에» 실패한다(application-{dev,prod}.yml 의 자리표시자는 그래서 기본값이 없다).
-        "BUSINESS_CURSOR_ENABLED", "BUSINESS_CURSOR_KEY_V1",
+        # GROMO-1759 목록 커서 서명키. 커서 서명기는 항상 있고(티켓 2535 — 켜는 스위치를 걷었다) 키가
+        # 없거나 짧으면 Business 가 부팅에서 fail-fast 한다. 여기서 먼저 막으면 배포 «전에» 실패한다
+        # (application-{dev,prod}.yml 의 자리표시자는 그래서 기본값이 없다).
+        "BUSINESS_CURSOR_KEY_V1",
     ),
     "notification": (
         "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
@@ -102,14 +98,10 @@ SERVICE_OPTIONAL_KEYS = {
         "FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON",
         "FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
         "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64",
-        "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
-        "FOCUS_REWARD_ACCRUAL_ENABLED", "ISLAND_BOARD_WRITES_ENABLED",
-        # GROMO-2289 잡지 신청·고치기·발행 스위치 — 지정한 환경만 켜고 없으면 기본 OFF 를 유지한다.
-        "MAGAZINE_ENABLED",
-        "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
+        "FOCUS_PRESENCE_ENABLED",
         "REDIS_HOST", "REDIS_PORT",
         "NOTIFICATION_BASE_URL", "LINK_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
-        "INTERNAL_API_ENABLED", "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
+        "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
         "OUTBOX_RELAY_LEASE_DURATION", "OUTBOX_RELAY_POLL_INTERVAL", "OUTBOX_RELAY_INITIAL_BACKOFF",
         "OUTBOX_RELAY_MAX_BACKOFF", "OUTBOX_RELAY_WARNING_ATTEMPTS",
         # GROMO-2338 relay 처리량 손잡이 — yml 기본값(10 · 4 · PT5S)이 있어 비워도 된다.
@@ -117,15 +109,6 @@ SERVICE_OPTIONAL_KEYS = {
         # GROMO-1954 REALTIME 전달(HTTP 기본 · Kafka 선택). relay 를 켜면 필수다 — 비면 OutboxRelayProperties 가
         # 기동을 거부한다. relay 가 꺼진 지금 필수로 올리면 비밀을 넣기 전 배포가 막혀 선택으로 둔다.
         "REALTIME_BASE_URL", "SVC_TOKEN_DATA_TO_REALTIME", "OUTBOX_RELAY_REALTIME_KAFKA_ENABLED",
-        # GROMO-2182 차단 사건 생산 스위치. realtime caller 자격은 필수 키다.
-        # 차단 사건은 이 스위치를 켠 배포에서만 생산한다.
-        "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
-        # GROMO-2299 바다 방 사건(sea.member.updated) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
-        "FOCUS_SEA_REALTIME_EVENTS_ENABLED",
-        # GROMO-2350 세션 폐기 사건(auth.session.revoked)의 realtime 전달 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
-        "AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED",
-        # GROMO-2302 주민 첫 도착 사건(island.member.arrived) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
-        "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
         # GROMO-2349 주간 섬 랭킹 분자 기동 재계산 스위치 — 기본 OFF, 한 번 돌린 뒤 다시 끈다.
         "RANKING_WEEKLY_FOCUS_RECOMPUTE_ON_STARTUP",
         # GROMO-2280 운영자 caller(ops) 토큰 — 비면 ops caller 비활성(기동은 막지 않는다). 섬별 7일 평균 수동 실행용.

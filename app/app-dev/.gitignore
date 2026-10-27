@@ -46,6 +46,7 @@ AuthKey_*.p8
 *.key
 *.mobileprovision
 android/credentials/
+ios/credentials/
 GoogleService-Info.plist
 GoogleService-Info-*.plist
 google-services.json

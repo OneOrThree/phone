@@ -40,7 +40,6 @@ class OnboardingIslandIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
     }
 
     @Autowired

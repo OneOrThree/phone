@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { checkSession, guestLogin, login, logout, me } from '@/services/api/auth';
+import {
+  checkSession,
+  guestLogin,
+  login,
+  logout,
+  me,
+  takeDeviceBootstrap,
+} from '@/services/api/auth';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import {
   clearSession,
@@ -11,20 +18,21 @@ import {
   restoreSession,
   saveSession,
   sessionGeneration,
+  subscribeSession,
 } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
 
-function stub(responses: { status: number; body?: unknown }[]) {
+function stub(responses: { status: number; body?: unknown; headers?: Record<string, string> }[]) {
   let index = 0;
   (global as any).fetch = jest.fn(async (url: string, init: RequestInit) => {
     calls.push({ url, init });
-    const { status, body } = responses[Math.min(index++, responses.length - 1)];
+    const { status, body, headers = {} } = responses[Math.min(index++, responses.length - 1)];
     return {
       ok: status >= 200 && status < 300,
       status,
-      headers: { get: () => null },
+      headers: { get: (name: string) => headers[name] ?? null },
       text: async () => (body === undefined ? '' : JSON.stringify(body)),
     } as unknown as Response;
   });
@@ -854,4 +862,290 @@ test('me — nullable mainIslandId 를 값·null 모두 그대로 보존한다 (
   // 서로 갱신하지 않는다는 계약상, 여기서 확인할 수 있는 것은 «있는 그대로 보존»뿐이다.
   assert.equal((await me()).mainIslandId, 'i-main');
   assert.equal((await me()).mainIslandId, null);
+});
+
+// ── X-Device-Bootstrap(GROMO-2524) — 리프레시 토큰에 묶어 메모리로만 한 번 ─────────────────────────
+// 모듈 변수 하나를 파일 안 테스트가 함께 쓰므로 테스트마다 다른 RT 접두어를 쓴다(앞 테스트의 값이
+// 같은 RT 로 새어 들어오지 않게).
+
+const bootstrapped = (prefix: string, userId: string, value: string) => ({
+  ...session(prefix, userId),
+  headers: { 'X-Device-Bootstrap': value },
+});
+
+test('login — X-Device-Bootstrap 을 그 세션의 RT 에 묶어 한 번만 꺼내 준다', async () => {
+  stub([bootstrapped('BOOT1', 'u2', 'SECRET-1')]);
+
+  const result = await login('apple', 'apple-jwt', '2026-09');
+
+  // 반환값은 앱 상태로 흘러 AsyncStorage 에 갈 수 있다 — 자격을 싣지 않는다.
+  assert.equal(JSON.stringify(result).includes('SECRET-1'), false);
+  // 다른 RT 로는 못 꺼내고, 그 시도가 값을 지우지도 않는다.
+  assert.equal(takeDeviceBootstrap('OTHER_RT'), undefined);
+  assert.equal(takeDeviceBootstrap('BOOT1_RT'), 'SECRET-1');
+  // 1회용이다.
+  assert.equal(takeDeviceBootstrap('BOOT1_RT'), undefined);
+});
+
+test('guestLogin — 게스트 시작 응답의 bootstrap 도 같은 규칙이다', async () => {
+  stub([bootstrapped('BOOT2', 'guest-1', 'SECRET-2')]);
+
+  const result = await guestLogin();
+
+  assert.equal(JSON.stringify(result).includes('SECRET-2'), false);
+  assert.equal(takeDeviceBootstrap('OTHER_RT'), undefined);
+  assert.equal(takeDeviceBootstrap('BOOT2_RT'), 'SECRET-2');
+  assert.equal(takeDeviceBootstrap('BOOT2_RT'), undefined);
+});
+
+test('헤더가 없거나(결과 재생·refresh) 비어 있으면 꺼낼 것이 없다', async () => {
+  stub([session('BOOT3', 'u2'), bootstrapped('BOOT4', 'u2', '  ')]);
+
+  await login('apple', 'apple-jwt', '2026-09');
+  assert.equal(takeDeviceBootstrap('BOOT3_RT'), undefined);
+
+  // 빈 값은 «받았다» 가 아니다 — 서버는 빈 값을 싣지 않는 것이 계약이다(DeviceBootstrapHeader).
+  await clearSession();
+  await login('apple', 'apple-jwt', '2026-09');
+  assert.equal(takeDeviceBootstrap('BOOT4_RT'), undefined);
+});
+
+test('같은 attempt 의 결과 재생(같은 RT·헤더 없음)이 다시 공개돼도 묶어 둔 bootstrap 은 지워지지 않는다', async () => {
+  // 서버는 재생 응답에 헤더를 싣지 않고 RT 는 첫 응답과 같다 —
+  // 헤더 없는 저장이 그 RT 의 값을 지우면 안 된다.
+  stub([bootstrapped('BOOT14', 'u2', 'SECRET-14'), session('BOOT14', 'u2')]);
+  const before = sessionGeneration();
+
+  await login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  await login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+
+  // 재생은 첫 세션이 공개된 «뒤에» 세대를 잡고 시작하므로 세대 검사에 버려지지 않는다 —
+  // 같은 RT 로 다시 공개되어 세대가 두 번 오른다.
+  assert.equal(sessionGeneration(), before + 2);
+  assert.equal(takeDeviceBootstrap('BOOT14_RT'), 'SECRET-14');
+  assert.equal(takeDeviceBootstrap('BOOT14_RT'), undefined);
+});
+
+test('같은 attempt 의 원 응답과 헤더 없는 재생이 함께 도착해 재생의 저장이 세대 검사로 버려져도 묶어 둔 bootstrap 은 남는다', async () => {
+  stub([
+    bootstrapped('BOOT15', 'u2', 'SECRET-15'),
+    session('BOOT15', 'u2'), // 같은 attempt 의 결과 재생 — 같은 RT, 헤더 없음
+  ]);
+  // 첫 saveSession 이 직렬 큐에서 끝나기 전에 재생 응답이 도착하는 경합 — 저장소 쓰기를 문 뒤에 세운다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const original = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  const replay = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  // 마이크로태스크가 모두 빠진 뒤 — 두 응답이 다 돌아와 저장이 줄에 선 뒤 — 문을 연다.
+  setTimeout(open, 0);
+
+  const replayError = await replay.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await original;
+  write.mockImplementation(realWrite);
+
+  // 원 응답의 세션만 공개되고, 재생은 같은 세대를 잡고 왔다가 세대 검사로 버려진다.
+  assert.equal(getSession()?.refreshToken, 'BOOT15_RT');
+  assert.equal(replayError?.code, CLIENT_STALE_SESSION);
+  // 재생은 헤더가 없어 묶은 값이 없지만 RT 는 공개된 세션과 같다 — 버려진 저장의 정리가
+  // «자기 RT 의 항목»을 지우면 원 응답이 묶은 값까지 사라진다.
+  assert.equal(takeDeviceBootstrap('BOOT15_RT'), 'SECRET-15');
+  assert.equal(takeDeviceBootstrap('BOOT15_RT'), undefined);
+  // 같은 RT 라 서버 폐기 요청도 가지 않는다(가면 방금 공개한 세션이 끊긴다).
+  assert.equal(calls.length, 2);
+});
+
+test('헤더 없는 재생이 먼저 공개되고 같은 RT 의 원 응답이 세대 검사로 버려져도 묶어 둔 bootstrap 은 공개된 세션에 남는다', async () => {
+  stub([
+    session('BOOT16', 'u2'), // 결과 재생 — 같은 RT, 헤더 없음. 먼저 처리돼 먼저 공개된다
+    bootstrapped('BOOT16', 'u2', 'SECRET-16'), // 원 응답 — 줄 뒤에서 세대 검사로 버려진다
+  ]);
+  // 앞 테스트와 같은 경합이되 순서가 반대다 — 저장소 쓰기를 문 뒤에 세운다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const replay = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  const original = login('apple', 'apple-jwt', '2026-09', { attemptId: 'replayed' });
+  // 마이크로태스크가 모두 빠진 뒤 — 두 응답이 다 돌아와 저장이 줄에 선 뒤 — 문을 연다.
+  setTimeout(open, 0);
+
+  const originalError = await original.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await replay;
+  write.mockImplementation(realWrite);
+
+  // 재생의 세션만 공개되고, 원 응답은 같은 세대를 잡고 왔다가 세대 검사로 버려진다.
+  assert.equal(getSession()?.refreshToken, 'BOOT16_RT');
+  assert.equal(originalError?.code, CLIENT_STALE_SESSION);
+  // 버려진 원 응답이 묶은 값의 RT 는 공개된 세션의 RT 와 같다 — «자기 RT 의 항목»이라고 지우면
+  // 공개된 세션이 자격을 잃는다.
+  assert.equal(takeDeviceBootstrap('BOOT16_RT'), 'SECRET-16');
+  assert.equal(takeDeviceBootstrap('BOOT16_RT'), undefined);
+  // 같은 RT 라 서버 폐기 요청도 가지 않는다(가면 방금 공개한 세션이 끊긴다).
+  assert.equal(calls.length, 2);
+});
+
+test('다른 RT 의 값은 서로 독립이다 — 나중 로그인이 앞선 값을 덮지 않고 한쪽을 꺼내도 다른 쪽이 남는다', async () => {
+  stub([
+    bootstrapped('BOOT5', 'u1', 'SECRET-5'),
+    bootstrapped('BOOT6', 'u2', 'SECRET-6'),
+    { status: 200, body: { data: { revoked: true } } }, // 이전 세션 RT 폐기
+  ]);
+
+  await login('apple', 'apple-jwt', '2026-09');
+  await login('apple', 'apple-jwt', '2026-09');
+
+  assert.equal(takeDeviceBootstrap('BOOT6_RT'), 'SECRET-6');
+  assert.equal(takeDeviceBootstrap('BOOT5_RT'), 'SECRET-5');
+  assert.equal(takeDeviceBootstrap('BOOT5_RT'), undefined);
+  assert.equal(takeDeviceBootstrap('BOOT6_RT'), undefined);
+});
+
+test('두 로그인 응답이 연달아 와도 먼저 공개되는 첫 세션이 자기 bootstrap 을 얻는다 — 둘째가 세대 검사로 버려져도', async () => {
+  stub([
+    bootstrapped('BOOT12', 'u2', 'SECRET-12'),
+    bootstrapped('BOOT13', 'u3', 'SECRET-13'),
+    { status: 200, body: { data: { revoked: true } } }, // 버려진 둘째 세션의 RT 폐기
+  ]);
+  // 첫 saveSession 이 직렬 큐에서 끝나기 전에 둘째 응답이 도착하는 경합 — 저장소 쓰기를 문 뒤에 세운다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const first = login('apple', 'apple-jwt', '2026-09');
+  const second = login('google', 'google-jwt', '2026-09');
+  // 마이크로태스크가 모두 빠진 뒤 — 두 응답이 다 돌아와 저장이 줄에 선 뒤 — 문을 연다.
+  setTimeout(open, 0);
+
+  const secondError = await second.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await first;
+  write.mockImplementation(realWrite);
+
+  // 첫 세션만 공개되고, 둘째는 같은 세대를 잡고 왔다가 세대 검사로 버려진다.
+  assert.equal(getSession()?.refreshToken, 'BOOT12_RT');
+  assert.equal(secondError?.code, CLIENT_STALE_SESSION);
+  // 둘째가 첫째의 값을 덮지 않았고, 둘째의 정리가 첫째의 값을 지우지도 않았다.
+  assert.equal(takeDeviceBootstrap('BOOT13_RT'), undefined);
+  assert.equal(takeDeviceBootstrap('BOOT12_RT'), 'SECRET-12');
+});
+
+test('꺼내지 않은 값은 최근 4개까지만 쌓는다 — 넘으면 가장 오래된 것부터 버린다', async () => {
+  // 푸시가 꺼져 있어 아무도 take 하지 않는 경우에도 값이 무한히 쌓이지 않는다.
+  stub(Array.from({ length: 5 }, (_, i) => bootstrapped(`CAP${i}`, `u${i}`, `SECRET-CAP${i}`)));
+  for (let i = 0; i < 5; i += 1) {
+    await clearSession(); // 이전 세션 폐기 요청 없이 연속 로그인
+    await login('apple', 'apple-jwt', '2026-09');
+  }
+
+  assert.equal(takeDeviceBootstrap('CAP0_RT'), undefined);
+  for (let i = 1; i < 5; i += 1) {
+    assert.equal(takeDeviceBootstrap(`CAP${i}_RT`), `SECRET-CAP${i}`);
+  }
+});
+
+test('bootstrap 은 보안 저장소·AsyncStorage 어디에도 쓰이지 않는다', async () => {
+  const asyncWrites = [AsyncStorage.setItem, AsyncStorage.multiSet, AsyncStorage.mergeItem];
+  write.mockClear();
+  asyncWrites.forEach((fn) => (fn as jest.Mock).mockClear());
+  stub([bootstrapped('BOOT7', 'u2', 'SECRET-7'), bootstrapped('BOOT8', 'guest-1', 'SECRET-8')]);
+
+  await login('apple', 'apple-jwt', '2026-09');
+  await clearSession();
+  await guestLogin();
+  takeDeviceBootstrap('BOOT7_RT');
+  takeDeviceBootstrap('BOOT8_RT');
+
+  const written = JSON.stringify([
+    write.mock.calls,
+    ...asyncWrites.map((fn) => (fn as jest.Mock).mock.calls),
+  ]);
+  // 저장소는 실제로 쓰였고(세션 토큰) 그 어디에도 자격은 없다.
+  assert.equal(written.includes('BOOT7_RT'), true);
+  assert.equal(written.includes('SECRET-7'), false);
+  assert.equal(written.includes('SECRET-8'), false);
+});
+
+test('세션 저장이 저장소 오류로 실패하면 bootstrap 을 버린다', async () => {
+  stub([bootstrapped('BOOT9', 'u2', 'SECRET-9')]);
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.sessionBundle') throw new Error('키체인 쓰기 실패');
+    return realWrite(key, value);
+  });
+
+  await assert.rejects(login('apple', 'apple-jwt', '2026-09'), /키체인 쓰기 실패/);
+  write.mockImplementation(realWrite);
+
+  assert.equal(getSession(), null);
+  assert.equal(takeDeviceBootstrap('BOOT9_RT'), undefined);
+});
+
+test('세대가 바뀌어 저장이 버려진 로그인의 bootstrap 은 남지 않는다', async () => {
+  stub([
+    bootstrapped('BOOT10', 'u2', 'SECRET-10'),
+    { status: 200, body: { data: { revoked: true } } },
+  ]);
+  // 줄 앞에 선 다른 저장이 먼저 공개되면, 같은 세대를 잡고 온 로그인 저장은 버려진다.
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    await gate;
+    return realWrite(key, value);
+  });
+  const ahead = saveSession({ accessToken: 'X_AT', refreshToken: 'X_RT', userId: 'ux' });
+  const loggingIn = login('apple', 'apple-jwt', '2026-09');
+  // 마이크로태스크가 모두 빠진 뒤 — 로그인 응답이 돌아와 저장이 줄 맨 뒤에 선 뒤 — 줄을 연다.
+  setTimeout(open, 0);
+
+  const error = await loggingIn.then(
+    () => null,
+    (e: ApiError) => e,
+  );
+  await ahead;
+  write.mockImplementation(realWrite);
+
+  assert.equal(error?.code, CLIENT_STALE_SESSION);
+  assert.equal(takeDeviceBootstrap('BOOT10_RT'), undefined);
+});
+
+test('세션 공개 알림이 login 반환보다 먼저 와도 그 세션의 RT 로 꺼낼 수 있다', async () => {
+  stub([bootstrapped('BOOT11', 'u2', 'SECRET-11')]);
+  let takenInNotification: string | undefined = 'not-notified';
+  const unsubscribe = subscribeSession((published) => {
+    if (published?.refreshToken === 'BOOT11_RT')
+      takenInNotification = takeDeviceBootstrap(published.refreshToken);
+  });
+
+  try {
+    await login('apple', 'apple-jwt', '2026-09');
+  } finally {
+    unsubscribe();
+  }
+
+  // saveSession 이 구독자에게 알리는 시점은 login 이 반환하기 전이다 — 그때 이미 묶여 있어야 한다.
+  assert.equal(takenInNotification, 'SECRET-11');
+  assert.equal(takeDeviceBootstrap('BOOT11_RT'), undefined);
 });

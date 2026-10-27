@@ -22,7 +22,6 @@ import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
@@ -77,8 +76,8 @@ import static org.mockito.Mockito.when;
  * 드러나는 결함이라 Testcontainers 없이 mock 으로 「순서」와 「anchor」를 직접 본다.
  *
  * <ol>
- *   <li><b>시작 게이트</b> — 배포 설정({@code focus.session.start-enabled})이 꺼져 있으면 어떤 행도 만들지
- *       않는다(GROMO-1924 에서 상수 false → 설정)</li>
+ *   <li><b>시작</b> — 입력 검증은 어떤 행도 만들기 전에 걸리고, 열린 start 는 rest 투영 제거 사건과
+ *       프레즌스 리스를 함께 남긴다(시작 게이트 설정은 티켓 2535 로 걷었다)</li>
  *   <li><b>구간 전환 순서</b> — 닫는 UPDATE 를 flush 하지 않고 새 구간을 save 하면 Hibernate 가
  *       INSERT 를 먼저 내보내 {@code focus_session_intervals_open_uk} 를 위반한다</li>
  *   <li><b>전이 시각 역행</b> — NTP 보정으로 벽시계가 뒤로 가면 {@code ended_at >= started_at} CHECK 가
@@ -120,54 +119,31 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private GroupMember membership;
 
     private FocusSessionLifecycleService service(Instant wallClock) {
-        return service(wallClock, false);
-    }
-
-    private FocusSessionLifecycleService service(Instant wallClock, boolean startEnabled) {
-        return new FocusSessionLifecycleService(new FocusSessionStartGate(startEnabled), userQueryService,
+        return new FocusSessionLifecycleService(userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
                 new SeaSessionPredicate(), customizationRewards,
-                null, new SeaSessionEvents(outboxCommandPort,
-                new org.springframework.beans.factory.support.StaticListableBeanFactory()
-                        .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
+                null, new SeaSessionEvents(outboxCommandPort),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
                 Clock.fixed(wallClock, ZoneOffset.UTC), null, weeklyFocus);
     }
 
-    // ── 1. 시작 게이트 ────────────────────────────────────────────────────────
+    // ── 1. 시작 ───────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("start 는 활성화 설정(focus.session.start-enabled)이 꺼져 있으면 503 이다 — 행을 만들지 않는다")
-    void startIsRefusedWhileTheGateIsClosed() {
-        assertThatThrownBy(() -> service(NOW).start(USER,
-                new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 60), KEY))
+    @DisplayName("본문이 없는 start 는 INVALID_SUBJECT 이다 — 잠금도, 멱등 명령도, 어떤 행도 만들지 않는다")
+    void startRejectsMissingBodyBeforeAnyRowIsCreated() {
+        assertThatThrownBy(() -> service(NOW).start(USER, null, KEY))
                 .isInstanceOf(FocusException.class)
                 .extracting("errorCode")
-                .isEqualTo(FocusErrorCode.SESSION_START_UNAVAILABLE);
+                .isEqualTo(FocusErrorCode.INVALID_SUBJECT);
 
-        // 게이트는 «가장 앞»이다 — 잠금도, 멱등 명령도, 어떤 행도 만들지 않는다.
         verify(userQueryService, never()).getCallerForUpdate(any());
         verify(publicCommands, never()).run(any(), any(), any(), any());
         verify(focusSessionRepository, never()).save(any());
         verify(focusSessionDetailRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("게이트 판정은 입력 검증보다 앞이고, 기준은 설정 값 하나다 — 켜면 같은 입력이 400 으로 간다")
-    void startGateWinsOverInputValidation() {
-        assertThatThrownBy(() -> service(NOW).start(USER, null, KEY))
-                .isInstanceOf(FocusException.class)
-                .extracting("errorCode")
-                .isEqualTo(FocusErrorCode.SESSION_START_UNAVAILABLE);
-
-        // 같은 요청이 설정을 켠 인스턴스에서는 게이트를 지나 입력 검증에 걸린다 — 상수가 아니다.
-        assertThatThrownBy(() -> service(NOW, true).start(USER, null, KEY))
-                .isInstanceOf(FocusException.class)
-                .extracting("errorCode")
-                .isEqualTo(FocusErrorCode.INVALID_SUBJECT);
     }
 
     @Test
@@ -198,7 +174,7 @@ class FocusSessionLifecycleGuardsTest {
             return new IdempotentOutcome<>(PublicCommandReceipt.completed(request, command.get()), false);
         });
 
-        service(NOW, true).start(USER, new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 25), KEY);
+        service(NOW).start(USER, new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 25), KEY);
 
         var captor = org.mockito.ArgumentCaptor.forClass(OutboxAppendCommand.class);
         verify(outboxCommandPort, times(2)).append(captor.capture());
@@ -232,7 +208,7 @@ class FocusSessionLifecycleGuardsTest {
             return new IdempotentOutcome<>(PublicCommandReceipt.completed(request, command.get()), false);
         });
 
-        assertThatThrownBy(() -> service(NOW, true).start(USER,
+        assertThatThrownBy(() -> service(NOW).start(USER,
                 new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 25), KEY))
                 .isInstanceOf(FocusException.class)
                 .extracting("errorCode")

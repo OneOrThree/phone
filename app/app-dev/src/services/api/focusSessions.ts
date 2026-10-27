@@ -4,7 +4,7 @@
  *
  * 계약(`docs/prd/fishcat/focus-rest-session/low-level-design.md` §2):
  *  - `POST /focus-sessions`                       시작. `Idempotency-Key`(UUID36) 필수,
- *                                               body `{islandId, subject, targetMinutes?}`.
+ *                                               body `{islandId, subject, targetMinutes?, seat?}`.
  *  - `GET  /focus-sessions/current`              진행 세션. 없으면 `data:null`(404 아님).
  *  - `POST /focus-sessions/{id}/pause|resume`    body `{expectedVersion}` 한 필드 + 키 필수.
  *  - `POST /focus-sessions/{id}/finish`          body `{expectedVersion}` + 키 필수 → 정산 뷰.
@@ -95,11 +95,30 @@ export type FocusFinishView = {
   } | null;
 };
 
+/** 집중섬 자리(GROMO-2477) — 지도 % 좌표(앱 `focusSpot` 그대로, 반올림 금지). */
+export type FocusSeat = { x: number; y: number };
+
+/** 두 좌표가 숫자이고 0~100 이면 자리, 아니면 null(NaN·문자열·키 없음 포함). */
+export const focusSeat = (v: unknown): FocusSeat | null => {
+  const p = v as { x?: unknown; y?: unknown } | null | undefined;
+  return p &&
+    typeof p.x === 'number' &&
+    typeof p.y === 'number' &&
+    p.x >= 0 &&
+    p.x <= 100 &&
+    p.y >= 0 &&
+    p.y <= 100
+    ? { x: p.x, y: p.y }
+    : null;
+};
+
 export type FocusSessionStartInput = {
   islandId: string;
   subject: string;
   /** 선택 — 없으면 키 자체를 생략한다(명시적 null 금지). */
   targetMinutes?: number;
+  /** 선택(GROMO-2477) — 고른 자리가 없으면 키 자체를 생략한다(명시적 null 금지, 옛 서버는 4필드를 400). */
+  seat?: FocusSeat;
 };
 
 /** 진행 세션이 없으면 null 이 정상값이다(`data:null`). */
