@@ -790,7 +790,10 @@ class FocusSessionActivationIntegrationTest {
     @Test
     @DisplayName("테스트 프로파일(ci)에서는 @Scheduled 트리거가 꺼져 있다 — 항상 켜진 분당 적립 크론이 다른 테스트의 데이터를 바꾸지 않는다")
     void scheduledTriggersAreOffUnderTheTestProfile() {
-        assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class))
+                .as("ci 프로필에서 예약 작업이 켜지면 분당 적립 크론(FocusRewardScheduler)이 통합 테스트 데이터를 바꾼다 — "
+                        + "application-ci.yml 의 app.scheduling.enabled=false 확인")
+                .isEmpty();
     }
 
     @Test

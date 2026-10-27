@@ -130,6 +130,25 @@ class InternalAuthFilterTest {
     }
 
     @Test
+    @DisplayName("토큰이 있는 caller 가 하나도 없으면 «없는» 표면이다 — 토큰이 빈 선택 caller 만 배선돼도 401 이 아니라 404 다")
+    void onlyBlankTokenOptionalCallersMeansNotFound() throws Exception {
+        InternalApiProperties properties = new InternalApiProperties();
+        InternalApiProperties.Caller ops = new InternalApiProperties.Caller();
+        ops.setToken("");
+        ops.setOptional(true);
+        ops.setAllow(List.of("POST /internal/admin/island-focus-averages/snapshots"));
+        properties.getCallers().put("ops", ops);
+        MockHttpServletRequest request = request("POST", "/internal/admin/island-focus-averages/snapshots");
+        request.addHeader("Authorization", "Bearer " + BUSINESS_TOKEN);
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_NOT_FOUND);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
     @DisplayName("caller 별 허용목록이 실제로 갈린다 — 알림 자격으로 Business 명령에 닿지 못한다")
     void allowlistIsPerCaller() throws Exception {
         UUID userId = UUID.randomUUID();
