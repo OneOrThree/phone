@@ -3289,6 +3289,8 @@ function FocusFlow({ e: environment }: any) {
   };
   // 스크린리더: 걸어갈 수 있는 빈 땅을 골라 걸어간 뒤 바로 준비 카드까지 연다.
   const selectAccessibleSpot = () => {
+    // 뗏목으로 돌아가는 중이면 귀환 걷기를 끊지 않는다(startHere 와 같은 이유)
+    if (returningFromArrival.current) return;
     const spot = findReachableTutorialSpot(
       fishingGrid,
       walker.p,

@@ -73,8 +73,14 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   const { View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ goldenFish, children, overlay, onRaft, onTap }: any) => (
-      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft} onTap={onTap}>
+    FishingIsland: ({ goldenFish, children, overlay, onRaft, onTap, onSitAccessible }: any) => (
+      <View
+        testID="golden-world"
+        goldenFish={goldenFish}
+        onRaft={onRaft}
+        onTap={onTap}
+        onSitAccessible={onSitAccessible}
+      >
         {children(640, 640 / 1.5, 1)}
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
@@ -419,9 +425,10 @@ test.each(['button', 'hardware'] as const)(
       await act(async () => {
         expect(backOverride.current?.()).toBe(true);
       });
-    // 귀환 도중 땅을 다시 누르거나 [집중 시작]을 눌러도 귀환 걷기가 끊기지 않는다.
+    // 귀환 도중 땅을 다시 누르거나 [집중 시작]·스크린리더 「빈 자리에 앉기」를 눌러도 귀환 걷기가 끊기지 않는다.
     await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
     await fireEvent.press(screen.getByTestId('focus-start'));
+    await act(async () => screen.getByTestId('golden-world').props.onSitAccessible());
     await act(async () => jest.advanceTimersByTime(20000));
     expect(go).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenCalledWith('returnTravel');
