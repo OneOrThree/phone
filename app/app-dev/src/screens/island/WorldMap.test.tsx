@@ -571,6 +571,75 @@ test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 �
   expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
 });
 
+test('홈 지도는 기본 화면보다 더 확대되지 않는다', async () => {
+  const createPanResponder = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPanResponder.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const buildingWidth = () =>
+    StyleSheet.flatten(screen.getByTestId('world-hall-motion').props.style).width;
+  const initialWidth = buildingWidth();
+
+  await act(async () => {
+    pan.onPanResponderGrant!(pinch(200), {} as any);
+    pan.onPanResponderMove!(pinch(520), {} as any);
+    pan.onPanResponderRelease!(pinch(520), {} as any);
+  });
+
+  expect(buildingWidth()).toBeCloseTo(initialWidth);
+  await screen.unmount();
+});
+
+test('새 마을 미리보기는 기존처럼 기본 화면보다 확대할 수 있다', async () => {
+  const createPanResponder = jest.spyOn(PanResponder, 'create');
+  const state = initialState(true);
+  const screen = await render(
+    <WorldMap state={state} village={villageScene(['hall'])}>
+      {(scale) => <View testID="preview-scale" style={{ width: scale }} />}
+    </WorldMap>,
+  );
+  const pan = createPanResponder.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const initialScale = StyleSheet.flatten(screen.getByTestId('preview-scale').props.style).width;
+
+  await act(async () => {
+    pan.onPanResponderGrant!(pinch(200), {} as any);
+    pan.onPanResponderMove!(pinch(520), {} as any);
+    pan.onPanResponderRelease!(pinch(520), {} as any);
+  });
+
+  expect(StyleSheet.flatten(screen.getByTestId('preview-scale').props.style).width).toBeGreaterThan(
+    initialScale,
+  );
+  await screen.rerender(
+    <WorldMap state={state}>
+      {(scale) => <View testID="preview-scale" style={{ width: scale }} />}
+    </WorldMap>,
+  );
+  expect(StyleSheet.flatten(screen.getByTestId('preview-scale').props.style).width).toBeCloseTo(
+    initialScale,
+  );
+  await screen.unmount();
+});
+
 test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 뗏목 행선지를 연다', async () => {
   const go = jest.fn();
   const state = initialState(true);

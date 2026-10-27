@@ -172,9 +172,10 @@ const TILE_ISLAND = Platform.OS !== 'web';
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
-// 홈 지도 확대·축소 한계. 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
+// 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
 const MIN_ZOOM = 0.35,
-  MAX_ZOOM = 2.6;
+  HOME_MAX_ZOOM = 1,
+  OTHER_MAX_ZOOM = 2.6;
 /**
  * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
  * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
@@ -661,6 +662,10 @@ export function WorldMap({
     : L.landscape
       ? (L.height / 1140) * 1.5
       : (((L.height / 874) * 402) / 1536) * 2.8;
+  const maxZoom = fishing || village ? OTHER_MAX_ZOOM : HOME_MAX_ZOOM;
+  useEffect(() => {
+    setCamera((c) => (c.z > maxZoom ? { ...c, z: maxZoom } : c));
+  }, [maxZoom]);
   const scale = base * camera.z,
     left = L.width / 2 - camera.x * scale,
     top = L.height / 2 - camera.y * scale;
@@ -672,6 +677,7 @@ export function WorldMap({
     top,
     width: L.width,
     height: L.height,
+    maxZoom,
     onSpot,
   });
   current.current = {
@@ -682,6 +688,7 @@ export function WorldMap({
     top,
     width: L.width,
     height: L.height,
+    maxZoom,
     onSpot,
   };
   const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
@@ -697,7 +704,7 @@ export function WorldMap({
     ...c,
     x: Math.max(0, Math.min(grid.w, c.x)),
     y: Math.max(0, Math.min(grid.h, c.y)),
-    z: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, c.z)),
+    z: Math.max(MIN_ZOOM, Math.min(current.current.maxZoom, c.z)),
   });
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof camera) => {
@@ -761,7 +768,7 @@ export function WorldMap({
             begin(tp);
             return;
           }
-          const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (o.z * dist(tp)) / o.dist)),
+          const z = Math.max(MIN_ZOOM, Math.min(v.maxZoom, (o.z * dist(tp)) / o.dist)),
             m = midpoint(tp);
           show(
             clamp({
