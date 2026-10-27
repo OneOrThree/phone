@@ -60,12 +60,25 @@ class ApidogMergeTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             self.merge(**{"business-api": make_spec({"/me": ["get"]}, tag="brand-new-controller")})
         self.assertIn("brand-new", str(ctx.exception))
+        # @Tag(name=...) 을 직접 단 이름도 대응표에 없으면 같은 실패다.
+        with self.assertRaises(SystemExit):
+            self.merge(**{"business-api": make_spec({"/me": ["get"]}, tag="Health")})
+
+    def test_legacy_전용_컨트롤러도_대응표에_없으면_실패(self):
+        with self.assertRaises(SystemExit):
+            self.merge(**{"business-api": make_spec({"/api/v1/x": ["get"]},
+                                                    tag="brand-new-controller")})
 
     def test_태그가_없으면_실패(self):
-        spec = make_spec({"/me": ["get"]})
-        del spec["paths"]["/me"]["get"]["tags"]
-        with self.assertRaises(SystemExit):
-            self.merge(**{"business-api": spec})
+        for tags in (None, []):
+            with self.subTest(tags=tags):
+                spec = make_spec({"/me": ["get"]})
+                if tags is None:
+                    del spec["paths"]["/me"]["get"]["tags"]
+                else:
+                    spec["paths"]["/me"]["get"]["tags"] = tags
+                with self.assertRaises(SystemExit):
+                    self.merge(**{"business-api": spec})
 
     def test_대응표에_한_컨트롤러가_두_도메인에_있지_않다(self):
         listed = [c for controllers in merge_mod.DOMAINS.values() for c in controllers]

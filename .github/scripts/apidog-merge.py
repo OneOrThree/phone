@@ -148,7 +148,9 @@ def namespace_spec(spec, service):
 
 
 def domain_of(op, service, method, path):
-    """operation 의 첫 태그(컨트롤러)로 도메인을 찾는다. 대응표에 없으면 실패한다."""
+    """operation 의 첫 태그(컨트롤러)로 도메인을 찾는다. 대응표에 없으면 실패한다.
+    컨트롤러 하나가 태그 하나라 첫 태그만 본다. `@Tag(name=...)` 을 직접 단 컨트롤러는
+    그 이름이 대소문자 그대로 키가 된다."""
     tag = (op.get("tags") or [""])[0]
     controller = re.sub(r"^internal-|-controller$", "", tag)
     domain = CONTROLLER_DOMAIN.get(controller)
@@ -178,8 +180,9 @@ def tag_folder(spec, service):
             if method.lower() not in HTTP_METHODS or not isinstance(op, dict):
                 continue
             op["operationId"] = f"{service}.{op.get('operationId') or operation_id_fallback(method, path)}"
-            op["x-apidog-folder"] = (f"{service}/legacy" if legacy
-                                     else f"{service}/{domain_of(op, service, method, path)}")
+            # legacy 도 대응표를 거친다 — legacy 전용 컨트롤러가 검사를 빠져나가지 않게.
+            domain = domain_of(op, service, method, path)
+            op["x-apidog-folder"] = f"{service}/legacy" if legacy else f"{service}/{domain}"
             owned.append((method.lower(), path))
     return owned
 
