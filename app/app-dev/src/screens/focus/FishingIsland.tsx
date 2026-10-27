@@ -28,7 +28,7 @@ import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import type { Outfit } from '@/components/CatOutfitLayers';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
-import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
+import { Grid, Point, landPath, nearestLand, waterAt } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import { keepLabelInView } from '@/utils/island-camera';
 import land from '@/constants/fishing-island.json';
@@ -42,7 +42,7 @@ import {
 } from '@/screens/focus/FishingSceneMotion';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
-// 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
+// 땅 격자는 시안 land_mask 에서 온 50×50 칸. 나무·바위 칸('2')은 그림에서 뽑았다(scripts/build-focus-mask.py).
 export const fishingGrid: Grid = land;
 export const INK = componentTokens.nameplate.ink,
   OUTLINE = componentTokens.nameplate.outline,
@@ -176,7 +176,8 @@ export function castSpot({ x, y }: Point): Spot {
   let best: Point | null = null,
     d = 144;
   for (let c = 0; c < fishingGrid.cells.length; c++) {
-    if (fishingGrid.cells[c] === '1') continue;
+    // 물 칸으로만 던진다 — 나무·바위('2')는 물이 아니다.
+    if (fishingGrid.cells[c] !== '0') continue;
     const wx = (((c % fishingGrid.cols) + 0.5) * fishingGrid.w) / fishingGrid.cols,
       wy = ((Math.floor(c / fishingGrid.cols) + 0.5) * fishingGrid.h) / fishingGrid.rows,
       dd = (wx - x) ** 2 + ((wy - y) / FISHING_MAP_ASPECT) ** 2;
@@ -188,7 +189,7 @@ export function castSpot({ x, y }: Point): Spot {
   return best ? { x, y, face: best.x < x ? -1 : 1, bx: best.x, by: best.y } : { x, y, face: 1 };
 }
 // 잡은 물고기 이미지는 고양이 뒤에 놓인다. 배치 단위는 고양이 크기의 배수라
-// 화면 크기·방향에 영향받지 않으며, 투명 여백까지 포함한 이미지 프레임이 땅에 놓이도록 한다.
+// 화면 크기·방향에 영향받지 않으며, 투명 여백까지 포함한 이미지 프레임이 물에 걸치지 않게 한다(나무·바위 칸은 괜찮다).
 const fishingCatchFrame = { width: 1.1, height: 1.1 };
 const catchFootprintOnLand = (
   spot: Point,
@@ -210,14 +211,7 @@ const catchFootprintOnLand = (
     lastRow = Math.ceil((bottom - 1e-9) / cellHeight) - 1;
   for (let row = firstRow; row <= lastRow; row++)
     for (let col = firstCol; col <= lastCol; col++)
-      if (
-        row < 0 ||
-        row >= fishingGrid.rows ||
-        col < 0 ||
-        col >= fishingGrid.cols ||
-        fishingGrid.cells[row * fishingGrid.cols + col] !== '1'
-      )
-        return false;
+      if (waterAt(fishingGrid, col, row)) return false;
   return true;
 };
 const catchBounds = (spot: Point, placement: FishingCatchPlacement) => {
@@ -309,8 +303,8 @@ export function fishingCatchFootprintOnLand(
 }
 // 지도 % 좌표 사이 거리(세로 %는 지도 비율 1024/1536으로 맞춰 지도 폭 % 단위로 잰다)
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, (q.y - p.y) / FISHING_MAP_ASPECT);
-// 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
-export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
+// 스크린리더로 자리를 고를 때 앉는 기본 빈 자리. 시안 예시 내 자리(34.1, 55.9)는 연못 물 칸이라 한 칸 아래.
+export const DEFAULT_SPOT = { x: 34.1, y: 57 };
 const defaultCatchSpot = castSpot(DEFAULT_SPOT);
 export const DEFAULT_CATCH_PLACEMENT = fishingCatchPlacement(defaultCatchSpot);
 const DEFAULT_CATCH_RESERVATION: Spot = {
@@ -326,12 +320,13 @@ export const underDefaultCatch = (p: Point) =>
   boundsOverlap(catBounds(p), catchBounds(defaultCatchSpot, DEFAULT_CATCH_PLACEMENT));
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // resident 자리/보상은 섬 건물 상태와 무관하게 같은 좌표를 쓰도록 축음기 설치 상태 기준으로 미리 배치한다.
-// 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
+// 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 10.5% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
   const initial: Spot[] = [
-      { x: 18.5, y: 39.5 },
-      { x: 60.2, y: 44.1 },
+      // 시안 좌표(18.5, 39.5)·(60.2, 44.1)은 물·바위 칸이라 가까운 걸을 수 있는 칸으로 옮겼다.
+      { x: 17.5, y: 39.5 },
+      { x: 62.5, y: 43 },
       { x: 45, y: 25 },
       { x: 70, y: 30 },
       { x: 80, y: 62 },
@@ -341,18 +336,19 @@ export const PEER_SPOTS: Spot[] = (() => {
     spots: Spot[] = [],
     avoid = [GRAM, LANDING, DEFAULT_SPOT],
     { cols, cells } = fishingGrid,
-    land = (c: number) => cells[c] === '1',
+    dry = (c: number) => cells[c] !== '0',
     candidates: Point[] = [];
   for (let c = 0; c < cells.length; c++) {
     const col = c % cols,
       row = Math.floor(c / cols);
-    // 네 이웃도 땅인 칸(물가 끝에 걸치지 않게)
+    // 걸을 수 있는 칸 가운데 네 이웃이 물이 아닌 칸(물가 끝에 걸치지 않게, 나무·바위 옆은 괜찮다)
     if (
       col &&
       row &&
       col < cols - 1 &&
       row < cols - 1 &&
-      [c, c - 1, c + 1, c - cols, c + cols].every(land)
+      cells[c] === '1' &&
+      [c - 1, c + 1, c - cols, c + cols].every(dry)
     )
       candidates.push({ x: (col + 0.5) * 2, y: (row + 0.5) * 2 });
   }
@@ -371,7 +367,8 @@ export const PEER_SPOTS: Spot[] = (() => {
     const placement = fishingCatchPlacement(spot, [...spots, DEFAULT_CATCH_RESERVATION]);
     if (
       !nearGram(p) &&
-      [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
+      // 나무·바위 칸(티켓 2516)이 빠진 뒤 11% 로는 14자리뿐이라 10.5%. 고양이 겹침 기준(SEAT_GAP 8.5%)보다는 넓다.
+      [...spots, ...avoid].every((q) => apart(p, q) >= 10.5) &&
       spot.bx != null &&
       placement
     )
@@ -429,6 +426,21 @@ const hit = (a: { l: number; t: number; r: number; b: number }, b: typeof raftRe
   a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
 export const nearRaft = (p: Point) =>
   hit(catRect(p), raftRect) || hit(catRect(p), catRect(LANDING));
+// 서 있는 자리에서 집중을 시작할 수 있는지 — 뗏목 · 축음기 · 앉은 주민만 본다. 고양이는 걸을 수 있는 칸('1')으로만
+// 걸어가므로 물·나무·바위는 볼 필요가 없다. 물고기 더미는 놓을 땅이 없으면 숨기므로 자리 조건이 아니다.
+export type SeatProblem = 'occupied' | 'nearGram' | 'nearRaft';
+export const seatProblem = (
+  p: Point,
+  peerSpots: Point[],
+  gramBuilt: boolean,
+): SeatProblem | null =>
+  occupied(p, peerSpots)
+    ? 'occupied'
+    : gramBuilt && nearGram(p)
+      ? 'nearGram'
+      : nearRaft(p)
+        ? 'nearRaft'
+        : null;
 // 뒤 화면을 스크린리더에서 숨긴다(모달·준비 카드가 떠 있을 때)
 export const a11yHidden = (hidden: boolean) =>
   hidden
@@ -493,6 +505,7 @@ export function FishingIsland({
   ratio = 0.5,
   spots,
   onTap,
+  onSitAccessible,
   onRaft,
   raftLabel = t('focusFlow.common.raftLabel'),
   gram = false,
@@ -508,6 +521,8 @@ export function FishingIsland({
   ratio?: number;
   spots: Spot[];
   onTap?: (p: Point) => void;
+  /** 스크린리더 「빈 자리에 앉기」 동작. 없으면 onTap(DEFAULT_SPOT). */
+  onSitAccessible?: () => void;
   onRaft: () => void;
   raftLabel?: string;
   // 축음기(우리 섬에 지었을 때만 보임). onGram 이 없으면 그림만(누를 수 없음), 누르면 음악 고르기만 열리고 고양이는 걷지 않는다
@@ -671,7 +686,9 @@ export function FishingIsland({
             accessibilityActions={
               onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
             }
-            onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
+            onAccessibilityAction={() =>
+              onSitAccessible ? onSitAccessible() : onTap?.(DEFAULT_SPOT)
+            }
             style={StyleSheet.absoluteFill}
             onPress={(e) => {
               if (dragged.current || !onTap) return;

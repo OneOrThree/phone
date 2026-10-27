@@ -8,7 +8,7 @@
  * 완공은 서버 스케줄러가 매분 처리하므로, 예정 시각이 지나면 카드가 스스로 홈을 다시 읽는다.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { View, type ViewStyle } from 'react-native';
+import { View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import { Bar, Btn, Txt } from '@/design-system/patterns';
 import { primitiveTokens } from '@/design-system/tokens';
 import { buildingNames, type Building } from '@/services/model';
@@ -28,6 +28,7 @@ export function ServerBuildCard({
   villagePoints,
   tracked,
   style,
+  onLayout,
   onStarted,
   onChanged,
 }: {
@@ -39,6 +40,8 @@ export function ServerBuildCard({
   /** 이 기기에서 받은 착공 receipt(clientConstruction) — 공사 중 표시용. */
   tracked: Tracked;
   style: ViewStyle;
+  /** 홈이 카드 높이를 재 채팅 줄을 그 위에 둔다(GROMO-2501). */
+  onLayout?: (event: LayoutChangeEvent) => void;
   onStarted: (receipt: {
     islandId: string;
     building: Building;
@@ -197,7 +200,11 @@ export function ServerBuildCard({
   }
 
   return (
-    <View testID="server-build-card" style={[style, { gap: primitiveTokens.space[2] }]}>
+    <View
+      testID="server-build-card"
+      onLayout={onLayout}
+      style={[style, { gap: primitiveTokens.space[2] }]}
+    >
       <View
         style={{
           flexDirection: 'row',

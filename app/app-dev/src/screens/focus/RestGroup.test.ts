@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
-import { Animated, AppState } from 'react-native';
+import { Animated, AppState, StyleSheet } from 'react-native';
 import { RestGroup, restSeats, seatBox } from '@/screens/focus/RestGroup';
 import { restPose, useRestClock } from '@/screens/focus/RestCampfireMotion';
 import { initialState } from '@/services/model';
 import { applyLocalePref } from '@/i18n';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -168,6 +169,48 @@ test('다른 주민 식빵을 누르면 정보창이 뜨고(GROMO-2474), 내 고
   await screen.unmount();
 });
 
+test('차단한 주민(GROMO-2470)은 차단 직후 식빵·이름·누르는 자리·열린 정보창이 사라지고 다른 주민은 제 자리 그대로, 해제하면 다시 앉는다', async () => {
+  replaceBlockedUsers([]);
+  // 서버 restSeat 가 없는 두 주민 — 순서대로 0·1번 자리를 받는다
+  const resting = (userId: string, name: string) => ({
+    userId,
+    name,
+    catColor: 'cream',
+    restStartedAt: new Date().toISOString(),
+    restSeat: null,
+  });
+  const live = {
+    status: 'ready',
+    clockOffset: 0,
+    rest: [resting('blocked', '밍키'), resting('other', '두부')],
+  } as any;
+  const screen = await render(
+    React.createElement(RestGroup, {
+      state: initialState(true),
+      live,
+      home: jest.fn(),
+      resume: jest.fn(),
+    }),
+  );
+  assert.ok(screen.getByTestId('loaf-0'));
+  assert.ok(screen.getByTestId('loaf-1'));
+  await fireEvent.press(screen.getByLabelText('밍키 정보 보기'));
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('밍키');
+  await act(async () => markUserBlocked('blocked'));
+  assert.equal(screen.queryByTestId('cat-info-name'), null);
+  assert.equal(screen.queryByTestId('loaf-0'), null);
+  assert.equal(screen.queryByText('밍키'), null);
+  assert.equal(screen.queryByTestId('rest-cat-blocked'), null);
+  // 두부는 빈 0번으로 옮기지 않는다
+  assert.ok(screen.getByTestId('loaf-1'));
+  assert.ok(screen.getByTestId('rest-cat-other'));
+  await act(async () => markUserUnblocked('blocked'));
+  assert.ok(screen.getByTestId('loaf-0'));
+  assert.ok(screen.getByText('밍키'));
+  await screen.unmount();
+  replaceBlockedUsers([]);
+});
+
 test('영어 모닥불 구경은 서버 휴식 주민만 표시하고 준비 중에는 목업 주민을 쓰지 않는다', async () => {
   applyLocalePref('en');
   try {
@@ -252,6 +295,15 @@ test.each([
     expect(loop).toHaveBeenCalledTimes(loops);
     screen.getByTestId('rest-campfire-back');
     screen.getByTestId('rest-campfire-front');
+    if (reduceMotion) {
+      // 동작 줄이기에서도 모닥불은 켜진 정지 불꽃 한 장이다(GROMO-2483) — 연기·불티만 뺀다
+      const lit = ([1, 2, 3] as const).filter(
+        (f) =>
+          StyleSheet.flatten(screen.getByTestId(`rest-campfire-flame-${f}`).props.style).opacity ===
+          1,
+      );
+      expect(lit).toEqual([1]);
+    }
     await screen.unmount();
   } finally {
     loop.mockRestore();

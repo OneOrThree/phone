@@ -1,3 +1,4 @@
+-- GROMO-2537: V2의 건물 종류 정본 이후 가상 무인도 목적지를 허용한다.
 ALTER TABLE focus_session_details
     DROP CONSTRAINT focus_session_details_island_id_fkey,
     ADD COLUMN new_island_destination boolean NOT NULL DEFAULT false,

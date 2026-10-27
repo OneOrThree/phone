@@ -7,7 +7,11 @@ import { PermissionsAndroid } from 'react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
-import { hasBundledAudio } from '@/constants/audio';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, getLocale, t } from '@/i18n';
 import { ownCatName } from '@/i18n/format';
@@ -29,6 +33,7 @@ import {
   Keyboard,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -60,6 +65,8 @@ import {
   islandWeeklyAverage,
   hoursMinutes,
   trackNames,
+  products,
+  canBuy,
   SERVER_VISIT_ROUTES,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -96,24 +103,20 @@ import {
   a11yHidden,
   anchorCard,
   labelBox,
-  nearGram,
-  nearRaft,
-  occupied,
-  DEFAULT_CATCH_PLACEMENT,
   DEFAULT_SPOT,
   LANDING,
   OUTLINE,
-  PEER_SPOTS,
   castSpot,
-  fishingCatchPlacement,
   fishingPeerCatchVisible,
   fiCard,
   fiTitle,
   fishingGrid,
   hms,
+  DEFAULT_CATCH_PLACEMENT,
+  seatProblem,
 } from '@/screens/focus/FishingIsland';
 import { Text, TextInput } from '@/design-system/typography';
-import { Point, landPath, onLand } from '@/utils/world-grid';
+import { Point, landPath, nearestLand, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
@@ -125,6 +128,7 @@ import {
   useSpotlightTarget,
 } from '@/screens/island/NpcGuide';
 import { useBoardHomeIndicator } from '@/screens/island/useBoardHomeIndicator';
+import { useShop } from '@/screens/island/useShop';
 import { CatSprite } from '@/components/CatSprite';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
@@ -157,6 +161,8 @@ import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
 import { josa } from '@/i18n/format';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
+import { IslandChatSheet } from '@/screens/island/IslandChatSheet';
+import { useIslandChat } from '@/screens/island/useIslandChat';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
@@ -523,6 +529,13 @@ function CurrentScreensContent({ e }: any) {
     markRead: ['board', 'notice'].includes(r),
     readVersion: boardReadVersion,
   });
+  // 우리 섬 채팅방(GROMO-2499) — 우체통 밖으로 꺼냈다. 서버 모드의 내 섬에서만 읽고, 구경 중에는 부르지 않는다.
+  // 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501)도 같은 훅을 써서 홈 ↔ 채팅방을 오갈 때 다시 불러오지 않는다
+  const islandChat = useIslandChat({
+    islandId:
+      e.islands && !state.visitingIslandId ? (state.serverIslands?.currentIslandId ?? null) : null,
+    active: r === 'chat' || r === 'home',
+  });
   const rewardIslandId = r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL ? i.id : undefined;
   const rewardModalOpen =
     !state.visitingIslandId && pendingQuestRewards(state.rewards, rewardIslandId).length > 0;
@@ -694,7 +707,6 @@ function CurrentScreensContent({ e }: any) {
     tower: 'tower',
     explore: 'tower',
     mail: 'mail',
-    chat: 'mail',
     friendMail: 'mail',
     shop: 'shop',
     product: 'shop',
@@ -812,8 +824,28 @@ function CurrentScreensContent({ e }: any) {
         {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>
     );
-  if (['mail', 'chat', 'friendMail'].includes(r))
+  if (['mail', 'friendMail'].includes(r))
     return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
+  // 우리 섬 채팅방 — 우체통이 없어도 섬 홈 위 시트로 연다(GROMO-2499). 뒤 섬 홈은 스크린리더에서 숨긴다
+  if (r === 'chat')
+    return (
+      <>
+        <View
+          style={StyleSheet.absoluteFill}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        </View>
+        <IslandChatSheet e={e} chat={islandChat} />
+      </>
+    );
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
   if (r === 'telescope') return <Telescope e={e} />;
@@ -847,7 +879,7 @@ function CurrentScreensContent({ e }: any) {
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
-  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today }} />;
+  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today, islandChat }} />;
 }
 
 async function openScreenTimeSettings(notify: (message: string) => void) {
@@ -1992,6 +2024,73 @@ function FishingCatInfo({
     />
   );
 }
+function FocusVolume({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [width, setWidth] = useState(1);
+  const latest = useRef({ value, onChange, width });
+  latest.current = { value, onChange, width };
+  const setFromTouch = (locationX: number) =>
+    latest.current.onChange(Math.max(0, Math.min(1, locationX / latest.current.width)));
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (event) => setFromTouch(event.nativeEvent.locationX),
+      onPanResponderMove: (event) => setFromTouch(event.nativeEvent.locationX),
+    }),
+  ).current;
+  const thumbSize = semanticTokens.spacing.section;
+  return (
+    <View
+      accessibilityRole="adjustable"
+      accessibilityLabel={t('focusFlow.music.deviceVolume')}
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(event) =>
+        onChange(
+          Math.max(
+            0,
+            Math.min(1, value + (event.nativeEvent.actionName === 'increment' ? 0.1 : -0.1)),
+          ),
+        )
+      }
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      {...pan.panHandlers}
+      style={{ height: semanticTokens.size.tapMin, justifyContent: 'center' }}
+    >
+      <View
+        style={{
+          height: componentTokens.progress.height,
+          borderRadius: semanticTokens.radius.full,
+          backgroundColor: componentTokens.progress.track,
+        }}
+      >
+        <View
+          style={{
+            height: componentTokens.progress.height,
+            width: `${value * 100}%`,
+            borderRadius: semanticTokens.radius.full,
+            backgroundColor: componentTokens.progress.fill,
+          }}
+        />
+      </View>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: width * value - thumbSize / 2,
+          top: (semanticTokens.size.tapMin - thumbSize) / 2,
+          width: thumbSize,
+          height: thumbSize,
+          borderRadius: semanticTokens.radius.full,
+          borderWidth: semanticTokens.stroke.strong,
+          borderColor: semanticTokens.color.outline,
+          backgroundColor: semanticTokens.color.surface,
+        }}
+      />
+    </View>
+  );
+}
+
 function FocusFlow({ e: environment }: any) {
   const experience = isTutorialExperience(environment.state);
   // 화면 내부에서만 체험 세션을 투영한다. API·실시간·전역 집중 상태는 연결하지 않는다.
@@ -2032,6 +2131,10 @@ function FocusFlow({ e: environment }: any) {
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
+    [soundPurchase, setSoundPurchase] = useState<{
+      kind: 'confirm' | 'success' | 'error';
+      product: any;
+    } | null>(null),
     // 누른 주민 정보창(GROMO-2474)
     [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null),
     [error, setError] = useState(''),
@@ -2108,6 +2211,18 @@ function FocusFlow({ e: environment }: any) {
   // GROMO-2010 — 서버 모드에서는 같은 섬 주민의 실시간 집중/휴식·응원이 정본이다.
   // 응원 채널은 내 진행 서버 세션이 이 섬에 있을 때만 구독·발신한다(없으면 서버가 거절한다).
   const liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : null;
+  const musicRoute = ['fishingArrival', 'focusSetup', 'focus'].includes(r);
+  // 집중섬 축음기는 세션 시작 전에도 구매·곡 변경이 가능하다. 일반 섬 축음기와 달리
+  // 판매 목록·공동 인벤토리·지갑을 함께 읽되, 실제 기기 재생은 App 의 active 세션 gate 가 맡는다.
+  const focusShop = useShop({
+    active: !!e.islands && musicRoute && i.buildings.includes('gram'),
+    islandId: liveIslandId,
+    route: 'sound',
+    category: 'personal',
+    orderScope: 'personal',
+    productId: null,
+    dispatch: e.dispatch,
+  });
   const emoteSessionId =
     liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
       ? s.session.id
@@ -2527,9 +2642,15 @@ function FocusFlow({ e: environment }: any) {
       (knownSessionId == null || lastServerSeat.current.sessionId === knownSessionId)
         ? lastServerSeat.current.seat
         : null,
+    localSpot = s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : null,
+    // 격자가 바뀌기 전(티켓 2516)에 고른 자리는 물·나무·바위 칸일 수 있다 — 가장 가까운 걸을 수 있는 칸에 앉힌다
     minePoint =
       serverSeat ??
-      (s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING),
+      (localSpot
+        ? onLand(fishingGrid, localSpot)
+          ? localSpot
+          : nearestLand(fishingGrid, localSpot)
+        : LANDING),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;
@@ -2785,6 +2906,244 @@ function FocusFlow({ e: environment }: any) {
     const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
     if (!walkTo(LANDING, sail)) sail();
   };
+  const activeFocus = r === 'focus' && s.session?.status === 'active' && !leg;
+  const focusAudioProducts: any[] = e.islands
+    ? focusShop.items
+    : products.filter((product) => product.kind === 'audio');
+  const focusOwnedTrackIds = (
+    e.islands && focusShop.shared ? focusShop.shared.audio : i.sharedOwned
+  ).filter(hasBundledAudio);
+  const focusTrackIds = [
+    ...focusOwnedTrackIds,
+    ...focusAudioProducts
+      .map((product) => product.id)
+      .filter((id) => !focusOwnedTrackIds.includes(id)),
+  ];
+  const focusTrackLabel = (id: string) =>
+    trackNames[id] ??
+    focusShop.titles[id] ??
+    focusAudioProducts.find((p) => p.id === id)?.title ??
+    id;
+  const changeFocusTrack = async (trackId: string) => {
+    if (!e.playback) {
+      e.dispatch({ type: 'TRACK_SELECT', value: trackId });
+      return true;
+    }
+    try {
+      // 곡 선택과 재생은 별개다. 집중 전에도 선택할 수 있지만 실제 재생은 active 집중에서만 한다.
+      await e.playback.update({ trackId });
+      return true;
+    } catch (thrown) {
+      e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed'));
+      return false;
+    }
+  };
+  const changeFocusPlaying = async (playing: boolean) => {
+    if (!activeFocus) return;
+    if (!e.playback) {
+      e.dispatch({ type: 'PLAY', value: playing });
+      return;
+    }
+    try {
+      await e.playback.update({ playing });
+    } catch (thrown) {
+      e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed'));
+    }
+  };
+  const buyFocusTrack = async () => {
+    const product = soundPurchase?.product;
+    if (!product) return;
+    if (e.islands) {
+      try {
+        await focusShop.buy(product);
+        setSoundPurchase({ kind: 'success', product });
+      } catch (thrown) {
+        if (e.conversion?.offer(thrown)) {
+          setSoundPurchase(null);
+          return;
+        }
+        if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS') {
+          setSoundPurchase({ kind: 'error', product });
+          return;
+        }
+        setSoundPurchase(null);
+        e.notify(errorTextOr(thrown, 'focusFlow.music.purchaseFailed'));
+      }
+      return;
+    }
+    if (canBuy(s, product)) {
+      setSoundPurchase({ kind: 'error', product });
+      return;
+    }
+    e.dispatch({ type: 'BUY', id: product.id });
+    setSoundPurchase({ kind: 'success', product });
+  };
+  const closeMusic = () => {
+    setSoundPurchase(null);
+    setDialog(null);
+  };
+  const musicHintStyle = {
+    fontSize: semanticTokens.typography.label,
+    lineHeight: semanticTokens.typography.label * 1.6,
+    color: semanticTokens.color.textMuted,
+  };
+  const musicModal =
+    dialog === 'music' && !goldenReeling ? (
+      <FiModal>
+        <Text
+          style={[
+            fiTitle(semanticTokens.typography.title),
+            { marginBottom: semanticTokens.spacing.control },
+          ]}
+        >
+          {t('focusFlow.music.title')}
+        </Text>
+        <Text
+          style={[
+            musicHintStyle,
+            {
+              marginBottom: wide
+                ? semanticTokens.spacing.control
+                : semanticTokens.spacing.component,
+            },
+          ]}
+        >
+          {t(activeFocus ? 'focusFlow.music.activeSubtitle' : 'focusFlow.music.inactiveSubtitle')}
+        </Text>
+        {soundPurchase ? (
+          <View style={{ gap: semanticTokens.spacing.control }}>
+            <Text style={[fiTitle(semanticTokens.typography.title), { textAlign: 'center' }]}>
+              {soundPurchase.kind === 'confirm'
+                ? t('focusFlow.music.purchaseConfirm', { title: soundPurchase.product.title })
+                : soundPurchase.kind === 'success'
+                  ? t('focusFlow.music.purchaseSuccess')
+                  : t('focusFlow.music.insufficientFish')}
+            </Text>
+            {soundPurchase.kind === 'confirm' && (
+              <Text style={[musicHintStyle, { textAlign: 'center' }]}>
+                {t('focusFlow.music.sharedPurchaseHint')}
+              </Text>
+            )}
+            {soundPurchase.kind === 'confirm' ? (
+              <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                <FiButton
+                  title={t('common.cancel')}
+                  style={{ flex: 1 }}
+                  onPress={() => setSoundPurchase(null)}
+                />
+                <FiButton
+                  primary
+                  title={t('focusFlow.music.buyForFish', {
+                    price: soundPurchase.product.price,
+                  })}
+                  style={{ flex: 1 }}
+                  onPress={buyFocusTrack}
+                />
+              </View>
+            ) : soundPurchase.kind === 'success' ? (
+              <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                <FiButton
+                  title={t('common.later')}
+                  style={{ flex: 1 }}
+                  onPress={() => setSoundPurchase(null)}
+                />
+                <FiButton
+                  primary
+                  title={t('focusFlow.music.switchTrack')}
+                  style={{ flex: 1 }}
+                  onPress={async () => {
+                    if (!(await changeFocusTrack(soundPurchase.product.id))) return;
+                    setSoundPurchase(null);
+                  }}
+                />
+              </View>
+            ) : (
+              <FiButton primary title={t('common.ok')} onPress={() => setSoundPurchase(null)} />
+            )}
+          </View>
+        ) : (
+          <>
+            {activeFocus && (
+              <View
+                style={{
+                  gap: semanticTokens.spacing.control,
+                  marginBottom: semanticTokens.spacing.control,
+                }}
+              >
+                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                  <FiButton
+                    primary={i.playing}
+                    title={t('focusFlow.music.play')}
+                    style={{ flex: 1 }}
+                    onPress={() => void changeFocusPlaying(true)}
+                  />
+                  <FiButton
+                    primary={!i.playing}
+                    title={t('focusFlow.music.stop')}
+                    style={{ flex: 1 }}
+                    onPress={() => void changeFocusPlaying(false)}
+                  />
+                </View>
+                <View>
+                  <Text style={musicHintStyle}>{t('focusFlow.music.deviceVolume')}</Text>
+                  <FocusVolume
+                    value={s.settings.volume ?? 0.55}
+                    onChange={(value) => e.dispatch({ type: 'SETTING', key: 'volume', value })}
+                  />
+                </View>
+              </View>
+            )}
+            {e.islands && focusShop.error ? (
+              <View style={{ gap: semanticTokens.spacing.control }}>
+                <Text style={musicHintStyle}>{t('focusFlow.music.loadFailed')}</Text>
+                <FiButton title={t('common.retry')} onPress={focusShop.retry} />
+              </View>
+            ) : e.islands && focusShop.loading ? (
+              <Text style={musicHintStyle}>{t('focusFlow.music.loading')}</Text>
+            ) : (
+              <View style={{ gap: semanticTokens.spacing.control }}>
+                {focusTrackIds.map((id) => {
+                  const owned = focusOwnedTrackIds.includes(id);
+                  const product = focusAudioProducts.find((item) => item.id === id);
+                  const bundled = BUNDLED_AUDIO_TRACK_IDS.includes(
+                    id as (typeof BUNDLED_AUDIO_TRACK_IDS)[number],
+                  );
+                  if (
+                    !owned &&
+                    (!bundled || product?.available === false || product?.price == null)
+                  )
+                    return null;
+                  const status = owned
+                    ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                      ? t('focusFlow.music.free')
+                      : t('focusFlow.music.owned')
+                    : t('focusFlow.music.buyForFish', { price: product.price });
+                  return (
+                    <FiButton
+                      key={id}
+                      left
+                      primary={owned && i.track === id}
+                      title={`${focusTrackLabel(id)} · ${status}`}
+                      onPress={() => {
+                        if (owned) void changeFocusTrack(id);
+                        else setSoundPurchase({ kind: 'confirm', product });
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            )}
+            <View
+              style={{
+                marginTop: wide ? semanticTokens.spacing.control : semanticTokens.spacing.component,
+              }}
+            >
+              <FiButton primary title={t('focusFlow.music.backToSpot')} onPress={closeMusic} />
+            </View>
+          </>
+        )}
+      </FiModal>
+    ) : null;
   // 뒤로가기: 자리 선택 중에는 귀환하고, 나머지 걷기·항해 중에는 막는다. 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return true;
@@ -2806,8 +3165,12 @@ function FocusFlow({ e: environment }: any) {
       claimed(open.length > 1);
       return true;
     }
+    if (soundPurchase) {
+      setSoundPurchase(null);
+      return true;
+    }
     if (dialog) {
-      setDialog(null);
+      closeMusic();
       return true;
     }
     if (r === 'focusResult') {
@@ -2891,59 +3254,55 @@ function FocusFlow({ e: environment }: any) {
         }
       />
     );
-  // 정해진 자리 없음: 누른 땅까지 걸어가 앉고 그 자리 위에 집중 준비. 물·닿을 수 없는 곳·다른 주민 자리는 안 됨.
+  // 정해진 자리 없음: 땅을 누르면 걸어가기만 하고, 하단 [집중 시작]을 누른 자리에서 집중할 수 있는지 본다.
   const spotError = (p: Point): string | null => {
-    if (!onLand(fishingGrid, p)) return t('focusFlow.spot.onWater');
-    if (occupied(p, peerSpots)) return t('focusFlow.spot.occupied');
-    if (i.buildings.includes('gram') && nearGram(p)) return t('focusFlow.spot.nearGram');
-    if (nearRaft(p)) return t('focusFlow.spot.nearRaft');
-    const catchSpot = castSpot(p);
-    if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
-      catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
-    if (
-      !fishingCatchPlacement(
-        catchSpot,
-        peerSpots,
-        peerCatchSpots,
-        i.buildings.includes('gram'),
-        PEER_SPOTS,
-      )
-    )
-      return t('focusFlow.spot.noCatchRoom');
-    return null;
+    const problem = seatProblem(p, peerSpots, i.buildings.includes('gram'));
+    return problem ? t(`focusFlow.spot.${problem}`) : null;
   };
-  const availableSpots =
-    r === 'fishingArrival'
-      ? [DEFAULT_SPOT, ...PEER_SPOTS]
-          .filter((p) => !spotError(p) && landPath(fishingGrid, walker.p, p).length > 0)
-          .slice(0, 8)
-      : [];
-  const selectSpot = (p: Point) => {
-    if (returningFromArrival.current) return;
+  // 물·이어지지 않은 땅은 홈 섬처럼 조용히 무시한다. 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
+  const walkOnly = (p: Point) => {
+    if (returningFromArrival.current || !onLand(fishingGrid, p)) return;
+    walkTo(p, () => {});
+  };
+  // 자리 검사 → 자리 저장 → 준비 카드. 실패하면 이유만 알리고 제자리.
+  const startAt = (p: Point) => {
+    if (returningFromArrival.current || latest.current.r !== 'fishingArrival') return;
     const error = spotError(p);
     if (error) {
       e.notify(error);
       return;
     }
-    const walked = walkTo(p, () => {
-      if (latest.current.r !== 'fishingArrival') return;
-      e.dispatch({ type: 'FOCUS_SPOT', spot: p });
-      advanceTutorial(5, 7);
-      advanceTutorial(6, 7);
-      e.go('focusSetup');
-    });
-    // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
-    if (!walked) e.notify(t('focusFlow.spot.unreachable'));
+    e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+    advanceTutorial(5, 7);
+    advanceTutorial(6, 7);
+    e.go('focusSetup');
   };
+  // [집중 시작]: 걷는 중이면 그 자리에 멈춰 선 채로 검사한다.
+  const startHere = () => {
+    // 뗏목으로 돌아가는 중이면 귀환 걷기를 끊지 않는다(끊으면 귀환 콜백이 사라져 화면에 갇힌다)
+    if (returningFromArrival.current) return;
+    if (walker.walking) {
+      walkingToken.current++;
+      setWalker((w) => ({ ...w, walking: false }));
+    }
+    startAt(position.current);
+  };
+  // 스크린리더: 걸어갈 수 있는 빈 땅을 골라 걸어간 뒤 바로 준비 카드까지 연다.
   const selectAccessibleSpot = () => {
+    // 뗏목으로 돌아가는 중이면 귀환 걷기를 끊지 않는다(startHere 와 같은 이유)
+    if (returningFromArrival.current) return;
     const spot = findReachableTutorialSpot(
       fishingGrid,
       walker.p,
       DEFAULT_SPOT,
       (p) => !spotError(p),
     );
-    if (spot) selectSpot(spot);
-    else e.notify(t('focusFlow.spot.noneFound'));
+    if (!spot) {
+      e.notify(t('focusFlow.spot.noneFound'));
+      return;
+    }
+    // 걸어갈 길이 없는 곳(뗏목 쪽 땅과 이어지지 않은 땅)
+    if (!walkTo(spot, () => startAt(spot))) e.notify(t('focusFlow.spot.unreachable'));
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
@@ -3055,8 +3414,15 @@ function FocusFlow({ e: environment }: any) {
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
           onSkip={skipTutorial}
         >
-          {screenReader && (
+          {screenReader ? (
             <Btn title={t('focusFlow.spot.sitEmptyButton')} onPress={selectAccessibleSpot} />
+          ) : (
+            <FiButton
+              title={t('focusFlow.spot.start')}
+              id="focus-start"
+              primary
+              onPress={startHere}
+            />
           )}
         </GuideBox>
       );
@@ -3193,7 +3559,7 @@ function FocusFlow({ e: environment }: any) {
     );
   const seated = r !== 'fishingArrival' && !leg,
     spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
-  const focusing = r === 'focus' && !!s.session && !leg,
+  const focusing = activeFocus,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
@@ -3356,10 +3722,11 @@ function FocusFlow({ e: environment }: any) {
           focus={r !== 'fishingArrival' ? mine : L.landscape ? { x: 45, y: 58 } : { x: 38, y: 56 }}
           ratio={r === 'focusSetup' ? 0.72 : 0.5}
           spots={spots}
-          onTap={r === 'fishingArrival' ? selectSpot : undefined}
+          onTap={r === 'fishingArrival' ? walkOnly : undefined}
+          onSitAccessible={r === 'fishingArrival' ? selectAccessibleSpot : undefined}
           onRaft={raft}
           gram={i.buildings.includes('gram')}
-          onGram={focusing ? () => setDialog('music') : undefined}
+          onGram={musicRoute ? () => setDialog('music') : undefined}
           seated={seated}
           inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
@@ -3368,34 +3735,55 @@ function FocusFlow({ e: environment }: any) {
               ? setup
               : r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21)
                 ? (toScreen) => (
-                    <View
-                      testID="focus-arrival-hint"
-                      pointerEvents="none"
-                      accessibilityLiveRegion="polite"
-                      style={{
-                        position: 'absolute',
-                        top: Math.min(
-                          toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
-                          (boxHeight || L.height) -
-                            safe.bottom -
-                            componentTokens.focusArrival.bottomReserve,
-                        ),
-                        left: safe.left + semanticTokens.spacing.page,
-                        right: safe.right + semanticTokens.spacing.page,
-                      }}
-                    >
-                      <Text
+                    <>
+                      <View
+                        testID="focus-arrival-hint"
+                        pointerEvents="none"
+                        accessibilityLiveRegion="polite"
                         style={{
-                          ...hudText,
-                          textAlign: 'center',
-                          fontSize: componentTokens.focusArrival.fontSize,
-                          lineHeight: componentTokens.focusArrival.lineHeight,
-                          fontWeight: componentTokens.focusArrival.fontWeight,
+                          position: 'absolute',
+                          top: Math.min(
+                            toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
+                            (boxHeight || L.height) -
+                              safe.bottom -
+                              componentTokens.focusArrival.bottomReserve,
+                          ),
+                          left: safe.left + semanticTokens.spacing.page,
+                          right: safe.right + semanticTokens.spacing.page,
                         }}
                       >
-                        {t('focusFlow.spot.pickPrompt')}
-                      </Text>
-                    </View>
+                        <Text
+                          style={{
+                            ...hudText,
+                            textAlign: 'center',
+                            fontSize: componentTokens.focusArrival.fontSize,
+                            lineHeight: componentTokens.focusArrival.lineHeight,
+                            fontWeight: componentTokens.focusArrival.fontWeight,
+                          }}
+                        >
+                          {t('focusFlow.spot.pickPrompt')}
+                        </Text>
+                      </View>
+                      {/* 하단 [집중 시작]: 지금 선 자리에서 집중할 수 있는지 검사해 준비 카드를 연다 */}
+                      <View
+                        testID="focus-start-bar"
+                        pointerEvents="box-none"
+                        style={{
+                          position: 'absolute',
+                          bottom: safe.bottom + semanticTokens.spacing.page,
+                          left: safe.left + semanticTokens.spacing.page,
+                          right: safe.right + semanticTokens.spacing.page,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <FiButton
+                          title={t('focusFlow.spot.start')}
+                          id="focus-start"
+                          primary
+                          onPress={startHere}
+                        />
+                      </View>
+                    </>
                   )
                 : undefined
           }
@@ -3438,30 +3826,6 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
-                {availableSpots.map((spot, index) => {
-                  const diameter = componentTokens.focusArrival.markerSize;
-                  return (
-                    <Pressable
-                      key={`${spot.x}:${spot.y}`}
-                      testID={`focus-available-spot-${index}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('focusFlow.spot.available')}
-                      onPress={() => selectSpot(spot)}
-                      hitSlop={(semanticTokens.size.tapMin - diameter) / 2}
-                      style={{
-                        position: 'absolute',
-                        left: (size * spot.x) / 100 - diameter / 2,
-                        top: (sizeY * spot.y) / 100 - diameter / 2,
-                        width: diameter,
-                        height: diameter,
-                        borderRadius: diameter / 2,
-                        borderWidth: componentTokens.focusArrival.markerStroke,
-                        borderColor: componentTokens.focusArrival.markerColor,
-                        boxShadow: componentTokens.focusArrival.markerShadow,
-                      }}
-                    />
-                  );
-                })}
                 {peers.map((actor) => {
                   const outfit = lookOf(
                     live.looks,
@@ -3538,7 +3902,6 @@ function FocusFlow({ e: environment }: any) {
                     catchAvoidSpots={peerSpots}
                     catchVisibleSpots={peerCatchSpots}
                     catchGramVisible={i.buildings.includes('gram')}
-                    catchFuturePeerSpots={PEER_SPOTS}
                     outfit={myOutfit}
                   />
                 ) : (
@@ -3689,52 +4052,9 @@ function FocusFlow({ e: environment }: any) {
                 />
               </View>
             </View>
-            {dialog === 'music' && !goldenReeling && (
-              <FiModal>
-                <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
-                  {t('focusFlow.music.title')}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 20.8,
-                    color: '#7C6857',
-                    marginBottom: wide ? 10 : 15,
-                  }}
-                >
-                  {t('focusFlow.music.subtitle')}
-                </Text>
-                <View style={{ gap: 8 }}>
-                  {i.sharedOwned.filter(hasBundledAudio).map((id) => (
-                    <FiButton
-                      key={id}
-                      left
-                      primary={i.track === id}
-                      title={trackNames[id]}
-                      onPress={() => {
-                        if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
-                        else
-                          e.playback
-                            .update({ trackId: id, playing: true })
-                            .catch((thrown: unknown) =>
-                              e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed')),
-                            );
-                      }}
-                    />
-                  ))}
-                </View>
-                <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-                  <FiButton
-                    primary
-                    title={t('focusFlow.music.backToSpot')}
-                    style={{ flex: 1 }}
-                    onPress={() => setDialog(null)}
-                  />
-                </View>
-              </FiModal>
-            )}
           </>
         )}
+        {musicModal}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}
         {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
