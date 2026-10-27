@@ -49,6 +49,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -62,6 +63,7 @@ import java.util.function.BooleanSupplier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -103,6 +105,10 @@ class TelescopePinIntegrationTest {
     @MockitoBean
     Clock clock;
 
+    /** 핀 목록의 순서·칸 계약을 무인도 독립 추첨과 분리한다. */
+    @MockitoBean
+    OnboardingIslandService onboardingIslands;
+
     @Autowired
     TelescopeService telescope;
     @Autowired
@@ -137,6 +143,7 @@ class TelescopePinIntegrationTest {
         when(clock.instant()).thenAnswer(invocation -> NOW.get());
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         when(clock.withZone(any())).thenAnswer(invocation -> Clock.fixed(NOW.get(), invocation.getArgument(0)));
+        when(onboardingIslands.destination(any(), anyList(), anyList(), any())).thenReturn(Optional.empty());
         NOW.set(BASE);
         jdbc.update("update islands set deleted_at = now() where deleted_at is null");
     }
@@ -911,6 +918,8 @@ class TelescopePinIntegrationTest {
     @Test
     @DisplayName("정원 찬 섬도 넣을 수 있다 — full=true 로 내려가고, 대기 중인 가입 신청·도착·평균·항해 분도 다른 칸과 같이 채워진다")
     void aFullIslandCanBePinnedAndCarriesTheSameFieldsAsAnyOtherSlot() {
+        // 가입 가능한 일반 섬이 없을 때의 확정 무인도 칸도 이 사례에서 함께 확인한다.
+        when(onboardingIslands.destination(any(), anyList(), anyList(), any())).thenCallRealMethod();
         UUID viewer = newUser();
         Group island = groups.save(Group.builder().name("물결").description("같이 집중해요").maxMembers(2)
                 .approvalRequired(true).build());
