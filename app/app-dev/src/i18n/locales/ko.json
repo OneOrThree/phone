@@ -876,6 +876,25 @@
   "mailbox": {
     "systemSender": "섬 알림"
   },
+  "islandChat": {
+    "title": "우리 섬 채팅방",
+    "placeholder": "섬 주민 모두에게 남길 말",
+    "send": "보내기",
+    "loading": "글을 불러오는 중이에요…",
+    "empty": "아직 남긴 글이 없어요.",
+    "more": "이전 글 더 보기",
+    "loadingMore": "불러오는 중…",
+    "failed": "보내지 못했어요",
+    "resend": "다시 보내기",
+    "me": "나",
+    "unknown": "알 수 없음",
+    "emptyText": "남길 말을 적어 주세요",
+    "sendFailed": "글을 남기지 못했어요",
+    "justNow": "방금",
+    "minutesAgo": "{{n}}분 전",
+    "hoursAgo": "{{n}}시간 전",
+    "date": "{{month}}월 {{date}}일"
+  },
   "magazine": {
     "islandTitle": "{{name}}섬",
     "cell": {

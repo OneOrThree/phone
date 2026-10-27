@@ -157,6 +157,8 @@ import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
 import { josa } from '@/i18n/format';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
+import { IslandChatSheet } from '@/screens/island/IslandChatSheet';
+import { useIslandChat } from '@/screens/island/useIslandChat';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
@@ -523,6 +525,12 @@ function CurrentScreensContent({ e }: any) {
     markRead: ['board', 'notice'].includes(r),
     readVersion: boardReadVersion,
   });
+  // 우리 섬 채팅방(GROMO-2499) — 우체통 밖으로 꺼냈다. 서버 모드의 내 섬에서만 읽고, 구경 중에는 부르지 않는다
+  const islandChat = useIslandChat({
+    islandId:
+      e.islands && !state.visitingIslandId ? (state.serverIslands?.currentIslandId ?? null) : null,
+    active: r === 'chat',
+  });
   const rewardIslandId = r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL ? i.id : undefined;
   const rewardModalOpen =
     !state.visitingIslandId && pendingQuestRewards(state.rewards, rewardIslandId).length > 0;
@@ -694,7 +702,6 @@ function CurrentScreensContent({ e }: any) {
     tower: 'tower',
     explore: 'tower',
     mail: 'mail',
-    chat: 'mail',
     friendMail: 'mail',
     shop: 'shop',
     product: 'shop',
@@ -812,8 +819,28 @@ function CurrentScreensContent({ e }: any) {
         {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>
     );
-  if (['mail', 'chat', 'friendMail'].includes(r))
+  if (['mail', 'friendMail'].includes(r))
     return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
+  // 우리 섬 채팅방 — 우체통이 없어도 섬 홈 위 시트로 연다(GROMO-2499). 뒤 섬 홈은 스크린리더에서 숨긴다
+  if (r === 'chat')
+    return (
+      <>
+        <View
+          style={StyleSheet.absoluteFill}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        </View>
+        <IslandChatSheet e={e} chat={islandChat} />
+      </>
+    );
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
   if (r === 'telescope') return <Telescope e={e} />;

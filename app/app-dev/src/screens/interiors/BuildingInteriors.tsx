@@ -63,6 +63,7 @@ import { normalizedConstructionProgress } from '@/screens/island/constructionPro
 import { useBoardNotices } from './useBoardNotices';
 import { isNearScrollEnd } from '@/utils/scrollEnd';
 import { useMailbox } from './useMailbox';
+import { chatTime } from '@/screens/island/IslandChatSheet';
 import { Guestbook } from './Guestbook';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
@@ -7592,15 +7593,6 @@ const letterTime = (at: number, now: number) => {
   if (days < 7) return `${weekdays[new Date(Date.UTC(year, month - 1, date)).getUTCDay()]}요일`;
   return `${month}월 ${date}일`;
 };
-// 채팅 시각: 방금 · N분 전 · N시간 전 · 그 전은 M월 D일
-const chatTime = (at: number, now: number) => {
-  const minutes = Math.floor((now - at) / 60000);
-  if (minutes < 1) return '방금';
-  if (minutes < 60) return `${minutes}분 전`;
-  if (minutes < 1440) return `${Math.floor(minutes / 60)}시간 전`;
-  const [, month, date] = dayKey(at).split('-').map(Number);
-  return `${month}월 ${date}일`;
-};
 
 function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps) {
   const navScale = React.useContext(NavScale);
@@ -7647,9 +7639,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const mail = useMailbox({
     active: serverMail,
     scopeKey: island ? String(island.id) : 'mock',
-    chatActive: e?.route === 'chat',
   });
-  // 우체통 낙서 작성자만 서버가 털색·착용을 준다(GROMO-2389) — 친구·편지 상대는 값이 없어 null(중립 gray 로 그린다).
+  // 친구·편지 상대는 서버가 털색·착용을 주지 않아 null(중립 gray 로 그린다).
   const friendIsland = (userId: string | null) =>
     (userId && mail.friends.find((f) => f.userId === userId)?.mainIslandName) || '';
   const friends: FriendView[] = serverMail
@@ -7734,41 +7725,31 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           )
           .at(0)
       : receivedLetters.find((letter) => letter.id === selectedLetter);
-  // 채팅방은 최신 글이 아래에 온다 — 서버 묶음도 오래된 것부터라 그대로 쓴다
-  const chat: ChatView[] = serverMail
-    ? mail.messages.map((m) => ({
+  // 채팅방은 최신 글이 아래에 온다. 앱의 채팅방은 섬 홈 위 시트(IslandChatSheet, GROMO-2499)라
+  // 여기는 시안 비교 화면(e 없음)용 목업만 그린다
+  const chat: ChatView[] = island
+    ? [...island.messages].reverse().map((m) => ({
         id: m.id,
-        name: m.name ?? '알 수 없음',
+        name: m.name,
         text: m.text,
-        time: chatTime(Date.parse(m.createdAt), now),
-        color: m.catColor ?? null,
-        outfit: appearanceOutfit(m.appearance),
-        mine: m.userId === mail.myId,
-        failed: false,
+        time: chatTime(m.at, now),
+        color: m.color,
+        mine: m.memberId === 'me',
+        failed: m.status === 'failed',
       }))
-    : island
-      ? [...island.messages].reverse().map((m) => ({
-          id: m.id,
-          name: m.name,
-          text: m.text,
-          time: chatTime(m.at, now),
-          color: m.color,
-          mine: m.memberId === 'me',
-          failed: m.status === 'failed',
-        }))
-      : groupSent
-        ? [
-            ...groupMessages,
-            {
-              ...groupMessages[0],
-              id: 'sent',
-              name: '나',
-              text: groupText,
-              time: '방금',
-              mine: true,
-            },
-          ]
-        : groupMessages;
+    : groupSent
+      ? [
+          ...groupMessages,
+          {
+            ...groupMessages[0],
+            id: 'sent',
+            name: '나',
+            text: groupText,
+            time: '방금',
+            mine: true,
+          },
+        ]
+      : groupMessages;
   const friendOf = (id: string) => friends.find((f) => f.id === id);
   const route: MailRoute = !e
     ? localRoute
@@ -7803,7 +7784,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   };
 
   // 채팅방을 열어 둔 동안 들어온 글은 읽은 것으로 본다 (목업 경로만 — 서버 경로는 서버가 읽음을 본다)
-  const chatLength = serverMail ? mail.messages.length : (island?.messages.length ?? 0);
+  const chatLength = island?.messages.length ?? 0;
   useEffect(() => {
     if (e && !serverMail && route === 'island') e.dispatch({ type: 'CHAT_READ' });
   }, [route, chatLength]);
@@ -8189,15 +8170,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const sendGroup = () => {
     if (!text.trim()) return say('남길 말을 적어 주세요');
     if (e) {
-      if (serverMail) {
-        // POST /islands/{id}/messages — 같은 본문 재시도는 같은 clientMessageId 로 간다.
-        // 성공 응답만 목록에 붙는다 — 실패는 입력 초안을 그대로 두고 오류를 보인다.
-        mail
-          .sendMessage(text)
-          .then(() => e.setText(''))
-          .catch((err) => say(err instanceof ApiError ? err.message : '낙서를 남기지 못했어요'));
-        return;
-      }
       // 목업 서버: 다음 보내기를 실패로 만들면 글에 실패 표시와 다시 보내기가 붙는다
       e.dispatch({ type: 'MESSAGE', text, fail: e.failNext });
       if (e.failNext) e.setFailNext(false);
@@ -8278,23 +8250,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             >
               아직 남긴 글이 없어요.
             </Text>
-          ) : null}
-          {serverMail &&
-            mail.messagesRefreshError &&
-            mailRetry(mail.messagesRefreshError, 'chat-refresh-retry', () =>
-              mail.retry().catch(() => {}),
-            )}
-          {serverMail && mail.messagesCursor ? (
-            <Pressable
-              testID="chat-more"
-              accessibilityRole="button"
-              onPress={() => mail.loadMoreMessages()}
-              style={{ alignSelf: 'center', paddingVertical: 4, paddingHorizontal: 9 }}
-            >
-              <Text style={mailFont(6.5, 1.35, '#826c5b', '800')}>
-                {mail.loadingMoreMessages ? '불러오는 중…' : '이전 글 더 보기'}
-              </Text>
-            </Pressable>
           ) : null}
           {chat.map((m) =>
             m.mine ? (

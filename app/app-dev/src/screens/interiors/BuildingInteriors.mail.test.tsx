@@ -652,29 +652,6 @@ test('게스트 발송 거절 — SOCIAL_LOGIN_REQUIRED 는 회원 전환 시트
   await ui.unmount();
 });
 
-test('채팅방 — 서버 낙서를 그리고 보내기는 POST messages 로 간다', async () => {
-  screenMock.mockResolvedValue(screen([]));
-  sendMessageMock.mockResolvedValue({
-    id: 'm9',
-    clientMessageId: 'k1',
-    userId: 'u1',
-    name: '나',
-    text: '같이 해요',
-    createdAt: '2026-09-20T12:00:00Z',
-  });
-  const e = makeE({ route: 'chat', text: '같이 해요' });
-  const ui = await renderMail(e);
-  await waitFor(() => assert.ok(ui.getByText('오늘도 같이 하자')));
-
-  await fireEvent.press(ui.getByTestId('island-message-send'));
-  await waitFor(() => assert.equal(sendMessageMock.mock.calls.length, 1));
-  assert.equal(sendMessageMock.mock.calls[0][0], ISLAND);
-  assert.equal(sendMessageMock.mock.calls[0][1].text, '같이 해요');
-  assert.equal(typeof sendMessageMock.mock.calls[0][1].clientMessageId, 'string');
-  await waitFor(() => assert.ok(ui.getByText('같이 해요')));
-  await ui.unmount();
-});
-
 test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async () => {
   const restore = webMockMode('?review');
   try {
