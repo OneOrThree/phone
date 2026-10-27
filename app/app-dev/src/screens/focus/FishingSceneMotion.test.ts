@@ -27,7 +27,9 @@ test('물고기는 고양이 몸이 아니라 낚싯대 끝에서 출발해 보�
     start = fishingFishFlight(0, launch, home, a / 390),
     peak = fishingFishFlight(0.5, launch, home, a / 390);
   expect(start).toEqual(launch);
-  expect(start.x).toBeLessThan(a / 2);
+  // 낚싯대는 고양이가 던지는 물 쪽에 있다 — 출발점은 몸 가운데(a/2)에서 그쪽으로 벗어난다.
+  // 기본 자리가 연못 옆(티켓 2516)이라 지금은 오른쪽이지만, 방향은 castSpot 이 고른 face 를 따른다.
+  expect(Math.sign(start.x - a / 2)).toBe(spot.face);
   expect(peak.y).toBeLessThan((launch.y + home.y) / 2);
   const end = fishingFishFlight(1, launch, home, a / 390);
   expect(end.x).toBeCloseTo(home.x);
