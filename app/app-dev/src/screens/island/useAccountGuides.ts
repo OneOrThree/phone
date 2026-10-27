@@ -44,12 +44,18 @@ export function useAccountGuides(
         if (snapshot.mailboxGuideSeenBy?.includes(owner)) buildings.push('mail');
         if (snapshot.shopGuideSeenBy?.includes(owner)) buildings.push('shop');
         const focusDone = snapshot.focusGuideDone || (snapshot.tutorial?.step ?? 0) >= 22;
-        if ((focusDone && !data.focusDone) || buildings.some((b) => !data.buildings.includes(b))) {
-          data = await saveAccountGuides(owner, { buildings, focusDone });
+        const focusBlockingIntro = snapshot.focusBlockingIntro;
+        if (
+          (focusDone && !data.focusDone) ||
+          buildings.some((b) => !data.buildings.includes(b)) ||
+          (focusBlockingIntro && focusBlockingIntro !== data.focusBlockingIntro)
+        ) {
+          data = await saveAccountGuides(owner, { buildings, focusDone, focusBlockingIntro });
         }
       }
       if (disposed || !alive(owner, generation)) return;
-      if (data.focusDone) dispatch({ type: 'FOCUS_GUIDE_RESTORED' });
+      if (data.focusDone)
+        dispatch({ type: 'FOCUS_GUIDE_RESTORED', focusBlockingIntro: data.focusBlockingIntro });
       setResult({ owner, generation, data });
     };
     void load().catch(() => {

@@ -144,6 +144,12 @@
         "connect": "스크린타임 연결",
         "sub": "{{description}} · 폰 사용 퀘스트와 기록에 사용해요"
       },
+      "focusBlockingIntro": {
+        "title": "집중 중 앱 차단",
+        "dialogue": "집중하는 동안 내가 다른 앱 사용을 막아 줄 수 있어.\n권한을 허용하고, 꼭 필요한 앱만 골라 줘!\n나중에 환경설정에서 언제든 다시 설정할 수 있어!",
+        "allow": "권한 허용하기",
+        "later": "나중에"
+      },
       "measuredApps": {
         "title": "측정 앱",
         "a11y": "측정 앱, {{description}}",

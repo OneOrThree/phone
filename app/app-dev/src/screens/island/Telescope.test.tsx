@@ -712,6 +712,45 @@ describe('가입', () => {
 });
 
 describe('항해하기(바다 항해 집중, GROMO-2310)', () => {
+  test('권한 미리보기는 서버 연결 없이 항해를 시작하고 목적지와 한마디를 유지한다', async () => {
+    const e = { ...env({ islands: false }), focus: undefined, focusBlockingIntroPreview: true };
+    const screen = await render(<Telescope e={e} previewItems={[item('r1')]} />);
+    await press(screen, 'r1');
+    await fireEvent.press(screen.getByLabelText('항해하기'));
+    await fireEvent.changeText(screen.getByLabelText('한마디 (선택)'), '영어 공부');
+    await fireEvent.press(screen.getByLabelText('항해 시작'));
+    expect(e.dispatch).toHaveBeenCalledWith({
+      type: 'SESSION_SYNC',
+      session: expect.objectContaining({
+        islandId: 'r1',
+        destinationIslandName: '섬 r1',
+        kind: 'sea',
+        subject: '영어 공부',
+        status: 'active',
+        targetMinutes: 30,
+      }),
+    });
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
+    expect(mockUnpin).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  test('섬을 고른 뒤 항해하기를 눌러야 권한 안내를 요청하고, 완료 뒤 항해 준비를 연다', async () => {
+    const beforeSeaVoyage = jest.fn();
+    const e = { ...env(), beforeSeaVoyage };
+    const { screen } = await open([item('r1')], e);
+    expect(beforeSeaVoyage).not.toHaveBeenCalled();
+    await press(screen, 'r1');
+    expect(beforeSeaVoyage).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('항해하기'));
+    expect(beforeSeaVoyage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('항해 시작')).toBeNull();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
+    await act(async () => beforeSeaVoyage.mock.calls[0][0]());
+    expect(screen.getByLabelText('항해 시작')).toBeTruthy();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
+  });
+
   const sailTo = async (screen: any, id: string) => {
     await press(screen, id);
     await fireEvent.press(screen.getByLabelText('항해하기'));

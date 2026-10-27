@@ -144,6 +144,12 @@
         "connect": "Connect Screen Time",
         "sub": "{{description}} · Used for phone-use quests and records"
       },
+      "focusBlockingIntro": {
+        "title": "Block apps during focus",
+        "dialogue": "I can block other apps while you focus.\nAllow access, then pick only the apps you really need!\nYou can always set this up later in Settings!",
+        "allow": "Allow access",
+        "later": "Not now"
+      },
       "measuredApps": {
         "title": "Measured apps",
         "a11y": "Measured apps, {{description}}",
