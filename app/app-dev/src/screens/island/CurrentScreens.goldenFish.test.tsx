@@ -162,7 +162,7 @@ const event = (members: GoldenFishEvent['members'], eventId = 'golden-i1-1'): Go
 const focusedState = (): State => {
   const state = initialState(true);
   state.name = '하늘이'; // 내 이름표는 닉네임(GROMO-2475)
-  state.focusSpot = { x: 34.1, y: 55.9 };
+  state.focusSpot = { x: 34.1, y: 57 };
   state.session = {
     id: 's-me',
     islandId: 'soda',
@@ -1534,7 +1534,7 @@ test('결과창은 서버에서 달성 또는 수령한 퀘스트만 보여준�
 
 test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약하지 않아 그 자리 주민의 seat 를 그대로 그린다 (GROMO-2478)', async () => {
   const state = focusedState();
-  state.session = null; // 지난 집중은 끝났고 focusSpot {34.1, 55.9} 만 남았다
+  state.session = null; // 지난 집중은 끝났고 focusSpot {34.1, 57} 만 남았다
   state.serverIslands = { currentIslandId: 'soda' } as any;
   mockRealPeerActors = true;
   mockPresenceFocus = [
@@ -1548,7 +1548,7 @@ test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약
       activeSeconds: 0,
       status: 'active',
       anchorMs: Date.now(),
-      seat: { x: 34.1, y: 55.9 },
+      seat: { x: 34.1, y: 57 },
     },
   ];
   const screen = await render(
@@ -1557,13 +1557,13 @@ test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약
     }),
   );
   const { spot } = screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props;
-  expect([spot.x, spot.y]).toEqual([34.1, 55.9]);
+  expect([spot.x, spot.y]).toEqual([34.1, 57]);
   await screen.unmount();
 });
 
 test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서버 seat 로 돌아가 그 자리를 점유로 막는다 (GROMO-2478)', async () => {
   const state = focusedState();
-  state.session = null; // 준비 중 — focusSpot {34.1, 55.9} 를 이번에 골랐다
+  state.session = null; // 준비 중 — focusSpot {34.1, 57} 를 이번에 골랐다
   state.serverIslands = { currentIslandId: 'soda' } as any;
   mockRealPeerActors = true;
   mockPresenceFocus = [
@@ -1577,7 +1577,7 @@ test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서�
       activeSeconds: 0,
       status: 'active',
       anchorMs: Date.now(),
-      seat: { x: 34.1, y: 55.9 },
+      seat: { x: 34.1, y: 57 },
     },
   ];
   const notify = jest.fn(),
@@ -1589,22 +1589,22 @@ test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서�
     const { spot } = screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props;
     return [spot.x, spot.y];
   };
-  expect(peerAt()).not.toEqual([34.1, 55.9]);
+  expect(peerAt()).not.toEqual([34.1, 57]);
   await screen.rerender(
     screenElement(state, 'fishingArrival', undefined, undefined, undefined, undefined, props),
   );
-  expect(peerAt()).toEqual([34.1, 55.9]);
+  expect(peerAt()).toEqual([34.1, 57]);
   await act(async () =>
     screen
       .getByTestId('golden-world', { includeHiddenElements: true })
-      .props.onTap({ x: 34.1, y: 55.9 }),
+      .props.onTap({ x: 34.1, y: 57 }),
   );
   expect(notify).toHaveBeenCalledWith(t('focusFlow.spot.occupied'));
   await screen.unmount();
 });
 
 test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서버 seat 에 앉고, 옛 focusSpot 에 앉은 주민을 밀어내지 않는다 (GROMO-2478)', async () => {
-  const state = focusedState(); // 진행 중 세션 s-me, focusSpot {34.1, 55.9} 는 지난 세션 좌표
+  const state = focusedState(); // 진행 중 세션 s-me, focusSpot {34.1, 57} 는 지난 세션 좌표
   state.serverIslands = { currentIslandId: 'soda' } as any;
   mockRealPeerActors = true;
   const resident = (userId: string, sessionId: string, seat: { x: number; y: number }) => ({
@@ -1620,8 +1620,8 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
     seat,
   });
   mockPresenceFocus = [
-    resident('me', 's-me', { x: 60.2, y: 44.1 }), // 다른 기기에서 고른 이번 세션 자리
-    resident('minji', 's-minji', { x: 34.1, y: 55.9 }),
+    resident('me', 's-me', { x: 62.5, y: 43 }), // 다른 기기에서 고른 이번 세션 자리
+    resident('minji', 's-minji', { x: 34.1, y: 57 }),
   ];
   const screen = await render(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, { islands: {} }),
@@ -1630,16 +1630,16 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
     const { spot } = screen.getByTestId(testID, { includeHiddenElements: true }).props;
     return [spot.x, spot.y];
   };
-  expect(at('golden-self')).toEqual([60.2, 44.1]);
-  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  expect(at('golden-self')).toEqual([62.5, 43]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 57]);
   // 다른 기기에서 끝내 SESSION_SYNC 가 세션을 먼저 지움 — 아직 집중 화면이고 결과 id 도 없어도 seat 에 그대로 앉아 있다
   mockPresenceFocus = mockPresenceFocus.filter((member) => member.userId !== 'me');
   state.session = null;
   await screen.rerender(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, { islands: {} }),
   );
-  expect(at('golden-self')).toEqual([60.2, 44.1]);
-  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  expect(at('golden-self')).toEqual([62.5, 43]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 57]);
   // 세션 완료 — 서버가 내 항목을 지우고 결과 화면으로 넘어가도 이번 세션 seat 에 그대로 앉아 있다
   state.lastResult = {
     id: 's-me',
@@ -1656,7 +1656,7 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
       islands: {},
     }),
   );
-  expect(at('golden-self')).toEqual([60.2, 44.1]);
-  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  expect(at('golden-self')).toEqual([62.5, 43]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 57]);
   await screen.unmount();
 });
