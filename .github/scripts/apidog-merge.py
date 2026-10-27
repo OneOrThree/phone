@@ -46,6 +46,7 @@ SERVICE_RULES = {
 # 키는 springdoc 기본 태그에서 `internal-` 접두와 `-controller` 접미를 뗀 이름이다 — business 의
 # island-notice-controller 와 data 의 internal-island-notice-controller 가 한 키로 모인다.
 # 여기 없는 컨트롤러가 스펙에 나오면 병합이 실패한다(PR 에서 잡힌다) — 맞는 도메인 줄에 이름을 더한다.
+# 도메인은 경로가 다루는 사용자 기능으로 고르고, 다른 서비스에 같은 이름 컨트롤러가 있으면 그 도메인을 따른다.
 DOMAINS = {
     "인증·계정": ["auth-session", "guest-session", "session-refresh", "session-logout",
               "account", "account-settings", "auth", "login-attempt", "session-issue"],
@@ -65,6 +66,13 @@ DOMAINS = {
     "링크 미리보기": ["preview"],
 }
 CONTROLLER_DOMAIN = {c: d for d, controllers in DOMAINS.items() for c in controllers}
+# 대응표 실수는 import 시점에 막는다 — dict 는 중복 키를 조용히 덮고, '/' 는 폴더를 한 단 더 판다.
+_listed = [c for controllers in DOMAINS.values() for c in controllers]
+if len(_listed) != len(CONTROLLER_DOMAIN) or any("/" in d for d in DOMAINS):
+    raise SystemExit(
+        f"::error::DOMAINS 가 잘못됐다 — 두 번 나온 컨트롤러 "
+        f"{sorted({c for c in _listed if _listed.count(c) > 1})}, "
+        f"'/' 가 든 도메인 {[d for d in DOMAINS if '/' in d]}")
 
 
 def load_spec(path):
@@ -161,7 +169,7 @@ def domain_of(op, service, method, path):
     if domain is None:
         raise SystemExit(
             f"::error::{service} {method.upper()} {path} 의 태그 '{tag}' 가 도메인 대응표에 없다 — "
-            f"apidog-merge.py 의 DOMAINS 에 '{controller}' 를 더하라.")
+            f"apidog-merge.py 의 DOMAINS 에 '{controller}' 를 더하라 (도메인: {', '.join(DOMAINS)}).")
     return domain
 
 

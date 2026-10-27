@@ -80,10 +80,6 @@ class ApidogMergeTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     self.merge(**{"business-api": spec})
 
-    def test_대응표에_한_컨트롤러가_두_도메인에_있지_않다(self):
-        listed = [c for controllers in merge_mod.DOMAINS.values() for c in controllers]
-        self.assertEqual(len(listed), len(set(listed)))
-
     def test_business의_api_v1은_legacy_하위폴더로_격리된다(self):
         merged = self.merge(**{"business-api": make_spec({"/api/v1/users/me": ["get"],
                                                           "/me": ["get"]})})
