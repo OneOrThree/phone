@@ -278,6 +278,24 @@ test.each([
   },
 );
 
+test('추첨된 무인도 후보(slot=uninhabited)는 들어갈 섬이 있어도 맨 앞에 함께 뜬다', async () => {
+  const e = env();
+  e.state = initialState();
+  const lottery = item('lottery', {
+    name: '무인도',
+    memberCount: 0,
+    buildingCount: 0,
+    slot: 'uninhabited',
+    sailingMinutes: 15,
+  });
+  const regular = [mine('joined'), item('open'), item('full', { full: true })];
+  const { screen } = await open([lottery, ...regular], e);
+  expect(screen.getAllByTestId(/^telescope-island-/).map((n) => n.props.testID)).toEqual(
+    [lottery, ...regular].map((i) => `telescope-island-${i.islandId}`),
+  );
+  expect(screen.getByTestId('telescope-art-lottery').props.source).toBe(ISLAND_STAGE_ART.houses0);
+});
+
 test('섬 8개가 응답 순서대로 파노라마에 뜨고 소속 섬(joined)에만 깃발이 꽂힌다', async () => {
   const { screen } = await open(EIGHT());
   const order = screen.getAllByTestId(/^telescope-island-/).map((n: any) => n.props.testID);
