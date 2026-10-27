@@ -363,8 +363,7 @@ class ComposeContractTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('writer', Path(__file__).with_name('write-compose-env.py'))
         writer = importlib.util.module_from_spec(spec); spec.loader.exec_module(writer)
         payload = {key: 'synthetic-' + key for key in set(writer.LEGACY_REQUIRED_KEYS) | set(writer.SERVICE_REQUIRED_KEYS['data-api'])}
-        payload.update(SVC_TOKEN_DATA_TO_REALTIME='synthetic-data-rt', SVC_TOKEN_BIZ_TO_REALTIME='synthetic-biz-rt',
-                       INTERNAL_API_ENABLED='true')
+        payload.update(SVC_TOKEN_DATA_TO_REALTIME='synthetic-data-rt', SVC_TOKEN_BIZ_TO_REALTIME='synthetic-biz-rt')
         with tempfile.TemporaryDirectory() as temporary:
             runtime, data = Path(temporary) / 'dev.env', Path(temporary) / 'data.env'
             runtime.write_text(writer.render(payload, DATA, 'legacy'))

@@ -37,7 +37,6 @@ class InternalAuthFilterTest {
 
     private static InternalApiProperties enabledProperties() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         InternalApiProperties.Caller business = new InternalApiProperties.Caller();
         business.setToken(BUSINESS_TOKEN);
         business.setAllow(List.of(

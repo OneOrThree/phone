@@ -27,7 +27,6 @@ abstract class MagazineIssueNotifierTestBase {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("magazine.enabled", () -> true);
     }
 
     @Autowired

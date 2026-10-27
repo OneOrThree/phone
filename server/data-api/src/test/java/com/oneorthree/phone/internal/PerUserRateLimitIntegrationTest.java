@@ -38,7 +38,6 @@ class PerUserRateLimitIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "POST /internal/users/*/friend-requests");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/users/*/letters");

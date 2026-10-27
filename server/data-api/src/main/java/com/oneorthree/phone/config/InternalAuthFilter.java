@@ -30,7 +30,7 @@ import java.util.UUID;
  *
  * <h2>통과 조건 넷</h2>
  * <ol>
- *   <li><b>켜져 있을 것</b> — caller 설정이 없으면 이 경로는 «존재하지 않는다»(404).</li>
+ *   <li><b>caller 가 배선돼 있을 것</b> — caller 설정이 없으면 이 경로는 «존재하지 않는다»(404).</li>
  *   <li><b>{@code Authorization: Bearer} 가 알려진 caller 의 토큰일 것</b> — 비교는 상수 시간이다.</li>
  *   <li><b>그 caller 의 허용목록에 {@code METHOD + 경로} 가 있을 것</b>(㉱) — 이름만 나누면 최소
  *       권한이 안 선다.</li>
@@ -79,10 +79,10 @@ public class InternalAuthFilter extends OncePerRequestFilter {
     private final Map<String, List<AllowedCall>> allowByCaller;
 
     /**
-     * @param properties 내부 표면 설정. 꺼져 있으면 어떤 caller 도 만들지 않는다
+     * @param properties 내부 표면 설정. caller 가 없으면 어떤 caller 도 만들지 않는다
      */
     public InternalAuthFilter(InternalApiProperties properties) {
-        this.enabled = properties.isEnabled() && !properties.getCallers().isEmpty();
+        this.enabled = !properties.getCallers().isEmpty();
         Map<String, String> tokens = new LinkedHashMap<>();
         Map<String, List<AllowedCall>> allow = new LinkedHashMap<>();
         if (this.enabled) {

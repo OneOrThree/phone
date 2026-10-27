@@ -42,8 +42,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ({@code startSea}, 목적지는 핀으로 망원경에 넣은 섬)으로 같은 단언을 건다. 섬 세션을 같은 시나리오로 돌린 쪽은
  * «섬 통장 적립 그대로» 를 고정한다. 꾸미기 보상(GROMO-2301)은 두 종류 모두 같은 경로로 1개다.
  *
- * <p>분당 적립 크론({@code focus.reward.accrual-enabled})은 기본값(꺼짐)으로 둔다 — 지급 경로를 finish 의
- * 마지막 확정 하나로 좁혀, 통장 잔액 단언이 크론 시각에 흔들리지 않게 한다. 크론·황금 물고기 스케줄러가 부르는
+ * <p>분당 적립 크론은 돌지 않는다(테스트 프로파일 {@code ci} 의 {@code app.scheduling.enabled=false}) — 지급 경로를
+ * finish 의 마지막 확정 하나로 좁혀, 통장 잔액 단언이 크론 시각에 흔들리지 않게 한다. 크론·황금 물고기 스케줄러가 부르는
  * {@code FocusRewardAccrualService.accrue}·{@code GoldenFishService.drawAndCredit} 는 테스트가 직접 부른다(스케줄러는
  * 그 한 줄만 부른다) — 판정을 쓰는 «공유 지점» 이 그 둘이다.
  */
@@ -53,7 +53,6 @@ class SeaSessionSeamIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
     }
 
     @Autowired

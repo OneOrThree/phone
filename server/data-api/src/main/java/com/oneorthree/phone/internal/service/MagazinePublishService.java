@@ -16,7 +16,6 @@ import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.magazine.support.MagazineEditorial;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -53,10 +52,6 @@ import java.util.UUID;
  * </ol>
  * 같은 날 두 번째 발행은 {@code (issue_date, slot)}·{@code issue_no} 유일 제약이 한 번 더 막는다 — 겹친 쪽은 롤백되고
  * 다음 크론 틱에 1번에서 끝난다.
- *
- * <h2>기능 스위치</h2>
- * {@code magazine.enabled} 가 꺼져 있으면 발행하지 않는다. 신청·고치기가 닫힌 동안 빈 호가 쌓여 호수·7호 보관을 차지하지
- * 않게 하려는 것이다. 켜는 순간부터 그날 안의 다음 크론 틱이 그날 호를 낸다.
  */
 @Slf4j
 @Service
@@ -83,20 +78,13 @@ public class MagazinePublishService {
     private final PlatformTransactionManager transactionManager;
     private final Clock clock;
 
-    @Value("${magazine.enabled:false}")
-    private boolean enabled;
-
     /**
      * {@code issueDate} 호를 낸다.
      *
      * @param issueDate 호의 KST 날짜(크론이 도는 날)
-     * @return 새로 낸 호. 스위치가 꺼져 있거나 이미 그날 호가 있으면 empty
+     * @return 새로 낸 호. 이미 그날 호가 있으면 empty
      */
     public Optional<MagazineIssue> publish(LocalDate issueDate) {
-        if (!enabled) {
-            log.debug("고양이 잡지 스위치가 꺼져 있어 발행하지 않는다 date={}", issueDate);
-            return Optional.empty();
-        }
         if (issues.existsByIssueDate(issueDate)) {
             return Optional.empty();
         }

@@ -63,9 +63,6 @@ class MagazineReportPreviewIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("magazine.enabled", () -> true);
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/islands/*/promotions/*/reports"};
         for (int i = 0; i < allow.length; i++) {

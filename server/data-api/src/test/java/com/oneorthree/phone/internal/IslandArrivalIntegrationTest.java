@@ -83,12 +83,8 @@ class IslandArrivalIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
-        // 주민 첫 도착 사건(GROMO-2302) — 꺼진 기본값은 IslandInvitationArrivalIntegrationTest 가 본다.
-        registry.add("island.arrival.realtime-events-enabled", () -> true);
         String[] allow = {"POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island",
             "POST /internal/users/*/islands/*/arrivals", "DELETE /internal/islands/*/members/*",
             "DELETE /internal/users/*/islands/*/membership", "GET /internal/users/*/letters"};

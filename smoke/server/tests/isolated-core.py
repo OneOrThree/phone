@@ -112,8 +112,8 @@ def main():
         environment.update({'API_DB_URL': f'jdbc:postgresql://{db}:5432/smoke_core',
                             'API_DB_USERNAME': 'smoke', 'API_DB_PASSWORD': password,
                             'REDIS_HOST': redis, 'REDIS_PORT': '6379', 'REDIS_USERNAME': '', 'REDIS_PASSWORD': '',
-                            'OUTBOX_RELAY_ENABLED': 'false', 'FOCUS_SESSION_START_ENABLED': 'true',
-                            'FOCUS_PRESENCE_ENABLED': 'false', 'FOCUS_REWARD_ACCRUAL_ENABLED': 'false',
+                            'OUTBOX_RELAY_ENABLED': 'false',
+                            'FOCUS_PRESENCE_ENABLED': 'false',
                             'NOTIFICATION_DISPATCH_MODE': 'OUTBOX', 'DD_TRACE_ENABLED': 'false',
                             'JAVA_TOOL_OPTIONS': '-Xmx1024m -XX:ActiveProcessorCount=2',
                             'JAVA_OPTS': '-Djava.security.egd=file:/dev/./urandom', 'APP_SCHEDULING_ENABLED': 'false'})

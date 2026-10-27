@@ -67,7 +67,6 @@ class RealtimeMembershipAuthorizationIntegrationTest {
         registry.add("spring.flyway.locations", () -> "classpath:db/v0");
         registry.add("spring.flyway.baseline-on-migrate", () -> false);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.realtime.token", () -> REALTIME_TOKEN);
         registry.add("internal.api.callers.realtime.allow[0]", () -> "POST " + PATH);
     }

@@ -75,8 +75,6 @@ services:
       API_DB_USERNAME: loadtest
       API_DB_PASSWORD: loadtest-local-only
       SPRING_DATA_REDIS_HOST: redis
-      INTERNAL_API_ENABLED: 'true'
-      FOCUS_SESSION_START_ENABLED: 'true'
       SVC_TOKEN_BIZ_TO_DATA: local-biz-data
       SVC_TOKEN_NOTI_TO_DATA: local-noti-data
       SVC_TOKEN_CONSOLE_TO_NOTI: member-1:local-console-noti
@@ -99,9 +97,6 @@ services:
       NOTIFICATION_DISPATCH_MODE: OUTBOX
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       OUTBOX_RELAY_REALTIME_KAFKA_ENABLED: 'true'
-      USER_BLOCKS_REALTIME_EVENTS_ENABLED: 'true'
-      ISLAND_BOARD_WRITES_ENABLED: 'true'
-      ISLAND_MANAGEMENT_COMMANDS_ENABLED: 'true'
     mem_limit: 1g
     cpus: 2
     ports:
@@ -142,7 +137,6 @@ services:
       SVC_TOKEN_BIZ_TO_NOTI: local-biz-noti
       SVC_TOKEN_BIZ_TO_REALTIME: local-biz-realtime
       SVC_TOKEN_BIZ_TO_LINK: local-biz-link
-      BUSINESS_CURSOR_ENABLED: 'true'
       BUSINESS_CURSOR_KEY_V1: Y2ktY3Vyc29yLXNpZ25pbmcta2V5LTAxMjM0NTY3ODlhYg==
     mem_limit: 1g
     cpus: 2

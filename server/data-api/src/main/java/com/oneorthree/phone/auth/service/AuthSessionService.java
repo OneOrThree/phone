@@ -56,20 +56,16 @@ public class AuthSessionService {
     private final LoginAttemptRepository loginAttemptRepository;
     private final OutboxCommandPort outboxCommandPort;
     private final Clock clock;
-    /** GROMO-2350 — true 면 폐기 사건을 Realtime 에도 보내 그 세션의 STOMP 연결을 닫게 한다. 기본 OFF. */
-    private final boolean realtimeEventsEnabled;
     /** AT 수명(초) — 폐기 시각에 더하면 그 세션이 발급한 모든 AT 의 만료 상한이다. */
     private final long accessExpirationSeconds;
 
     public AuthSessionService(AuthSessionRepository authSessionRepository,
             LoginAttemptRepository loginAttemptRepository, OutboxCommandPort outboxCommandPort, Clock clock,
-            @Value("${auth.session-revoked.realtime-events-enabled:false}") boolean realtimeEventsEnabled,
             @Value("${jwt.access-expiration}") long accessExpirationSeconds) {
         this.authSessionRepository = authSessionRepository;
         this.loginAttemptRepository = loginAttemptRepository;
         this.outboxCommandPort = outboxCommandPort;
         this.clock = clock;
-        this.realtimeEventsEnabled = realtimeEventsEnabled;
         this.accessExpirationSeconds = accessExpirationSeconds;
     }
 
@@ -277,10 +273,9 @@ public class AuthSessionService {
                 AggregateRef.ofUser(session.getUserId()),
                 null,
                 params,
-                realtimeEventsEnabled
-                        ? List.of(OutboxDeliveryRequest.toNotification(ENDPOINT_SESSION_REVOKED, null),
-                                OutboxDeliveryRequest.toRealtime(EVENT_SESSION_REVOKED, null))
-                        : List.of(OutboxDeliveryRequest.toNotification(ENDPOINT_SESSION_REVOKED, null))));
+                // GROMO-2350 — Realtime 에도 보내 그 세션의 STOMP 연결을 닫게 한다(항상, 티켓 2535).
+                List.of(OutboxDeliveryRequest.toNotification(ENDPOINT_SESSION_REVOKED, null),
+                        OutboxDeliveryRequest.toRealtime(EVENT_SESSION_REVOKED, null))));
     }
 
     private static String newBootstrapNonce() {

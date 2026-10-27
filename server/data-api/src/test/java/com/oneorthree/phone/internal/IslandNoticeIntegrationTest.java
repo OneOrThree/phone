@@ -50,9 +50,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 섬 게시판 (GROMO-1771) 을 <b>실제 Flyway PostgreSQL(V66)</b> 위에서 검증한다 — 권한 행렬·게시판 잠금·다른 섬
  * 공지·멱등 재생·동률 커서·공지 version 축(legacy writer 포함)·내부 HTTP 표면.
  *
- * <p>시설 게이트를 <b>켜고</b>({@code construction.facility-gates.enforce=true}) 쓰기 스위치도 켠다
- * ({@code island-board.writes-enabled=true}). 기본값(둘 다 OFF)의 동작은 {@link IslandNoticeGateDefaultsTest}
- * 가 본다. 데이터는 전부 운영 엔티티·서비스로 심는다 — 동률 시각만 JDBC 로 맞춘다.
+ * <p>시설 게이트를 <b>켠다</b>({@code construction.facility-gates.enforce=true}). 기본값(OFF)의 동작은
+ * {@link IslandNoticeGateDefaultsTest} 가 본다. 데이터는 전부 운영 엔티티·서비스로 심는다 — 동률 시각만 JDBC 로 맞춘다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -65,10 +64,8 @@ class IslandNoticeIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("construction.facility-gates.enforce", () -> true);
-        registry.add("island-board.writes-enabled", () -> true);
         registry.add("island-board.notice-body-max-length", () -> 20);
         registry.add("island-board.comment-max-length", () -> 10);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*/notices");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/islands/*/notices");

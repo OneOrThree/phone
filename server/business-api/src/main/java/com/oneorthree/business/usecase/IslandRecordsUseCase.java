@@ -22,7 +22,6 @@ import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -77,7 +76,7 @@ public class IslandRecordsUseCase {
                     new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "measurementStatus")));
 
     private final DataRecordsClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     /** 집중 통계 — scope=me 는 {@link MeFocus}, scope=island 는 {@link IslandFocus}. */
     public Object focus(AccessTokenClaims claims, UUID islandId, LocalDate from, LocalDate to, String scope,
@@ -94,7 +93,7 @@ public class IslandRecordsUseCase {
         CursorScope cursorScope = new CursorScope(claims.userId(), RESOURCE_FOCUS, Map.of(
                 "islandId", islandId.toString(), "from", from.toString(), "to", to.toString(), "timezone", timezone),
                 SORT_COMPLETED_DESC, PAGE_SIZE);
-        CursorBoundary boundary = me ? codec().decode(cursor, cursorScope) : null;
+        CursorBoundary boundary = me ? codec.decode(cursor, cursorScope) : null;
         UUID snapshotId = boundary == null ? null : snapshotId(boundary.sortKey());
         Integer offset = boundary == null ? null : offset(boundary.tieBreaker());
         IslandRecordViews.FocusStatistics view = relay(() -> data.fetchFocusStatistics(claims.userId(), islandId,
@@ -113,7 +112,7 @@ public class IslandRecordsUseCase {
                 || (view.nextSnapshotId() == null) != (view.nextOffset() == null)) {
             throw new UpstreamContractMismatchException("집중 통계 응답이 완전하지 않습니다");
         }
-        String next = view.nextSnapshotId() == null ? null : codec().encode(cursorScope,
+        String next = view.nextSnapshotId() == null ? null : codec.encode(cursorScope,
                 new CursorBoundary(view.nextSnapshotId(), view.nextOffset().toString()));
         return new MeFocus(SCOPE_ME, view.totalSeconds(),
                 view.series().stream().map(RecordDaySeconds::from).toList(),
@@ -168,7 +167,7 @@ public class IslandRecordsUseCase {
         filters.put("direction", direction == null ? "" : direction);
         CursorScope scope = new CursorScope(claims.userId(), RESOURCE_LEDGER, filters, SORT_CREATED_DESC,
                 LEDGER_PAGE_SIZE);
-        Anchor anchor = Anchor.of(codec().decode(cursor, scope, FIELD_CURSOR));
+        Anchor anchor = Anchor.of(codec.decode(cursor, scope, FIELD_CURSOR));
         IslandLedger page = relay(() -> data.fetchIslandLedger(claims.userId(), islandId, month, direction,
                 anchor == null ? null : anchor.createdAt(), anchor == null ? null : anchor.id(),
                 LEDGER_PAGE_SIZE, deadline));
@@ -176,7 +175,7 @@ public class IslandRecordsUseCase {
                 || (page.nextCreatedAt() == null) != (page.nextEntryId() == null)) {
             throw new UpstreamContractMismatchException("가계부 응답이 요청과 다릅니다");
         }
-        String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
+        String next = page.nextCreatedAt() == null ? null : codec.encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextEntryId().toString()));
         return new Ledger(page.month(), page.earnedTotal(), page.spentTotal(),
                 page.items().stream().map(IslandLedgerEntry::from).toList(), next);
@@ -216,15 +215,6 @@ public class IslandRecordsUseCase {
             throw new UpstreamContractMismatchException("스크린타임 측정 응답이 계약과 다릅니다");
         }
         return ScreenTimeDayView.from(day);
-    }
-
-    /** 커서 서명기 — 없으면 첫 페이지로 접지 않고 503 이다(다른 목록 유스케이스와 같은 이유). */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     /** 서명은 통과했어도 경계 값 자체는 다시 검증한다. */

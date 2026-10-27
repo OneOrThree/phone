@@ -16,7 +16,7 @@ public class FilterConfig {
 
     @Bean
     public FilterRegistrationBean<InternalAuthFilter> internalAuthFilter() {
-        internalApiProperties.validateWhenEnabled();
+        internalApiProperties.validate();
         FilterRegistrationBean<InternalAuthFilter> bean = new FilterRegistrationBean<>();
         bean.setFilter(new InternalAuthFilter(internalApiProperties));
         bean.addUrlPatterns("/internal/*");

@@ -96,7 +96,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.authorization-client.cache-ttl-seconds`(30, 0=끔) 동안 들고 있다 — 거절·오류는 캐시하지 않는다. `island.members.updated`(가입·탈퇴·강퇴)의 `memberUserId`와
   `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
   ⚠️ 사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다(다중 인스턴스에서 즉시성이 필요하면 0). 개별 세션 폐기(로그아웃)는
-  스위치 `AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED` ON 이면 `auth.session.revoked` 가 와서 그 sid 의 소켓을 즉시 닫는다(기본 OFF — 그때는 TTL 이 상한이다). 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
+  `auth.session.revoked` 가 와서 그 sid 의 소켓을 즉시 닫는다(Data 생산 always on since 10-27, ticket 2535 — TTL is the upper bound only while the relay is off). 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
   지표: `realtime.authorization.cache{result=hit|miss|evict}`·`.inflight`·`.limit`·`.capacity.rejected`(세마포어가 찬 거절 전부)·`.rejected{reason=timeout|interrupted}`·`.duration{outcome}`.
   OFF 모드 `GroupClient` 는 `SimpleClientHttpRequestFactory`(connect·read 2s 타임아웃이 소켓 읽기마다 적용 — 본문 정지도 끊긴다, keep-alive 는 JDK 기본)에 동시 상한 `chat.data-api.max-concurrency`(32)를 둔다.
 - **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
@@ -490,16 +490,14 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    Data failure, timeout, non-200, non-JSON, >256KiB, unknown/duplicate fields, trailing tokens, non-canonical UUIDs
    and an unreadable sender all drop the frame (socket kept). A chat whose `senderId` is JSON `null` (withdrawn
    sender) has nobody to filter and is delivered. The lookup result is discarded (frame dropped) if the generation
-   moved during the lookup. **Both ends are switched off by default** because Data and Realtime deploy independently:
-   Realtime `REALTIME_BLOCKS_FILTER_ENABLED` (`realtime.blocks.filter-enabled`) and Data
-   `USER_BLOCKS_REALTIME_EVENTS_ENABLED` (`user-blocks.realtime-events-enabled`). Enable order: Realtime deployed
-   (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
-   flag → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
+   moved during the lookup. **The Data producer is always on (since 10-27, ticket 2535); only the Realtime filter is
+   switched, off by default**: `REALTIME_BLOCKS_FILTER_ENABLED` (`realtime.blocks.filter-enabled`). Enable order:
+   Realtime deployed (accepts `user.blocks.updated`) → Data `realtime-authorization` profile +
+   `SVC_TOKEN_REALTIME_TO_DATA` → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
    key restarts at 0 and a number can collide with a live cache written just before expiry (so it also assumes a Redis
    that does not evict keys — likewise `cache:chat:revoked:*`). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
-   turning the Data producer off leaves already-queued events, which are harmless. **Never roll Realtime back to a
-   version without `user.blocks.updated` while the Data producer is on** — the old consumer answers 400 and the
-   relay marks that blocker's `USER_BLOCKS` axis permanent. Turn the producer off first.
+   there is no producer flag any more. **Never roll Realtime back to a version without `user.blocks.updated`**
+   — the old consumer answers 400 and the relay marks that blocker's `USER_BLOCKS` axis permanent. Roll Data back first.
 
 ### 선택적 현재 멤버십 인가
 
@@ -509,8 +507,8 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 `cache-ttl-seconds`(30, 0=끔) 동안 캐시한다(거절·오류는 캐시하지 않고, ON 실패 시 기존 Redis 캐시 fallback도 없다).
 항목은 사용자·섬 두 축의 무효화 세대를 품고 조회 때 현재 세대와 대조한다. evict 사건 3종: `island.members.updated`
 (`memberUserId` 있으면 사용자 단위, 없으면 섬 단위), `user.withdrawn`. 이동 방 강퇴 재검사는 캐시를 우회하는
-`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는 스위치(기본 OFF) ON 이면
-`auth.session.revoked` 가 와서 즉시 닫고, OFF 면 TTL이 상한이다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
+`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는
+`auth.session.revoked` 가 와서 즉시 닫는다(always on since 10-27, ticket 2535; TTL is the upper bound only while the relay is off). `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
 실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
 
 현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound

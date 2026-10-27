@@ -231,11 +231,11 @@ paths:
     post:
       tags: [data-내구명령]
       operationId: transferIslandHost
-      summary: 섬 방장 위임의 원자 명령 기반 (활성화 전 기본 비활성)
+      summary: 섬 방장 위임의 원자 명령 기반
       description: |
         business caller와 X-User-Id만 허용한다. 서명으로 증명된 sessionId/authGeneration의 현재
-        활성 상태를 Data TX에서 재검사한다. island-management.host-transfer-enabled 기본 false이며
-        비활성 때는 역할·version·receipt·outbox를 변경하지 않고 503 REALTIME_NOT_READY를 반환한다.
+        활성 상태를 Data TX에서 재검사한다. 기능 스위치(island-management.host-transfer-enabled)는
+        2026-10-27(티켓 2535)에 걷었다 — 항상 켜져 있고 Data 는 더는 503 REALTIME_NOT_READY를 보내지 않는다.
         사용자 UUID 순서 → group → membership 잠금 아래 현재 방장에게서 같은 섬의 활성 타인으로
         OWNER/MEMBER를 교체하고 ISLAND_MEMBERS version·최소 성공 receipt·REALTIME outbox를 함께 저장한다.
         같은 명령은 본인 활성 인증 뒤 host 권한을 다시 행사하지 않고 원 {hostUserId,version}만 재생한다.
@@ -286,7 +286,7 @@ paths:
         '409':
           description: CANNOT_TRANSFER_SELF 또는 동일 키 다른 본문의 멱등 충돌
         '503':
-          description: REALTIME_NOT_READY — 역할 및 명령 상태 변경 없음
+          description: REALTIME_NOT_READY — 더는 보내지 않는다(스위치를 걷었다, 티켓 2535). Business 는 구버전 Data 응답을 계속 옮긴다
       x-idempotent: true
       x-retryable: true
 

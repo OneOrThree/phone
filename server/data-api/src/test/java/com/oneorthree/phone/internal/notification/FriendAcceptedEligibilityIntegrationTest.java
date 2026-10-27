@@ -44,7 +44,6 @@ class FriendAcceptedEligibilityIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.notification.token", () -> TOKEN);
         registry.add("internal.api.callers.notification.allow[0]",
                 () -> "POST /internal/notifications/eligibility");

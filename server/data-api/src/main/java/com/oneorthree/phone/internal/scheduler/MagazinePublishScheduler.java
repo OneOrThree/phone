@@ -67,7 +67,7 @@ public class MagazinePublishScheduler {
             }
         }
         // 발행이 empty 여도(이미 그날 호가 있음) 부른다 — 앞 틱에 호만 만들고 알림 펼치기가 끊겼으면 여기서 잇는다
-        // (GROMO-2307). 발행 실패와 별개로 시도한다. 스위치가 꺼져 호가 없으면 아무 일도 없다.
+        // (GROMO-2307). 발행 실패와 별개로 시도한다. 그날 호가 없으면 아무 일도 없다.
         try {
             reportNotify(notifier.notifyIfPending(today, clock.instant()), now, today);
         } catch (RuntimeException failure) {

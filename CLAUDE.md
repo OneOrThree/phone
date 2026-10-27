@@ -172,8 +172,9 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   every dev CD and `ops-*.dev` job builds `dev.env` (and satellite envs) under `$RUNNER_TEMP` via
   `.github/scripts/dev-env.sh` and deletes it in a final `if: always()` step; current images are read from
   running containers, not files. `dev-env.sh` also renders the Data container env (`data-api.env`) from SM;
-  its two non-secret settings (`INTERNAL_API_ENABLED=true`, profiles `dev,satellites,realtime-authorization`)
-  are fixed in the script. Only exception: `satellites/business-redis.acl` (bind-mounted by Redis). Health is judged by
+  its one non-secret setting (profiles `dev,satellites,realtime-authorization`) is fixed in the script — the
+  internal API has no on/off switch, it is live whenever the `satellites` profile configures its callers.
+  Only exception: `satellites/business-redis.acl` (bind-mounted by Redis). Health is judged by
   `.github/scripts/wait-healthy.sh` (container state: exited/restart/unhealthy fail at once, start time
   logged), and `.github/scripts/mark-deploy.sh` labels the merged PR `deployed:dev-<service>` or
   `deploy-failed:dev-<service>` (latest result only) and comments. GitHub Deployments shows one environment per

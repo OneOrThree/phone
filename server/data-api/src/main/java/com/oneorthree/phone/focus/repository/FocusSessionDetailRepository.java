@@ -204,7 +204,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      *
      * @param userId 탈퇴 중인 유저
      * @param now    종결 시각
-     * @return 종결된 행 수(보통 0 — 시작 게이트가 닫혀 있는 동안은 행 자체가 생기지 않는다)
+     * @return 종결된 행 수
      */
     @Modifying
     @Query("UPDATE FocusSessionDetail d SET "

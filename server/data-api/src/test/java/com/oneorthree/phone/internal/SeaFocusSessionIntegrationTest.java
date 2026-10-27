@@ -41,8 +41,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 바다 집중 세션 (GROMO-2299) — 내부 표면으로 start → current → pause 거절 → finish 를 <b>실제 Flyway PostgreSQL</b>
- * 위에서 본다. 소속이 0개인 계정이 망원경 항목으로 시작하고, 통장은 한 푼도 움직이지 않는다. 사건 스위치는 기본값(꺼짐)
- * 그대로라 outbox 에 바다 사건이 한 줄도 남지 않는다(켜진 쪽은 {@code SeaFocusSessionEventsIntegrationTest}).
+ * 위에서 본다. 소속이 0개인 계정이 망원경 항목으로 시작하고, 통장은 한 푼도 움직이지 않는다. 바다 방 사건(sailing·ended)은
+ * 항상 적히고 섬 presence 사건은 적히지 않는다(사건 내용은 {@code SeaFocusSessionEventsIntegrationTest}).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -54,8 +54,6 @@ class SeaFocusSessionIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         List<String> allow = List.of(
                 "POST /internal/users/*/focus-sessions",
@@ -129,8 +127,8 @@ class SeaFocusSessionIntegrationTest {
         assertThat(detail(sessionId, "lifecycle")).isEqualTo("COMPLETED");
         assertThat(walletBalance(island)).as("섬 통장 잔액 불변").isEqualTo(walletBefore);
         assertThat(ledgerRows(island)).as("원장 불변").isEqualTo(ledgerBefore);
-        assertThat(count("select count(*) from event_outbox where type='sea.member.updated'"))
-                .as("스위치가 꺼져 있으면 바다 사건을 적지 않는다").isZero();
+        assertThat(count("select count(*) from event_outbox where type='sea.member.updated' and user_id=?", user))
+                .as("바다 방 사건은 항상 적힌다 — start 의 sailing 과 finish 의 ended 두 건").isEqualTo(2);
         assertThat(count("select count(*) from event_outbox where type in "
                 + "('focus.member.updated','rest.member.updated') and params->>'sessionId'=?", sessionId))
                 .as("바다 세션은 섬 presence 사건을 내지 않는다(목적지 주민에게 보이면 안 된다)").isZero();

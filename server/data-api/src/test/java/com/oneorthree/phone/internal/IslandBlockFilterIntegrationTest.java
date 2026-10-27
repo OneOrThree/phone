@@ -56,7 +56,6 @@ class IslandBlockFilterIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-board.writes-enabled", () -> true);
     }
 
     @Autowired

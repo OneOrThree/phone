@@ -83,9 +83,6 @@ class IslandScreenFragmentsIntegrationTest {
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
         // 도서관 게이트를 실제로 판정하게 한다 — 기본 OFF 면 모든 섬이 통과해 게이트가 검증되지 않는다.
         registry.add("construction.facility-gates.enforce", () -> true);
-        // 승인·거절이 목록에서 사라지는지 보려면 방장 명령이 열려 있어야 한다(GROMO-2047).
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"GET /internal/users/*/join-requests", "GET /internal/islands/*/resources/ledger",
             "GET /internal/islands/*/statistics/fish-earnings"};
