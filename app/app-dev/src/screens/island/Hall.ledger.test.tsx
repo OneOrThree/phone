@@ -12,14 +12,15 @@ jest.mock('@/services/api/townHall', () => ({
   getTownHall: jest.fn(),
   getLedger: jest.fn(),
 }));
-jest.mock('@/utils/layout', () => ({
-  useAppLayout: () => ({
-    width: 402,
-    height: 874,
-    insets: { top: 52, bottom: 32, left: 0, right: 0 },
-    landscape: false,
-  }),
-}));
+// 기본은 402×874 시안 화면. 화면 크기별 단언은 테스트 안에서 잠시 바꾸고 되돌린다
+const DESIGN_LAYOUT = {
+  width: 402,
+  height: 874,
+  insets: { top: 52, bottom: 32, left: 0, right: 0 },
+  landscape: false,
+};
+const mockLayout = { ...DESIGN_LAYOUT };
+jest.mock('@/utils/layout', () => ({ useAppLayout: () => mockLayout }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 52, bottom: 32, left: 0, right: 0 }),
 }));
@@ -109,10 +110,19 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
   assert.equal(ledgerMock.mock.calls.length, 0);
 });
 
-// 402×874 시안 화면(안전영역 위 52): 책은 시안 높이 635.3 을 꽉 채우고 폭은 그림 비율로 줄어 가운데 온다
+// 402×874 시안 화면(안전영역 위 52): 책은 시안 높이 635.3 을 꽉 채우고 폭은 그림 비율로 줄어 가운데 온다.
+// 책 윗변은 874 − 28.4 − 635.3, 왼쪽은 남는 폭의 절반
 const SC = 635.3 / 1546;
+const BOOK_TOP = 874 - 28.4 - 635.3;
+const BOOK_LEFT = (402 - 804 * SC) / 2;
 const style = (node: { props: { style?: unknown } }) =>
   (StyleSheet.flatten(node.props.style as any) ?? {}) as Record<string, any>;
+// 화면 좌표 = 바깥 상자(ledger-book) 자리 + 그 안 상대 자리
+const onScreen = (screen: { getByTestId: (id: string) => any }, testID: string) => {
+  const frame = style(screen.getByTestId('ledger-book'));
+  const s = style(screen.getByTestId(testID));
+  return { left: frame.left + s.left, top: frame.top + s.top, width: s.width, height: s.height };
+};
 // 그린 트리의 모든 하위 요소(글자 조각 제외)
 const descendants = (node: any): any[] =>
   (node.children ?? []).flatMap((c: any) => (typeof c === 'string' ? [] : [c, ...descendants(c)]));
@@ -135,11 +145,12 @@ test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부�
   // 제비꼬리 책갈피 SVG 도 없다 — 포스트잇은 그림이다
   assert.equal(inside.filter((n) => /svg/i.test(String(n.type))).length, 0);
 
-  // 그림은 비율 그대로: 폭 = 804 × 배율, 높이 = 635.3, 좌우 가운데
-  const b = style(book);
+  // 그림은 비율 그대로: 폭 = 804 × 배율, 높이 = 635.3, 좌우 가운데 — 바깥 상자를 늘려도 화면상 자리는 종전과 같다
+  const b = onScreen(screen, 'ledger-book-body');
   assert.ok(Math.abs(b.height - 635.3) < 1e-9);
   assert.ok(Math.abs(b.width - 804 * SC) < 1e-9);
-  assert.ok(Math.abs(b.left - (402 - 804 * SC) / 2) < 1e-9);
+  assert.ok(Math.abs(b.left - BOOK_LEFT) < 1e-9);
+  assert.ok(Math.abs(b.top - BOOK_TOP) < 1e-9);
   const art = screen.getByTestId('ledger-book-art');
   assert.equal(art.props.resizeMode, 'contain');
 });
@@ -149,24 +160,29 @@ test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종
   const screen = await render(<Hall e={e()} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
 
+  // 포스트잇은 책 몸통(그림·종이를 품은 상자)의 형제다 — 둘의 zIndex 가 앞뒤를 정한다
+  const bodyZ = style(screen.getByTestId('ledger-book-body')).zIndex;
   const artZ = style(screen.getByTestId('ledger-book-art')).zIndex;
-  const tab = (label: string) => style(screen.getByTestId(`ledger-tab-${label}`));
+  const z = (label: string) => style(screen.getByTestId(`ledger-tab-${label}`)).zIndex;
+  const tab = (label: string) => onScreen(screen, `ledger-tab-${label}`);
   const labels = ['잔액', '적립', '지출'];
-  for (const label of labels)
-    assert.ok(tab(label).zIndex > artZ, `${label} 포스트잇이 책 뒤에 있다`);
+  for (const label of labels) {
+    assert.ok(z(label) > bodyZ, `${label} 포스트잇이 책 뒤에 있다`);
+    assert.ok(z(label) > artZ, `${label} 포스트잇이 책 그림 뒤에 있다`);
+  }
   // 펼친 장이 맨 앞
-  assert.ok(tab('잔액').zIndex > tab('적립').zIndex);
-  assert.ok(tab('잔액').zIndex > tab('지출').zIndex);
+  assert.ok(z('잔액') > z('적립'));
+  assert.ok(z('잔액') > z('지출'));
 
-  // 80 상자, 종이 왼쪽(60×배율) +4 부터 간격 2
+  // 80 상자, 종이 왼쪽(60×배율) +4 부터 간격 2 (화면 좌표)
   labels.forEach((label, n) => {
     const t = tab(label);
     assert.equal(t.width, 80);
     assert.equal(t.height, 80);
-    assert.ok(Math.abs(t.left - (60 * SC + 4 + n * 82)) < 1e-9);
+    assert.ok(Math.abs(t.left - (BOOK_LEFT + 60 * SC + 4 + n * 82)) < 1e-9);
   });
-  // 그림 아랫변(상자 위 0.94): 펼친 장은 단면 띠 바닥 147 +4, 나머지는 분홍 142·노랑 118·파랑 96 +6
-  const artBottom = (label: string) => tab(label).top + 80 * 0.94;
+  // 그림 아랫변(상자 위 0.94, 책 윗변 기준): 펼친 장은 단면 띠 바닥 147 +4, 나머지는 분홍 142·노랑 118·파랑 96 +6
+  const artBottom = (label: string) => tab(label).top + 80 * 0.94 - BOOK_TOP;
   assert.ok(Math.abs(artBottom('잔액') - (147 * SC + 4)) < 1e-9);
   assert.ok(Math.abs(artBottom('적립') - (118 * SC + 6)) < 1e-9);
   assert.ok(Math.abs(artBottom('지출') - (96 * SC + 6)) < 1e-9);
@@ -180,9 +196,98 @@ test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종
   await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
   assert.ok(Math.abs(artBottom('적립') - (147 * SC + 4)) < 1e-9);
   assert.ok(Math.abs(artBottom('잔액') - (142 * SC + 6)) < 1e-9);
-  assert.ok(tab('적립').zIndex > tab('잔액').zIndex);
+  assert.ok(z('적립') > z('잔액'));
+  // 장을 넘겨도 책은 움직이지 않는다
+  assert.ok(Math.abs(onScreen(screen, 'ledger-book-body').top - BOOK_TOP) < 1e-9);
   // 종이 틴트는 펼친 장 포스트잇 색(노랑)
   assert.equal(style(screen.getByTestId('ledger-tint')).backgroundColor, '#F1D77F');
+});
+
+test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다 — 안드로이드는 부모 밖 터치를 자른다(GROMO-2487)', async () => {
+  // 402×874 시안, 360×640 안드로이드(포스트잇 줄이 책보다 넓다), 852×393 가로(책이 낮고 좁다)
+  const layouts = [
+    DESIGN_LAYOUT,
+    {
+      width: 360,
+      height: 640,
+      insets: { top: 24, bottom: 0, left: 0, right: 0 },
+      landscape: false,
+    },
+    {
+      width: 852,
+      height: 393,
+      insets: { top: 0, bottom: 21, left: 59, right: 59 },
+      landscape: true,
+    },
+  ];
+  try {
+    for (const layout of layouts) {
+      Object.assign(mockLayout, layout);
+      townHallMock.mockResolvedValue(screenBody({}));
+      ledgerMock.mockResolvedValue(page({}));
+      const screen = await render(<Hall e={e()} />);
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+      const frame = style(screen.getByTestId('ledger-book'));
+      const bodyTop = () => onScreen(screen, 'ledger-book-body').top;
+      const top0 = bodyTop();
+      const inside = () => {
+        for (const label of ['잔액', '적립', '지출']) {
+          const node = screen.getByTestId(`ledger-tab-${label}`);
+          const t = style(node);
+          const slop = node.props.hitSlop as number;
+          const at = `${layout.width}×${layout.height} ${label}`;
+          assert.ok(t.top - slop >= 0, `${at}: 위가 부모 밖 ${t.top - slop}`);
+          assert.ok(t.left - slop >= 0, `${at}: 왼쪽이 부모 밖 ${t.left - slop}`);
+          assert.ok(t.top + t.height + slop <= frame.height, `${at}: 아래가 부모 밖`);
+          assert.ok(t.left + t.width + slop <= frame.width + 1e-9, `${at}: 오른쪽이 부모 밖`);
+        }
+      };
+      inside();
+      // 장을 넘겨도 안에 들고, 책의 화면상 자리는 그대로다
+      for (const label of ['적립', '지출']) {
+        await fireEvent.press(screen.getByTestId(`ledger-tab-${label}`));
+        await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+        inside();
+        assert.ok(Math.abs(bodyTop() - top0) < 1e-9);
+      }
+      // 바깥 상자의 빈 자리는 터치를 받지 않는다
+      assert.equal(screen.getByTestId('ledger-book').props.pointerEvents, 'box-none');
+      if (layout.width === 360) {
+        // 포스트잇 줄이 책보다 넓은 화면 — 바깥 상자가 오른쪽으로 늘어 품는다
+        assert.ok(frame.width > style(screen.getByTestId('ledger-book-body')).width);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    Object.assign(mockLayout, DESIGN_LAYOUT);
+  }
+});
+
+test('월 이동 ‹ › 는 버튼 상자 자체가 44×44 이상이고 그 줄도 44 이상이다 — hitSlop 은 부모 경계를 못 넘는다(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(screenBody({}));
+  ledgerMock.mockResolvedValue(page({}));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-prev')));
+
+  for (const testID of ['ledger-prev', 'ledger-next']) {
+    const node = screen.getByTestId(testID);
+    const s = style(node);
+    assert.ok((s.width ?? s.minWidth) >= 44, `${testID} 폭 ${s.width ?? s.minWidth}`);
+    assert.ok((s.height ?? s.minHeight) >= 44, `${testID} 높이 ${s.height ?? s.minHeight}`);
+    // 화살표 글자는 세로 가운데
+    assert.equal(s.justifyContent, 'center');
+  }
+  // 시안 자리: ‹ 는 왼쪽 끝, › 는 오른쪽 끝
+  assert.equal(style(screen.getByTestId('ledger-prev')).alignItems, 'flex-start');
+  assert.equal(style(screen.getByTestId('ledger-next')).alignItems, 'flex-end');
+  const row = style(screen.getByTestId('ledger-month-row'));
+  assert.ok((row.height ?? row.minHeight) >= 44, `월 이동 줄 높이 ${row.height ?? row.minHeight}`);
+
+  // 이번 달이면 › 는 막혀 있고, ‹ 는 지난달을 연다
+  assert.equal(screen.getByTestId('ledger-next').props.accessibilityState?.disabled, true);
+  await fireEvent.press(screen.getByTestId('ledger-prev'));
+  await waitFor(() => assert.equal(ledgerMock.mock.calls.length, 1));
+  assert.notEqual(ledgerMock.mock.calls[0][1].month, dayKey(Date.now()).slice(0, 7));
 });
 
 test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 → 지출, 적립·지출 장은 그 방향 내역과 합계만(GROMO-2487)', async () => {
@@ -269,6 +374,11 @@ test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운�
   const roomy = (testID: string) => {
     const node = screen.getByTestId(testID);
     const s = style(node);
+    // 잔액·합계 큰 숫자는 자르지 않고 한 줄에 맞게 줄인다 — 두 속성이 빠지면 긴 금액이 넘친다
+    if (testID === 'ledger-balance' || testID === 'ledger-total') {
+      assert.equal(node.props.numberOfLines, 1, `${testID}: numberOfLines`);
+      assert.equal(node.props.adjustsFontSizeToFit, true, `${testID}: adjustsFontSizeToFit`);
+    }
     assert.ok(s.lineHeight > s.fontSize, `${testID}: 줄높이 ${s.lineHeight} ≤ 글자 ${s.fontSize}`);
     // 금액 글자를 품은 줄·종이가 overflow: hidden 으로 자르지 않는다(종이 스크롤 영역까지)
     for (let p = node.parent; p && p.props.testID !== 'ledger-page'; p = p.parent) {

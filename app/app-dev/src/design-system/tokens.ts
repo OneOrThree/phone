@@ -466,7 +466,7 @@ export const componentTokens = {
     tabGap: 2,
     tabOpenOverlap: 4,
     tabRestOverlap: 6,
-    // 누르는 자리 84×84 = 상자 80 + 사방 2
+    // 누르는 자리 84×84 = 상자 80 + 사방 2. 책을 감싼 바깥 상자는 이 자리까지 품도록 위·오른쪽으로 늘어난다(안드로이드 부모 밖 터치)
     tabHitSlop: 2,
     // 라벨은 그림 세로 0.5 자리
     tabLabelTop: 0.5,
@@ -498,9 +498,8 @@ export const componentTokens = {
     // 내용 뒤에 붙는 「 · 3회」(내용 줄 안의 작은 글자)
     countFontSize: 12,
     amount: { fontSize: 18, lineHeight: 22 },
-    // 월 이동 ‹ › 는 글자만 보이고 누르는 자리는 44 이상으로 넓힌다. 이번 달이면 › 를 흐리게 막는다
+    // 월 이동 ‹ › 는 글자만 보이고 버튼 상자는 semanticTokens.size.tapMin(44) 정사각 이상이다. 이번 달이면 › 를 흐리게 막는다
     navGap: 6.5,
-    navHitSlop: { top: 9, bottom: 9, left: 19, right: 19 },
     navDisabledOpacity: 0.35,
     fishSize: 26,
     headGap: space[2],

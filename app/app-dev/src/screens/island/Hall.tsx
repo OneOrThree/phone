@@ -1014,7 +1014,8 @@ export function Hall({ e }: any) {
           </T>
         </>
       );
-    // 월 이동 ‹ › — 글자만 보이고 누르는 자리는 hitSlop 으로 44 이상
+    // 월 이동 ‹ › — 글자만 보이고 버튼 상자 자체가 44×44 다(hitSlop 은 부모 행·스크롤 경계를 못 넘어 44 가 안 나온다).
+    // 화살표는 시안 자리대로 ‹ 는 왼쪽 끝, › 는 오른쪽 끝에 붙이고 세로 가운데. 두 상자 폭이 같아 월 글자는 가운데 그대로
     const nav = (dir: -1 | 1) => {
       const disabled = dir === 1 && !ledger.canNext;
       return (
@@ -1024,9 +1025,14 @@ export function Hall({ e }: any) {
           accessibilityLabel={dir < 0 ? '이전 달' : '다음 달'}
           accessibilityState={{ disabled }}
           disabled={disabled}
-          hitSlop={LG.navHitSlop}
           onPress={() => (dir < 0 ? ledger.prevMonth() : ledger.nextMonth())}
-          style={{ opacity: disabled ? LG.navDisabledOpacity : 1 }}
+          style={{
+            minWidth: semanticTokens.size.tapMin,
+            minHeight: semanticTokens.size.tapMin,
+            alignItems: dir < 0 ? 'flex-start' : 'flex-end',
+            justifyContent: 'center',
+            opacity: disabled ? LG.navDisabledOpacity : 1,
+          }}
         >
           <T style={lt(LG.navArrow, { fontWeight: '800', color: LG.faint })}>
             {dir < 0 ? '‹' : '›'}
@@ -1054,6 +1060,21 @@ export function Hall({ e }: any) {
       bottom: (A.height - A.paperBottom) * sc,
     };
     const labels = ['잔액', '적립', '지출'] as const;
+    const bookW = A.width * sc;
+    const tabLeft = (n: number) => paper.left + LG.tabLeft + n * (LG.tabSize + LG.tabGap);
+    // 포스트잇은 책 위로(좁은 화면은 오른쪽으로도) 나온다. 안드로이드는 부모 상자 밖 터치를 자르므로 바깥 상자를
+    // 누르는 자리(hitSlop 포함)까지 위·오른쪽으로 늘리고, 책은 그 안에서 rise 만큼 내려 화면상 자리는 그대로 둔다.
+    // rise 는 장과 상관없이 가장 높이 오는 자리(가장 위 단면 또는 펼친 자리) 기준이라 장을 넘겨도 책이 움직이지 않는다
+    const rise = Math.max(
+      0,
+      LG.tabSize * LG.tabArtBottom +
+        LG.tabHitSlop -
+        Math.min(
+          A.bandBottom * sc + LG.tabOpenOverlap,
+          ...LG.pageEdges.map((y) => y * sc + LG.tabRestOverlap),
+        ),
+    );
+    const frameW = Math.max(bookW, tabLeft(labels.length - 1) + LG.tabSize + LG.tabHitSlop);
     // 고양이 포스트잇 — 세 장 모두 책 그림 앞. 펼친 장은 아래가 단면 띠 바닥 +4(종이에 붙음), 나머지는 제 색 단면 +6 에 걸친다.
     // 누르면 그 장이 펼쳐진다(넘김 애니메이션 없음)
     const postIt = (label: (typeof labels)[number], n: number) => {
@@ -1073,8 +1094,8 @@ export function Hall({ e }: any) {
           style={{
             position: 'absolute',
             zIndex: on ? LG.tabOpenZ : LG.tabZ,
-            left: paper.left + LG.tabLeft + n * (LG.tabSize + LG.tabGap),
-            top: artBottom - LG.tabSize * LG.tabArtBottom,
+            left: tabLeft(n),
+            top: rise + artBottom - LG.tabSize * LG.tabArtBottom,
             width: LG.tabSize,
             height: LG.tabSize,
           }}
@@ -1096,79 +1117,101 @@ export function Hall({ e }: any) {
       );
     };
     return shell(
+      // 바깥 상자 = 책 + 포스트잇 누르는 자리. 빈 부분은 터치를 받지 않는다(box-none)
       <View
         testID="ledger-book"
+        pointerEvents="box-none"
         style={[
           {
             position: 'absolute',
             zIndex: 7,
-            left: bookLeft + (room - A.width * sc) / 2,
-            top: bookTop,
-            width: A.width * sc,
-            height: A.height * sc,
+            left: bookLeft + (room - bookW) / 2,
+            top: bookTop - rise,
+            width: frameW,
+            height: A.height * sc + rise,
           },
           web({ filter: 'drop-shadow(rgba(60, 38, 27, 0.384) 0px 14.2px 15.5px)' }),
         ]}
       >
-        <Image
-          testID="ledger-book-art"
-          source={ledgerArt.book}
-          resizeMode="contain"
-          style={[fill, { zIndex: LG.artZ }]}
-        />
-        {/* 펼친 장 종이에 그 장 포스트잇 색을 곱하기로 옅게 덮는다 */}
         <View
-          testID="ledger-tint"
-          pointerEvents="none"
+          testID="ledger-book-body"
           style={{
             position: 'absolute',
-            zIndex: LG.tintZ,
-            left: paper.left,
-            right: paper.right,
-            top: paper.top,
-            bottom: paper.bottom,
-            borderRadius: LG.tintRadius,
-            backgroundColor: LG.tabColors[labels.findIndex((x) => TAB_KEY[x] === ledger.tab)],
-            opacity: LG.tintOpacity,
-            mixBlendMode: 'multiply',
-          }}
-        />
-        {/* 종이 안: 낮은 화면·긴 내역은 종이 안에서 스크롤한다 */}
-        <ScrollView
-          testID="ledger-page"
-          showsVerticalScrollIndicator={false}
-          style={{
-            position: 'absolute',
-            zIndex: LG.contentZ,
-            left: paper.left + LG.contentInsetX,
-            right: paper.right + LG.contentInsetX,
-            top: paper.top + LG.contentInsetY,
-            bottom: paper.bottom + LG.contentInsetY,
+            zIndex: LG.artZ,
+            left: 0,
+            top: rise,
+            width: bookW,
+            height: A.height * sc,
           }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: LG.navGap }}>
-            {nav(-1)}
-            <T style={lt(LG.month, { flex: 1, textAlign: 'center', color: LG.faint })}>
-              {ledgerYear}년 {ledgerMonth}월
-            </T>
-            {nav(1)}
-          </View>
-          {head}
-          {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
-          <View style={{ marginTop: LG.tableTop }}>
-            {stateBox ??
-              (shown.length ? (
-                <>
-                  {tableHead}
-                  {list}
-                  {more}
-                  {moreRetry}
-                </>
-              ) : (
-                empty
-              ))}
-          </View>
-        </ScrollView>
+          <Image
+            testID="ledger-book-art"
+            source={ledgerArt.book}
+            resizeMode="contain"
+            style={[fill, { zIndex: LG.artZ }]}
+          />
+          {/* 펼친 장 종이에 그 장 포스트잇 색을 곱하기로 옅게 덮는다 */}
+          <View
+            testID="ledger-tint"
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              zIndex: LG.tintZ,
+              left: paper.left,
+              right: paper.right,
+              top: paper.top,
+              bottom: paper.bottom,
+              borderRadius: LG.tintRadius,
+              backgroundColor: LG.tabColors[labels.findIndex((x) => TAB_KEY[x] === ledger.tab)],
+              opacity: LG.tintOpacity,
+              mixBlendMode: 'multiply',
+            }}
+          />
+          {/* 종이 안: 낮은 화면·긴 내역은 종이 안에서 스크롤한다 */}
+          <ScrollView
+            testID="ledger-page"
+            showsVerticalScrollIndicator={false}
+            style={{
+              position: 'absolute',
+              zIndex: LG.contentZ,
+              left: paper.left + LG.contentInsetX,
+              right: paper.right + LG.contentInsetX,
+              top: paper.top + LG.contentInsetY,
+              bottom: paper.bottom + LG.contentInsetY,
+            }}
+          >
+            <View
+              testID="ledger-month-row"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: LG.navGap,
+                minHeight: semanticTokens.size.tapMin,
+              }}
+            >
+              {nav(-1)}
+              <T style={lt(LG.month, { flex: 1, textAlign: 'center', color: LG.faint })}>
+                {ledgerYear}년 {ledgerMonth}월
+              </T>
+              {nav(1)}
+            </View>
+            {head}
+            {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
+            <View style={{ marginTop: LG.tableTop }}>
+              {stateBox ??
+                (shown.length ? (
+                  <>
+                    {tableHead}
+                    {list}
+                    {more}
+                    {moreRetry}
+                  </>
+                ) : (
+                  empty
+                ))}
+            </View>
+          </ScrollView>
+        </View>
         {labels.map(postIt)}
       </View>,
       e.back,
