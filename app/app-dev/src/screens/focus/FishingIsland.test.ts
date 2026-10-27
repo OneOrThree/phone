@@ -65,20 +65,50 @@ test('낚시섬: 물은 누를 수 없고, 뗏목 옆 땅에서 누른 땅까지
   assert.equal(onLand(fishingGrid, { x: 2, y: 2 }), false); // 바다
   assert.equal(onLand(fishingGrid, { x: 40, y: 40 }), false); // 연못
   assert.ok(onLand(fishingGrid, LANDING));
-  for (const p of [{ x: 34.1, y: 55.9 }, ...PEER_SPOTS])
+  for (const p of [DEFAULT_SPOT, ...PEER_SPOTS])
     assert.ok(landPath(fishingGrid, LANDING, p).length > 1, `${p.x},${p.y}`);
 });
 
+test('걸을 수 있는 칸은 900~1,000개이고 모두 착륙 지점과 이어진다', () => {
+  const { cols, cells } = fishingGrid;
+  let walkable = 0;
+  for (let c = 0; c < cells.length; c++) {
+    if (cells[c] !== '1') continue;
+    walkable++;
+    const p = { x: ((c % cols) + 0.5) * 2, y: (Math.floor(c / cols) + 0.5) * 2 };
+    assert.ok(landPath(fishingGrid, LANDING, p).length > 0, `${p.x},${p.y}`);
+  }
+  assert.ok(walkable >= 900 && walkable <= 1000, `${walkable}`);
+});
+
+test('나무·바위 칸은 걸어갈 수 없다', () => {
+  const c = fishingGrid.cells.indexOf('2'),
+    rock = {
+      x: ((c % fishingGrid.cols) + 0.5) * 2,
+      y: (Math.floor(c / fishingGrid.cols) + 0.5) * 2,
+    };
+  assert.equal(onLand(fishingGrid, rock), false);
+  assert.deepEqual(landPath(fishingGrid, LANDING, rock), []);
+});
+
+test('물고기 더미는 나무·바위 칸에는 걸쳐도 되고 물에는 걸치지 않는다', () => {
+  // (45, 60) 오른쪽 위 더미 프레임은 바위 칸(24열 27행)에 걸치고 물에는 닿지 않는다
+  assert.equal(fishingGrid.cells[27 * fishingGrid.cols + 24], '2');
+  assert.equal(fishingCatchFootprintOnLand({ x: 45, y: 60 }, { left: 1, top: 0.5 }), true);
+  // 기본 자리 바로 위로 올린 더미는 연못에 걸친다
+  assert.equal(fishingCatchFootprintOnLand(DEFAULT_SPOT, { left: 0.5, top: 0 }), false);
+});
+
 test('앉은 자리에서 가까운 물 쪽으로 낚싯줄을 던진다', () => {
-  // 시안 예시 내 자리 [34.1, 55.9, -1, 33.1, 55.1]
-  const spot = castSpot({ x: 34.1, y: 55.9 });
-  assert.equal(spot.face, -1);
-  assert.ok(Math.hypot(spot.bx! - 33.1, spot.by! - 55.1) < 1.5);
+  // 기본 내 자리(34.1, 57)는 오른쪽 위 연못 물가 칸(35, 55)으로 던진다
+  const spot = castSpot(DEFAULT_SPOT);
+  assert.equal(spot.face, 1);
+  assert.ok(Math.hypot(spot.bx! - 35, spot.by! - 55) < 1.5);
   assert.equal(onLand(fishingGrid, { x: spot.bx!, y: spot.by! }), false);
 });
 
 test('모든 주민 자리와 알려진 자리에서 화면상 가장 가까운 물 mask 칸을 찾는다', () => {
-  assert.equal(onLand(fishingGrid, { x: 19.5, y: 38.7 }), true);
+  assert.equal(onLand(fishingGrid, PEER_SPOTS[0]), true);
   for (const spot of PEER_SPOTS)
     assert.deepEqual(
       { x: spot.x, y: spot.y, face: spot.face, bx: spot.bx, by: spot.by },
@@ -96,7 +126,7 @@ test('모든 주민 자리와 알려진 자리에서 화면상 가장 가까운 
     assert.equal(targetCell, '0', `${seat.x},${seat.y}: 찌 목표가 물 mask 바깥`);
     assert.ok(screenDistance <= 12, `${seat.x},${seat.y}: 화면 거리 ${screenDistance}`);
     for (let c = 0; c < fishingGrid.cells.length; c++) {
-      if (fishingGrid.cells[c] === '1') continue;
+      if (fishingGrid.cells[c] !== '0') continue;
       const wx = ((c % fishingGrid.cols) + 0.5) * (fishingGrid.w / fishingGrid.cols),
         wy = (Math.floor(c / fishingGrid.cols) + 0.5) * (fishingGrid.h / fishingGrid.rows),
         distance = Math.hypot(wx - seat.x, ((wy - seat.y) * 2) / 3);
@@ -140,12 +170,6 @@ test('물가 칸 경계 바로 안쪽 땅을 눌러도 앉는 자리는 땅이�
     checked++;
   }
   assert.ok(checked > 10);
-});
-
-test('도착 지점과 이어지지 않은 땅(연못 가운데 섬)은 걸어갈 경로가 없다', () => {
-  const pondIsland = { x: 29, y: 45 };
-  assert.ok(onLand(fishingGrid, pondIsland));
-  assert.deepEqual(landPath(fishingGrid, LANDING, pondIsland), []);
 });
 
 test('실시간 주민 입장·퇴장 경로의 모든 구간은 물을 가로지르지 않는다', () => {
@@ -220,7 +244,7 @@ test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치
       bx: PEER_SPOTS[0].bx,
       by: PEER_SPOTS[0].by,
     },
-    { x: 18.5, y: 39.5, face: 1, bx: 21, by: 39 },
+    { x: 17.5, y: 39.5, face: 1, bx: 19, by: 39 },
   );
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);

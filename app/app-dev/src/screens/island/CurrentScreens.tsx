@@ -113,7 +113,7 @@ import {
   hms,
 } from '@/screens/focus/FishingIsland';
 import { Text, TextInput } from '@/design-system/typography';
-import { Point, landPath, onLand } from '@/utils/world-grid';
+import { Point, landPath, nearestLand, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
@@ -2527,9 +2527,15 @@ function FocusFlow({ e: environment }: any) {
       (knownSessionId == null || lastServerSeat.current.sessionId === knownSessionId)
         ? lastServerSeat.current.seat
         : null,
+    localSpot = s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : null,
+    // 격자가 바뀌기 전(티켓 2516)에 고른 자리는 물·나무·바위 칸일 수 있다 — 가장 가까운 걸을 수 있는 칸에 앉힌다
     minePoint =
       serverSeat ??
-      (s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING),
+      (localSpot
+        ? onLand(fishingGrid, localSpot)
+          ? localSpot
+          : nearestLand(fishingGrid, localSpot)
+        : LANDING),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;
