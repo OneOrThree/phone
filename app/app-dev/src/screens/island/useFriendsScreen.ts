@@ -17,6 +17,7 @@ import { sessionGeneration } from '@/services/api/session';
 import {
   getFriendsScreen,
   searchFriends,
+  type FriendRequestItem,
   type FriendSearchItem,
   type FriendsScreen,
 } from '@/services/api/friends';
@@ -47,6 +48,11 @@ export interface FriendsScreenState {
   searchStatus: SearchStatus;
   searchError: ApiError | null;
   searchItems: FriendSearchItem[];
+  /**
+   * 차단 목록으로 거르기 전의 보낸 요청 — 차단에 성공한 직후 그 상대에게 보낸 대기 요청을
+   * 찾아 취소할 때 쓴다(GROMO-2467). 화면 표시에는 `data.sentFriendRequests` 를 쓴다.
+   */
+  unfilteredSentFriendRequests: FriendRequestItem[];
 }
 
 export function useFriendsScreen({
@@ -277,5 +283,6 @@ export function useFriendsScreen({
     searchStatus: visibleSearchStatus,
     searchError: blockedListError ?? searchError,
     searchItems: visibleSearchItems,
+    unfilteredSentFriendRequests: data?.sentFriendRequests ?? [],
   };
 }
