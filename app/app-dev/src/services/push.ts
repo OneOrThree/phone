@@ -12,7 +12,9 @@
  * 등록하지 않는다 — 매 실행 재등록하면 알림 센터에 남은 이전 알림을 탭해도 태그가 달라 버려진다. 같은 계정의 새 세션이
  * bootstrap 없이 공개되면(응답을 잃은 로그인·전환을 같은 attemptId 로 다시 한 재생) 서버 행은 옛 세션에 묶여 있어 기록의
  * 소유권으로는 올릴 수 없다 — 공개 순간 기록의 소유권·확인을 지워 저장해(로그아웃 갈래와 같다) 다음 맞춤이 소유권 없이 보내
- * 아래 409 경로로 새로 묶는다. 저장한 기록이라 앱을 다시 시작하거나 알림이 꺼져 있었어도 옛 소유권을 싣지 않는다.
+ * 아래 409 경로로 새로 묶는다. 저장한 기록이라 앱을 다시 시작하거나 알림이 꺼져 있었어도 옛 소유권을 싣지 않는다. 부팅 복구의
+ * 확인 전 기록(마지막 등록이 서버에 닿았는지 모른다)도 같다 — 소유권을 믿지 않고 같은 길로 새로 묶는다(비용: 등록 도중 앱이
+ * 죽으면 토큰이 한 번 바뀐다).
  *
  * 오류 반응:
  * | 응답 | 반응 |
@@ -319,9 +321,10 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         staleOwnershipCleared !== generation &&
         live()
       ) {
-        // 소유권만 싣고 bootstrap 은 없는 요청(앱을 다시 시작해 bootstrap 이 사라진 확인 전 등록)이 SESSION_REVOKED 면 서버가 소유권으로
-        // 옛 세션의 연결을 물려받은 것이다 — 지금 세션 자체는 notification 앞의 business-api 가 이미 확인했다. 소유권·확인을 지우고
-        // 한 번만 소유권 없이 다시 보내 위 409 경로로 새로 묶는다. bootstrap 을 실었거나 이 세대에 이미 했으면 아래에서 멈춘다.
+        // 소유권만 싣고 bootstrap 은 없는 요청(확인받은 기록의 소유권으로 토큰을 바꿔 보내는 CAS)이 SESSION_REVOKED 면 서버가 소유권으로
+        // 옛 세션의 연결을 물려받은 것이다 — 지금 세션 자체는 notification 앞의 business-api 가 이미 확인했다. 부팅의 확인 전 기록은
+        // onSession 이 먼저 거르니 이것은 그 밖의 길의 안전망이다. 소유권·확인을 지우고 한 번만 소유권 없이 다시 보내 위 409 경로로
+        // 새로 묶는다. bootstrap 을 실었거나 이 세대에 이미 했으면 아래에서 멈춘다.
         staleOwnershipCleared = generation;
         device = { ...device, ownershipToken: undefined, registeredToken: undefined };
         await within(persist());
@@ -371,16 +374,32 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     // 미루면 다른 로그인에 밀려 사라질 수 있다. 꺼낸 값은 저장하지 않는다(메모리·그 등록의 재시도 본문까지만).
     const value = session ? takeDeviceBootstrap(session.refreshToken) : undefined;
     bootstrap = value ? { generation, value } : undefined;
-    // 첫 관찰(부팅 복구)이 아닌 같은 계정의 새 세션이 bootstrap 없이 왔다 — 응답을 잃어 같은 attemptId 로 다시 한 로그인·전환이
-    // 서버의 저장 결과(bootstrap 이 없다)로 재생된 경우다. 서버 행은 옛 세션의 bootstrap 에 묶여 있어, 기록의 소유권(CAS)으로 보내면
-    // 그 연결을 물려받아 옛 세션이 폐기될 때 꺼진다. 그래서 이 자리에서 소유권·확인을 지우고 저장한다(아래 로그아웃 갈래와 같다) —
-    // 확인 전·소유권 없음이면 다음 맞춤은 소유권 없이 보내 409 DEVICE_OWNERSHIP_CONFLICT 를 받고, 기존 409 경로가 토큰을 바꿔 새로 묶는다.
-    // 저장한 기록이라 앱이 다시 시작되거나 알림이 꺼져 있었어도 같다.
+    // 기록의 소유권이 어느 세션에 묶였는지 믿을 수 없는 두 경우 — 이 자리에서 소유권을 지우고 저장한다(아래 로그아웃 갈래와 같다).
+    // 서버 행이 옛 세션의 bootstrap 에 묶여 있으면 소유권(CAS)으로 보낸 요청이 그 연결을 물려받는다 — 옛 세션이 이미 폐기됐으면
+    // SESSION_REVOKED, 폐기가 아직 전해지지 않았으면 200 을 받고도 폐기가 닿는 순간 행이 꺼진다. 소유권 없이 보내면 서버는 409
+    // DEVICE_OWNERSHIP_CONFLICT 를 주고, 기존 409 경로가 토큰을 바꿔 현재 세션에 새로 묶는다.
+    //  · 첫 관찰이 아닌 같은 계정의 새 세션이 bootstrap 없이 왔다: 응답을 잃어 같은 attemptId 로 다시 한 로그인·전환이 서버의 저장
+    //    결과(bootstrap 이 없다)로 재생된 경우다.
+    //  · 첫 관찰(부팅 복구)인데 기록이 확인 전이다: 마지막 등록이 서버에 닿았는지, 닿았다면 어느 세션에 묶였는지 모른다(bootstrap 은
+    //    메모리뿐이라 앱이 죽으면 사라진다). 확인받은 기록은 그대로 둔다 — 매 실행 다시 등록하지 않는다.
     // ponytail: 기존 409 경로와 같은 서버 `legacy-device-registration` 창에 기댄다. 남는 틈은 이 순간의 보안 저장소 쓰기 실패뿐이다
-    // (이번 실행의 메모리 기록은 이미 고쳐져 있다). 서버가 X-Device-Bootstrap 을 아예 안 주거나(옛 business-api) auth.ts 4칸 맵에서
-    // 밀려나면 같은 계정의 재로그인은 매번 이 409 → 토큰 회전(FCM 토큰이 바뀐다)을 탄다 — 서버 먼저 배포하면 앞의 경우는 없다.
-    if (session && !first && !value && device.userId === session.userId && device.ownershipToken) {
+    // (이번 실행의 메모리 기록은 이미 고쳐져 있다). 비용은 토큰 회전 한 번이다 — 확인 전 등록 도중 앱이 죽었을 때, 그리고 서버가
+    // X-Device-Bootstrap 을 아예 안 주거나(옛 business-api) auth.ts 4칸 맵에서 밀려나면 같은 계정의 재로그인마다. 서버 먼저 배포하면
+    // 뒤의 경우는 없다.
+    const unbound = first ? device.registeredToken === undefined : !value;
+    if (session && unbound && device.userId === session.userId && device.ownershipToken) {
       device = { ...device, ownershipToken: undefined, registeredToken: undefined };
+      persist().catch(() => {});
+    } else if (
+      session &&
+      !first &&
+      value &&
+      device.userId === session.userId &&
+      device.registeredToken !== undefined
+    ) {
+      // 새 세션을 bootstrap 으로 묶기 전에 앱이 죽어도 다음 부팅이 확인 전 기록으로 보고 소유권을 버리게, 확인만 지워 저장한다. 이번 실행은 그대로
+      // 소유권(CAS)과 새 bootstrap 으로 보낸다. AT 갱신은 같은 세대라 위에서 이미 돌아갔다.
+      device = { ...device, registeredToken: undefined };
       persist().catch(() => {});
     }
     if (session) {

@@ -38,7 +38,10 @@ const TOKEN_DELETED: Device = {
   ownershipToken: OWN,
   deliveryTag: TAG,
 };
-/** 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 같은 계정의 기록을 건드리지 않는다. */
+/**
+ * 판정·탭 테스트용 — FCM 토큰이 없어 권한 거부 상태의 동기화가 같은 계정의 userId·태그를 건드리지 않는다. 확인 전 기록이라 부팅 복구가
+ * 소유권은 지우지만, 수신 판정은 userId·태그만 본다.
+ */
 const RECEIVING: Device = { userId: USER, ownershipToken: OWN, deliveryTag: TAG };
 
 const sessionOf = (userId = USER, refreshToken = `rt-${userId}`): FakeSession => ({
@@ -311,8 +314,8 @@ test('첫 등록의 응답을 잃으면 다음 트리거에 같은 키·같은 �
 });
 
 test('알림을 다시 켠 등록(CAS)의 응답을 잃으면 같은 상태로 보고 건너뛰지 않고 다음 트리거에 같은 키·본문으로 다시 보낸다', async () => {
-  // 알림을 껐다가(토큰만 지움, 소유권·태그는 남김) 다시 켠 기기.
-  const t = setup({ stored: { userId: USER, ownershipToken: OWN, deliveryTag: TAG } });
+  // 알림을 껐다가(토큰만 지움, 소유권·태그와 그것을 확인받은 토큰은 남김) 다시 켠 기기.
+  const t = setup({ stored: TOKEN_DELETED });
   t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
   await settle();
   t.foreground();
@@ -324,7 +327,7 @@ test('알림을 다시 켠 등록(CAS)의 응답을 잃으면 같은 상태로 �
   t.stop();
 });
 
-test('알림을 다시 켠 등록(CAS)의 응답을 잃고 앱이 다시 시작돼도 확인 전인 등록을 다시 보내고, 확인된 기록은 다시 시작해도 건너뛴다', async () => {
+test('알림을 다시 켠 등록(CAS)의 응답을 잃고 앱이 다시 시작되면 확인 전인 등록을 소유권 없이 다시 보내고, 확인된 기록은 다시 시작해도 건너뛴다', async () => {
   // 알림을 껐다(토큰만 지움) 다시 켠 기기 — 등록 응답을 잃는다.
   let t = setup({ stored: TOKEN_DELETED });
   t.fcm.getToken.mockResolvedValue(FCM_2);
@@ -341,14 +344,11 @@ test('알림을 다시 켠 등록(CAS)의 응답을 잃고 앱이 다시 시작�
   expect(unconfirmed.registeredToken).not.toBe(FCM_2);
   t.stop();
 
-  // 다시 시작 — 메모리의 묶음은 없어도 확인 전이라 다시 보낸다.
+  // 다시 시작 — 메모리의 묶음은 없어도 확인 전이라 다시 보낸다. 마지막 등록이 서버에 닿았는지 모르니 남은 소유권은 믿지 않는다.
   t = setup({ stored: unconfirmed });
   t.fcm.getToken.mockResolvedValue(FCM_2);
   await settle();
-  expect(t.registerDevice).toHaveBeenCalledWith(
-    { deviceToken: FCM_2, ownershipToken: OWN },
-    expect.stringMatching(KEY),
-  );
+  expect(t.registerDevice).toHaveBeenCalledWith({ deviceToken: FCM_2 }, expect.stringMatching(KEY));
   const confirmed = t.stored()!;
   expect(confirmed).toStrictEqual(registeredWith(FCM_2));
   t.stop();
@@ -383,15 +383,26 @@ test('Android·브리지 없는 바이너리에서는 expo-notifications 를 불
 test('같은 계정의 새 세션(s1→s2)은 토큰을 지우지 않고 소유권과 새 bootstrap 으로 등록한다', async () => {
   const t = setup({ stored: REGISTERED });
   await settle();
+  t.registerDevice.mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' });
   t.publish(sessionOf(USER, 'rt-2'), 'boot-2');
   await settle();
 
+  // 공개 순간 확인을 지워 두어도(앱이 죽을 때를 위해) 이번 실행은 그대로 소유권(CAS)과 새 bootstrap 으로 한 번 보낸다.
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
   expect(t.registerDevice).toHaveBeenLastCalledWith(
     { deviceToken: FCM, ownershipToken: OWN, deviceBootstrap: 'boot-2' },
     expect.stringMatching(KEY),
   );
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
   expect(t.notifications.dismissAllNotificationsAsync).not.toHaveBeenCalled();
+  // 응답으로 다시 확인받은 기록이다.
+  expect(t.stored()).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM,
+    registeredToken: FCM,
+    ownershipToken: 'own-2',
+    deliveryTag: 'tag-2',
+  });
   t.stop();
 });
 
@@ -587,7 +598,65 @@ test.each<[string, { stored?: Device; bootstrap?: string }]>([
   },
 );
 
-test('bootstrap 을 실은 등록이 서버에 닿기 전에 실패하고 앱이 다시 시작돼 bootstrap 이 사라져도 — 소유권만 싣다 409 SESSION_REVOKED 면 소유권·확인을 지우고 한 번 소유권 없이 다시 보내, 409 면 토큰을 바꿔 등록한다', async () => {
+// 부팅 복구(첫 세션)의 기록별 첫 PUT — 확인 전 기록의 소유권은 어느 세션에 묶였는지 믿을 수 없다(마지막 등록이 서버에 닿았는지, bootstrap 은
+// 메모리뿐이라 사라졌다). 서버가 옛 세션의 연결을 물려주면 폐기 전에는 200 뒤에 꺼지고 폐기 뒤에는 SESSION_REVOKED 다.
+test.each<[string, Device, object[]]>([
+  ['확인받은 기록은 그대로 둔다 — 매 실행 다시 등록하지 않는다', REGISTERED, []],
+  [
+    '확인 전 기록의 소유권은 믿지 않는다 — 소유권 없이 보낸다',
+    { userId: USER, fcmToken: FCM, ownershipToken: OWN, deliveryTag: TAG },
+    [{ deviceToken: FCM }],
+  ],
+  [
+    '소유권 없는 확인 전 기록은 그대로 소유권 없이 보낸다',
+    { userId: USER, fcmToken: FCM, deliveryTag: TAG },
+    [{ deviceToken: FCM }],
+  ],
+])('부팅 복구(첫 세션) — %s', async (_case, stored, sent) => {
+  const t = setup({ stored });
+  await settle();
+
+  expect(t.fcm.getToken).toHaveBeenCalled();
+  expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual(sent);
+  // 서버가 받아 주면(409 가 아니면) 토큰을 바꾸지 않고, 어느 기록이든 확인받은 기록으로 끝난다.
+  expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+  expect(t.stored()).toStrictEqual(REGISTERED);
+  t.stop();
+});
+
+// 위 표의 가운데 줄이 409 를 받는 경우 — 서버 행이 폐기가 아직 전해지지 않은 옛 세션에 묶여 있어 소유권 없는 PUT 은 409 다. 소유권을 실었다면 서버가
+// 그 연결을 물려받아 200 을 주고, 폐기가 닿는 순간 행이 꺼진 채 앱은 확인받은 줄 알고 다시 등록하지 않는다.
+test('부팅 복구(첫 세션) — 확인 전 기록은 소유권 없이 보내고, 409 면 토큰을 한 번 바꿔 새 소유권·태그로 확인받는다', async () => {
+  // 등록 도중 앱이 죽어 소유권·태그만 남은 기록(bootstrap 은 메모리뿐이라 사라졌다).
+  const t = setup({
+    stored: { userId: USER, fcmToken: FCM, ownershipToken: OWN, deliveryTag: TAG },
+  });
+  t.fcm.getToken.mockResolvedValueOnce(FCM).mockResolvedValue(FCM_2);
+  t.registerDevice
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409))
+    .mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' });
+  await settle();
+
+  expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
+    { deviceToken: FCM },
+    { deviceToken: FCM_2 },
+  ]);
+  // 토큰은 한 번만, 409 를 받은 뒤 두 번째 PUT 전에 바꾼다.
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  const [firstPut, secondPut] = t.registerDevice.mock.invocationCallOrder;
+  expect(t.fcm.deleteToken.mock.invocationCallOrder[0]).toBeGreaterThan(firstPut);
+  expect(t.fcm.deleteToken.mock.invocationCallOrder[0]).toBeLessThan(secondPut);
+  expect(t.stored()).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM_2,
+    registeredToken: FCM_2,
+    ownershipToken: 'own-2',
+    deliveryTag: 'tag-2',
+  });
+  t.stop();
+});
+
+test('bootstrap 을 실은 등록이 서버에 닿기 전에 실패하고 앱이 다시 시작돼 bootstrap 이 사라져도 — 확인 전 기록의 소유권을 믿지 않고 소유권 없이 보내, 409 면 토큰을 바꿔 등록한다', async () => {
   let t = setup({ stored: REGISTERED, bootstrap: 'boot-1' });
   t.registerDevice.mockRejectedValueOnce(t.apiError('CLIENT_NETWORK_ERROR', 0));
   await settle();
@@ -601,19 +670,15 @@ test('bootstrap 을 실은 등록이 서버에 닿기 전에 실패하고 앱이
   });
   t.stop();
 
-  // 다시 시작 — 소유권만 싣는다. 서버는 그 소유권으로 옛(이미 폐기된) 세션의 연결을 물려받아 SESSION_REVOKED.
+  // 다시 시작 — 소유권을 싣지 않는다. 서버 행은 옛 세션의 연결에 묶여 있어 409, 토큰을 바꿔 현재 세션에 새로 묶는다.
   t = setup({ stored: unconfirmed });
-  t.fcm.getToken.mockResolvedValueOnce(FCM).mockResolvedValueOnce(FCM).mockResolvedValue(FCM_2);
+  t.fcm.getToken.mockResolvedValueOnce(FCM).mockResolvedValue(FCM_2);
   t.registerDevice
-    .mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409))
     .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409))
     .mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' });
-  // 맞춤을 세 번 돈다(소유권 지움 → 409 회전 → 새 토큰) — settle 한 번(100 틱)으로는 모자란다.
-  await settle();
   await settle();
 
   expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
-    { deviceToken: FCM, ownershipToken: OWN },
     { deviceToken: FCM },
     { deviceToken: FCM_2 },
   ]);
@@ -628,81 +693,92 @@ test('bootstrap 을 실은 등록이 서버에 닿기 전에 실패하고 앱이
   t.stop();
 });
 
-test('SESSION_REVOKED 로 소유권을 지운 뒤의 재시도도 SESSION_REVOKED 면 되풀이하지 않고 멈춘다 — 다음 세션은 소유권 없이 bootstrap 만으로 등록한다', async () => {
-  const unconfirmed: Device = {
+// 409 SESSION_REVOKED 반응 — 부팅의 확인 전 기록은 onSession 이 먼저 거르므로, 소유권(CAS)을 싣는 길은 확인받은 기록으로 토큰을 바꿔 보낼 때다.
+test('확인받은 기록의 소유권(CAS)으로 토큰을 바꿔 보내다 409 SESSION_REVOKED 면 소유권·확인을 지우고 한 번 소유권 없이 다시 보내, 409 면 토큰을 바꿔 등록한다', async () => {
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValueOnce(FCM_2).mockResolvedValueOnce(FCM_2).mockResolvedValue(FCM_3);
+  t.registerDevice
+    .mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409))
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409))
+    .mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' });
+  // 맞춤을 세 번 돈다(소유권 지움 → 409 회전 → 새 토큰) — settle 한 번(100 틱)으로는 모자란다.
+  await settle();
+  await settle();
+
+  expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    { deviceToken: FCM_2 },
+    { deviceToken: FCM_3 },
+  ]);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.stored()).toStrictEqual({
     userId: USER,
-    fcmToken: FCM,
-    ownershipToken: OWN,
-    deliveryTag: TAG,
-  };
-  const t = setup({ stored: unconfirmed });
+    fcmToken: FCM_3,
+    registeredToken: FCM_3,
+    ownershipToken: 'own-2',
+    deliveryTag: 'tag-2',
+  });
+  t.stop();
+});
+
+test('SESSION_REVOKED 로 소유권을 지운 뒤의 재시도도 SESSION_REVOKED 면 되풀이하지 않고 멈춘다 — 다음 세션은 소유권 없이 bootstrap 만으로 등록한다', async () => {
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValue(FCM_2);
   t.registerDevice
     .mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409))
     .mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409));
   await settle();
   t.foreground();
-  t.fcmRefresh(FCM);
+  t.fcmRefresh(FCM_2);
   await settle();
 
   expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
-    { deviceToken: FCM, ownershipToken: OWN },
-    { deviceToken: FCM },
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    { deviceToken: FCM_2 },
   ]);
-  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM, deliveryTag: TAG });
+  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM_2, deliveryTag: TAG });
 
   t.publish(sessionOf(USER, 'rt-2'), 'boot-2');
   await settle();
   expect(t.registerDevice).toHaveBeenLastCalledWith(
-    { deviceToken: FCM, deviceBootstrap: 'boot-2' },
+    { deviceToken: FCM_2, deviceBootstrap: 'boot-2' },
     expect.stringMatching(KEY),
   );
   t.stop();
 });
 
 test('SESSION_REVOKED 로 소유권을 지우는 일은 세대당 한 번이다 — 새 소유권을 실은 같은 세대의 요청이 또 SESSION_REVOKED 면 다시 지우지 않고 멈춘다', async () => {
-  const unconfirmed: Device = {
-    userId: USER,
-    fcmToken: FCM,
-    ownershipToken: OWN,
-    deliveryTag: TAG,
-  };
-  const t = setup({ stored: unconfirmed });
-  t.fcm.getToken.mockResolvedValueOnce(FCM).mockResolvedValueOnce(FCM).mockResolvedValue(FCM_2);
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValueOnce(FCM_2).mockResolvedValueOnce(FCM_2).mockResolvedValue(FCM_3);
   t.registerDevice
     .mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409))
     .mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' })
     .mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409));
   await settle();
   // 소유권 없이 다시 보낸 둘째는 받아 줬다 — 같은 세대에서 FCM 토큰이 바뀌어 새 소유권(CAS)을 싣는 셋째가 또 거절당한다.
-  t.fcmRefresh(FCM_2);
+  t.fcmRefresh(FCM_3);
   await settle();
   t.foreground();
-  t.fcmRefresh(FCM_2);
+  t.fcmRefresh(FCM_3);
   await settle();
 
   expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
-    { deviceToken: FCM, ownershipToken: OWN },
-    { deviceToken: FCM },
-    { deviceToken: FCM_2, ownershipToken: 'own-2' },
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    { deviceToken: FCM_2 },
+    { deviceToken: FCM_3, ownershipToken: 'own-2' },
   ]);
   t.stop();
 });
 
 test('SESSION_REVOKED 로 지운 소유권은 바로 저장한다 — 다시 보내기 전에 FCM 토큰을 못 받아도 기록에 옛 소유권이 남지 않는다', async () => {
-  const unconfirmed: Device = {
-    userId: USER,
-    fcmToken: FCM,
-    ownershipToken: OWN,
-    deliveryTag: TAG,
-  };
-  const t = setup({ stored: unconfirmed });
-  t.fcm.getToken.mockResolvedValueOnce(FCM).mockRejectedValue(bridgeError('TOKEN_ERROR'));
+  const t = setup({ stored: REGISTERED });
+  t.fcm.getToken.mockResolvedValueOnce(FCM_2).mockRejectedValue(bridgeError('TOKEN_ERROR'));
   t.registerDevice.mockRejectedValueOnce(t.apiError('SESSION_REVOKED', 409));
   await settle();
 
   expect(t.registerDevice).toHaveBeenCalledTimes(1);
   // 다시 보내는 맞춤은 토큰을 못 받아 아무것도 쓰지 못했다 — 이 기록은 지운 직후의 저장이다.
-  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM, deliveryTag: TAG });
+  expect(t.stored()).toStrictEqual({ userId: USER, fcmToken: FCM_2, deliveryTag: TAG });
   t.stop();
 });
 
@@ -1542,14 +1618,54 @@ test('같은 계정·같은 토큰을 새 세션의 bootstrap 으로 다시 등�
   });
   t.stop();
 
-  // 다시 시작 — bootstrap 은 없지만 확인 전이라 건너뛰지 않고 다시 보낸다.
+  // 다시 시작 — bootstrap 은 사라졌고 확인 전이라 건너뛰지 않고 다시 보낸다. 소유권이 어느 세션에 묶였는지 모르니 싣지 않는다.
   t = setup({ stored: unconfirmed });
   await settle();
-  expect(t.registerDevice).toHaveBeenCalledWith(
-    { deviceToken: FCM, ownershipToken: OWN },
-    expect.stringMatching(KEY),
-  );
+  expect(t.registerDevice).toHaveBeenCalledWith({ deviceToken: FCM }, expect.stringMatching(KEY));
   expect(t.stored()).toStrictEqual(REGISTERED);
+  t.stop();
+});
+
+test('같은 계정의 새 세션이 bootstrap 과 함께 공개된 뒤 등록하기 전에 앱이 죽어도 — 확인을 지워 두어, 다시 시작하면 소유권 없이 보내 409 면 토큰을 바꿔 새로 묶는다', async () => {
+  let t = setup({ stored: REGISTERED });
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+
+  // 새 세션(s2)이 bootstrap 을 들고 공개되는데 FCM 토큰을 받지 못해 PUT 전에 끝난다 — 서버 행은 아직 옛 세션(s1)에 묶여 있고, 이때 앱이 죽는다.
+  t.fcm.getToken.mockRejectedValue(bridgeError('TOKEN_ERROR'));
+  t.publish(sessionOf(USER, 'rt-2'), 'boot-2');
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  // 확인만 지웠다 — 소유권·태그는 이번 실행의 CAS + bootstrap 이 쓰려고 남긴다.
+  const published = t.stored()!;
+  expect(published).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM,
+    ownershipToken: OWN,
+    deliveryTag: TAG,
+  });
+  t.stop();
+
+  // 다시 시작 — bootstrap 은 사라졌고 확인 전 기록이라 소유권을 믿지 않는다. 폐기가 아직 전해지지 않은 옛 세션에 묶인 행이라 409, 토큰을 바꿔 새로 묶는다.
+  t = setup({ stored: published });
+  t.fcm.getToken.mockResolvedValueOnce(FCM).mockResolvedValue(FCM_2);
+  t.registerDevice
+    .mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409))
+    .mockResolvedValueOnce({ ownershipToken: 'own-2', deliveryTag: 'tag-2' });
+  await settle();
+
+  expect(t.registerDevice.mock.calls.map(([body]) => body)).toStrictEqual([
+    { deviceToken: FCM },
+    { deviceToken: FCM_2 },
+  ]);
+  expect(t.fcm.deleteToken).toHaveBeenCalledTimes(1);
+  expect(t.stored()).toStrictEqual({
+    userId: USER,
+    fcmToken: FCM_2,
+    registeredToken: FCM_2,
+    ownershipToken: 'own-2',
+    deliveryTag: 'tag-2',
+  });
   t.stop();
 });
 
