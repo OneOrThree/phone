@@ -103,21 +103,17 @@ import {
   a11yHidden,
   anchorCard,
   labelBox,
-  nearGram,
-  nearRaft,
-  occupied,
-  DEFAULT_CATCH_PLACEMENT,
   DEFAULT_SPOT,
   LANDING,
   OUTLINE,
-  PEER_SPOTS,
   castSpot,
-  fishingCatchPlacement,
   fishingPeerCatchVisible,
   fiCard,
   fiTitle,
   fishingGrid,
   hms,
+  DEFAULT_CATCH_PLACEMENT,
+  seatProblem,
 } from '@/screens/focus/FishingIsland';
 import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, nearestLand, onLand } from '@/utils/world-grid';
@@ -3258,50 +3254,38 @@ function FocusFlow({ e: environment }: any) {
         }
       />
     );
-  // 정해진 자리 없음: 누른 땅까지 걸어가 앉고 그 자리 위에 집중 준비. 물·닿을 수 없는 곳·다른 주민 자리는 안 됨.
+  // 정해진 자리 없음: 땅을 누르면 걸어가기만 하고, 하단 [집중 시작]을 누른 자리에서 집중할 수 있는지 본다.
   const spotError = (p: Point): string | null => {
-    if (!onLand(fishingGrid, p)) return t('focusFlow.spot.onWater');
-    if (occupied(p, peerSpots)) return t('focusFlow.spot.occupied');
-    if (i.buildings.includes('gram') && nearGram(p)) return t('focusFlow.spot.nearGram');
-    if (nearRaft(p)) return t('focusFlow.spot.nearRaft');
-    const catchSpot = castSpot(p);
-    if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
-      catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
-    if (
-      !fishingCatchPlacement(
-        catchSpot,
-        peerSpots,
-        peerCatchSpots,
-        i.buildings.includes('gram'),
-        PEER_SPOTS,
-      )
-    )
-      return t('focusFlow.spot.noCatchRoom');
-    return null;
+    const problem = seatProblem(p, peerSpots, i.buildings.includes('gram'));
+    return problem ? t(`focusFlow.spot.${problem}`) : null;
   };
-  const availableSpots =
-    r === 'fishingArrival'
-      ? [DEFAULT_SPOT, ...PEER_SPOTS]
-          .filter((p) => !spotError(p) && landPath(fishingGrid, walker.p, p).length > 0)
-          .slice(0, 8)
-      : [];
-  const selectSpot = (p: Point) => {
-    if (returningFromArrival.current) return;
+  // 물·이어지지 않은 땅은 홈 섬처럼 조용히 무시한다. 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
+  const walkOnly = (p: Point) => {
+    if (returningFromArrival.current || !onLand(fishingGrid, p)) return;
+    walkTo(p, () => {});
+  };
+  // 자리 검사 → 자리 저장 → 준비 카드. 실패하면 이유만 알리고 제자리.
+  const startAt = (p: Point) => {
+    if (returningFromArrival.current || latest.current.r !== 'fishingArrival') return;
     const error = spotError(p);
     if (error) {
       e.notify(error);
       return;
     }
-    const walked = walkTo(p, () => {
-      if (latest.current.r !== 'fishingArrival') return;
-      e.dispatch({ type: 'FOCUS_SPOT', spot: p });
-      advanceTutorial(5, 7);
-      advanceTutorial(6, 7);
-      e.go('focusSetup');
-    });
-    // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
-    if (!walked) e.notify(t('focusFlow.spot.unreachable'));
+    e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+    advanceTutorial(5, 7);
+    advanceTutorial(6, 7);
+    e.go('focusSetup');
   };
+  // [집중 시작]: 걷는 중이면 그 자리에 멈춰 선 채로 검사한다.
+  const startHere = () => {
+    if (walker.walking) {
+      walkingToken.current++;
+      setWalker((w) => ({ ...w, walking: false }));
+    }
+    startAt(position.current);
+  };
+  // 스크린리더: 걸어갈 수 있는 빈 땅을 골라 걸어간 뒤 바로 준비 카드까지 연다.
   const selectAccessibleSpot = () => {
     const spot = findReachableTutorialSpot(
       fishingGrid,
@@ -3309,8 +3293,12 @@ function FocusFlow({ e: environment }: any) {
       DEFAULT_SPOT,
       (p) => !spotError(p),
     );
-    if (spot) selectSpot(spot);
-    else e.notify(t('focusFlow.spot.noneFound'));
+    if (!spot) {
+      e.notify(t('focusFlow.spot.noneFound'));
+      return;
+    }
+    // 걸어갈 길이 없는 곳(뗏목 쪽 땅과 이어지지 않은 땅)
+    if (!walkTo(spot, () => startAt(spot))) e.notify(t('focusFlow.spot.unreachable'));
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
@@ -3422,8 +3410,15 @@ function FocusFlow({ e: environment }: any) {
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
           onSkip={skipTutorial}
         >
-          {screenReader && (
+          {screenReader ? (
             <Btn title={t('focusFlow.spot.sitEmptyButton')} onPress={selectAccessibleSpot} />
+          ) : (
+            <FiButton
+              title={t('focusFlow.spot.start')}
+              id="focus-start"
+              primary
+              onPress={startHere}
+            />
           )}
         </GuideBox>
       );
@@ -3723,7 +3718,8 @@ function FocusFlow({ e: environment }: any) {
           focus={r !== 'fishingArrival' ? mine : L.landscape ? { x: 45, y: 58 } : { x: 38, y: 56 }}
           ratio={r === 'focusSetup' ? 0.72 : 0.5}
           spots={spots}
-          onTap={r === 'fishingArrival' ? selectSpot : undefined}
+          onTap={r === 'fishingArrival' ? walkOnly : undefined}
+          onSitAccessible={r === 'fishingArrival' ? selectAccessibleSpot : undefined}
           onRaft={raft}
           gram={i.buildings.includes('gram')}
           onGram={musicRoute ? () => setDialog('music') : undefined}
@@ -3735,34 +3731,55 @@ function FocusFlow({ e: environment }: any) {
               ? setup
               : r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21)
                 ? (toScreen) => (
-                    <View
-                      testID="focus-arrival-hint"
-                      pointerEvents="none"
-                      accessibilityLiveRegion="polite"
-                      style={{
-                        position: 'absolute',
-                        top: Math.min(
-                          toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
-                          (boxHeight || L.height) -
-                            safe.bottom -
-                            componentTokens.focusArrival.bottomReserve,
-                        ),
-                        left: safe.left + semanticTokens.spacing.page,
-                        right: safe.right + semanticTokens.spacing.page,
-                      }}
-                    >
-                      <Text
+                    <>
+                      <View
+                        testID="focus-arrival-hint"
+                        pointerEvents="none"
+                        accessibilityLiveRegion="polite"
                         style={{
-                          ...hudText,
-                          textAlign: 'center',
-                          fontSize: componentTokens.focusArrival.fontSize,
-                          lineHeight: componentTokens.focusArrival.lineHeight,
-                          fontWeight: componentTokens.focusArrival.fontWeight,
+                          position: 'absolute',
+                          top: Math.min(
+                            toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
+                            (boxHeight || L.height) -
+                              safe.bottom -
+                              componentTokens.focusArrival.bottomReserve,
+                          ),
+                          left: safe.left + semanticTokens.spacing.page,
+                          right: safe.right + semanticTokens.spacing.page,
                         }}
                       >
-                        {t('focusFlow.spot.pickPrompt')}
-                      </Text>
-                    </View>
+                        <Text
+                          style={{
+                            ...hudText,
+                            textAlign: 'center',
+                            fontSize: componentTokens.focusArrival.fontSize,
+                            lineHeight: componentTokens.focusArrival.lineHeight,
+                            fontWeight: componentTokens.focusArrival.fontWeight,
+                          }}
+                        >
+                          {t('focusFlow.spot.pickPrompt')}
+                        </Text>
+                      </View>
+                      {/* 하단 [집중 시작]: 지금 선 자리에서 집중할 수 있는지 검사해 준비 카드를 연다 */}
+                      <View
+                        testID="focus-start-bar"
+                        pointerEvents="box-none"
+                        style={{
+                          position: 'absolute',
+                          bottom: safe.bottom + semanticTokens.spacing.page,
+                          left: safe.left + semanticTokens.spacing.page,
+                          right: safe.right + semanticTokens.spacing.page,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <FiButton
+                          title={t('focusFlow.spot.start')}
+                          id="focus-start"
+                          primary
+                          onPress={startHere}
+                        />
+                      </View>
+                    </>
                   )
                 : undefined
           }
@@ -3805,30 +3822,6 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
-                {availableSpots.map((spot, index) => {
-                  const diameter = componentTokens.focusArrival.markerSize;
-                  return (
-                    <Pressable
-                      key={`${spot.x}:${spot.y}`}
-                      testID={`focus-available-spot-${index}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('focusFlow.spot.available')}
-                      onPress={() => selectSpot(spot)}
-                      hitSlop={(semanticTokens.size.tapMin - diameter) / 2}
-                      style={{
-                        position: 'absolute',
-                        left: (size * spot.x) / 100 - diameter / 2,
-                        top: (sizeY * spot.y) / 100 - diameter / 2,
-                        width: diameter,
-                        height: diameter,
-                        borderRadius: diameter / 2,
-                        borderWidth: componentTokens.focusArrival.markerStroke,
-                        borderColor: componentTokens.focusArrival.markerColor,
-                        boxShadow: componentTokens.focusArrival.markerShadow,
-                      }}
-                    />
-                  );
-                })}
                 {peers.map((actor) => {
                   const outfit = lookOf(
                     live.looks,
@@ -3905,7 +3898,6 @@ function FocusFlow({ e: environment }: any) {
                     catchAvoidSpots={peerSpots}
                     catchVisibleSpots={peerCatchSpots}
                     catchGramVisible={i.buildings.includes('gram')}
-                    catchFuturePeerSpots={PEER_SPOTS}
                     outfit={myOutfit}
                   />
                 ) : (

@@ -326,11 +326,8 @@ export const componentTokens = {
     fontSize: fontSize.md,
     lineHeight: space[6],
     fontWeight: primitiveTokens.fontWeight.bold,
-    bottomReserve: space[16],
-    markerSize: space[8],
-    markerStroke: primitiveTokens.stroke.strong,
-    markerColor: color.paper,
-    markerShadow: `0px 1px 2px ${color.brown}`,
+    // 안내 글이 하단 [집중 시작] 버튼(52 + 그림자 4 + 간격) 위에 머물게 비워 두는 높이
+    bottomReserve: space[16] + space[12],
   },
   focusEndHold: {
     durationMs: 1500,
