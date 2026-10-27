@@ -145,12 +145,12 @@ test('지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, �
   // 손을 떼면 변환은 항등으로 돌아간다(쉬는 동안 터치·배치가 그대로 맞는다).
   expect(shifts.slice(-3)).toEqual([0, 0, 1]);
 
-  // 두 손가락 집기 30번 — 두 손가락 가운데(200, 400)를 고정점으로 1.5배
+  // 두 손가락 집기 30번 — 두 손가락 가운데(200, 400)를 고정점으로 0.75배
   mockMapRenders = 0;
   await act(async () => pan.onPanResponderGrant!(touch([100, 400], [300, 400]), {} as any));
   for (let i = 1; i <= 30; i++)
     await act(async () =>
-      pan.onPanResponderMove!(touch([100 - (50 * i) / 30, 400], [300 + (50 * i) / 30, 400]), {
+      pan.onPanResponderMove!(touch([100 + (25 * i) / 30, 400], [300 - (25 * i) / 30, 400]), {
         dx: 0,
         dy: 0,
       } as any),
@@ -158,9 +158,9 @@ test('지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, �
   const pinchRenders = mockMapRenders;
   const anchor = { x: dragged.x + (200 - 201) / base, y: dragged.y + (400 - 437) / base };
   const pinched = {
-    x: anchor.x - (200 - 201) / (base * 1.5),
-    y: anchor.y - (400 - 437) / (base * 1.5),
-    z: 1.5,
+    x: anchor.x - (200 - 201) / (base * 0.75),
+    y: anchor.y - (400 - 437) / (base * 0.75),
+    z: 0.75,
   };
   expect(pinchRenders).toBeLessThanOrEqual(1);
   expectHall(dragged);
@@ -190,12 +190,12 @@ test('집었다 손을 떼면 땅 누르기는 커밋된 배율로 같은 월드
     }) as any;
   await act(async () => {
     pan.onPanResponderGrant!(pinch(200), {} as any);
-    pan.onPanResponderMove!(pinch(300), {} as any);
-    pan.onPanResponderRelease!(pinch(300), {} as any);
+    pan.onPanResponderMove!(pinch(150), {} as any);
+    pan.onPanResponderRelease!(pinch(150), {} as any);
   });
   await act(async () => jest.advanceTimersByTime(100));
-  // 쉬는 동안 transform 은 항등이라 땅 Pressable 의 로컬 좌표 = 커밋된 배치(1.5배) 좌표다.
-  const scale = (((874 / 874) * 402) / 1536) * 2.8 * 1.5;
+  // 쉬는 동안 transform 은 항등이라 땅 Pressable 의 로컬 좌표 = 커밋된 배치(0.75배) 좌표다.
+  const scale = (((874 / 874) * 402) / 1536) * 2.8 * 0.75;
   const [terrain] = screen.container.queryAll((n) => n.props.source === islandTerrain.day);
   await fireEvent.press(terrain, {
     nativeEvent: { locationX: 585 * scale, locationY: 430 * scale },
