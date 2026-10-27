@@ -2884,25 +2884,37 @@ function FocusFlow({ e: environment }: any) {
     setSoundPurchase(null);
     setDialog(null);
   };
+  const musicHintStyle = {
+    fontSize: semanticTokens.typography.label,
+    lineHeight: semanticTokens.typography.label * 1.6,
+    color: semanticTokens.color.textMuted,
+  };
   const musicModal =
     dialog === 'music' && !goldenReeling ? (
       <FiModal>
-        <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
+        <Text
+          style={[
+            fiTitle(semanticTokens.typography.title),
+            { marginBottom: semanticTokens.spacing.control },
+          ]}
+        >
           {t('focusFlow.music.title')}
         </Text>
         <Text
-          style={{
-            fontSize: 13,
-            lineHeight: 20.8,
-            color: '#7C6857',
-            marginBottom: wide ? 10 : 15,
-          }}
+          style={[
+            musicHintStyle,
+            {
+              marginBottom: wide
+                ? semanticTokens.spacing.control
+                : semanticTokens.spacing.component,
+            },
+          ]}
         >
           {t(activeFocus ? 'focusFlow.music.activeSubtitle' : 'focusFlow.music.inactiveSubtitle')}
         </Text>
         {soundPurchase ? (
-          <View style={{ gap: 12 }}>
-            <Text style={[fiTitle(wide ? 17 : 19), { textAlign: 'center' }]}>
+          <View style={{ gap: semanticTokens.spacing.control }}>
+            <Text style={[fiTitle(semanticTokens.typography.title), { textAlign: 'center' }]}>
               {soundPurchase.kind === 'confirm'
                 ? t('focusFlow.music.purchaseConfirm', { title: soundPurchase.product.title })
                 : soundPurchase.kind === 'success'
@@ -2910,14 +2922,12 @@ function FocusFlow({ e: environment }: any) {
                   : t('focusFlow.music.insufficientFish')}
             </Text>
             {soundPurchase.kind === 'confirm' && (
-              <Text
-                style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857', textAlign: 'center' }}
-              >
+              <Text style={[musicHintStyle, { textAlign: 'center' }]}>
                 {t('focusFlow.music.sharedPurchaseHint')}
               </Text>
             )}
             {soundPurchase.kind === 'confirm' ? (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
                 <FiButton
                   title={t('common.cancel')}
                   style={{ flex: 1 }}
@@ -2952,7 +2962,13 @@ function FocusFlow({ e: environment }: any) {
         ) : (
           <>
             {activeFocus && (
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: semanticTokens.spacing.control,
+                  marginBottom: semanticTokens.spacing.control,
+                }}
+              >
                 <FiButton
                   primary={i.playing}
                   title={t('focusFlow.music.play')}
@@ -2968,18 +2984,14 @@ function FocusFlow({ e: environment }: any) {
               </View>
             )}
             {e.islands && focusShop.error ? (
-              <View style={{ gap: 8 }}>
-                <Text style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857' }}>
-                  {t('focusFlow.music.loadFailed')}
-                </Text>
+              <View style={{ gap: semanticTokens.spacing.control }}>
+                <Text style={musicHintStyle}>{t('focusFlow.music.loadFailed')}</Text>
                 <FiButton title={t('common.retry')} onPress={focusShop.retry} />
               </View>
             ) : e.islands && focusShop.loading ? (
-              <Text style={{ fontSize: 13, lineHeight: 20.8, color: '#7C6857' }}>
-                {t('focusFlow.music.loading')}
-              </Text>
+              <Text style={musicHintStyle}>{t('focusFlow.music.loading')}</Text>
             ) : (
-              <View style={{ gap: 8 }}>
+              <View style={{ gap: semanticTokens.spacing.control }}>
                 {focusTrackIds.map((id) => {
                   const owned = focusOwnedTrackIds.includes(id);
                   const product = focusAudioProducts.find((item) => item.id === id);
@@ -3011,7 +3023,11 @@ function FocusFlow({ e: environment }: any) {
                 })}
               </View>
             )}
-            <View style={{ marginTop: wide ? 12 : 18 }}>
+            <View
+              style={{
+                marginTop: wide ? semanticTokens.spacing.control : semanticTokens.spacing.component,
+              }}
+            >
               <FiButton primary title={t('focusFlow.music.backToSpot')} onPress={closeMusic} />
             </View>
           </>
