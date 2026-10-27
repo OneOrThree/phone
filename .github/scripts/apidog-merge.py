@@ -9,8 +9,9 @@
   1. operationId 에 `<서비스>.` 접두어를 붙인다(없으면 method+path 로 결정적 생성).
   2. components 하위 모든 섹션의 키를 `<서비스>.<이름>` 으로 바꾸고,
      `#/components/...` $ref 전부를 함께 고친다.
-  3. 각 operation 에 `x-apidog-folder` 를 단다 — `<서비스>` 폴더, business 의 호환
-     `/api/v1/**` 경로는 `<서비스>/legacy` 하위로 격리한다.
+  3. 각 operation 에 `x-apidog-folder` 를 단다 — `<서비스>/<도메인>` 폴더(GROMO-2534,
+     도메인은 아래 DOMAINS 대응표), business 의 호환 `/api/v1/**` 경로는 `<서비스>/legacy`
+     하위로 격리한다.
      (x-apidog-folder 는 tags 보다 우선하고 `/` 가 계층을 나눈다 —
       https://docs.apidog.com/x-apidog-folder-1981658m0)
   4. 두 스펙이 같은 method+path 를 주장하면 «소유권 충돌»로 실패한다 — 조용히 덮지 않는다.
@@ -22,7 +23,7 @@
   예) apidog-merge.py merged.json \
         business-api=business-api.openapi.json data-api=data-api.openapi.json
 
-실패 조건(fail-closed): 스펙 파일 부재/깨짐, method+path 소유권 충돌.
+실패 조건(fail-closed): 스펙 파일 부재/깨짐, method+path 소유권 충돌, 도메인 대응표에 없는 컨트롤러.
 """
 import json
 import re
@@ -40,6 +41,30 @@ SERVICE_RULES = {
     # business-api 는 공개 계약이다 — 내부 경로가 새면 AccessTokenFilter 가 아니라 문서가 새는 것.
     "business-api": {"must_not_start": "/internal/"},
 }
+
+# 컨트롤러 → 도메인 대응표 (GROMO-2534). Apidog 폴더가 <서비스>/<도메인> 으로 나뉜다.
+# 키는 springdoc 기본 태그에서 `internal-` 접두와 `-controller` 접미를 뗀 이름이다 — business 의
+# island-notice-controller 와 data 의 internal-island-notice-controller 가 한 키로 모인다.
+# 여기 없는 컨트롤러가 스펙에 나오면 병합이 실패한다(PR 에서 잡힌다) — 맞는 도메인 줄에 이름을 더한다.
+DOMAINS = {
+    "인증·계정": ["auth-session", "guest-session", "session-refresh", "session-logout",
+              "account", "account-settings", "auth", "login-attempt", "session-issue"],
+    "섬": ["island-membership", "island-management", "island-host-transfer", "host-transfer",
+          "island-construction", "island-rankings", "island-records", "playback",
+          "island", "island-join", "island-layout", "island-economy",
+          "realtime-membership-authorization"],
+    "섬 소통": ["island-notice", "island-guestbook", "island-mailbox", "letter"],
+    "홍보·잡지": ["island-promotion", "magazine"],
+    "퀘스트": ["island-quest"],
+    "집중세션": ["focus-session", "island-focus-members", "island-focus-average",
+             "focus-tutorial-reward", "sea"],
+    "꾸미기·상점": ["appearance", "customization-catalog", "customization", "shop"],
+    "친구": ["friend", "user-block"],
+    "알림": ["user-notification", "notification", "user", "outbox-command"],
+    "화면": ["screen"],
+    "링크 미리보기": ["preview"],
+}
+CONTROLLER_DOMAIN = {c: d for d, controllers in DOMAINS.items() for c in controllers}
 
 
 def load_spec(path):
@@ -122,6 +147,18 @@ def namespace_spec(spec, service):
     return spec
 
 
+def domain_of(op, service, method, path):
+    """operation 의 첫 태그(컨트롤러)로 도메인을 찾는다. 대응표에 없으면 실패한다."""
+    tag = (op.get("tags") or [""])[0]
+    controller = re.sub(r"^internal-|-controller$", "", tag)
+    domain = CONTROLLER_DOMAIN.get(controller)
+    if domain is None:
+        raise SystemExit(
+            f"::error::{service} {method.upper()} {path} 의 태그 '{tag}' 가 도메인 대응표에 없다 — "
+            f"apidog-merge.py 의 DOMAINS 에 '{controller}' 를 더하라.")
+    return domain
+
+
 def tag_folder(spec, service):
     """서비스 경계 검사 + operationId 접두어 + x-apidog-folder + 경로 소유권 목록."""
     rules = SERVICE_RULES.get(service, {})
@@ -136,12 +173,13 @@ def tag_folder(spec, service):
                 f"::error::{service} 스펙에 내부 경로가 샜다 — {path}. 공개 문서에 올리면 안 된다.")
         if not isinstance(item, dict):
             continue
-        folder = f"{service}/legacy" if path.startswith(LEGACY_PREFIX) else service
+        legacy = path.startswith(LEGACY_PREFIX)
         for method, op in item.items():
             if method.lower() not in HTTP_METHODS or not isinstance(op, dict):
                 continue
             op["operationId"] = f"{service}.{op.get('operationId') or operation_id_fallback(method, path)}"
-            op["x-apidog-folder"] = folder
+            op["x-apidog-folder"] = (f"{service}/legacy" if legacy
+                                     else f"{service}/{domain_of(op, service, method, path)}")
             owned.append((method.lower(), path))
     return owned
 

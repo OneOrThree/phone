@@ -346,7 +346,8 @@ jobs:
       #
       # 폴더는 operation 의 x-apidog-folder 가 정한다(tags 보다 우선, / 로 계층 —
       # https://docs.apidog.com/x-apidog-folder-1981658m0): business-api/·data-api/
-      # 최상위 폴더, business 의 호환 /api/v1/** 는 business-api/legacy/ 하위.
+      # 최상위 폴더 아래 도메인 폴더(GROMO-2534 — apidog-merge.py 의 DOMAINS 대응표),
+      # business 의 호환 /api/v1/** 는 business-api/legacy/ 하위.
       # schema·operationId 는 병합 단계에서 <서비스>. 접두어가 붙어 네임스페이스가 갈리지 않는다.
       #
       # 프로젝트 ID 는 repo variable(APIDOG_PROJECT_ID_*)로 덮어쓸 수 있고, 미설정 시
@@ -385,7 +386,7 @@ jobs:
 
       # 두 개인 프로젝트는 «비파괴» 정책을 유지한다 — deleteUnmatchedResources 를 주지 않고
       # updateFolderOfChangedEndpoint 도 false 라 기존 엔드포인트는 제자리에 두고,
-      # 새 것만 x-apidog-folder 의 서비스 폴더로 들어간다. 같은 병합 스펙을 쓴다.
+      # 새 것만 x-apidog-folder 의 서비스/도메인 폴더로 들어간다. 같은 병합 스펙을 쓴다.
       - name: Sync to Apidog (Soobin)
         if: github.event_name == 'push'
         working-directory: build

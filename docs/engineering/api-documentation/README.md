@@ -36,9 +36,13 @@ GROMO-2069. 두 백엔드 서비스의 OpenAPI 스펙을 각각 생성하고, Ap
 
 - 폴더는 operation 의 `x-apidog-folder` 가 정한다 — tags 보다 우선하고 `/` 로 계층을
   나눈다(공식 문서: https://docs.apidog.com/x-apidog-folder-1981658m0).
-  - `business-api` — 공개 경로
+  - `business-api/<도메인>` — 공개 경로
   - `business-api/legacy` — 호환 `/api/v1/**`
-  - `data-api` — `/internal/**`
+  - `data-api/<도메인>` — `/internal/**`
+- 도메인은 병합 스크립트의 `DOMAINS` 대응표가 컨트롤러 태그로 정한다(GROMO-2534) —
+  서버 코드에 `@Tag` 를 붙이지 않는다. data-api 의 `internal-` 접두 컨트롤러는 같은
+  이름의 business 컨트롤러와 한 도메인으로 모인다. 대응표에 없는 컨트롤러가 스펙에
+  나오면 병합이 실패하므로, 새 컨트롤러를 만든 PR 에서 대응표에 한 줄을 더한다.
 - 병합(`.github/scripts/apidog-merge.py`)은 컴포넌트 이름과 모든 `$ref`·
   discriminator 매핑·securityScheme 이름에 `business-api.`/`data-api.` 접두어를
   붙여 충돌을 없앤다. 경로 소유권 충돌·중복 operationId·dangling `$ref`·빈 스펙은
