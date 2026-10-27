@@ -10,8 +10,8 @@
  * 레거시 `app/legacy/app-dev/src/services/api.ts` 에서 이식했다. 로그인·로그아웃처럼 **인증 세션
  * 자체가 교체될 때만** 올린다. 요청은 시작 시점의 세대를 들고 가고, 응답을 적용하기 전에 같은
  * 세대인지 본다 — 재로그인 경합에서 옛 계정의 늦은 응답이 새 계정을 덮거나 로그아웃시키는 것을
- * 막는 장치다. 토큰 갱신은 같은 세션의 연장이므로 올리지 않는다(현재 갱신 경로 자체가 없다 —
- * 2.0 공개 표면에 refresh 엔드포인트가 아직 없다).
+ * 막는 장치다. 토큰 갱신은 같은 세션의 연장이므로 올리지 않는다(`client.ts` 의 refresh 가
+ * `saveRefreshedSession` 으로 AT 를 바꿔 저장한다).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';

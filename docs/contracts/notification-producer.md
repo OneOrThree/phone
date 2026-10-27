@@ -108,6 +108,9 @@ noti:<KIND>:<userId>:<subjectId|none>:<시간축|none>
 
 공통 `params` 는 위에 더해 `kind` · `quietPolicy` · `groupId`(그룹 사건만) · `slotAt`(묶음 축, ISO-8601 UTC).
 
+`counterpartNickname`(`FRIEND_REQUEST`·`FRIEND_ACCEPTED`)과 `islandName`(`MAIN_ISLAND_TRANSFERRED`·`ISLAND_KICKED`)은
+알림 서버 마이그레이션 V12 부터 표시 문구에 쓰지 않는다. 계약 안정성 때문에 producer 는 계속 싣는다.
+
 `FRIEND_ACCEPTED`는 발송 직전 `subjectId`가 가리키는 상대 계정이 현재 활성인지 확인한다.
 상대가 탈퇴했거나 없으면 `SUBJECT_GONE`으로 억제해 지연 outbox·DLT의 과거 닉네임을 보내지 않는다.
 수락은 이미 일어난 사실이므로 단순 친구 해제만으로 억제하지 않는다. 관리자 시험도 상대 활성

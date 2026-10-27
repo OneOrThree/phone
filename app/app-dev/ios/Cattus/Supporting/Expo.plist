@@ -16,7 +16,7 @@
       <string>production</string>
     </dict>
     <key>EXUpdatesRuntimeVersion</key>
-    <string>2.0.0</string>
+    <string>2.0.0-push</string>
     <key>EXUpdatesURL</key>
     <string>https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d</string>
   </dict>

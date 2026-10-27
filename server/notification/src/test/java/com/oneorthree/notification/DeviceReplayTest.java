@@ -75,6 +75,31 @@ class DeviceReplayTest {
                 .containsEntry("epoch", 1L).containsEntry("used", true);
     }
 
+    /**
+     * 수신 확인 태그(GROMO-2520)는 소유권과 같은 재생 계약을 따른다. 같은 키의 재시도는 저장된 응답이라 같은
+     * 태그를 받고 행을 바꾸지 않는다 — 다르면 앱이 저장한 태그와 실제 발송 태그가 어긋나 모든 푸시를 버린다.
+     * 새 키의 CAS 재등록은 새 태그를 발급하고, 발송이 읽는 행 값이 응답 값과 같다.
+     */
+    @Test
+    void deliveryTagReplaysUnderTheSameKeyAndRotatesWithANewRegistration() {
+        Map<String, Object> first = devices.register(USER, body("device", "bootstrap", 1L, 0L, null), "same-key");
+        Object tag = first.get("deliveryTag");
+        assertThat(tag).isInstanceOf(String.class);
+        assertThat(store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("delivery_tag", tag);
+
+        assertThat(devices.register(USER, body("device", "bootstrap", 2L, 0L, null), "same-key"))
+                .containsEntry("ownershipToken", first.get("ownershipToken")).containsEntry("deliveryTag", tag);
+        assertThat(store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("delivery_tag", tag);
+
+        Map<String, Object> next = devices.register(USER,
+                body("device", null, 1L, 0L, first.get("ownershipToken").toString()), "next-key");
+        assertThat(next.get("deliveryTag")).isInstanceOf(String.class).isNotEqualTo(tag);
+        assertThat(store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("delivery_tag", next.get("deliveryTag"));
+    }
+
     /** 재생이라도 의도가 다르면 같은 키를 쓸 수 없다 — 기기 · 소유권은 멱등 비교 기준에 남아 있다. */
     @Test
     void changedIntentUnderTheSameKeyStillConflicts() {

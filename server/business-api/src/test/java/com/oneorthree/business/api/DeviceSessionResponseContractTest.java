@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -13,6 +14,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -76,7 +79,9 @@ class DeviceSessionResponseContractTest extends UpstreamTestBase {
                 Arguments.of(200, "{\"ownershipToken\":\"  \"}"),
                 Arguments.of(200, "{\"ownershipToken\":\"not-a-uuid\"}"),
                 Arguments.of(200, "{\"ownershipToken\":\"1-1-1-1-1\"}"),
-                Arguments.of(200, "{\"ownershipToken\":\" " + OWNER + "\"}"));
+                Arguments.of(200, "{\"ownershipToken\":\" " + OWNER + "\"}"),
+                // 태그가 있어도 소유권이 없으면 여전히 계약 오류다.
+                Arguments.of(200, "{\"deliveryTag\":\"t\"}"));
     }
 
     @ParameterizedTest
@@ -116,6 +121,41 @@ class DeviceSessionResponseContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.ownershipToken").value(owner));
         assertThat(NOTI.receivedFor("POST /internal/devices")).hasSize(2);
         assertThat(NOTI.receivedFor("POST /internal/devices").get(1).body()).contains(owner);
+    }
+
+    /** 수신 확인 태그(GROMO-2520) — 알림 서버가 준 값을 그대로 앱에 넘긴다. */
+    @Test
+    void deliveryTagIsPassedThroughAsIs() throws Exception {
+        stubRegistrationResponse("{\"ownershipToken\":\"" + OWNER + "\",\"deliveryTag\":\"tag-1\"}");
+        register(true).andExpect(status().isOk()).andExpect(jsonPath("$.ownershipToken").value(OWNER))
+                .andExpect(jsonPath("$.deliveryTag").value("tag-1"));
+    }
+
+    /**
+     * 태그 부재는 <b>영구히 정상</b>이다. 알림 서버 V13 전에 저장된 등록 응답은 같은 키로 탈퇴 전까지 재생된다 —
+     * 여기서 502 를 내면 그 키의 재시도가 영구 502 가 되고 앱은 새 ownershipToken 까지 잃는다. 키는 생략한다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"deliveryTag\":null"})
+    void missingDeliveryTagIsStillASuccessWithTheKeyOmitted(String tag) throws Exception {
+        stubRegistrationResponse("{\"ownershipToken\":\"" + OWNER + "\"" + tag + "}");
+        register(true).andExpect(status().isOk()).andExpect(jsonPath("$.ownershipToken").value(OWNER))
+                .andExpect(jsonPath("$", not(hasKey("deliveryTag"))));
+    }
+
+    /** 알림 서버가 먼저 배포돼 Business 가 모르는 필드를 더 실어도 등록은 성공한다(additive). */
+    @Test
+    void unknownFieldsInTheRegistrationResponseStillSucceed() throws Exception {
+        stubRegistrationResponse("{\"ownershipToken\":\"" + OWNER + "\",\"deliveryTag\":\"tag-1\","
+                + "\"futureField\":{\"nested\":[1,2]}}");
+        register(true).andExpect(status().isOk()).andExpect(jsonPath("$.ownershipToken").value(OWNER))
+                .andExpect(jsonPath("$.deliveryTag").value("tag-1"));
+    }
+
+    private void stubRegistrationResponse(String body) {
+        stubActiveUser(USER);
+        DATA.on(verification(true), request -> new MockUpstream.Response(200, LIVE));
+        NOTI.on("POST /internal/devices", request -> new MockUpstream.Response(200, body));
     }
 
     private void stubRegistration() {

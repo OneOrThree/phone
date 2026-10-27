@@ -213,7 +213,7 @@ dispatch_and_wait() {
 banner "Dev Notification Kafka cutover"
 
 stage "도구와 현재 상태 확인"
-say "이 wizard는 dev만 대상으로 하며 OUTBOX 전환은 단방향입니다."
+say "이 wizard는 dev만 대상으로 합니다."
 require_command gh
 require_command aws
 require_command jq
@@ -244,16 +244,16 @@ note "이 파일은 doc/ 아래라 git에 커밋되지 않습니다."
 stage "Secrets Manager 준비"
 say "AWS Console에서 gromo/dev/env JSON에 relay 값 6개를 추가합니다."
 open_url "https://ap-northeast-2.console.aws.amazon.com/secretsmanager/secret?name=gromo%2Fdev%2Fenv&region=ap-northeast-2"
-step "위 6개 값을 입력하되 OUTBOX_RELAY_ENABLED=false, NOTIFICATION_DISPATCH_MODE=LEGACY를 유지하세요."
+step "위 6개 값을 입력하되 OUTBOX_RELAY_ENABLED=false를 유지하세요."
 step "KAFKA_BOOTSTRAP_SERVERS=kafka:9092와 기존 REALTIME_BASE_URL/SVC_TOKEN_DATA_TO_REALTIME가 비어 있지 않은지 확인하세요."
 confirm "시크릿 저장을 마쳤습니까?" || exit 1
 
 stage "Notification 수신기 준비"
-say "Notification은 먼저 Kafka를 소비해 DB에 내구 적재하되 최종 발송 gate는 닫힌 상태여야 합니다."
+say "Notification은 Kafka를 소비해 DB에 내구 적재합니다. 이 단계는 발송 gate를 바꾸지 않습니다."
 step "gromo/dev/env에서 NOTIFICATION_KAFKA_ENABLED=true를 설정하세요."
-step "NOTIFICATION_SCHEDULING_ENABLED=false와 dispatch_control.enabled=false를 유지하세요."
+step "NOTIFICATION_SCHEDULING_ENABLED·delivery-dispatch 잡·dispatch_control은 그대로 두세요. dev는 2026-10-27부터 상시 열어 둡니다(티켓 2522)."
 step "Notification을 재배포한 뒤 /health가 정상인지 확인하세요."
-confirm "Notification 수신기가 healthy이고 발송 gate는 닫혀 있습니까?" || exit 1
+confirm "Notification 수신기가 healthy입니까?" || exit 1
 
 stage "DLT와 토픽 준비·검증"
 say "원본 토픽과 DLT는 파티션 수가 같아야 원본 파티션의 실패 사건을 보존합니다."
@@ -269,10 +269,8 @@ step "gromo/dev/env에서 OUTBOX_RELAY_ENABLED=true로 바꾸고 Data API를 재
 step "event_outbox_delivery의 KAFKA 미전달 건수, notification-v1 lag, notification-events.DLT가 모두 0이 될 때까지 기다리세요."
 confirm "미전달·lag·DLT가 모두 0입니까?" || exit 1
 
-stage "OUTBOX 단방향 전환"
-warn "OUTBOX에서 LEGACY로 설정만 되돌리면 이미 발송된 알림이 중복될 수 있습니다."
-confirm "최종 단방향 전환을 수행할까요?" || exit 1
-step "gromo/dev/env에서 NOTIFICATION_DISPATCH_MODE=OUTBOX로 바꾸고 Data API를 재배포하세요."
+stage "end-to-end 검증"
+step "발송 gate가 닫혀 있으면(새로 만든 dev DB) server/notification/README.md 「dev 발송 게이트」 순서로 여세요. Data에는 구 FCM 발송 경로가 없어 Notification이 유일한 발송 경로입니다."
 step "친구 요청/수락, 챌린지 개설, 내기 승리, 회차 종료 사건을 각각 1회 발생시키세요."
 step "Datadog에서 Data producer → Kafka → Notification consumer trace와 service 태그를 확인하세요."
 step "notification-events.DLT=0, consumer lag=0, 중복 발송=0을 확인하세요."

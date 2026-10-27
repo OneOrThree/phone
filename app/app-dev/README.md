@@ -155,7 +155,7 @@ npm run review:v2-journeys
 
 로그인·계정, 섬·주민, 집중 세션, 친구·편지 등은 서버 API에 연결되어 있으며, 설정·화면 상태와 스크린타임 측정은 기기에서 처리합니다. 일부 시각 효과와 건설·음원 흐름은 앱 로컬 상태로 동작합니다. 새 API 연결 범위는 `src/services/api/`와 해당 기능 표를 함께 갱신합니다.
 
-iOS 스토어 버전은 `1.0.2`(App Store Connect 에 새로 만든 Cattus 앱의 첫 버전과 맞춤), Android 는 동결된 1.x 패키지를 잇는 업데이트라 `2.0.0` 입니다. expo-updates `runtimeVersion` 은 `2.0.0` 으로 두 플랫폼이 같습니다. `app.config.js` 의 `version` 은 Android 용 `2.0.0` 그대로이고, iOS 값은 `iosStoreVersionConfig.js` 의 `IOS_STORE_VERSION` 이 정본입니다 — prebuild 가 Info.plist 와 pbxproj 를 다시 써도 이 플러그인이 `MARKETING_VERSION` 과 `CFBundleShortVersionString` 을 `1.0.2` 로 되돌립니다. iOS 스토어 버전을 올릴 때는 pbxproj·Info.plist 와 이 상수를 함께 바꾸세요. iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다. Xcode 프로젝트·워크스페이스·스킴·메인 타깃 이름은 `Cattus`(`ios/Cattus.xcworkspace`)이고, 홈 화면 앱 이름은 한국어 기기 `집중할고양`·그 외 `cattus` 입니다(`ios/Cattus/Supporting/*.lproj/InfoPlist.strings`·`locales/*.json`·Android `values-ko`). 번들 ID·URL 스킴 `gromo`·저장 키는 배포된 사용자 데이터와 묶여 있어 바꾸지 않습니다.
+iOS 스토어 버전은 `1.0.2`(App Store Connect 에 새로 만든 Cattus 앱의 첫 버전과 맞춤), Android 는 동결된 1.x 패키지를 잇는 업데이트라 `2.0.0` 입니다. expo-updates `runtimeVersion` 은 플랫폼마다 따로 둡니다 — iOS `2.0.0-push`(GROMO-2523 푸시 네이티브, 체크인 `ios/Cattus/Supporting/Expo.plist` 도 같은 값), Android `2.0.0-no-special-use`(GROMO-2415). 런타임을 가르면 이전 런타임(iOS `2.0.0`) 바이너리는 새 OTA 를 받지 않고, 그 사용자는 새 바이너리로 업데이트해야 이후 수정을 받습니다. `scripts/ota-update.sh` 는 지금 커밋의 런타임으로 두 플랫폼을 함께 발행하므로 이전 런타임 전용 핫픽스에는 쓸 수 없습니다 — 옛 커밋에서 돌리면 Android 에 옛 JS 가 나가고, `eas update` 를 직접 부르면 이 스크립트의 운영값 주입·사전 검사를 건너뛰어 dev 설정이 운영 번들에 박힐 수 있습니다. `app.config.js` 의 `version` 은 Android 용 `2.0.0` 그대로이고, iOS 값은 `iosStoreVersionConfig.js` 의 `IOS_STORE_VERSION` 이 정본입니다 — prebuild 가 Info.plist 와 pbxproj 를 다시 써도 이 플러그인이 `MARKETING_VERSION` 과 `CFBundleShortVersionString` 을 `1.0.2` 로 되돌립니다. iOS 스토어 버전을 올릴 때는 pbxproj·Info.plist 와 이 상수를 함께 바꾸세요. iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다. Xcode 프로젝트·워크스페이스·스킴·메인 타깃 이름은 `Cattus`(`ios/Cattus.xcworkspace`)이고, 홈 화면 앱 이름은 한국어 기기 `집중할고양`·그 외 `cattus` 입니다(`ios/Cattus/Supporting/*.lproj/InfoPlist.strings`·`locales/*.json`·Android `values-ko`). 번들 ID·URL 스킴 `gromo`·저장 키는 배포된 사용자 데이터와 묶여 있어 바꾸지 않습니다.
 Kakao는 2.0 전용 Kakao 앱의 native key `1280641e9b639a279b7406f24b059703`을 iOS·Android 공통으로 씁니다. Kakao provider ID는 Kakao 앱마다 따로 발급되므로, 1.x 앱(native key `af3ff0c5…`)으로 가입한 카카오 사용자는 2.0에서 다른 계정으로 로그인됩니다(팀 결정, 2026-09-29). Kakao Developers 콘솔의 이 Kakao 앱에 iOS bundle ID `com.oneorthree.focuscat`, Android package `com.oneorthree.gromo`와 배포 서명 키 해시를 등록해야 합니다. 두 플랫폼 모두 OAuth callback scheme은 `kakao<key>`이고, iOS `Info.plist`와 Android manifest에 `kakao1280641e9b639a279b7406f24b059703` scheme이 들어 있어야 합니다.
 Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world`이 모두 필요합니다. URL이 빠졌거나 dev/다른 주소이면 release artifact를 만들지 않습니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world ./gradlew :app:assembleRelease`입니다. 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
 
@@ -174,9 +174,9 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 **새 도메인은 `src/services/api/<도메인>.ts` 를 새로 만듭니다.** `auth.ts` 에 얹지 않습니다 — 한 파일에 몰면 병렬 티켓이 서로의 머지 충돌이 됩니다. 요청은 전부 `client.ts` 의 `request()` 를 지나고, 명령성 요청(PATCH `/me` · DELETE `/me` · PATCH `/me/settings`)은 `uuid()` 로 만든 `idempotencyKey` 를 넘기며 **재시도는 같은 값으로** 보냅니다.
 
-**계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 재발급·B 세션 bootstrap 재등록·`deliveryTag` 대조와 commit 직후의 결과 세션 채택 확인 요청은 기기·푸시 등록 티켓 몫입니다.
+**계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 교체·B 세션 bootstrap 재등록·`deliveryTag` 대조는 `services/push.ts` 가 합니다(GROMO-2525 — 계정이 바뀌면 표시 알림을 지우고 이전 토큰을 지운 뒤 새 토큰으로 등록). 서버는 그 세션의 첫 인가 성공·refresh·bootstrap 소비로 결과 세션 채택을 기록합니다(계정 LLD 「결과 세션 채택」).
 
-토큰 갱신(`POST /auth/sessions/current/refresh`, GROMO-2035)과 게스트 세션 발급(`POST /auth/sessions/guest`, GROMO-2036)은 2.0 공개 표면에 있고 앱이 호출합니다 — 401 은 갱신을 한 번 시도한 뒤 실패하면 재로그인입니다. 로그인 화면 제공자는 iOS 애플·구글, Android 구글입니다(계정 정책 LOGIN-D04). Kakao·LINE SDK 와 버튼 코드는 남아 있어 `src/services/loginProviders.ts` 목록만 바꾸면 되돌릴 수 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
+토큰 갱신(`POST /auth/sessions/current/refresh`, GROMO-2035)과 게스트 세션 발급(`POST /auth/sessions/guest`, GROMO-2036)은 2.0 공개 표면에 있고 앱이 호출합니다 — 401 은 갱신을 한 번 시도한 뒤 실패하면 재로그인입니다. 로그인 화면 제공자는 iOS 애플·구글, Android 구글입니다(계정 정책 LOGIN-D04). Kakao·LINE SDK 와 버튼 코드는 남아 있어 `src/services/loginProviders.ts` 목록만 바꾸면 되돌릴 수 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap`(1회용 기기 등록 자격)은 서버가 로그인 201·게스트 시작 응답 헤더로 싣습니다(결과 재생·refresh 응답에는 없음). `login()`·`guestLogin()` 이 `request()` 의 `onHeaders` 로 받아 리프레시 토큰에 묶어 **메모리에만** 두고, 기기 등록이 `takeDeviceBootstrap(refreshToken)` 으로 한 번 꺼내 씁니다(저장소·로그에 남기지 않음). 기기 토큰 API(`PUT`·`DELETE /api/v1/users/me/device-token`)는 2.0 앱이 `/api/v1` 을 부르는 첫 예외이며 `services/api/deviceToken.ts` 에만 있습니다.
 
 ## TestFlight
 
@@ -202,7 +202,17 @@ cd ios
 ./testflight.sh --dev
 ```
 
-App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 자동으로 이 빌드를 올리는 워크플로는 티켓 2219 에서 다룹니다.
+App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 이 dev 빌드를 자동으로 올리는 워크플로는 `.github/workflows/app-ios-testflight-dev.yml` 이고, 러너 맥 등록·푸시 설정 파일 배치는 `docs/conventions/ios-testflight-dev-runner.md` 를 따릅니다.
+
+### 푸시 설정 파일 `GoogleService-Info.plist` (GROMO-2523)
+
+iOS 앱은 FCM 토큰을 받으려고 서버 환경별 Firebase 설정 파일을 앱 번들에 넣습니다. 파일은 커밋하지 않고 빌드 맥마다 둡니다. Xcode 빌드 단계 `[Firebase] Copy GoogleService-Info.plist`(`scripts/firebase-plist-xcode.sh`)가 Debug/Release 가 아니라 `EXPO_PUBLIC_ENV`(없으면 `dev`)로 파일을 고릅니다.
+
+- 개발 맥: `ios/credentials/dev/GoogleService-Info.plist`·`ios/credentials/prod/GoogleService-Info.plist`(gitignore). 다른 곳에 두려면 `GROMO_IOS_CREDENTIALS_DIR`(그 아래 `dev/`·`prod/`)를 환경변수나 `ios/.xcode.env.local` 에 둡니다. 운영 서버로 디버그 빌드를 돌릴 때는 `ios/.xcode.env.local` 에 `export EXPO_PUBLIC_ENV=prod` 도 둡니다 — plist 와 서버 환경이 어긋나면 발송이 `SENDER_ID_MISMATCH` 로 실패합니다.
+- plist 의 `BUNDLE_ID` 가 번들 id 와 다르거나 `PROJECT_ID` 가 `ios/release-config.sh` 의 `GROMO_FIREBASE_PROJECT_ID_DEV`·`_PROD`(각 서버 `FCM_PROJECT_ID`)와 다르면 빌드가 실패합니다. 파일이 없으면 Release 는 실패하고, Debug 는 경고만 내고 푸시 없이 빌드합니다(`FCMTokenModule` 이 `NOT_CONFIGURED` 로 거절).
+- TestFlight 러너 맥은 레포 밖 경로를 씁니다 — [`ios-testflight-dev-runner.md`](../../docs/conventions/ios-testflight-dev-runner.md) 「푸시 설정 파일」.
+- `expo-notifications` 는 `57.0.17` 로 정확히 고정합니다. 설치된 expo 57.0.21 이 기대하는 값이고, `~` 로 두면 57.0.24 가 `expo-constants` 를 한 벌 더 설치합니다. `expo install --check` 가 이 고정을 경고해도 그대로 두고, 올릴 때는 expo 패치와 함께 올립니다. Android 는 `package.json` 의 `expo.autolinking.android.exclude` 로 이 모듈을 빼 바이너리가 그대로입니다.
+- 앱의 `PrivacyInfo.xcprivacy` 에 있는 UserDefaults 사유 `1C8F.1` 은 `pod install` 이 FirebaseCoreInternal 의 privacy manifest 를 합쳐 넣은 값입니다(Podfile `privacy_file_aggregation_enabled`). 손으로 지우지 않습니다.
 
 ### 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`
 

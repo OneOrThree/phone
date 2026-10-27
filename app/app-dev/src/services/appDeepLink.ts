@@ -58,7 +58,17 @@ export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
 
 export type AppLinkSource = Pick<typeof Linking, 'getInitialURL' | 'addEventListener'>;
 
-/** 콜드 스타트 URL과 singleTask 웜 URL을 같은 소비자에게 전달한다. */
+const inAppLinks = new Set<(url: string) => void>();
+
+/**
+ * 앱 안에서 연 링크(푸시 탭 — GROMO-2525)를 URL 이벤트와 같은 소비자에게 건넨다. 받는 쪽은 같은 보관·가드
+ * (로그인·온보딩 중 보관, 세션 확인)를 그대로 적용한다.
+ */
+export function openAppLink(url: string): void {
+  inAppLinks.forEach((listener) => listener(url));
+}
+
+/** 콜드 스타트 URL과 singleTask 웜 URL, 앱 안에서 연 링크를 같은 소비자에게 전달한다. */
 export function subscribeToAppLinks(
   onUrl: (url: string) => void,
   source: AppLinkSource = Linking,
@@ -66,6 +76,10 @@ export function subscribeToAppLinks(
   let active = true;
   // 초기 URL 조회가 끝나기 전에 새 URL 이벤트가 오면 그쪽이 더 최신이다 — 늦은 초기 URL로 덮지 않는다.
   let receivedEvent = false;
+  const forward = (url: string) => {
+    receivedEvent = true;
+    if (active) onUrl(url);
+  };
   void source
     .getInitialURL()
     .then((url) => {
@@ -74,12 +88,11 @@ export function subscribeToAppLinks(
     .catch(() => {
       // initial URL 조회 실패는 일반 앱 진입을 막지 않는다.
     });
-  const subscription = source.addEventListener('url', ({ url }) => {
-    receivedEvent = true;
-    if (active) onUrl(url);
-  });
+  const subscription = source.addEventListener('url', ({ url }) => forward(url));
+  inAppLinks.add(forward);
   return () => {
     active = false;
+    inAppLinks.delete(forward);
     subscription.remove();
   };
 }

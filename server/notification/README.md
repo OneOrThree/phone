@@ -104,7 +104,7 @@ cd server/notification
 | `NOTIFICATION_GENERATION_REQUIRED` | `false` | 세대 정보 필수 여부 |
 | `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | `true` | 기존 기기 등록 호환 |
 
-서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 예약 잡 활성화를 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 설정합니다.
+서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 예약 잡 활성화를 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 설정합니다. dev는 상시 열어 둡니다([dev 발송 게이트](#dev-발송-게이트)).
 
 ## 현재 알림과 운영 경로
 
@@ -113,6 +113,13 @@ V10은 과거 kind·템플릿을 비활성화하고 대기 발송을 억제하�
 결과 확인·묶음 완료·정지 스냅샷 반입 전용 `result_ack`, `result_bundle_manifests`,
 `imports`, `migration_snapshots`, `migration_state` 테이블은 삭제합니다.
 기기·설정·사용자 폐기 펜스·수신 이벤트·현재 발송 이력은 유지합니다.
+
+V12는 `FRIEND_REQUEST`, `FRIEND_ACCEPTED`, `MAIN_ISLAND_TRANSFERRED`, `ISLAND_KICKED`의 표시 문구(4종 × 4로케일)에서 닉네임과 섬 이름을 뺍니다.
+`counterpartNickname`·`islandName`은 계약 안정성 때문에 계속 받지만 표시 문구에는 쓰지 않습니다.
+
+V13은 기기 등록마다 수신 확인 태그(`deliveryTag`)를 새로 발급해 등록 응답과 그 기기로 가는 모든 푸시 data에 싣습니다.
+같은 `Idempotency-Key`의 재생은 같은 태그를 돌려줍니다. V13 전에 등록한 기기 행에는 태그가 없어 그 기기로 가는 푸시에도 키를 싣지 않습니다.
+V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(이미 적용된 미래 버전은 검증에서 무시)으로 기동은 되지만, 이전 이미지는 푸시 data에 `deliveryTag`를 싣지 않습니다. 태그를 저장한 2.0 iOS 앱은 태그 없는 푸시를 버리므로 다시 등록하기 전까지 알림을 받지 못합니다. 이미지를 되돌리지 말고 고친 이미지를 새로 배포합니다.
 
 관리자 서비스 자격과 `Idempotency-Key`로 다음 경로를 사용합니다.
 
@@ -124,3 +131,30 @@ V10은 과거 kind·템플릿을 비활성화하고 대기 발송을 억제하�
 기존 `/internal/admin/migration/**`와 `/internal/users/{userId}/result-ack/**` 경로는 제거했습니다.
 기존 `bundle-flush` 잡의 활성 여부·크론·실행 이력은 `delivery-dispatch`로 승계합니다.
 사용자 설정 저장과 기기 등록은 발송 게이트가 닫혀 있어도 동작합니다.
+
+### dev 발송 게이트
+
+dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
+
+1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다. 프로젝트가 앱과 어긋나면 열자마자 [FCM 프로젝트 불일치](#fcm-프로젝트-불일치sender_id_mismatch) 증상이 납니다.
+2. 열기 전 대기 발송을 `GET /internal/admin/deliveries?status=PENDING`·`status=DEFERRED`로 확인합니다. 쌓인 발송은 열자마자 한꺼번에 나갑니다.
+3. `PUT /internal/admin/jobs/delivery-dispatch`로 잡을 켭니다. PUT은 전체 수정이라 `GET /internal/admin/jobs`의 `delivery-dispatch` 항목에서 `cron`·`config`를 그대로 두고 `enabled`만 `true`로 바꿔 보냅니다(예: `{"enabled":true,"cron":"0/5 * * * * *","config":{}}`).
+4. `POST /internal/admin/dispatch/open`을 보냅니다.
+5. `GET /internal/admin/dispatch`가 `enabled=true`이고 `delivery-dispatch`의 `lastCompletedAt`이 5초마다 전진하는지 확인합니다.
+
+쓰기(3·4단계)에는 `Idempotency-Key`(1~200자)가 필요합니다. 요청마다 새 값을 씁니다(예: `uuidgen`). 같은 키에 다른 본문을 보내면 `409 IDEMPOTENCY_KEY_CONFLICT`, 닫힌 뒤 예전 open 키를 다시 보내면 `409 DISPATCH_CLOSED`입니다.
+
+관리 API는 공개 nginx에 없습니다(`/internal/`은 404). dev VM에서 notification 컨테이너(이름은 `docker ps`로 확인 — 지금은 `phone-notification-1`) 안의 `localhost:8082`를 부릅니다. `Authorization: Bearer`에는 `SVC_TOKEN_CONSOLE_TO_NOTI`(`member-1:<토큰>,member-2:<토큰>` 목록)에서 자기 행위자 항목의 `<토큰>` 부분만 넣습니다. 토큰은 컨테이너 안에서만 읽고 출력하지 않습니다.
+
+### FCM 프로젝트 불일치(`SENDER_ID_MISMATCH`)
+
+FCM이 `403 SENDER_ID_MISMATCH`로 답하면 그 토큰은 서버의 `FCM_PROJECT_ID`와 다른 Firebase 프로젝트에서 발급된 것입니다. `UNREGISTERED`처럼 그 기기의 `transport_invalid`만 켜고 소유권은 유지하며, 로그에 `FCM 프로젝트 불일치(SENDER_ID_MISMATCH)` 경고를 한 줄 남깁니다(토큰·응답 본문은 남기지 않습니다).
+경고 줄 수로 판정합니다. 기기 하나에서만 나면 그 앱의 `GoogleService-Info.plist` 프로젝트가 틀린 것이니 앱을 고치고, 여러 기기에서 한꺼번에 나면 서버의 `FCM_PROJECT_ID`·`FCM_SERVICE_ACCOUNT_JSON`이 틀린 것입니다. 앱은 같은 유저·같은 토큰이면 다시 등록하지 않아 설정을 고쳐도 저절로 돌아오지 않으므로, 서버 설정을 고친 뒤 DB에서 무효 표시를 되돌립니다.
+
+```sql
+-- 먼저 대상 수를 확인한다(경고 줄 수와 비슷해야 한다). 크게 다르면 실행하지 말고 첫 경고 시각을 다시 확인한다.
+SELECT count(*) FROM device_tokens WHERE active AND transport_invalid AND updated_at >= '<첫 경고 시각>';
+UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_invalid AND updated_at >= '<첫 경고 시각>';
+```
+
+`<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. 다만 `NO_ACTIVE_DEVICE`로 60초마다 재시도 중이던 발송이 이어서 나가므로 오래된 알림이 한꺼번에 갈 수 있습니다.

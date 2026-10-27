@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { parseAppDeepLink, subscribeToAppLinks, type AppLinkSource } from './appDeepLink';
+import {
+  openAppLink,
+  parseAppDeepLink,
+  subscribeToAppLinks,
+  type AppLinkSource,
+} from './appDeepLink';
 
 const ISLAND_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
 const ISSUE_ID = '0197e0c3-9a10-7c3d-8e21-5a6b7c8d9e0f';
@@ -87,6 +92,23 @@ test('초기 URL 조회보다 먼저 온 URL 이벤트를 늦은 초기 URL이 �
   resolveInitial('gromo://home');
   await Promise.resolve();
   await Promise.resolve();
+  assert.deepEqual(received, ['gromo://friends']);
+});
+
+test('앱 안에서 연 링크(푸시 탭)는 구독 중인 소비자에게 가고, 구독을 끊은 소비자에게는 가지 않는다', async () => {
+  const source = {
+    getInitialURL: jest.fn(async () => null),
+    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  } as unknown as AppLinkSource;
+  const received: string[] = [];
+  const unsubscribe = subscribeToAppLinks((url) => received.push(url), source);
+  await Promise.resolve();
+
+  openAppLink('gromo://friends');
+  assert.deepEqual(received, ['gromo://friends']);
+
+  unsubscribe();
+  openAppLink('gromo://home');
   assert.deepEqual(received, ['gromo://friends']);
 });
 
