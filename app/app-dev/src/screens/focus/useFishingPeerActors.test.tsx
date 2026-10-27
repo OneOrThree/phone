@@ -636,15 +636,12 @@ test('내 자리가 고정 칸 둘을 막아도 정원 안 주민 14명은 모�
 });
 
 test('같은 주민의 세션이 교체되면 이전 자리 곁으로 옮긴 새 seat 를 그대로 쓴다', async () => {
-  const before = { x: 34.1, y: 55.9 },
-    after = { x: 35.1, y: 55.9 };
+  const before = { x: 34.1, y: 57 },
+    after = { x: 35.1, y: 57 };
   const { result } = await renderHook(() =>
     useFishingPeerActors({ members: [{ ...peer, seat: before }], ready: true, reduce: false }),
   );
-  assert.deepEqual(
-    [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
-    [34.1, 55.9],
-  );
+  assert.deepEqual([result.current.actors[0].spot.x, result.current.actors[0].spot.y], [34.1, 57]);
   await act(async () =>
     result.current.onTransition({
       source: 'event',
@@ -656,10 +653,7 @@ test('같은 주민의 세션이 교체되면 이전 자리 곁으로 옮긴 새
   );
   assert.equal(result.current.actors.length, 1);
   assert.equal(result.current.actors[0].key, 'u1:s2');
-  assert.deepEqual(
-    [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
-    [35.1, 55.9],
-  );
+  assert.deepEqual([result.current.actors[0].spot.x, result.current.actors[0].spot.y], [35.1, 57]);
 });
 
 test('스냅숏에서 좌표 없는 주민이 앞에 와도 뒤 주민의 서버 seat 를 먼저 예약한다', async () => {
@@ -707,7 +701,7 @@ test('내가 자리로 걷는 사이 같은 seat 로 들어온 주민은 내 자
 });
 
 test('서버 자리 주민의 물고기 그림은 곁 주민 고양이를 덮지 않는다', async () => {
-  const first = { x: 60.2, y: 44.1 },
+  const first = { x: 62.5, y: 40 },
     second = { x: 75, y: 45 };
   // 회피 없이 정한 첫 주민의 물고기 자리는 둘째 고양이를 덮는다(그러면 둘째의 판정이 null)
   const naive = { ...castSpot(first), catchPlacement: fishingCatchPlacement(castSpot(first)) };
@@ -785,9 +779,9 @@ test('내가 DEFAULT_SPOT 에 앉으면 서버 자리 주민의 물고기 더미
     overlap = (a: ReturnType<typeof pile>, b: ReturnType<typeof pile>) =>
       a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top,
     myPile = pile(DEFAULT_SPOT, DEFAULT_CATCH_PLACEMENT!),
-    seat = { x: 24, y: 52 };
+    seat = { x: 24, y: 54 };
   // 땅 위이고 내 고양이 곁도 고정 더미 아래도 아니라 seat 그대로 앉지만, 내 고양이만 피한 더미는 내 고정 더미와 겹친다.
-  // 고정 더미를 피하고도 곁에 더미 놓을 땅이 남는 자리다({x:27,y:46} 처럼 남지 않으면 더미를 숨긴다 — null)
+  // 고정 더미를 피하고도 곁에 더미 놓을 땅이 남는 자리다(남지 않으면 더미를 숨긴다 — null)
   assert.ok(onLand(fishingGrid, seat));
   assert.equal(occupied(seat, [DEFAULT_SPOT]), false);
   assert.equal(underDefaultCatch(seat), false);

@@ -1325,6 +1325,7 @@ function FinalIslandScene({
   onBuildingEntrySound,
   layeredPreview = false,
   onServerBuilt,
+  homeChat,
   onReturnFromVisit,
   visitHud,
   visitJoin,
@@ -1357,6 +1358,8 @@ function FinalIslandScene({
   layeredPreview?: boolean;
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
+  /** 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501) — 집중 시작 버튼 왼쪽, 건설 카드가 있으면 그 위에 둔다. */
+  homeChat?: React.ReactNode;
   /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
   onReturnFromVisit?: () => void;
   /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
@@ -2564,6 +2567,8 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
+  // 건설 카드가 떠 있으면 채팅 줄을 그 위로 올린다 — 카드 높이는 그려진 뒤 잰다
+  const [buildCardHeight, setBuildCardHeight] = useState(0);
   const buildCardStyle = {
     position: 'absolute',
     left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
@@ -2578,6 +2583,10 @@ function FinalIslandScene({
     paddingHorizontal: semanticTokens.spacing.control,
     gap: primitiveTokens.space[2],
   } as const;
+  // 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139). 로컬 비용·BUILD 카드는 목업에서만
+  const serverBuildCard =
+    !visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt;
+  const mockBuildCard = !visiting && !facts && (i.construction || next);
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
       .map((v) => String(v).padStart(2, '0'))
@@ -2765,7 +2774,7 @@ function FinalIslandScene({
       {showActions && (
         <>
           {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
-          {!visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt && (
+          {serverBuildCard && (
             <ServerBuildCard
               key={`${facts.islandId}:${next}`}
               islandId={facts.islandId}
@@ -2773,6 +2782,7 @@ function FinalIslandScene({
               villagePoints={facts.home.wallets.villagePoints}
               tracked={trackedConstruction}
               style={buildCardStyle}
+              onLayout={(ev) => setBuildCardHeight(ev.nativeEvent.layout.height)}
               onStarted={(receipt) =>
                 dispatch?.({
                   type: 'SERVER_CONSTRUCTION_STARTED',
@@ -2783,8 +2793,12 @@ function FinalIslandScene({
             />
           )}
           {/* 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
-          {!visiting && !facts && (i.construction || next) && (
-            <View style={buildCardStyle}>
+          {mockBuildCard && (
+            <View
+              testID="local-build-card"
+              style={buildCardStyle}
+              onLayout={(ev) => setBuildCardHeight(ev.nativeEvent.layout.height)}
+            >
               <View
                 style={{
                   flexDirection: 'row',
@@ -2854,6 +2868,23 @@ function FinalIslandScene({
                   onPress={() => build(next)}
                 />
               )}
+            </View>
+          )}
+          {!visiting && homeChat && (
+            <View
+              testID="home-chat-slot"
+              pointerEvents="box-none"
+              style={{
+                position: 'absolute',
+                left: buildCardStyle.left,
+                right: focusButtonInset(L).right + FOCUS_BUTTON_SIZE + primitiveTokens.space[3],
+                bottom:
+                  serverBuildCard || mockBuildCard
+                    ? buildCardStyle.bottom + buildCardHeight + primitiveTokens.space[2]
+                    : focusButtonInset(L).bottom,
+              }}
+            >
+              {homeChat}
             </View>
           )}
           <View

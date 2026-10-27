@@ -28,11 +28,14 @@ export function MagazineHomeLayer({
   hasMailbox,
   blocked,
   go,
+  onPromptChange,
 }: {
   today: MagazineToday | null;
   hasMailbox: boolean;
   blocked: boolean;
   go: (route: string, id?: string) => void;
+  /** 펠리컨 안내창이 뜨고 지는 것을 알린다 — 홈 채팅 줄이 그동안 비킨다(GROMO-2501). */
+  onPromptChange?: (showing: boolean) => void;
 }) {
   const L = useAppLayout();
   // 지금 띄운 호. 한 번 알린 호는 세션 동안(markDelivered) 다시 띄우지 않는다 — 받음 기록이 실패해 receipt 가 비어도
@@ -51,6 +54,11 @@ export function MagazineHomeLayer({
     setShowing(true);
     sendReceipt(issue.issueId, { place: 'ISLAND' }).catch(() => {});
   }, [blocked, issue, today?.receipt]);
+
+  const prompting = showing && !blocked;
+  useEffect(() => {
+    onPromptChange?.(prompting);
+  }, [onPromptChange, prompting]);
 
   const later = () => {
     setShowing(false);

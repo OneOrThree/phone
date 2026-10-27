@@ -1,4 +1,5 @@
 export type Point = { x: number; y: number };
+// cells 값: '0' 물 · '1' 걸을 수 있는 땅 · '2' 나무·바위처럼 못 가는 땅(물은 아님, 티켓 2516).
 export type Grid = {
   w: number;
   h: number;
@@ -11,6 +12,9 @@ const cell = (g: Grid, p: Point) =>
 export function onLand(g: Grid, p: Point) {
   return p.x >= 0 && p.y >= 0 && p.x < g.w && p.y < g.h && g.cells[cell(g, p)] === '1';
 }
+// 격자 밖도 물로 본다.
+export const waterAt = (g: Grid, col: number, row: number) =>
+  col < 0 || row < 0 || col >= g.cols || row >= g.rows || g.cells[row * g.cols + col] === '0';
 const point = (g: Grid, c: number): Point => ({
   x: (((c % g.cols) + 0.5) * g.w) / g.cols,
   y: ((Math.floor(c / g.cols) + 0.5) * g.h) / g.rows,

@@ -63,10 +63,10 @@ const blockedByMine = (p: Point, mine?: Point) =>
   (occupied(p, [mine]) ||
     (mine.x === DEFAULT_SPOT.x && mine.y === DEFAULT_SPOT.y && underDefaultCatch(p)));
 // 예비 자리: 내 자리·서버 자리가 PEER_SPOTS 칸을 여럿 막아 정원 안 주민이 앉을 칸이 모자랄 때만 쓴다.
-// 네 이웃도 땅인 칸 가운데 축음기·뗏목을 피한 곳을 섬 가운데에 가까운 순서로(기기마다 같은 순서).
+// 걸을 수 있는 칸 가운데 네 이웃이 물이 아니고 축음기·뗏목을 피한 곳을 섬 가운데에 가까운 순서로(기기마다 같은 순서).
 const SPARE_SPOTS: Point[] = (() => {
   const { cols, rows, w, h, cells } = fishingGrid,
-    land = (c: number) => cells[c] === '1',
+    dry = (c: number) => cells[c] !== '0',
     spots: Point[] = [];
   for (let c = 0; c < cells.length; c++) {
     const col = c % cols,
@@ -77,7 +77,8 @@ const SPARE_SPOTS: Point[] = (() => {
       row &&
       col < cols - 1 &&
       row < rows - 1 &&
-      [c, c - 1, c + 1, c - cols, c + cols].every(land) &&
+      cells[c] === '1' &&
+      [c - 1, c + 1, c - cols, c + cols].every(dry) &&
       !nearGram(p) &&
       !nearRaft(p)
     )
