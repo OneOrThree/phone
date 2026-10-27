@@ -2623,7 +2623,7 @@ function FocusFlow({ e: environment }: any) {
   };
   // 내 자리: 진행 중 세션은 서버가 기억한 내 seat 가 정본 — 다른 기기에서 시작한 세션을 복구하면 focusSpot 은 지난
   // 세션 좌표다(SESSION_SYNC 는 focusSpot 을 바꾸지 않음). 내 항목은 아래 peerMembers 에서 거르므로 거르기 전에 꺼낸다.
-  // 서버 seat 가 없으면(옛 앱으로 시작) 로컬 focusSpot, 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
+  // 서버 seat 가 없으면(옛 앱으로 시작) 로컬 focusSpot, 없거나 유효하지 않으면 보상을 놓을 수 있는 기본 자리로 대신한다
   const liveSeat = s.session
     ? live.focus.find((m) => m.userId === myId && m.sessionId === s.session?.id)?.seat
     : null;
@@ -2631,7 +2631,7 @@ function FocusFlow({ e: environment }: any) {
   // 받은 seat 를 이어 쓴다. 세션 id 를 알면 일치할 때만, 모르면(세션·결과 id 없음) 그대로 — 새 세션은 자리 고르기·준비를
   // 거치며 비운다
   const lastServerSeat = useRef<{ sessionId: string; seat: Point } | null>(null);
-  // 서버는 0~100 범위만 검사하므로 물 위 seat 는 쓰지 않고 로컬 focusSpot/LANDING 으로 대체한다
+  // 서버는 0~100 범위만 검사하므로 물 위 seat 는 쓰지 않고 로컬 focusSpot/DEFAULT_SPOT 으로 대체한다
   if (s.session && liveSeat && onLand(fishingGrid, liveSeat))
     lastServerSeat.current = { sessionId: s.session.id, seat: liveSeat };
   else if (r === 'focusSetup' || r === 'fishingArrival') lastServerSeat.current = null;
@@ -2650,7 +2650,7 @@ function FocusFlow({ e: environment }: any) {
         ? onLand(fishingGrid, localSpot)
           ? localSpot
           : nearestLand(fishingGrid, localSpot)
-        : LANDING),
+        : DEFAULT_SPOT),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;

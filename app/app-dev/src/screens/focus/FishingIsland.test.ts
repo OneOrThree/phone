@@ -305,6 +305,14 @@ test('물고기 보상 전체 프레임이 15개 낚시 자리와 기본 자리�
   }
 });
 
+test('자리 정보가 없는 실제 세션의 기본 자리는 뗏목 옆과 달리 물고기 더미를 놓을 수 있다(GROMO-2502)', () => {
+  for (const gram of [false, true]) {
+    assert.equal(fishingCatchPlacement(castSpot(LANDING), [], [], gram, PEER_SPOTS), null);
+    const fallback = castSpot(DEFAULT_SPOT);
+    assert.ok(fishingCatchPlacement(fallback, [], [], gram, PEER_SPOTS));
+  }
+});
+
 test('물고기 보상은 인접한 육지 후보만 쓰고 후보가 없으면 렌더링하지 않는다', async () => {
   const spot = { x: 51, y: 47, face: 1 },
     placement = fishingCatchPlacement(spot);
