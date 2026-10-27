@@ -291,8 +291,8 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 
 [`dev-notification-kafka-cutover.sh`](dev-notification-kafka-cutover.sh)는 사람이 수행해야 하는 dev
 컷오버를 8단계로 안내합니다. Kafka 기동, relay 재시도 정책 기록, Notification 소비자 준비,
-`notification-events`와 `notification-events.DLT`의 3파티션 검증, relay drain, 단방향 OUTBOX 전환을
-순서대로 확인합니다.
+`notification-events`와 `notification-events.DLT`의 3파티션 검증, relay drain, end-to-end 검증을
+순서대로 확인합니다. dev 발송 gate는 2026-10-27부터 상시 열어 둡니다(티켓 2522).
 
 ```bash
 ./server/scripts/dev-notification-kafka-cutover.sh

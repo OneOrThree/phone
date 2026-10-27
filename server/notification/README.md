@@ -104,7 +104,7 @@ cd server/notification
 | `NOTIFICATION_GENERATION_REQUIRED` | `false` | 세대 정보 필수 여부 |
 | `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | `true` | 기존 기기 등록 호환 |
 
-서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 예약 잡 활성화를 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 설정합니다.
+서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 예약 잡 활성화를 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 설정합니다. dev는 상시 열어 둡니다([dev 발송 게이트](#dev-발송-게이트)).
 
 ## 현재 알림과 운영 경로
 
@@ -131,6 +131,18 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 기존 `/internal/admin/migration/**`와 `/internal/users/{userId}/result-ack/**` 경로는 제거했습니다.
 기존 `bundle-flush` 잡의 활성 여부·크론·실행 이력은 `delivery-dispatch`로 승계합니다.
 사용자 설정 저장과 기기 등록은 발송 게이트가 닫혀 있어도 동작합니다.
+
+### dev 발송 게이트
+
+dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
+
+1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고(`NOTIFICATION_KAFKA_ENABLED=true`도 필요) `ops-redeploy.dev`로 notification을 재기동합니다.
+2. 열기 전 대기 발송을 `GET /internal/admin/deliveries?status=PENDING`·`status=DEFERRED`로 확인합니다. 쌓인 발송은 열자마자 한꺼번에 나갑니다.
+3. `PUT /internal/admin/jobs/delivery-dispatch`로 잡을 켭니다. PUT은 전체 수정이라 `GET /internal/admin/jobs`의 지금 값에서 `enabled`만 바꿔 `{"enabled":true,"cron":"0/5 * * * * *","config":{}}`처럼 보냅니다.
+4. `POST /internal/admin/dispatch/open`을 새 멱등 키로 보냅니다.
+5. `GET /internal/admin/dispatch`가 `enabled=true`이고 `delivery-dispatch`의 `lastCompletedAt`이 5초마다 전진하는지 확인합니다.
+
+관리 API는 공개 nginx에 없습니다(`/internal/`은 404). dev VM에서 `docker exec phone-notification-1`로 컨테이너 안의 `localhost:8082`를 부르고, 콘솔 토큰(`SVC_TOKEN_CONSOLE_TO_NOTI`)은 컨테이너 안에서만 읽어 출력하지 않습니다.
 
 ### FCM 프로젝트 불일치(`SENDER_ID_MISMATCH`)
 
