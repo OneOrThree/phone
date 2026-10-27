@@ -8,12 +8,15 @@ import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import { ApiError } from '@/services/api/client';
 import type { GoldenFishEvent } from '@/services/islandRealtime';
+import { assets } from '@/constants/assets';
+import { DEFAULT_SPOT } from '@/screens/focus/FishingIsland';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
 let presenceActive: boolean | undefined;
 // GROMO-2478 — 실시간 주민과 실제 자리 배정 훅을 쓰는 테스트만 켠다(나머지는 고정 자리 mock)
 let mockPresenceFocus: any[] = [];
 let mockRealPeerActors = false;
+let mockRealSelfFishingActor = false;
 let mockResultBoard: { loading: boolean; error: unknown; quests: any[] } = {
   loading: false,
   error: null,
@@ -79,25 +82,20 @@ jest.mock('@/screens/focus/FishingIsland', () => {
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
     ),
-    FishingActor: ({
-      name,
-      spot,
-      goldenFishCount,
-      goldenCatchToken,
-      motion,
-      tutorialFish,
-      caughtFish,
-    }: any) => (
-      <View
-        testID={name === '하늘이' ? 'golden-self' : `golden-actor-${name}`}
-        spot={spot}
-        goldenFishCount={goldenFishCount}
-        goldenCatchToken={goldenCatchToken}
-        motion={motion}
-        tutorialFish={tutorialFish}
-        caughtFish={caughtFish}
-      />
-    ),
+    FishingActor: (props: any) =>
+      mockRealSelfFishingActor && props.me ? (
+        <actual.FishingActor {...props} />
+      ) : (
+        <View
+          testID={props.name === '하늘이' ? 'golden-self' : `golden-actor-${props.name}`}
+          spot={props.spot}
+          goldenFishCount={props.goldenFishCount}
+          goldenCatchToken={props.goldenCatchToken}
+          motion={props.motion}
+          tutorialFish={props.tutorialFish}
+          caughtFish={props.caughtFish}
+        />
+      ),
     FishingPeerActorView: ({ actor, goldenFishCount, goldenCatchToken }: any) => (
       <View
         testID={`golden-peer-${actor.userId}`}
@@ -174,6 +172,32 @@ const focusedState = (): State => {
   };
   return state;
 };
+
+test('자리 정보 없이 복구한 실제 세션도 60초에 물고기, 60분에 작은 바구니가 쌓인다(GROMO-2502)', async () => {
+  const state = focusedState();
+  state.focusSpot = undefined;
+  state.session!.seconds = 59;
+  state.settings.reduceMotion = true;
+  mockRealSelfFishingActor = true;
+  const screen = await render(screenElement(state));
+  expect(screen.queryByTestId('fishing-actor-catch')).toBeNull();
+
+  state.session!.seconds = 60;
+  await screen.rerender(screenElement(state));
+  expect(screen.getByTestId('fishing-actor-cat').parent?.props.style.left).toBeCloseTo(
+    (640 * DEFAULT_SPOT.x) / 100 - (640 * 0.077) / 2,
+  );
+  expect(screen.getByTestId('fishing-actor-catch').props.source).toEqual(
+    assets['props/fishing/catch/single.png'],
+  );
+
+  state.session!.seconds = 3600;
+  await screen.rerender(screenElement(state));
+  expect(screen.getByTestId('fishing-actor-catch').props.source).toEqual(
+    assets['props/fishing/catch/pile-small.png'],
+  );
+  await screen.unmount();
+});
 
 test.each([false, true])(
   '서버 지급 성공 → 낚는 액션 → 기존 대사이며 건너뛰기=%s도 보존한다',
@@ -299,6 +323,7 @@ beforeEach(async () => {
   mockResultBoard = { loading: false, error: null, quests: [] };
   mockPresenceFocus = [];
   mockRealPeerActors = false;
+  mockRealSelfFishingActor = false;
   onGoldenFish = undefined;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
