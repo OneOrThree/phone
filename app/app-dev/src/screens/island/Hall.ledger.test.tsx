@@ -97,57 +97,192 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
 
   await waitFor(() => assert.ok(screen.getByText('+9,999')));
   assert.ok(screen.getByText('−150'));
-  assert.ok(screen.getByText(/1,240마리/));
+  assert.ok(screen.getByText('이번 달 적립 +9,999 · 이번 달 사용 −150'));
+  // 잔액 장: 물고기 + 잔액 + 단위
+  expect(screen.getByTestId('ledger-balance')).toHaveTextContent('1,240');
+  assert.ok(screen.getByText('마리'));
   expect(screen.queryByText(/ISLAND LEDGER/)).toBeNull();
   expect(screen.queryByText('우리 섬 물고기')).toBeNull();
   // 41 은 개인 fish 다 — 공동 잔액 자리에 개인 지갑이 새어 나오면 안 된다
-  assert.equal(screen.queryByText(/41마리/), null);
+  assert.equal(within(screen.getByTestId('ledger-book')).queryByText(/41/), null);
   assert.equal(townHallMock.mock.calls.length, 1);
   assert.equal(ledgerMock.mock.calls.length, 0);
 });
 
-test('「공동 가계부」 제목표와 책갈피는 한 줄에 놓여 책갈피가 제목을 덮지 않는다(GROMO-2409)', async () => {
+// 402×874 시안 화면(안전영역 위 52): 책은 시안 높이 635.3 을 꽉 채우고 폭은 그림 비율로 줄어 가운데 온다
+const SC = 635.3 / 1546;
+const style = (node: { props: { style?: unknown } }) =>
+  (StyleSheet.flatten(node.props.style as any) ?? {}) as Record<string, any>;
+// 그린 트리의 모든 하위 요소(글자 조각 제외)
+const descendants = (node: any): any[] =>
+  (node.children ?? []).flatMap((c: any) => (typeof c === 'string' ? [] : [c, ...descendants(c)]));
+
+test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부」 팻말·옛 책 View·책갈피 SVG 가 없다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
   const screen = await render(<Hall e={e()} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
 
-  // 제목표와 책갈피가 같은 줄(flex row) 안에 있다 — 따로 절대 배치하면 좁은 화면에서 겹친다
-  const heading = screen.getByTestId('ledger-heading');
-  assert.equal(StyleSheet.flatten(heading.props.style).flexDirection, 'row');
-  assert.ok(within(heading).getByText('공동 가계부'));
-  for (const label of ['잔액', '적립', '지출']) {
-    assert.ok(within(heading).getByTestId(`ledger-tab-${label}`));
-    // 고정 폭이 아니라 시안 폭까지만 커지고 남는 폭만큼 줄어든다
-    const tab = StyleSheet.flatten(screen.getByTestId(`ledger-tab-${label}`).props.style);
-    assert.equal(tab.width, undefined);
-    assert.equal(tab.flex, 1);
-    assert.equal(tab.maxWidth, 72.3);
-    // 좁은 화면·큰 글자에서도 최소 터치 폭 44 아래로는 줄지 않는다
-    assert.equal(tab.minWidth, 44);
-  }
+  assert.equal(screen.queryByTestId('ledger-heading'), null);
+  assert.equal(screen.queryByTestId('ledger-tabs'), null);
+  assert.equal(screen.queryByText('공동 가계부'), null);
+  // 코드로 그린 종이 겹(#f1e4c9)·초록 표지(#678268)·안쪽 종이(#fff3d8) View 가 남아 있지 않다
+  const book = screen.getByTestId('ledger-book');
+  const inside = descendants(book);
+  const oldBook = inside.filter((n) =>
+    ['#f1e4c9', '#678268', '#fff3d8'].includes(style(n).backgroundColor),
+  );
+  assert.equal(oldBook.length, 0);
+  // 제비꼬리 책갈피 SVG 도 없다 — 포스트잇은 그림이다
+  assert.equal(inside.filter((n) => /svg/i.test(String(n.type))).length, 0);
+
+  // 그림은 비율 그대로: 폭 = 804 × 배율, 높이 = 635.3, 좌우 가운데
+  const b = style(book);
+  assert.ok(Math.abs(b.height - 635.3) < 1e-9);
+  assert.ok(Math.abs(b.width - 804 * SC) < 1e-9);
+  assert.ok(Math.abs(b.left - (402 - 804 * SC) / 2) < 1e-9);
+  const art = screen.getByTestId('ledger-book-art');
+  assert.equal(art.props.resizeMode, 'contain');
 });
 
-test('가계부 책갈피가 44 를 지킬 폭이 없으면 제목표 아래 줄로 내려가고, 늘어난 높이만큼 책을 내린다(GROMO-2409)', async () => {
+test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종이 윗변에·나머지는 제 색 단면에 걸친다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
   const screen = await render(<Hall e={e()} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
 
-  // 줄바꿈: 책갈피 묶음은 셋 × 44 + 사이 간격보다 좁아지지 않고, 자리가 없으면 다음 줄로 간다
-  const heading = screen.getByTestId('ledger-heading');
-  const headingStyle = StyleSheet.flatten(heading.props.style);
-  assert.equal(headingStyle.flexWrap, 'wrap');
-  // 줄은 아래(책갈피 아랫변)에 붙여 위로 쌓인다 — 두 줄이어도 책갈피는 책 위 같은 자리
-  assert.equal(headingStyle.bottom, 0);
-  const tabs = StyleSheet.flatten(screen.getByTestId('ledger-tabs').props.style);
-  assert.equal(tabs.minWidth, 3 * 44 + 2 * 3.9);
+  const artZ = style(screen.getByTestId('ledger-book-art')).zIndex;
+  const tab = (label: string) => style(screen.getByTestId(`ledger-tab-${label}`));
+  const labels = ['잔액', '적립', '지출'];
+  for (const label of labels)
+    assert.ok(tab(label).zIndex > artZ, `${label} 포스트잇이 책 뒤에 있다`);
+  // 펼친 장이 맨 앞
+  assert.ok(tab('잔액').zIndex > tab('적립').zIndex);
+  assert.ok(tab('잔액').zIndex > tab('지출').zIndex);
 
-  // 한 줄(높이 43.9 − 22 + 51.6)이면 책은 제자리, 두 줄로 접혀 제목표 높이만큼 늘면 그만큼 책을 내린다
-  const bookTop = () => StyleSheet.flatten(screen.getByTestId('ledger-book').props.style).top;
-  const single = 43.9 - 22 + 51.6;
-  await fireEvent(heading, 'layout', { nativeEvent: { layout: { height: single } } });
-  const base = bookTop();
-  await fireEvent(heading, 'layout', { nativeEvent: { layout: { height: single + 44.3 } } });
-  assert.ok(Math.abs(bookTop() - (base + 44.3)) < 1e-9);
+  // 80 상자, 종이 왼쪽(60×배율) +4 부터 간격 2
+  labels.forEach((label, n) => {
+    const t = tab(label);
+    assert.equal(t.width, 80);
+    assert.equal(t.height, 80);
+    assert.ok(Math.abs(t.left - (60 * SC + 4 + n * 82)) < 1e-9);
+  });
+  // 그림 아랫변(상자 위 0.94): 펼친 장은 단면 띠 바닥 147 +4, 나머지는 분홍 142·노랑 118·파랑 96 +6
+  const artBottom = (label: string) => tab(label).top + 80 * 0.94;
+  assert.ok(Math.abs(artBottom('잔액') - (147 * SC + 4)) < 1e-9);
+  assert.ok(Math.abs(artBottom('적립') - (118 * SC + 6)) < 1e-9);
+  assert.ok(Math.abs(artBottom('지출') - (96 * SC + 6)) < 1e-9);
+
+  // 누르는 자리 84×84 = 상자 80 + 사방 2
+  assert.equal(screen.getByTestId('ledger-tab-잔액').props.hitSlop, 2);
+
+  // 적립 장을 펼치면 적립 포스트잇이 종이 윗변으로 내려오고 맨 앞이 된다. 분홍(잔액)은 제 단면으로 돌아간다
+  ledgerMock.mockResolvedValue(page({}));
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+  assert.ok(Math.abs(artBottom('적립') - (147 * SC + 4)) < 1e-9);
+  assert.ok(Math.abs(artBottom('잔액') - (142 * SC + 6)) < 1e-9);
+  assert.ok(tab('적립').zIndex > tab('잔액').zIndex);
+  // 종이 틴트는 펼친 장 포스트잇 색(노랑)
+  assert.equal(style(screen.getByTestId('ledger-tint')).backgroundColor, '#F1D77F');
+});
+
+test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 → 지출, 적립·지출 장은 그 방향 내역과 합계만(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(
+    screenBody(
+      {
+        earnedTotal: 125,
+        spentTotal: 60,
+        items: [
+          entry('e1', { amount: 34 }),
+          entry('s1', { direction: 'spend', reason: 'construction_debit', amount: 60 }),
+        ],
+      },
+      1240,
+    ),
+  );
+  ledgerMock.mockImplementation((_island: string, { direction }: { direction?: string }) =>
+    Promise.resolve(
+      direction === 'earn'
+        ? page({
+            earnedTotal: 125,
+            spentTotal: 60,
+            items: [
+              entry('e1', { amount: 34 }),
+              entry('e2', { reason: 'quest_settlement', amount: 91 }),
+            ],
+          })
+        : page({
+            earnedTotal: 125,
+            spentTotal: 60,
+            items: [entry('s1', { direction: 'spend', reason: 'construction_debit', amount: 60 })],
+          }),
+    ),
+  );
+  const screen = await render(<Hall e={e()} />);
+  const selected = (label: string) =>
+    screen.getByTestId(`ledger-tab-${label}`).props.accessibilityState?.selected;
+
+  // 잔액 장: 잔액 큰 숫자 + 합계 한 줄 + 최근 내역
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-balance')));
+  for (const label of ['잔액', '적립', '지출']) {
+    const tab = screen.getByTestId(`ledger-tab-${label}`);
+    assert.equal(tab.props.accessibilityRole, 'tab');
+    assert.equal(tab.props.accessibilityLabel, label);
+  }
+  assert.equal(selected('잔액'), true);
+  assert.equal(selected('적립'), false);
+  assert.equal(screen.queryByTestId('ledger-total'), null);
+
+  // 적립 장: 「이번 달 적립」 + 적립 합계 + 적립 내역만
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByText('퀘스트 보상')));
+  assert.equal(ledgerMock.mock.calls.at(-1)[1].direction, 'earn');
+  assert.equal(selected('적립'), true);
+  assert.equal(selected('잔액'), false);
+  assert.ok(screen.getByText('이번 달 적립'));
+  expect(screen.getByTestId('ledger-total')).toHaveTextContent('+125');
+  assert.equal(style(screen.getByTestId('ledger-total')).color, '#286856');
+  assert.equal(screen.queryByTestId('ledger-balance'), null);
+  assert.equal(screen.queryByText('건설 사용'), null);
+  assert.ok(screen.getByTestId('ledger-amount-e2'));
+
+  // 지출 장: 「이번 달 사용」 + 지출 합계 + 지출 내역만
+  await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
+  await waitFor(() => assert.ok(screen.getByText('건설 사용')));
+  assert.equal(ledgerMock.mock.calls.at(-1)[1].direction, 'spend');
+  assert.equal(selected('지출'), true);
+  assert.equal(selected('적립'), false);
+  assert.ok(screen.getByText('이번 달 사용'));
+  expect(screen.getByTestId('ledger-total')).toHaveTextContent('−60');
+  assert.equal(style(screen.getByTestId('ledger-total')).color, '#994C3E');
+  assert.equal(screen.queryByText('퀘스트 보상'), null);
+  assert.equal(screen.queryByTestId('ledger-amount-e1'), null);
+});
+
+test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운돋움 숫자 윗부분이 잘리지 않는다(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(
+    screenBody({ earnedTotal: 34, items: [entry('e1', { amount: 1234567 })] }),
+  );
+  ledgerMock.mockResolvedValue(page({ earnedTotal: 34, items: [entry('e1', { amount: 34 })] }));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-e1')));
+
+  const roomy = (testID: string) => {
+    const node = screen.getByTestId(testID);
+    const s = style(node);
+    assert.ok(s.lineHeight > s.fontSize, `${testID}: 줄높이 ${s.lineHeight} ≤ 글자 ${s.fontSize}`);
+    // 금액 글자를 품은 줄·종이가 overflow: hidden 으로 자르지 않는다(종이 스크롤 영역까지)
+    for (let p = node.parent; p && p.props.testID !== 'ledger-page'; p = p.parent) {
+      assert.notEqual(style(p).overflow, 'hidden', `${testID} 의 부모가 글자를 자른다`);
+    }
+  };
+  roomy('ledger-balance');
+  roomy('ledger-amount-e1');
+  expect(screen.getByTestId('ledger-amount-e1')).toHaveTextContent('+1,234,567');
+
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+  roomy('ledger-total');
+  roomy('ledger-amount-e1');
 });
 
 test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨·묶음 표시를 단다', async () => {
@@ -186,13 +321,12 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
   );
   const screen = await render(<Hall e={e()} />);
 
-  // 잔액 책갈피(무필터): reason 라벨과 접힌 줄의 entryCount 보조 표시
-  await waitFor(() => assert.ok(screen.getByText('집중 적립')));
+  // 잔액 장(무필터): reason 라벨과 접힌 줄의 entryCount 보조 표시
+  await waitFor(() => assert.ok(screen.getByText('집중 적립 · 480회')));
   assert.ok(screen.getByText('퀘스트 보상'));
-  assert.ok(screen.getByText(/480회 적립/));
   assert.ok(screen.getByText('+480'));
 
-  // 지출 책갈피: 양수 DTO 그대로 오고 화면에서만 −를 단다
+  // 지출 장: 양수 DTO 그대로 오고 화면에서만 −를 단다
   await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
   await waitFor(() => assert.ok(screen.getByText('건설 사용')));
   assert.ok(screen.getByText('공동 구매'));
