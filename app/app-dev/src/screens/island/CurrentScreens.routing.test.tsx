@@ -9,6 +9,7 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
 import { clearSession, saveSession } from '@/services/api/session';
 import { getTelescope } from '@/services/api/telescope';
 import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
@@ -95,11 +96,12 @@ jest.mock('@/screens/focus/useFishingPeerActors', () => ({
 
 jest.mock('@/screens/focus/FishingIsland', () => {
   const actual = jest.requireActual('@/screens/focus/FishingIsland');
-  const { View } = require('react-native');
+  const { Pressable, View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ children, gram }: any) => (
+    FishingIsland: ({ children, gram, onGram }: any) => (
       <View testID="focus-world" accessibilityLabel={gram ? 'gram-on' : 'gram-off'}>
+        {gram && onGram && <Pressable testID="focus-gram" onPress={onGram} />}
         {children(640, 640 / 1.5, 1)}
       </View>
     ),
@@ -114,6 +116,27 @@ jest.mock('@/screens/island/useFriendsScreen', () => ({
 }));
 jest.mock('@/screens/island/useBoardHomeIndicator', () => ({
   useBoardHomeIndicator: () => ({ hasNew: false }),
+}));
+const mockFocusShopBuy = jest.fn();
+jest.mock('@/screens/island/useShop', () => ({
+  useShop: () => ({
+    items: [
+      {
+        id: 'rain',
+        title: '빗방울 소리',
+        price: 30,
+        productVersion: 1,
+        available: true,
+      },
+    ],
+    shared: { audio: ['waves', 'campfire', 'forest-wind'] },
+    titles: { rain: '빗방울 소리' },
+    loading: false,
+    error: null,
+    writing: false,
+    retry: jest.fn(),
+    buy: mockFocusShopBuy,
+  }),
 }));
 jest.mock('@/screens/interiors/useBoardNotices', () => ({
   useBoardNotices: () => ({ loading: false, error: null, quests: [] }),
@@ -187,6 +210,16 @@ const serverFocusState = (): State => {
   };
   return state;
 };
+const withGramophone = (state: State): State =>
+  reducer(state, {
+    type: 'SERVER_HOME',
+    facts: {
+      islandId: 'soda',
+      home: { island: { id: 'soda', role: 'member' }, wallets: { villagePoints: 100 } },
+      completedBuildings: ['hall', 'board', 'gram'],
+      members: [],
+    },
+  } as any);
 
 const screenOf = (route: Route, state: State, extra: object = {}) => (
   <CurrentScreens
@@ -240,6 +273,88 @@ test.each(interceptedRoutes)(
     await screen.unmount();
   },
 );
+
+test('활성 집중섬 축음기는 기본곡·판매곡과 재생·정지 조작을 제공한다', async () => {
+  const state = withGramophone(serverFocusState());
+  state.settings.volume = 0;
+  const dispatch = jest.fn();
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  const screen = await mount('focus', state, { playback, dispatch });
+
+  await fireEvent.press(screen.getByTestId('focus-gram'));
+  screen.getByText('잔잔한 파도 · 무료');
+  screen.getByText('모닥불 소리 · 무료');
+  screen.getByText('숲바람 · 무료');
+  screen.getByText('빗방울 소리 · 30마리로 구매');
+  screen.getByText('재생');
+  screen.getByText('정지');
+  const volume = screen.getByLabelText('내 기기 음량');
+  expect(volume.props.accessibilityValue.now).toBe(0);
+  await fireEvent(volume, 'accessibilityAction', {
+    nativeEvent: { actionName: 'increment' },
+  });
+  expect(dispatch).toHaveBeenCalledWith({ type: 'SETTING', key: 'volume', value: 0.1 });
+
+  await fireEvent.press(screen.getByText('잔잔한 파도 · 무료'));
+  expect(playback.update).toHaveBeenCalledWith({ trackId: 'waves' });
+  await fireEvent.press(screen.getByText('재생'));
+  expect(playback.update).toHaveBeenCalledWith({ playing: true });
+  await fireEvent.press(screen.getByText('정지'));
+  expect(playback.update).toHaveBeenCalledWith({ playing: false });
+  await screen.unmount();
+});
+
+test('영어 설정에서는 집중섬 축음기 조작 문구를 영어로 표시한다', async () => {
+  applyLocalePref('en');
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  const screen = await mount('focus', withGramophone(serverFocusState()), { playback });
+
+  try {
+    await fireEvent.press(screen.getByTestId('focus-gram'));
+    screen.getByText('Gramophone Music');
+    screen.getByText('Choose a track and control playback.');
+    screen.getByText('Play');
+    screen.getByText('Stop');
+    screen.getByText('Device Volume');
+    screen.getByText('Raindrops · Buy for 30 fish');
+    screen.getByText('Back to My Spot');
+  } finally {
+    await screen.unmount();
+    applyLocalePref('ko');
+  }
+});
+
+test('집중 전 낚시섬은 곡 구매·변경만 제공하고 재생·정지는 노출하지 않는다', async () => {
+  const state = withGramophone(serverFocusState());
+  state.session = null;
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  mockFocusShopBuy.mockResolvedValue({ id: 'order-1' });
+  const screen = await mount('fishingArrival', state, { playback });
+
+  await fireEvent.press(screen.getByTestId('focus-gram'));
+  expect(screen.queryByText('재생')).toBeNull();
+  expect(screen.queryByText('정지')).toBeNull();
+  expect(screen.queryByLabelText('내 기기 음량')).toBeNull();
+  await fireEvent.press(screen.getByText('잔잔한 파도 · 무료'));
+  expect(playback.update).toHaveBeenCalledWith({ trackId: 'waves' });
+  await fireEvent.press(screen.getByText('빗방울 소리 · 30마리로 구매'));
+  await fireEvent.press(screen.getByText('30마리로 구매'));
+  expect(mockFocusShopBuy).toHaveBeenCalledWith(expect.objectContaining({ id: 'rain' }));
+  screen.getByText('이 곡으로 바꾸기');
+  await fireEvent.press(screen.getByText('나중에'));
+  screen.getByText('빗방울 소리 · 30마리로 구매');
+  await screen.unmount();
+});
+
+test('모닥불 휴식 화면에는 축음기와 음악 조작을 노출하지 않는다', async () => {
+  const state = serverFocusState();
+  state.session = { ...state.session!, status: 'paused' };
+  const screen = await mount('rest', state);
+
+  expect(screen.queryByTestId('focus-gram')).toBeNull();
+  expect(screen.queryByText('축음기 음악')).toBeNull();
+  await screen.unmount();
+});
 
 // manage·members(마을회관 관리·주민)는 로컬 모드에서도 Hall 로 가고 RedesignScreens 는 부르지 않는다.
 test.each(['manage', 'members'] as const)(
