@@ -525,11 +525,12 @@ function CurrentScreensContent({ e }: any) {
     markRead: ['board', 'notice'].includes(r),
     readVersion: boardReadVersion,
   });
-  // 우리 섬 채팅방(GROMO-2499) — 우체통 밖으로 꺼냈다. 서버 모드의 내 섬에서만 읽고, 구경 중에는 부르지 않는다
+  // 우리 섬 채팅방(GROMO-2499) — 우체통 밖으로 꺼냈다. 서버 모드의 내 섬에서만 읽고, 구경 중에는 부르지 않는다.
+  // 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501)도 같은 훅을 써서 홈 ↔ 채팅방을 오갈 때 다시 불러오지 않는다
   const islandChat = useIslandChat({
     islandId:
       e.islands && !state.visitingIslandId ? (state.serverIslands?.currentIslandId ?? null) : null,
-    active: r === 'chat',
+    active: r === 'chat' || r === 'home',
   });
   const rewardIslandId = r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL ? i.id : undefined;
   const rewardModalOpen =
@@ -874,7 +875,7 @@ function CurrentScreensContent({ e }: any) {
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
-  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today }} />;
+  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today, islandChat }} />;
 }
 
 async function openScreenTimeSettings(notify: (message: string) => void) {

@@ -908,6 +908,7 @@
   },
   "islandChat": {
     "title": "Island chat",
+    "open": "Open island chat",
     "placeholder": "Message to all residents",
     "send": "Send",
     "loading": "Loading messages…",

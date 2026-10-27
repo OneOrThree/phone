@@ -232,6 +232,22 @@ export const componentTokens = {
     shadowOffset: 2,
     shadowColor: `${color.brown}4D`,
   },
+  // 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501) — 게임 채팅창처럼 잠깐 떴다 흐려진다. 표면은 홈 HUD 와 같은 얇은 반투명 Paper
+  homeChatLog: {
+    maxLines: 3,
+    lineMs: 8000,
+    fadeMs: 400,
+    gap: space[1] + 2,
+    background: `${color.paper}D9`,
+    border: `${color.brown}33`,
+    radius: radius.control,
+    paddingVertical: 3,
+    paddingHorizontal: space[3],
+    textSize: fontSize.sm,
+    lineHeight: 20,
+    bubbleSize: 44,
+    iconSize: 22,
+  },
   raftDestinations: {
     imageWidth: 1024,
     imageHeight: 1536,

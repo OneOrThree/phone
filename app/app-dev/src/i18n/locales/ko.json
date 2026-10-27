@@ -878,6 +878,7 @@
   },
   "islandChat": {
     "title": "우리 섬 채팅방",
+    "open": "섬 채팅 열기",
     "placeholder": "섬 주민 모두에게 남길 말",
     "send": "보내기",
     "loading": "글을 불러오는 중이에요…",
