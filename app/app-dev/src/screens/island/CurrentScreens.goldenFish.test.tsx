@@ -1603,6 +1603,16 @@ test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서�
   await screen.unmount();
 });
 
+test('격자가 바뀌기 전에 고른 자리가 물 칸이 되면 복구한 내 고양이는 가장 가까운 걸을 수 있는 칸에 앉는다 (GROMO-2516)', async () => {
+  const state = focusedState(); // 진행 중 세션, 서버 seat 없음
+  state.focusSpot = { x: 34.1, y: 55.9 }; // 옛 기본 자리 — 새 격자에선 연못 물 칸
+  const screen = await render(screenElement(state, 'focus'));
+  const { spot } = screen.getByTestId('golden-self', { includeHiddenElements: true }).props;
+  // 바로 아래 걷기 칸(17열 28행)의 가운데
+  expect([spot.x, spot.y]).toEqual([35, 57]);
+  await screen.unmount();
+});
+
 test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서버 seat 에 앉고, 옛 focusSpot 에 앉은 주민을 밀어내지 않는다 (GROMO-2478)', async () => {
   const state = focusedState(); // 진행 중 세션 s-me, focusSpot {34.1, 57} 는 지난 세션 좌표
   state.serverIslands = { currentIslandId: 'soda' } as any;
