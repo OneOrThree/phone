@@ -94,6 +94,23 @@ test('앱이 백그라운드인 동안은 8초가 흐르지 않는다', async ()
   await ui.unmount();
 });
 
+test('차단·권한 상실로 lines 에서 빠진 글은 띄워 둔 줄에서도 바로 제거한다', async () => {
+  const ui = await render(<HomeChatLog lines={[line(1), line(2)]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([1, 2]);
+  // 2번 글 작성자를 차단해 lines 에서 빠지면 줄에서도 사라진다(8초 전)
+  await ui.rerender(<HomeChatLog lines={[line(1)]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([1]);
+  await ui.unmount();
+});
+
+test('lines 가 잠깐 비는 동안(차단 재검증 중)에는 띄운 줄을 지우지 않는다', async () => {
+  const ui = await render(<HomeChatLog lines={[line(1)]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([1]);
+  await ui.rerender(<HomeChatLog lines={[]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([1]);
+  await ui.unmount();
+});
+
 test('동작 줄이기에서도 8초 뒤 사라진다', async () => {
   const ui = await render(
     <MotionContext.Provider value>

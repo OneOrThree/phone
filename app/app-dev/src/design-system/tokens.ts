@@ -247,6 +247,8 @@ export const componentTokens = {
     lineHeight: 20,
     bubbleSize: 44,
     iconSize: 22,
+    // 말풍선 버튼의 스티커 그림자 y 오프셋(색은 outline)
+    bubbleShadowOffset: 3,
   },
   raftDestinations: {
     imageWidth: 1024,

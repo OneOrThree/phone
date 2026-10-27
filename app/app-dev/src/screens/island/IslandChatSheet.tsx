@@ -44,6 +44,15 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
   const now: number = e.now ?? 0;
   const scrollRef = useRef<ScrollView>(null);
   const text: string = e.text ?? '';
+  // 시트가 닫히면(언마운트) 늦은 전송 성공이 공용 입력 초안을 지우지 못하게 막는다 —
+  // useIslandChat 은 화면이 바뀌어도 살아 있어, 닫고 편지 쓰기로 간 뒤 e.setText('') 하면 편지 본문이 지워진다.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // 채팅방은 최신 글이 아래에 온다 — 서버 목록은 오래된 것부터, 목업 섬은 최신 것부터라 뒤집는다
   const rows: Row[] = server
@@ -87,7 +96,8 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
       // 성공 응답만 목록에 붙는다 — 실패는 입력 초안을 그대로 두고 오류를 알린다
       chat
         .sendMessage(text)
-        .then(() => e.setText(''))
+        // 시트가 아직 열려 있을 때만 입력을 비운다(닫힌 뒤면 편지 쓰기 등 다른 화면의 초안을 건드리지 않는다)
+        .then(() => mounted.current && e.setText(''))
         .catch((err) =>
           e.notify(err instanceof ApiError ? err.message : t('islandChat.sendFailed')),
         );

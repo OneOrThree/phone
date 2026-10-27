@@ -28,10 +28,20 @@ export function HomeChatLog({ lines, onOpen }: { lines: HomeChatLine[]; onOpen: 
   useEffect(() => {
     const fresh = lines.filter((l) => !seen.current.has(l.id) && l.at >= newest.current);
     for (const l of lines) seen.current.add(l.id);
-    if (!fresh.length) return;
+    // 차단·권한 상실로 lines 에서 빠진 글은 띄워 둔 줄에서도 바로 뺀다 — 차단 필터가 홈에서도 적용돼야 한다.
+    // 단 lines 가 잠깐 비는 경우(차단 목록 재검증 중 messages: [])에는 지우지 않는다(복귀 뒤 다시 채워진다).
+    const present = new Set(lines.map((l) => l.id));
+    if (!fresh.length) {
+      if (lines.length) setShown((prev) => prev.filter((l) => present.has(l.id)));
+      return;
+    }
     newest.current = Math.max(newest.current, ...fresh.map((l) => l.at));
     const expiresAt = Date.now() + T.lineMs;
-    setShown((prev) => [...prev, ...fresh.map((l) => ({ ...l, expiresAt }))].slice(-T.maxLines));
+    setShown((prev) =>
+      [...prev.filter((l) => present.has(l.id)), ...fresh.map((l) => ({ ...l, expiresAt }))].slice(
+        -T.maxLines,
+      ),
+    );
   }, [lines]);
 
   // 앱이 뒤로 가 있는 동안은 8초가 흐르지 않는다 — 돌아오면 멈춘 만큼 뒤로 민다
@@ -90,7 +100,7 @@ export function HomeChatLog({ lines, onOpen }: { lines: HomeChatLine[]; onOpen: 
           backgroundColor: semanticTokens.color.surface,
           borderWidth: semanticTokens.stroke.default,
           borderColor: semanticTokens.color.outline,
-          boxShadow: `0px 3px 0px ${semanticTokens.color.outline}`,
+          boxShadow: `0px ${T.bubbleShadowOffset}px 0px ${semanticTokens.color.outline}`,
           transform: [{ scale: pressed && !reduceMotion ? 0.97 : 1 }],
         })}
       >

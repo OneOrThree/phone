@@ -93,6 +93,26 @@ test('보내기 — 성공하면 입력을 비우고, 실패하면 초안을 두
   await ui.unmount();
 });
 
+test('시트를 닫은 뒤 늦은 전송 성공은 공용 입력 초안을 지우지 않는다', async () => {
+  let resolveSend: (v: unknown) => void = () => {};
+  const sendMessage = jest.fn(() => new Promise((r) => (resolveSend = r)));
+  const setText = jest.fn();
+  // Harness 대신 직접 그린다 — 공용 setText(편지 쓰기와 공유) 가 늦은 응답에 불리는지 본다
+  const ui = await render(
+    <IslandChatSheet
+      e={{ ...env({ text: '같이 해요' }), text: '같이 해요', setText }}
+      chat={chatOf({ sendMessage: sendMessage as any })}
+    />,
+  );
+  await fireEvent.press(ui.getByTestId('island-message-send'));
+  await ui.unmount(); // 시트를 닫는다(편지 쓰기 등으로 이동)
+  await act(async () => {
+    resolveSend(message('m9'));
+    await Promise.resolve();
+  });
+  assert.equal(setText.mock.calls.length, 0); // 늦은 성공이 setText 를 호출하지 않는다
+});
+
 test('빈 글은 보내지 않고 안내한다', async () => {
   const chat = chatOf();
   const e = env({ text: '   ' });
