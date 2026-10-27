@@ -143,31 +143,33 @@ const castReach = (spot: Spot) => {
   const distance = Math.hypot(spot.bx - spot.x, (spot.by - spot.y) / FISHING_MAP_ASPECT);
   return Math.min(5.6, distance * 0.65);
 };
-// 낚싯대 그림 — 고양이 상자(한 변 a)의 발 기준점에서 찌 방향으로 뻗는다. 낚시 자리와 정보창(GROMO-2474)이 같이 쓴다.
+const rodScale = (spot: Spot) => Math.max(0.75, castReach(spot) / 5.6);
+// 낚싯대 그림 — 손을 기준으로 물 쪽을 향한다. 낚시 자리와 정보창(GROMO-2474)이 같이 쓴다.
 const rodStyle = (spot: Spot, a: number): ImageStyle => {
   const direction = castAngle(spot),
     rodSize = a * 0.6,
-    rodTipDistance = (a * castReach(spot)) / 7.7;
+    handleX = a * (spot.face < 0 ? 0.29 : 0.71),
+    handleY = a * 0.68;
   return {
     position: 'absolute',
     width: rodSize,
     height: rodSize,
-    left: a / 2 + Math.cos(direction) * rodTipDistance - rodSize * 0.96,
-    top: a * 0.90625 + Math.sin(direction) * rodTipDistance - rodSize * 0.04,
-    transform: [
-      { scale: castReach(spot) / 5.6 },
-      { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` },
-    ],
-    transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
+    left: handleX - rodSize * 0.06,
+    top: handleY - rodSize * 0.94,
+    // 물가가 가까워도 손에 든 낚싯대가 고양이 크기에 비해 사라지지 않게 한다.
+    transform: [{ scale: rodScale(spot) }, { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` }],
+    transformOrigin: [rodSize * 0.06, rodSize * 0.94, 0],
   };
 };
-// 줄은 회전된 낚싯대 끝에서 시작하며, 지도 좌표의 y를 화면 거리로 되돌린다.
+// 줄은 낚싯대 끝에서 시작한다. 고양이 손·낚싯대 원화 끝 좌표를 지도 %로 옮긴다.
 export const castLineStart = (spot: Spot): Point => {
   const angle = castAngle(spot),
-    reach = castReach(spot);
+    handleX = spot.x + ((spot.face < 0 ? 0.29 : 0.71) - 0.5) * 7.7,
+    handleY = spot.y + (0.68 - 0.90625) * 7.7 * FISHING_MAP_ASPECT,
+    reach = 0.6 * 0.9 * Math.SQRT2 * rodScale(spot) * 7.7;
   return {
-    x: spot.x + Math.cos(angle) * reach,
-    y: spot.y + Math.sin(angle) * reach * FISHING_MAP_ASPECT,
+    x: handleX + Math.cos(angle) * reach,
+    y: handleY + Math.sin(angle) * reach * FISHING_MAP_ASPECT,
   };
 };
 // 누른 곳에 앉히고 12% 안에서 가장 가까운 물 쪽으로 낚싯줄을 던진다. 물이 멀면 줄 없이 앉는다.
@@ -1018,6 +1020,11 @@ export function FishingActor({
   }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
+    rodTip = castLineStart(spot),
+    launch = {
+      x: (size * (rodTip.x - spot.x)) / 100 + a / 2,
+      y: (sizeY * (rodTip.y - spot.y)) / 100 + a * 0.90625,
+    },
     catchPlacement = fishingCatchPlacement(
       spot,
       catchAvoidSpots,
@@ -1107,6 +1114,7 @@ export function FishingActor({
           reel={pose.reel}
           k={a / LAB_CAT_PX}
           face={face < 0 ? -1 : 1}
+          launch={launch}
           bob={{
             x: (size * (spot.bx - spot.x)) / 100 + a / 2,
             y: (sizeY * (spot.by - spot.y)) / 100 + a * 0.90625,

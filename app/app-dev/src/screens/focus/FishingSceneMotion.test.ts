@@ -2,6 +2,7 @@ import { Animated, AppState } from 'react-native';
 import { act, renderHook } from '@testing-library/react-native';
 
 import {
+  fishingFishFlight,
   labBreath,
   labGlint,
   labMicro,
@@ -10,6 +11,28 @@ import {
   labSplashDrop,
   useFishingPose,
 } from './FishingSceneMotion';
+import { castLineStart, castSpot, DEFAULT_SPOT } from './FishingIsland';
+
+test('물고기는 고양이 몸이 아니라 낚싯대 끝에서 출발해 보상 자리로 날아간다', () => {
+  const spot = castSpot(DEFAULT_SPOT),
+    tip = castLineStart(spot),
+    size = 640,
+    sizeY = size / 1.5,
+    a = size * 0.077,
+    launch = {
+      x: (size * (tip.x - spot.x)) / 100 + a / 2,
+      y: (sizeY * (tip.y - spot.y)) / 100 + a * 0.90625,
+    },
+    home = { x: -a, y: a },
+    start = fishingFishFlight(0, launch, home, a / 390),
+    peak = fishingFishFlight(0.5, launch, home, a / 390);
+  expect(start).toEqual(launch);
+  expect(start.x).toBeLessThan(a / 2);
+  expect(peak.y).toBeLessThan((launch.y + home.y) / 2);
+  const end = fishingFishFlight(1, launch, home, a / 390);
+  expect(end.x).toBeCloseTo(home.x);
+  expect(end.y).toBeCloseTo(home.y);
+});
 
 test('움직임 검토실 식: 집중 호흡·미세 회전, 낚아올리기 몸 변환, 물보라·물결', () => {
   expect(labBreath(1)).toBeCloseTo(0.01); // 4초 주기 최고점

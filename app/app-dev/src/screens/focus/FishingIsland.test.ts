@@ -8,6 +8,7 @@ import { landPath, onLand } from '@/utils/world-grid';
 import { SECONDS_PER_FISH } from '@/services/model';
 import { FishingBoat } from '@/screens/focus/FocusSea';
 import { FishingSceneActive } from '@/screens/focus/FishingSceneMotion';
+import type { FishingPeerActor } from '@/screens/focus/useFishingPeerActors';
 import {
   LANDING,
   PEER_SPOTS,
@@ -160,7 +161,7 @@ test('모든 주민 자리와 알려진 자리에서 화면상 가장 가까운 
   }
 });
 
-test('위·아래·대각 cast 방향과 낚싯대 끝의 줄 시작점은 같은 화면 벡터다', () => {
+test('위·아래·대각 cast 방향에서 낚싯줄은 낚싯대 끝에서 시작한다', () => {
   const cases = [
     { x: 50, y: 50, face: 1, bx: 50, by: 40, angle: -Math.PI / 2 },
     { x: 50, y: 50, face: 1, bx: 50, by: 60, angle: Math.PI / 2 },
@@ -171,11 +172,15 @@ test('위·아래·대각 cast 방향과 낚싯대 끝의 줄 시작점은 같�
     const start = castLineStart(spot),
       vx = spot.bx! - spot.x,
       vy = (spot.by! - spot.y) * (2 / 3),
-      sx = start.x - spot.x,
-      sy = (start.y - spot.y) * (2 / 3);
-    assert.ok(Math.abs(vx * sy - vy * sx) < 1e-9, '줄이 찌 방향과 일직선이어야 함');
-    assert.ok(vx * sx + vy * sy > 0, '줄은 고양이에서 찌 방향으로 나가야 함');
-    assert.ok(Math.hypot(sx, sy) < Math.hypot(vx, vy), '줄 시작점은 찌보다 고양이 쪽이어야 함');
+      handleX = spot.x + ((spot.face < 0 ? 0.29 : 0.71) - 0.5) * 7.7,
+      handleY = spot.y + (0.68 - 0.90625) * 7.7 * 1.5,
+      sx = start.x - handleX,
+      sy = (start.y - handleY) * (2 / 3),
+      rodScale = Math.max(0.75, Math.min(5.6, Math.hypot(vx, vy) * 0.65) / 5.6),
+      rodReach = 0.6 * 0.9 * Math.SQRT2 * rodScale * 7.7;
+    assert.ok(Math.abs(vx * sy - vy * sx) < 1e-9, '줄이 낚싯대와 같은 방향이어야 함');
+    assert.ok(vx * sx + vy * sy > 0, '낚싯대는 고양이 손에서 찌 방향으로 뻗어야 함');
+    assert.ok(Math.abs(Math.hypot(sx, sy) - rodReach) < 1e-9);
   }
 });
 
@@ -1220,6 +1225,63 @@ test('낚시 주민: cast 스프라이트 동작 중에는 정적 낚싯대를 �
   await screen.unmount();
 });
 
+test('낚시 주민은 집중 중에만 낚싯대를 들고 입장·휴식 이동 중에는 숨긴다', async () => {
+  const spot = castSpot({ x: 18.5, y: 39.5 });
+  const actor: FishingPeerActor = {
+    userId: 'u1',
+    sessionId: 's1',
+    name: '주민',
+    color: 'ginger',
+    subject: '수학',
+    seconds: 0,
+    status: 'active',
+    key: 'u1:s1',
+    slot: 0,
+    spot,
+    position: spot,
+    phase: 'fishing',
+    visible: true,
+    generation: 1,
+  };
+  const props = {
+    size: 640,
+    sizeY: 640 / 1.5,
+    reduce: true,
+    onEntered: jest.fn(),
+    onCast: jest.fn(),
+    onPausedExit: jest.fn(),
+    onStretch: jest.fn(),
+    onCompletedExit: jest.fn(),
+  };
+  const screen = await render(React.createElement(FishingPeerActorView, { ...props, actor }));
+  assert.notEqual(screen.queryByTestId('fishing-actor-rod'), null);
+
+  await screen.rerender(
+    React.createElement(FishingPeerActorView, {
+      ...props,
+      actor: { ...actor, phase: 'entering', position: LANDING, generation: 2 },
+    }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
+
+  await screen.rerender(
+    React.createElement(FishingPeerActorView, {
+      ...props,
+      actor: { ...actor, phase: 'leaving-pause', generation: 3 },
+    }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
+
+  await screen.rerender(
+    React.createElement(FishingPeerActorView, {
+      ...props,
+      actor: { ...actor, phase: 'paused', visible: false, generation: 4 },
+    }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
+  await screen.unmount();
+});
+
 test('낚시 주민 이동 cleanup은 시작한 Animated composite를 중단한다', async () => {
   const callback = jest.fn();
   const screen = await render(
@@ -1394,24 +1456,33 @@ test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨�
   const diagonalSpot = { x: 50, y: 50, face: 1, bx: 52, by: 51 },
     rod = focusActor.getByTestId('fishing-actor-rod'),
     rodStyle = rod.props.style,
-    lineStart = castLineStart(diagonalSpot),
     rodSize = 100 * 0.077 * 0.6,
     screenAngle = castAngle(diagonalSpot);
   assert.deepEqual(rodStyle.transform, [
     { scale: rodStyle.transform[0].scale },
     { rotate: `${screenAngle + Math.PI / 4}rad` },
   ]);
+  assert.equal(rodStyle.transform[0].scale, 0.75, '가까운 물가에서도 낚싯대 크기를 유지해야 함');
   assert.ok(!('scaleX' in rodStyle.transform[0]), '낚싯대 축은 비균일하게 변형하지 않는다');
-  assert.ok(
-    Math.abs(rodStyle.left + rodSize * 0.96 - (100 * 0.077) / 2 - (lineStart.x - 50)) < 1e-9,
-    '낚싯대 끝의 x좌표는 줄 시작점과 일치해야 함',
-  );
-  assert.ok(
-    Math.abs(rodStyle.top + rodSize * 0.04 - 100 * 0.077 * 0.90625 - (lineStart.y - 50) / 1.5) <
-      1e-9,
-    '낚싯대 끝의 y좌표는 줄 시작점과 일치해야 함',
-  );
+  assert.ok(Math.abs(rodStyle.left + rodSize * 0.06 - 100 * 0.077 * 0.71) < 1e-9);
+  assert.ok(Math.abs(rodStyle.top + rodSize * 0.94 - 100 * 0.077 * 0.68) < 1e-9);
   await focusActor.unmount();
+
+  const leftActor = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 50, y: 50, face: -1, bx: 40, by: 60 },
+      size: 100,
+      sizeY: 100 / 1.5,
+      color: 'black',
+      name: '나',
+      seconds: 0,
+      reduce: false,
+    }),
+  );
+  const leftStyle = leftActor.getByTestId('fishing-actor-rod').props.style;
+  assert.ok(Math.abs(leftStyle.left + rodSize * 0.06 - 100 * 0.077 * 0.29) < 1e-9);
+  assert.equal(leftStyle.transform[0].scale, 1, '먼 물가에서는 낚싯대를 줄이지 않아야 함');
+  await leftActor.unmount();
 
   for (const motion of ['walk', 'cast'] as const) {
     const westActor = await render(
