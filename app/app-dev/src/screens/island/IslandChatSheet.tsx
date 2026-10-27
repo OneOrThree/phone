@@ -110,12 +110,18 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
   };
 
   const status = (label: string) => (
-    <Txt kind="meta" style={{ paddingVertical: 24, textAlign: 'center' }}>
+    <Txt kind="meta" style={{ paddingVertical: BUBBLE.statusPaddingVertical, textAlign: 'center' }}>
       {label}
     </Txt>
   );
   const retryBox = (error: ApiError, id: string) => (
-    <View style={{ alignItems: 'center', gap: 8, paddingVertical: 12 }}>
+    <View
+      style={{
+        alignItems: 'center',
+        gap: BUBBLE.retryGap,
+        paddingVertical: BUBBLE.retryPaddingVertical,
+      }}
+    >
       <Txt kind="meta" style={{ textAlign: 'center', color: C.danger }}>
         {error.message}
       </Txt>
@@ -138,7 +144,7 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
       onClose={e.back}
       scrollRef={scrollRef}
       footer={
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: BUBBLE.inputGap }}>
           <TextInput
             testID="island-message-input"
             accessibilityLabel={t('islandChat.placeholder')}
@@ -189,7 +195,10 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
           >
             <Txt>{m.text}</Txt>
             {m.failed ? (
-              <Txt kind="meta" style={{ marginTop: 2, textAlign: 'right', color: C.danger }}>
+              <Txt
+                kind="meta"
+                style={{ marginTop: BUBBLE.textMarginTop, textAlign: 'right', color: C.danger }}
+              >
                 {t('islandChat.failed')} ·{' '}
                 <Txt
                   testID={`chat-retry-${m.id}`}
@@ -201,7 +210,7 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
                 </Txt>
               </Txt>
             ) : (
-              <Txt kind="meta" style={{ marginTop: 2, textAlign: 'right' }}>
+              <Txt kind="meta" style={{ marginTop: BUBBLE.textMarginTop, textAlign: 'right' }}>
                 {t('islandChat.me')} · {m.time}
               </Txt>
             )}
@@ -225,11 +234,11 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
                 backgroundColor: C.paper,
               }}
             >
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: BUBBLE.nameGap }}>
                 <Txt style={{ fontWeight: '700' }}>{m.name}</Txt>
                 <Txt kind="meta">{m.time}</Txt>
               </View>
-              <Txt style={{ marginTop: 2 }}>{m.text}</Txt>
+              <Txt style={{ marginTop: BUBBLE.textMarginTop }}>{m.text}</Txt>
             </View>
           </View>
         ),

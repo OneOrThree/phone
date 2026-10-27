@@ -713,6 +713,13 @@ export const componentTokens = {
     radius: 16,
     tailRadius: space[1],
     mineMaxWidth: '82%' as const,
+    // 채팅 시트의 입력 줄·상태 문구·재시도 칸, 말풍선 안 이름·시간 줄과 본문 간격
+    inputGap: space[2],
+    statusPaddingVertical: space[6],
+    retryGap: space[2],
+    retryPaddingVertical: space[3],
+    nameGap: 6,
+    textMarginTop: 2,
   },
   // 우체통 첫 화면 큰 칸의 고양이 잡지(GROMO-2500 C안) — 칸 바탕(옆 하늘·분홍 편지 칸과 구분되는 버터색)·표지,
   // 칸 안 [지난 호] 작은 알약, 안 읽음 점(점 테두리는 편지 종이색)
