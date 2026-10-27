@@ -224,6 +224,10 @@ export const componentTokens = {
     tailHeight: space[2],
     gap: space[2],
   },
+  focusBlockingIntro: {
+    logoRadius: semanticTokens.radius.full,
+    logoShadow: `0px ${space[1]}px 0px ${semanticTokens.color.outline}`,
+  },
   homeNavigation: {
     background: `${color.paper}AD`,
     border: `${color.brown}33`,

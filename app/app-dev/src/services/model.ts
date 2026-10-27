@@ -281,6 +281,8 @@ export type State = {
   // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
   tutorialEnrollment?: 'awaiting-first-island' | 'existing';
   focusGuideDone?: boolean;
+  /** 계정 귀속: 튜토리얼 집중 정상 완료 후 예약하고 다음 집중 안내를 열 때 소비한다. */
+  focusBlockingIntro?: 'pending' | 'seen';
   version: 1;
   schema?: 2;
   friends?: Friend[];
@@ -321,8 +323,6 @@ export type State = {
     permission: boolean;
     haptics: boolean;
     screenTimeBoardPromptSeen?: boolean;
-    /** 튜토리얼 집중을 정상 완료한 뒤 다음 집중 시작에서 iOS 앱 차단 안내를 한 번 보여 준다. */
-    screenTimeFocusBlockingIntroPending?: boolean;
     screenTimeSyncError?: boolean;
     screenTimeMeasurementReady?: boolean;
     screenTimeMeasurementDay?: string;
@@ -800,7 +800,6 @@ export function initialState(full = false): State {
       permission: full,
       haptics: true,
       screenTimeBoardPromptSeen: false,
-      screenTimeFocusBlockingIntroPending: false,
       screenTimeMeasurementReady: full,
       screenTimeHistoryReady: full,
     },
@@ -1721,9 +1720,14 @@ export function reducer(state: State, a: Action): State {
   switch (a.type) {
     case 'FOCUS_GUIDE_RESTORED':
       s.focusGuideDone = true;
+      if (a.focusBlockingIntro && s.focusBlockingIntro !== 'seen')
+        s.focusBlockingIntro = a.focusBlockingIntro;
       s.tutorialEnrollment = 'existing';
       s.tutorial = { step: 99 };
       delete s.tutorialExperience;
+      break;
+    case 'FOCUS_BLOCKING_INTRO_SEEN':
+      s.focusBlockingIntro = 'seen';
       break;
     case 'GUIDE_STEP': {
       if (
@@ -1734,7 +1738,7 @@ export function reducer(state: State, a: Action): State {
         return state;
       const step = a.step as number;
       if (s.focusGuideDone && step < 22) return state;
-      if (step === 22 && !s.focusGuideDone) s.settings.screenTimeFocusBlockingIntroPending = true;
+      if (step === 22 && !s.focusGuideDone) s.focusBlockingIntro ??= 'pending';
       if (step >= 22) s.focusGuideDone = true;
       if ([0, 4, 99].includes(step)) delete s.tutorialExperience;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
@@ -2787,6 +2791,7 @@ export function reducer(state: State, a: Action): State {
       delete s.tutorialExperience;
       delete s.tutorialEnrollment;
       delete s.focusGuideDone;
+      delete s.focusBlockingIntro;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;

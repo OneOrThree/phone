@@ -42,3 +42,29 @@ test('읽기 실패나 손상된 이력을 미열람으로 간주하거나 덮�
   await expect(saveAccountGuides('alice', { buildings: ['mail'] })).rejects.toThrow();
   expect(await AsyncStorage.getItem('gromo:account-guides:v1:alice')).toBe('{broken');
 });
+
+test('앱 차단 안내 예약·소비는 계정별로 보관하고 늦은 예약으로 열람 이력을 되돌리지 않는다', async () => {
+  await saveAccountGuides('alice', { focusDone: true, focusBlockingIntro: 'pending' });
+  await AsyncStorage.removeItem('gromo-r61-user-v2');
+  expect((await readAccountGuides('bob')).focusBlockingIntro).toBeUndefined();
+  expect((await readAccountGuides('alice')).focusBlockingIntro).toBe('pending');
+  await Promise.all([
+    saveAccountGuides('alice', { focusBlockingIntro: 'seen' }),
+    saveAccountGuides('alice', { buildings: ['mail'] }),
+    saveAccountGuides('alice', { focusBlockingIntro: 'pending' }),
+  ]);
+  expect(await readAccountGuides('alice')).toMatchObject({
+    focusDone: true,
+    focusBlockingIntro: 'seen',
+    buildings: ['mail'],
+  });
+  expect((await readAccountGuides('bob')).focusBlockingIntro).toBeUndefined();
+});
+
+test('구버전 완료·건너뛰기 이력에는 앱 차단 안내를 새로 예약하지 않는다', async () => {
+  await AsyncStorage.setItem(
+    'gromo:account-guides:v1:alice',
+    JSON.stringify({ focusDone: true, buildings: [], completions: [] }),
+  );
+  expect((await readAccountGuides('alice')).focusBlockingIntro).toBeUndefined();
+});

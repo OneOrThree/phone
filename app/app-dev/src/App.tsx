@@ -451,7 +451,12 @@ function Gromo() {
       return;
     const owner = getSession()?.userId;
     if (step >= 22 && owner && !REVIEW && !DEMO) {
-      void saveAccountGuides(owner, { focusDone: true }).catch(() => notify(t('app.storageCheck')));
+      void saveAccountGuides(owner, {
+        focusDone: true,
+        ...(step === 22 && !current.focusGuideDone
+          ? { focusBlockingIntro: 'pending' as const }
+          : {}),
+      }).catch(() => notify(t('app.storageCheck')));
     }
     dispatch({ type: 'GUIDE_STEP', step, expected });
   };
@@ -600,16 +605,12 @@ function Gromo() {
       ((FOCUS_BLOCKING_PREVIEW && r === 'focusTravel') ||
         shouldGateFocusBlockingIntro(r, {
           isIOS: Platform.OS === 'ios',
-          promptPending: !!state.settings.screenTimeFocusBlockingIntroPending,
+          promptPending: state.focusBlockingIntro === 'pending',
           visiting: !!state.visitingIslandId,
         }));
     if (gateFocusBlocking) {
       Keyboard.dismiss();
-      dispatch({
-        type: 'SETTING',
-        key: 'screenTimeFocusBlockingIntroPending',
-        value: false,
-      });
+      consumeFocusBlockingIntro();
       setFocusBlockingGate({ route: r, detail: id });
       return;
     }
@@ -627,6 +628,16 @@ function Gromo() {
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
+  const consumeFocusBlockingIntro = () => {
+    dispatch({ type: 'FOCUS_BLOCKING_INTRO_SEEN' });
+    const owner = getSession()?.userId;
+    const generation = sessionGeneration();
+    if (owner && !REVIEW && !DEMO)
+      void saveAccountGuides(owner, { focusBlockingIntro: 'seen' }).catch(() => {
+        if (sessionGeneration() === generation && getSession()?.userId === owner)
+          notify(t('app.storageCheck'));
+      });
+  };
   const continueFocusBlockingTravel = () => {
     const pending = focusBlockingGate;
     if (!pending) return;
@@ -639,12 +650,12 @@ function Gromo() {
       FOCUS_BLOCKING_PREVIEW ||
       shouldGateFocusBlockingIntro('focusTravel', {
         isIOS: Platform.OS === 'ios',
-        promptPending: !!state.settings.screenTimeFocusBlockingIntroPending,
+        promptPending: state.focusBlockingIntro === 'pending',
         visiting: !!state.visitingIslandId,
       })
     ) {
       Keyboard.dismiss();
-      dispatch({ type: 'SETTING', key: 'screenTimeFocusBlockingIntroPending', value: false });
+      consumeFocusBlockingIntro();
       setFocusBlockingGate({ route: 'sea', detail: '', onContinue });
     } else onContinue();
   };
