@@ -964,3 +964,98 @@ test('차단한 주민(GROMO-2470)은 자리를 쥔 채 숨고(낚싯줄 없음)
   assert.equal(back.slot, 0);
   await act(async () => replaceBlockedUsers([]));
 });
+
+describe('차단한 주민의 집중 종료는 자리를 바로 반납한다 (GROMO-2470)', () => {
+  const live = (userId: string, sessionId: string) =>
+    ({ ...member('active'), userId, sessionId }) as LiveFocusMember;
+  const done = (userId: string, sessionId: string): IslandPresenceTransition => ({
+    source: 'event',
+    kind: 'focus',
+    userId,
+    previous: live(userId, sessionId),
+    current: null,
+  });
+  const start = (userId: string, sessionId: string): IslandPresenceTransition => ({
+    source: 'event',
+    kind: 'focus',
+    userId,
+    previous: null,
+    current: live(userId, sessionId),
+  });
+  const mount = (initial: FishingPeer[]) => {
+    let members = initial;
+    const hook = renderHook(() =>
+      useFishingPeerActors({
+        members,
+        ready: true,
+        reduce: false,
+        realtime: true,
+        snapshotVersion: 1,
+      }),
+    );
+    return {
+      hook,
+      setMembers: (next: FishingPeer[]) => {
+        members = next;
+      },
+    };
+  };
+  const peerOf = (userId: string, sessionId: string): FishingPeer => ({
+    ...peer,
+    userId,
+    sessionId,
+  });
+  beforeEach(() => replaceBlockedUsers([]));
+  afterEach(() => replaceBlockedUsers([]));
+
+  test('차단 중 집중을 끝내면 모션 없이 actor 와 자리 예약이 바로 사라져 그 자리에 새 주민이 앉는다', async () => {
+    const { hook, setMembers } = mount([peerOf('blocked', 's-a'), peerOf('other', 's-b')]);
+    const { result, rerender, unmount } = await hook;
+    assert.equal(result.current.actors.find((actor) => actor.userId === 'blocked')!.slot, 0);
+    await act(async () => markUserBlocked('blocked'));
+    await act(async () => result.current.onTransition(done('blocked', 's-a')));
+    assert.equal(
+      result.current.actors.some((actor) => actor.userId === 'blocked'),
+      false,
+    );
+    setMembers([peerOf('other', 's-b'), peerOf('newbie', 's-n')]);
+    await rerender(undefined);
+    await act(async () => result.current.onTransition(start('newbie', 's-n')));
+    const entrant = result.current.actors.find((actor) => actor.userId === 'newbie')!;
+    assert.equal(entrant.slot, 0);
+    assert.equal(entrant.visible, true);
+    await unmount();
+  });
+
+  test('만석(15)에서 차단한 주민이 집중을 끝내면 보류 없이 새 주민이 들어와 보인다', async () => {
+    const full = Array.from({ length: 15 }, (_, index) => peerOf(`u${index}`, `s${index}`));
+    const { hook, setMembers } = mount(full);
+    const { result, rerender, unmount } = await hook;
+    await act(async () => markUserBlocked('u14'));
+    await act(async () => result.current.onTransition(done('u14', 's14')));
+    setMembers([...full.slice(0, 14), peerOf('u15', 's15')]);
+    await rerender(undefined);
+    await act(async () => result.current.onTransition(start('u15', 's15')));
+    const entrant = result.current.actors.find((actor) => actor.key === 'u15:s15');
+    assert.equal(entrant?.visible, true);
+    assert.equal(entrant?.phase, 'entering');
+    assert.equal(entrant?.slot, 14);
+    await unmount();
+  });
+
+  test('보이는 주민의 종료는 종전처럼 finishing 모션을 거치고, 퇴장 중에 차단하면 그때 바로 자리를 반납한다', async () => {
+    const { hook, setMembers } = mount([peerOf('other', 's-b')]);
+    const { result, rerender, unmount } = await hook;
+    await act(async () => result.current.onTransition(done('other', 's-b')));
+    const leaving = result.current.actors.find((actor) => actor.userId === 'other')!;
+    assert.equal(leaving.phase, 'finishing');
+    assert.equal(leaving.visible, true);
+    await act(async () => markUserBlocked('other'));
+    assert.equal(result.current.actors.length, 0);
+    setMembers([peerOf('newbie', 's-n')]);
+    await rerender(undefined);
+    await act(async () => result.current.onTransition(start('newbie', 's-n')));
+    assert.equal(result.current.actors.find((actor) => actor.userId === 'newbie')!.slot, 0);
+    await unmount();
+  });
+});
