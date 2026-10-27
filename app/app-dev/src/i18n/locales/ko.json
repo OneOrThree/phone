@@ -684,6 +684,7 @@
       "switchTrack": "이 곡으로 바꾸기",
       "play": "재생",
       "stop": "정지",
+      "deviceVolume": "내 기기 음량",
       "loadFailed": "곡 목록을 불러오지 못했어요.",
       "loading": "곡 목록을 불러오는 중이에요.",
       "free": "무료",

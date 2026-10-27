@@ -711,6 +711,7 @@
       "switchTrack": "Switch to This Track",
       "play": "Play",
       "stop": "Stop",
+      "deviceVolume": "Device Volume",
       "loadFailed": "Couldn't load the track list.",
       "loading": "Loading tracks.",
       "free": "Free",

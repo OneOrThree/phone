@@ -33,6 +33,7 @@ import {
   Keyboard,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -1999,6 +2000,73 @@ function FishingCatInfo({
     />
   );
 }
+function FocusVolume({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [width, setWidth] = useState(1);
+  const latest = useRef({ value, onChange, width });
+  latest.current = { value, onChange, width };
+  const setFromTouch = (locationX: number) =>
+    latest.current.onChange(Math.max(0, Math.min(1, locationX / latest.current.width)));
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (event) => setFromTouch(event.nativeEvent.locationX),
+      onPanResponderMove: (event) => setFromTouch(event.nativeEvent.locationX),
+    }),
+  ).current;
+  const thumbSize = semanticTokens.spacing.section;
+  return (
+    <View
+      accessibilityRole="adjustable"
+      accessibilityLabel={t('focusFlow.music.deviceVolume')}
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(event) =>
+        onChange(
+          Math.max(
+            0,
+            Math.min(1, value + (event.nativeEvent.actionName === 'increment' ? 0.1 : -0.1)),
+          ),
+        )
+      }
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      {...pan.panHandlers}
+      style={{ height: semanticTokens.size.tapMin, justifyContent: 'center' }}
+    >
+      <View
+        style={{
+          height: componentTokens.progress.height,
+          borderRadius: semanticTokens.radius.full,
+          backgroundColor: componentTokens.progress.track,
+        }}
+      >
+        <View
+          style={{
+            height: componentTokens.progress.height,
+            width: `${value * 100}%`,
+            borderRadius: semanticTokens.radius.full,
+            backgroundColor: componentTokens.progress.fill,
+          }}
+        />
+      </View>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: width * value - thumbSize / 2,
+          top: (semanticTokens.size.tapMin - thumbSize) / 2,
+          width: thumbSize,
+          height: thumbSize,
+          borderRadius: semanticTokens.radius.full,
+          borderWidth: semanticTokens.stroke.strong,
+          borderColor: semanticTokens.color.outline,
+          backgroundColor: semanticTokens.color.surface,
+        }}
+      />
+    </View>
+  );
+}
+
 function FocusFlow({ e: environment }: any) {
   const experience = isTutorialExperience(environment.state);
   // 화면 내부에서만 체험 세션을 투영한다. API·실시간·전역 집중 상태는 연결하지 않는다.
@@ -2942,21 +3010,25 @@ function FocusFlow({ e: environment }: any) {
                   onPress={buyFocusTrack}
                 />
               </View>
-            ) : (
-              <FiButton
-                primary
-                title={
-                  soundPurchase.kind === 'success'
-                    ? t('focusFlow.music.switchTrack')
-                    : t('common.ok')
-                }
-                onPress={async () => {
-                  if (soundPurchase.kind === 'success') {
+            ) : soundPurchase.kind === 'success' ? (
+              <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                <FiButton
+                  title={t('common.later')}
+                  style={{ flex: 1 }}
+                  onPress={() => setSoundPurchase(null)}
+                />
+                <FiButton
+                  primary
+                  title={t('focusFlow.music.switchTrack')}
+                  style={{ flex: 1 }}
+                  onPress={async () => {
                     if (!(await changeFocusTrack(soundPurchase.product.id))) return;
-                  }
-                  setSoundPurchase(null);
-                }}
-              />
+                    setSoundPurchase(null);
+                  }}
+                />
+              </View>
+            ) : (
+              <FiButton primary title={t('common.ok')} onPress={() => setSoundPurchase(null)} />
             )}
           </View>
         ) : (
@@ -2964,23 +3036,31 @@ function FocusFlow({ e: environment }: any) {
             {activeFocus && (
               <View
                 style={{
-                  flexDirection: 'row',
                   gap: semanticTokens.spacing.control,
                   marginBottom: semanticTokens.spacing.control,
                 }}
               >
-                <FiButton
-                  primary={i.playing}
-                  title={t('focusFlow.music.play')}
-                  style={{ flex: 1 }}
-                  onPress={() => void changeFocusPlaying(true)}
-                />
-                <FiButton
-                  primary={!i.playing}
-                  title={t('focusFlow.music.stop')}
-                  style={{ flex: 1 }}
-                  onPress={() => void changeFocusPlaying(false)}
-                />
+                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                  <FiButton
+                    primary={i.playing}
+                    title={t('focusFlow.music.play')}
+                    style={{ flex: 1 }}
+                    onPress={() => void changeFocusPlaying(true)}
+                  />
+                  <FiButton
+                    primary={!i.playing}
+                    title={t('focusFlow.music.stop')}
+                    style={{ flex: 1 }}
+                    onPress={() => void changeFocusPlaying(false)}
+                  />
+                </View>
+                <View>
+                  <Text style={musicHintStyle}>{t('focusFlow.music.deviceVolume')}</Text>
+                  <FocusVolume
+                    value={s.settings.volume ?? 0.55}
+                    onChange={(value) => e.dispatch({ type: 'SETTING', key: 'volume', value })}
+                  />
+                </View>
               </View>
             )}
             {e.islands && focusShop.error ? (

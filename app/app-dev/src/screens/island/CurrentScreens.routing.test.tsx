@@ -275,8 +275,11 @@ test.each(interceptedRoutes)(
 );
 
 test('활성 집중섬 축음기는 기본곡·판매곡과 재생·정지 조작을 제공한다', async () => {
+  const state = withGramophone(serverFocusState());
+  state.settings.volume = 0;
+  const dispatch = jest.fn();
   const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
-  const screen = await mount('focus', withGramophone(serverFocusState()), { playback });
+  const screen = await mount('focus', state, { playback, dispatch });
 
   await fireEvent.press(screen.getByTestId('focus-gram'));
   screen.getByText('잔잔한 파도 · 무료');
@@ -285,6 +288,12 @@ test('활성 집중섬 축음기는 기본곡·판매곡과 재생·정지 조�
   screen.getByText('빗방울 소리 · 30마리로 구매');
   screen.getByText('재생');
   screen.getByText('정지');
+  const volume = screen.getByLabelText('내 기기 음량');
+  expect(volume.props.accessibilityValue.now).toBe(0);
+  await fireEvent(volume, 'accessibilityAction', {
+    nativeEvent: { actionName: 'increment' },
+  });
+  expect(dispatch).toHaveBeenCalledWith({ type: 'SETTING', key: 'volume', value: 0.1 });
 
   await fireEvent.press(screen.getByText('잔잔한 파도 · 무료'));
   expect(playback.update).toHaveBeenCalledWith({ trackId: 'waves' });
@@ -306,6 +315,7 @@ test('영어 설정에서는 집중섬 축음기 조작 문구를 영어로 표�
     screen.getByText('Choose a track and control playback.');
     screen.getByText('Play');
     screen.getByText('Stop');
+    screen.getByText('Device Volume');
     screen.getByText('Raindrops · Buy for 30 fish');
     screen.getByText('Back to My Spot');
   } finally {
@@ -324,12 +334,15 @@ test('집중 전 낚시섬은 곡 구매·변경만 제공하고 재생·정지�
   await fireEvent.press(screen.getByTestId('focus-gram'));
   expect(screen.queryByText('재생')).toBeNull();
   expect(screen.queryByText('정지')).toBeNull();
+  expect(screen.queryByLabelText('내 기기 음량')).toBeNull();
   await fireEvent.press(screen.getByText('잔잔한 파도 · 무료'));
   expect(playback.update).toHaveBeenCalledWith({ trackId: 'waves' });
   await fireEvent.press(screen.getByText('빗방울 소리 · 30마리로 구매'));
   await fireEvent.press(screen.getByText('30마리로 구매'));
   expect(mockFocusShopBuy).toHaveBeenCalledWith(expect.objectContaining({ id: 'rain' }));
   screen.getByText('이 곡으로 바꾸기');
+  await fireEvent.press(screen.getByText('나중에'));
+  screen.getByText('빗방울 소리 · 30마리로 구매');
   await screen.unmount();
 });
 
