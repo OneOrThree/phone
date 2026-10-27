@@ -120,14 +120,24 @@ def version(value):
     return tuple(int(part) for part in value.split('.'))
 
 
-def bundled_history(manifest):
-    directory = rebase.BASELINE.parent.parent / 'migration'
+def validate_legacy_bundle(directory, manifest):
+    """전환 기준 V138까지는 고정하고, 그 뒤에 추가된 migration만 허용한다."""
     expected_files = {item['script'] for item in manifest['source_history']}
-    if {path.name for path in directory.glob('V*.sql')} != expected_files:
+    actual_files = {path.name for path in directory.glob('V*.sql')}
+    added = actual_files - expected_files
+    if not expected_files <= actual_files or any(
+            (match := re.fullmatch(r'V(\d+(?:[._]\d+)*)__.+\.sql', name)) is None
+            or version(match[1].replace('_', '.')) <= version(manifest['source_version'])
+            for name in added):
         raise ValueError('원본 migration 묶음과 manifest가 다릅니다')
     for item in manifest['source_history']:
         if rebase.checksum(directory / item['script']) != item['checksum']:
             raise ValueError('원본 migration 파일 체크섬 불일치: ' + item['script'])
+
+
+def bundled_history(manifest):
+    directory = rebase.BASELINE.parent.parent / 'migration'
+    validate_legacy_bundle(directory, manifest)
     current = []
     for path in rebase.BASELINE.parent.glob('V*.sql'):
         match = re.fullmatch(r'V(\d+(?:[._]\d+)*)__.+\.sql', path.name)

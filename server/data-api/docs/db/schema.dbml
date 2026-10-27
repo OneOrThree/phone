@@ -293,7 +293,8 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
 Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 귀속·subject·목표·lifecycle·낙관 버전). focus_sessions 1:1, 이 행의 존재가 v0.3 프로토콜 판별자(migration V58)'] {
   session_id                uuid    [pk, note: 'FK → focus_sessions.id ON DELETE CASCADE — 별도 발급 없이 레거시 세션 PK를 공유']
   user_id                   uuid    [note: 'nullable — 탈퇴 시 null (FK → users.id ON DELETE SET NULL). 레거시 focus_sessions 와 같은 익명화: 행은 남기고 user_id 절단 + 자유 입력 subject 파기(AccountWithdrawalService)']
-  island_id                 uuid    [not null, note: 'FK → islands.id ON DELETE RESTRICT. 시작 후 불변(FR-P03). V124: kind=SEA 면 목적지 섬이며 섬 기여가 아니다(섬 단위 집계는 kind=ISLAND 만 센다)']
+  island_id                 uuid    [not null, note: '섬 세션/일반 SEA는 실제 섬, 무인도 SEA 진행 중에는 가상 후보 ID. 성공 정산 때 실제 섬 ID로 교체. V139에서 FK 제거']
+  new_island_destination    boolean [not null, default: false, note: 'V139: 가상 무인도 후보 항해. kind=SEA만 true. 성공 정산 때 섬 생성과 함께 false']
   membership_epoch_at_start bigint  [note: 'nullable(V124) — 바다 세션은 멤버십이 없어 null. 시작 시점 GroupMember.membershipEpoch 스냅샷 — 기록만. 소속 상실은 강퇴 TX 가 직접 종결한다(FR-D03, GROMO-1924)']
   kind                      varchar(10) [not null, default: 'ISLAND', note: 'V124·GROMO-2299: ISLAND / SEA. SEA 면 island_id 는 목적지 섬이고 멤버십·휴식·presence 투영이 없다']
   sailing_minutes           integer [note: 'V124: SEA 만. 시작 시 망원경 목록의 항해 분을 고정. CHECK focus_session_details_sea_sailing_ck — kind=SEA 면 NOT NULL']
@@ -1237,7 +1238,6 @@ Ref: event_outbox_deliveries.outbox_id > event_outbox.id [delete: cascade]  // V
 Ref: focus_live_activities.session_id > focus_session_details.session_id [delete: cascade]
 Ref: focus_live_activities.user_id > users.id [delete: cascade]
 Ref: focus_reward_accruals.session_id > focus_session_details.session_id [delete: cascade]
-Ref: focus_session_details.island_id > islands.id [delete: restrict]
 Ref: focus_session_details.session_id > focus_sessions.id [delete: cascade]
 Ref: focus_session_details.user_id > users.id [delete: set null]
 Ref: focus_session_intervals.session_id > focus_session_details.session_id [delete: cascade]

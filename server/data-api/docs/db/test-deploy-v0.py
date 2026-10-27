@@ -42,8 +42,34 @@ class DeploymentGuardTest(unittest.TestCase):
         manifest = deploy.rebase.load_manifest()
         current = deploy.bundled_history(manifest)
         # 현재 V0 체인 전체 — 후속 migration 이 추가되면 이 목록도 늘어난다.
-        self.assertEqual(['0', '1', '2'], [item['version'] for item in current])
+        self.assertEqual(['0', '1', '2', '3'], [item['version'] for item in current])
         self.assertEqual(manifest['v0_checksum'], current[0]['checksum'])
+
+    def test_원본_이력은_고정하고_후속_migration만_허용한다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            migrations = Path(directory)
+            original = migrations / 'V138__original.sql'
+            original.write_text('SELECT 1;\n')
+            manifest = {'source_version': '138', 'source_history': [
+                {'script': original.name, 'checksum': deploy.rebase.checksum(original)}]}
+            deploy.validate_legacy_bundle(migrations, manifest)
+
+            later = migrations / 'V139__later.sql'
+            later.write_text('SELECT 2;\n')
+            deploy.validate_legacy_bundle(migrations, manifest)
+
+            unexpected_old = migrations / 'V137__unexpected.sql'
+            unexpected_old.write_text('SELECT 3;\n')
+            with self.assertRaisesRegex(ValueError, '원본 migration 묶음'):
+                deploy.validate_legacy_bundle(migrations, manifest)
+            unexpected_old.unlink()
+
+            original.write_text('SELECT 4;\n')
+            with self.assertRaisesRegex(ValueError, '체크섬 불일치'):
+                deploy.validate_legacy_bundle(migrations, manifest)
+            original.unlink()
+            with self.assertRaisesRegex(ValueError, '원본 migration 묶음'):
+                deploy.validate_legacy_bundle(migrations, manifest)
 
     def test_현재체인의_V1_BASELINE과_실패이력은_허용하지_않는다(self):
         manifest = deploy.rebase.load_manifest()
