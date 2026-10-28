@@ -159,45 +159,58 @@ class DispatchService {
         if (plan == null) {
             return;
         }
-        boolean failed = false;
-        boolean fenced = false;
-        for (Attempt attempt : plan.attempts()) {
-            if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
-                return;
+        try {
+            boolean failed = false;
+            boolean fenced = false;
+            for (Attempt attempt : plan.attempts()) {
+                if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
+                    return;
+                }
+                // 판정 뒤 기기 루프(기기마다 최대 6초)가 도는 사이에도 시한이 지날 수 있다 — «보내기 직전»에 다시 본다.
+                // 만료분만 들어 있으면 이 기기엔 보내지 않는다. 아직 유효한 형제와 함께 렌더된 묶음이면 만료분이 빠진
+                // 문구로 다시 렌더해야 하므로 보내지 않고 재시도로 돌린다 — 유효한 형제는 버리지 않는다.
+                List<UUID> expiredNow = plan.expiredAt(attempt.deliveries(), clock.instant());
+                if (!expiredNow.isEmpty()) {
+                    failed |= expiredNow.size() < attempt.deliveries().size();
+                    continue;
+                }
+                if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
+                    // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
+                    // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
+                    boolean rotated = store.one("SELECT 1 FROM device_tokens WHERE device_key=? AND user_id=?"
+                            + " AND active AND NOT transport_invalid", attempt.device(), attempt.user()) != null;
+                    failed |= rotated;
+                    fenced |= rotated;
+                    continue;
+                }
+                // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
+                PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
+                        plan.eventId());
+                Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
+                if (outcome == Outcome.LEASE_LOST) {
+                    return;
+                }
+                failed |= outcome != Outcome.DONE;
+                fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
             }
-            // 판정 뒤 기기 루프(기기마다 최대 6초)가 도는 사이에도 시한이 지날 수 있다 — «보내기 직전»에 다시 본다.
-            // 만료분만 들어 있으면 이 기기엔 보내지 않는다. 아직 유효한 형제와 함께 렌더된 묶음이면 만료분이 빠진
-            // 문구로 다시 렌더해야 하므로 보내지 않고 재시도로 돌린다 — 유효한 형제는 버리지 않는다.
-            List<UUID> expiredNow = plan.expiredAt(attempt.deliveries(), clock.instant());
-            if (!expiredNow.isEmpty()) {
-                failed |= expiredNow.size() < attempt.deliveries().size();
-                continue;
-            }
-            if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
-                // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
-                // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
-                boolean rotated = store.one("SELECT 1 FROM device_tokens WHERE device_key=? AND user_id=?"
-                        + " AND active AND NOT transport_invalid", attempt.device(), attempt.user()) != null;
-                failed |= rotated;
-                fenced |= rotated;
-                continue;
-            }
-            // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
-            PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
-                    plan.eventId());
-            Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
-            if (outcome == Outcome.LEASE_LOST) {
-                return;
-            }
-            failed |= outcome != Outcome.DONE;
-            fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
+            boolean retried = failed;
+            // 남은 창(대조 커밋 ~ 외부 호출)에 걸린 발송은 FCM 실패와 «원인이 다르다». 같은 FCM_RETRY 로
+            // 적으면 그 사실이 재시도 통계에 섞여 사라지고, 사고 조사에서 「남의 기기로 나간 발송이
+            // 있었는가」를 물을 방법이 없다. 이유를 갈라 행에 남긴다.
+            String reason = fenced ? "OWNERSHIP_CHANGED" : "FCM_RETRY";
+            recording.executeWithoutResult(status -> settle(plan, retried, reason));
+        } catch (RuntimeException failure) {
+            // 이 실행이 만든 임대만 풀고 실패를 적는다. 호출부에는 기록 완료를 알려 중복 계산을 막는다.
+            recording.executeWithoutResult(status -> backOffLeased(plan, failureReason(failure)));
+            throw new LeasedFailure(failure);
         }
-        boolean retried = failed;
-        // 남은 창(대조 커밋 ~ 외부 호출)에 걸린 발송은 FCM 실패와 «원인이 다르다». 같은 FCM_RETRY 로
-        // 적으면 그 사실이 재시도 통계에 섞여 사라지고, 사고 조사에서 「남의 기기로 나간 발송이
-        // 있었는가」를 물을 방법이 없다. 이유를 갈라 행에 남긴다.
-        String reason = fenced ? "OWNERSHIP_CHANGED" : "FCM_RETRY";
-        recording.executeWithoutResult(status -> settle(plan, retried, reason));
+    }
+
+    /** 발송 계획의 임대를 가진 예외가 이미 별도 트랜잭션에 기록됐음을 호출부에 알린다. */
+    static final class LeasedFailure extends RuntimeException {
+        LeasedFailure(RuntimeException cause) {
+            super(cause);
+        }
     }
 
     /**
@@ -655,10 +668,8 @@ class DispatchService {
     /**
      * 후보 한 건의 실패를 «별도 트랜잭션»으로 내구화한다.
      *
-     * <p>{@link #dispatch(UUID)} 가 예외로 끝나면 그 트랜잭션은 통째로 되감겨 {@code next_attempt_at}
-     * 도 {@code attempts} 도 그대로다. 그 행은 다음 tick 에서도 같은 정렬로 후보 맨 앞에 다시 서고,
-     * 그래서 한 종류의 템플릿 비활성화·렌더 입력 누락 하나가 «다른 종류·다른 사용자»의 정상 알림까지
-     * 무기한 막는다. 재시도 시각을 밀어 두면 큐가 계속 흐른다.
+     * <p>발송 계획을 만들기 전의 예외만 여기서 기록한다. 계획 이후의 예외는 그 실행의 임대 토큰을
+     * 대조하는 {@link #backOffLeased} 가 기록한다. 중복 호출이나 아직 진행 중인 다른 실행은 건너뛴다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 30)
     public void backOff(UUID id, String reason) {
@@ -666,11 +677,29 @@ class DispatchService {
                 + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,"
                 + "next_attempt_at=?,lease_token=CASE WHEN attempts+1>=? THEN NULL ELSE lease_token END,"
                 + "lease_expires_at=CASE WHEN attempts+1>=? THEN NULL ELSE lease_expires_at END WHERE id=?"
-                + " AND status IN ('PENDING','DEFERRED') AND (lease_expires_at IS NULL OR lease_expires_at<=?)"
+                + " AND status IN ('PENDING','DEFERRED') AND next_attempt_at<=?"
+                + " AND (lease_expires_at IS NULL OR lease_expires_at<=?)"
                 + " RETURNING status,kind", reason, MAX_ATTEMPTS,
                 Timestamp.from(clock.instant().plusSeconds(60)), MAX_ATTEMPTS, MAX_ATTEMPTS,
-                id, Timestamp.from(clock.instant()));
+                id, Timestamp.from(clock.instant()), Timestamp.from(clock.instant()));
         warnIfExhausted(id, reason, updated);
+    }
+
+    /** 예외가 난 실행의 임대 토큰이 그대로일 때만 기록한다. 새 실행의 임대는 건드리지 않는다. */
+    private void backOffLeased(Plan plan, String reason) {
+        for (UUID id : plan.deliveries()) {
+            Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
+                    + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,"
+                    + "next_attempt_at=?,lease_token=NULL,lease_expires_at=NULL WHERE id=?"
+                    + " AND status IN ('PENDING','DEFERRED') AND lease_token=? RETURNING status,kind",
+                    reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
+            warnIfExhausted(id, reason, updated);
+        }
+    }
+
+    private String failureReason(RuntimeException failure) {
+        return failure instanceof NotificationFailure coded && coded.getMessage() != null
+                ? coded.getMessage() : failure.getClass().getSimpleName();
     }
 
     private void suppress(UUID id) {

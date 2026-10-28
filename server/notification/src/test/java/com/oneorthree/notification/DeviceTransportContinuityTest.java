@@ -75,6 +75,7 @@ class DeviceTransportContinuityTest {
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired DispatchService dispatch;
+    @Autowired JobRegistry jobs;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
     @MockitoBean Clock clock;
@@ -85,6 +86,8 @@ class DeviceTransportContinuityTest {
                 + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,templates,deeplinks,kinds CASCADE");
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        store.update("UPDATE jobs SET enabled=false");
+        store.update("DELETE FROM job_runs");
         store.update("INSERT INTO kinds(id,quiet_policy) VALUES('FRIEND_ACCEPTED','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
                 + " VALUES('FRIEND_ACCEPTED.ko','FRIEND_ACCEPTED','ko','내기','결과가 나왔어요')");
@@ -378,12 +381,14 @@ class DeviceTransportContinuityTest {
                 .thenThrow(new IllegalStateException("FCM 응답이 끝내 오지 않았다"));
 
         UUID id = enqueue("half");
-        assertThatThrownBy(() -> dispatch.dispatch(id)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> dispatch.dispatch(id))
+                .isInstanceOf(DispatchService.LeasedFailure.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
 
         assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
                 .singleElement()
                 .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-first")));
-        // 발송 중 펜싱 — 임대가 끝나기 전에는 같은 행이 다시 후보로 서지 않는다.
+        // 예외가 난 실행의 임대는 풀고 60초 뒤로 미룬다. 그 전에는 다시 후보로 서지 않는다.
         assertThat(dispatch.candidates()).doesNotContain(id);
 
         when(transport.send(eq("fcm-second"), any(), anyBoolean(), anyString()))
@@ -737,10 +742,62 @@ class DeviceTransportContinuityTest {
         dispatch.backOff(id, "RENDER_FAILED");
         assertThat(store.one("SELECT status,attempts FROM deliveries WHERE id=?", id))
                 .containsEntry("status", "PENDING").containsEntry("attempts", 59);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
         dispatch.backOff(id, "RENDER_FAILED");
         assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
                 .containsEntry("status", "FAILED").containsEntry("attempts", 60)
                 .containsEntry("last_error", "RENDER_FAILED").containsEntry("lease_token", null);
+    }
+
+    @Test
+    void 잡에서발송예외가반복되면예순번째에종결한다() {
+        register("fcm-broken", "boot-broken", 1, "reg-broken");
+        when(transport.send(eq("fcm-broken"), any(), anyBoolean(), anyString()))
+                .thenThrow(new IllegalStateException("FCM 응답이 끝내 오지 않았다"));
+        UUID id = enqueue("leased-failure-cap");
+        store.update("UPDATE deliveries SET attempts=58 WHERE id=?", id);
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.minusSeconds(1)));
+
+        jobs.tick();
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token,lease_expires_at FROM deliveries"
+                + " WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 59)
+                .containsEntry("last_error", "IllegalStateException")
+                .containsEntry("lease_token", null).containsEntry("lease_expires_at", null);
+        jobs.tick();
+        verify(transport, times(1)).send(eq("fcm-broken"), any(), anyBoolean(), anyString());
+
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.plusSeconds(60)));
+        jobs.tick();
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("attempts", 60)
+                .containsEntry("last_error", "IllegalStateException").containsEntry("lease_token", null);
+        verify(transport, times(2)).send(eq("fcm-broken"), any(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void 낡은발송실패가새임대를덮어쓰지않는다() {
+        register("fcm-stale", "boot-stale", 1, "reg-stale");
+        UUID id = enqueue("stale-failure-lease");
+        UUID newerLease = UUID.randomUUID();
+        when(transport.send(eq("fcm-stale"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            store.update("UPDATE deliveries SET lease_token=?,lease_expires_at=?,next_attempt_at=? WHERE id=?",
+                    newerLease, java.sql.Timestamp.from(DAY.plusSeconds(600)),
+                    java.sql.Timestamp.from(DAY.plusSeconds(600)), id);
+            throw new IllegalStateException("낡은 실행이 실패했다");
+        });
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.minusSeconds(1)));
+
+        jobs.tick();
+        assertThat(store.one("SELECT status,attempts,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 0)
+                .containsEntry("lease_token", newerLease);
     }
 
     /**
