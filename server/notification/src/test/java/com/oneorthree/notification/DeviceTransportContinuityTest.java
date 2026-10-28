@@ -661,9 +661,91 @@ class DeviceTransportContinuityTest {
                 .containsEntry("status", "SENT").containsEntry("last_error", null);
     }
 
+    @Test
+    void 건너뛴기기와무효토큰만남으면다음틱에실패한다() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null),
+                "reg-tagged").get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        sizeTheBodyToTheTagBoundary("mixed-too-large", tag);
+        when(transport.send(eq("fcm-untagged"), any(), anyBoolean(), anyString()))
+                .thenReturn(PushTransport.Result.UNREGISTERED);
+
+        UUID id = enqueue("mixed-too-large");
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "NO_ACTIVE_DEVICE");
+        assertThat(store.one("SELECT transport_invalid FROM device_tokens WHERE device_token='fcm-untagged'"))
+                .containsEntry("transport_invalid", true);
+
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(eq("fcm-untagged"), any(), anyBoolean(), anyString());
+        verify(transport, never()).send(eq("fcm-tagged"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("last_error", "FCM_PAYLOAD_TOO_LARGE");
+    }
+
+    @Test
+    void 같은토큰재등록은낡은태그의발송을막는다() {
+        register("fcm-a", "boot-a", 1, "reg-a");
+        Map<String, Object> before = devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b");
+        UUID id = enqueue("same-token-tag-fence");
+        when(transport.send(eq("fcm-a"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            devices.register(USER, body("fcm-b", null, 1L, 0L, before.get("ownershipToken").toString()),
+                    "reg-b-again");
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(id);
+        verify(transport, never()).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "OWNERSHIP_CHANGED");
+        String currentTag = (String) store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='fcm-b'")
+                .get("delivery_tag");
+        assertThat(currentTag).isNotEqualTo(before.get("deliveryTag"));
+
+        when(transport.send(eq("fcm-b"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            assertThat(call.<RenderedPush>getArgument(1).data()).containsEntry("deliveryTag", currentTag);
+            return PushTransport.Result.SENT;
+        });
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    @Test
+    void 예순번째기기없는실패는종결하고임대를해제한다() {
+        UUID id = enqueue("retry-cap-empty");
+        store.update("UPDATE deliveries SET attempts=58 WHERE id=?", id);
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,attempts,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 59)
+                .containsEntry("last_error", "NO_ACTIVE_DEVICE");
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("attempts", 60)
+                .containsEntry("last_error", "NO_ACTIVE_DEVICE").containsEntry("lease_token", null);
+    }
+
+    @Test
+    void 백오프도예순번째실패에서종결한다() {
+        UUID id = enqueue("retry-cap-backoff");
+        store.update("UPDATE deliveries SET attempts=58 WHERE id=?", id);
+        dispatch.backOff(id, "RENDER_FAILED");
+        assertThat(store.one("SELECT status,attempts FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 59);
+        dispatch.backOff(id, "RENDER_FAILED");
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("attempts", 60)
+                .containsEntry("last_error", "RENDER_FAILED").containsEntry("lease_token", null);
+    }
+
     /**
      * 관리자 {@code dataTemplate} 이 예약 키 {@code deliveryTag} 를 넣어 둬도 그 값은 어느 기기에도 태그로 나가지 않는다
-     * (GROMO-2520). 저장 API 는 키 이름을 막지 않는다 — 태그 있는 기기에는 그 기기 등록의 값이, 태그 없는 행(V13 전 등록)에는
+     * (GROMO-2520). 2527 이후 저장 API 는 예약 키를 막지만, 이전에 저장된 행은 남아 있을 수 있다. 태그 있는 기기에는 그 기기 등록의 값이, 태그 없는 행(V13 전 등록)에는
      * 키가 아예 없어야 한다. 앱에 준 적 없는 값이 태그로 가면 앱이 정상 푸시를 버리거나 낡은 푸시를 받아들인다.
      */
     @Test

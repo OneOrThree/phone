@@ -91,6 +91,9 @@ class DispatchService {
     /** 결과를 적는 트랜잭션의 상한 — UPDATE·INSERT 몇 건뿐이다. */
     private static final int RECORD_TIMEOUT_SECONDS = 15;
 
+    // ponytail: 고정 60초 간격의 재시도는 60번째 실패까지만 허용한다. 운영에서 종류별 기한이 필요해지면 정책으로 올린다.
+    private static final int MAX_ATTEMPTS = 60;
+
     /**
      * 원사건의 유효기간이 지나 «보내지 않고 끝낸» 행의 사유 (GROMO-893 ⑧).
      *
@@ -659,9 +662,15 @@ class DispatchService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 30)
     public void backOff(UUID id, String reason) {
-        store.update("UPDATE deliveries SET attempts=attempts+1,last_error=?,next_attempt_at=? WHERE id=?"
-                + " AND (lease_expires_at IS NULL OR lease_expires_at<=?)", reason,
-                Timestamp.from(clock.instant().plusSeconds(60)), id, Timestamp.from(clock.instant()));
+        Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
+                + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,"
+                + "next_attempt_at=?,lease_token=CASE WHEN attempts+1>=? THEN NULL ELSE lease_token END,"
+                + "lease_expires_at=CASE WHEN attempts+1>=? THEN NULL ELSE lease_expires_at END WHERE id=?"
+                + " AND status IN ('PENDING','DEFERRED') AND (lease_expires_at IS NULL OR lease_expires_at<=?)"
+                + " RETURNING status,kind", reason, MAX_ATTEMPTS,
+                Timestamp.from(clock.instant().plusSeconds(60)), MAX_ATTEMPTS, MAX_ATTEMPTS,
+                id, Timestamp.from(clock.instant()));
+        warnIfExhausted(id, reason, updated);
     }
 
     private void suppress(UUID id) {
@@ -721,7 +730,16 @@ class DispatchService {
     }
 
     private void retry(UUID id, String reason) {
-        store.update("UPDATE deliveries SET attempts=attempts+1,last_error=?,next_attempt_at=? WHERE id=?",
-                reason, Timestamp.from(clock.instant().plusSeconds(60)), id);
+        Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
+                + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,next_attempt_at=?"
+                + " WHERE id=? AND status IN ('PENDING','DEFERRED') RETURNING status,kind",
+                reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id);
+        warnIfExhausted(id, reason, updated);
+    }
+
+    private void warnIfExhausted(UUID id, String reason, Map<String, Object> updated) {
+        if (updated != null && "FAILED".equals(updated.get("status"))) {
+            log.warn("알림 재시도 상한 도달 deliveryId={} kind={} reason={}", id, updated.get("kind"), reason);
+        }
     }
 }
