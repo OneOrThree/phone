@@ -2680,6 +2680,39 @@
         }
       }
     },
+    "/me/member-appearances": {
+      "get": {
+        "tags": [
+          "appearance-controller"
+        ],
+        "operationId": "memberAppearances",
+        "parameters": [
+          {
+            "name": "userIds",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberAppearancesView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/magazine/today": {
       "get": {
         "tags": [
@@ -5587,6 +5620,48 @@
           "bucketStart",
           "items",
           "nextRefreshMinutes"
+        ]
+      },
+      "CachedMemberAppearanceView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/PersonalAppearanceView"
+          }
+        },
+        "required": [
+          "appearance",
+          "catColor",
+          "userId"
+        ]
+      },
+      "MemberAppearancesView": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CachedMemberAppearanceView"
+            }
+          },
+          "hiddenUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "hiddenUserIds",
+          "members"
         ]
       },
       "MagazineIssue": {

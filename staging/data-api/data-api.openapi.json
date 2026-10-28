@@ -3784,6 +3784,49 @@
         }
       }
     },
+    "/internal/users/{userId}/member-appearances": {
+      "get": {
+        "tags": [
+          "internal-appearance-controller"
+        ],
+        "operationId": "memberAppearances",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "userIds",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/magazine/today": {
       "get": {
         "tags": [
@@ -8410,6 +8453,21 @@
           }
         }
       },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/PersonalAppearanceView"
+          }
+        }
+      },
       "IssueSummary": {
         "type": "object",
         "properties": {
@@ -9497,22 +9555,6 @@
             "items": {
               "$ref": "#/components/schemas/Member"
             }
-          }
-        }
-      },
-      "Member": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string"
-          },
-          "earnedFish": {
-            "type": "integer",
-            "format": "int64"
           }
         }
       },
