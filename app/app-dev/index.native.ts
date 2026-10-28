@@ -1,9 +1,11 @@
 import { registerRootComponent } from 'expo';
 import { initDatadog } from './src/services/datadog';
 import { initPostHog } from './src/services/posthog';
+import { initAirbridge } from './src/services/airbridge';
 
 // 앱 모듈과 소셜 SDK의 초기화 오류도 JS 오류 수집기가 설치된 뒤에 발생하게 한다.
 initPostHog();
+initAirbridge();
 
 const { initializeKakaoSDK } =
   require('@react-native-kakao/core') as typeof import('@react-native-kakao/core');
