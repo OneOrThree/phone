@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 운영 앱(iOS·안드로이드)에 OTA(EAS Update) 발행 — 스토어 심사 없이 JS·src/assets/ota 수정을 내려보낸다.
-#   ./scripts/ota-update.sh "수정 내용 한 줄"
+#   ./scripts/ota-update.sh [--platform ios|android|all] "수정 내용 한 줄"
 # 앱은 켤 때 받아 두고 다음 실행부터 적용한다. dev 빌드(TestFlight·Play 내부 테스트)는 OTA 가 꺼져 있어 받지 않는다.
 # 네이티브(라이브러리·Pods·Gradle·Info.plist·권한)를 바꿨으면 OTA 로 못 보낸다 — 스토어 빌드 + runtimeVersion 올리기.
 # Expo 로그인: `npx eas-cli login`(oneorthree 조직 권한) 또는 EXPO_TOKEN 환경변수.
@@ -10,9 +10,31 @@ cd "$(dirname "$0")/.."
 
 EAS=(npx --yes eas-cli@24.12.1)
 
+usage() {
+  echo '❌ 사용법: ./scripts/ota-update.sh [--platform ios|android|all] "수정 내용 한 줄"' >&2
+}
+
+PLATFORM=all
+if [[ "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+if [[ "${1:-}" == "--platform" ]]; then
+  if [[ $# -lt 2 ]]; then
+    usage
+    exit 1
+  fi
+  PLATFORM="${2:-}"
+  shift 2
+fi
+case "$PLATFORM" in
+  ios|android|all) ;;
+  *) usage; exit 1 ;;
+esac
+
 MESSAGE="${1:-}"
 if [[ $# -ne 1 || -z "${MESSAGE//[[:space:]]/}" ]]; then
-  echo "❌ 사용법: ./scripts/ota-update.sh \"수정 내용 한 줄\"" >&2
+  usage
   exit 1
 fi
 
@@ -57,8 +79,13 @@ fi
 IOS_RUNTIME="$(node -p "const e=require('./app.config.js').expo; e.ios?.runtimeVersion ?? e.runtimeVersion")"
 ANDROID_RUNTIME="$(node -p "const e=require('./app.config.js').expo; e.android?.runtimeVersion ?? e.runtimeVersion")"
 COMMIT="$(git rev-parse --short HEAD)"
-echo "채널 production · iOS 런타임 ${IOS_RUNTIME} · Android 런타임 ${ANDROID_RUNTIME} · $(git rev-parse --abbrev-ref HEAD)@${COMMIT}"
-echo "iOS 런타임 ${IOS_RUNTIME} · Android 런타임 ${ANDROID_RUNTIME} 운영 앱이 다음 실행부터 이 코드로 바뀝니다."
+case "$PLATFORM" in
+  ios) RUNTIMES="iOS 런타임 ${IOS_RUNTIME}" ;;
+  android) RUNTIMES="Android 런타임 ${ANDROID_RUNTIME}" ;;
+  all) RUNTIMES="iOS 런타임 ${IOS_RUNTIME} · Android 런타임 ${ANDROID_RUNTIME}" ;;
+esac
+echo "채널 production · ${RUNTIMES} · $(git rev-parse --abbrev-ref HEAD)@${COMMIT}"
+echo "${RUNTIMES} 운영 앱이 다음 실행부터 이 코드로 바뀝니다."
 read -r -p "발행할까요? (y/N) " answer
 if [[ "$answer" != "y" ]]; then
   echo "취소했어요."
@@ -68,6 +95,6 @@ fi
 "${EAS[@]}" update \
   --channel production \
   --environment production \
-  --platform all \
+  --platform "$PLATFORM" \
   --message "${MESSAGE} (${COMMIT})" \
   --non-interactive
