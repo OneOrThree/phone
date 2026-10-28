@@ -2,7 +2,7 @@ import http from 'node:http';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 const user='11111111-1111-4111-8111-111111111111', peer='22222222-2222-4222-8222-222222222222', island='33333333-3333-4333-8333-333333333333',session='44444444-4444-4444-8444-444444444444';
-let logged=0,guestCalls=0,current=null,ws,subscription=false, screen=null,mainIslandCreated=false;
+let logged=0,guestCalls=0,current=null,ws,subscription=false, screen=null,mainIslandCreated=false,islandName='existing-island';
 const token=(id)=>`header.${Buffer.from(JSON.stringify({sid:id})).toString('base64url')}.signature`;
 function sendFrame(text){const b=Buffer.from(text); const h=Buffer.alloc(b.length<126?2:4);h[0]=0x81;if(b.length<126)h[1]=b.length;else{h[1]=126;h.writeUInt16BE(b.length,2)}ws?.write(Buffer.concat([h,b]));}
 const server=http.createServer(async(req,res)=>{
@@ -18,9 +18,9 @@ const server=http.createServer(async(req,res)=>{
     }
     const id=logged++<2?user:peer;data={userId:id,accessToken:token(id),refreshToken:'secret-refresh-token',onboardingComplete:false};status=201;res.setHeader('X-Device-Bootstrap','secret-bootstrap');
   }
-  else if(p.pathname==='/islands'&&req.method==='POST'){if(b.name==='smoke-island')mainIslandCreated=true;data={id:island};status=201;}
+  else if(p.pathname==='/islands'&&req.method==='POST'){islandName=b.name;if(b.name.startsWith('smoke-island-'))mainIslandCreated=true;data=process.env.MOCK_CREATE_ID_MISSING?{}:{id:island};status=201;}
   else if(p.pathname==='/me')data={id:user};
-  else if(p.pathname==='/me/islands')data=process.env.MOCK_NO_ISLAND&&!mainIslandCreated?{items:[],currentIslandId:null}:{items:[{id:island}],currentIslandId:island};
+  else if(p.pathname==='/me/islands')data=process.env.MOCK_NO_ISLAND&&!mainIslandCreated&&islandName==='existing-island'?{items:[],currentIslandId:null}:{items:[{id:island,name:process.env.MOCK_RECOVERY_UNRELATED?'unrelated-island':islandName}],currentIslandId:island};
   else if(p.pathname==='/screens/home'){data={buildings:[],members:{items:[]},wallets:{fish:0,villagePoints:0}};if(process.env.MOCK_FAIL_AFTER_ISLAND)status=500;}
   else if(p.pathname==='/focus-sessions/current')data=current;
   else if(p.pathname==='/focus-sessions'&&req.method==='POST'){

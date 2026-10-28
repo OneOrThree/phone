@@ -44,6 +44,13 @@ cleanup_fail() {
   record "$id" FAIL "$reason"
 }
 req() { smoke_request "$@" && smoke_ok; }
+created_island_id() {
+  local owner_token=$1 name=$2 id
+  req GET /me/islands '' "$owner_token" || return 1
+  id=$(jq -er --arg name "$name" '.data as $data | [.data.items[] | select(.name == $name)] | if length == 1 and .[0].id == $data.currentIslandId then .[0].id else empty end' "$SMOKE_BODY_FILE" 2>/dev/null) || return 1
+  [[ "$id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || return 1
+  printf '%s' "$id"
+}
 cleanup() {
   local context token island id
   [[ -z "$WS_PID" ]] || kill "$WS_PID" 2>/dev/null || true
@@ -69,7 +76,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 main() {
-  local device=${SMOKE_DEVICE_ID:-$(smoke_uuid)} today body version bootstrap
+  local device=${SMOKE_DEVICE_ID:-$(smoke_uuid)} today body version bootstrap name post_id confirmed_id island_failure='섬 생성/조회'
   today=$(TZ=Asia/Seoul date +%F)
   if ! smoke_request GET /health '' '' || [[ "$SMOKE_HTTP_CODE" != 200 || "$SMOKE_HTTP_MS" -gt "${SMOKE_HEALTH_TIMEOUT_MS:-2000}" ]]; then
     record 001 FAIL 'health HTTP/시간 제한'; for id in 002 003 004 005 006 007 009 010; do record "$id" SKIP '공개 API 선행 실패'; done; return
@@ -90,13 +97,22 @@ main() {
   if req GET /me/islands '' "$TOKEN"; then
     ISLAND_ID=$(jq -r '.data.currentIslandId // .data.items[0].id // empty' "$SMOKE_BODY_FILE")
     if [[ -z "$ISLAND_ID" ]]; then
-      if req POST /islands '{"name":"smoke-island","approvalRequired":false}' "$TOKEN"; then
-        MAIN_CREATED_ISLAND_ID=$(smoke_json '.data.id')
-        if req GET /me/islands '' "$TOKEN"; then ISLAND_ID=$(jq -r '.data.currentIslandId // .data.items[0].id // empty' "$SMOKE_BODY_FILE"); fi
+      if jq -e '.data.currentIslandId == null and .data.items == []' "$SMOKE_BODY_FILE" >/dev/null; then
+        name="smoke-island-$(smoke_uuid)"
+        if req POST /islands "{\"name\":\"$name\",\"approvalRequired\":false}" "$TOKEN"; then
+          post_id=$(smoke_json '.data.id | strings' 2>/dev/null || true)
+          confirmed_id=$(created_island_id "$TOKEN" "$name" || true)
+          if [[ -n "$confirmed_id" && "$post_id" == "$confirmed_id" ]]; then
+            MAIN_CREATED_ISLAND_ID="$confirmed_id"; ISLAND_ID="$confirmed_id"
+          else
+            MAIN_CREATED_ISLAND_ID="$confirmed_id"
+            island_failure='섬 생성 ID 누락·불일치; 런북 dev 스모크 섬 수동 확인 필요'
+          fi
+        fi
       fi
     fi
   fi
-  if [[ -z "$ISLAND_ID" ]]; then record 004 FAIL '섬 생성/조회'; for id in 005 006 007 010; do record "$id" SKIP '섬 선행 실패'; done
+  if [[ -z "$ISLAND_ID" ]]; then record 004 FAIL "$island_failure"; for id in 005 006 007 010; do record "$id" SKIP '섬 선행 실패'; done
   else
     record 004 PASS '섬 확보'
     if req GET "/screens/home?date=$today&timezone=Asia/Seoul" '' "$TOKEN" && jq -e '.data | (.buildings|type)=="array" and (.members.items|type)=="array" and (.wallets|has("fish") and has("villagePoints")) and ((.missingFragments // [])|length)==0' "$SMOKE_BODY_FILE" >/dev/null; then record 005 PASS '홈 조각 완전'; else record 005 FAIL '홈 계약/필수 조각'; fi
@@ -167,7 +183,7 @@ focus_and_event() {
   kill "$WS_PID" 2>/dev/null || true; wait "$WS_PID" 2>/dev/null || true; WS_PID=''
 }
 residents_and_friends() (
-  local today=$1 device peer_device name context
+  local today=$1 device peer_device name context post_id confirmed_id
   # 관계 준비는 기본 검사 계정/014와 격리한 두 신규 게스트·전용 섬에서만 수행한다.
   TOKEN='' USER_ID='' ISLAND_ID='' SESSION_ID='' PEER_TOKEN='' PEER_ID=''
   PEER_JOINED=0 FRIEND_CREATED=0
@@ -182,7 +198,13 @@ residents_and_friends() (
   if ! smoke_guest_login "$device" friend-owner; then record 016 FAIL "전용 집중 사용자 준비 ($SMOKE_AUTH_SUMMARY)"; return; fi
   TOKEN=$(smoke_json '.data.accessToken'); USER_ID=$(smoke_json '.data.userId')
   if ! req POST /islands "{\"name\":\"$name\",\"approvalRequired\":false}" "$TOKEN"; then record 016 FAIL '전용 주민 섬 준비'; return; fi
-  ISLAND_ID=$(smoke_json '.data.id')
+  post_id=$(smoke_json '.data.id | strings' 2>/dev/null || true)
+  confirmed_id=$(created_island_id "$TOKEN" "$name" || true)
+  ISLAND_ID="$confirmed_id"
+  if [[ -z "$confirmed_id" || "$post_id" != "$confirmed_id" ]]; then
+    record 016 FAIL '전용 주민 섬 생성 ID 누락·불일치; 런북 dev 스모크 섬 수동 확인 필요'
+    return
+  fi
   peer_device=$(smoke_uuid)
   if ! smoke_guest_login "$peer_device" friend-peer; then record 016 FAIL "전용 주민 게스트 준비 ($SMOKE_AUTH_SUMMARY)"; return; fi
   PEER_TOKEN=$(smoke_json '.data.accessToken'); PEER_ID=$(smoke_json '.data.userId')

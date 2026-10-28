@@ -33,9 +33,20 @@ export SMOKE_CORE_USER_ID
 SMOKE_CORE_SESSION_ID=$(printf '%s' "$token" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{process.stdout.write(JSON.parse(Buffer.from(s.split(".")[1],"base64url")).sid)}catch{process.exit(1)}})')
 export SMOKE_CORE_SESSION_ID
 smoke_request POST /islands "{\"name\":\"$SMOKE_CORE_FIXTURE_NAME\",\"approvalRequired\":false}" "$token" && smoke_ok || { echo '통계 전용 섬 생성 실패' >&2; exit 1; }
-SMOKE_CORE_ISLAND_ID=$(smoke_json '.data.id')
+post_id=$(smoke_json '.data.id | strings' 2>/dev/null || true)
+smoke_request GET /me/islands '' "$token" && smoke_ok || { echo '통계 전용 섬 ID 확인 불가; 런북 dev 스모크 섬 수동 확인 필요' >&2; exit 1; }
+confirmed_id=$(jq -er --arg name "$SMOKE_CORE_FIXTURE_NAME" '.data as $data | [.data.items[] | select(.name == $name)] | if length == 1 and .[0].id == $data.currentIslandId then .[0].id else empty end' "$SMOKE_BODY_FILE" 2>/dev/null || true)
+if [[ ! "$confirmed_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+  echo '통계 전용 섬 ID 확인 불가; 런북 dev 스모크 섬 수동 확인 필요' >&2
+  exit 1
+fi
+island="$confirmed_id"
+if [[ "$post_id" != "$confirmed_id" ]]; then
+  echo '통계 전용 섬 생성 응답 ID 누락·불일치' >&2
+  exit 1
+fi
+SMOKE_CORE_ISLAND_ID="$confirmed_id"
 export SMOKE_CORE_ISLAND_ID
-island="$SMOKE_CORE_ISLAND_ID"
 SMOKE_FIXTURE_MODE=statistics "$SCRIPT_DIR/seed-core-flow.sh" > "$SMOKE_TMP_DIR/policy.json" 2> "$SMOKE_TMP_DIR/seed-error" || {
   echo '통계 전용 DB 초기 준비 실패' >&2
   sed -n 's/.*ERROR:  /DB: /p' "$SMOKE_TMP_DIR/seed-error" | head -1 >&2
