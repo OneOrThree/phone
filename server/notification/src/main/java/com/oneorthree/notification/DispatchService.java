@@ -201,7 +201,15 @@ class DispatchService {
             recording.executeWithoutResult(status -> settle(plan, retried, reason));
         } catch (RuntimeException failure) {
             // 이 실행이 만든 임대만 풀고 실패를 적는다. 호출부에는 기록 완료를 알려 중복 계산을 막는다.
-            recording.executeWithoutResult(status -> backOffLeased(plan, failureReason(failure)));
+            try {
+                recording.executeWithoutResult(status -> backOffLeased(plan, failureReason(failure)));
+            } catch (RuntimeException recordFailure) {
+                failure.addSuppressed(recordFailure);
+                log.warn("알림 발송 실패 기록 불가 deliveryId={} failure={} recordFailure={}",
+                        id, failure.getClass().getSimpleName(),
+                        recordFailure.getClass().getSimpleName());
+                throw failure;
+            }
             throw new LeasedFailure(failure);
         }
     }

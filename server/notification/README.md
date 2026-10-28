@@ -134,6 +134,8 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 
 발송 실패는 60초 간격으로 재시도하며, 이번 실패로 시도 횟수가 60회에 닿으면 `FAILED`로 끝납니다. `NO_ACTIVE_DEVICE`도 같은 상한을 따릅니다. 크기 초과로 일부 기기만 건너뛴 경우에는 `푸시가 크기 한도를 넘는 기기` WARN의 `deviceKey`를 해당 기기의 `device_tokens.device_key`와 대조해 찾습니다.
 
+이 상한은 기존 대기 행에도 적용됩니다. 배포 전에는 `SELECT count(*) FROM deliveries WHERE status IN ('PENDING','DEFERRED') AND attempts >= 59;`로 다음 실패에 곧바로 종결될 행 수를 확인합니다. 기기 등록이 늦어 60회 안에 수신 기기가 생기지 않는 `NO_ACTIVE_DEVICE` 알림도 자동 재시도에서 제외됩니다.
+
 ### dev 발송 게이트
 
 dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
