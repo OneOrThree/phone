@@ -195,6 +195,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   서버 배포가 있을 때만 실행하고, 잠금 안에서 실제 SHA·image ID·digest를 기록한다.
   서버 배포 미대상과 후속 SHA에 의한 대체는 미실행으로 보고한다. 전체 15개 PASS와 구분한다.
   큐·잠금·버전 판정과 수동 복구 절차는 `server/scripts/README.md`를 따른다.
+  스모크 실행 순서를 바꿀 때는 [전체 흐름도](smoke/README.md#전체-실행-흐름), 로그인 재시도·요청 예산·진단을 바꿀 때는 [실행 규칙](smoke/server/README.md#로그인이-늦을-때)과 [AS IS / TO BE](smoke/server/login-retry.md)를 먼저 읽는다.
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`
   (cleanup on branch delete — currently a **no-op**: its predicate checks a

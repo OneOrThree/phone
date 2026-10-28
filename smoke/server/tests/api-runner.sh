@@ -4,7 +4,7 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d)
 PID=''
 mkdir "$TMP/runner"
-cp "$HERE/run.sh" "$HERE/lib.sh" "$HERE/stomp-connect.mjs" "$TMP/runner/"
+cp "$HERE/run.sh" "$HERE/lib.sh" "$HERE/stomp-connect.mjs" "$HERE/guest_login.py" "$HERE/guest-budget.py" "$TMP/runner/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/runner/prepare-friendship.sh"
 chmod +x "$TMP/runner/prepare-friendship.sh"
 mkdir "$TMP/bin"
@@ -21,7 +21,7 @@ export PATH="$TMP/bin:$PATH"
 trap '[[ -z "$PID" ]] || kill "$PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 run_case() {
   local name=$1 health=$2 no_event=$3 bad_screen=$4 expected=$5 basic=${6:-0} ownership=${7-66666666-6666-4666-8666-666666666666}
-  MOCK_OWNERSHIP_TOKEN="$ownership" MOCK_HEALTH_FAIL="$health" MOCK_NO_EVENT="$no_event" MOCK_BAD_SCREEN="$bad_screen" node "$HERE/tests/mock-api.mjs" "$TMP/port" & PID=$!
+  MOCK_GUEST_FAILURES="${MOCK_GUEST_FAILURES:-0}" MOCK_OWNERSHIP_TOKEN="$ownership" MOCK_HEALTH_FAIL="$health" MOCK_NO_EVENT="$no_event" MOCK_BAD_SCREEN="$bad_screen" node "$HERE/tests/mock-api.mjs" "$TMP/port" & PID=$!
   for ((i=0;i<100;i++));do [[ -s "$TMP/port" ]] && break; sleep .02;done
   local port;port=$(cat "$TMP/port")
   node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({accessToken:"header."+Buffer.from(JSON.stringify({sid:"55555555-5555-4555-8555-555555555555"})).toString("base64url")+".signature",islandId:"33333333-3333-4333-8333-333333333333"}))' "$TMP/context.json"
@@ -30,8 +30,11 @@ run_case() {
   local actual=$?
   set -e
   [[ "$actual" == "$expected" ]] || { cat "$TMP/$name.log"; return 1; }
-  if [[ "$name" == basic ]];then
+  if [[ "$name" == basic || "$name" == guest-retry ]];then
     [[ $(awk -F '\t' '$2=="PASS"{n++}END{print n}' "$TMP/$name.tsv") == 9 ]] || { cat "$TMP/$name.tsv"; return 1; }
+    if [[ "$name" == guest-retry ]];then
+      awk -F '\t' '$1=="SMOKE-SERVER-002" && $2=="PASS" && $5~/attempts=2/ && $5~/retries=1/{ok=1} END{exit !ok}' "$TMP/$name.tsv"
+    fi
   elif [[ "$name" == success ]];then
     [[ $(awk -F '\t' '$2=="PASS"{n++}END{print n}' "$TMP/$name.tsv") == 11 ]] || { cat "$TMP/$name.tsv"; return 1; }
   elif [[ "$name" == health ]];then
@@ -57,3 +60,4 @@ run_case basic '' '' '' 0 1
 run_case ownership-invalid '' '' '' 1 1 not-a-uuid
 run_case ownership-empty '' '' '' 1 1 ''
 run_case ownership-short '' '' '' 1 1 1-1-1-1-1
+MOCK_GUEST_FAILURES=1 run_case guest-retry '' '' '' 0 1

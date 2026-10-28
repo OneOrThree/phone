@@ -12,17 +12,27 @@ if [[ -z "${SMOKE_BASIC_ONLY+x}" ]]; then
     export SMOKE_BASIC_ONLY=1
   fi
 fi
-for tool in curl jq node awk; do command -v "$tool" >/dev/null || { printf 'Missing %s\n' "$tool" >&2; exit 2; }; done
+for tool in curl jq node awk python3; do command -v "$tool" >/dev/null || { printf 'Missing %s\n' "$tool" >&2; exit 2; }; done
+if [[ "$SMOKE_BASIC_ONLY" == 1 ]]; then
+  export SMOKE_GUEST_ROLES=main
+else
+  export SMOKE_GUEST_ROLES=main,friend-owner,friend-peer,core,statistics
+fi
 node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(1)' || { echo 'Node >=22 required' >&2; exit 2; }
 RESULTS_FILE=${RESULTS_FILE:-results.tsv}
 mkdir -p "$(dirname "$RESULTS_FILE")"
 if [[ "${SMOKE_APPEND_RESULTS:-0}" != 1 ]]; then : > "$RESULTS_FILE"; fi
+if [[ -n "${SMOKE_AUTH_DIAGNOSTICS_FILE:-}" ]]; then
+  mkdir -p "$(dirname "$SMOKE_AUTH_DIAGNOSTICS_FILE")"
+  : > "$SMOKE_AUTH_DIAGNOSTICS_FILE"
+fi
 smoke_init
 TOKEN='' USER_ID='' ISLAND_ID='' SESSION_ID='' PEER_TOKEN='' PEER_ID='' PEER_JOINED=0 FRIEND_CREATED=0 FRIEND_REQUEST_ID='' WS_PID=''
 record() {
   local detail=''
+  if [[ "$1" == 002 ]]; then detail="${SMOKE_AUTH_SUMMARY:-}"; fi
   if [[ "$2" == FAIL && -f "$SMOKE_BODY_FILE" ]]; then
-    detail=$(jq -r '(.error.code // .code // "") | select(type=="string" and test("^[A-Z][A-Z0-9_]{0,79}$"))' "$SMOKE_BODY_FILE" 2>/dev/null || true)
+    if [[ "$1" != 002 ]]; then detail=$(jq -r '(.error.code // .code // "") | select(type=="string" and test("^[A-Z][A-Z0-9_]{0,79}$"))' "$SMOKE_BODY_FILE" 2>/dev/null || true); fi
   fi
   smoke_record "SMOKE-SERVER-$1" "$2" "${SMOKE_HTTP_CODE:-000}" "${SMOKE_HTTP_MS:-0}" "$3${detail:+ [$detail]}"; }
 req() { smoke_request "$@" && smoke_ok; }
@@ -46,7 +56,7 @@ main() {
     record 001 FAIL 'health HTTP/시간 제한'; for id in 002 003 004 005 006 007 009 010; do record "$id" SKIP '공개 API 선행 실패'; done; return
   fi
   record 001 PASS '공개 health'
-  if ! req POST /auth/sessions/guest '' '' "$device" || [[ "$SMOKE_HTTP_CODE" != 201 ]] || ! jq -e '.data | (.accessToken|type)=="string" and (.refreshToken|type)=="string" and (.userId|test("^[0-9a-fA-F-]{36}$")) and (.onboardingComplete|type)=="boolean"' "$SMOKE_BODY_FILE" >/dev/null; then
+  if ! smoke_guest_login "$device" main; then
     record 002 FAIL '게스트 발급 계약 실패'; for id in 003 004 005 006 007 009 010; do record "$id" SKIP '인증 선행 실패'; done; return
   fi
   TOKEN=$(smoke_json '.data.accessToken'); USER_ID=$(smoke_json '.data.userId')
@@ -145,12 +155,12 @@ residents_and_friends() (
   }
   trap friend_cleanup EXIT
   device=$(smoke_uuid); name="smoke-friends-$(smoke_uuid)"
-  if ! req POST /auth/sessions/guest '' '' "$device"; then record 016 FAIL '전용 집중 사용자 준비'; return; fi
+  if ! smoke_guest_login "$device" friend-owner; then record 016 FAIL "전용 집중 사용자 준비 ($SMOKE_AUTH_SUMMARY)"; return; fi
   TOKEN=$(smoke_json '.data.accessToken'); USER_ID=$(smoke_json '.data.userId')
   if ! req POST /islands "{\"name\":\"$name\",\"approvalRequired\":false}" "$TOKEN"; then record 016 FAIL '전용 주민 섬 준비'; return; fi
   ISLAND_ID=$(smoke_json '.data.id')
   peer_device=$(smoke_uuid)
-  if ! req POST /auth/sessions/guest '' '' "$peer_device"; then record 016 FAIL '전용 주민 게스트 준비'; return; fi
+  if ! smoke_guest_login "$peer_device" friend-peer; then record 016 FAIL "전용 주민 게스트 준비 ($SMOKE_AUTH_SUMMARY)"; return; fi
   PEER_TOKEN=$(smoke_json '.data.accessToken'); PEER_ID=$(smoke_json '.data.userId')
   if ! req POST "/islands/$ISLAND_ID/memberships" '{}' "$PEER_TOKEN" || ! jq -e '.data.status=="active"' "$SMOKE_BODY_FILE" >/dev/null; then record 016 FAIL '같은 섬 주민 가입'; return; fi
   PEER_JOINED=1

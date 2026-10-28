@@ -303,6 +303,7 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 - release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci.yml`이 담당합니다.
 - main CI·앱 업로드·smoke의 진행 중 실행은 유지하고, 같은 그룹의 대기는 최신 하나만 남깁니다. VM을 공유하는 Data·Realtime 공동 CD·Satellite CD·smoke execute의 잠금 대기는 `queue: max`를 유지합니다. 같은 SHA의 서로 다른 배포 작업이 서로를 취소하지 않게 하기 위한 별도 자원 잠금입니다.
 - 자동 smoke는 실제 생성된 서버 CI·배포의 완료를 기다립니다. 앱·문서만 바뀌어 서버 배포가 없으면 게스트 생성·300초 대기·15개 검사를 생략하고 「미실행」을 기록합니다. nav.json·paths.json처럼 서버 배포를 시작하는 공유 입력은 검사 대상에 남습니다.
+- 스모크 실행 순서는 [전체 흐름도](../../smoke/README.md#전체-실행-흐름)를 따릅니다. 게스트 로그인의 일시적 실패만 같은 기기로 5초 뒤 최대 두 번 더 요청하며, 요청 횟수·시간 제한과 재시도 후 통과 보고는 [로그인 실행 규칙](../../smoke/server/README.md#로그인이-늦을-때)·[AS IS / TO BE](../../smoke/server/login-retry.md)에 둡니다.
 - 잠금 안의 `smoke-target.py`가 변경된 서비스의 실제 OCI revision과 요청 SHA를 비교하고 네 서비스의 image ID·RepoDigests를 `smoke-results/targets.json`에 보관합니다. 변경되지 않은 서비스는 이전 SHA를 유지할 수 있습니다. 검사 중 버전 유지도 확인합니다.
 - 요청 SHA 이후의 이미지가 이미 배포됐다면 git 조상 관계가 확인된 경우에만 「후속 SHA로 대체됨」으로 생략합니다. 알 수 없는 SHA·조상 이미지·다른 분기 이미지는 실패합니다. 취소된 CI도 실제 후속 main 실행과 조상 관계를 확인해야 대체로 처리합니다. 공동 CD가 기다리던 위성 실행이 취소되면 후속 위성 배포 완료를 기다립니다.
 - 「미실행」·「대체됨」은 15개 TC 통과 증거가 아닙니다. 해당 SHA의 릴리스 기능 검증으로 인용하지 않습니다. 수동 smoke는 배포 대기 없이 현재 환경을 검사하고 실제 버전을 함께 남깁니다.

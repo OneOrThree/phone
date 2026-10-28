@@ -91,3 +91,16 @@ Codex 첫 리뷰의 4개 항목을 반영했다. 공개 게스트 발급을 유�
 - 최초 공개 health는 HTTP 200이지만 2244ms로 기존 2000ms 기준을 초과했다. 동일 기준 재실행의 최종 health는 1174ms로 PASS이며 시간 기준을 완화하지 않았다.
 - 최초 curl WebSocket Upgrade는 Cloudflare의 HTTP/2 협상에서 400이었다. HTTP/1.1 요청의 101 응답을 비교 확인하고 실행기에 `--http1.1`을 추가했다. 수정 후 실제 STOMP 연결과 집중 이벤트가 통과했다. 실행기 성공·실패·정리·비밀 비노출 회귀 검사 8개도 통과했다. Java 변경은 없다.
 - 추가 배포/롤백은 같은 앱 digest·스키마 지문·Secret 버전의 별도 검증용 릴리스를 SSM `deploy`로 등록한 뒤 원래 릴리스로 SSM `rollback`했다. 원래 release ID·이미지·Infra SHA·schema fingerprint·Secret 버전 복구와 health 200을 확인했다. 이미지가 동일해 앱 재기동은 없으며 다른 버전 간의 동작 복구나 자동 실패 복구까지 검증한 것은 아니다. GitHub OIDC·승인 CD는 PR 반영과 release 승격 후 별도 검증한다.
+
+
+## 로그인 재시도 로컬 검증 — 2026-10-28
+
+[작업 티켓](https://romance.atlassian.net/browse/GROMO-2543) · [AS IS / TO BE](login-retry.md) · [실행·판정](README.md#로그인이-늦을-때)
+
+- 변경 전 실제 `run.sh` + localhost mock에서 첫 `UPSTREAM_TIMEOUT`에 TC002 FAIL·후속 SKIP를 재현했다.
+- 변경 후 같은 mock에서 매번 5초 대기하는 로그인 재시도로 기본 공개 9개 TC가 통과했다. TC002의 `attempts=2`, `retries=1`도 확인했다.
+- Python 회귀 71개 PASS: `smoke/server/tests` 25개, `.github/scripts/test_*smoke*.py` 46개. 가상 시계·실제 curl timeout/응답 유실·같은 기기 유지·부모/자식 요청 예산·미시작 로그인 몫·SIGTERM·결과 보고를 포함한다.
+- HTTP/native WebSocket mock 9개 시나리오 및 friendship·seed 사전 접속 guard가 통과했다.
+- 모든 smoke 셸의 `bash -n`, 변경 Python·YAML 파싱, 수정 문서의 상대 링크와 `git diff --check`가 통과했다.
+
+위 결과는 로컬 mock·회귀 검사다. 같은 기기 요청의 실서버 userId 복구 계약을 새로 검증한 결과나 실제 dev 전체 15개 PASS, GitHub Actions 성공으로 취급하지 않는다. dev/prod API·DB·배포 설정은 변경하거나 호출하지 않았다. 커밋·PR·실제 환경 적용은 이 기록과 별개다.

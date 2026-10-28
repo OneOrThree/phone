@@ -13,7 +13,7 @@ trap 'exit 143' TERM
 SMOKE_CORE_DEVICE_ID=$(smoke_uuid)
 export SMOKE_CORE_DEVICE_ID
 export SMOKE_CORE_FIXTURE_NAME="smoke-core-$SMOKE_CORE_DEVICE_ID"
-smoke_request POST /auth/sessions/guest '' '' "$SMOKE_CORE_DEVICE_ID" && smoke_ok || { echo '통계 전용 게스트 생성 실패' >&2; exit 1; }
+smoke_guest_login "$SMOKE_CORE_DEVICE_ID" statistics || { echo "통계 전용 게스트 생성 실패 ($SMOKE_AUTH_SUMMARY)" >&2; exit 1; }
 token=$(smoke_json '.data.accessToken')
 SMOKE_CORE_USER_ID=$(smoke_json '.data.userId')
 export SMOKE_CORE_USER_ID

@@ -108,6 +108,7 @@ jobs:
           SMOKE_BASIC_ONLY: '0'
           TMPDIR: ${{ runner.temp }}
           SMOKE_GUEST_LAST_REQUEST_FILE: ${{ runner.tool_cache }}/phone-smoke/guest-last-request
+          SMOKE_AUTH_DIAGNOSTICS_FILE: ${{ runner.temp }}/smoke-results/api/auth-attempts.jsonl
         run: |
           set -uo pipefail
           mkdir -p "$RUNNER_TEMP/smoke-results"
