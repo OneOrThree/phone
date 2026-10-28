@@ -5,6 +5,7 @@ import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.MainIslandNamePort;
+import com.oneorthree.phone.common.port.MemberLookPort;
 import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
@@ -27,6 +28,7 @@ import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.friend.repository.PinnedUserRepository;
+import com.oneorthree.phone.friend.service.search.FriendSearchResult;
 import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.user.service.UserTierLookup;
@@ -76,6 +78,7 @@ public class FriendService {
     private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final FriendRelationLookup friendRelationLookup;
     private final MainIslandNamePort mainIslandNamePort;
+    private final MemberLookPort memberLookPort;
     /**
      * GROMO-2002: 친구를 끊으면 아직 확인하지 않은 편지도 지운다(policy-2026-09-14). letter 는 L2,
      * friend 는 L3 이라 참조가 아래로 간다 — {@code DomainLayerRulesTest} 가 이 방향을 위해 층을 갈라 뒀다.
@@ -108,6 +111,8 @@ public class FriendService {
      * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
      * @param mainIslandNamePort          상대들의 메인 섬 이름을 한 번에 뽑는 포트(GROMO-1971) — 섬은
      *                                    group(L5) 데이터라 friend(L3)가 직접 부르면 레이어 역행이다
+     * @param memberLookPort              상대들의 털색·착용 외양을 한 번에 뽑는 포트(GROMO-2389) — 외양은
+     *                                    appearance(L7) 데이터라 friend(L3)가 직접 부르면 레이어 역행이다
      * @param letterRepository            친구 삭제에 딸린 미확인 편지 정리(GROMO-2002)
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
      * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
@@ -126,6 +131,7 @@ public class FriendService {
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
                          MainIslandNamePort mainIslandNamePort,
+                         MemberLookPort memberLookPort,
                          LetterRepository letterRepository,
                          UserBlockService userBlockService,
                          ApplicationEventPublisher eventPublisher,
@@ -142,6 +148,7 @@ public class FriendService {
         this.focusLiveInfoLookup = focusLiveInfoLookup;
         this.friendRelationLookup = friendRelationLookup;
         this.mainIslandNamePort = mainIslandNamePort;
+        this.memberLookPort = memberLookPort;
         this.letterRepository = letterRepository;
         this.userBlockService = userBlockService;
         this.eventPublisher = eventPublisher;
@@ -406,9 +413,12 @@ public class FriendService {
         // GROMO-1971: 메인 섬 «이름»도 한 번에 모은다(N+1 방지) — 섬은 group(L5) 데이터라 포트로 묻는다.
         // 소속이 없는 친구는 맵에 키가 없어 아래에서 null 이 된다.
         Map<UUID, String> mainIslandNames = mainIslandNamePort.mainIslandNamesByUserId(otherIds);
+        // GROMO-2389: 털색·착용 외양도 배치 한 번 — 탈퇴한 친구는 맵에 없어 null 이다.
+        Map<UUID, MemberLookPort.MemberLook> looks = memberLookPort.looksByUserId(otherIds);
         return others.stream()
                 .map(other -> {
                     FocusLiveInfo info = liveInfo.get(other.getId());
+                    MemberLookPort.MemberLook look = looks.get(other.getId());
                     return FriendResponse.builder()
                             .userId(other.getId())
                             .nickname(other.getNickname())
@@ -420,6 +430,8 @@ public class FriendService {
                             .focusStartedAt(info != null ? info.focusStartedAt() : null)
                             .focusTagName(info != null ? info.focusTagName() : null)
                             .mainIslandName(mainIslandNames.get(other.getId()))
+                            .catColor(look == null ? null : look.catColor())
+                            .appearance(look == null ? null : look.appearance())
                             .build();
                 })
                 .toList();
@@ -526,10 +538,17 @@ public class FriendService {
         Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(requests.stream()
                 .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
                 .toList());
+        // GROMO-2389: 상대의 털색·착용 외양도 배치 한 번 — 탈퇴한 상대는 맵에 없어 null 이다.
+        Map<UUID, MemberLookPort.MemberLook> looks = memberLookPort.looksByUserId(requests.stream()
+                .map(f -> (received ? f.getFromUser() : f.getToUser()).getId())
+                .toList());
         return requests.stream()
                 .map(f -> {
                     User other = received ? f.getFromUser() : f.getToUser();
+                    MemberLookPort.MemberLook look = looks.get(other.getId());
                     return FriendRequestResponse.builder()
+                            .catColor(look == null ? null : look.catColor())
+                            .appearance(look == null ? null : look.appearance())
                             .requestId(f.getId())
                             .userId(other.getId())
                             .nickname(other.getNickname())
@@ -578,10 +597,16 @@ public class FriendService {
         Set<UUID> pendingIds = friendRelationLookup.collectPendingIds(meUser);
         Set<UUID> blockedIds = userBlockService.blockedIds(me);
 
-        return strategy.search(me, query).stream()
+        List<FriendSearchResult> hits = strategy.search(me, query).stream()
                 .filter(r -> !r.getUserId().equals(me))
                 .filter(r -> !blockedIds.contains(r.getUserId()))
+                .toList();
+        // 털색·외양은 닉네임·userId 와 같은 공개 꾸미기 정보라 비친구 검색 결과에도 싣는다(의도). tier·occupation 만 친구 한정.
+        Map<UUID, MemberLookPort.MemberLook> looks = memberLookPort.looksByUserId(
+                hits.stream().map(FriendSearchResult::getUserId).toList());
+        return hits.stream()
                 .map(r -> {
+                    MemberLookPort.MemberLook look = looks.get(r.getUserId());
                     FriendRelation relation =
                             friendRelationLookup.resolveRelation(r.getUserId(), friendIds, pendingIds);
                     boolean friend = relation == FriendRelation.FRIEND;
@@ -592,6 +617,8 @@ public class FriendService {
                             .tierLevel(friend ? r.getTierLevel() : null)
                             .occupation(friend ? r.getOccupation() : null)
                             .relation(relation)
+                            .catColor(look == null ? null : look.catColor())
+                            .appearance(look == null ? null : look.appearance())
                             .build();
                 })
                 .toList();

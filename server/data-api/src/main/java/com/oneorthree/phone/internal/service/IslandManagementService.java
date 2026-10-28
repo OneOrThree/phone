@@ -244,12 +244,15 @@ public class IslandManagementService {
         boolean more = rows.size() > limit;
         List<IslandJoinRequest> page = more ? rows.subList(0, limit) : rows;
         IslandJoinRequest last = more ? page.get(page.size() - 1) : null;
+        Map<UUID, PersonalAppearanceView> looks = appearances.equippedOf(
+                page.stream().map(request -> request.getApplicant().getId()).toList());
         return new IslandJoinRequestsPageView(page.stream()
                 .map(request -> new IslandJoinRequestsPageView.Item(request.getId(),
                         request.getApplicant().getId(), request.getApplicant().getNickname(),
                         request.getApplicant().getCatColor(),
                         request.getStatus().wireName(),
-                        request.getVersion() == null ? 0L : request.getVersion()))
+                        request.getVersion() == null ? 0L : request.getVersion(),
+                        looks.get(request.getApplicant().getId())))
                 .toList(),
                 last == null ? null : last.getCreatedAt(), last == null ? null : last.getId());
     }

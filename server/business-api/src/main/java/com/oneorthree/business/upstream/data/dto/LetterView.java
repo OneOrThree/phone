@@ -19,6 +19,8 @@ import java.util.UUID;
  * @param readAt         수신자의 최초 열람 시각. 안 읽었으면 null — 발송 직후는 항상 null
  * @param kind           {@code FRIEND|KICK|JOIN_APPROVED} (GROMO-2260). 구 Data 서버는 내려보내지 않는다
  * @param islandId       시스템 편지가 가리키는 섬. 친구 편지는 null
+ * @param catColor       발신자 고양이 색(GROMO-2389) — 필수가 아니다(옛 Data 응답 호환). 차단한 상대면 Data 가 null 로 내린다
+ * @param appearance     발신자 착용 외양(GROMO-2389) — 필수가 아니다. 차단한 상대면 Data 가 기본 외양으로 내린다
  */
 public record LetterView(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -29,5 +31,7 @@ public record LetterView(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String createdAt,
         String readAt,
         String kind,
-        UUID islandId) {
+        UUID islandId,
+        String catColor,
+        PersonalAppearanceState appearance) {
 }

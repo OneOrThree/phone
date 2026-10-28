@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
 
 import java.time.Instant;
 import java.util.List;
@@ -9,8 +10,8 @@ import java.util.UUID;
 /**
  * {@code GET /islands/{islandId}/rest-members} 의 내부 알맹이 (GROMO-1765, focus-rest-session LLD §2).
  *
- * <p>{@code catColor} 는 {@link IslandFocusMembersView} 와 같은 이유로 싣지 않는다. 원본 RestMember 에 없는
- * {@code sessionId} 도 싣지 않는다(LLD §2 「몰래 추가하지 않는다」) — 휴식 시간 표시는 restStartedAt 과
+ * <p>{@code catColor}·{@code appearance} 는 {@link IslandFocusMembersView} 와 같이 실린다(GROMO-2389).
+ * 원본 RestMember 에 없는 {@code sessionId} 는 싣지 않는다(LLD §2 「몰래 추가하지 않는다」) — 휴식 시간 표시는 restStartedAt 과
  * serverNow 로 한다.
  *
  * @param items      paused 인 활성 주민 — restSeat 오름차순
@@ -24,11 +25,15 @@ public record IslandRestMembersView(List<Item> items, Instant serverNow, List<Me
      * @param name          표시 이름(닉네임) — 키는 항상 실린다
      * @param restSeat      섬 안 휴식 자리(1..N)
      * @param restStartedAt 이번 휴식의 시작 시각
+     * @param catColor      고양이 색 — 미선택·탈퇴면 null
+     * @param appearance    착용 외양 — 행이 없는 주민은 기본 외양
      */
     public record Item(
             UUID userId,
             @JsonInclude(JsonInclude.Include.ALWAYS) String name,
             int restSeat,
-            Instant restStartedAt) {
+            Instant restStartedAt,
+            String catColor,
+            PersonalAppearanceView appearance) {
     }
 }

@@ -96,4 +96,19 @@ class SeaStateClientTest {
         assertThat(state.name()).isNull();
         assertThat(state.catColor()).isNull();
     }
+
+    @Test
+    @DisplayName("[2389] 착용 외양은 head·neck 만 읽고 나머지 키는 무시한다 — 옛 응답은 null")
+    void appearanceHeadAndNeckAreRead() {
+        body.set("{\"remark\":null,\"remarkChangedAt\":null,\"session\":null,\"appearance\":"
+                + "{\"clothes\":\"c\",\"head\":\"h\",\"neck\":null,\"hull\":\"raft\",\"version\":3}}");
+
+        SeaStateClient.SeaState state = client.fetch(USER);
+
+        assertThat(state.head()).isEqualTo("h");
+        assertThat(state.neck()).isNull();
+
+        body.set("{\"remark\":null,\"remarkChangedAt\":null,\"session\":null}");
+        assertThat(client.fetch(USER).head()).isNull();
+    }
 }

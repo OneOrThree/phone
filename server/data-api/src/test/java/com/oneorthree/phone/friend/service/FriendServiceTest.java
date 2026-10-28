@@ -3,6 +3,7 @@ package com.oneorthree.phone.friend.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.MainIslandNamePort;
+import com.oneorthree.phone.common.port.MemberLookPort;
 import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
@@ -106,6 +107,9 @@ class FriendServiceTest {
     @Mock
     private MainIslandNamePort mainIslandNamePort;
 
+    @Mock
+    private MemberLookPort memberLookPort;
+
     /** GROMO-2002: 친구를 끊으면 아직 확인하지 않은 편지도 지운다 — 실제 삭제는 InternalLetterIntegrationTest 가 본다. */
     @Mock
     private LetterRepository letterRepository;
@@ -133,7 +137,7 @@ class FriendServiceTest {
         friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
-                new FriendRelationLookup(friendshipRepository), mainIslandNamePort, letterRepository,
+                new FriendRelationLookup(friendshipRepository), mainIslandNamePort, memberLookPort, letterRepository,
                 userBlockService, eventPublisher,
                 List.of(nicknameStrategy),
                 // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
@@ -825,6 +829,44 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("친구 목록·검색 — 상대의 털색과 착용 외양을 배치 포트로 실어 준다, 탈퇴로 못 찾은 사람은 null (GROMO-2389)")
+    void friendsAndSearch_carryCatColorAndAppearance() {
+        MemberLookPort.Appearance look = new MemberLookPort.Appearance(
+                null, null, "head-ribbon", "neck-bell", null, "raft", "front", 2);
+        User a = user(UUID.randomUUID(), "alice");
+        User b = user(UUID.randomUUID(), "bob");
+        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(friendshipRepository.findAcceptedByUser(me)).willReturn(List.of(
+                friendship(me, a, FriendshipStatus.ACCEPTED), friendship(me, b, FriendshipStatus.ACCEPTED)));
+        given(memberLookPort.looksByUserId(List.of(a.getId(), b.getId())))
+                .willReturn(Map.of(a.getId(), new MemberLookPort.MemberLook("ginger", look)));
+
+        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
+
+        assertThat(friends).filteredOn(f -> f.getUserId().equals(a.getId()))
+                .extracting(FriendResponse::getCatColor, FriendResponse::getAppearance)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("ginger", look));
+        assertThat(friends).filteredOn(f -> f.getUserId().equals(b.getId()))
+                .extracting(FriendResponse::getCatColor, FriendResponse::getAppearance)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(null, null));
+
+        given(nicknameStrategy.search(meId, "alice")).willReturn(List.of(result(a.getId(), "alice")));
+        given(memberLookPort.looksByUserId(List.of(a.getId())))
+                .willReturn(Map.of(a.getId(), new MemberLookPort.MemberLook("ginger", look)));
+        given(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of());
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of());
+
+        List<FriendSearchResultResponse> found = friendService.search(meId, SearchType.NICKNAME, "alice");
+
+        assertThat(found).singleElement().satisfies(r -> {
+            assertThat(r.getCatColor()).isEqualTo("ginger");
+            assertThat(r.getAppearance()).isEqualTo(look);
+        });
+    }
+
+    @Test
     @DisplayName("친구 목록 — 아레나 소속과 무관하게 User 티어를 UserTierLookup 에서 도출 (GROMO-814)")
     void getFriends_restoresTierLevel_fromLeagueLookup() {
         User a = user(UUID.randomUUID(), "alice");
@@ -847,6 +889,26 @@ class FriendServiceTest {
     }
 
     // ── getRequests ────────────────────────────────────────
+
+    @Test
+    @DisplayName("받은 요청 목록 — 상대의 털색과 착용 외양을 배치 포트로 싣는다, 탈퇴한 상대는 null (GROMO-2389)")
+    void getRequests_carriesCounterpartLook() {
+        Friendship req = friendship(target, me, FriendshipStatus.PENDING);
+        MemberLookPort.Appearance look = new MemberLookPort.Appearance(
+                null, null, "head-ribbon", null, null, "raft", "front", 2);
+        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(req));
+        given(memberLookPort.looksByUserId(List.of(targetId)))
+                .willReturn(Map.of(targetId, new MemberLookPort.MemberLook("ginger", look)));
+
+        List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
+
+        assertThat(requests).singleElement().satisfies(r -> {
+            assertThat(r.getCatColor()).isEqualTo("ginger");
+            assertThat(r.getAppearance()).isEqualTo(look);
+        });
+    }
 
     @Test
     @DisplayName("받은 요청 목록(received) — fromUser를 상대로 매핑")

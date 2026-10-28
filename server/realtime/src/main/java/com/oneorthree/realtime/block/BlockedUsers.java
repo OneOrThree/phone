@@ -106,6 +106,29 @@ public class BlockedUsers {
     }
 
     /**
+     * {@link #hasBlocked} 와 같은 한 방향 판정이지만 <b>필터 스위치를 보지 않는다</b> — 바다 스냅샷의 외양 가리기
+     * (GROMO-2389)는 전달 직전 필터가 아니라 표시 규칙이라, 필터가 꺼진 배포에서도 차단 대상의 착용 아이템을 내리지 않는다.
+     * 세대 캐시·fail-closed 는 같다.
+     *
+     * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 가리는 쪽으로 접는다
+     */
+    public boolean hasBlockedUnfiltered(UUID viewerId, UUID otherId) {
+        if (otherId == null || otherId.equals(viewerId)) {
+            return false;
+        }
+        return blockedBy(viewerId).contains(otherId);
+    }
+
+    /**
+     * {@link #hasBlockedUnfiltered} 의 집합판 — 여러 구성원을 한 번에 볼 때 차단 집합을 한 번만 읽는다.
+     *
+     * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 가리는 쪽으로 접는다
+     */
+    public Set<UUID> blockedByUnfiltered(UUID viewerId) {
+        return blockedBy(viewerId);
+    }
+
+    /**
      * 두 사람 중 <b>어느 한쪽이라도</b> 상대를 차단했는가 — 바다 방 배정의 분리 판정(GROMO-2300).
      *
      * <p>{@link #hasBlocked} 와 달리 <b>필터 스위치를 보지 않는다</b>. 스위치는 «전달 직전 필터»를 켜는 것이고,

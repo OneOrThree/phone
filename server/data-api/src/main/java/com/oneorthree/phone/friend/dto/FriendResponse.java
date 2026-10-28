@@ -1,6 +1,7 @@
 package com.oneorthree.phone.friend.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.oneorthree.phone.common.port.MemberLookPort;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -58,4 +59,14 @@ public class FriendResponse {
      * <p><b>친구 목록에만 실린다</b> — 친구 검색·비친구 조회는 이 필드를 만들지 않는다.
      */
     private String mainIslandName;
+
+    /**
+     * 상대의 고양이 색(GROMO-2389) — 미선택·탈퇴면 null.
+     */
+    private String catColor;
+
+    /**
+     * 상대의 착용 외양(GROMO-2389) — 탈퇴 계정이면 null. 주민 목록의 appearance 와 같은 모양이다.
+     */
+    private MemberLookPort.Appearance appearance;
 }

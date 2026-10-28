@@ -1,5 +1,6 @@
 package com.oneorthree.phone.friend.dto;
 
+import com.oneorthree.phone.common.port.MemberLookPort;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -20,4 +21,14 @@ public class FriendSearchResultResponse {
      */
     private String occupation;
     private FriendRelation relation;
+
+    /**
+     * 고양이 색(GROMO-2389) — 미선택이면 null. 닉네임·userId 와 같은 공개 표시라 관계와 무관하게 싣는다.
+     */
+    private String catColor;
+
+    /**
+     * 착용 외양(GROMO-2389) — 주민 목록의 appearance 와 같은 모양이다.
+     */
+    private MemberLookPort.Appearance appearance;
 }

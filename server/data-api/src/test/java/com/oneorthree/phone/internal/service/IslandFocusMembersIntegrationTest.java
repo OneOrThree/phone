@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -70,6 +72,8 @@ class IslandFocusMembersIntegrationTest {
     FocusSessionDetailRepository details;
     @Autowired
     FocusSessionIntervalRepository intervals;
+    @Autowired
+    JdbcTemplate jdbc;
     @Autowired
     OutboxCommandPort outbox;
     @Autowired
@@ -144,6 +148,43 @@ class IslandFocusMembersIntegrationTest {
         assertThat(item.restStartedAt()).isEqualTo(now.minus(20, ChronoUnit.MINUTES));
         assertThat(view.watermarks()).containsExactly(
                 new MemberWatermark("rest.member", a.id, paused.getId(), 1));
+    }
+
+    @Test
+    @DisplayName("focus·rest 항목에 털색과 착용 외양이 실린다 — 외양 행이 없는 주민은 기본 외양 (GROMO-2389)")
+    void itemsCarryCatColorAndAppearance() {
+        Island a = island();
+        User dressed = users.save(User.builder().nickname("멋쟁이-" + UUID.randomUUID()).catColor("ginger").build());
+        join(dressed, a.group);
+        // 카탈로그 행은 직접 심는다 — FK 가 걸려 있다.
+        for (String[] asset : new String[][] {{"head-ribbon", "head"}, {"neck-bell", "neck"}}) {
+            jdbc.update("INSERT INTO catalog_assets (product_id, title, kind, owner_type, created_at)"
+                    + " VALUES (?, ?, ?, 'user', now()) ON CONFLICT (product_id) DO NOTHING",
+                    asset[0], asset[0], asset[1]);
+        }
+        jdbc.update("INSERT INTO personal_appearances (user_id, head, neck, hull, position, version, updated_at)"
+                + " VALUES (?, 'head-ribbon', 'neck-bell', 'raft', 'back', 1, now())", dressed.getId());
+        User plain = resident(a.group);
+        pausedSession(dressed, a.id);
+        activeSession(plain, a.id, now.minus(2, ChronoUnit.MINUTES));
+
+        IslandFocusMembersView focus = service.focusMembers(a.id, a.owner.getId());
+        IslandFocusMembersView.Item dressedItem = item(focus, dressed);
+        assertThat(dressedItem.catColor()).isEqualTo("ginger");
+        assertThat(dressedItem.appearance()).isEqualTo(
+                new PersonalAppearanceView(null, null, "head-ribbon", "neck-bell", null, "raft", "back", 1));
+        IslandFocusMembersView.Item plainItem = item(focus, plain);
+        assertThat(plainItem.catColor()).isNull();
+        assertThat(plainItem.appearance()).isEqualTo(
+                new PersonalAppearanceView(null, null, null, null, null, "raft", "front", 0));
+
+        IslandRestMembersView rest = service.restMembers(a.id, a.owner.getId());
+        assertThat(rest.items()).singleElement().satisfies(restItem -> {
+            assertThat(restItem.userId()).isEqualTo(dressed.getId());
+            assertThat(restItem.catColor()).isEqualTo("ginger");
+            assertThat(restItem.appearance().head()).isEqualTo("head-ribbon");
+            assertThat(restItem.appearance().neck()).isEqualTo("neck-bell");
+        });
     }
 
     @Test

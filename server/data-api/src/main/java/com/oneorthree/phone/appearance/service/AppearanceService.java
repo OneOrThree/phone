@@ -24,6 +24,7 @@ import com.oneorthree.phone.appearance.repository.domain.IslandAppearance;
 import com.oneorthree.phone.appearance.repository.domain.OwnedProduct;
 import com.oneorthree.phone.appearance.repository.domain.PersonalAppearance;
 import com.oneorthree.phone.common.port.IslandAppearancePort;
+import com.oneorthree.phone.common.port.MemberLookPort;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -79,7 +80,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
-public class AppearanceService implements IslandAppearancePort {
+public class AppearanceService implements IslandAppearancePort, MemberLookPort {
 
     /** 개인 PATCH 에 허용되는 필드 집합 — 미제출 필드는 현재 값을 유지한다. */
     private static final Set<String> PERSONAL_FIELDS =
@@ -149,6 +150,20 @@ public class AppearanceService implements IslandAppearancePort {
             views.put(userId, personalView(rows.get(userId)));
         }
         return views;
+    }
+
+    /** {@link MemberLookPort} — 활성 계정의 털색과 착용 외양을 id 묶음으로 읽는다(GROMO-2389). */
+    @Override
+    public Map<UUID, MemberLook> looksByUserId(Collection<UUID> userIds) {
+        List<User> active = userQueryService.findAllActive(userIds);
+        Map<UUID, PersonalAppearanceView> looks = equippedOf(active.stream().map(User::getId).toList());
+        Map<UUID, MemberLook> result = new HashMap<>();
+        for (User user : active) {
+            PersonalAppearanceView look = looks.get(user.getId());
+            result.put(user.getId(), new MemberLook(user.getCatColor(), new Appearance(look.clothes(), look.decor(),
+                    look.head(), look.neck(), look.shoes(), look.hull(), look.position(), look.version())));
+        }
+        return result;
     }
 
     // ---------------------------------------------------------------- PATCH /me/appearance

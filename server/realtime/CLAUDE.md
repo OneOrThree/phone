@@ -136,6 +136,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 - **`BlockClient` 가 배선되지 않으면 바다는 전원 1인 방이다.** 배정의 차단 분리는 조회 실패를 «그 방 제외»로 접는다.
   `realtime.focus.data-base-url`/`data-service-token` 이 비어 있으면 조회가 항상 예외라 후보가 전부 빠지고 매번 새 방을
   만든다. 응원과 같은 realtime-authorization 배선이 전제다.
+  같은 이유로 스냅샷·`sea.member.*` 프레임의 외양 가리기(GROMO-2389)도 차단 판정이 실패하면 구성원 전원의
+  `appearance.head·neck` 이 비어 보인다(fail-closed, `warn` 로그 «바다 … 차단 판정 불가»). 배선 확인 신호로 본다.
 - **`sea:rooms:open` 에 TTL 을 걸지 마라.** 걸면 만료 순간 모든 방이 후보에서 사라져 전원이 새 방을 만든다. 입장·퇴장
   Lua 가 스스로 정리한다.
 - **JOIN Lua 는 차단 검사 때 본 구성원 집합이 그대로일 때만 넣는다**(결정 N32, 반환 -2 면 다시 읽고 재검사, ≤3회). 차단

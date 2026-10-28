@@ -1,5 +1,7 @@
 package com.oneorthree.phone.internal.dto;
 
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -38,9 +40,12 @@ public final class IslandRecordViews {
     public record FocusRecord(UUID id, String subject, long activeSeconds, Instant completedAt) {
     }
 
-    /** 섬 주민 한 명의 이 섬 기여 — 개인 기록·과목은 싣지 않는다(RC-P05). catColor 는 users.cat_color(계정 Q03, GROMO-1945) — 미선택이면 null. */
+    /**
+     * 섬 주민 한 명의 이 섬 기여 — 개인 기록·과목은 싣지 않는다(RC-P05). catColor 는 users.cat_color(계정 Q03,
+     * GROMO-1945) — 미선택이면 null. appearance 는 착용 외양(GROMO-2389).
+     */
     public record FocusMember(UUID userId, String name, String catColor, long totalSeconds,
-                              List<DaySeconds> series) {
+                              List<DaySeconds> series, PersonalAppearanceView appearance) {
     }
 
     /** scope=me 스냅샷에 고정하는 값 — 합계·일별·기록 전체와 관측 시각. */
@@ -64,9 +69,9 @@ public final class IslandRecordViews {
         }
     }
 
-    /** 섬 주민 한 명의 기간 측정. 기기 목록·deviceId 는 싣지 않는다. */
+    /** 섬 주민 한 명의 기간 측정. 기기 목록·deviceId 는 싣지 않는다. appearance 는 착용 외양(GROMO-2389). */
     public record ScreenMember(UUID userId, String name, String catColor, Integer minutes, String measurementStatus,
-                               List<ScreenDay> series, Instant updatedAt) {
+                               List<ScreenDay> series, Instant updatedAt, PersonalAppearanceView appearance) {
     }
 
     /** {@code PUT /me/screen-time/{date}} 본문 — Business 가 모양을 검증하고 timezone 을 {@code UTC} 로 정규화했다. */

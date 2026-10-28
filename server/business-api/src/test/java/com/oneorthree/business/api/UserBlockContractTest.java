@@ -36,6 +36,9 @@ class UserBlockContractTest extends UpstreamTestBase {
     private static final UUID ISLAND = UUID.fromString("eeeeeeee-0000-0000-0000-000000002183");
     private static final UUID SESSION = UUID.fromString("ffffffff-0000-0000-0000-000000002183");
     private static final String NEUTRAL = "차단한 주민";
+    /** 머리·목을 착용한 외양(GROMO-2389) — 차단 대상이면 이것이 기본값으로 가려진다. */
+    private static final String DRESSED = "{\"clothes\":\"scarf\",\"decor\":null,\"head\":\"head-ribbon\","
+            + "\"neck\":\"neck-bell\",\"hull\":\"raft\",\"position\":\"back\",\"version\":7}";
     private static final String BLOCKS_OF_TARGET = "/internal/users/" + TARGET + "/blocks";
 
     @Test
@@ -171,10 +174,43 @@ class UserBlockContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].subject").value("영어 단어"))
                 .andExpect(jsonPath("$.data.items[0].activeSeconds").value(1320))
                 .andExpect(jsonPath("$.data.items[0].status").value("active"))
+                // 털색·착용 외양은 차단 대상만 기본값이다 — head·neck 이 없고 자리는 front, version 은 유지(GROMO-2389)
+                .andExpect(jsonPath("$.data.items[0].catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].appearance.clothes").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].appearance.head").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].appearance.neck").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].appearance.position").value("front"))
+                .andExpect(jsonPath("$.data.items[0].appearance.version").value(7))
+                .andExpect(jsonPath("$.data.items[0].appearanceVersion").value(7))
                 .andExpect(jsonPath("$.data.items[1].name").value("친구"))
                 .andExpect(jsonPath("$.data.items[1].status").value("paused"))
+                .andExpect(jsonPath("$.data.items[1].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.items[1].appearance.head").value("head-ribbon"))
+                .andExpect(jsonPath("$.data.items[1].appearance.neck").value("neck-bell"))
                 .andExpect(jsonPath("$.data.watermarks[0].aggregateId").value(TARGET.toString()))
                 .andExpect(jsonPath("$.data.watermarks[0].version").value(5));
+    }
+
+    @Test
+    @DisplayName("휴식 주민 — 차단 대상의 털색·착용 외양만 기본값이고 자리·시작 시각은 그대로다 (GROMO-2389)")
+    void restMembersMaskBlockedLook() throws Exception {
+        DATA.on("GET /internal/islands/" + ISLAND + "/rest-members", request -> ok("{\"items\":["
+                + restItem(TARGET, "차단상대", 1) + "," + restItem(FRIEND, "친구", 2)
+                + "],\"serverNow\":\"2026-10-01T09:10:00Z\",\"watermarks\":[]}"));
+        DATA.on("GET " + INTERNAL, request -> ok("[{\"id\":\"" + TARGET + "\",\"name\":\"차단상대\"}]"));
+
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/rest-members")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].userId").value(TARGET.toString()))
+                .andExpect(jsonPath("$.data.items[0].restSeat").value(1))
+                .andExpect(jsonPath("$.data.items[0].catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].appearance.clothes").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].appearance.head").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].appearance.neck").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].appearance.position").value("front"))
+                .andExpect(jsonPath("$.data.items[1].catColor").value("ginger"))
+                .andExpect(jsonPath("$.data.items[1].appearance.head").value("head-ribbon"))
+                .andExpect(jsonPath("$.data.items[1].appearance.neck").value("neck-bell"));
     }
 
     @Test
@@ -208,7 +244,13 @@ class UserBlockContractTest extends UpstreamTestBase {
     private static String focusItem(UUID userId, String name, long activeSeconds, String status) {
         return "{\"userId\":\"" + userId + "\",\"name\":" + name + ",\"sessionId\":\"" + UUID.randomUUID()
                 + "\",\"subject\":\"영어 단어\",\"activeSeconds\":" + activeSeconds + ",\"status\":\"" + status
-                + "\"}";
+                + "\",\"catColor\":\"ginger\",\"appearance\":" + DRESSED + "}";
+    }
+
+    private static String restItem(UUID userId, String name, int seat) {
+        return "{\"userId\":\"" + userId + "\",\"name\":\"" + name + "\",\"restSeat\":" + seat
+                + ",\"restStartedAt\":\"2026-10-01T09:07:00Z\",\"catColor\":\"ginger\",\"appearance\":"
+                + DRESSED + "}";
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {

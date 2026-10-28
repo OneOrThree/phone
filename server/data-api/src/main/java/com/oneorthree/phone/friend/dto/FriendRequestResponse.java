@@ -1,5 +1,6 @@
 package com.oneorthree.phone.friend.dto;
 
+import com.oneorthree.phone.common.port.MemberLookPort;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -21,4 +22,10 @@ public class FriendRequestResponse {
      * createdAt 은 원래 관계의 시각이 남는다). 와이어 필드명은 기존 계약대로 유지 (GROMO-719).
      */
     private Instant createdAt;
+
+    /** 상대의 고양이 색(GROMO-2389) — 미선택·탈퇴면 null. */
+    private String catColor;
+
+    /** 상대의 착용 외양(GROMO-2389) — 탈퇴면 null. 주민 목록의 appearance 와 같은 모양이다. */
+    private MemberLookPort.Appearance appearance;
 }

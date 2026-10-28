@@ -87,7 +87,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/construction-options|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
             "/islands/{islandId}/notices|items|id title commentCount|",
             "/islands/{islandId}/quests/current|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
-            "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
+            "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed catColor appearance|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/statistics/fish-earnings|members|userId name earnedFish|",
             "/me/join-requests|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt",
             "/me/telescope|items|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes averageFocusMinutesPerDay full arrivedBefore pinnedFrom pinnedAt magazineCell buildingCount|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes full arrivedBefore"})
