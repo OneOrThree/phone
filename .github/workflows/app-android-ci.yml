@@ -183,6 +183,8 @@ jobs:
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
       EXPO_PUBLIC_ENV: dev
+      # 앱에 포함되는 공개 SDK 토큰. API·서명 키와 달리 AWS 권한 없는 빌드 잡에서 사용한다.
+      AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
