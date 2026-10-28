@@ -97,3 +97,19 @@ test('캐시 크기는 제한하고 이벤트의 null은 장착 해제로 반영
   cache.accept(id(3), look(2, null));
   expect(cache.get(id(3))?.appearance?.head).toBeNull();
 });
+
+test('첫 배치가 실패하면 남은 배치도 요청 없이 끝내고 대기 후 다시 조회한다', async () => {
+  let time = 0;
+  const fetch = jest.fn(async (ids: string[]) => batch(ids));
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  const cache = new MemberLookCache(fetch, () => time);
+  const ids = Array.from({ length: 120 }, (_, n) => id(n));
+  await cache.ensure(ids);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  await cache.ensure(ids);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  time += 30_001;
+  await cache.ensure(ids);
+  expect(fetch.mock.calls.map(([wanted]) => wanted.length)).toEqual([50, 50, 50, 20]);
+  expect(cache.get(id(119))?.hidden).toBe(false);
+});

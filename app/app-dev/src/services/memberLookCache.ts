@@ -144,7 +144,15 @@ export class MemberLookCache {
         this.emit();
       } catch {
         // 장애 때 렌더링·주기 갱신으로 재요청 폭주가 생기지 않게 잠시 쉰다.
-        if (epoch === this.epoch) this.retryAfter = this.now() + 30_000;
+        if (epoch === this.epoch) {
+          this.retryAfter = this.now() + 30_000;
+          // 같은 장애를 남은 배치마다 반복하지 않는다. 다음 화면 갱신이 대기 시간 후 다시 요청한다.
+          for (const id of this.queue) {
+            this.pending.get(id)?.done();
+            this.pending.delete(id);
+          }
+          this.queue.clear();
+        }
       } finally {
         ids.forEach((id, index) => {
           if (this.pending.get(id) === jobs[index]) this.pending.delete(id);
