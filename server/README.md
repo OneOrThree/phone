@@ -99,6 +99,7 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 - Realtime: [독립 CI](../.github/workflows/realtime-ci.dev.yml).
 - Business·Notification: [위성 서비스 CI](../.github/workflows/satellite-check.yml).
 - 배포·이관: [Scripts 실행 안내](scripts/README.md).
+- 배포 후 스모크: [전체 실행 흐름](../smoke/README.md#전체-실행-흐름) · [로그인 재시도 AS IS / TO BE](../smoke/server/login-retry.md) · [TC 명세](../smoke/server/TCL.md).
 
 ---
 

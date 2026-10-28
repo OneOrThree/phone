@@ -22,7 +22,7 @@ flow() {
   export SMOKE_CORE_DEVICE_ID
   export SMOKE_CORE_FIXTURE_NAME="smoke-core-$SMOKE_CORE_DEVICE_ID"
   stage='전용 게스트 생성'
-  api POST /auth/sessions/guest '' "$SMOKE_CORE_DEVICE_ID" || return 1
+  smoke_guest_login "$SMOKE_CORE_DEVICE_ID" core || return 1
   stage='게스트 발급 본문·세션 클레임 확인'
   token=$(smoke_json '.data.accessToken') || return 1
   SMOKE_CORE_USER_ID=$(smoke_json '.data.userId') || return 1
@@ -136,6 +136,7 @@ else
   cleanup_ok=1; cleanup || cleanup_ok=0; session=''
   # DB 오류는 원문 접속 정보를 노출하지 않고 제한된 원인만 전달한다.
   reason="$stage 실패; B0=$B0 B1=$B1 B2=$B2 B3=$B3 정리=$cleanup_ok"
+  if [[ "$stage" == '전용 게스트 생성' ]]; then reason="$reason; ${SMOKE_AUTH_SUMMARY:-}"; fi
   error_code=$(jq -r '.error.code // .code // empty' "$SMOKE_BODY_FILE" 2>/dev/null || true)
   if [[ "$error_code" =~ ^[A-Z][A-Z0-9_]{0,79}$ ]]; then
     reason="$reason; API=$error_code"

@@ -13,7 +13,7 @@ React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 �
 | 바로 시작하기 | 문서 |
 | --- | --- |
 | 앱을 실행하고 싶어요 | [2.0 앱 시작하기](app/app-dev/README.md#로컬-실행) |
-| 서버 스모크 결과·실행 방법을 알고 싶어요 | [스모크 문서](smoke/README.md) |
+| 서버 스모크 결과·실행 방법을 알고 싶어요 | [전체 실행 흐름](smoke/README.md#전체-실행-흐름) · [로그인 재시도 차트](smoke/server/login-retry.md) |
 | 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) |
 | 기능 정책·설계를 찾고 싶어요 | [문서 인덱스](docs/README.md) |
 | 시스템의 목표 구조를 보고 싶어요 | [서비스 아키텍처](docs/architecture/service-architecture.md) |

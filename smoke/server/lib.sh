@@ -5,6 +5,8 @@ smoke_init() {
   SMOKE_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/phone-smoke.XXXXXX")
   SMOKE_BODY_FILE="$SMOKE_TMP_DIR/body.json"
   SMOKE_HEADER_FILE="$SMOKE_TMP_DIR/headers"
+  SMOKE_GUEST_STATE_DIR=${SMOKE_GUEST_STATE_DIR:-$SMOKE_TMP_DIR/guest-state}
+  export SMOKE_GUEST_STATE_DIR
   RESULTS_FILE=${RESULTS_FILE:-results.tsv}
   export RESULTS_FILE
   mkdir -p "$(dirname "$RESULTS_FILE")"
@@ -45,6 +47,26 @@ smoke_request() {
   return "$rc"
 }
 smoke_ok() { [[ "$SMOKE_HTTP_CODE" =~ ^2[0-9][0-9]$ ]] && jq -e 'has("data") and (.error? == null)' "$SMOKE_BODY_FILE" >/dev/null 2>&1; }
+smoke_guest_login() {
+  local device=$1 role=$2 script_dir rc=0
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  SMOKE_HTTP_CODE=000; SMOKE_HTTP_MS=0; SMOKE_AUTH_SUMMARY='attempts=0 retries=0'
+  rm -f "$SMOKE_TMP_DIR/auth-result.json"
+  : > "$SMOKE_BODY_FILE"; : > "$SMOKE_HEADER_FILE"
+  SMOKE_GUEST_DEVICE_ID="$device" python3 "$script_dir/guest_login.py" \
+    --directory "$SMOKE_TMP_DIR" --role "$role" || rc=$?
+  if [[ -f "$SMOKE_TMP_DIR/auth-result.json" ]]; then
+    SMOKE_HTTP_CODE=$(jq -r '.http_code' "$SMOKE_TMP_DIR/auth-result.json")
+    SMOKE_HTTP_MS=$(jq -r '.elapsed_ms' "$SMOKE_TMP_DIR/auth-result.json")
+    SMOKE_AUTH_SUMMARY=$(jq -r '"attempts=\(.attempts) retries=\(.retries) elapsed_ms=\(.elapsed_ms) first_error=\(.first_error) result=\(.result)"' "$SMOKE_TMP_DIR/auth-result.json")
+  fi
+  if [[ "$rc" != 0 ]]; then
+    # 실패 응답 원문을 다른 TC의 일반 오류 출력으로 다시 노출하지 않는다.
+    : > "$SMOKE_BODY_FILE"; : > "$SMOKE_HEADER_FILE"
+  fi
+  printf '게스트 로그인 %s %s\n' "$role" "$SMOKE_AUTH_SUMMARY"
+  return "$rc"
+}
 smoke_finish() {
   local token=${1:-${SMOKE_TOKEN:-}} expected=${2:-}
   smoke_request GET /focus-sessions/current '' "$token" && smoke_ok || return 1

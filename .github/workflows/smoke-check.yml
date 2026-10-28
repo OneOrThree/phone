@@ -7,6 +7,10 @@ on:
       - 'smoke/server/**'
       - '.github/workflows/smoke-check.yml'
       - '.github/workflows/ops-smoke.dev.yml'
+      - '.github/scripts/report-smoke.py'
+      - '.github/scripts/test_smoke_report.py'
+      - '.github/scripts/test_smoke_guest_budget.py'
+      - '.github/scripts/test_smoke_workflow.py'
 
 permissions:
   contents: read
@@ -24,10 +28,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: 워크플로 계약 검사 의존성
+        run: python3 -m pip install 'PyYAML==6.0.2'
       - name: 셸 문법 검사
         run: find smoke/server -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
       - name: 외부 서비스 없는 격리 계약 검사
         run: python3 -m unittest discover -s smoke/server/tests -p 'test_*.py' -v
+      - name: 로그인 요청 제한과 결과 보고 검사
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_smoke_guest_budget.py' -v
+          python3 -m unittest discover -s .github/scripts -p 'test_smoke_report.py' -v
+          python3 -m unittest discover -s .github/scripts -p 'test_smoke_workflow.py' -v
       - name: mock API·fixture 가드 검사
         run: |
           bash smoke/server/tests/api-runner.sh
