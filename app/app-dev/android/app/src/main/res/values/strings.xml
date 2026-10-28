@@ -1,4 +1,7 @@
 <resources>
   <string name="app_name">cattus</string>
-  <string name="expo_runtime_version">2.0.0-no-special-use</string>
+  <string name="expo_runtime_version">2.0.0-no-special-use-meta</string>
+  <string name="facebook_app_id">1092876403132413</string>
+  <string name="facebook_client_token">50e64f9a226f67663ddcfd3ea0e03cb4</string>
+  <string name="fb_login_protocol_scheme">fb1092876403132413</string>
 </resources>

@@ -17,6 +17,9 @@ buildscript {
   }
 }
 
+// GROMO-2544 RN 래퍼와 앱 시작 시 수집 차단 코드가 같은 Meta SDK를 사용한다.
+ext.facebookSdkVersion = "18.3.0"
+
 allprojects {
   repositories {
     google()
