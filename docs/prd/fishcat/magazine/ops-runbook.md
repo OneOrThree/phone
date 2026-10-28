@@ -12,6 +12,44 @@ GROMO-2289 고양이 잡지(냐옹)를 운영할 때 쓰는 SQL·설정 절차�
 
 종전 스위치 `magazine.enabled` 를 걷었다. 홍보 신청·고치기는 07~24시 KST 에 열리고, 07시 발행 잡은 07:00~23:50 KST 에 10분마다 돌며, 읽기(재료 목록·쓰기 화면·잡지)는 늘 열려 있다. 호가 없으면 `issue: null` 이다. Data 가 이 버전으로 뜨는 날 07~23시 사이면 다음 10분 틱이 그날 호를 바로 낸다. 끄는 설정이 없으므로 멈추려면 Data 를 직전 이미지로 되돌린다. 이미 낸 홍보비는 돌려주지 않는다.
 
+- dev: 2026-10-27 #1345(`cb1e18e28`) 배포부터 항상 켜져 있다. 발행된 호와 알림은 §4-1·§4-4의 조회로 확인한다.
+- 운영: 다음 `main → release` 승격일에 #1345를 포함한 Data 이미지가 배포되면 켜진다(예정일은 그 승격일). 그때부터 홍보 신청에는 물고기 60마리가 차감되고 `MAGAZINE_PUBLISHED` 알림 사건도 생성된다. 실제 푸시 발송은 알림 서버의 발송 게이트와 전달 경로 상태에 달려 있다.
+
+### dev 스모크 섬
+
+dev 스모크는 자신이 만든 `smoke-island-*`·`smoke-friends-*`·`smoke-core-*` 섬을 검사 종료 시 마지막 주민 퇴장 API(`DELETE /islands/{id}/memberships/me`)로 닫는다. 중간에 실패해도 정리를 시도하고 정리 실패는 스모크 FAIL이다. 옛 실행의 고정 이름 `smoke-island`를 포함해 이미 만들어진 섬은 이 변경으로 닫히지 않는다. 생성 응답에 ID가 없으면 이번 실행의 고유 이름으로 섬을 조회해 확인된 경우에만 닫고 TC는 FAIL로 남긴다. 조회로 확인할 수 없으면 다른 섬을 닫지 않고 아래 SQL로 수동 확인한다.
+
+옛 섬 정리는 재영님이 dev Data DB에서 아래 **조회만** 실행해 대상 ID를 확정한다. `smoke-` 접두어만으로 종료 대상을 고르지 않는다. 활성 주민이 스모크 전용 게스트인지, 다른 주민·대기 중 가입 신청·진행 중 집중·실사용 홍보가 있는지 확인하고 하나라도 불분명하면 그 섬은 제외한다.
+
+```sql
+-- 살아 있는 후보. 사람이 같은 접두어로 지은 섬도 나올 수 있다.
+SELECT id, name, status, created_at FROM islands
+WHERE name LIKE 'smoke-%' AND deleted_at IS NULL AND status <> 'ENDED'
+ORDER BY created_at, id;
+
+-- 후보 하나씩 실제 ID로 바꿔 주민과 게스트 여부를 확인한다.
+\set island_id '<확인한 스모크 섬 UUID>'
+SELECT i.id, i.name, i.status, i.deleted_at, m.user_id, m.role, m.is_left, u.is_guest, u.is_deleted
+FROM islands i
+LEFT JOIN group_members m ON m.group_id = i.id AND m.is_left = false
+LEFT JOIN users u ON u.id = m.user_id
+WHERE i.id = :'island_id'::uuid;
+
+SELECT status, count(*) FROM island_join_requests
+WHERE island_id = :'island_id'::uuid GROUP BY status;
+SELECT d.session_id, d.user_id, d.lifecycle FROM focus_session_details d
+WHERE d.island_id = :'island_id'::uuid AND d.lifecycle IN ('ACTIVE', 'PAUSED');
+SELECT p.id, p.moderation, p.applied_by, u.is_guest, u.is_deleted
+FROM island_promotions p JOIN users u ON u.id = p.applied_by
+WHERE p.island_id = :'island_id'::uuid;
+```
+
+해당 게스트의 유효한 토큰이 **실제로 남아 있다면**, 진행 중 집중을 먼저 끝내고 각 주민이 자기 토큰으로 `DELETE /islands/{id}/memberships/me`를 호출한다. 주민이 여럿이면 다른 주민이 먼저 나가고 방장이 마지막에 나간다. API 성공 뒤 위 조회로 `islands.status = 'ENDED'`, `deleted_at IS NOT NULL`, 활성 주민 0명인지 확인한다. 토큰은 로그·문서에 남기지 않는다.
+
+옛 실행의 토큰이 없으면 API로 퇴장시킬 수 없다. **`UPDATE islands SET status = 'ENDED', deleted_at = now()` 단독 실행은 금지한다.** 그것만으로는 `group_members.is_left`·이탈 시각, 대기 중 가입 신청 취소, 주민·섬 상태 사건, 공동 데이터 삭제가 빠진다.
+
+이 경우 재영님과 Data 서버 담당이 현재 `GroupMemberService.withdrawGroupAndRecord()` 및 `IslandPurgeService.purgeIsland()`를 기준으로 대상 ID별 수동 트랜잭션을 작성·검토한 뒤 실행한다. 개인 집중·정산 증거는 보존하고, 공동 통장·건설·퀘스트·게시판·방명록·잡지 홍보·랭킹 등 `IslandPurgeService.PURGE_STATEMENTS` 대상은 자식부터 삭제해야 한다. 신청자나 주민이 스모크 게스트가 아니거나 활성 집중이 있으면 먼저 원인을 처리하고 재조회한다. 실행 전후 활성 주민·대기 신청·공동 데이터 건수를 비교하고 예상과 다르면 `ROLLBACK`한다. 서비스 경로와 같은 이탈·상태 사건을 만들 수 없는 SQL은 실행하지 않는다. 동등한 수동 트랜잭션을 마련할 수 없으면 Data 담당자가 서비스 경로를 사용하는 일회성 관리 명령을 준비한 뒤 정리한다.
+
 ## 2. 신고로 숨겨진 칸
 
 서로 다른 소셜 계정 3명이 신고하면 그 칸은 자동으로 `moderation = 'HIDDEN'` 이 되고 모든 독자에게서 빠진다. 서버는 경고 로그 `promotion hidden id=…` 를 남긴다. 운영은 확인한 뒤 내리거나(REMOVED) 되살린다(CLEARED).
