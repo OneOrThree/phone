@@ -27,7 +27,8 @@ if [[ -n "${SMOKE_AUTH_DIAGNOSTICS_FILE:-}" ]]; then
   : > "$SMOKE_AUTH_DIAGNOSTICS_FILE"
 fi
 smoke_init
-TOKEN='' USER_ID='' ISLAND_ID='' SESSION_ID='' PEER_TOKEN='' PEER_ID='' PEER_JOINED=0 FRIEND_CREATED=0 FRIEND_REQUEST_ID='' WS_PID=''
+TOKEN='' USER_ID='' ISLAND_ID='' MAIN_CREATED_ISLAND_ID='' SESSION_ID='' PEER_TOKEN='' PEER_ID='' PEER_JOINED=0 FRIEND_CREATED=0 FRIEND_REQUEST_ID='' WS_PID=''
+CORE_CREATED_CONTEXT='' STATISTICS_CREATED_CONTEXT=''
 record() {
   local detail=''
   if [[ "$1" == 002 ]]; then detail="${SMOKE_AUTH_SUMMARY:-}"; fi
@@ -35,14 +36,32 @@ record() {
     if [[ "$1" != 002 ]]; then detail=$(jq -r '(.error.code // .code // "") | select(type=="string" and test("^[A-Z][A-Z0-9_]{0,79}$"))' "$SMOKE_BODY_FILE" 2>/dev/null || true); fi
   fi
   smoke_record "SMOKE-SERVER-$1" "$2" "${SMOKE_HTTP_CODE:-000}" "${SMOKE_HTTP_MS:-0}" "$3${detail:+ [$detail]}"; }
+cleanup_fail() {
+  local id=$1 reason=$2
+  # 정리 실패가 앞선 PASS를 덮어 TC마다 최종 판정 한 줄만 남긴다.
+  awk -F '\t' -v id="SMOKE-SERVER-$id" 'NR==1 || $1!=id' "$RESULTS_FILE" > "$SMOKE_TMP_DIR/results-updated.tsv" &&
+    mv "$SMOKE_TMP_DIR/results-updated.tsv" "$RESULTS_FILE"
+  record "$id" FAIL "$reason"
+}
 req() { smoke_request "$@" && smoke_ok; }
 cleanup() {
+  local context token island id
   [[ -z "$WS_PID" ]] || kill "$WS_PID" 2>/dev/null || true
-  if [[ -n "$TOKEN" && -n "$SESSION_ID" ]]; then smoke_finish "$TOKEN" "$SESSION_ID" || record 006 FAIL '집중 종료 정리 실패'; fi
+  if [[ -n "$TOKEN" && -n "$SESSION_ID" ]]; then smoke_finish "$TOKEN" "$SESSION_ID" || cleanup_fail 006 '집중 종료 정리 실패'; fi
   if [[ -n "$PEER_TOKEN" ]]; then
-    if [[ "$FRIEND_CREATED" != 1 && -n "$FRIEND_REQUEST_ID" ]]; then req POST "/friends/requests/$FRIEND_REQUEST_ID/cancel" '' "$TOKEN" || record 016 FAIL '친구 요청 정리 실패'; fi
-    if [[ "$FRIEND_CREATED" == 1 ]]; then req DELETE "/friends/$PEER_ID" '' "$TOKEN" || record 016 FAIL '친구 정리 실패'; fi
-    if [[ "$PEER_JOINED" == 1 ]]; then req DELETE "/islands/$ISLAND_ID/memberships/me" '' "$PEER_TOKEN" || record 016 FAIL '주민 정리 실패'; fi
+    if [[ "$FRIEND_CREATED" != 1 && -n "$FRIEND_REQUEST_ID" ]]; then req POST "/friends/requests/$FRIEND_REQUEST_ID/cancel" '' "$TOKEN" || cleanup_fail 016 '친구 요청 정리 실패'; fi
+    if [[ "$FRIEND_CREATED" == 1 ]]; then req DELETE "/friends/$PEER_ID" '' "$TOKEN" || cleanup_fail 016 '친구 정리 실패'; fi
+    if [[ "$PEER_JOINED" == 1 ]]; then req DELETE "/islands/$ISLAND_ID/memberships/me" '' "$PEER_TOKEN" || cleanup_fail 016 '주민 정리 실패'; fi
+  fi
+  for context in "$CORE_CREATED_CONTEXT" "$STATISTICS_CREATED_CONTEXT"; do
+    [[ -n "$context" ]] || continue
+    id=014
+    [[ "$context" != "$STATISTICS_CREATED_CONTEXT" ]] || id=015
+    token=$(jq -er '.accessToken' "$context") && island=$(jq -er '.islandId' "$context") &&
+      req DELETE "/islands/$island/memberships/me" '' "$token" || cleanup_fail "$id" '전용 섬 정리 실패'
+  done
+  if [[ -n "$MAIN_CREATED_ISLAND_ID" ]]; then
+    req DELETE "/islands/$MAIN_CREATED_ISLAND_ID/memberships/me" '' "$TOKEN" || cleanup_fail 004 '기본 섬 정리 실패'
   fi
   rm -rf "$SMOKE_TMP_DIR"
 }
@@ -71,7 +90,10 @@ main() {
   if req GET /me/islands '' "$TOKEN"; then
     ISLAND_ID=$(jq -r '.data.currentIslandId // .data.items[0].id // empty' "$SMOKE_BODY_FILE")
     if [[ -z "$ISLAND_ID" ]]; then
-      req POST /islands '{"name":"smoke-island","approvalRequired":false}' "$TOKEN" && req GET /me/islands '' "$TOKEN" && ISLAND_ID=$(jq -r '.data.currentIslandId // .data.items[0].id // empty' "$SMOKE_BODY_FILE")
+      if req POST /islands '{"name":"smoke-island","approvalRequired":false}' "$TOKEN"; then
+        MAIN_CREATED_ISLAND_ID=$(smoke_json '.data.id')
+        if req GET /me/islands '' "$TOKEN"; then ISLAND_ID=$(jq -r '.data.currentIslandId // .data.items[0].id // empty' "$SMOKE_BODY_FILE"); fi
+      fi
     fi
   fi
   if [[ -z "$ISLAND_ID" ]]; then record 004 FAIL '섬 생성/조회'; for id in 005 006 007 010; do record "$id" SKIP '섬 선행 실패'; done
@@ -91,6 +113,7 @@ main() {
     if [[ "${SMOKE_CORE_ENABLED:-0}" == 1 ]]; then
       export SMOKE_CORE_CONTEXT_FILE="$SMOKE_TMP_DIR/core-context.json"
       "$HERE/core-flow.sh" || true
+      [[ ! -s "$SMOKE_CORE_CONTEXT_FILE" ]] || CORE_CREATED_CONTEXT="$SMOKE_CORE_CONTEXT_FILE"
     fi
     screen_time
   fi
@@ -149,9 +172,10 @@ residents_and_friends() (
   TOKEN='' USER_ID='' ISLAND_ID='' SESSION_ID='' PEER_TOKEN='' PEER_ID=''
   PEER_JOINED=0 FRIEND_CREATED=0
   friend_cleanup() {
-    [[ -z "$SESSION_ID" ]] || smoke_finish "$TOKEN" "$SESSION_ID" || record 016 FAIL '친구 흐름 집중 정리 실패'
-    if [[ "$FRIEND_CREATED" == 1 ]]; then req DELETE "/friends/$PEER_ID" '' "$TOKEN" || record 016 FAIL '친구 정리 실패'; fi
-    if [[ "$PEER_JOINED" == 1 ]]; then req DELETE "/islands/$ISLAND_ID/memberships/me" '' "$PEER_TOKEN" || record 016 FAIL '주민 정리 실패'; fi
+    [[ -z "$SESSION_ID" ]] || smoke_finish "$TOKEN" "$SESSION_ID" || cleanup_fail 016 '친구 흐름 집중 정리 실패'
+    if [[ "$FRIEND_CREATED" == 1 ]]; then req DELETE "/friends/$PEER_ID" '' "$TOKEN" || cleanup_fail 016 '친구 정리 실패'; fi
+    if [[ "$PEER_JOINED" == 1 ]]; then req DELETE "/islands/$ISLAND_ID/memberships/me" '' "$PEER_TOKEN" || cleanup_fail 016 '주민 정리 실패'; fi
+    if [[ -n "$ISLAND_ID" ]]; then req DELETE "/islands/$ISLAND_ID/memberships/me" '' "$TOKEN" || cleanup_fail 016 '전용 섬 정리 실패'; fi
   }
   trap friend_cleanup EXIT
   device=$(smoke_uuid); name="smoke-friends-$(smoke_uuid)"
@@ -162,8 +186,8 @@ residents_and_friends() (
   peer_device=$(smoke_uuid)
   if ! smoke_guest_login "$peer_device" friend-peer; then record 016 FAIL "전용 주민 게스트 준비 ($SMOKE_AUTH_SUMMARY)"; return; fi
   PEER_TOKEN=$(smoke_json '.data.accessToken'); PEER_ID=$(smoke_json '.data.userId')
-  if ! req POST "/islands/$ISLAND_ID/memberships" '{}' "$PEER_TOKEN" || ! jq -e '.data.status=="active"' "$SMOKE_BODY_FILE" >/dev/null; then record 016 FAIL '같은 섬 주민 가입'; return; fi
   PEER_JOINED=1
+  if ! req POST "/islands/$ISLAND_ID/memberships" '{}' "$PEER_TOKEN" || ! jq -e '.data.status=="active"' "$SMOKE_BODY_FILE" >/dev/null; then record 016 FAIL '같은 섬 주민 가입'; return; fi
   context="$SMOKE_TMP_DIR/friend-context.json"
   # jq 자격은 파일 입력만 사용한다; argv에는 토큰을 넣지 않는다.
   printf '%s' "$TOKEN" > "$SMOKE_TMP_DIR/friend-owner-token"
@@ -188,6 +212,7 @@ screen_time() {
         record 015 FAIL '독립 도서관 fixture 준비 실패 (자식 실행기 진단 참조)'
         return
       fi
+      STATISTICS_CREATED_CONTEXT="$context"
     else record 015 FAIL '완공 도서관 전용 fixture 없음: SMOKE_CORE_ENABLED=1 또는 SMOKE_CORE_CONTEXT_FILE 필요'; return; fi
   fi
   token=$(jq -er '.accessToken' "$context") || { record 015 FAIL 'fixture 토큰 없음'; return; }

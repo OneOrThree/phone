@@ -7,7 +7,20 @@ source "$SCRIPT_DIR/lib.sh"
 : "${SMOKE_CORE_CONTEXT_FILE:?비공개 context 파일 경로가 필요합니다}"
 smoke_init
 SMOKE_TOKEN=''
-trap 'rm -rf "$SMOKE_TMP_DIR"' EXIT
+token=''; island=''; context_written=0
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ "$context_written" != 1 && -n "$island" ]]; then
+    smoke_request DELETE "/islands/$island/memberships/me" '' "$token" && smoke_ok || {
+      echo '통계 전용 섬 정리 실패' >&2
+      status=1
+    }
+  fi
+  rm -rf "$SMOKE_TMP_DIR"
+  exit "$status"
+}
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 SMOKE_CORE_DEVICE_ID=$(smoke_uuid)
@@ -22,6 +35,7 @@ export SMOKE_CORE_SESSION_ID
 smoke_request POST /islands "{\"name\":\"$SMOKE_CORE_FIXTURE_NAME\",\"approvalRequired\":false}" "$token" && smoke_ok || { echo '통계 전용 섬 생성 실패' >&2; exit 1; }
 SMOKE_CORE_ISLAND_ID=$(smoke_json '.data.id')
 export SMOKE_CORE_ISLAND_ID
+island="$SMOKE_CORE_ISLAND_ID"
 SMOKE_FIXTURE_MODE=statistics "$SCRIPT_DIR/seed-core-flow.sh" > "$SMOKE_TMP_DIR/policy.json" 2> "$SMOKE_TMP_DIR/seed-error" || {
   echo '통계 전용 DB 초기 준비 실패' >&2
   sed -n 's/.*ERROR:  /DB: /p' "$SMOKE_TMP_DIR/seed-error" | head -1 >&2
@@ -31,3 +45,4 @@ printf '%s' "$token" > "$SMOKE_TMP_DIR/token"
 jq -n --rawfile accessToken "$SMOKE_TMP_DIR/token" --arg userId "$SMOKE_CORE_USER_ID" --arg islandId "$SMOKE_CORE_ISLAND_ID" --arg deviceId "$SMOKE_CORE_DEVICE_ID" \
   '{accessToken:$accessToken,userId:$userId,islandId:$islandId,deviceId:$deviceId}' > "$SMOKE_CORE_CONTEXT_FILE"
 chmod 600 "$SMOKE_CORE_CONTEXT_FILE"
+context_written=1

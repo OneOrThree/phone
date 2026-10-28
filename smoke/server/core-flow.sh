@@ -5,14 +5,21 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 source "$SCRIPT_DIR/lib.sh"
 : "${BASE_URL:?BASE_URL이 필요합니다}"
 smoke_init
-stage='초기 준비'; session=''; token=''; B0='?'; B1='?'; B2='?'; B3='?'; product='?'
+stage='초기 준비'; session=''; token=''; island=''; defer_island=0; B0='?'; B1='?'; B2='?'; B3='?'; product='?'
 start=$(date +%s)
 cleanup() {
+  local failed=0
   if [[ -n "$session" && -n "$token" ]]; then
-    smoke_finish "$token" "$session" || { echo 'TC014 진행 세션 정리 실패' >&2; return 1; }
+    smoke_finish "$token" "$session" || { echo 'TC014 진행 세션 정리 실패' >&2; failed=1; }
   fi
+  session=''
+  if [[ "$defer_island" != 1 && -n "$island" ]]; then
+    smoke_request DELETE "/islands/$island/memberships/me" '' "$token" && smoke_ok || { echo 'TC014 전용 섬 정리 실패' >&2; failed=1; }
+  fi
+  island=''
+  return "$failed"
 }
-trap 'cleanup; rm -rf "$SMOKE_TMP_DIR"' EXIT
+trap 'cleanup || true; rm -rf "$SMOKE_TMP_DIR"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 api() { smoke_request "$1" "$2" "${3:-}" "$token" "${4:-}" && smoke_ok; }
@@ -128,10 +135,17 @@ flow() {
     jq -n --rawfile accessToken "$SMOKE_TMP_DIR/token" --arg userId "$SMOKE_CORE_USER_ID" --arg islandId "$island" --arg deviceId "$SMOKE_CORE_DEVICE_ID" \
       '{accessToken:$accessToken,userId:$userId,islandId:$islandId,deviceId:$deviceId}' > "$SMOKE_CORE_CONTEXT_FILE"
     chmod 600 "$SMOKE_CORE_CONTEXT_FILE"
+    defer_island=1
   fi
 }
 if flow; then
-  smoke_record SMOKE-SERVER-014 PASS "$SMOKE_HTTP_CODE" "$((($(date +%s)-start)*1000))" "B0=$B0 B1=$B1 B2=$B2 B3=$B3 product=$product purchase=403/SOCIAL_LOGIN_REQUIRED unchanged=wallet,orders,inventory"
+  cleanup_ok=1; cleanup || cleanup_ok=0
+  if [[ "$cleanup_ok" == 1 ]]; then
+    smoke_record SMOKE-SERVER-014 PASS "$SMOKE_HTTP_CODE" "$((($(date +%s)-start)*1000))" "B0=$B0 B1=$B1 B2=$B2 B3=$B3 product=$product purchase=403/SOCIAL_LOGIN_REQUIRED unchanged=wallet,orders,inventory"
+  else
+    smoke_record SMOKE-SERVER-014 FAIL "${SMOKE_HTTP_CODE:-000}" "$((($(date +%s)-start)*1000))" '전용 섬 정리 실패'
+    exit 1
+  fi
 else
   cleanup_ok=1; cleanup || cleanup_ok=0; session=''
   # DB 오류는 원문 접속 정보를 노출하지 않고 제한된 원인만 전달한다.
