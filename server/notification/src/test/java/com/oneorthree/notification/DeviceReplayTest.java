@@ -312,6 +312,33 @@ class DeviceReplayTest {
                 .hasMessage("SESSION_REVOKED");
     }
 
+    @Test
+    void 현대행과공존할때새세션은같은토큰을못가져가지만새토큰은세션폐기를따른다() {
+        register(USER, "modern", "bootstrap", 1L, 0L, "modern-reg");
+        UUID session = UUID.randomUUID();
+        assertThatThrownBy(() -> devices.register(USER, legacySessionBody("modern", session, 2L),
+                "same-token-new-session")).hasMessage("DEVICE_OWNERSHIP_CONFLICT");
+
+        assertThat(devices.register(USER, legacySessionBody("fresh", session, 2L), "fresh-token-new-session"))
+                .containsKey("ownershipToken");
+        assertThat(store.one("SELECT legacy_session_id,session_epoch,active FROM device_tokens"
+                + " WHERE device_token='fresh'"))
+                .containsEntry("legacy_session_id", session).containsEntry("session_epoch", 2L)
+                .containsEntry("active", true);
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='modern'"))
+                .containsEntry("active", true);
+
+        Map<String, Object> revoked = new LinkedHashMap<>();
+        revoked.put("sessionId", session.toString());
+        revoked.put("sessionEpoch", 3L);
+        revoked.put("bootstrapNonceHash", null);
+        devices.revokeSession(USER, revoked);
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='fresh'"))
+                .containsEntry("active", false);
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='modern'"))
+                .containsEntry("active", true);
+    }
+
     /**
      * <b>세대만</b> 달라진 재시도에 대한 <b>선택적 방어</b>다. 같은 키·같은 세션 축인데
      * {@code authGeneration} 만 {@code null} → {@code 0} 인 본문은 같은 의도로 본다.

@@ -1,7 +1,10 @@
 package com.oneorthree.notification;
 
 import com.google.auth.oauth2.GoogleCredentials;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
@@ -29,22 +32,37 @@ class FcmTransport implements PushTransport {
     private final GoogleCredentials credentials;
     private final RestClient client;
     private final String project;
+    private final Counter senderMismatch;
 
-    FcmTransport(@Value("${fcm.project-id:}") String project,
-            @Value("${fcm.service-account-json:}") String encoded) {
+    @Autowired
+    public FcmTransport(@Value("${fcm.project-id:}") String project,
+            @Value("${fcm.service-account-json:}") String encoded, MeterRegistry registry) {
+        this(project, credentials(project, encoded), "https://fcm.googleapis.com", registry);
+    }
+
+    FcmTransport(String project, GoogleCredentials credentials, String baseUrl, MeterRegistry registry) {
+        this.project = project;
+        this.credentials = credentials;
+        this.client = client(baseUrl);
+        this.senderMismatch = registry.counter("notification.fcm.sender_mismatch");
+    }
+
+    private static GoogleCredentials credentials(String project, String encoded) {
         ServiceAuth.require(project, "FCM_PROJECT_ID");
         ServiceAuth.require(encoded, "FCM_SERVICE_ACCOUNT_JSON");
-        this.project = project;
         try {
-            credentials = GoogleCredentials.fromStream(new ByteArrayInputStream(Base64.getDecoder().decode(encoded)))
+            return GoogleCredentials.fromStream(new ByteArrayInputStream(Base64.getDecoder().decode(encoded)))
                     .createScoped("https://www.googleapis.com/auth/firebase.messaging");
         } catch (IOException | IllegalArgumentException invalid) {
             throw new IllegalStateException("FCM 서비스 계정 형식 오류", invalid);
         }
+    }
+
+    static RestClient client(String baseUrl) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(2));
         factory.setReadTimeout(Duration.ofSeconds(4));
-        client = RestClient.builder().baseUrl("https://fcm.googleapis.com").requestFactory(factory).build();
+        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
     }
 
     @Override
@@ -61,16 +79,15 @@ class FcmTransport implements PushTransport {
         } catch (RestClientResponseException failure) {
             int status = failure.getStatusCode().value();
             String body = failure.getResponseBodyAsString();
+            String errorCode = fcmErrorCode(body);
             if (isSenderIdMismatch(status, body)) {
-                // 토큰 하나가 무효인 것처럼 조용히 접히지만, 서버의 FCM_PROJECT_ID·서비스 계정이 틀리면 모든 기기가
-                // 한꺼번에 이 길로 온다. 앱은 같은 유저·같은 토큰이면 재등록하지 않아 설정을 고쳐도 저절로 돌아오지
-                // 않으므로, 이 줄이 운영자가 알아챌 신호다. 토큰·응답 본문은 남기지 않는다(프로젝트 ID 는 공개값).
-                log.warn("FCM 프로젝트 불일치(SENDER_ID_MISMATCH) — 서버 프로젝트={}."
-                        + " 기기 하나면 앱의 GoogleService-Info.plist, 한꺼번에 나면 서버의 FCM_PROJECT_ID·서비스 계정을"
-                        + " 의심한다. server/notification/README.md 의 복구 절차 참고", project);
+                senderMismatch.increment();
             }
+            log.warn("FCM 발송 실패 status={} errorCode={} project={}", status, errorCode, project);
             return classify(status, body);
         } catch (IOException | org.springframework.web.client.RestClientException unavailable) {
+            log.warn("FCM 발송 실패 status=unavailable errorCode=unknown project={} cause={}",
+                    project, unavailable.getClass().getSimpleName());
             return Result.RETRY;
         }
     }
@@ -85,7 +102,7 @@ class FcmTransport implements PushTransport {
      *
      * <p>FCM 은 «못 쓰는 토큰»을 한 가지 모양으로만 돌려주지 않는다. 이미 해지된 토큰은
      * {@code 404 UNREGISTERED} 지만, <b>형식이 깨진 등록 토큰은 {@code 400 INVALID_ARGUMENT}</b> 다.
-     * 뒤의 것을 재시도로 돌리면 그 토큰의 모든 delivery 가 매분 영구 재시도되고 미전달 행만 쌓인다 —
+     * 뒤의 것을 재시도로 돌리면 그 토큰의 모든 delivery 가 매분 상한까지 재시도되고 미전달 행만 쌓인다 —
      * 구 {@code FcmPushNotificationClient} 는 그 응답을 무효 토큰으로 정리해 왔으므로, 정리하지 않는
      * 것은 서버를 가르면서 생긴 회귀다.
      *
@@ -161,7 +178,7 @@ class FcmTransport implements PushTransport {
      *
      * <p>앱의 {@code GoogleService-Info.plist} 프로젝트가 서버의 {@code FCM_PROJECT_ID} 와 다르면, 그 앱이
      * 받은 토큰은 이 서버 프로젝트로 영원히 보낼 수 없다. 재시도로 돌리면 {@code retry} 가 60초마다 같은
-     * 토큰으로 다시 보내므로, 이벤트 만료가 없는 알림은 끝나지 않는다.
+     * 토큰으로 다시 보내므로, 이벤트 만료가 없는 알림도 상한까지 불필요하게 재시도한다.
      *
      * <p>토큰 고유 오류라 {@code UNREGISTERED} 와 같은 길이다 — 전송 자격({@code transport_invalid})만 내리고
      * 소유권({@code active})은 유지해, 앱이 올바른 프로젝트의 새 토큰을 올리면 CAS 로 교체된다.
@@ -190,6 +207,21 @@ class FcmTransport implements PushTransport {
             return false;
         }
         return false;
+    }
+
+    private static String fcmErrorCode(String body) {
+        try {
+            Object details = Json.map(Json.map(body).get("error")).get("details");
+            if (details instanceof List<?> list) {
+                return list.stream().filter(item -> item instanceof Map<?, ?>).map(Json::map).filter(item ->
+                        "type.googleapis.com/google.firebase.fcm.v1.FcmError".equals(item.get("@type"))
+                                && item.get("errorCode") instanceof String)
+                        .map(item -> item.get("errorCode").toString()).findFirst().orElse("unknown");
+            }
+        } catch (RuntimeException invalid) {
+            return "unknown";
+        }
+        return "unknown";
     }
 
     static Map<String, Object> payload(String token, RenderedPush push, boolean sound, String eventId) {
