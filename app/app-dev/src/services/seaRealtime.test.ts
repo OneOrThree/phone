@@ -586,3 +586,25 @@ test('더 최신인 바다 스냅샷과 갱신은 오래된 공용 캐시를 교
   request.mockRestore();
   memberLooks.clear();
 });
+
+test('초기 조회 실패 중에도 바다 외양 이벤트를 기존 멤버에 적용한다', async () => {
+  const userId = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+  memberLooks.clear();
+  const request = jest.spyOn(apiClient, 'request').mockRejectedValue(new Error('offline'));
+  await memberLooks.ensure([userId]);
+  const { room, spy } = open();
+  joinRoom([member(userId)]);
+  roomEvent('sea.member.appearance.updated', {
+    userId,
+    appearance: { head: 'hat', neck: null },
+    version: 3,
+  });
+  expect(spy.members[0].outfit).toMatchObject({ head: 'hat', neck: null });
+  expect(spy.members[0].outfitVersion).toBe(3);
+  personal('sea.room.snapshot', { roomId: 'room-1', members: [member(userId)] });
+  expect(spy.members[0].outfit.head).toBe('hat');
+  expect(request).toHaveBeenCalledTimes(1);
+  room.close();
+  request.mockRestore();
+  memberLooks.clear();
+});

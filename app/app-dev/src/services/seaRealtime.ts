@@ -249,9 +249,16 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
         typeof p.userId === 'string' &&
         members.has(p.userId) &&
         look &&
-        Number.isSafeInteger(p.version)
+        Number.isSafeInteger(p.version) &&
+        (p.version as number) >= 0
       ) {
+        const member = members.get(p.userId)!;
+        if (member.outfitVersion === undefined || (p.version as number) > member.outfitVersion) {
+          member.outfit = { ...look };
+          member.outfitVersion = p.version as number;
+        }
         memberLooks.accept(p.userId, { ...look, version: p.version as number });
+        emit();
       }
     } else if (ev.type === 'sea.member.left') {
       // 없는 사람 제거는 멱등이다(joined 뒤 보정 left 와 겹칠 수 있다)

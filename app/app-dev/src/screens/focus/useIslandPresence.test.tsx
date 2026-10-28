@@ -1,3 +1,4 @@
+import { memberLooks, useMemberLooks } from '@/services/memberLooks';
 import * as apiClient from '@/services/api/client';
 /**
  * useIslandPresence (GROMO-2010) — 섬·계정 변경 때 이전 채널 해제,
@@ -264,6 +265,54 @@ test('주민 외양은 묶음 조회로 채우고 변경 이벤트 뒤에는 다
     });
   });
   expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 2 });
+  expect(request).toHaveBeenCalledTimes(1);
+  await unmount();
+  request.mockRestore();
+});
+
+test('섬의 최신 스냅샷을 캐시에 병합하고 늦은 스냅샷으로 되돌리지 않는다', async () => {
+  const userId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'old', version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { result, unmount } = await mount({ active: true, islandId: 'i1' });
+  const snapshot = (version: number, head: string | null) => ({
+    ...READY,
+    rest: [
+      {
+        userId,
+        name: '주민',
+        anchorMs: Date.now(),
+        catColor: 'black',
+        restSeat: null,
+        restStartedAt: null,
+        appearance: { head, neck: null, shoes: null, version },
+      },
+    ],
+  });
+  await act(async () => sessions[0].deps.onView(snapshot(4, 'new')));
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 4 });
+  expect(memberLooks.get(userId)?.appearance?.version).toBe(4);
+  await act(async () => sessions[0].deps.onView(snapshot(2, 'stale')));
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 4 });
+  expect(request).toHaveBeenCalledTimes(1);
+  await unmount();
+  request.mockRestore();
+});
+
+test('첫 마운트와 같은 차단 목록 재조회는 기존 외양 캐시를 재사용한다', async () => {
+  const userId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  replaceBlockedUsers([]);
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'hat', version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { result, unmount } = await renderHook(() => useMemberLooks([userId]));
+  await act(async () => replaceBlockedUsers([]));
+  expect(result.current[userId]?.appearance?.head).toBe('hat');
   expect(request).toHaveBeenCalledTimes(1);
   await unmount();
   request.mockRestore();

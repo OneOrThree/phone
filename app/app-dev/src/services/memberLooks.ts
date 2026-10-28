@@ -28,6 +28,7 @@ let previousBlocked: ReadonlySet<string> | undefined;
 subscribeSession(() => {
   if (generation === sessionGeneration()) return;
   generation = sessionGeneration();
+  previousBlocked = undefined;
   memberLooks.clear();
 });
 
@@ -54,8 +55,14 @@ export function useMemberLooks(
     memberLooks.snapshot,
   );
   useEffect(() => {
-    if (previousBlocked === blocked) return;
+    const previous = previousBlocked;
     previousBlocked = blocked;
+    // 초기 마운트와 같은 내용의 재검증은 다른 화면이 채운 캐시를 무효화하지 않는다.
+    if (
+      !previous ||
+      (previous.size === blocked.size && [...previous].every((id) => blocked.has(id)))
+    )
+      return;
     memberLooks.clear();
   }, [blocked]);
   useEffect(() => {

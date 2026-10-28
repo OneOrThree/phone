@@ -12,7 +12,7 @@ import { AppState } from 'react-native';
 import { sessionGeneration } from '@/services/api/session';
 import { useBlockedUserIds } from '@/services/blockedUsers';
 import type { Color } from '@/services/model';
-import { newerLook, type MemberLook } from '@/services/memberAppearance';
+import { newerLook, parseLook, type MemberLook } from '@/services/memberAppearance';
 import {
   EMPTY_PRESENCE,
   startIslandRealtime,
@@ -99,6 +99,10 @@ export function useIslandPresence(
       onView: (view) => {
         if (alive()) {
           setSnapshot({ scope, view });
+          for (const member of [...view.focus, ...view.rest]) {
+            const appearance = parseLook(member.appearance);
+            if (appearance) memberLooks.accept(member.userId, appearance);
+          }
           void ensureMemberLooks([...view.focus, ...view.rest].map((member) => member.userId));
         }
       },
@@ -170,7 +174,15 @@ export function useIslandPresence(
       member: T,
     ): T => {
       const look = cached[member.userId];
-      return look ? { ...member, catColor: look.catColor, appearance: look.appearance } : member;
+      return look
+        ? {
+            ...member,
+            catColor: look.catColor,
+            appearance: look.hidden
+              ? null
+              : newerLook(parseLook(member.appearance), look.appearance),
+          }
+        : member;
     };
     return { focus: view.focus.map(enrich), rest: view.rest.map(enrich) };
   }, [view.focus, view.rest, cached]);
