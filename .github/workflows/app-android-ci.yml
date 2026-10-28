@@ -178,6 +178,7 @@ jobs:
     env:
       IS_RELEASE: ${{ needs.settings.result == 'success' }}
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
+      META_CLIENT_TOKEN: ${{ vars.META_CLIENT_TOKEN }}
       # 빌드에 박히는 값. 고정 (레포 변수로 못 바꾸게)
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
