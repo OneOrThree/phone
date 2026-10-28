@@ -45,8 +45,6 @@ def settings(env):
 
 
 def classify(code, rc, body):
-    if rc:
-        return False, rc in {7, 28, 52, 56}, 'CURL_' + str(rc)
     try:
         envelope = json.loads(body)
     except (ValueError, TypeError):
@@ -56,6 +54,17 @@ def classify(code, rc, body):
         raw = envelope.get('error')
         error = raw.get('code') if isinstance(raw, dict) else envelope.get('code')
         has_error = raw is not None or 'code' in envelope
+    # 헤더를 받은 뒤 본문 전송이 끊겨도 429·인증 오류 등을 재시도하지 않는다.
+    if code not in {'000', '201', '502', '503', '504'}:
+        return False, False, error if isinstance(error, str) and error in ERRORS else 'HTTP_' + code
+    # 앱 오류 봉투가 있으면 HTTP 상태나 전송 오류만 보고 재시도하지 않는다.
+    if has_error:
+        retry = (isinstance(error, str)
+                 and (code, error) in {('504', 'UPSTREAM_TIMEOUT'), ('503', 'SERVICE_UNAVAILABLE')}
+                 and rc in {0, 7, 28, 52, 56})
+        return False, retry, error if isinstance(error, str) and error in ERRORS else 'HTTP_' + code
+    if rc:
+        return False, rc in {7, 28, 52, 56}, 'CURL_' + str(rc)
     if code == '201' and isinstance(envelope, dict) and envelope.get('error') is None:
         data = envelope.get('data')
         if (isinstance(data, dict) and isinstance(data.get('accessToken'), str) and data['accessToken']
@@ -64,10 +73,6 @@ def classify(code, rc, body):
                 and re.fullmatch('[0-9a-fA-F-]{36}', data['userId'])
                 and type(data.get('onboardingComplete')) is bool):
             return True, False, 'OK'
-    # 앱 오류 봉투가 있으면 HTTP 502만 보고 재시도하지 않는다.
-    if has_error:
-        retry = isinstance(error, str) and (code, error) in {('504', 'UPSTREAM_TIMEOUT'), ('503', 'SERVICE_UNAVAILABLE')}
-        return False, retry, error if isinstance(error, str) and error in ERRORS else 'HTTP_' + code
     return False, code in {'502', '503', '504'}, 'HTTP_' + code
 
 

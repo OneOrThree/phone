@@ -4,6 +4,7 @@ import os
 import fcntl
 import json
 from pathlib import Path
+import tempfile
 import time
 
 # 현재 GuestLoginRateLimiter 기본 창. 마지막 요청부터 한 창을 기다리므로
@@ -31,12 +32,14 @@ class RequestBudget:
         if role not in self.roles:
             raise ValueError('알 수 없는 게스트 로그인 역할')
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        # 잠금 대상 파일은 교체하지 않는다. 모든 자식이 같은 inode를 잠근다.
-        with self.path.open('a+') as file:
-            os.chmod(self.path, 0o600)
+        # 잠금 파일은 유지하고 기록만 원자적으로 교체한다. 쓰기 중단으로
+        # 기존 요청 횟수가 사라져 상한이 초기화되는 것을 막는다.
+        lock_path = self.path.with_name(self.path.name + '.lock')
+        with lock_path.open('a+') as lock:
+            os.chmod(lock_path, 0o600)
             while True:
                 try:
-                    fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
                     if self.deadline is not None:
@@ -46,9 +49,10 @@ class RequestBudget:
                         time.sleep(min(.05, remaining))
                     else:
                         time.sleep(.01)
-            file.seek(0)
-            raw = file.read()
-            state = json.loads(raw) if raw else {'roles': self.roles, 'limit': self.limit, 'counts': {}}
+            try:
+                state = json.loads(self.path.read_text())
+            except FileNotFoundError:
+                state = {'roles': self.roles, 'limit': self.limit, 'counts': {}}
             counts = state['counts']
             if (state['roles'] != self.roles or state['limit'] != self.limit
                     or not isinstance(counts, dict) or not set(counts) <= set(self.roles)
@@ -61,11 +65,15 @@ class RequestBudget:
             if not consume:
                 return True
             counts[role] = counts.get(role, 0) + 1
-            file.seek(0)
-            file.truncate()
-            json.dump(state, file)
-            file.flush()
-            os.fsync(file.fileno())
+            fd, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + '.')
+            try:
+                with os.fdopen(fd, 'w') as file:
+                    json.dump(state, file)
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.replace(temporary, self.path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
             return True
 
 

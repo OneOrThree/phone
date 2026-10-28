@@ -47,7 +47,14 @@ run_case() {
   else
     awk -F '\t' '$1=="SMOKE-SERVER-015" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
   fi
-  if rg 'secret-refresh|secret-bootstrap|secret-ownership|header\.' "$TMP/$name.log" "$TMP/$name.tsv" "$TMP/argv.log";then echo 'credential leaked';return 1;fi
+  python3 - "$TMP/$name.log" "$TMP/$name.tsv" "$TMP/argv.log" <<'PY'
+from pathlib import Path
+import re
+import sys
+if any(re.search(r'secret-refresh|secret-bootstrap|secret-ownership|header\.', Path(path).read_text())
+       for path in sys.argv[1:]):
+    raise SystemExit('credential leaked')
+PY
   kill "$PID"; wait "$PID" 2>/dev/null || true; PID='';rm "$TMP/port"
   printf '%s PASS\n' "$name"
 }

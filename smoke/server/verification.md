@@ -99,7 +99,8 @@ Codex 첫 리뷰의 4개 항목을 반영했다. 공개 게스트 발급을 유�
 
 - 변경 전 실제 `run.sh` + localhost mock에서 첫 `UPSTREAM_TIMEOUT`에 TC002 FAIL·후속 SKIP를 재현했다.
 - 변경 후 같은 mock에서 매번 5초 대기하는 로그인 재시도로 기본 공개 9개 TC가 통과했다. TC002의 `attempts=2`, `retries=1`도 확인했다.
-- Python 회귀 71개 PASS: `smoke/server/tests` 25개, `.github/scripts/test_*smoke*.py` 46개. 가상 시계·실제 curl timeout/응답 유실·같은 기기 유지·부모/자식 요청 예산·미시작 로그인 몫·SIGTERM·결과 보고를 포함한다.
+- Python 회귀 75개 PASS: `smoke/server/tests` 29개, `.github/scripts/test_*smoke*.py` 46개. 가상 시계·실제 curl timeout/응답 유실·같은 기기 유지·부모/자식 요청 예산·미시작 로그인 몫·SIGTERM·결과 보고를 포함한다.
+- PR 리뷰 후 실제 curl에서 429 헤더 뒤 본문 지연이 발생해도 재시도하지 않음을 확인했다. 요청 횟수 기록은 별도 잠금과 원자적 교체로 저장하며, 쓰기 중단 시 기존 횟수를 보존하고 이미 비어 있는 기록은 거부한다.
 - HTTP/native WebSocket mock 9개 시나리오 및 friendship·seed 사전 접속 guard가 통과했다.
 - 모든 smoke 셸의 `bash -n`, 변경 Python·YAML 파싱, 수정 문서의 상대 링크와 `git diff --check`가 통과했다.
 

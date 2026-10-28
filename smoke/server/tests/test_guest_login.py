@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 HERE = Path(__file__).resolve().parents[1]
@@ -102,6 +103,15 @@ class RetryTests(unittest.TestCase):
                 self.assertEqual(result['result'], 'success')
                 self.assertEqual(self.clock.waits, [5])
 
+    def test_received_non_retryable_status_or_app_error_wins_over_transport_failure(self):
+        responses = [(code, rc, '') for code in ('400', '401', '403', '429', '500') for rc in (28, 52, 56)]
+        responses += [('502', 28, '{"error":{"code":"UPSTREAM_AUTH_FAILED"}}'),
+                      ('503', 56, '{"error":{"code":"UPSTREAM_CONTRACT_ERROR"}}')]
+        for response in responses:
+            with self.subTest(response=response):
+                result = self.run_case([response])
+                self.assertEqual((result['result'], result['attempts'], self.clock.waits), ('non_retryable', 1, []))
+
     def test_invalid_configuration_is_rejected(self):
         for env in [{'SMOKE_AUTH_MAX_RETRIES': '3'}, {'SMOKE_AUTH_MAX_RETRIES': '-1'},
                     {'SMOKE_AUTH_TOTAL_TIMEOUT_SECONDS': '41'}, {'SMOKE_HTTP_TIMEOUT': 'NaN'},
@@ -170,14 +180,59 @@ assert module.RequestBudget(Path(sys.argv[2]), sys.argv[3].split(',')).claim('co
 
     def test_budget_lock_cannot_wait_past_login_deadline(self):
         self.budget.claim('main')
-        with self.path.open('a+') as locked:
+        with self.path.with_name(self.path.name + '.lock').open('a+') as locked:
             login.fcntl.flock(locked, login.fcntl.LOCK_EX)
             waiting = login.budget.RequestBudget(self.path, login.ROLES, deadline=time.monotonic() + .05)
             self.assertFalse(waiting.claim('core'))
         self.assertNotIn('core', json.loads(self.path.read_text())['counts'])
 
+    def test_interrupted_budget_write_preserves_prior_requests(self):
+        self.assertTrue(self.budget.claim('main'))
+        previous = self.path.read_text()
+        with patch.object(login.budget.json, 'dump', side_effect=OSError('write interrupted')):
+            with self.assertRaises(OSError):
+                self.budget.claim('core')
+        self.assertEqual(self.path.read_text(), previous)
+        self.assertEqual(list(self.path.parent.glob('requests.json.*')), [self.path.with_name('requests.json.lock')])
+        self.assertTrue(self.budget.claim('main'))
+        self.assertEqual(json.loads(self.path.read_text())['counts'], {'main': 2})
+
+    def test_existing_empty_budget_is_not_treated_as_a_new_run(self):
+        self.path.write_text('')
+        with self.assertRaises(ValueError):
+            self.budget.claim('main')
+
 
 class RealHttpTests(unittest.TestCase):
+    def test_rate_limit_headers_with_slow_body_are_not_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            calls = []
+            class Handler(BaseHTTPRequestHandler):
+                def log_message(self, *_args):
+                    pass
+
+                def do_POST(self):
+                    calls.append(True)
+                    self.send_response(429)
+                    self.end_headers()
+                    self.wfile.flush()
+                    time.sleep(.3)
+            server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+            server.daemon_threads = True
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                config, rows, waits = login.settings({'SMOKE_HTTP_TIMEOUT': '.1'}), [], []
+                request = login.CurlRequest(Path(temporary), {'BASE_URL': f'http://127.0.0.1:{server.server_port}'},
+                                            str(uuid.uuid4()), config)
+                result = login.run_login('main', config, request, lambda _: True, rows.append, sleep=waits.append)
+                self.assertEqual((result['result'], result['http_code'], result['curl_rc']), ('non_retryable', '429', 28))
+                self.assertEqual((len(calls), result['attempts'], waits), (1, 1, []))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
+
     def test_termination_during_request_or_retry_wait_sends_no_more_requests(self):
         for during_request in (False, True):
             with self.subTest(during_request=during_request), tempfile.TemporaryDirectory() as temporary:
