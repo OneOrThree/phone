@@ -229,7 +229,10 @@ test('계정 세대가 바뀐 뒤 도착한 출항 응답은 진행도와 화면
   const pressing = pressContinue(screen);
   await new Promise((r) => setTimeout(r, 0));
   mockGeneration++;
-  resolve({ id: 's1', kind: 'sea', islandId: 'island-1' });
+  await act(async () => {
+    resolve({ id: 's1', kind: 'sea', islandId: 'island-1' });
+    await new Promise((r) => setTimeout(r, 0));
+  });
   await pressing;
   expect(current.onboardingStory).toBe('scope');
   expect(reset).not.toHaveBeenCalled();
