@@ -64,17 +64,17 @@ public class AppearanceUseCase {
             throw new UpstreamContractMismatchException("주민 외양 응답이 없습니다");
         }
         return new MemberAppearancesView(result.members().stream()
-                .map(member -> new MemberAppearanceView(member.userId(), member.catColor(),
+                .map(member -> new CachedMemberAppearanceView(member.userId(), member.catColor(),
                         PersonalAppearanceView.from(member.appearance())))
                 .toList(), result.hiddenUserIds());
     }
 
     public record MemberAppearancesView(
-            @JsonProperty(required = true) List<MemberAppearanceView> members,
+            @JsonProperty(required = true) List<CachedMemberAppearanceView> members,
             @JsonProperty(required = true) List<UUID> hiddenUserIds) {
     }
 
-    public record MemberAppearanceView(
+    public record CachedMemberAppearanceView(
             @JsonProperty(required = true) UUID userId,
             @JsonProperty(required = true) String catColor,
             @JsonProperty(required = true) PersonalAppearanceView appearance) {

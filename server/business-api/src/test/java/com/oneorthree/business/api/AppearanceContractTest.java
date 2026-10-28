@@ -412,7 +412,9 @@ class AppearanceContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 도구
 
     @ParameterizedTest
-    @CsvSource({"/me/inventory,get,,clothes decor head neck shoes hulls inventoryVersion equipped",
+    @CsvSource({"/me/member-appearances,get,,members hiddenUserIds",
+            "/me/member-appearances,get,members,userId catColor appearance",
+            "/me/inventory,get,,clothes decor head neck shoes hulls inventoryVersion equipped",
             "/me/inventory,get,equipped,clothes decor head neck shoes hull position version",
             "/islands/{islandId}/inventory,get,,audio islandThemes buildingThemes inventoryVersion appearance",
             "/islands/{islandId}/inventory,get,appearance,islandThemeId buildingThemes version",
