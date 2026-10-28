@@ -167,6 +167,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   /** 일시 오류 뒤 예약한 단 한 번의 재시도. 다른 트리거가 먼저 보내면 그 전송이 재시도다. */
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retriedKey: string | undefined;
+  let transientKey: string | undefined;
+  let preflightRearmedKey: string | undefined;
   /** Retry-After 는 자동 타이머뿐 아니라 같은 묶음의 앱 복귀·토큰 이벤트에도 적용한다. */
   let retryNotBefore: number | undefined;
   /** 타이머가 진행 중 맞춤과 겹치면 PUT 을 보내거나 그 맞춤이 끝날 때까지 재시도 의도를 보존한다. */
@@ -178,13 +180,22 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     retryDue = false;
   };
   const armRetry = (delayMs: number) => {
-    retryTimer = setTimeout(() => {
+    // setTimeout 은 2^31 ms 이상을 즉시 실행할 수 있다. 긴 Retry-After 는 남은 시간을 잘라 끝까지 기다린다.
+    const maxTimerDelayMs = 2_147_483_647;
+    const deadline = Date.now() + delayMs;
+    const tick = () => {
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        retryTimer = setTimeout(tick, Math.min(remaining, maxTimerDelayMs));
+        return;
+      }
       retryTimer = undefined;
       retryNotBefore = undefined;
       retryDue = true;
       // 진행 중 맞춤이 PUT 없이 끝나면 아래 직렬 큐가 예약된 재시도를 한 번 더 실행한다.
       if (!running) schedule();
-    }, delayMs);
+    };
+    retryTimer = setTimeout(tick, Math.min(delayMs, maxTimerDelayMs));
   };
   /** 세션을 알기 전에 온 탭 — 세션이 공개되면 한 번 판정한다(같은 계정이면 열고, 아니면 버린다). */
   let heldResponse: NotificationResponse | undefined;
@@ -293,7 +304,11 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       pending && JSON.stringify(pending.body) === JSON.stringify(body)
         ? pending
         : { key: uuid(), body };
-    if (pending?.key !== bundle.key) cancelRetry();
+    if (pending?.key !== bundle.key) {
+      cancelRetry();
+      transientKey = undefined;
+      preflightRearmedKey = undefined;
+    }
     pending = bundle;
     if (retryNotBefore !== undefined && Date.now() < retryNotBefore) return;
     // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
@@ -315,13 +330,9 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (!live() || !isEnabled()) return;
     let registered: DeviceRegistration;
     try {
-      if (retryTimer) {
-        cancelRetry();
-        retriedKey = bundle.key;
-      } else if (retryDue) {
-        retryDue = false;
-        retriedKey = bundle.key;
-      }
+      if (retryTimer) cancelRetry();
+      else if (retryDue) retryDue = false;
+      if (transientKey === bundle.key) retriedKey = bundle.key;
       registered = await registerDevice(body, bundle.key);
     } catch (error) {
       // 네트워크·타임아웃(상태 0)·408·429·5xx·ApiError 가 아닌 던짐은 같은 묶음으로 다음 트리거에 다시 보낸다.
@@ -333,6 +344,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         error.status >= 500;
       if (transient) {
         if (pending?.key === bundle.key && live() && !stopped) {
+          transientKey = bundle.key;
           if (error instanceof ApiError && error.retryAfterMs)
             retryNotBefore = Date.now() + error.retryAfterMs;
         }
@@ -414,11 +426,14 @@ export function startPushSync(isEnabled: () => boolean): () => void {
             if (
               result === 'preflight-failure' &&
               pending &&
+              preflightRearmedKey !== pending.key &&
               getSession() &&
               isEnabled() &&
               !stopped
-            )
+            ) {
+              preflightRearmedKey = pending.key;
               armRetry(30_000);
+            }
           } else again = true;
         }
       } while (again && !stopped);
@@ -434,6 +449,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     observedGeneration = generation;
     observedUserId = session?.userId;
     cancelRetry();
+    transientKey = undefined;
+    preflightRearmedKey = undefined;
     pending = undefined;
     // bootstrap 은 세션 공개 직후 꺼낸다 — auth.ts 는 꺼내지 않은 값을 최근 4개까지만 두어, 권한 대기·직렬 큐 뒤로
     // 미루면 다른 로그인에 밀려 사라질 수 있다. 꺼낸 값은 저장하지 않는다(메모리·그 등록의 재시도 본문까지만).

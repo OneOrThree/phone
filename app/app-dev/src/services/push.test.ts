@@ -709,6 +709,39 @@ test('유휴 상태의 예약 재시도가 토큰 조회에서 실패하면 즉�
   }
 });
 
+test('PUT 전 일시 오류 두 번 뒤에는 자동 조회를 멈추고, 다음 트리거의 PUT 이 한 번의 재시도를 소진한다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ bootstrap: 'boot-1' });
+    t.registerDevice
+      .mockRejectedValueOnce(t.apiError('UPSTREAM_UNAVAILABLE', 503))
+      .mockRejectedValueOnce(t.apiError('UPSTREAM_UNAVAILABLE', 503));
+    await settle();
+    t.fcm.getToken
+      .mockRejectedValueOnce(bridgeError('TOKEN_ERROR'))
+      .mockRejectedValueOnce(bridgeError('TOKEN_ERROR'));
+    jest.advanceTimersByTime(30_000);
+    await settle();
+    jest.advanceTimersByTime(30_000);
+    await settle();
+    expect(t.fcm.getToken).toHaveBeenCalledTimes(3);
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(120_000);
+    await settle();
+    expect(t.fcm.getToken).toHaveBeenCalledTimes(3);
+    t.foreground();
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(2);
+    expect(t.registerDevice.mock.calls[1]).toStrictEqual(t.registerDevice.mock.calls[0]);
+    jest.advanceTimersByTime(30_000);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(2);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('예약 재시도 중 영구 브리지 오류는 30초마다 다시 묻지 않는다', async () => {
   jest.useFakeTimers();
   try {
@@ -734,6 +767,31 @@ test('Retry-After 가 30초보다 길면 그 이후에만 재시도한다', asyn
     const t = setup();
     t.registerDevice.mockRejectedValueOnce(t.apiError('RATE_LIMITED', 429, 45_000));
     await settle();
+    jest.advanceTimersByTime(44_999);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    await settle();
+    expect(t.registerDevice.mock.calls[1]).toStrictEqual(t.registerDevice.mock.calls[0]);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('Retry-After 가 타이머 상한을 넘으면 나눠 기다린 뒤 같은 묶음을 재전송한다', async () => {
+  jest.useFakeTimers();
+  try {
+    const maxTimerDelay = 2_147_483_647;
+    const t = setup({ bootstrap: 'boot-1' });
+    t.registerDevice.mockRejectedValueOnce(t.apiError('RATE_LIMITED', 429, maxTimerDelay + 45_000));
+    await settle();
+    jest.advanceTimersByTime(maxTimerDelay);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    t.foreground();
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(44_999);
     await settle();
     expect(t.registerDevice).toHaveBeenCalledTimes(1);
