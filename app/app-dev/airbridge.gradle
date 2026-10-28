@@ -1,6 +1,10 @@
 // 직접 Gradle 빌드에서도 Expo의 .env 우선순위를 사용한다. 토큰은 빌드 산출물에만 넣는다.
-def airbridgeProcess = new ProcessBuilder("node", "scripts/airbridge-build-config.cjs")
-    .directory(rootProject.projectDir.parentFile).start()
+def airbridgeProcessBuilder = new ProcessBuilder("node", "scripts/airbridge-build-config.cjs")
+    .directory(rootProject.projectDir.parentFile)
+// 데몬을 시작한 이전 빌드가 아니라 이번 Gradle 호출의 환경을 자식 프로세스에 전달한다.
+airbridgeProcessBuilder.environment().clear()
+airbridgeProcessBuilder.environment().putAll(System.getenv())
+def airbridgeProcess = airbridgeProcessBuilder.start()
 def airbridgeOutput = airbridgeProcess.inputStream.text
 def airbridgeError = airbridgeProcess.errorStream.text
 if (airbridgeProcess.waitFor() != 0) {
