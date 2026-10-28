@@ -1,4 +1,5 @@
 {
   "CFBundleDisplayName": "cattus",
-  "CFBundleName": "cattus"
+  "CFBundleName": "cattus",
+  "NSUserTrackingUsageDescription": "Your permission helps us measure which ads led to app installs and how our ads perform."
 }
