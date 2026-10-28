@@ -96,6 +96,8 @@
 	</dict>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>광고를 통해 앱을 설치했는지 확인하고 광고 성과를 측정하는 데 기기 식별자를 사용합니다.</string>
 	<key>RCTMetroPort</key>
 	<string>$(RCT_METRO_PORT)</string>
 	<key>RCTNewArchEnabled</key>

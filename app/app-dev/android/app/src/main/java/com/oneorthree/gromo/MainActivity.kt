@@ -1,5 +1,8 @@
 package com.oneorthree.gromo
 
+import android.content.Intent
+import co.ab180.airbridge.reactnative.AirbridgeReactNative
+
 import android.os.Build
 import android.os.Bundle
 
@@ -17,6 +20,16 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    AirbridgeReactNative.trackDeeplink(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
   }
 
   /**

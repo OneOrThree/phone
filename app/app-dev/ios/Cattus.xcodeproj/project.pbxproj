@@ -468,6 +468,7 @@
 				A19833000000000000000001 /* Embed Foundation Extensions */,
 				36EEE7D751D04F900361AFFA /* Embed Report Extension */,
 				F19640000000000000000001 /* Upload PostHog native symbols */,
+				F23960000000000000000001 /* [Airbridge] Generate app configuration */,
 				7382D70F4C2E00CA0B974178 /* [Airbridge] Copy airbridge.json */,
 				C25230000000000000000021 /* [Firebase] Copy GoogleService-Info.plist */,
 				DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */,
@@ -959,6 +960,18 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "/bin/bash \"$SRCROOT/../scripts/posthog-xcode.sh\" symbols\n";
+		};
+		F23960000000000000000001 /* [Airbridge] Generate app configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "[Airbridge] Generate app configuration";
+			outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AirbridgeConfig.json",);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n/bin/sh \"$SRCROOT/scripts/airbridge-config.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

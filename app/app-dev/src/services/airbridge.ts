@@ -1,5 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 import { isMockMode } from '@/services/demoMode';
+import { openAirbridgeLink } from '@/services/appDeepLink';
 
 type AirbridgeSDK = typeof import('airbridge-react-native-sdk').Airbridge;
 let client: AirbridgeSDK | undefined;
@@ -12,6 +13,8 @@ export function initAirbridge(): void {
   try {
     const { Airbridge } =
       require('airbridge-react-native-sdk') as typeof import('airbridge-react-native-sdk');
+    // 설치 직후 전달되는 지연 딥링크도 놓치지 않도록 추적 시작 전에 구독한다.
+    Airbridge.setOnDeeplinkReceived(openAirbridgeLink);
     Airbridge.startTracking();
     client = Airbridge;
   } catch {

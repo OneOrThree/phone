@@ -1,4 +1,5 @@
 const mockAirbridge = {
+  setOnDeeplinkReceived: jest.fn(),
   startTracking: jest.fn(),
   setUserID: jest.fn(),
   clearUser: jest.fn(),
@@ -22,28 +23,32 @@ afterEach(() => {
   delete process.env.EXPO_PUBLIC_DEMO;
 });
 
-test('PostHog가 꺼져 있어도 성공 이벤트와 사용자 변경을 Airbridge에 전달한다', () => {
-  const { initAirbridge } = require('./airbridge');
-  const { captureProductEvent, identifyPostHogUser, resetPostHogUser } = require('./posthog');
-  initAirbridge();
-  initAirbridge();
-  identifyPostHogUser('user-1');
-  captureProductEvent('social_login_completed', { provider: 'google' });
-  captureProductEvent('focus_completed', { duration_seconds: 1200, earned_fish: 3 });
-  resetPostHogUser();
+test.each(['android', 'ios'])(
+  '%s에서 PostHog 없이 성공 이벤트와 사용자 변경을 전달한다',
+  (platform) => {
+    require('react-native').Platform.OS = platform;
+    const { initAirbridge } = require('./airbridge');
+    const { captureProductEvent, identifyPostHogUser, resetPostHogUser } = require('./posthog');
+    initAirbridge();
+    initAirbridge();
+    identifyPostHogUser('user-1');
+    captureProductEvent('social_login_completed', { provider: 'google' });
+    captureProductEvent('focus_completed', { duration_seconds: 1200, earned_fish: 3 });
+    resetPostHogUser();
 
-  expect(mockAirbridge.startTracking).toHaveBeenCalledTimes(1);
-  expect(mockAirbridge.setUserID).toHaveBeenCalledWith('user-1');
-  expect(mockAirbridge.trackEvent.mock.calls).toEqual([
-    ['airbridge.user.signin', { action: 'google' }],
-    [
-      'airbridge.unlockAchievement',
-      { achievementID: 'focus_completed', score: 3 },
-      { duration_seconds: 1200 },
-    ],
-  ]);
-  expect(mockAirbridge.clearUser).toHaveBeenCalledTimes(1);
-});
+    expect(mockAirbridge.startTracking).toHaveBeenCalledTimes(1);
+    expect(mockAirbridge.setUserID).toHaveBeenCalledWith('user-1');
+    expect(mockAirbridge.trackEvent.mock.calls).toEqual([
+      ['airbridge.user.signin', { action: 'google' }],
+      [
+        'airbridge.unlockAchievement',
+        { achievementID: 'focus_completed', score: 3 },
+        { duration_seconds: 1200 },
+      ],
+    ]);
+    expect(mockAirbridge.clearUser).toHaveBeenCalledTimes(1);
+  },
+);
 
 test.each(['web', 'demo', 'development', 'old-binary'])(
   '%s 환경은 자동 설치 이벤트를 포함한 추적을 시작하지 않는다',

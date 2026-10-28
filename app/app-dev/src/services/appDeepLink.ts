@@ -59,6 +59,17 @@ export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
 export type AppLinkSource = Pick<typeof Linking, 'getInitialURL' | 'addEventListener'>;
 
 const inAppLinks = new Set<(url: string) => void>();
+let pendingAirbridgeLink: string | undefined;
+
+/** SDK가 복원한 링크만 기존 라우터에 전달한다. JS 화면 구독 전의 지연 딥링크는 보관한다. */
+export function openAirbridgeLink(url: string): void {
+  if (!parseAppDeepLink(url)) return;
+  if (inAppLinks.size === 0) {
+    pendingAirbridgeLink = url;
+    return;
+  }
+  openAppLink(url);
+}
 
 /**
  * 앱 안에서 연 링크(푸시 탭 — GROMO-2525)를 URL 이벤트와 같은 소비자에게 건넨다. 받는 쪽은 같은 보관·가드
@@ -76,20 +87,34 @@ export function subscribeToAppLinks(
   let active = true;
   // 초기 URL 조회가 끝나기 전에 새 URL 이벤트가 오면 그쪽이 더 최신이다 — 늦은 초기 URL로 덮지 않는다.
   let receivedEvent = false;
+  let lastTarget: string | undefined;
+  let lastReceivedAt = 0;
   const forward = (url: string) => {
     receivedEvent = true;
+    // 같은 탭이 OS URL과 SDK 콜백으로 함께 오더라도 화면 이동은 한 번만 수행한다.
+    const target = parseAppDeepLink(url);
+    const key = target ? JSON.stringify(target) : url;
+    const now = Date.now();
+    if (key === lastTarget && now - lastReceivedAt < 1000) return;
+    lastTarget = key;
+    lastReceivedAt = now;
     if (active) onUrl(url);
   };
   void source
     .getInitialURL()
     .then((url) => {
-      if (active && url && !receivedEvent) onUrl(url);
+      if (active && url && !receivedEvent) forward(url);
     })
     .catch(() => {
       // initial URL 조회 실패는 일반 앱 진입을 막지 않는다.
     });
   const subscription = source.addEventListener('url', ({ url }) => forward(url));
   inAppLinks.add(forward);
+  if (pendingAirbridgeLink) {
+    const url = pendingAirbridgeLink;
+    pendingAirbridgeLink = undefined;
+    forward(url);
+  }
   return () => {
     active = false;
     inAppLinks.delete(forward);

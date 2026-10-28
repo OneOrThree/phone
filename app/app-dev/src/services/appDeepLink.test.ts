@@ -129,3 +129,48 @@ test('iOS 네이티브 타깃이 legacy gromo scheme 링크를 수신한다', ()
   assert.ok(urlTypes);
   assert.match(urlTypes, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>gromo<\/string>/);
 });
+
+test('구독 전에 온 지연 딥링크를 한 번 전달하고 늦은 초기 URL로 덮지 않는다', async () => {
+  jest.resetModules();
+  const links = require('./appDeepLink') as typeof import('./appDeepLink');
+  links.openAirbridgeLink('gromo://friends');
+  const source = {
+    getInitialURL: jest.fn(async () => 'gromo://home'),
+    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  } as unknown as AppLinkSource;
+  const received: string[] = [];
+  const stop = links.subscribeToAppLinks((url) => received.push(url), source);
+  await Promise.resolve();
+  expect(received).toEqual(['gromo://friends']);
+  stop();
+  const next: string[] = [];
+  const stopNext = links.subscribeToAppLinks((url) => next.push(url), source);
+  await Promise.resolve();
+  expect(next).toEqual(['gromo://home']);
+  stopNext();
+});
+
+test('OS·SDK 중복 링크는 한 번만 이동하고 이후 다시 탭한 링크는 허용한다', async () => {
+  jest.resetModules();
+  const links = require('./appDeepLink') as typeof import('./appDeepLink');
+  let onUrl!: (event: { url: string }) => void;
+  const source = {
+    getInitialURL: jest.fn(async () => null),
+    addEventListener: jest.fn((_type, listener) => {
+      onUrl = listener;
+      return { remove: jest.fn() };
+    }),
+  } as unknown as AppLinkSource;
+  const now = jest.spyOn(Date, 'now').mockReturnValue(10000);
+  const received: string[] = [];
+  const stop = links.subscribeToAppLinks((url) => received.push(url), source);
+  onUrl({ url: 'gromo://friends?airbridge_referrer=test' });
+  links.openAirbridgeLink('gromo://friends');
+  links.openAirbridgeLink('https://untrusted.example/path');
+  expect(received).toHaveLength(1);
+  now.mockReturnValue(12000);
+  links.openAirbridgeLink('gromo://friends');
+  expect(received).toHaveLength(2);
+  stop();
+  now.mockRestore();
+});
