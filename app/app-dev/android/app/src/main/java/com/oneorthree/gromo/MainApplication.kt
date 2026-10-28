@@ -1,6 +1,7 @@
 package com.oneorthree.gromo
 
 import android.app.Application
+import android.content.Context
 import android.content.res.Configuration
 import android.util.Log
 import com.facebook.FacebookSdk
@@ -37,11 +38,16 @@ class MainApplication : Application(), ReactApplication {
     )
   }
 
-  override fun onCreate() {
-    super.onCreate()
-    // 이전 실행의 SDK 설정도 끈 채 시작한다. 운영·목업 판정 뒤 JS만 수집을 켠다(GROMO-2544).
+  override fun attachBaseContext(base: Context) {
+    super.attachBaseContext(base)
+    // FacebookInitProvider는 onCreate보다 먼저 돈다. 이전 실행의 설정을 provider 초기화 전 끄고,
+    // 운영·목업 판정 뒤 JS만 수집을 켠다(GROMO-2544). false setter는 SDK 초기화 전에도 안전하다.
     FacebookSdk.setAutoLogAppEventsEnabled(false)
     FacebookSdk.setAdvertiserIDCollectionEnabled(false)
+  }
+
+  override fun onCreate() {
+    super.onCreate()
     // Airbridge 는 앱 시작 시점의 설치·세션 이벤트를 잡아야 하므로 React Native 가 뜨기 전에 초기화한다.
     if (AIRBRIDGE_APP_NAME.isNotEmpty() && AIRBRIDGE_APP_TOKEN.isNotEmpty()) {
       AirbridgeReactNative.initializeSDK(this, AIRBRIDGE_APP_NAME, AIRBRIDGE_APP_TOKEN)
