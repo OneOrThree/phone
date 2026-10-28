@@ -159,4 +159,4 @@ SELECT count(*) FROM device_tokens WHERE active AND transport_invalid AND update
 UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_invalid AND updated_at >= '<첫 경고 시각>';
 ```
 
-`<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. `NO_ACTIVE_DEVICE`로 재시도 중인 발송 중 60회 상한에 닿지 않은 건은 무효 표시 복구 뒤 이어서 나갑니다. 이미 `FAILED`가 된 건은 콘솔 resend로 건별 복구합니다.
+`<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. `NO_ACTIVE_DEVICE`로 재시도 중인 발송 중 60회 상한에 닿지 않은 건은 무효 표시 복구 뒤 이어서 나갑니다. 이미 `FAILED`가 된 건은 원본의 `deviceCount` 또는 `delivery_devices`를 먼저 확인합니다. 콘솔 resend는 새 발송을 만들므로 일부 기기에 이미 전달됐으면 중복 푸시가 갈 수 있습니다. FCM 수락 뒤 기록이 실패했을 가능성도 고려해 건별로 재전송을 판단합니다.
