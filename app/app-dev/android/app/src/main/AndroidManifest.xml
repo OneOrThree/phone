@@ -19,6 +19,15 @@
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
+    <meta-data android:name="com.facebook.sdk.ApplicationId" android:value="@string/facebook_app_id"/>
+    <meta-data android:name="com.facebook.sdk.ClientToken" android:value="@string/facebook_client_token"/>
+    <meta-data android:name="com.facebook.sdk.AutoInitEnabled" android:value="${metaSdkEnabled}"/>
+    <meta-data android:name="com.facebook.sdk.AutoLogAppEventsEnabled" android:value="${metaSdkEnabled}"/>
+    <meta-data android:name="com.facebook.sdk.AdvertiserIDCollectionEnabled" android:value="${metaSdkEnabled}"/>
+    <meta-data android:name="com.facebook.sdk.AutoLogMetaDataEnabled" android:value="false"/>
+    <meta-data android:name="com.facebook.sdk.AutoLogProductImprovementEnabled" android:value="false"/>
+    <!-- Client Token이 없거나 개발 수집이 꺼진 경우 자동 초기화 자체를 막는다. -->
+    <provider android:name="com.facebook.internal.FacebookInitProvider" android:authorities="${applicationId}.FacebookInitProvider" android:enabled="${metaSdkEnabled}" android:exported="false" tools:node="merge"/>
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="${expoUpdatesEnabled}"/>
     <meta-data android:name="expo.modules.updates.ENABLE_BSDIFF_PATCH_SUPPORT" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
