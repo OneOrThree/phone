@@ -654,6 +654,80 @@ test('앱 복귀의 토큰 조회 중 재시도 시간이 지나도 실패 뒤 �
   }
 });
 
+test('재시도 시각에 진행 중인 토큰 조회가 PUT 전에 실패해도 예약된 PUT 을 다시 시도한다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ bootstrap: 'boot-1' });
+    t.registerDevice.mockRejectedValueOnce(t.apiError('UPSTREAM_UNAVAILABLE', 503));
+    await settle();
+    let failToken!: (error: Error) => void;
+    t.fcm.getToken.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failToken = reject;
+        }),
+    );
+    jest.advanceTimersByTime(29_999);
+    t.foreground();
+    await settle();
+    jest.advanceTimersByTime(1);
+    await settle();
+    failToken(bridgeError('TOKEN_ERROR'));
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(2);
+    expect(t.registerDevice.mock.calls[1]).toStrictEqual(t.registerDevice.mock.calls[0]);
+    jest.advanceTimersByTime(60_000);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(2);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('유휴 상태의 예약 재시도가 토큰 조회에서 실패하면 즉시 반복하지 않고 30초 뒤 같은 PUT 을 보낸다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ bootstrap: 'boot-1' });
+    t.registerDevice.mockRejectedValueOnce(t.apiError('UPSTREAM_UNAVAILABLE', 503));
+    await settle();
+    t.fcm.getToken.mockRejectedValueOnce(bridgeError('TOKEN_ERROR'));
+    jest.advanceTimersByTime(30_000);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    expect(t.fcm.getToken).toHaveBeenCalledTimes(2);
+    jest.advanceTimersByTime(29_999);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    await settle();
+    expect(t.registerDevice.mock.calls[1]).toStrictEqual(t.registerDevice.mock.calls[0]);
+    expect(t.fcm.getToken).toHaveBeenCalledTimes(3);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('예약 재시도 중 영구 브리지 오류는 30초마다 다시 묻지 않는다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup();
+    t.registerDevice.mockRejectedValueOnce(t.apiError('UPSTREAM_UNAVAILABLE', 503));
+    await settle();
+    t.fcm.getToken.mockRejectedValueOnce(bridgeError('NOT_CONFIGURED'));
+    jest.advanceTimersByTime(30_000);
+    await settle();
+    jest.advanceTimersByTime(120_000);
+    await settle();
+    expect(t.fcm.getToken).toHaveBeenCalledTimes(2);
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('Retry-After 가 30초보다 길면 그 이후에만 재시도한다', async () => {
   jest.useFakeTimers();
   try {
@@ -666,6 +740,56 @@ test('Retry-After 가 30초보다 길면 그 이후에만 재시도한다', asyn
     jest.advanceTimersByTime(1);
     await settle();
     expect(t.registerDevice.mock.calls[1]).toStrictEqual(t.registerDevice.mock.calls[0]);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('Retry-After 대기 중 앱 복귀·토큰 이벤트도 같은 묶음을 일찍 재전송하지 않는다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup({ bootstrap: 'boot-1' });
+    t.registerDevice.mockRejectedValueOnce(t.apiError('RATE_LIMITED', 429, 45_000));
+    await settle();
+    jest.advanceTimersByTime(10_000);
+    t.foreground();
+    await settle();
+    t.fcmRefresh(FCM);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(34_999);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    await settle();
+    expect(t.registerDevice.mock.calls[1]).toStrictEqual(t.registerDevice.mock.calls[0]);
+    t.stop();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('한 번의 자동 재시도도 429 면 새 Retry-After 동안 수동 재전송을 기다린다', async () => {
+  jest.useFakeTimers();
+  try {
+    const t = setup();
+    t.registerDevice
+      .mockRejectedValueOnce(t.apiError('RATE_LIMITED', 429, 45_000))
+      .mockRejectedValueOnce(t.apiError('RATE_LIMITED', 429, 60_000));
+    await settle();
+    jest.advanceTimersByTime(45_000);
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(2);
+    jest.advanceTimersByTime(30_000);
+    t.foreground();
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(2);
+    jest.advanceTimersByTime(30_000);
+    t.foreground();
+    await settle();
+    expect(t.registerDevice).toHaveBeenCalledTimes(3);
+    expect(t.registerDevice.mock.calls[2]).toStrictEqual(t.registerDevice.mock.calls[0]);
     t.stop();
   } finally {
     jest.useRealTimers();

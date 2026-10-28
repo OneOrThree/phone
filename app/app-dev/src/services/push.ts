@@ -167,9 +167,24 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   /** 일시 오류 뒤 예약한 단 한 번의 재시도. 다른 트리거가 먼저 보내면 그 전송이 재시도다. */
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let retriedKey: string | undefined;
+  /** Retry-After 는 자동 타이머뿐 아니라 같은 묶음의 앱 복귀·토큰 이벤트에도 적용한다. */
+  let retryNotBefore: number | undefined;
+  /** 타이머가 진행 중 맞춤과 겹치면 PUT 을 보내거나 그 맞춤이 끝날 때까지 재시도 의도를 보존한다. */
+  let retryDue = false;
   const cancelRetry = () => {
     clearTimeout(retryTimer);
     retryTimer = undefined;
+    retryNotBefore = undefined;
+    retryDue = false;
+  };
+  const armRetry = (delayMs: number) => {
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      retryNotBefore = undefined;
+      retryDue = true;
+      // 진행 중 맞춤이 PUT 없이 끝나면 아래 직렬 큐가 예약된 재시도를 한 번 더 실행한다.
+      if (!running) schedule();
+    }, delayMs);
   };
   /** 세션을 알기 전에 온 탭 — 세션이 공개되면 한 번 판정한다(같은 계정이면 열고, 아니면 버린다). */
   let heldResponse: NotificationResponse | undefined;
@@ -203,7 +218,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       openAppLink(link);
   };
 
-  const reconcile = async (): Promise<void> => {
+  const reconcile = async (): Promise<'preflight-failure' | void> => {
     const session = getSession();
     const generation = sessionGeneration();
     // 정리(알림 끄기의 토큰 지우기·A→B 교체)는 멈춘 세션에서도 한다 — 멈춤(halt)은 등록만 막는다.
@@ -253,7 +268,9 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === NOT_CONFIGURED) disabled = true;
       if (code === INVALID_APNS_TOKEN) invalidHex = hex;
-      return;
+      return code === NOT_CONFIGURED || code === INVALID_APNS_TOKEN
+        ? undefined
+        : 'preflight-failure';
     }
     if (!live()) return;
     const sameUser = device.userId === session.userId;
@@ -278,6 +295,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         : { key: uuid(), body };
     if (pending?.key !== bundle.key) cancelRetry();
     pending = bundle;
+    if (retryNotBefore !== undefined && Date.now() < retryNotBefore) return;
     // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
     // 지우지 않고(fcmToken 없음) A→B 가 토큰을 바꾸지 않는다(userId 없음). 같은 계정이면 옛 소유권(이미 CAS 본문에
     // 있다)·태그(새 응답이 바꿀 때까지)를 남기되 확인은 지운다 — 같은 토큰을 bootstrap 으로 다시 등록하다 응답을 잃어도
@@ -300,6 +318,9 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       if (retryTimer) {
         cancelRetry();
         retriedKey = bundle.key;
+      } else if (retryDue) {
+        retryDue = false;
+        retriedKey = bundle.key;
       }
       registered = await registerDevice(body, bundle.key);
     } catch (error) {
@@ -311,16 +332,12 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         error.status === 429 ||
         error.status >= 500;
       if (transient) {
+        if (pending?.key === bundle.key && live() && !stopped) {
+          if (error instanceof ApiError && error.retryAfterMs)
+            retryNotBefore = Date.now() + error.retryAfterMs;
+        }
         if (pending?.key === bundle.key && live() && !stopped && retriedKey !== bundle.key) {
-          retryTimer = setTimeout(
-            () => {
-              retryTimer = undefined;
-              retriedKey = bundle.key;
-              // 이미 다른 트리거가 맞추는 중이면 그 실행이 이 묶음을 보낸다. 다시 깨우면 실패 뒤 세 번째 PUT 이 나갈 수 있다.
-              if (!running) schedule();
-            },
-            Math.max(30_000, error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0),
-          );
+          armRetry(Math.max(30_000, error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0));
         }
         return;
       }
@@ -387,8 +404,23 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     running = true;
     void (async () => {
       do {
+        const dueAtStart = retryDue;
         again = false;
-        await reconcile().catch(() => {});
+        const result = await reconcile().catch(() => 'preflight-failure' as const);
+        if (retryDue) {
+          if (dueAtStart) {
+            retryDue = false;
+            // 이번 맞춤이 PUT 전에 실패했다. 같은 tick 으로 반복하지 않고 다음 기회에 예약된 한 번의 PUT 을 보낸다.
+            if (
+              result === 'preflight-failure' &&
+              pending &&
+              getSession() &&
+              isEnabled() &&
+              !stopped
+            )
+              armRetry(30_000);
+          } else again = true;
+        }
       } while (again && !stopped);
       running = false;
     })();
