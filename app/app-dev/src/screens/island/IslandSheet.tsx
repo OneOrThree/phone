@@ -973,11 +973,13 @@ export function RowIcon({ name }: { name: 'group' | 'gear' }) {
 // 아바타 그림(.av): 하늘색 바탕 · 갈색 테두리
 export function Avatar({
   color,
+  userId,
   outfit,
   size = 40,
   radius = 14,
 }: {
   color: string | null | undefined;
+  userId?: string | null;
   outfit?: Outfit | null;
   size?: number;
   radius?: number;
@@ -991,7 +993,7 @@ export function Avatar({
         borderColor: C.brown,
       }}
     >
-      <CatAvatar color={color} outfit={outfit} size={size - 3} />
+      <CatAvatar userId={userId} color={color} outfit={outfit} size={size - 3} />
     </View>
   );
 }

@@ -1,3 +1,4 @@
+import { useMemberLooks } from '@/services/memberLooks';
 import React from 'react';
 import { Image, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { art } from '@/constants/art';
@@ -12,20 +13,26 @@ import { CatOutfitLayers, type Outfit } from './CatOutfitLayers';
  * 털색이 없으면(null·미선택) 그림도 착용도 그리지 않는 빈 상자 — 남의 칸을 임의 색으로 채우지 않는다.
  */
 export function CatAvatar({
-  color,
-  outfit,
+  color: fallbackColor,
+  outfit: fallbackOutfit,
+  userId,
   size,
   still = 'avatar',
   style,
   testID,
 }: {
   color: string | null | undefined;
+  userId?: string | null;
   outfit?: Outfit | null;
   size: number;
   still?: 'avatar' | 'idle';
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }) {
+  const cached = useMemberLooks(userId ? [userId] : [], !!userId);
+  const look = userId ? cached[userId] : undefined;
+  const color = look ? look.catColor : fallbackColor;
+  const outfit = look ? look.appearance : fallbackOutfit;
   const source = !color
     ? undefined
     : still === 'idle'

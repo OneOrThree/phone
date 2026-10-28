@@ -1,3 +1,4 @@
+import { useMemberLooks, memberLooks } from '@/services/memberLooks';
 import { IslandOcean, islandTerrain } from './IslandOcean';
 import { NATIVE, useMapGesture, viewportShift } from './mapGesture';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -1942,6 +1943,7 @@ function FinalIslandScene({
   const applyAppearance = useCallback((body: unknown, islandId: string) => {
     const changed = parseAppearanceEvent(body, islandId);
     if (!changed) return;
+    memberLooks.accept(changed.userId, changed.look);
     setLooks((prev) => {
       const next = newerLook(prev[changed.userId], changed.look)!;
       return next === prev[changed.userId] ? prev : { ...prev, [changed.userId]: next };
@@ -2230,6 +2232,7 @@ function FinalIslandScene({
   // 차단한 상대(GROMO-2470)는 그리지 않는다. 고정 자리는 거르기 전 명단 순서로 먼저 정한다 — 차단 상대·털색 미선택
   // (서버는 내가 차단한 주민의 catColor 를 null 로 가린다)을 빼도 다른 주민 자리가 당겨지지 않게.
   const blockedIds = useBlockedUserIds(false);
+  const residentLooks = useMemberLooks(facts?.members.map((member) => member.id) ?? [], !!facts);
   const residents = useMemo(() => {
     const myId = getSession()?.userId;
     const others = facts
@@ -2238,9 +2241,11 @@ function FinalIslandScene({
           .map((m) => ({
             id: m.id,
             name: m.name,
-            drawn: !!m.catColor,
-            color: catColor(m.catColor),
-            outfit: lookOf(looks, m.id, m),
+            drawn:
+              !!(residentLooks[m.id] ? residentLooks[m.id].catColor : m.catColor) &&
+              !residentLooks[m.id]?.hidden,
+            color: catColor(residentLooks[m.id] ? residentLooks[m.id].catColor : m.catColor),
+            outfit: lookOf(looks, m.id, residentLooks[m.id] ?? m),
           }))
       : i.members
           .filter((m) => m.id !== 'me')
@@ -2254,7 +2259,7 @@ function FinalIslandScene({
     return others
       .map((m, n) => ({ ...m, spot: residentSpot(grid, n) }))
       .filter((m) => m.drawn && !blockedIds.has(m.id));
-  }, [i.members, facts, looks, grid, blockedIds]);
+  }, [i.members, facts, looks, grid, blockedIds, residentLooks]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;

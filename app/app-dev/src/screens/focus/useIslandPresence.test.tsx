@@ -1,3 +1,4 @@
+import * as apiClient from '@/services/api/client';
 /**
  * useIslandPresence (GROMO-2010) — 섬·계정 변경 때 이전 채널 해제,
  * 포그라운드 복귀 때 재연결+스냅숏 재동기화, retry 가 채널을 새로 연다.
@@ -228,4 +229,42 @@ test('주민 외양 사건은 version 이 큰 것만 looks 에 남고 섬이 바
   assert.equal(result.current.looks.u2.head, null);
   await act(async () => rerender({ active: true, islandId: 'i2' }));
   assert.deepEqual(result.current.looks, {});
+});
+
+test('주민 외양은 묶음 조회로 채우고 변경 이벤트 뒤에는 다시 조회하지 않는다', async () => {
+  const userId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'duck', neck: null, version: 1 } }],
+    hiddenUserIds: [],
+  });
+  const { result, unmount } = await mount({ active: true, islandId: 'i1' });
+  await act(async () => {
+    sessions[0].deps.onView({
+      ...READY,
+      rest: [
+        {
+          userId,
+          name: '주민',
+          anchorMs: Date.now(),
+          catColor: null,
+          restSeat: null,
+          restStartedAt: null,
+        },
+      ],
+    });
+  });
+  expect(result.current.rest[0].catColor).toBe('black');
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'duck', version: 1 });
+  await act(async () => {
+    sessions[0].deps.onMemberAppearance?.(userId, {
+      head: 'new',
+      neck: null,
+      shoes: null,
+      version: 2,
+    });
+  });
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 2 });
+  expect(request).toHaveBeenCalledTimes(1);
+  await unmount();
+  request.mockRestore();
 });

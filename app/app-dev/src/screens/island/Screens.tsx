@@ -3993,6 +3993,7 @@ export function RedesignScreens({ e }: any) {
           tone="butter"
           lead={
             <Avatar
+              userId={friend.userId}
               color={friend.catColor ?? 'white'}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
@@ -4014,6 +4015,7 @@ export function RedesignScreens({ e }: any) {
           sub="수락 기다리는 중"
           lead={
             <Avatar
+              userId={friend.userId}
               color={friend.catColor ?? 'white'}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
@@ -4040,6 +4042,7 @@ export function RedesignScreens({ e }: any) {
           sub={friend.mainIslandName ?? undefined}
           lead={
             <Avatar
+              userId={friend.userId}
               color={friend.catColor ?? 'white'}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
@@ -4070,6 +4073,7 @@ export function RedesignScreens({ e }: any) {
             sub={friend.relation === 'FRIEND' ? '친구' : undefined}
             lead={
               <Avatar
+                userId={friend.userId}
                 color={friend.catColor ?? 'white'}
                 outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
               />

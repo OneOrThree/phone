@@ -1,3 +1,5 @@
+import { memberLooks } from './memberLooks';
+import * as apiClient from './api/client';
 // 바다 방 STOMP(GROMO-2310) — 서버가 강제하는 프레임 순서, NOT_IN_SEA_ROOM 재 enter, left 멱등, member → 참가자 폴백.
 // stompjs Client 는 목이다(islandRealtime.test 와 같은 FakeClient) — 구독·발행 순서를 그대로 기록한다.
 import { openSeaRoom, seaMemberFromWire, seaParticipantsAt, SEA_SYNC_MS } from './seaRealtime';
@@ -518,4 +520,35 @@ test('쉬는 중 reconnect() 직후 세션 폐기 close 가 오면 예약된 재
   await Promise.resolve();
   expect(client().activations).toBe(before);
   expect(client().connected).toBe(false);
+});
+
+test('외양 전용 사건은 앱 캐시를 갱신하고 이후 방 스냅샷이 새 착용을 되돌리지 않는다', async () => {
+  const userId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  memberLooks.clear();
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'old', neck: null, version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { room, spy } = open();
+  joinRoom([member(userId)]);
+  expect(spy.members[0].outfit.head).toBe('old');
+  roomEvent('sea.member.appearance.updated', {
+    userId,
+    appearance: { head: 'new', neck: null },
+    version: 3,
+  });
+  expect(spy.members[0].outfit.head).toBe('new');
+  personal('sea.room.snapshot', { roomId: 'room-1', members: [member(userId)] });
+  expect(spy.members[0].outfit.head).toBe('new');
+  roomEvent('sea.member.appearance.updated', {
+    userId,
+    appearance: { head: 'stale', neck: null },
+    version: 2,
+  });
+  expect(spy.members[0].outfit.head).toBe('new');
+  expect(request).toHaveBeenCalledTimes(1);
+  room.close();
+  request.mockRestore();
+  memberLooks.clear();
 });

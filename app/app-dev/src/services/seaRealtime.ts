@@ -1,3 +1,4 @@
+import { ensureMemberLooks, memberLooks } from './memberLooks';
 /**
  * 먼바다 방 실시간 클라이언트(GROMO-2310). 서버 계약 정본은 `server/realtime/CLAUDE.md` 「API surface」의 바다 행과
  * 「바다 앱 프레임 순서(강제)」·「바다 앱 계약 보충」이다.
@@ -180,7 +181,28 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     resume();
   };
   const seenLeft = new Set<string>();
-  const emit = () => opts.onMembers([...members.values()]);
+  const emit = () =>
+    opts.onMembers(
+      [...members.values()].flatMap((member) => {
+        const look = memberLooks.get(member.userId);
+        if (look?.hidden) return [];
+        return [
+          {
+            ...member,
+            ...(look?.catColor && colors.includes(look.catColor as Color)
+              ? { color: look.catColor as Color }
+              : {}),
+            ...(look?.appearance
+              ? { outfit: look.appearance, outfitVersion: look.appearance.version ?? undefined }
+              : {}),
+          },
+        ];
+      }),
+    );
+  const stopLooks = memberLooks.subscribe(() => {
+    if (!closed) emit();
+  });
+  let restoreLooks = true;
   const send = (destination: string, body: unknown = {}) => {
     if (!client.connected) return false;
     client.publish({ destination, body: JSON.stringify(body) });
@@ -215,7 +237,18 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       if (!member) return;
       keepNewerOutfit(member, members.get(member.userId));
       members.set(member.userId, member);
+      void ensureMemberLooks([member.userId]);
       emit();
+    } else if (ev.type === 'sea.member.appearance.updated') {
+      const look = parseLook(p.appearance);
+      if (
+        typeof p.userId === 'string' &&
+        members.has(p.userId) &&
+        look &&
+        Number.isSafeInteger(p.version)
+      ) {
+        memberLooks.accept(p.userId, { ...look, version: p.version as number });
+      }
     } else if (ev.type === 'sea.member.left') {
       // 없는 사람 제거는 멱등이다(joined 뒤 보정 left 와 겹칠 수 있다)
       if (typeof p.userId === 'string' && members.delete(p.userId)) emit();
@@ -253,6 +286,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
         keepNewerOutfit(member, before.get(member.userId));
         members.set(member.userId, member);
       }
+      void ensureMemberLooks([...members.keys()], restoreLooks);
+      restoreLooks = false;
       stompErrors = 0;
       backoffStep = 0;
       limitNotified = false;
@@ -310,6 +345,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
   const client = new Client({
     ...realtimeClientOptions(),
     onConnect: () => {
+      restoreLooks = true;
       // 재연결 — 구독이 모두 사라졌고 마지막 세션이었다면 서버는 이미 left{disconnected} 로 내보냈다. 항상 enter 부터
       roomId = null;
       roomSub = null;
@@ -375,6 +411,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     reconnect: rejoin,
     close: () => {
       closed = true;
+      stopLooks();
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       clearInterval(timer);

@@ -43,7 +43,10 @@ jest.mock('@/services/api/magazine', () => ({
   getIslandNews: jest.fn(),
 }));
 let mockSessionGeneration = 0;
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockSessionGeneration }));
+jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
+  sessionGeneration: () => mockSessionGeneration,
+}));
 jest.mock('@/screens/island/useLedgerScreen', () => ({
   shiftMonth: (month: string) => month,
   useLedgerScreen: () => ({
