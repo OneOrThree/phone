@@ -203,6 +203,11 @@ class EventRouterTest {
         if (type != RealtimeEventType.FOCUS_EMOTE) {
             payload.put("version", 1);
         }
+        if (type == RealtimeEventType.MEMBER_APPEARANCE_UPDATED) {
+            payload.put("userId", user.toString());
+            payload.putObject("appearance").putNull("clothes").putNull("decor").putNull("head")
+                    .putNull("neck").putNull("shoes").put("hull", "raft").put("position", "front");
+        }
         if (type == RealtimeEventType.GOLDEN_FISH_CAUGHT) {
             // 황금 물고기도 도메인 필드까지 본다 — 2명 미만이거나 배분량이 어긋난 봉투는 앱이 잘못된
             // 컷신을 재생한다(GROMO-1956).

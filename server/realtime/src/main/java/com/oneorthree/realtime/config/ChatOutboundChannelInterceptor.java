@@ -354,7 +354,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         JsonNode actor = SeaRooms.MEMBER_JOINED.equals(type) || SeaRooms.MEMBER_UPDATED.equals(type)
                 ? payload.path("member").path("userId")
-                : "sea.emote".equals(type) ? payload.path("userId") : null;
+                : "sea.emote".equals(type) || "sea.member.appearance.updated".equals(type)
+                        ? payload.path("userId") : null;
         if (actor != null && (!actor.isString()
                 || blockedUsers.eitherBlocked(viewer, UUID.fromString(actor.stringValue())))) {
             return null;

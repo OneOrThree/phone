@@ -56,6 +56,34 @@ class AppearanceContractTest extends UpstreamTestBase {
             + "\"buildingThemes\":{\"hall\":\"default\"},\"version\":6},"
             + "\"events\":[{\"eventId\":\"e2\",\"type\":\"island.appearance.updated\"}]}";
 
+    @Test
+    void memberAppearancesAreBatchedUnderSignedViewer() throws Exception {
+        String route = "GET /internal/users/" + USER + "/member-appearances";
+        DATA.on(route, request -> ok("{\"members\":[{\"userId\":\"" + OTHER
+                + "\",\"catColor\":\"black\",\"appearance\":{\"clothes\":null,\"decor\":null,"
+                + "\"head\":\"duck\",\"neck\":null,\"shoes\":null,\"hull\":\"raft\","
+                + "\"position\":\"front\",\"version\":4}}],"
+                + "\"hiddenUserIds\":[]}"));
+        mockMvc.perform(auth(get("/me/member-appearances").param("userIds", OTHER.toString()))
+                        .header("X-User-Id", OTHER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.members[0].catColor").value("black"))
+                .andExpect(jsonPath("$.data.members[0].appearance.head").value("duck"));
+        assertThat(DATA.receivedFor(route)).hasSize(1);
+        assertThat(DATA.receivedFor(route).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
+    void memberAppearanceBatchIsBounded() throws Exception {
+        String ids = String.join(",", java.util.Collections.nCopies(51, OTHER.toString()));
+        mockMvc.perform(auth(get("/me/member-appearances").param("userIds", ids)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(auth(get("/me/member-appearances").param("userIds", "bad-id")))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/me/member-appearances").param("userIds", OTHER.toString()))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ---------------------------------------------------------------- 주체
 
     @Test

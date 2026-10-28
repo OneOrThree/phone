@@ -54,6 +54,18 @@ public class AppearanceController {
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
 
+    /** 공개 착용 정보의 묶음 조회. 세션 주체는 요청자가 지정할 수 없다. */
+    @GetMapping("/me/member-appearances")
+    public AppearanceUseCase.MemberAppearancesView memberAppearances(
+            @org.springframework.web.bind.annotation.RequestParam List<String> userIds, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (userIds.isEmpty() || userIds.size() > 50) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "userIds");
+        }
+        return appearance.memberAppearances(claims,
+                userIds.stream().map(id -> PublicIds.uuid(id, "userIds")).toList(), properties.deadline());
+    }
+
     /** 개인 인벤토리 (LLD §3 GET) — 본인 소유 목록과 현재 외양을 한 스냅샷으로 돌려준다. */
     @GetMapping("/me/inventory")
     public PersonalInventoryView myInventory(HttpServletRequest request) {

@@ -8,6 +8,9 @@ import com.oneorthree.phone.appearance.dto.SharedInventoryView;
 import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.internal.dto.AppearancePatchRequest;
 import java.util.UUID;
+import java.util.List;
+import com.oneorthree.phone.internal.service.MemberAppearanceQuery;
+import org.springframework.web.bind.annotation.RequestParam;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -32,6 +35,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalAppearanceController {
 
     private final AppearanceService appearance;
+    private final MemberAppearanceQuery memberLooks;
+
+    /** 앱이 처음 보는 주민과 재접속 뒤 보이는 주민만 최대 50명씩 조회한다. */
+    @GetMapping("/internal/users/{userId}/member-appearances")
+    public MemberAppearanceQuery.Result memberAppearances(@PathVariable UUID userId,
+            @RequestParam List<UUID> userIds) {
+        return memberLooks.find(userId, userIds);
+    }
+
 
     /** 개인 인벤토리 — 본인 소유 상품 목록과 현재 외양을 한 스냅샷으로 돌려준다. */
     @GetMapping("/internal/users/{userId}/inventory")

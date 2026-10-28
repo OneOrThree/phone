@@ -20,7 +20,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 외양 내부 경로 4종·공용 음악 2종(GROMO-1779)이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
+ * 외양 내부 경로 5종·공용 음악 2종(GROMO-1779)이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
  * 통과하는지 검증한다 (GROMO-1783).
  *
  * <p>기대 경로는 컨트롤러 애노테이션에서 읽고 허용목록은 배포되는 yml 에서 읽는다 — 둘 중
@@ -38,8 +38,8 @@ class InternalAppearanceAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalAppearanceController.class);
 
-        assertThat(routes).as("4종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
-                .hasSize(4);
+        assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+                .hasSize(5);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }

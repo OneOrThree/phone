@@ -317,6 +317,14 @@ public class SeaRooms {
         return roomId != null && leave(userId, roomId, reason);
     }
 
+    /** 외양 변경 한 건당 방 조회 한 번. 외양 해시 쓰기·구성원 재조회 없이 이벤트 본문을 전달한다. */
+    public void publishAppearance(UUID userId, JsonNode payload) {
+        UUID roomId = currentRoom(userId);
+        if (roomId != null) {
+            publisher.publish(roomId, "sea.member.appearance.updated", payload);
+        }
+    }
+
     /**
      * 해시의 {@code roomId}. 없으면 {@code null}. 손상된 값(UUID 아님)이면 로그를 남기고 해시를 지운 뒤 {@code null} —
      * 남겨 두면 JOIN 이 영영 -1(다른 방)을 돌려 입장이 막히고, 예외로 올리면 ERROR 프레임·소켓 종료로 번진다.
