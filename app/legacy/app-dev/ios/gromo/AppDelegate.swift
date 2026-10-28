@@ -22,6 +22,11 @@ public class AppDelegate: ExpoAppDelegate {
     // Firebase 초기화 (GoogleService-Info.plist 기반). RN 시작 전에 먼저 설정.
     FirebaseApp.configure()
 
+    // 워치 명령 인박스(GROMO-1600) — WCSession delegate를 **RN보다 먼저** 붙인다.
+    // RCT 모듈은 브릿지가 JS를 띄우면서 늦게 인스턴스화되는데, 종료 상태에서 WCSession이
+    // 앱을 깨우는 경우 명령이 그보다 먼저 도착해 사라진다(docs/prd/apple-watch/ D2-④).
+    WatchCommandInbox.shared.activateIfSupported()
+
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
