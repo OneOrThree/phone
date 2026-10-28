@@ -60,6 +60,43 @@ test('다른 세션·완료·건너뛰기·기존 사용자에게 이전 안내�
   expect(reconcileTutorial(state, 'rest', true)).toBe(0);
 });
 
+test('튜토리얼 집중 정상 완료만 다음 집중의 앱 차단 안내를 예약한다', () => {
+  const completed = reducer(progress(21), { type: 'GUIDE_STEP', step: 22 });
+  expect(completed.focusBlockingIntro).toBe('pending');
+
+  const seen = reducer(completed, {
+    type: 'FOCUS_BLOCKING_INTRO_SEEN',
+  });
+  expect(reducer(seen, { type: 'GUIDE_STEP', step: 22 }).focusBlockingIntro).toBe('seen');
+  expect(
+    reducer(seen, { type: 'FOCUS_GUIDE_RESTORED', focusBlockingIntro: 'pending' })
+      .focusBlockingIntro,
+  ).toBe('seen');
+
+  const skipped = reducer(progress(21), { type: 'GUIDE_STEP', step: 99 });
+  expect(skipped.focusBlockingIntro).toBeUndefined();
+});
+
+test('앱 차단 안내 예약은 로그아웃·설정 보존 계정 초기화 때 새 계정에 넘기지 않는다', () => {
+  const alice = reducer(progress(21), { type: 'GUIDE_STEP', step: 22 });
+  expect(reducer(alice, { type: 'LOGOUT' }).focusBlockingIntro).toBeUndefined();
+  const bob = reducer(alice, {
+    type: 'LOAD',
+    state: { ...initialState(), settings: alice.settings },
+  });
+  expect(bob.focusBlockingIntro).toBeUndefined();
+  const restored = reducer(bob, {
+    type: 'FOCUS_GUIDE_RESTORED',
+    focusBlockingIntro: 'pending',
+  });
+  expect(restored.focusBlockingIntro).toBe('pending');
+  const reloaded = reducer(initialState(), {
+    type: 'LOAD',
+    state: JSON.parse(JSON.stringify(restored)),
+  });
+  expect(reloaded.focusBlockingIntro).toBe('pending');
+});
+
 test('로그아웃·다시보기는 이전 세션과의 연결을 제거한다', () => {
   const state = progress(15);
   expect(reducer(state, { type: 'LOGOUT' }).tutorial).toBeUndefined();

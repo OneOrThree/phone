@@ -143,6 +143,20 @@ class FocusLiveActivityServiceTest {
                         && payload.get("validUntilMs").equals(now.plusSeconds(3580).toEpochMilli())));
         assertThat(activity.getSentVersion()).isEqualTo(3);
     }
+
+    @Test
+    void invalidAndroidTokenIsDeletedAfterFcmRejectsIt() {
+        var request = new LiveActivityRegistration("android-activity", "a".repeat(40), "android", "black");
+        var activity = new FocusLiveActivity(sessionId, owner, request, now.minusSeconds(30));
+        when(sessions.requireForUpdate(sessionId)).thenReturn(detail(FocusSessionLifecycle.ACTIVE));
+        when(activities.findBySessionIdForUpdate(sessionId)).thenReturn(Optional.of(activity));
+        when(intervals.findBySessionIdOrderByOrdinalAsc(sessionId)).thenReturn(List.of());
+        when(push.enabled()).thenReturn(true);
+        when(push.send(anyString(), eq("android"), any())).thenReturn(LiveActivityPushClient.Result.INVALID_TOKEN);
+        service.deliver(sessionId);
+        verify(activities).delete(activity);
+    }
+
     @Test
     void androidFocusRemainsRegisteredAndBlockingAfterEightHours() {
         var request = new LiveActivityRegistration("android-activity", "a".repeat(40), "android", "black");

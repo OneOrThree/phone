@@ -76,8 +76,14 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   const { View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ goldenFish, children, overlay, onRaft, onTap }: any) => (
-      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft} onTap={onTap}>
+    FishingIsland: ({ goldenFish, children, overlay, onRaft, onTap, onSitAccessible }: any) => (
+      <View
+        testID="golden-world"
+        goldenFish={goldenFish}
+        onRaft={onRaft}
+        onTap={onTap}
+        onSitAccessible={onSitAccessible}
+      >
         {children(640, 640 / 1.5, 1)}
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
@@ -160,7 +166,7 @@ const event = (members: GoldenFishEvent['members'], eventId = 'golden-i1-1'): Go
 const focusedState = (): State => {
   const state = initialState(true);
   state.name = '하늘이'; // 내 이름표는 닉네임(GROMO-2475)
-  state.focusSpot = { x: 34.1, y: 55.9 };
+  state.focusSpot = { x: 34.1, y: 57 };
   state.session = {
     id: 's-me',
     islandId: 'soda',
@@ -436,14 +442,18 @@ test.each(['button', 'hardware'] as const)(
       screenElement(state, 'fishingArrival', backOverride, go, undefined, dispatch),
     );
     await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    // 섬 안쪽으로 조금 걸어 들어간 뒤 — 귀환도 걸어서 돌아간다
+    await act(async () => jest.advanceTimersByTime(1000));
     expect(go).not.toHaveBeenCalled();
     if (method === 'button') await fireEvent.press(screen.getByTestId('leave-fishing-arrival'));
     else
       await act(async () => {
         expect(backOverride.current?.()).toBe(true);
       });
-    // 귀환 도중 땅을 다시 눌러도 이전 자리 선택으로 돌아가지 않는다.
+    // 귀환 도중 땅을 다시 누르거나 [집중 시작]·스크린리더 「빈 자리에 앉기」를 눌러도 귀환 걷기가 끊기지 않는다.
     await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    await fireEvent.press(screen.getByTestId('focus-start'));
+    await act(async () => screen.getByTestId('golden-world').props.onSitAccessible());
     await act(async () => jest.advanceTimersByTime(20000));
     expect(go).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenCalledWith('returnTravel');
@@ -1298,7 +1308,7 @@ test('컷신을 마친 황금 물고기 더미를 정상 결과 화면에서도 
   await screen.unmount();
 });
 
-test('땅을 직접 눌러야 하는 튜토리얼 5단계에는 「다음」 버튼이 없고 그만 보기만 왼쪽에 있다', async () => {
+test('튜토리얼 5단계에는 「다음」 버튼이 없고 안내 상자 안 집중 시작과 그만 보기만 있다', async () => {
   const state = focusedState();
   state.session = null;
   const setGuideStep = jest.fn();
@@ -1309,10 +1319,13 @@ test('땅을 직접 눌러야 하는 튜토리얼 5단계에는 「다음」 버
     }),
   );
   expect(
-    screen.getByText('집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.', { includeHiddenElements: true }),
+    screen.getByText('집중하고 싶은 곳으로 걸어가서 아래 집중 시작을 눌러 봐.', {
+      includeHiddenElements: true,
+    }),
   ).toBeTruthy();
-  // 「다음」으로 건너뛸 수 없다 — 땅을 눌러야 7단계(할 일 입력)로 넘어간다
+  // 「다음」으로 건너뛸 수 없다 — 걸어가서 집중 시작을 눌러야 7단계(할 일 입력)로 넘어간다
   expect(screen.queryByText('다음', { includeHiddenElements: true })).toBeNull();
+  expect(screen.getByTestId('focus-start', { includeHiddenElements: true })).toBeTruthy();
   expect(screen.getByTestId('guide-skip', { includeHiddenElements: true })).toBeTruthy();
   assert.equal(setGuideStep.mock.calls.length, 0);
   await screen.unmount();
@@ -1424,7 +1437,7 @@ test('서버 섬에서 고른 자리로 집중을 시작하고 낚시 화면에�
   state.focusSpot = undefined;
   state.islands.find((island) => island.id === state.islandId)!.joined = false;
   state.serverIslands = { currentIslandId: 'soda' } as any;
-  const spot = { x: 18.5, y: 39.5 },
+  const spot = { x: 17.5, y: 39.5 },
     selected = reducer(state, { type: 'FOCUS_SPOT', spot });
   expect(selected.focusSpot).toEqual(spot);
 
@@ -1490,21 +1503,33 @@ test('첫 집중 체험도 할 일을 쓰지 않고 건너뛸 수 있다', async
   await screen.unmount();
 });
 
-test('도착하면 바다 쪽 안내와 선택 가능한 빈자리 원이 나타난다', async () => {
+test('도착하면 안내와 하단 집중 시작이 있고, 땅을 누르면 걸어가기만 하며 버튼을 눌러야 그 자리를 검사해 준비 카드로 간다', async () => {
   const state = focusedState();
   state.session = null;
   const go = jest.fn(),
-    dispatch = jest.fn();
+    dispatch = jest.fn(),
+    notify = jest.fn();
   const screen = await render(
-    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch),
+    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch, { notify }),
   );
   expect(screen.getByTestId('focus-arrival-hint')).toHaveTextContent('집중할 자리를 골라주세요!');
-  const markers = screen.getAllByLabelText('집중할 빈자리');
-  expect(markers.length).toBeGreaterThan(0);
-  expect(markers.length).toBeLessThanOrEqual(8);
-  await fireEvent.press(markers[0]);
+  // 추천 원은 없다
+  expect(screen.queryAllByLabelText('집중할 빈자리')).toHaveLength(0);
+  // 내리는 자리(뗏목 옆)에서 바로 누르면 이유 토스트만 뜨고 자리를 저장하지 않는다
+  await fireEvent.press(screen.getByTestId('focus-start'));
+  expect(notify).toHaveBeenCalledWith('여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.');
+  expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+  expect(go).not.toHaveBeenCalled();
+  // 땅을 누르면 걸어가기만 — 준비 카드는 열리지 않는다(목 주민 자리 (40,50)·(41,51)에서 떨어진 빈 땅)
+  const target = { x: 22, y: 62 };
+  await fireEvent(screen.getByTestId('golden-world'), 'tap', target);
   await act(() => jest.advanceTimersByTime(10000));
-  expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+  expect(go).not.toHaveBeenCalled();
+  // 걸어간 자리에서 집중 시작 → 그 자리를 저장하고 준비 카드
+  await fireEvent.press(screen.getByTestId('focus-start'));
+  expect(dispatch).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'FOCUS_SPOT', spot: target }),
+  );
   expect(go).toHaveBeenCalledWith('focusSetup');
   await screen.unmount();
 });
@@ -1592,7 +1617,7 @@ test('결과창은 서버에서 달성 또는 수령한 퀘스트만 보여준�
 
 test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약하지 않아 그 자리 주민의 seat 를 그대로 그린다 (GROMO-2478)', async () => {
   const state = focusedState();
-  state.session = null; // 지난 집중은 끝났고 focusSpot {34.1, 55.9} 만 남았다
+  state.session = null; // 지난 집중은 끝났고 focusSpot {34.1, 57} 만 남았다
   state.serverIslands = { currentIslandId: 'soda' } as any;
   mockRealPeerActors = true;
   mockPresenceFocus = [
@@ -1606,7 +1631,7 @@ test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약
       activeSeconds: 0,
       status: 'active',
       anchorMs: Date.now(),
-      seat: { x: 34.1, y: 55.9 },
+      seat: { x: 34.1, y: 57 },
     },
   ];
   const screen = await render(
@@ -1615,13 +1640,13 @@ test('집중을 마친 뒤 자리 고르기에서는 지난 focusSpot 을 예약
     }),
   );
   const { spot } = screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props;
-  expect([spot.x, spot.y]).toEqual([34.1, 55.9]);
+  expect([spot.x, spot.y]).toEqual([34.1, 57]);
   await screen.unmount();
 });
 
 test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서버 seat 로 돌아가 그 자리를 점유로 막는다 (GROMO-2478)', async () => {
   const state = focusedState();
-  state.session = null; // 준비 중 — focusSpot {34.1, 55.9} 를 이번에 골랐다
+  state.session = null; // 준비 중 — focusSpot {34.1, 57} 를 이번에 골랐다
   state.serverIslands = { currentIslandId: 'soda' } as any;
   mockRealPeerActors = true;
   mockPresenceFocus = [
@@ -1635,7 +1660,7 @@ test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서�
       activeSeconds: 0,
       status: 'active',
       anchorMs: Date.now(),
-      seat: { x: 34.1, y: 55.9 },
+      seat: { x: 34.1, y: 57 },
     },
   ];
   const notify = jest.fn(),
@@ -1647,22 +1672,35 @@ test('준비 중 내 자리에 밀려난 주민은 준비 창을 닫으면 서�
     const { spot } = screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props;
     return [spot.x, spot.y];
   };
-  expect(peerAt()).not.toEqual([34.1, 55.9]);
+  expect(peerAt()).not.toEqual([34.1, 57]);
   await screen.rerender(
     screenElement(state, 'fishingArrival', undefined, undefined, undefined, undefined, props),
   );
-  expect(peerAt()).toEqual([34.1, 55.9]);
+  expect(peerAt()).toEqual([34.1, 57]);
+  // 그 자리까지 걸어가 [집중 시작]을 누르면 주민 자리라 막는다
   await act(async () =>
     screen
       .getByTestId('golden-world', { includeHiddenElements: true })
-      .props.onTap({ x: 34.1, y: 55.9 }),
+      .props.onTap({ x: 34.1, y: 57 }),
   );
+  await act(() => jest.advanceTimersByTime(10000));
+  await fireEvent.press(screen.getByTestId('focus-start'));
   expect(notify).toHaveBeenCalledWith(t('focusFlow.spot.occupied'));
   await screen.unmount();
 });
 
+test('격자가 바뀌기 전에 고른 자리가 물 칸이 되면 복구한 내 고양이는 가장 가까운 걸을 수 있는 칸에 앉는다 (GROMO-2516)', async () => {
+  const state = focusedState(); // 진행 중 세션, 서버 seat 없음
+  state.focusSpot = { x: 34.1, y: 55.9 }; // 옛 기본 자리 — 새 격자에선 연못 물 칸
+  const screen = await render(screenElement(state, 'focus'));
+  const { spot } = screen.getByTestId('golden-self', { includeHiddenElements: true }).props;
+  // 바로 아래 걷기 칸(17열 28행)의 가운데
+  expect([spot.x, spot.y]).toEqual([35, 57]);
+  await screen.unmount();
+});
+
 test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서버 seat 에 앉고, 옛 focusSpot 에 앉은 주민을 밀어내지 않는다 (GROMO-2478)', async () => {
-  const state = focusedState(); // 진행 중 세션 s-me, focusSpot {34.1, 55.9} 는 지난 세션 좌표
+  const state = focusedState(); // 진행 중 세션 s-me, focusSpot {34.1, 57} 는 지난 세션 좌표
   state.serverIslands = { currentIslandId: 'soda' } as any;
   mockRealPeerActors = true;
   const resident = (userId: string, sessionId: string, seat: { x: number; y: number }) => ({
@@ -1678,8 +1716,8 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
     seat,
   });
   mockPresenceFocus = [
-    resident('me', 's-me', { x: 60.2, y: 44.1 }), // 다른 기기에서 고른 이번 세션 자리
-    resident('minji', 's-minji', { x: 34.1, y: 55.9 }),
+    resident('me', 's-me', { x: 62.5, y: 43 }), // 다른 기기에서 고른 이번 세션 자리
+    resident('minji', 's-minji', { x: 34.1, y: 57 }),
   ];
   const screen = await render(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, { islands: {} }),
@@ -1688,16 +1726,16 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
     const { spot } = screen.getByTestId(testID, { includeHiddenElements: true }).props;
     return [spot.x, spot.y];
   };
-  expect(at('golden-self')).toEqual([60.2, 44.1]);
-  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  expect(at('golden-self')).toEqual([62.5, 43]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 57]);
   // 다른 기기에서 끝내 SESSION_SYNC 가 세션을 먼저 지움 — 아직 집중 화면이고 결과 id 도 없어도 seat 에 그대로 앉아 있다
   mockPresenceFocus = mockPresenceFocus.filter((member) => member.userId !== 'me');
   state.session = null;
   await screen.rerender(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, { islands: {} }),
   );
-  expect(at('golden-self')).toEqual([60.2, 44.1]);
-  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  expect(at('golden-self')).toEqual([62.5, 43]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 57]);
   // 세션 완료 — 서버가 내 항목을 지우고 결과 화면으로 넘어가도 이번 세션 seat 에 그대로 앉아 있다
   state.lastResult = {
     id: 's-me',
@@ -1714,7 +1752,7 @@ test('다른 기기에서 시작한 세션을 복구하면 내 고양이는 서�
       islands: {},
     }),
   );
-  expect(at('golden-self')).toEqual([60.2, 44.1]);
-  expect(at('golden-peer-minji')).toEqual([34.1, 55.9]);
+  expect(at('golden-self')).toEqual([62.5, 43]);
+  expect(at('golden-peer-minji')).toEqual([34.1, 57]);
   await screen.unmount();
 });

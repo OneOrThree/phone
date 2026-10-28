@@ -192,6 +192,19 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   expect(e.replace).not.toHaveBeenCalled();
 });
 
+test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 표류 화면으로 돌아온다', async () => {
+  const dispatch = jest.fn();
+  const e = env({ focus: undefined, focusBlockingIntroPreview: true, dispatch });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  expect(dispatch).toHaveBeenCalledWith({ type: 'SESSION_SYNC', session: null });
+  expect(openSeaRoom).not.toHaveBeenCalled();
+  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(screen.getByLabelText('망원경')).toBeTruthy();
+});
+
 test('부팅 소속 조회가 실패해도 바다에 머물고 망원경을 누르면 동기화를 재시도한다', async () => {
   const sync = jest.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});
   const e = env({

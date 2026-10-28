@@ -16,6 +16,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.OnboardingIsland;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
+import com.oneorthree.phone.group.support.IslandInputPolicy;
 import com.oneorthree.phone.internal.dto.TelescopeItemView;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
@@ -26,10 +27,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 
 /**
- * 망원경에 정착할 섬이 없을 때의 개인 무인도. users 배타 잠금은 호출자가 먼저 잡는다.
- * 실제 SEA 완료 기록이 있어야 도착 명령이 방장 소속을 만든다. 목록 조회·출항·중도 종료는 소속을 만들지 않는다.
+ * 무인도 후보는 시간 버킷별 독립 추첨 결과일 뿐 DB 행이 아니다. 성공한 항해 완료 때만 실제 섬을 만든다.
+ * 기존 예약으로 출항한 세션의 도착 처리는 롤링 배포 호환을 위해 유지한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -44,33 +47,35 @@ public class OnboardingIslandService {
     private final FocusSessionDetailRepository sessions;
     private final IslandMovementGuards guards;
 
-    /** 기존 예약은 시간대가 바뀌어도 보존한다. 이미 소속이 있으면 온보딩 목적지를 추가하지 않는다. */
+    /** 망원경 일반 목록과 무관한 20% 추첨. 첫 정착에 갈 수 있는 섬이 없으면 반드시 보여 준다. */
     public Optional<TelescopeItemView> destination(UUID userId, List<UUID> joined,
-                                                   List<TelescopeItemView> items) {
-        if (!joined.isEmpty()) {
+                                                   List<TelescopeItemView> items, Instant bucketStart) {
+        if (joined.size() >= IslandInputPolicy.MAX_JOINED_ISLANDS) {
             return Optional.empty();
         }
-        Optional<OnboardingIsland> prior = reservations.findPendingForUser(userId);
-        if (prior.isEmpty() && items.stream().anyMatch(item -> !item.full())) {
+        boolean firstSettlementNeeded = joined.isEmpty() && items.stream()
+                .noneMatch(item -> !item.full() && !TelescopeService.SLOT_JOINED.equals(item.slot()));
+        UUID candidate = UUID.nameUUIDFromBytes(("uninhabited:" + userId + ":" + bucketStart.getEpochSecond())
+                .getBytes(StandardCharsets.UTF_8));
+        if (!firstSettlementNeeded && Math.floorMod(candidate.getLeastSignificantBits(), 100) >= 20) {
             return Optional.empty();
         }
-        Group island = prior.flatMap(reservation -> groupQueries.findGroup(reservation.getIslandId()))
-                .filter(IslandMovementGuards::isAlive).orElse(null);
-        if (island == null) {
-            // 죽은 예약이 있다면 먼저 지워 사용자 PK를 비운다.
-            if (prior.isPresent()) {
-                reservations.delete(prior.get());
-                reservations.flush();
-            }
-            island = groups.save(Group.builder().name("무인도").description("")
-                    .maxMembers(Group.DEFAULT_MAX_MEMBERS).isPrivate(true).approvalRequired(false).build());
-            wallets.save(IslandWallet.empty(island.getId()));
-            construction.save(IslandConstructionState.empty(island.getId()));
-            reservations.save(new OnboardingIsland(userId, island.getId()));
-        }
-        return Optional.of(new TelescopeItemView(island.getId(), island.getName(), "", 0,
-                island.getMaxMembers(), false, IslandSummaries.STATUS_NONE, TelescopeService.SLOT_NEARBY,
+        return Optional.of(new TelescopeItemView(candidate, "무인도", "", 0,
+                Group.DEFAULT_MAX_MEMBERS, false, IslandSummaries.STATUS_NONE, TelescopeService.SLOT_UNINHABITED,
                 TelescopeService.NEARBY_SAILING_MINUTES, null, false, false, null, null, null, 0));
+    }
+
+    /** 종료 마커가 닫힌 뒤 같은 트랜잭션에서 호출한다. 실패·재시도는 전부 롤백 또는 완료 세션 재생으로 처리된다. */
+    public Group materializeAtFinish(User user, UserIslandContext context) {
+        guards.requireJoinedIslandLimit(user);
+        Group island = groups.save(Group.builder().name("새로운 섬").description("")
+                .maxMembers(Group.DEFAULT_MAX_MEMBERS).isPrivate(false).approvalRequired(false).build());
+        wallets.save(IslandWallet.empty(island.getId()));
+        construction.save(IslandConstructionState.empty(island.getId()));
+        members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.OWNER).build());
+        // 이미 완료한 15분 항해가 이동 경로다. 일반 즉시 전환의 출발 섬 전망대 조건은 적용하지 않는다.
+        context.moveTo(island.getId());
+        return island;
     }
 
     /** 사용자 → context → 목적지 잠금 뒤 호출한다. 생성 사건은 호출자가 나머지 도착 쓰기 뒤에 발행한다. */

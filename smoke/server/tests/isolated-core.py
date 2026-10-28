@@ -114,7 +114,7 @@ def main():
                             'REDIS_HOST': redis, 'REDIS_PORT': '6379', 'REDIS_USERNAME': '', 'REDIS_PASSWORD': '',
                             'OUTBOX_RELAY_ENABLED': 'false',
                             'FOCUS_PRESENCE_ENABLED': 'false',
-                            'NOTIFICATION_DISPATCH_MODE': 'OUTBOX', 'DD_TRACE_ENABLED': 'false',
+                            'DD_TRACE_ENABLED': 'false',
                             'JAVA_TOOL_OPTIONS': '-Xmx1024m -XX:ActiveProcessorCount=2',
                             'JAVA_OPTS': '-Djava.security.egd=file:/dev/./urandom', 'APP_SCHEDULING_ENABLED': 'false'})
         start(data, source_data['Image'], environment, ('--publish', '127.0.0.1::9091'))

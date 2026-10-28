@@ -22,7 +22,7 @@ import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet'
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
-import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
@@ -467,7 +467,7 @@ function IslandBubble({
 }
 
 /**
- * 망원경(GROMO-2266) — 바다 위 섬 파노라마. 서버가 이 시간대에 보여 주는 섬 최대 8개를 응답 순서대로 가로로 늘어놓고,
+ * 망원경(GROMO-2266) — 바다 위 섬 파노라마. 일반 섬 최대 8개와 별도 무인도 후보 1개를 응답 순서대로 가로로 늘어놓고,
  * 섬을 누르면 말풍선(이름·소개·주민·평균 집중·항해 시간 + 행동)이 뜬다. 임시 입구는 뗏목 행선지 「망원경」(N5).
  *
  * - 소속 섬: 한 번 가 봤으면 [돌아가기] 로 항해 없이 현재 섬을 옮겨 홈으로, 망원경으로 가입만 하고 안 가 봤으면 [항해하기].
@@ -589,8 +589,12 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     // 집중·휴식 중에는 새 항해를 시작할 수 없다 — ServerVisit 의 [섬 둘러보기]와 같은 안내.
     if (s.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
     setSelectedId(null);
-    setStartError(undefined);
-    setPreparing(item);
+    const prepare = () => {
+      setStartError(undefined);
+      setPreparing(item);
+    };
+    if (e.beforeSeaVoyage) e.beforeSeaVoyage(prepare);
+    else prepare();
   };
 
   // 시작 API 는 한마디를 받지 않는다 — 출항이 성공한 뒤에 한마디를 따로 저장하고, 한마디가 실패해도 출항은 유지한다.
@@ -611,6 +615,28 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
       setPreparing(null);
       e.reset(route, name);
     };
+    // 개발용 권한 미리보기는 서버 명령 없이 로컬 항해로 이어진다.
+    if (e.focusBlockingIntroPreview && !e.focus) {
+      const now = Date.now();
+      e.dispatch({
+        type: 'SESSION_SYNC',
+        session: {
+          id: uuid(),
+          islandId: item.islandId,
+          destinationIslandName: item.name,
+          kind: 'sea',
+          subject: remark,
+          startedAt: now,
+          syncedAt: now,
+          seconds: 0,
+          status: 'active',
+          targetMinutes: item.sailingMinutes,
+        },
+      });
+      enter('sea', item.name);
+      unlock();
+      return;
+    }
     let view: Awaited<ReturnType<typeof e.focus.startSea>>;
     try {
       view = await e.focus.startSea(item.islandId);
@@ -887,7 +913,12 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
         <IslandBubble
           item={selected}
           // 서버 세션이 없는 목업(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)은 보기만 — 행동 버튼은 실제 API 를 부르므로 막는다
-          locked={(!e.islands && !previewItems) || sail.pending || joiningId !== null || unpinning}
+          locked={
+            (!e.islands && !previewItems && !e.focusBlockingIntroPreview) ||
+            sail.pending ||
+            joiningId !== null ||
+            unpinning
+          }
           joining={joiningId === selected.islandId}
           voyaging={selected.islandId === voyagingId}
           onClose={() => setSelectedId(null)}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { CurrentScreens } from './CurrentScreens';
+import { CurrentScreens, FocusBlockingIntro } from './CurrentScreens';
 import { initialState } from '@/services/model';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { screenTime } from '@/services/screenTime';
@@ -145,6 +145,44 @@ test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 �
   const view = await render(<CurrentScreens e={environment()} />);
   await view.findByText('선택한 앱의 사용 시간만 기록해요.');
   expect(view.queryByText(/집중 중 앱 차단/)).toBeNull();
+});
+
+test('튜토리얼 다음 집중의 앱 차단 안내는 권한 흐름 또는 원래 집중으로 이어진다', async () => {
+  const callbacks = { onAllow: jest.fn(), onLater: jest.fn(), onClose: jest.fn() };
+  const view = await render(<FocusBlockingIntro e={callbacks} />);
+  expect(
+    view.getByTestId('focus-blocking-character', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    view.getByTestId('focus-blocking-logo-instagram', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    view.getByTestId('focus-blocking-logo-youtube', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    view.getByTestId('focus-blocking-logo-tiktok', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(view.queryByTestId('island-sheet-box')).toBeNull();
+  expect(view.queryByLabelText('뒤로')).toBeNull();
+  expect(view.getByLabelText('닫기')).toBeTruthy();
+  expect(
+    view.getByText('집중하는 동안 내가 다른 앱 사용을 막아 줄 수 있어.', { exact: false }),
+  ).toBeTruthy();
+  expect(view.getByText('꼭 필요한 앱만 골라 줘!', { exact: false })).toBeTruthy();
+  await fireEvent.press(view.getByText('권한 허용하기'));
+  expect(callbacks.onAllow).toHaveBeenCalledTimes(1);
+  expect(callbacks.onLater).not.toHaveBeenCalled();
+  await fireEvent.press(view.getByText('나중에'));
+  expect(callbacks.onLater).toHaveBeenCalledTimes(1);
+  await fireEvent.press(view.getByLabelText('닫기'));
+  expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+});
+
+test('앱 차단 권한 요청 중에는 버튼을 다시 눌러도 중복 요청하지 않는다', async () => {
+  const callbacks = { onAllow: jest.fn(), onLater: jest.fn(), onClose: jest.fn(), busy: true };
+  const view = await render(<FocusBlockingIntro e={callbacks} />);
+  await fireEvent.press(view.getByText('권한 요청 중…'));
+  expect(callbacks.onAllow).not.toHaveBeenCalled();
 });
 
 test('거절 화면에서 재요청해 승인되면 측정 앱 선택으로 이동한다', async () => {

@@ -42,7 +42,10 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
+import com.oneorthree.phone.group.service.IslandStateEvents;
+import com.oneorthree.phone.group.service.IslandMembershipEvents;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
+import com.oneorthree.phone.group.support.IslandInputPolicy;
 import com.oneorthree.phone.internal.dto.TelescopeItemView;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
@@ -135,6 +138,9 @@ public class FocusSessionLifecycleService {
     private final CustomizationRewardService customizationRewards;
     /** 바다 세션 start 의 목적지 검증 — 지금 망원경 목록(GROMO-2299). */
     private final TelescopeService telescopeService;
+    private final OnboardingIslandService onboardingIslands;
+    private final IslandStateEvents islandStateEvents;
+    private final IslandMembershipEvents membershipEvents;
     /** 바다 방 사건 {@code sea.member.updated}. */
     private final SeaSessionEvents seaSessionEvents;
     /**
@@ -179,7 +185,7 @@ public class FocusSessionLifecycleService {
             // context → 섬 → 멤버십 — 섬 소속 경로(IslandMembershipService)와 같은 방향이다.
             GroupMember membership = requireLockedMembership(userId, islandId);
             return new StartPlan(FocusSessionKind.ISLAND, islandId, membership.getMembershipEpoch(), subject,
-                    targetMinutes, null, seat);
+                    targetMinutes, null, seat, false);
         });
     }
 
@@ -206,7 +212,7 @@ public class FocusSessionLifecycleService {
                             .orElseThrow(() -> new FocusException(FocusErrorCode.SEA_DESTINATION_UNAVAILABLE));
                     // 바다 세션은 주제가 없다 — 열이 NOT NULL 이라 빈 문자열이다(탈퇴 익명화와 같은 관례).
                     return new StartPlan(FocusSessionKind.SEA, destination, null, "", item.sailingMinutes(),
-                            item.sailingMinutes(), null);
+                            item.sailingMinutes(), null, TelescopeService.SLOT_UNINHABITED.equals(item.slot()));
                 });
     }
 
@@ -218,7 +224,8 @@ public class FocusSessionLifecycleService {
      * @param seat            섬 세션만, 선택(GROMO-2477). 바다 세션은 null
      */
     private record StartPlan(FocusSessionKind kind, UUID islandId, Long membershipEpoch, String subject,
-                             Integer targetMinutes, Integer sailingMinutes, FocusSeat seat) {
+                             Integer targetMinutes, Integer sailingMinutes, FocusSeat seat,
+                             boolean newIslandDestination) {
     }
 
     /**
@@ -263,6 +270,7 @@ public class FocusSessionLifecycleService {
                             .sessionId(session.getId())
                             .userId(userId)
                             .islandId(startPlan.islandId())
+                            .newIslandDestination(startPlan.newIslandDestination())
                             .membershipEpochAtStart(startPlan.membershipEpoch())
                             .kind(startPlan.kind())
                             .sailingMinutes(startPlan.sailingMinutes())
@@ -288,7 +296,8 @@ public class FocusSessionLifecycleService {
                     FocusSessionView view = new FocusSessionView(session.getId(), startPlan.islandId(),
                             startPlan.subject(), startPlan.targetMinutes(), FocusSessionView.STATUS_ACTIVE, 0L, now,
                             now, null, detail.getVersion(), activeIntervals, kindName(detail),
-                            startPlan.kind() == FocusSessionKind.SEA ? destinationName(startPlan.islandId()) : null);
+                            startPlan.kind() == FocusSessionKind.SEA
+                                    ? destinationName(startPlan.islandId(), startPlan.newIslandDestination()) : null);
                     // 순번은 INSERT 때 DB 시퀀스가 채운다(GROMO-1743) — 쓰기 지연을 여기서 내보내야 보인다.
                     focusSessionRepository.flush();
                     // 선행 조건 #9 — start 도 rest 투영을 내구화한다(LLD §6). active 는 「rest 목록에서
@@ -476,7 +485,7 @@ public class FocusSessionLifecycleService {
      * 적립 틱이 {@code focus_reward_accruals} 의 <b>UTC 날짜</b>(D8) 합으로 판정하며, 상한에 닿아도 집중
      * 기록(일 집계·activeSeconds)은 그대로 쌓인다(1830).
      *
-     * <p><b>잠금 순서</b>(LLD §3): 사용자 공유 → 섬 행 → 멤버십 공유 → 상세 → 기본 마커 → 일 집계.
+     * <p><b>잠금 순서</b>(LLD §3): 사용자 배타(무인도 정착 직렬화) → 섬 행 → 멤버십 공유 → 상세 → 기본 마커 → 일 집계.
      * 지갑을 더 이상 여기서 건드리지 않으므로 종전의 「섬 건설 상태 → 섬 통장 → 개인 지갑」 구간이 빠졌다
      * (적립 틱이 상세 잠금 아래에서 같은 순서로 잡는다). 마커는 더티 체킹 flush 가 아니라 행 잠금
      * 조회로 «이 자리에서» 잡는다.
@@ -492,10 +501,10 @@ public class FocusSessionLifecycleService {
                 "POST:/focus-sessions/" + sessionId + "/finish:" + userId, idempotencyKey,
                 tree(Map.of("expectedVersion", expectedVersion)));
         JsonNode data = publicCommands.run(command,
-                () -> authorizeSession(userId, sessionId),
-                ignored -> authorizeSession(userId, sessionId),
+                () -> authorizeFinishSession(userId, sessionId),
+                ignored -> authorizeFinishSession(userId, sessionId),
                 () -> {
-                    FocusSessionDetail detail = authorizeSession(userId, sessionId);
+                    FocusSessionDetail detail = authorizeFinishSession(userId, sessionId);
                     if (detail.getLifecycle() == FocusSessionLifecycle.COMPLETED) {
                         FocusSettlement settled = focusSettlementRepository.findById(sessionId)
                                 .orElseThrow(() -> new IllegalStateException(
@@ -683,9 +692,23 @@ public class FocusSessionLifecycleService {
         secondsByDate.forEach((date, seconds) -> storedByDate.put(date.toString(), seconds));
         marker.end(t, 0, t, storedByDate);
         detail.applyComplete(t);
+        boolean createdNewIsland = false;
         if (sea) {
             // 도착 판정(N7) — 항해 시간을 채웠는가. 「정박 중」은 사건이 아니라 수신 측 파생이다.
             detail.markArrived(activeSeconds >= detail.getSailingMinutes() * 60L);
+            if (detail.isNewIslandDestination() && Boolean.TRUE.equals(detail.getArrived())) {
+                // 출항 뒤 다른 API로 세 번째 섬에 가입했으면 세션은 정상 종료하되 정착하지 않는다.
+                // 여기서 예외를 내면 사용자는 끝낼 수 없는 항해에 갇힌다.
+                if (groupMemberRepository.countByUser(user) >= IslandInputPolicy.MAX_JOINED_ISLANDS) {
+                    detail.markArrived(false);
+                } else {
+                    UserIslandContext context = userIslandContextLockService.lock(user);
+                    Group created = onboardingIslands.materializeAtFinish(user, context);
+                    detail.materializeDestination(created.getId());
+                    islandId = created.getId();
+                    createdNewIsland = true;
+                }
+            }
             log.info("바다 집중 정산 session={} user={} destination={} activeSeconds={} arrived={}", sessionId, userId,
                     islandId, activeSeconds, detail.getArrived());
         }
@@ -719,6 +742,10 @@ public class FocusSessionLifecycleService {
             focusPresenceProjection.seaEnded(userId, marker.getPresenceOrder());
             events = new ArrayList<>(seaSessionEvents.ended(userId, sessionId, islandId, detail.getSailingMinutes(),
                     activeSeconds, detail.getArrived(), t));
+            if (createdNewIsland) {
+                events.add(islandStateEvents.created(islandId, userId));
+                events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId));
+            }
         } else {
             events = new ArrayList<>(focusPresenceProjection.ended(userId, islandId, sessionId, detail.getSubject(),
                     activeSeconds, t, detail.getVersion(), marker.getPresenceOrder()));
@@ -905,15 +932,16 @@ public class FocusSessionLifecycleService {
                 activeSeconds, anchor, FocusIntervalMath.sessionStartedAt(intervals),
                 paused ? FocusIntervalMath.openRestStartedAt(intervals) : null, detail.getVersion(),
                 activeIntervals, kindName(detail),
-                detail.getKind() == FocusSessionKind.SEA ? destinationName(detail.getIslandId()) : null);
+                detail.getKind() == FocusSessionKind.SEA
+                        ? destinationName(detail.getIslandId(), detail.isNewIslandDestination()) : null);
     }
 
     /**
      * 바다 세션의 목적지 섬 이름(GROMO-2330). {@code Group} 에 soft-delete 제한이 없어 삭제된 섬도 이름이 남는다 —
      * 항해 중 사용자에게 목적지 이름이 계속 보이게 하는 의도다. 키가 빠지는 건 행 자체가 없을 때(null)만이다.
      */
-    private String destinationName(UUID islandId) {
-        return groupRepository.findById(islandId).map(Group::getName).orElse(null);
+    private String destinationName(UUID islandId, boolean newIslandDestination) {
+        return newIslandDestination ? "무인도" : groupRepository.findById(islandId).map(Group::getName).orElse(null);
     }
 
     /**
@@ -949,6 +977,12 @@ public class FocusSessionLifecycleService {
             throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
         }
         return detail;
+    }
+
+    /** 무인도 성공 종료는 컨텍스트를 만들고 옮긴다. 사용자 배타 잠금을 먼저 쥐어 재시도 간 승격 교착을 막는다. */
+    private FocusSessionDetail authorizeFinishSession(UUID userId, UUID sessionId) {
+        requireActiveUserForUpdate(userId);
+        return authorizeSession(userId, sessionId);
     }
 
     /**

@@ -27,33 +27,20 @@ describe('FireMotion', () => {
   });
 
   // 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
-  const isShown = (view: MotionView, mode: 'day' | 'evening', index: number) =>
-    StyleSheet.flatten(view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.style)
-      .opacity === 1;
-  const activeFrame = (view: MotionView, mode: 'day' | 'evening') =>
-    [0, 1, 2, 3].find((index) => isShown(view, mode, index));
-  const visibleFrameCount = (view: MotionView, mode: 'day' | 'evening') =>
-    [0, 1, 2, 3].filter((index) => isShown(view, mode, index)).length;
+  const isShown = (view: MotionView, index: number) =>
+    StyleSheet.flatten(view.getByTestId(`fire-motion-frame-${index}`).props.style).opacity === 1;
+  const activeFrame = (view: MotionView) => [0, 1, 2, 3].find((index) => isShown(view, index));
+  const visibleFrameCount = (view: MotionView) =>
+    [0, 1, 2, 3].filter((index) => isShown(view, index)).length;
 
-  it('loops through day smoke frames every 360ms', async () => {
-    const view = await render(<FireMotion mode="day" />);
-    expect(activeFrame(view, 'day')).toBe(0);
-    await act(async () => jest.advanceTimersByTime(360));
-    expect(activeFrame(view, 'day')).toBe(1);
-    expect(visibleFrameCount(view, 'day')).toBe(1);
-    await act(async () => jest.advanceTimersByTime(360));
-    expect(activeFrame(view, 'day')).toBe(2);
-    await view.unmount();
-  });
-
-  it('loops through evening flame frames every 155ms', async () => {
-    const view = await render(<FireMotion mode="evening" residentCount={1} />);
-    expect(activeFrame(view, 'evening')).toBe(1);
+  it('loops through flame frames every 155ms', async () => {
+    const view = await render(<FireMotion residentCount={1} />);
+    expect(activeFrame(view)).toBe(1);
     expect(view.queryByTestId('fire-motion-glow')).toBeNull();
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(view, 'evening')).toBe(2);
-    expect(visibleFrameCount(view, 'evening')).toBe(1);
+    expect(activeFrame(view)).toBe(2);
+    expect(visibleFrameCount(view)).toBe(1);
     await view.unmount();
   });
 
@@ -69,25 +56,25 @@ describe('FireMotion', () => {
 
   it('hides the resident count when presence has not loaded', async () => {
     const view = await render(<FireMotion residentCount={null} />);
-    expect(view.getByTestId('fire-motion').props.accessibilityLabel).toBe('모닥불, 저녁, 불꽃');
+    expect(view.getByTestId('fire-motion').props.accessibilityLabel).toBe('모닥불, 불꽃');
     await view.unmount();
   });
 
   it('pauses in background and holds still when reduce motion is enabled', async () => {
-    const view = await render(<FireMotion mode="evening" />);
+    const view = await render(<FireMotion />);
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(view, 'evening')).toBe(2);
+    expect(activeFrame(view)).toBe(2);
     await act(async () => onAppStateChange?.('background'));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view)).toBe(1);
     await act(async () => jest.advanceTimersByTime(5_000));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view)).toBe(1);
     await act(async () => onAppStateChange?.('active'));
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(view, 'evening')).toBe(2);
+    expect(activeFrame(view)).toBe(2);
 
-    await view.rerender(<FireMotion mode="evening" reduceMotion />);
+    await view.rerender(<FireMotion reduceMotion />);
     await act(async () => jest.advanceTimersByTime(5_000));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view)).toBe(1);
     await view.unmount();
   });
 
@@ -112,7 +99,7 @@ describe('FireMotion', () => {
     const onRender = jest.fn();
     const view = await render(
       <Profiler id="fire" onRender={onRender}>
-        <FireMotion mode="evening" />
+        <FireMotion />
       </Profiler>,
     );
     expect(timing).toHaveBeenCalledWith(

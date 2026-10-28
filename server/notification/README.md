@@ -132,6 +132,10 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 기존 `bundle-flush` 잡의 활성 여부·크론·실행 이력은 `delivery-dispatch`로 승계합니다.
 사용자 설정 저장과 기기 등록은 발송 게이트가 닫혀 있어도 동작합니다.
 
+발송 실패는 60초 간격으로 재시도하며, 이번 실패로 시도 횟수가 60회에 닿으면 `FAILED`로 끝납니다. `NO_ACTIVE_DEVICE`도 같은 상한을 따릅니다. 크기 초과로 일부 기기만 건너뛴 경우에는 `푸시가 크기 한도를 넘는 기기` WARN의 `deviceKey`를 해당 기기의 `device_tokens.device_key`와 대조해 찾습니다.
+
+이 상한은 기존 대기 행에도 적용됩니다. 배포 전에는 `SELECT count(*) FROM deliveries WHERE status IN ('PENDING','DEFERRED') AND attempts >= 59;`로 다음 실패에 곧바로 종결될 행 수를 확인합니다. 기기 등록이 늦어 60회 안에 수신 기기가 생기지 않는 `NO_ACTIVE_DEVICE` 알림도 자동 재시도에서 제외됩니다.
+
 ### dev 발송 게이트
 
 dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
@@ -148,8 +152,8 @@ dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522)
 
 ### FCM 프로젝트 불일치(`SENDER_ID_MISMATCH`)
 
-FCM이 `403 SENDER_ID_MISMATCH`로 답하면 그 토큰은 서버의 `FCM_PROJECT_ID`와 다른 Firebase 프로젝트에서 발급된 것입니다. `UNREGISTERED`처럼 그 기기의 `transport_invalid`만 켜고 소유권은 유지하며, 로그에 `FCM 프로젝트 불일치(SENDER_ID_MISMATCH)` 경고를 한 줄 남깁니다(토큰·응답 본문은 남기지 않습니다).
-경고 줄 수로 판정합니다. 기기 하나에서만 나면 그 앱의 `GoogleService-Info.plist` 프로젝트가 틀린 것이니 앱을 고치고, 여러 기기에서 한꺼번에 나면 서버의 `FCM_PROJECT_ID`·`FCM_SERVICE_ACCOUNT_JSON`이 틀린 것입니다. 앱은 같은 유저·같은 토큰이면 다시 등록하지 않아 설정을 고쳐도 저절로 돌아오지 않으므로, 서버 설정을 고친 뒤 DB에서 무효 표시를 되돌립니다.
+FCM이 `403 SENDER_ID_MISMATCH`로 답하면 그 토큰은 서버의 `FCM_PROJECT_ID`와 다른 Firebase 프로젝트에서 발급된 것입니다. `UNREGISTERED`처럼 그 기기의 `transport_invalid`만 켜고 소유권은 유지하며, `notification.fcm.sender_mismatch` 카운터를 올리고 `FCM 발송 실패 status=403 errorCode=SENDER_ID_MISMATCH` 경고를 한 줄 남깁니다(토큰·응답 본문은 남기지 않습니다).
+경고 줄 수와 카운터 증가량으로 판정합니다. 기기 하나에서만 나면 그 앱의 `GoogleService-Info.plist` 프로젝트가 틀린 것이니 앱을 고치고, 여러 기기에서 한꺼번에 나면 서버의 `FCM_PROJECT_ID`·`FCM_SERVICE_ACCOUNT_JSON`이 틀린 것입니다. 앱은 같은 유저·같은 토큰이면 다시 등록하지 않아 설정을 고쳐도 저절로 돌아오지 않으므로, 서버 설정을 고친 뒤 DB에서 무효 표시를 되돌립니다.
 
 ```sql
 -- 먼저 대상 수를 확인한다(경고 줄 수와 비슷해야 한다). 크게 다르면 실행하지 말고 첫 경고 시각을 다시 확인한다.
@@ -157,4 +161,4 @@ SELECT count(*) FROM device_tokens WHERE active AND transport_invalid AND update
 UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_invalid AND updated_at >= '<첫 경고 시각>';
 ```
 
-`<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. 다만 `NO_ACTIVE_DEVICE`로 60초마다 재시도 중이던 발송이 이어서 나가므로 오래된 알림이 한꺼번에 갈 수 있습니다.
+`<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. `NO_ACTIVE_DEVICE`로 재시도 중인 발송 중 60회 상한에 닿지 않은 건은 무효 표시 복구 뒤 이어서 나갑니다. 이미 `FAILED`가 된 건은 원본의 `deviceCount` 또는 `delivery_devices`를 먼저 확인합니다. 콘솔 resend는 새 발송을 만들므로 일부 기기에 이미 전달됐으면 중복 푸시가 갈 수 있습니다. FCM 수락 뒤 기록이 실패했을 가능성도 고려해 건별로 재전송을 판단합니다.

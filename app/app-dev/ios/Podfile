@@ -61,6 +61,8 @@ target 'Cattus' do
   # modular headers 는 FirebaseMessaging(ObjC, DEFINES_MODULE 없음)에만 켠다. 의존하는 GoogleUtilities 는
   # use_expo_modules! 가 ExpoAdapterGoogleSignIn 의 직접 의존으로 이미 모듈로 만든다(pod install 로그 「Enabling modular headers for pod GoogleUtilities」).
   pod 'FirebaseMessaging', '~> 12.19.0', :modular_headers => true
+  # GROMO-2544 iOS 앱 이벤트만 연결한다. Android SDK는 별도 네이티브 구현을 쓴다.
+  pod 'FBSDKCoreKit', '~> 18.1.1'
 
   post_install do |installer|
     react_native_post_install(

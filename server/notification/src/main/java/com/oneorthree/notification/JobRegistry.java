@@ -123,13 +123,18 @@ class JobRegistry {
             } catch (RuntimeException failure) {
                 outcome = reason(failure);
                 LOG.warn("발송 후보 격리: delivery={}, 원인={}", id, outcome);
-                dispatch.backOff(id, outcome);
+                if (!(failure instanceof DispatchService.LeasedFailure)) {
+                    dispatch.backOff(id, outcome);
+                }
             }
         }
         return outcome;
     }
 
     private static String reason(RuntimeException failure) {
+        if (failure instanceof DispatchService.LeasedFailure && failure.getCause() instanceof RuntimeException cause) {
+            failure = cause;
+        }
         return failure instanceof NotificationFailure coded && coded.getMessage() != null
                 ? coded.getMessage() : failure.getClass().getSimpleName();
     }

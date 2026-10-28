@@ -42,6 +42,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -54,6 +55,8 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -89,6 +92,10 @@ class TelescopeIntegrationTest {
     @MockitoBean
     Clock clock;
 
+    /** 이 클래스는 기존 섬 스냅샷을 검증한다. 독립 무인도 추첨은 OnboardingIslandIntegrationTest가 검증한다. */
+    @MockitoBean
+    OnboardingIslandService onboardingIslands;
+
     @Autowired
     TelescopeService telescope;
     @Autowired
@@ -112,6 +119,7 @@ class TelescopeIntegrationTest {
     void isolate() {
         when(clock.instant()).thenAnswer(invocation -> NOW.get());
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+        when(onboardingIslands.destination(any(), anyList(), anyList(), any())).thenReturn(Optional.empty());
         NOW.set(BASE);
         jdbc.update("update islands set deleted_at = now() where deleted_at is null");
     }
@@ -397,17 +405,20 @@ class TelescopeIntegrationTest {
     }
 
     @Test
-    @DisplayName("공개 섬이 없으면 빈 스냅샷과 개인 무인도를 유지한다 — 늦게 생긴 공개 섬은 다음 버킷에 뽑는다")
+    @DisplayName("공개 섬이 없으면 개인 무인도를 보여 주고 빈 스냅샷을 유지한다 — 늦게 생긴 공개 섬은 다음 버킷에 뽑는다")
     void anEmptyDrawIsStoredAndReread() {
+        when(onboardingIslands.destination(any(), anyList(), anyList(), any())).thenCallRealMethod();
         User viewer = user();
 
-        UUID destination = telescope.list(viewer.getId()).items().get(0).islandId();
+        List<TelescopeItemView> first = telescope.list(viewer.getId()).items();
+        assertThat(first).extracting(TelescopeItemView::slot).containsExactly("uninhabited");
         assertThat(jdbc.queryForObject("select cardinality(island_ids) || ':' || has_nearby from telescope_buckets "
                 + "where user_id = ?", String.class, viewer.getId())).isEqualTo("0:false");
 
         island("늦게생긴섬", 10);
-        assertThat(telescope.list(viewer.getId()).items()).extracting(TelescopeItemView::islandId)
-                .containsExactly(destination);
+        // 가입 가능한 일반 섬이 생기면 첫 정착 보장은 풀리고 독립 20% 추첨만 남을 수 있다.
+        assertThat(telescope.list(viewer.getId()).items()).extracting(TelescopeItemView::slot)
+                .allMatch("uninhabited"::equals);
         assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
                 viewer.getId())).isEqualTo(1L);
     }

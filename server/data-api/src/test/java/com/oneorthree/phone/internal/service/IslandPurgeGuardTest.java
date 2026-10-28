@@ -44,6 +44,7 @@ class IslandPurgeGuardTest {
 
     /** FK 없이 섬 id 를 가진 표 → 그 열. {@code pg_constraint} 로는 안 보이므로 손으로 적는다 — 새로 생기면 여기에도. */
     private static final Map<String, String> ISLAND_ID_WITHOUT_FK = Map.of(
+            "focus_session_details", "island_id",
             "island_weekly_focus", "island_id",
             "telescope_buckets", "island_ids");
 
@@ -51,7 +52,7 @@ class IslandPurgeGuardTest {
     private static final Map<String, String> KEPT = Map.ofEntries(
             entry("group_members", "이탈 마킹으로 소속이 이미 끊겼고, 정산과 지난 주 랭킹 분모(경계 시점 소속 판정)의 증거다"),
             entry("island_join_requests", "섬 종결이 ISLAND_CLOSED 로 닫는다 — 신청은 공동 기록이 아니라 신청자의 기록이다"),
-            entry("focus_session_details", "개인 집중 기록이라 정책이 유지한다 — FK 는 RESTRICT 지만 섬 행이 소프트 삭제라 걸리지 않는다"),
+            entry("focus_session_details", "개인 집중 기록이라 정책이 유지한다 — 가상 무인도 목적지를 위해 island_id FK 는 없다"),
             entry("focus_tutorial_rewards", "사용자의 튜토리얼 보상 기록이다 — FK 가 SET NULL 인 것도 섬이 없어져도 기록은 남긴다는 뜻이다"),
             entry("letters", "친구 사이 편지는 보낸·받은 사용자의 기록이다 — FK 가 SET NULL 인 것도 기록은 남긴다는 뜻이다"),
             entry("user_main_islands", "마지막 주민이 나갈 때 MainIslandService#onMembershipRevoked 가 같은 트랜잭션에서 옮기거나 "

@@ -111,6 +111,7 @@ jobs:
     env:
       CI: "1"
       LANG: en_US.UTF-8
+      AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 

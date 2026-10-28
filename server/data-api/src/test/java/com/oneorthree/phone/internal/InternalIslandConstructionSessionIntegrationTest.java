@@ -266,7 +266,9 @@ class InternalIslandConstructionSessionIntegrationTest {
         mvc.perform(get(base + "/construction-options").header("Authorization", "Bearer " + TOKEN)
                         .header("X-User-Id", actor.userId()).header("X-Session-Id", actor.sessionId())
                         .header("X-Auth-Generation", 0))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.villagePoints").value(100));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.villagePoints").value(100))
+                .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.contains(
+                        "hall", "board", "gram", "library", "mail", "tower", "shop")));
         logout(actor);
         mvc.perform(get(base + "/construction-options").header("Authorization", "Bearer " + TOKEN)
                         .header("X-User-Id", actor.userId()).header("X-Session-Id", actor.sessionId())

@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.auth.oauth2.GoogleCredentials;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -22,21 +23,31 @@ public class FcmFocusActivityClient {
     private final GoogleCredentials credentials;
     private final String projectId;
     private final ObjectMapper json = new ObjectMapper();
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    private final HttpClient http;
 
+    @Autowired
     public FcmFocusActivityClient(
             @Value("${fcm.project-id:${FCM_PROJECT_ID:}}") String projectId,
             @Value("${fcm.service-account-json:${FCM_SERVICE_ACCOUNT_JSON:}}") String key) {
+        this(projectId, credentials(projectId, key),
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
+    }
+
+    FcmFocusActivityClient(String projectId, GoogleCredentials credentials, HttpClient http) {
         this.projectId = projectId;
+        this.credentials = credentials;
+        this.http = http;
+    }
+
+    private static GoogleCredentials credentials(String projectId, String key) {
         if (projectId.isBlank() || key.isBlank()) {
-            credentials = null;
-        } else {
-            try {
-                credentials = GoogleCredentials.fromStream(new ByteArrayInputStream(Base64.getDecoder().decode(key)))
-                        .createScoped("https://www.googleapis.com/auth/firebase.messaging");
-            } catch (Exception e) {
-                throw new IllegalStateException("집중 상태 FCM 인증 설정이 올바르지 않습니다");
-            }
+            return null;
+        }
+        try {
+            return GoogleCredentials.fromStream(new ByteArrayInputStream(Base64.getDecoder().decode(key)))
+                    .createScoped("https://www.googleapis.com/auth/firebase.messaging");
+        } catch (Exception e) {
+            throw new IllegalStateException("집중 상태 FCM 인증 설정이 올바르지 않습니다");
         }
     }
 
@@ -69,6 +80,13 @@ public class FcmFocusActivityClient {
             }
             var details = json.readTree(response.body()).path("error").path("details");
             for (var detail : details) {
+                if (response.statusCode() == 403
+                        && "type.googleapis.com/google.firebase.fcm.v1.FcmError"
+                                .equals(detail.path("@type").asText())
+                        && "SENDER_ID_MISMATCH".equals(detail.path("errorCode").asText())) {
+                    log.warn("집중 상태 FCM 발신 프로젝트 불일치: projectId={}", projectId);
+                    return LiveActivityPushClient.Result.INVALID_TOKEN;
+                }
                 if ("UNREGISTERED".equals(detail.path("errorCode").asText())) {
                     return LiveActivityPushClient.Result.INVALID_TOKEN;
                 }

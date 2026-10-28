@@ -24,6 +24,7 @@
 		4A6D5678F116265BD0BA5958 /* TotalActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E5E91034EC812D5CEB472E /* TotalActivityReport.swift */; };
 		4CE008E421D1DB7491061D15 /* libPods-Cattus.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1CE6CDC64ED3C9B47124F0B /* libPods-Cattus.a */; };
 		4E75A7010F4CF32FE42CC580 /* ScreenTimeReportUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */; };
+		4F3F45F436988C641CCAE33B /* MetaAppEventsModule.m in Sources */ = {isa = PBXBuildFile; fileRef = D38BD3E73B190EEA58119C05 /* MetaAppEventsModule.m */; };
 		53CC3CA8CAC4E8261B93BC26 /* screentimereport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACDB593FFAD602A622C4BBD /* screentimereport.swift */; };
 		6D8E2D0A61D96B01EF2B74E3 /* TotalActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3A51EEBDA3C876B0863837 /* TotalActivityView.swift */; };
 		8C892C145989421F8A6A07BC /* gowun-dodum.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1D64DB35A8484C309ED6F6A3 /* gowun-dodum.ttf */; };
@@ -57,6 +58,7 @@
 		D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB802E10F6288401A5062C2 /* CompactActivityView.swift */; };
 		D773B2A78A2F134A7DB00548 /* ScreenTimeReportViewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */; };
 		DCFFF543C6596D90A7ABFC1C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 924CDFF4DCFC00733E587F72 /* Foundation.framework */; };
+		E9610919823362E332318343 /* MetaAppEventsModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91F1BCEAD2D4F11C4A736A8 /* MetaAppEventsModule.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		F755A5248582A9EA6F2F5F48 /* RemainingActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */; };
 /* End PBXBuildFile section */
@@ -163,6 +165,7 @@
 		A1983100000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1983100000000000000000E /* ShieldAction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShieldAction.entitlements; sourceTree = "<group>"; };
 		A1983100000000000000000F /* ShieldAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A91F1BCEAD2D4F11C4A736A8 /* MetaAppEventsModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MetaAppEventsModule.swift; path = Cattus/MetaAppEventsModule.swift; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Cattus/SplashScreen.storyboard; sourceTree = "<group>"; };
 		AACDB593FFAD602A622C4BBD /* screentimereport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = screentimereport.swift; sourceTree = "<group>"; };
 		B18650000000000000000011 /* LiveActivityModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveActivityModule.swift; path = Cattus/LiveActivityModule.swift; sourceTree = "<group>"; };
@@ -186,6 +189,7 @@
 		D0D54597FD0D0441D4DAD113 /* cat-black-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-black-focus.png"; sourceTree = SOURCE_ROOT; };
 		D1FF28FB82587B907B9C0E57 /* screentimereport.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = screentimereport.entitlements; sourceTree = "<group>"; };
 		D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldPalette.swift; sourceTree = "<group>"; };
+		D38BD3E73B190EEA58119C05 /* MetaAppEventsModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MetaAppEventsModule.m; path = Cattus/MetaAppEventsModule.m; sourceTree = "<group>"; };
 		D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-calico-focus.png"; sourceTree = SOURCE_ROOT; };
 		DFB802E10F6288401A5062C2 /* CompactActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompactActivityView.swift; sourceTree = "<group>"; };
 		E1CE6CDC64ED3C9B47124F0B /* libPods-Cattus.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Cattus.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -353,6 +357,8 @@
 				074669341FFEBF850D25630F /* ExpoModulesProviders */,
 				5947CA12FF8B42FDC5A9310F /* screentimereport */,
 				15CF9E5DA6AC41789D40D714 /* Resources */,
+				A91F1BCEAD2D4F11C4A736A8 /* MetaAppEventsModule.swift */,
+				D38BD3E73B190EEA58119C05 /* MetaAppEventsModule.m */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -468,6 +474,7 @@
 				A19833000000000000000001 /* Embed Foundation Extensions */,
 				36EEE7D751D04F900361AFFA /* Embed Report Extension */,
 				F19640000000000000000001 /* Upload PostHog native symbols */,
+				F23960000000000000000001 /* [Airbridge] Generate app configuration */,
 				7382D70F4C2E00CA0B974178 /* [Airbridge] Copy airbridge.json */,
 				C25230000000000000000021 /* [Firebase] Copy GoogleService-Info.plist */,
 				DE3AFFCC8129DA5E5938FD20 /* [Airbridge] Create LibraryInfo.json */,
@@ -876,6 +883,9 @@
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesJSI/ExpoModulesJSI.framework/ExpoModulesJSI",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesWorklets/ExpoModulesWorklets.framework/ExpoModulesWorklets",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoVideo/ExpoVideo.framework/ExpoVideo",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/FBAEMKit/FBAEMKit.framework/FBAEMKit",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/FBSDKCoreKit/FBSDKCoreKit.framework/FBSDKCoreKit",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/FBSDKCoreKit_Basics/FBSDKCoreKit_Basics.framework/FBSDKCoreKit_Basics",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/airbridge-ios-sdk/Airbridge.framework/Airbridge",
@@ -889,6 +899,9 @@
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoModulesJSI.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoModulesWorklets.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoVideo.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/FBAEMKit.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/FBSDKCoreKit.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/FBSDKCoreKit_Basics.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Airbridge.framework",
@@ -960,6 +973,18 @@
 			shellPath = /bin/bash;
 			shellScript = "/bin/bash \"$SRCROOT/../scripts/posthog-xcode.sh\" symbols\n";
 		};
+		F23960000000000000000001 /* [Airbridge] Generate app configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "[Airbridge] Generate app configuration";
+			outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AirbridgeConfig.json",);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\n/bin/sh \"$SRCROOT/scripts/airbridge-config.sh\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -980,6 +1005,8 @@
 				D773B2A78A2F134A7DB00548 /* ScreenTimeReportViewManager.swift in Sources */,
 				422D61DB31180A4450760E30 /* ScreenTimeReportViewManager.m in Sources */,
 				0F238FAED05593D75FA75071 /* ReportPalette.swift in Sources */,
+				E9610919823362E332318343 /* MetaAppEventsModule.swift in Sources */,
+				4F3F45F436988C641CCAE33B /* MetaAppEventsModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

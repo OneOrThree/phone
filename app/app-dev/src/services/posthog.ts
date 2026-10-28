@@ -2,6 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type PostHog from 'posthog-react-native';
 import { isMockMode } from '@/services/demoMode';
+import {
+  captureAirbridgeEvent,
+  identifyAirbridgeUser,
+  resetAirbridgeUser,
+} from '@/services/airbridge';
 
 // Catus / Catus의 공개 수집 토큰. 빌드 환경변수가 없어도 이 프로젝트로 보낸다.
 const projectToken =
@@ -82,6 +87,7 @@ export function captureProductEvent(
   event: string,
   properties?: Record<string, string | number>,
 ): void {
+  captureAirbridgeEvent(event, properties);
   try {
     client?.capture(event, {
       ...properties,
@@ -93,12 +99,14 @@ export function captureProductEvent(
 }
 
 export function identifyPostHogUser(userId: string): void {
+  identifyAirbridgeUser(userId);
   try {
     client?.identify(userId);
   } catch {}
 }
 
 export function resetPostHogUser(): void {
+  resetAirbridgeUser();
   try {
     client?.reset();
   } catch {}

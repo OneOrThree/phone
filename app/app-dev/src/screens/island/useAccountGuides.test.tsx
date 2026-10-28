@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAccountGuides } from './useAccountGuides';
-import { initialState } from '@/services/model';
+import { initialState, reducer } from '@/services/model';
 import { saveAccountGuides } from '@/services/accountGuides';
 let mockGeneration = 1;
 let mockOwner = 'alice';
@@ -26,7 +26,10 @@ test('기존 우체통·상점·집중 완료 이력을 소유 계정으로 이�
   const h = await renderHook(() => useAccountGuides('alice', state, dispatch));
   await waitFor(() => expect(h.result.current.data?.focusDone).toBe(true));
   expect(h.result.current.data?.buildings).toEqual(['mail', 'shop']);
-  expect(dispatch).toHaveBeenCalledWith({ type: 'FOCUS_GUIDE_RESTORED' });
+  expect(dispatch).toHaveBeenCalledWith({
+    type: 'FOCUS_GUIDE_RESTORED',
+    focusBlockingIntro: undefined,
+  });
   await h.unmount();
   const next = await renderHook(() => useAccountGuides('alice', initialState(), dispatch));
   await waitFor(() => expect(next.result.current.data?.buildings).toEqual(['mail', 'shop']));
@@ -79,4 +82,37 @@ test('이미 본 설명은 재진입에도 완료 이력을 유지하고 쓰기 
   });
   expect(h.result.current.data?.buildings).toEqual(['hall', 'mail']);
   jest.restoreAllMocks();
+});
+
+test('A의 예약을 B에게 넘기지 않고 A 재로그인 때 복원하며 소비 후에는 다시 예약하지 않는다', async () => {
+  await saveAccountGuides('alice', { focusDone: true, focusBlockingIntro: 'pending' });
+  let state = initialState();
+  const dispatch = jest.fn((action) => {
+    state = reducer(state, action);
+  });
+  const h = await renderHook(
+    ({ owner }: { owner: string }) => useAccountGuides(owner, state, dispatch),
+    { initialProps: { owner: 'alice' } },
+  );
+  await waitFor(() => expect(state.focusBlockingIntro).toBe('pending'));
+  state = reducer(state, { type: 'LOGOUT' });
+  mockOwner = 'bob';
+  mockGeneration += 1;
+  await h.rerender({ owner: 'bob' });
+  await waitFor(() => expect(h.result.current.data?.focusDone).toBe(false));
+  expect(state.focusBlockingIntro).toBeUndefined();
+
+  mockOwner = 'alice';
+  mockGeneration += 1;
+  await h.rerender({ owner: 'alice' });
+  await waitFor(() => expect(state.focusBlockingIntro).toBe('pending'));
+  await act(async () => {
+    state = reducer(state, { type: 'FOCUS_BLOCKING_INTRO_SEEN' });
+    await h.result.current.done({ focusBlockingIntro: 'seen' });
+  });
+  await h.unmount();
+  state = initialState();
+  const next = await renderHook(() => useAccountGuides('alice', state, dispatch));
+  await waitFor(() => expect(next.result.current.data?.focusBlockingIntro).toBe('seen'));
+  expect(state.focusBlockingIntro).toBe('seen');
 });

@@ -2,8 +2,7 @@ package com.oneorthree.phone.quest.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
-import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
+import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
 import com.oneorthree.phone.construction.service.IslandWalletService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -96,7 +95,7 @@ public class IslandQuestService {
     private final GroupQueryService groups;
     private final GroupMemberRepository members;
     private final GroupMembershipMutationLocks membershipLocks;
-    private final IslandFacilityRepository facilities;
+    private final IslandFacilityQueryService facilities;
     private final IslandQuestRepository quests;
     private final IslandQuestOccurrenceRepository occurrences;
     private final IslandQuestClaimRepository claims;
@@ -559,7 +558,7 @@ public class IslandQuestService {
     }
 
     private void requireBoard(UUID islandId) {
-        if (!facilities.existsCompleted(islandId, ConstructionBuilding.BOARD.id())) {
+        if (!facilities.hasBoardCompleted(islandId)) {
             throw new QuestException(QuestErrorCode.QUEST_BOARD_LOCKED);
         }
     }

@@ -83,7 +83,7 @@ class FocusSessionMarkerDesyncTest {
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
                 new SeaSessionPredicate(), customizationRewards,
-                null, new SeaSessionEvents(outboxCommandPort),
+                null, null, null, null, new SeaSessionEvents(outboxCommandPort),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
                 Clock.fixed(NOW, ZoneOffset.UTC), null, weeklyFocus);
     }

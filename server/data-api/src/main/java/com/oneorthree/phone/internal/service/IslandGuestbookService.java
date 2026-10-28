@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -81,7 +80,7 @@ public class IslandGuestbookService {
         if ((afterCreatedAt == null) != (afterId == null)) {
             throw new IllegalArgumentException("커서 anchor 는 시각과 id 가 함께 와야 합니다.");
         }
-        boolean built = facilities.completedBuildings(islandId).contains(ConstructionBuilding.BOARD.id());
+        boolean built = facilities.hasBoardCompleted(islandId);
         if (!facilities.hasBoard(islandId)) {
             return new IslandGuestbookViews.Page(built, List.of(), false);
         }

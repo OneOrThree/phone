@@ -224,7 +224,13 @@ PODS:
     - Yoga
   - EXUpdatesInterface (57.0.2):
     - ExpoModulesCore
+  - FBAEMKit (18.1.1):
+    - FBSDKCoreKit_Basics (= 18.1.1)
   - FBLazyVector (0.86.0)
+  - FBSDKCoreKit (18.1.1):
+    - FBAEMKit (= 18.1.1)
+    - FBSDKCoreKit_Basics (= 18.1.1)
+  - FBSDKCoreKit_Basics (18.1.1)
   - FirebaseCore (12.19.0):
     - FirebaseCoreInternal (~> 12.19.0)
     - GoogleUtilities/Environment (~> 8.1)
@@ -2623,6 +2629,7 @@ DEPENDENCIES:
   - EXUpdates (from `../node_modules/expo-updates/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
+  - FBSDKCoreKit (~> 18.1.1)
   - FirebaseMessaging (~> 12.19.0)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - "posthog-react-native-plugin (from `../node_modules/@posthog/react-native-plugin`)"
@@ -2725,6 +2732,9 @@ SPEC REPOS:
     - DatadogRUM
     - DatadogTrace
     - DatadogWebViewTracking
+    - FBAEMKit
+    - FBSDKCoreKit
+    - FBSDKCoreKit_Basics
     - FirebaseCore
     - FirebaseCoreInternal
     - FirebaseInstallations
@@ -3020,7 +3030,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLocalization: f204d4ca963bfcea932068a978247878f664f5a4
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: 035c5dafd4fa0478cb7fada984e6d0da5a0c4ff0
+  ExpoModulesCore: d5350d46147f58cec02ccfd2492d380054c5eefb
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoModulesWorkletsAdapter: 13e111038fec9c5f2e92c16481ba928fa4bf5414
@@ -3031,7 +3041,10 @@ SPEC CHECKSUMS:
   EXStructuredHeaders: 07c88ee9f7dfcbafeaaab0e78ea276dfe0eb332e
   EXUpdates: 0b001ff17e727d89c7dc832b080a2a675268eb9c
   EXUpdatesInterface: 4c96533f11c8cefe879bd506564cc2d537f56804
+  FBAEMKit: fbb0a50e13109400d0615e7630a0db26ec6b8206
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
+  FBSDKCoreKit: 0063014b3b1f7e975e70b60232b0cf8003839746
+  FBSDKCoreKit_Basics: f4a1e0f38769eb71abaf6395b85e015318fcda49
   FirebaseCore: c990214798d7c568ad436a15ba7da25c7a278c9a
   FirebaseCoreInternal: 656b1c2fd5a1c5976183dc54b73deda78fb26ee3
   FirebaseInstallations: f70a49eed611f5602f373e40974b3b01556ac217
@@ -3041,7 +3054,7 @@ SPEC CHECKSUMS:
   GoogleUtilities: 766ace00c6b10d8148408f329d10c4f051931850
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  hermes-engine: 83b9e0407272b71cab6c9676dc20c4fce62b13df
+  hermes-engine: 23f2494d0cf886ec87eb2e78e818064792fca65e
   KakaoSDKAuth: 569b377eda622d93d4575240b8031cd658163eef
   KakaoSDKCommon: d57127c339fc79e73aa8b236a4c77211c29924f1
   KakaoSDKUser: 043bcd7e91454ebf3bf64f150c430e6f65f0a08d
@@ -3139,6 +3152,6 @@ SPEC CHECKSUMS:
   RNWorklets: 43af89f696342f91118a2f1f3a879056e2f47331
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
 
-PODFILE CHECKSUM: 1a791d39342c89085498743aad01c534e5b53f77
+PODFILE CHECKSUM: d8f6b0ba2418cd50ac1941a9bbb08ed93b54289f
 
 COCOAPODS: 1.16.2
