@@ -403,6 +403,27 @@ class DeviceTransportContinuityTest {
     }
 
     /**
+     * 실패 기록의 UPDATE 까지 실패하면 원래 전송 예외가 보존돼야 한다. attempts 정수 오버플로로
+     * 기록 쿼리만 결정적으로 실패시키므로 DB 락이나 실행 시각에 기대지 않는다.
+     */
+    @Test
+    void 실패기록도실패하면원래전송예외에기록오류를첨부한다() {
+        register("fcm-broken", "boot-broken", 1, "reg-broken");
+        UUID id = enqueue("record-failure");
+        store.update("UPDATE deliveries SET attempts=? WHERE id=?", Integer.MAX_VALUE, id);
+        IllegalStateException sendFailure = new IllegalStateException("FCM 전송 실패");
+        when(transport.send(eq("fcm-broken"), any(), anyBoolean(), anyString())).thenThrow(sendFailure);
+
+        assertThatThrownBy(() -> dispatch.dispatch(id)).isSameAs(sendFailure).satisfies(failure -> {
+            assertThat(failure.getSuppressed()).hasSize(1);
+            assertThat(failure.getSuppressed()[0]).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        });
+        assertThat(store.one("SELECT status,attempts,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", Integer.MAX_VALUE)
+                .containsEntry("last_error", null);
+    }
+
+    /**
      * 판정이 토큰을 캡처한 <b>뒤</b> 그 기기의 소유권이 넘어가면, 캡처한 발송을 실행해서는 안 된다.
      *
      * <p>B 가 같은 {@code device_token} 을 새 bootstrap 으로 가져가면(계정 이전) 그 토큰이 가리키는 기기는
