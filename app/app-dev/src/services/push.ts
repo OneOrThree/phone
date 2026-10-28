@@ -22,7 +22,7 @@
  * | 409 `DEVICE_OWNERSHIP_CONFLICT` | 세션당 한 번 — 표시 알림은 두고 토큰을 바꿔(deleteToken·getToken) 소유권 없이 다시 등록. 두 번째면 다음 세션까지 멈춤 |
  * | 409 `SESSION_REVOKED` — 소유권만 싣고 bootstrap 은 없던 요청 | 세션당 한 번 — 소유권으로 옛 세션의 연결을 물려받은 것이라 소유권·확인을 지우고(저장) 소유권 없이 다시 보냄(위 409 로 이어진다). 두 번째면 멈춤 |
  * | 409 `SESSION_REVOKED`(그 밖의 경우)·`STALE_AUTH_GENERATION`, 401(`USER_INACTIVE` 등), `CLIENT_STALE_SESSION` | 다음 세션까지 등록을 멈춤(알림 끄기·A→B 정리는 계속) |
- * | 네트워크·타임아웃(상태 0)·408·429·5xx(502·503) | 같은 키·같은 본문 묶음을 메모리에 두고 다음 트리거에 다시 보냄(서버가 저장 응답을 재생) |
+ * | 네트워크·타임아웃(상태 0)·408·429·5xx(502·503) | 같은 키·같은 본문 묶음을 메모리에 두고 30초 뒤 한 번 재시도(`Retry-After`가 더 길면 그만큼). 그 뒤에는 다음 트리거에 다시 보냄 |
  * | 409 `IDEMPOTENCY_KEY_CONFLICT` | 그 묶음을 버림 — 다음 트리거에 새 키 |
  * | 브리지 `NOT_CONFIGURED`(plist 없는 빌드) | 이 실행 동안 푸시를 끔 |
  * | 브리지 `INVALID_APNS_TOKEN` | 그 APNs 토큰으로는 다시 부르지 않음(다음 APNs 토큰 이벤트를 기다림) |
@@ -101,7 +101,7 @@ function within<T>(work: Promise<T>): Promise<T> {
   ]).finally(() => clearTimeout(timer));
 }
 
-/** getToken 을 부른 뒤로 지우지 않았다 — 시간 초과로 끝낸 getToken 이 늦게 만든 토큰은 기록에 없어 이것으로 지운다. */
+/** getToken 을 부른 뒤로 지우지 않았다 — 시간 초과로 끝낸 getToken 이 늦게 만든 토큰은 기록에 없어 이 실행에서는 이것으로 지운다. 앱 재시작 뒤 계정 전환은 그 토큰을 모를 수 있지만, 이전 계정에 등록된 적이 없어 그 계정의 푸시가 새 계정에 가지 않는다. */
 let tokenMayExist = false;
 /** 마지막 FCM 브리지 호출(오류는 삼킴). */
 let bridgeInflight: Promise<unknown> = Promise.resolve();
@@ -164,11 +164,45 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   let rotatedForConflict: number | undefined;
   /** SESSION_REVOKED 로 낡은 소유권을 이미 한 번 지운 세대. */
   let staleOwnershipCleared: number | undefined;
+  /** 일시 오류 뒤 예약한 단 한 번의 재시도. 다른 트리거가 먼저 보내면 그 전송이 재시도다. */
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retriedKey: string | undefined;
+  let transientKey: string | undefined;
+  let preflightRearmedKey: string | undefined;
+  /** Retry-After 는 자동 타이머뿐 아니라 같은 묶음의 앱 복귀·토큰 이벤트에도 적용한다. */
+  let retryNotBefore: number | undefined;
+  /** 타이머가 진행 중 맞춤과 겹치면 PUT 을 보내거나 그 맞춤이 끝날 때까지 재시도 의도를 보존한다. */
+  let retryDue = false;
+  const cancelRetry = () => {
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+    retryNotBefore = undefined;
+    retryDue = false;
+  };
+  const armRetry = (delayMs: number) => {
+    // setTimeout 은 2^31 ms 이상을 즉시 실행할 수 있다. 긴 Retry-After 는 남은 시간을 잘라 끝까지 기다린다.
+    const maxTimerDelayMs = 2_147_483_647;
+    const deadline = Date.now() + delayMs;
+    const tick = () => {
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        retryTimer = setTimeout(tick, Math.min(remaining, maxTimerDelayMs));
+        return;
+      }
+      retryTimer = undefined;
+      retryNotBefore = undefined;
+      retryDue = true;
+      // 진행 중 맞춤이 PUT 없이 끝나면 아래 직렬 큐가 예약된 재시도를 한 번 더 실행한다.
+      if (!running) schedule();
+    };
+    retryTimer = setTimeout(tick, Math.min(delayMs, maxTimerDelayMs));
+  };
   /** 세션을 알기 전에 온 탭 — 세션이 공개되면 한 번 판정한다(같은 계정이면 열고, 아니면 버린다). */
   let heldResponse: NotificationResponse | undefined;
 
   // 지금 계정의 지금 등록으로 온 알림만 받는다. 저장 태그가 있으면 푸시 태그가 같아야 하고(다르거나 없으면 버림),
-  // 저장 태그가 없으면(서버가 아직 싣지 않음) 대조하지 않는다. 포그라운드 핸들러는 3초 안에 답해야 해서 메모리만 본다.
+  // 저장 태그가 없으면(서버가 아직 싣지 않음) 대조하지 않는다. 로그아웃 뒤 같은 계정의 재로그인도 PUT 응답 전까지
+  // 태그가 없어 이 길을 탄다(문구는 비식별). 포그라운드 핸들러는 3초 안에 답해야 해서 메모리만 본다.
   const accept = (notification: Notification): boolean => {
     const session = getSession();
     if (!session || !isEnabled() || device.userId !== session.userId) return false;
@@ -195,7 +229,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       openAppLink(link);
   };
 
-  const reconcile = async (): Promise<void> => {
+  const reconcile = async (): Promise<'preflight-failure' | void> => {
     const session = getSession();
     const generation = sessionGeneration();
     // 정리(알림 끄기의 토큰 지우기·A→B 교체)는 멈춘 세션에서도 한다 — 멈춤(halt)은 등록만 막는다.
@@ -245,7 +279,9 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === NOT_CONFIGURED) disabled = true;
       if (code === INVALID_APNS_TOKEN) invalidHex = hex;
-      return;
+      return code === NOT_CONFIGURED || code === INVALID_APNS_TOKEN
+        ? undefined
+        : 'preflight-failure';
     }
     if (!live()) return;
     const sameUser = device.userId === session.userId;
@@ -268,7 +304,13 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       pending && JSON.stringify(pending.body) === JSON.stringify(body)
         ? pending
         : { key: uuid(), body };
+    if (pending?.key !== bundle.key) {
+      cancelRetry();
+      transientKey = undefined;
+      preflightRearmedKey = undefined;
+    }
     pending = bundle;
+    if (retryNotBefore !== undefined && Date.now() < retryNotBefore) return;
     // 받은 토큰과 계정은 등록 결과와 따로 먼저 적는다 — 서버가 처리했는데 응답만 잃으면 빈 기록으로는 알림 끄기가 토큰을
     // 지우지 않고(fcmToken 없음) A→B 가 토큰을 바꾸지 않는다(userId 없음). 같은 계정이면 옛 소유권(이미 CAS 본문에
     // 있다)·태그(새 응답이 바꿀 때까지)를 남기되 확인은 지운다 — 같은 토큰을 bootstrap 으로 다시 등록하다 응답을 잃어도
@@ -288,18 +330,36 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     if (!live() || !isEnabled()) return;
     let registered: DeviceRegistration;
     try {
+      if (retryTimer) cancelRetry();
+      else if (retryDue) retryDue = false;
+      if (transientKey === bundle.key) retriedKey = bundle.key;
       registered = await registerDevice(body, bundle.key);
     } catch (error) {
       // 네트워크·타임아웃(상태 0)·408·429·5xx·ApiError 가 아닌 던짐은 같은 묶음으로 다음 트리거에 다시 보낸다.
-      if (!(error instanceof ApiError)) return;
-      const { code, status } = error;
-      const transient = (status === 0 && code !== CLIENT_STALE_SESSION) || status === 408;
-      if (transient || status === 429 || status >= 500) return;
+      const transient =
+        !(error instanceof ApiError) ||
+        (error.status === 0 && error.code !== CLIENT_STALE_SESSION) ||
+        error.status === 408 ||
+        error.status === 429 ||
+        error.status >= 500;
+      if (transient) {
+        if (pending?.key === bundle.key && live() && !stopped) {
+          transientKey = bundle.key;
+          if (error instanceof ApiError && error.retryAfterMs)
+            retryNotBefore = Date.now() + error.retryAfterMs;
+        }
+        if (pending?.key === bundle.key && live() && !stopped && retriedKey !== bundle.key) {
+          armRetry(Math.max(30_000, error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0));
+        }
+        return;
+      }
+      const { code } = error;
       pending = undefined;
       if (code === 'IDEMPOTENCY_KEY_CONFLICT') return;
       if (code === 'DEVICE_OWNERSHIP_CONFLICT' && rotatedForConflict !== generation && live()) {
-        // ponytail: 서버 `notification.legacy-device-registration:true`(소유권 없는 등록 창)에 기댄다. 그 창이
-        // 닫히면 「다시 로그인하면 알림이 켜진다」 안내가 필요하다.
+        // ponytail: 2.0 도 서명 sid 의 `legacy-device-registration` 창에 기댄다. 새 토큰·확인 전 기록·재생된
+        // 로그인 등에서 소유권과 bootstrap 이 없으면 이 409→교체→재등록 길이 필요하다. 창을 닫으려면 이 모든 길을
+        // 다른 등록 자격으로 보완하거나 재로그인 안내를 먼저 갖춰야 한다(계약: docs/contracts/business-satellite-api.yaml).
         // 낡은 CAS·태그·쓴 bootstrap 은 버리되, 지금 Firebase 가 쥔 토큰은 실제로 지운 뒤에야 기록에서 뺀다 — 못 지운
         // 토큰을 기록에서 놓치면 이후 A→B 가 지우지 않고 넘어가 그 토큰을 B 로 올린다.
         bootstrap = undefined;
@@ -322,7 +382,8 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         live()
       ) {
         // 소유권만 싣고 bootstrap 은 없는 요청(확인받은 기록의 소유권으로 토큰을 바꿔 보내는 CAS)이 SESSION_REVOKED 면 서버가 소유권으로
-        // 옛 세션의 연결을 물려받은 것이다 — 지금 세션 자체는 notification 앞의 business-api 가 이미 확인했다. 부팅의 확인 전 기록은
+        // 옛 세션의 연결을 물려받은 것이다 — 지금 세션 자체는 notification 앞의 business-api 가 확인한 시점 기준으로 살아 있었다.
+        // 그 사이 폐기됐으면 다시 보낸 요청의 확인에서 401 USER_INACTIVE 로 멈춘다. 부팅의 확인 전 기록은
         // onSession 이 먼저 거르니 이것은 그 밖의 길의 안전망이다. 소유권·확인을 지우고 한 번만 소유권 없이 다시 보내 위 409 경로로
         // 새로 묶는다. bootstrap 을 실었거나 이 세대에 이미 했으면 아래에서 멈춘다.
         staleOwnershipCleared = generation;
@@ -355,8 +416,26 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     running = true;
     void (async () => {
       do {
+        const dueAtStart = retryDue;
         again = false;
-        await reconcile().catch(() => {});
+        const result = await reconcile().catch(() => 'preflight-failure' as const);
+        if (retryDue) {
+          if (dueAtStart) {
+            retryDue = false;
+            // 이번 맞춤이 PUT 전에 실패했다. 같은 tick 으로 반복하지 않고 다음 기회에 예약된 한 번의 PUT 을 보낸다.
+            if (
+              result === 'preflight-failure' &&
+              pending &&
+              preflightRearmedKey !== pending.key &&
+              getSession() &&
+              isEnabled() &&
+              !stopped
+            ) {
+              preflightRearmedKey = pending.key;
+              armRetry(30_000);
+            }
+          } else again = true;
+        }
       } while (again && !stopped);
       running = false;
     })();
@@ -369,6 +448,9 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     const first = observedGeneration < 0;
     observedGeneration = generation;
     observedUserId = session?.userId;
+    cancelRetry();
+    transientKey = undefined;
+    preflightRearmedKey = undefined;
     pending = undefined;
     // bootstrap 은 세션 공개 직후 꺼낸다 — auth.ts 는 꺼내지 않은 값을 최근 4개까지만 두어, 권한 대기·직렬 큐 뒤로
     // 미루면 다른 로그인에 밀려 사라질 수 있다. 꺼낸 값은 저장하지 않는다(메모리·그 등록의 재시도 본문까지만).
@@ -382,7 +464,10 @@ export function startPushSync(isEnabled: () => boolean): () => void {
     //    결과(bootstrap 이 없다)로 재생된 경우다.
     //  · 첫 관찰(부팅 복구)인데 기록이 확인 전이다: 마지막 등록이 서버에 닿았는지, 닿았다면 어느 세션에 묶였는지 모른다(bootstrap 은
     //    메모리뿐이라 앱이 죽으면 사라진다). 확인받은 기록은 그대로 둔다 — 매 실행 다시 등록하지 않는다.
-    // ponytail: 기존 409 경로와 같은 서버 `legacy-device-registration` 창에 기댄다. 남는 틈은 이 순간의 보안 저장소 쓰기 실패뿐이다
+    // ponytail: 기존 409 경로와 같은 서명 sid 창에 기댄다. 1.x 도 같은 창을 쓰므로 이 플래그로 1.x 만 끊을 수 없다.
+    // 창을 닫으면 확인 전 기록은 실행마다 409→토큰 교체→409 로 멈추고, 새 bootstrap 을 받은 재로그인 전에는 복구되지
+    // 않는다. 먼저 2.0 의 무자격 등록 경로를 보완하거나 재로그인 안내를 갖춘다(계약: docs/contracts/business-satellite-api.yaml).
+    // 남는 틈은 이 순간의 보안 저장소 쓰기 실패뿐이다
     // (이번 실행의 메모리 기록은 이미 고쳐져 있고 등록하면 PUT 전 맞춤의 저장이 다시 쓴다 — 그 전에 앱이 죽거나 알림이 꺼져 PUT 이
     // 없으면 다음 부팅까지 남는다). 비용은 토큰 회전 한 번이다 — 확인 전 등록 도중 앱이 죽었을 때, 그리고 서버가
     // X-Device-Bootstrap 을 아예 안 주거나(옛 business-api) auth.ts 4칸 맵에서 밀려나면 같은 계정의 재로그인마다. 서버 먼저 배포하면
@@ -469,6 +554,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
   );
   return () => {
     stopped = true;
+    cancelRetry();
     if (wake === schedule) wake = undefined;
     cleanups.forEach((cleanup) => cleanup());
   };
