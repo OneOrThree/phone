@@ -1,0 +1,259 @@
+package com.oneorthree.notification;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * 시한부 알림의 만료가 게이트·브로커 지연 뒤 발송·재시도·묶음 수집에서 지켜지는지 (GROMO-893 ⑧).
+ *
+ * <p>{@code FRIEND_REQUEST}·{@code FRIEND_REQUEST} 는 카탈로그에서 {@code eligibility_required=false} 다. 늦게
+ * 소비돼도 «마감 2시간 전!»이 마감 뒤에 나가면 안 되고, 같은 사용자의 아직 유효한 결과·환불 묶음은 함께 버려지면 안 된다.
+ */
+@SpringBootTest
+@ActiveProfiles("ci")
+@Testcontainers
+class DispatchExpiryTest {
+
+    @Container
+    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine");
+    private static final UUID USER = UUID.randomUUID();
+    private static final UUID GROUP = UUID.randomUUID();
+    /** 13:00 KST — 기본 조용한 시간(23–07) 밖. */
+    private static final Instant NOW = Instant.parse("2026-09-11T04:00:00Z");
+    private static final Instant SLOT = Instant.parse("2026-09-11T03:00:00Z");
+
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", PG::getJdbcUrl);
+        registry.add("spring.datasource.username", PG::getUsername);
+        registry.add("spring.datasource.password", PG::getPassword);
+    }
+
+    @Autowired Store store;
+    @Autowired InboundService inbound;
+    @Autowired DeviceService devices;
+    @Autowired DispatchService dispatch;
+    @MockitoBean PushTransport transport;
+    @MockitoBean DataClient data;
+    @MockitoBean Clock clock;
+
+    @BeforeEach
+    void setup() {
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,"
+                + "device_tokens,session_fences,user_fences,settings CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        store.update("UPDATE kinds SET quiet_policy='DROP' WHERE id='FRIEND_REQUEST'");
+        reset(clock, data, transport);
+        when(clock.instant()).thenReturn(NOW);
+        when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "bootstrap",
+                "sessionEpoch", 1, "authGeneration", 0), "register");
+    }
+
+    @Test
+    @DisplayName("게이트가 닫힌 사이 시한이 지난 알림은 게이트가 열려도 적격성 조회·발송 없이 만료로 끝난다")
+    void aTimedNotificationThatExpiredWhileTheGateWasClosedIsTerminated() {
+        store.update("UPDATE dispatch_control SET enabled=false");
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(60));
+        dispatch.dispatch(delivery("deadline"));
+        assertThat(status("deadline")).containsEntry("status", "PENDING");
+
+        when(clock.instant()).thenReturn(NOW.plusSeconds(61));
+        store.update("UPDATE dispatch_control SET enabled=true");
+        dispatch.dispatch(delivery("deadline"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("지난 호가 된 잡지 알림(eligibility_required=false)은 호 날짜 다음 날 07:00 KST 이후 적격성 조회·발송 없이 만료로 끝난다")
+    void aMagazineNotificationForAPastIssueIsExpired() {
+        timed("magazine", "MAGAZINE_PUBLISHED", NOW.plusSeconds(60)); // expiresAt = 다음 호 발행 시각
+        when(clock.instant()).thenReturn(NOW.plusSeconds(61));
+
+        dispatch.dispatch(delivery("magazine"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("magazine")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("만료 시각 정각(now == expiresAt)에 잡지 알림은 만료로 끝난다")
+    void aMagazineNotificationExpiresExactlyAtItsExpiry() {
+        Instant expiresAt = NOW.plusSeconds(60);
+        timed("magazine-edge", "MAGAZINE_PUBLISHED", expiresAt);
+        when(clock.instant()).thenReturn(expiresAt);
+
+        dispatch.dispatch(delivery("magazine-edge"));
+
+        verify(transport, never()).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status("magazine-edge")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("만료 1초 전의 잡지 알림은 나간다")
+    void aMagazineNotificationOneSecondBeforeExpiryIsSent() {
+        Instant expiresAt = NOW.plusSeconds(60);
+        timed("magazine-before", "MAGAZINE_PUBLISHED", expiresAt);
+        when(clock.instant()).thenReturn(expiresAt.minusSeconds(1));
+
+        dispatch.dispatch(delivery("magazine-before"));
+
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    @Test
+    @DisplayName("적격성 조회를 기다리는 사이 시한이 지나면 보내지 않고 만료로 끝난다")
+    void expiryReachedWhileEligibilityIsBeingCheckedDoesNotSend() {
+        timed("streak", "FRIEND_REQUEST", NOW.plusSeconds(30));
+        when(data.eligible(any(), anyString(), any(), any())).thenAnswer(invocation -> {
+            when(clock.instant()).thenReturn(NOW.plusSeconds(31));
+            return true;
+        });
+
+        dispatch.dispatch(delivery("streak"));
+
+        verify(transport, never()).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status("streak")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("전송 실패로 재시도를 기다리는 사이 시한이 지나면 다시 보내지 않는다")
+    void aRetryAfterExpiryIsNotSent() {
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(90));
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.RETRY);
+        dispatch.dispatch(delivery("deadline"));
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status("deadline")).containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+
+        when(clock.instant()).thenReturn(NOW.plusSeconds(120));
+        dispatch.dispatch(delivery("deadline"));
+
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+
+    @Test
+    @DisplayName("조용한 시간이 끝나기 전에 시한이 지나는 이월 알림은 정책 억제가 아니라 만료로 끝난다")
+    void aDeferredTimedNotificationWhoseQuietHoursOutliveItsExpiryIsExpired() {
+        deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater();
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(1800));
+
+        dispatch.dispatch(delivery("deadline"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("조용한 시간이 끝난 뒤에도 유효한 이월 알림은 만료로 끝내지 않고 조용한 시간 끝으로 이월한다")
+    void aDeferredTimedNotificationStillValidAfterQuietHoursIsCarriedOver() {
+        deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater();
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(7200));
+
+        dispatch.dispatch(delivery("deadline"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("deadline")).containsEntry("status", "DEFERRED");
+        assertThat(status("deadline").get("last_error")).isNull();
+    }
+
+    /** 콘솔 등록부가 이 시한부 종류를 «이월»로 바꾼 상태 + 사용자 조용한 시간 12:00–14:00 KST(지금 13:00 → 1시간 뒤 끝). */
+    private void deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater() {
+        store.update("UPDATE kinds SET quiet_policy='DEFER' WHERE id='FRIEND_REQUEST'");
+        store.update("INSERT INTO settings(user_id,night_mode_enabled,night_start_time,night_end_time)"
+                + " VALUES(?,true,'12:00','14:00')", USER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("전송 중 만료 여부와 무관하게 받은 알림은 한 번만 완료하고 임대와 재시도 사유를 지운다")
+    void sentDeliverySettlesOnceEvenWhenExpiryPassesDuringSend(boolean expiresDuringSend) {
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(30));
+        UUID id = delivery("deadline");
+        store.update("UPDATE deliveries SET last_error='FCM_RETRY' WHERE id=?", id);
+        Instant completedAt = expiresDuringSend ? NOW.plusSeconds(31) : NOW;
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(invocation -> {
+            when(clock.instant()).thenReturn(completedAt);
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(id);
+        dispatch.dispatch(id);
+
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token,sent_at FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SENT").containsEntry("attempts", 1)
+                .containsEntry("last_error", null).containsEntry("lease_token", null)
+                .containsEntry("sent_at", java.sql.Timestamp.from(completedAt));
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    private void timed(String id, String kind, Instant expiresAt) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("kind", kind);
+        params.put("counterpartNickname", "친구");
+        params.put("issueNo", "7");
+        params.put("issueId", UUID.randomUUID().toString());
+        params.put("dedupAt", expiresAt.minusSeconds(7200).toString());
+        params.put("expiresAt", expiresAt.toString());
+        inbound.accept(event(id, "notification.requested", null, params));
+    }
+
+
+    private Map<String, Object> event(String id, String type, String subject, Map<String, Object> params) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("eventId", id);
+        body.put("schemaVersion", 1);
+        body.put("type", type);
+        body.put("userId", USER.toString());
+        body.put("version", 1);
+        body.put("subjectId", subject);
+        body.put("locale", "ko");
+        body.put("occurredAt", NOW.toString());
+        // 수신 시각이 아니라 이 테스트의 시계로 후보에 선다 — DB now() 는 실제 시각이다.
+        body.put("scheduledAt", NOW.toString());
+        body.put("params", params);
+        return body;
+    }
+
+    private UUID delivery(String event) {
+        return (UUID) store.one("SELECT id FROM deliveries WHERE event_id=?", event).get("id");
+    }
+
+    private Map<String, Object> status(String event) {
+        return store.one("SELECT status,last_error FROM deliveries WHERE event_id=?", event);
+    }
+}

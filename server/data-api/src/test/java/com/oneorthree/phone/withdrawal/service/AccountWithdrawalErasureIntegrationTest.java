@@ -1,0 +1,492 @@
+package com.oneorthree.phone.withdrawal.service;
+
+import com.oneorthree.phone.user.repository.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.SocialAccount;
+
+import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
+import com.oneorthree.phone.user.exception.UserException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncementComment;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.GroupMemberStatus;
+import com.oneorthree.phone.group.repository.domain.IslandGuestbookEntry;
+import com.oneorthree.phone.group.service.GroupMemberService;
+import com.oneorthree.phone.internal.dto.AccountPatchRequest;
+import com.oneorthree.phone.internal.service.InternalAccountService;
+import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
+import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.repository.domain.UserBlock;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * 계정 LLD §4 탈퇴 파기 전수 (GROMO-1801) — 모든 Data 대상 테이블에 탈퇴자(W)·상대(C)·제3자(T)의 행을 심고,
+ * 실제 Flyway V0·{@code ddl-auto=validate} 스키마에서 탈퇴 한 번 뒤 W 의 행은 지워지거나 비워지고
+ * C·T 의 자기 행은 그대로인지 본다. 테이블은 테스트가 만들지 않는다 — 운영 마이그레이션이 만든다.
+ */
+@SpringBootTest
+class AccountWithdrawalErasureIntegrationTest {
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        OutboxTestPostgres.applyProductionMigrationWiring(registry);
+    }
+
+    @Autowired AccountWithdrawalService withdrawal;
+    @Autowired InternalAccountService account;
+    @Autowired GroupMemberService groupMemberService;
+    @Autowired AuthService auth;
+    @Autowired JwtProvider jwt;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactions;
+    @PersistenceContext EntityManager em;
+
+    @Test
+    @DisplayName("§4 의 모든 Data 행이 파기되고 상대·제3자의 자기 행은 남는다")
+    void erasesEveryDataItemOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        Actor t = actor();
+        // 공개 PATCH receipt(이름이 든 개인 응답) — W·C 각각
+        account.patch(w.id(), new AccountPatchRequest(name(), "calico", null), w.session(), 0L, UUID.randomUUID());
+        account.patch(c.id(), new AccountPatchRequest(name(), "black", null), c.session(), 0L, UUID.randomUUID());
+        Seed s = seed(w.id(), c.id(), t.id());
+
+        withdrawal.withdraw(w.id());
+
+        // users 직접 PII — W 는 파기, C 는 그대로
+        Map<String, Object> wu = row("select * from users where id=?", w.id());
+        assertThat(wu).containsEntry("is_deleted", true).containsEntry("nickname", null)
+                .containsEntry("cat_color", null);
+        Map<String, Object> cu = row("select * from users where id=?", c.id());
+        assertThat(cu.get("nickname")).isNotNull();
+        assertThat(cu).containsEntry("cat_color", "black");
+
+        // group_announcements — 작성자 연결만 끊고 행·내용은 남긴다
+        assertThat(row("select user_id, title from group_announcements where id=?", s.wAnnouncement()))
+                .containsEntry("user_id", null).containsEntry("title", "W공지");
+        assertThat(uuid("select user_id from group_announcements where id=?", s.cAnnouncement())).isEqualTo(c.id());
+        // group_announcement_comments — 공지와 달리 detach 가 아니라 delete 다(2026-09-25 결정 GROMO-2136, BQ02).
+        assertThat(count("select count(*) from group_announcement_comments where id=?", s.wComment())).isZero();
+        assertThat(uuid("select author_id from group_announcement_comments where id=?", s.cComment()))
+                .isEqualTo(c.id());
+        // 댓글 벌크 삭제도 notice.updated 를 낸다(GROMO-2137 코드리뷰 대응) — W 댓글이 달린 C 공지의 aggregate
+        // version 이 오르고 같은 축으로 outbox 행이 남는다.
+        assertThat(noticeVersion(s.cAnnouncement())).isEqualTo(1L);
+        assertThat(count("select count(*) from event_outbox where type='notice.updated'"
+                + " and aggregate_type='NOTICE' and aggregate_id=? and version=1", s.cAnnouncement().toString()))
+                .isEqualTo(1L);
+
+        // group_members — 관계 증거만 남기고 개인 설정 초기화. C 는 그대로
+        assertThat(row("select * from group_members where id=?", s.wMembership()))
+                .containsEntry("is_left", true).containsEntry("notification_enabled", false)
+                .containsEntry("announcement_permission", "DISALLOW").containsEntry("status", "INACTIVE")
+                .containsEntry("role", "MEMBER");
+        assertThat(row("select * from group_members where id=?", s.cMembership()))
+                .containsEntry("is_left", false).containsEntry("role", "OWNER")
+                .containsEntry("announcement_permission", "ALLOW").containsEntry("status", "FOCUS");
+
+        // user_blocks — 양방향 삭제, 타인끼리는 유지
+        assertThat(count("select count(*) from user_blocks where blocker_id=? or blocked_id=?", w.id(), w.id()))
+                .isZero();
+        assertThat(count("select count(*) from user_blocks where blocker_id=?", c.id())).isEqualTo(1L);
+
+        // friendships — status·deleted_at 무관 전부 삭제, 타인끼리는 유지
+        assertThat(count("select count(*) from friendships where from_user_id=? or to_user_id=?", w.id(), w.id()))
+                .isZero();
+        assertThat(count("select count(*) from friendships where id=?", s.otherFriendship())).isEqualTo(1L);
+
+        // group_invite_links — 본인 발급 링크의 발급자만 null, 링크·종속 클릭 보존
+        assertThat(uuid("select inviter_id from group_invite_links where id=?", s.wLink())).isNull();
+        assertThat(uuid("select inviter_id from group_invite_links where id=?", s.cLink())).isEqualTo(c.id());
+
+        // login_attempts — W 는 INVALIDATED + digest·서명 재료 파기, C 는 그대로
+        assertThat(row("select * from login_attempts where attempt_id=?", s.wAttempt()))
+                .containsEntry("status", "INVALIDATED").containsEntry("digest_key_id", null)
+                .containsEntry("credential_digest", null).containsEntry("refresh_jti", null)
+                .containsEntry("access_expires_at", null);
+        assertThat(row("select * from login_attempts where attempt_id=?", s.cAttempt()))
+                .containsEntry("status", "COMPLETED").containsEntry("credential_digest", "digest-c");
+
+        // auth_sessions — 폐기 tombstone 에서 RT·bootstrap 해시 파기. C 세션은 살아 있다
+        assertThat(count("select count(*) from auth_sessions where user_id=? and (refresh_token_hash is not null"
+                + " or bootstrap_nonce_hash is not null or revoked_at is null)", w.id())).isZero();
+        assertThat(count("select count(*) from auth_sessions where user_id=?", w.id())).isEqualTo(1L);
+        assertThat(count("select count(*) from auth_sessions where user_id=? and refresh_token_hash is not null"
+                + " and revoked_at is null", c.id())).isEqualTo(1L);
+
+        // 공개 명령 receipt — W 는 삭제, C 는 유지
+        assertThat(count("select count(*) from command_idempotency where user_id=?"
+                + " and command_type like 'public:v1:%'", w.id())).isZero();
+        assertThat(count("select count(*) from command_idempotency where user_id=?"
+                + " and command_type like 'public:v1:%'", c.id())).isEqualTo(1L);
+
+        // social_accounts (기존 파기) — W 삭제, C 유지
+        assertThat(count("select count(*) from social_accounts where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from social_accounts where user_id=?", c.id())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("섬 개인 외양·개인 보유품·퀘스트 cohort 는 지우고 정산 행·퀘스트 정의는 수령자·작성자만 끊는다 — 타인·섬 소유 행은 남는다")
+    void erasesIslandAppearanceAndQuestLinksOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        String clothes = "clothes-" + suffix();
+        String theme = "theme-" + suffix();
+        UUID islandId = new TransactionTemplate(transactions).execute(status -> {
+            Group island = Group.builder().name("퀘스트" + suffix()).maxMembers(10).build();
+            em.persist(island);
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, c.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.MEMBER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            return island.getId();
+        });
+        jdbc.update("insert into catalog_assets (product_id, title, kind, owner_type) values"
+                + " (?, '옷', 'clothes', 'user'), (?, '테마', 'island_theme', 'island')", clothes, theme);
+        for (UUID user : new UUID[] {w.id(), c.id()}) {
+            jdbc.update("insert into personal_appearances (user_id, clothes) values (?, ?)", user, clothes);
+            jdbc.update("insert into owned_products (id, owner_type, user_id, product_id) values (?, 'user', ?, ?)",
+                    UUID.randomUUID(), user, clothes);
+        }
+        jdbc.update("insert into owned_products (id, owner_type, group_id, product_id) values (?, 'island', ?, ?)",
+                UUID.randomUUID(), islandId, theme);
+        UUID questId = UUID.randomUUID();
+        jdbc.update("insert into island_quests (id, island_id, type, title, target_minutes, window_start, window_end,"
+                + " created_by) values (?, ?, 'FOCUS', '집중', 30, '09:00', '10:00', ?)", questId, islandId, c.id());
+        // W 가 방장이던 때 만들고 위임한 퀘스트 — 정의는 섬 자산이라 남고 작성자만 끊긴다(GROMO-1952)
+        UUID wQuestId = UUID.randomUUID();
+        jdbc.update("insert into island_quests (id, island_id, type, title, target_minutes, created_by)"
+                + " values (?, ?, 'SCREEN', '화면', 60, ?)", wQuestId, islandId, w.id());
+        // 회차 둘 — 개인 수령은 (섬, 회차, kind, 수령자) 유일이라 W·C 가 각각 한 회차를 수령한다(V83)
+        UUID wClaim = seedSettledOccurrence(questId, islandId, 1, w.id(), w.id(), c.id());
+        UUID cClaim = seedSettledOccurrence(questId, islandId, 2, c.id(), w.id(), c.id());
+        long claims = count("select count(*) from island_quest_claims where island_id=?", islandId);
+        assertThat(count("select count(*) from island_quest_cohort_members where user_id=?", w.id())).isEqualTo(2L);
+
+        withdrawal.withdraw(w.id());
+
+        assertThat(count("select count(*) from personal_appearances where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from personal_appearances where user_id=?", c.id())).isEqualTo(1L);
+        assertThat(count("select count(*) from owned_products where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from owned_products where user_id=?", c.id())).isEqualTo(1L);
+        assertThat(count("select count(*) from owned_products where group_id=?", islandId)).isEqualTo(1L);
+        assertThat(count("select count(*) from island_quest_cohort_members where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from island_quest_cohort_members where user_id=?", c.id())).isEqualTo(2L);
+        assertThat(count("select count(*) from island_quest_claims where island_id=?", islandId)).isEqualTo(claims);
+        assertThat(row("select claimed_by, amount from island_quest_claims where id=?", wClaim))
+                .containsEntry("claimed_by", null).containsEntry("amount", 20);
+        assertThat(uuid("select claimed_by from island_quest_claims where id=?", cClaim)).isEqualTo(c.id());
+        assertThat(count("select count(*) from island_quests where island_id=?", islandId)).isEqualTo(2L);
+        assertThat(row("select created_by, title from island_quests where id=?", wQuestId))
+                .containsEntry("created_by", null).containsEntry("title", "화면");
+        assertThat(uuid("select created_by from island_quests where id=?", questId)).isEqualTo(c.id());
+    }
+
+    @Test
+    @DisplayName("회관 기록(GROMO-1769) — 기기별 스크린타임 관측과 본인 집중 기록 스냅샷은 지우고 상대의 행은 남는다")
+    void erasesIslandRecordRowsOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        for (Actor actor : new Actor[] {w, c}) {
+            jdbc.update("insert into screen_time_observations (user_id, device_id, measured_date, measured_at, minutes,"
+                    + " measurement_status) values (?, ?, ?, ?, 90, 'authorized')",
+                    actor.id(), actor.session(), LocalDate.of(2031, 3, 10), ts(Instant.parse("2031-03-10T09:00:00Z")));
+            jdbc.update("insert into focus_statistics_snapshots (id, user_id, payload, expires_at) values (?, ?, '{}', ?)",
+                    UUID.randomUUID(), actor.id(), ts(Instant.now().plusSeconds(900)));
+        }
+
+        withdrawal.withdraw(w.id());
+
+        for (String table : new String[] {"screen_time_observations", "focus_statistics_snapshots"}) {
+            assertThat(count("select count(*) from " + table + " where user_id=?", w.id())).as(table).isZero();
+            assertThat(count("select count(*) from " + table + " where user_id=?", c.id())).as(table).isEqualTo(1L);
+        }
+    }
+
+    /** 회차 하나 + cohort + 그 회차의 정산 행 — 정산 행 id 를 돌려준다. */
+    private UUID seedSettledOccurrence(UUID questId, UUID islandId, int daysAgo, UUID claimer, UUID... cohort) {
+        UUID occurrenceId = UUID.randomUUID();
+        jdbc.update("insert into island_quest_occurrences (id, quest_id, island_id, occurrence_date,"
+                        + " definition_revision, type, title, target_minutes, window_start, window_end,"
+                        + " reward_per_achiever, reward_bonus_per_member, version, bonus_settled_at) values"
+                        + " (?, ?, ?, ?, 1, 'FOCUS', '집중', 30, '09:00', '10:00', 10, 5, 1, now())",
+                occurrenceId, questId, islandId, LocalDate.now(ZoneOffset.UTC).minusDays(daysAgo));
+        for (UUID member : cohort) {
+            jdbc.update("insert into island_quest_cohort_members (occurrence_id, user_id) values (?, ?)",
+                    occurrenceId, member);
+        }
+        UUID claimId = UUID.randomUUID();
+        jdbc.update("insert into island_quest_claims (id, island_id, occurrence_id, kind, amount, claimed_by,"
+                + " wallet_idempotency_key) values (?, ?, ?, 'ACHIEVER', 20, ?, ?)",
+                claimId, islandId, occurrenceId, claimer, "quest:" + occurrenceId + ":" + claimer);
+        return claimId;
+    }
+
+    @Test
+    @DisplayName("탈퇴가 공지 작성자를 끊은 뒤 커밋되는 옛 스냅샷 공지 수정은 작성자를 되살리지 않는다")
+    void staleAnnouncementEditDoesNotRestoreErasedAuthor() {
+        Actor w = actor();
+        UUID noticeId = new TransactionTemplate(transactions).execute(status -> {
+            Group group = Group.builder().name("공지" + suffix()).maxMembers(10).build();
+            em.persist(group);
+            // W 는 이 그룹을 이미 나갔다 — 탈퇴는 활성 멤버 그룹만 잠그므로 이 공지 수정과 직렬화되지 않는다
+            GroupAnnouncement notice = GroupAnnouncement.builder().group(group).user(em.find(User.class, w.id()))
+                    .title("W공지").content("본문").build();
+            em.persist(notice);
+            return notice.getId();
+        });
+
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            GroupAnnouncement stale = em.find(GroupAnnouncement.class, noticeId);
+            TransactionTemplate other = new TransactionTemplate(transactions);
+            other.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            other.executeWithoutResult(inner -> withdrawal.withdraw(w.id()));
+            stale.updateContent("수정", null);
+        });
+
+        assertThat(row("select user_id, title from group_announcements where id=?", noticeId))
+                .containsEntry("user_id", null).containsEntry("title", "수정");
+    }
+
+    @Test
+    @DisplayName("댓글을 남기고 섬을 나간 뒤 탈퇴해도 그 댓글은 지워지고 섬의 notice.updated 가 발행된다"
+            + " (GROMO-2137 코드리뷰 대응 — B: 이탈한 섬도 댓글 삭제 시 잠그고 사건을 낸다)")
+    void erasesCommentAndFiresNoticeUpdatedForIslandTheUserAlreadyLeft() {
+        Actor w = actor();
+        Actor c = actor();
+        record IslandNotice(UUID islandId, UUID noticeId) {
+        }
+        IslandNotice seeded = new TransactionTemplate(transactions).execute(status -> {
+            Group island = Group.builder().name("이탈댓글" + suffix()).maxMembers(10).build();
+            em.persist(island);
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, c.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.MEMBER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            GroupAnnouncement notice = GroupAnnouncement.builder().group(island).user(em.find(User.class, c.id()))
+                    .title("공지").content("본문").build();
+            em.persist(notice);
+            em.persist(new GroupAnnouncementComment(notice.getId(), w.id(), "W댓글"));
+            return new IslandNotice(island.getId(), notice.getId());
+        });
+        // W 는 댓글을 남긴 뒤 섬을 나간다 — 탈퇴 시점엔 이 섬이 W 의 활성 멤버십 목록에 없다(메서드 자체가
+        // @Transactional 이라 별도 TransactionTemplate 이 필요 없다)
+        groupMemberService.withdrawGroup(seeded.islandId(), w.id());
+
+        withdrawal.withdraw(w.id());
+
+        assertThat(count("select count(*) from group_announcement_comments where notice_id=? and author_id=?",
+                seeded.noticeId(), w.id())).isZero();
+        assertThat(noticeVersion(seeded.noticeId())).isEqualTo(1L);
+        assertThat(count("select count(*) from event_outbox where type='notice.updated'"
+                + " and aggregate_type='NOTICE' and aggregate_id=? and version=1", seeded.noticeId().toString()))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("방명록(GROMO-2262) — 탈퇴자가 남긴 글은 지운 글까지 원문째 지워지고 상대·제3자의 글은 남는다")
+    void erasesGuestbookEntriesOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        Actor t = actor();
+        record Entries(UUID wVisit, UUID wResident, UUID wRemoved, UUID cEntry, UUID tEntry) {
+        }
+        Entries seeded = new TransactionTemplate(transactions).execute(status -> {
+            // C 의 섬 — W 는 방문자다. T 의 섬 — W 는 주민이다.
+            Group visited = Group.builder().name("방문" + suffix()).maxMembers(10).build();
+            Group resided = Group.builder().name("주민" + suffix()).maxMembers(10).build();
+            em.persist(visited);
+            em.persist(resided);
+            em.persist(GroupMember.builder().group(visited).user(em.find(User.class, c.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(resided).user(em.find(User.class, t.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(resided).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.MEMBER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            LocalDate day = LocalDate.of(2026, 10, 12);
+            IslandGuestbookEntry wVisit = new IslandGuestbookEntry(visited.getId(), w.id(), "W방문", day);
+            IslandGuestbookEntry wResident = new IslandGuestbookEntry(resided.getId(), w.id(), "W주민", day);
+            IslandGuestbookEntry wRemoved = new IslandGuestbookEntry(visited.getId(), w.id(), "W지움", day.minusDays(1));
+            wRemoved.delete(Instant.now());
+            IslandGuestbookEntry cEntry = new IslandGuestbookEntry(visited.getId(), c.id(), "C글", day);
+            IslandGuestbookEntry tEntry = new IslandGuestbookEntry(resided.getId(), t.id(), "T글", day);
+            for (IslandGuestbookEntry entry : new IslandGuestbookEntry[] {wVisit, wResident, wRemoved, cEntry, tEntry}) {
+                em.persist(entry);
+            }
+            return new Entries(wVisit.getId(), wResident.getId(), wRemoved.getId(), cEntry.getId(), tEntry.getId());
+        });
+
+        withdrawal.withdraw(w.id());
+
+        // 공지 댓글과 같은 선례 — 작성자 연결만 끊지 않고 원문째 지운다(소프트 삭제 계정이라 CASCADE 가 돌지 않는다).
+        assertThat(count("select count(*) from island_guestbook_entries where author_id=?", w.id())).isZero();
+        for (UUID gone : new UUID[] {seeded.wVisit(), seeded.wResident(), seeded.wRemoved()}) {
+            assertThat(count("select count(*) from island_guestbook_entries where id=?", gone)).isZero();
+        }
+        assertThat(uuid("select author_id from island_guestbook_entries where id=?", seeded.cEntry()))
+                .isEqualTo(c.id());
+        assertThat(uuid("select author_id from island_guestbook_entries where id=?", seeded.tEntry()))
+                .isEqualTo(t.id());
+    }
+
+    // ---------------------------------------------------------------- 픽스처
+
+    private record Seed(UUID wAnnouncement, UUID cAnnouncement, UUID wMembership, UUID cMembership,
+                        UUID otherFriendship, UUID wLink, UUID cLink,
+                        UUID wAttempt, UUID cAttempt, UUID wComment, UUID cComment) {
+    }
+
+    private Seed seed(UUID wId, UUID cId, UUID tId) {
+        return new TransactionTemplate(transactions).execute(status -> {
+            User w = em.find(User.class, wId);
+            User c = em.find(User.class, cId);
+            User t = em.find(User.class, tId);
+            for (User user : new User[] {w, c}) {
+                em.persist(com.oneorthree.phone.user.repository.domain.SocialAccount.builder().user(user)
+                        .provider(com.oneorthree.phone.user.repository.domain.Provider.APPLE)
+                        .providerId("apple-" + user.getId()).build());
+            }
+            Instant now = Instant.now();
+            Instant past = now.minusSeconds(7200);
+
+            // 그룹 G: C 방장, W 주민(개인 설정이 기본값이 아닌 상태)
+            Group group = Group.builder().name("파기" + suffix()).maxMembers(10).build();
+            em.persist(group);
+            GroupMember cMember = GroupMember.builder().group(group).user(c).role(GroupMemberRole.OWNER)
+                    .status(GroupMemberStatus.FOCUS).announcementPermission(GroupAnnouncementGrant.ALLOW).build();
+            GroupMember wMember = GroupMember.builder().group(group).user(w).role(GroupMemberRole.MEMBER)
+                    .status(GroupMemberStatus.FOCUS).announcementPermission(GroupAnnouncementGrant.ALLOW)
+                    .notificationEnabled(true).build();
+            em.persist(cMember);
+            em.persist(wMember);
+            GroupAnnouncement wNotice = GroupAnnouncement.builder().group(group).user(w).title("W공지")
+                    .content("본문").build();
+            GroupAnnouncement cNotice = GroupAnnouncement.builder().group(group).user(c).title("C공지")
+                    .content("본문").build();
+            em.persist(wNotice);
+            em.persist(cNotice);
+            GroupAnnouncementComment wComment = new GroupAnnouncementComment(cNotice.getId(), w.getId(), "W댓글");
+            GroupAnnouncementComment cComment = new GroupAnnouncementComment(wNotice.getId(), c.getId(), "C댓글");
+            em.persist(wComment);
+            em.persist(cComment);
+
+            // 차단·스트릭·친구·핀
+            em.persist(UserBlock.builder().blocker(w).blocked(c).build());
+            em.persist(UserBlock.builder().blocker(c).blocked(w).build());
+            em.persist(UserBlock.builder().blocker(c).blocked(t).build());
+            em.persist(Friendship.builder().fromUser(w).toUser(c).status(FriendshipStatus.ACCEPTED).build());
+            Friendship oldRequest = Friendship.builder().fromUser(t).toUser(w).status(FriendshipStatus.REJECTED)
+                    .build();
+            em.persist(oldRequest);
+            oldRequest.softDelete(past);
+            Friendship otherFriendship = Friendship.builder().fromUser(c).toUser(t)
+                    .status(FriendshipStatus.ACCEPTED).build();
+            em.persist(otherFriendship);
+
+            // 초대 링크: W 발급(T 가 claim) · C 발급(W 가 claim)
+            GroupInviteLink wLink = new GroupInviteLink("w" + suffix(), group.getId(), w.getId());
+            GroupInviteLink cLink = new GroupInviteLink("c" + suffix(), group.getId(), c.getId());
+            em.persist(wLink);
+            em.persist(cLink);
+            em.flush();
+
+            // 로그인 시도 원장 — 완료된 시도의 digest·고정 서명 재료
+            UUID wAttempt = UUID.randomUUID();
+            UUID cAttempt = UUID.randomUUID();
+            insertCompletedAttempt(wAttempt, w.getId(), "digest-w");
+            insertCompletedAttempt(cAttempt, c.getId(), "digest-c");
+
+            return new Seed(wNotice.getId(), cNotice.getId(), wMember.getId(), cMember.getId(),
+                    otherFriendship.getId(), wLink.getId(), cLink.getId(),
+                    wAttempt, cAttempt, wComment.getId(), cComment.getId());
+        });
+    }
+
+    private void insertCompletedAttempt(UUID attemptId, UUID userId, String digest) {
+        Instant now = Instant.now();
+        jdbc.update("insert into login_attempts (attempt_id, status, digest_key_id, credential_digest, provider,"
+                        + " credential_kind, terms_version, user_id, session_id, onboarding_complete, token_guest,"
+                        + " auth_generation, access_issued_at, access_expires_at, refresh_issued_at,"
+                        + " refresh_expires_at, refresh_jti, claimed_at, completed_at, recovery_expires_at) values"
+                        + " (?, 'COMPLETED', 'key', ?, 'APPLE', 'id_token', 't1', ?, ?, true, false, 0, ?, ?, ?, ?, ?,"
+                        + " ?, ?, ?)",
+                attemptId, digest, userId, UUID.randomUUID(), ts(now), ts(now.plusSeconds(3600)), ts(now),
+                ts(now.plusSeconds(86400)), UUID.randomUUID(), ts(now), ts(now), ts(now.plusSeconds(300)));
+    }
+
+    private Actor actor() {
+        var login = auth.guestSession(UUID.randomUUID().toString());
+        return new Actor(jwt.extractUserId(login.accessToken()), jwt.extractSessionId(login.accessToken()));
+    }
+
+    private Map<String, Object> row(String sql, Object... args) {
+        return jdbc.queryForMap(sql, args);
+    }
+
+    /** 공지 aggregate 의 마지막 발급 version — {@code IslandNoticeIntegrationTest} 와 같은 조회. */
+    private long noticeVersion(UUID noticeId) {
+        Long value = jdbc.queryForObject("select last_version from aggregate_versions"
+                + " where aggregate_type='NOTICE' and aggregate_id=?", Long.class, noticeId.toString());
+        return value == null ? 0L : value;
+    }
+
+    private long count(String sql, Object... args) {
+        return jdbc.queryForObject(sql, Long.class, args);
+    }
+
+    private UUID uuid(String sql, Object... args) {
+        return jdbc.queryForObject(sql, UUID.class, args);
+    }
+
+    private static java.sql.Timestamp ts(Instant instant) {
+        return java.sql.Timestamp.from(instant);
+    }
+
+    private static String suffix() {
+        return UUID.randomUUID().toString().substring(0, 6);
+    }
+
+    private static String name() {
+        return "파기" + suffix();
+    }
+
+    private record Actor(UUID id, UUID session) {
+    }
+}

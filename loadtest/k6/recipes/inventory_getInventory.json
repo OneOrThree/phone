@@ -1,16 +1,11 @@
 {
   "endpoint": "inventory_getInventory",
   "method": "GET",
-  "path": "/api/v1/inventory/{userId}",
+  "path": "/api/v1/inventory",
   "tag": "inventory",
   "summary": "인벤토리 조회",
   "userPool": "zipf",
-  "pathParams": {
-    "userId": {
-      "gen": "pool",
-      "source": "userId"
-    }
-  },
+  "pathParams": {},
   "query": [],
   "body": null,
   "paginate": null,

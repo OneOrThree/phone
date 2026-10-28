@@ -1,0 +1,99 @@
+{
+  "mode": "movement",
+  "trafficPattern": "aligned-periodic",
+  "runId": "5d9e7c35-444e-44c9-b439-902922aa94ce",
+  "messageTypes": {
+    "FullState": 54,
+    "PathAccepted": 9900,
+    "Arrived": 5000,
+    "Snapshot": 3960
+  },
+  "targets": [
+    "ws://localhost:18088/ws/realtime"
+  ],
+  "userOffset": 0,
+  "serverConnections": [
+    {
+      "metric": {
+        "__name__": "realtime_websocket_sessions",
+        "instance": "realtime:9091",
+        "job": "realtime",
+        "service": "realtime"
+      },
+      "value": [
+        1792315078.244,
+        "10"
+      ]
+    },
+    {
+      "metric": {
+        "__name__": "realtime_websocket_sessions",
+        "instance": "realtime-2:9091",
+        "job": "realtime",
+        "service": "realtime"
+      },
+      "value": [
+        1792315078.244,
+        "0"
+      ]
+    }
+  ],
+  "eventWindowStart": 1792315055234,
+  "eventWindowEnd": 1792315075236,
+  "eventReceipts": [],
+  "receivedBytes": 15589433,
+  "sentBytes": 178580,
+  "fullyDeliveredMessages": 990,
+  "sendPerSecond": 49.49741798698968,
+  "deliveryPerSecond": 494.9741798698968,
+  "goodputPerSecond": 49.49741798698968,
+  "latestCommandConfirmed": 10,
+  "loadgen": {
+    "rssBytes": 97091584,
+    "cpuCores": 0.04907941107448844
+  },
+  "startedAt": "2026-10-18T09:17:34.059Z",
+  "endedAt": "2026-10-18T09:17:58.258Z",
+  "connections": 10,
+  "ready": 10,
+  "seconds": 20,
+  "frequency": 5,
+  "measurementMs": 20001.043292,
+  "sent": 990,
+  "expectedDeliveries": 9900,
+  "delivered": 9900,
+  "missing": 0,
+  "duplicate": 0,
+  "frames": 18914,
+  "snapshots": 3960,
+  "errors": 0,
+  "rejected": 0,
+  "errorCodes": {},
+  "connectMs": {
+    "count": 10,
+    "p50": 4.140584000000004,
+    "p95": 27.206417,
+    "p99": 27.206417,
+    "max": 27.206417
+  },
+  "readyMs": {
+    "count": 10,
+    "p50": 31.38937500000001,
+    "p95": 55.585667,
+    "p99": 55.585667,
+    "max": 55.585667
+  },
+  "deliveryMs": {
+    "count": 9900,
+    "p50": 30.267875000001368,
+    "p95": 51.442417000000205,
+    "p99": 55.2403749999994,
+    "max": 56.29874999999993
+  },
+  "eventLoopDelayMs": {
+    "mean": 20.701885369863014,
+    "max": 23.986175,
+    "p99": 21.757951
+  },
+  "valid": true
+}

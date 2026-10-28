@@ -1,0 +1,6 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn:
+    point: 343,250
+- waitForAnimationToEnd:
+    timeout: 6000

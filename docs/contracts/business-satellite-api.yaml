@@ -1,0 +1,1317 @@
+openapi: 3.1.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Business API ↔ Data / 알림 내부 계약 (GROMO-1659 최소 Business — 1660 링크 분리 범위는 A23(2026-09-13) 으로 폐기)
+#
+# ⛔ A23(2026-09-13): 링크·MMP 는 별도 서비스가 아니다 — 공개 표면·콘솔은 Business API, 원장·트랜잭션·집계는 Data API
+#    (docs/architecture/decisions.md A23 · docs/prd/fishcat/link-attribution/).
+#    V0 정리에서 독립 Link 서비스의 발급·claim·재개·이관 및 결과 claim/ack 계약을 제거했다.
+#    새 링크 내부 표면(`/internal/links/{slug}/visits` · `/internal/links/match` · `/internal/links/claims` · `/internal/install-referrers` ·
+#    `/internal/skan-postbacks`, 링크 HLD §3 · LLD §3)은 business-api 공개 표면 티켓이 이 파일에 채운다 — 여기서 미리 정의하지 않는다.
+#
+# Business가 소비하는 내부 표면이다. 기반 1659와 1757의 설정·현재 세션 종료를 포함한다.
+# 이 브랜치에는 Data 제공자와 Business 소비자가 함께 있으나, main 병합·운영 배선/활성화와는 별개다.
+# 로그인 발급·refresh와 신규 66개 도메인 전체 구현 완료를 의미하지 않는다.
+#
+# 규약
+#   - 인증: 모든 경로는 `Authorization: Bearer <caller 별 서비스 토큰>`. caller 별로 토큰이 **분리**되고
+#     (A22 ㊀) 수신 측은 audience + 경로 허용목록으로 강제한다(㉱). 토큰만 있는 «서비스 전용» 호출과
+#     `X-User-Id` 를 함께 싣는 «사용자 위임» 호출이 구분된다.
+#   - `X-User-Id`: **Business 가 검증한 AT subject** 다. 외부에서 온 동명 헤더는 Business 가 폐기한다
+#     (A22 ㉸). 수신 측은 서비스 토큰이 없는 요청의 이 헤더를 **절대 신뢰하지 않는다**.
+#   - 변경 방향: 내부 HTTP 는 additive-only · **제공자 선배포 · 소비자 후배포** · 제거는 다음 릴리즈(㉹).
+#     (이벤트와 방향이 반대다.)
+#   - 멱등: `Idempotency-Key` 는 **앱이 소유**하고 Business 가 단계별 접미(`:<step>`)를 붙여 파생한다(㉼).
+#     수신 측은 UNIQUE 저장 후 **응답을 재생**한다. 요청 본문 해시를 영구 멱등키로 쓰지 않는다(㊞).
+#   - 오류 봉투: `{code, message}`(재시도 가능하면 `retryAfterMs` 추가). **`code` 가 실린 4xx 는 도메인
+#     판정**이다. 신규 공개 경로는 등록된 status+code를 공개 계약으로 매핑한다.
+#     401은 기본적으로 서비스 자격 문제(502)이며 POST /internal/auth/sessions/logout만
+#     REFRESH_TOKEN/UNAUTHORIZED를 사용자 401로 구분한다. code 없는401/403은 언제나 서비스502다.
+#     신규 경로의 구조화5xx는 정확한 일시 status+code쌍만 재시도하고 불명 코드는 계약 오류로 종결한다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+info:
+  title: Business ↔ Data / Notification 내부 계약 (Link 절은 A23 으로 폐기)
+  version: 0.1.0-draft
+  description: |
+    최소 Business 서비스(`server/business-api`)가 조합하는 내부 표면. 소비자 구현은
+    `com.oneorthree.business.upstream.{data,notification,realtime}` 에 있고, 경로 상수는 각 클라이언트
+    클래스에만 존재한다(임의 URL 프록시를 구조적으로 막기 위해서다).
+
+servers:
+  - url: '{dataApiBaseUrl}'
+    description: Data API — env `DATA_API_BASE_URL`, 토큰 `SVC_TOKEN_BIZ_TO_DATA`
+    variables:
+      dataApiBaseUrl: { default: 'http://data-api:8080' }
+  - url: '{notificationBaseUrl}'
+    description: 알림 서버 — env `NOTIFICATION_BASE_URL`, 토큰 `SVC_TOKEN_BIZ_TO_NOTI`
+    variables:
+      notificationBaseUrl: { default: 'http://notification:8080' }
+
+tags:
+  - name: data-활성검사
+  - name: data-세션
+  - name: data-내구명령
+  - name: noti-기기
+  - name: noti-설정
+  - name: data-섬가입
+    description: GROMO-1760 섬 가입·가입 요청·초대 코드 — island-membership LLD §3.7~§3.11
+
+paths:
+
+  # ════════════════════════════ Data API ════════════════════════════
+
+  /internal/users/{userId}/activation:
+    get:
+      tags: [data-활성검사]
+      operationId: checkActivation
+      summary: 위성 쓰기 전 활성 검사 (A22 ⓖ)
+      description: |
+        위성(알림·링크)으로 **직행**하는 쓰기는 Data 의 `X-User-Id` 활성 검사를 거치지 않는다 —
+        기기 토큰 등록·알림 설정·초대 claim 이 그렇다. 그래서 탈퇴 직전 발급된 AT 로 최대 AT
+        수명(3600초) 동안 토큰을 재등록하거나 초대를 귀속시킬 수 있고, 이 검사가 그 창을 닫는다.
+
+        **읽기에는 호출하지 않는다** — §5 는 「읽기 전용 경로는 AT 3600s 창 수용」이라고 못 박았다.
+
+        ⚠️ **`authGeneration` 을 응답에 담지 말라.** 담으면 「AT 에 `gen` 이 없으니 여기서 받은 현재
+        세대로 채우자」는 유혹이 생기는데, 그건 로그아웃 전에 발급된 옛 AT 를 최신 세대로 태깅해
+        **기기 토큰 tombstone 을 우회**한다(A22 ㊍). 세대는 AT claim 에서만 온다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          description: 판정 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [active]
+                properties:
+                  active:
+                    type: boolean
+                    description: 쓰기를 허용해도 되는 상태인가. 탈퇴·비활성은 false
+        '404':
+          description: |
+            존재하지 않는 유저. Business 는 이것도 「비활성」과 같게 다뤄야 하므로 **`code` 를 실어라** —
+            코드 없는 404 는 계약 어긋남(502)으로 올라간다.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/auth/device-sessions/verify:
+    post:
+      tags: [data-세션]
+      operationId: verifyDeviceSession
+      summary: deviceBootstrap 세션 활성 동기 확인 + sessionEpoch fencing (A22 ㋤ · ㋨)
+      description: |
+        개별 기기 로그아웃은 유저 세대를 올리지 않는다(㊼: 유저 축은 탈퇴·전 기기 로그아웃만).
+        그래서 비동기 폐기 relay 만 두면 그 지연 사이에 도착한 A 의 지연 등록이 **아직 미사용인
+        1회용 nonce** 로 통과해 B 기기의 토큰 소유권을 되찾아간다.
+
+        **확인만으로도 부족하다** — 확인을 통과한 직후 로그아웃이 커밋되면 TOCTOU 가 남는다. 그래서
+        그 세션의 단조 `sessionEpoch` 를 함께 돌려주고, **알림 서버가 자기 세션 tombstone 과 원자
+        대조한 뒤에만** 소유권을 바꾼다. 확인과 mutation 이 같은 순서 경계에 들어간다.
+
+        GET 이 아닌 이유: 자격 문자열을 쿼리에 실으면 접근 로그·프록시 캐시에 남는다. 상태를 바꾸지
+        않으므로 재시도는 안전하다.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceBootstrap]
+              properties:
+                deviceBootstrap:
+                  type: string
+                  maxLength: 512
+                  description: 그 로그인 세션에서 발급된 1회용 자격
+      responses:
+        '200':
+          description: 확인 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [active, sessionEpoch]
+                properties:
+                  active:
+                    type: boolean
+                  sessionEpoch:
+                    type: integer
+                    format: int64
+                    description: |
+                      그 세션의 단조 fencing 값. 알림 서버가 이보다 오래된 소유권 변경을 거부한다.
+                      `active=false` 일 때도 마지막 값을 채워라 — 그 값이 tombstone 비교의 기준이다.
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/auth/sessions/verify:
+    post:
+      tags: [data-세션]
+      operationId: verifySession
+      summary: 구 앱 요청의 서명된 AT sessionId로 현재 세션 확인
+      description: |
+        bootstrap을 보내지 않는 구 앱도 새 AT의 sid로 현재 세션을 확인한다.
+        Business가 서명 검증한 AT에서 userId·sessionId를 추출한다. 외부 헤더나 본문의 값을 대신 쓰지 않는다.
+        비활성·다른 사용자·없는 세션은 active=false다. bootstrap 원문이나 소유권 이전 자격은 반환하지 않는다.
+        이 조회는 기기 소유권 CAS를 대체하지 않는다. sid가 없는 구 AT는 제한된 호환 창의 판정을 따른다.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId]
+              properties:
+                sessionId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 현재 세션 확인 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [active, sessionEpoch]
+                properties:
+                  active: { type: boolean }
+                  sessionEpoch: { type: integer, format: int64 }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/auth/sessions/logout:
+    post:
+      tags: [data-세션]
+      operationId: logoutCurrentSession
+      summary: RT 증명으로 현재 세션 종료 및 같은 종료 결과 재생
+      description: |
+        business 서비스 caller만 호출한다. X-User-Id 위임이 아니라 Data가 본문의 RT 서명/타입/만료로
+        사용자를 검증한다. 선택 AT도 유효하고 RT와 같은 사용자/세션/세대여야 한다.
+        users → session → aggregate 잠금 아래 현재 RT 해시를 검사하고 해당 세션 및 bootstrap을
+        같은 TX에서 폐기한다. authGeneration 증가와 기기 삭제 명령은 발생하지 않는다.
+        원 RT 해시/만료 및 신규 LOGOUT 증명이 일치하고 사용자가 활성인 경우만 같은 200을 재생한다.
+        기존 폐기 행의 만료 증명 NULL은 신규 성공 증거가 아니다. 토큰 본문/DTO를 로그에 기록하지 않는다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 1, maxLength: 8192, writeOnly: true }
+                accessToken: { type: [string, 'null'], minLength: 1, maxLength: 8192, writeOnly: true }
+      responses:
+        '200':
+          description: 최초 종료 또는 원 RT 증명으로 확인한 동일 종료
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean, const: true }
+        '401':
+          description: |
+            서비스 필터의 자격 거절은 code 없는 401이다.
+            본문 RT 증명 오류만 REFRESH_TOKEN, 선택 AT 증명 오류만 UNAUTHORIZED 도메인 401이다.
+            Business는 이 정확한 내부 호출에서만 두 도메인 코드를 사용자 401로 구분한다.
+        '404':
+          description: 검증한 RT의 사용자 부재 또는 탈퇴 USER_NOT_FOUND
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/islands/{islandId}/host-transfer:
+    post:
+      tags: [data-내구명령]
+      operationId: transferIslandHost
+      summary: 섬 방장 위임의 원자 명령 기반
+      description: |
+        business caller와 X-User-Id만 허용한다. 서명으로 증명된 sessionId/authGeneration의 현재
+        활성 상태를 Data TX에서 재검사한다. 기능 스위치(island-management.host-transfer-enabled)는
+        2026-10-27(티켓 2535)에 걷었다 — 항상 켜져 있고 Data 는 더는 503 REALTIME_NOT_READY를 보내지 않는다.
+        사용자 UUID 순서 → group → membership 잠금 아래 현재 방장에게서 같은 섬의 활성 타인으로
+        OWNER/MEMBER를 교체하고 ISLAND_MEMBERS version·최소 성공 receipt·REALTIME outbox를 함께 저장한다.
+        같은 명령은 본인 활성 인증 뒤 host 권한을 다시 행사하지 않고 원 {hostUserId,version}만 재생한다.
+        membershipEpoch와 기존 발급 링크는 유지한다. expectedVersion 입력은 추가하지 않는다.
+        REALTIME 전용 transport는 아직 등록하지 않는다. 행은 미전달로 보존하며 기존 NOTI/LINK/KAFKA에
+        보내지 않는다. 실제 수신·현재 인가·주민 snapshot·재연결 복구까지 검증하기 전 활성화하지 않는다.
+      parameters:
+        - in: path
+          name: islandId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sessionId, authGeneration, targetUserId]
+              properties:
+                sessionId: { type: string, format: uuid }
+                authGeneration: { type: integer, minimum: 0, maximum: 9007199254740991 }
+                targetUserId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 원 위임 결과 또는 활성 본인의 제한된 성공 증거 재생
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [hostUserId, version]
+                properties:
+                  hostUserId: { type: string, format: uuid }
+                  version: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        '403':
+          description: SESSION_NOT_ACTIVE 또는 새 실행의 NOT_OWNER
+        '404':
+          description: GROUP_NOT_FOUND 또는 대상 TARGET_USER_NOT_FOUND/NOT_FOUND
+        '409':
+          description: CANNOT_TRANSFER_SELF 또는 동일 키 다른 본문의 멱등 충돌
+        '503':
+          description: REALTIME_NOT_READY — 더는 보내지 않는다(스위치를 걷었다, 티켓 2535). Business 는 구버전 Data 응답을 계속 옮긴다
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/islands/{islandId}/memberships:
+    post:
+      tags: [data-섬가입]
+      operationId: joinIsland
+      summary: 섬 즉시 가입 또는 승인 대기 요청 생성 (GROMO-1760 · LLD §3.7)
+      description: |
+        공개 `POST /islands/{islandId}/memberships` 의 상류. approvalRequired=false 면 즉시 가입
+        (`status:"active"`·현재 섬 이동), true 면 pending 요청만 만든다(`status:"pending"`).
+        섬 요약·망원경 칸의 approvalRequired 는 보는 사람 기준이다 — 그 섬에서 강퇴된 사람에게는
+        섬 설정과 무관하게 true 다(강퇴자의 가입은 언제나 pending, GROMO-2315).
+        같은 (섬, 신청자)의 열린 요청은 이미 있으면 새로 만들지 않고 같은 자원을 돌려준다.
+        `invitationToken` 은 선택이다 — 형식 오류는 422, 형식이 맞지만 무효·폐기·타 섬의 코드는 410.
+        Data 가 가입 커밋 안에서 발급자 멤버십·발급 세대를 다시 대조하므로 Business 의 사전 resolve
+        성공만으로는 승인되지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: path
+          name: islandId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                invitationToken:
+                  type: string
+                  description: resolve 가 돌려준 불투명 토큰(공유 8자 코드). 없으면 일반 가입·신청
+      responses:
+        '200':
+          description: 즉시 가입(active) 또는 승인 대기(pending) — status 로 구분되는 두 형태
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, islandId, version]
+                properties:
+                  status: { type: string, enum: [active, pending] }
+                  requestId: { type: [string, 'null'], format: uuid }
+                  islandId: { type: string, format: uuid }
+                  currentIslandId: { type: [string, 'null'], format: uuid }
+                  version: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        '403':
+          description: INVITATION_REQUIRED·MEMBER_ONLY·ISLAND_JOIN_UNAVAILABLE. 강퇴된 섬은 403 KICKED_CANNOT_REJOIN 이 아니라 200 pending(GROMO-2315 — 누구나 가입 섬이어도 승인 대기)
+        '404':
+          description: GROUP_NOT_FOUND·USER_NOT_FOUND
+        '409':
+          description: ALREADY_MEMBER·ROOM_FULL·GROUP_LIMIT_EXCEEDED·SESSION_IN_PROGRESS 또는 멱등 충돌
+        '410':
+          description: INVITATION_EXPIRED — 무효·폐기·세대 불일치 토큰
+        '422':
+          description: INVITATION_CODE_INVALID — 토큰 형식 오류
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/join-requests/{requestId}:
+    get:
+      tags: [data-섬가입]
+      operationId: getJoinRequest
+      summary: 본인 가입 요청 하나의 상태 (GROMO-1760 · LLD §3.8)
+      description: |
+        공개 `GET /me/join-requests/{requestId}` 의 상류. `id+applicantId` 소유 판정이라
+        타인의 requestId 도 「없음」이다 — 존재 여부를 응답으로 구분하지 않는다.
+        terminal_reason 같은 내부 사유는 나가지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 요청 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, islandId, status, version]
+                properties:
+                  id: { type: string, format: uuid }
+                  islandId: { type: string, format: uuid }
+                  status: { type: string, enum: [pending, approved, rejected, cancelled] }
+                  version: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        '404':
+          description: JOIN_REQUEST_NOT_FOUND — 남의 요청도 같은 코드다
+    delete:
+      tags: [data-섬가입]
+      operationId: cancelJoinRequest
+      summary: 본인 가입 요청 철회 (GROMO-1760 · LLD §3.9)
+      description: |
+        공개 `DELETE /me/join-requests/{requestId}` 의 상류. 요청 행 배타 잠금 아래 PENDING 만
+        CANCELLED 로 전이한다 — 승인·섬 종결과 경합해도 한쪽만 성공한다. 같은 키 재시도는
+        원 receipt 를 재생하고 사건을 다시 만들지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 철회 완료 — status 는 항상 "cancelled"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [cancelled] }
+        '404':
+          description: JOIN_REQUEST_NOT_FOUND
+        '409':
+          description: JOIN_REQUEST_TERMINAL — 이미 닫힌 요청, 또는 멱등 충돌
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/invitations/resolve:
+    post:
+      tags: [data-섬가입]
+      operationId: resolveInvitation
+      summary: 초대 코드 해석 — 섬 공개 요약 + 가입용 토큰 + 초대 도착 (GROMO-1760 · GROMO-2264 · LLD §3.10)
+      description: |
+        공개 `POST /invitations/resolve` 의 상류. 코드가 가리키는 섬의 공개 요약(본인 기준
+        membershipStatus·joinRequestId 포함)과 가입 명령에 실을 불투명 토큰을 돌려준다.
+        기본(arrive 없음·false)은 종전 그대로 읽기 전용 미리보기다 — 쓰기·잠금이 없고 arrival 은
+        null 이다. GROMO-2264 부터 arrive=true 일 때만 그 섬에 항해 없이 도착을 남기고, 누구나 가입
+        섬이면 가입까지 한다(명시적 opt-in — 미리보기만 하는 구 앱 호환). 승인제 섬은 도착만이다
+        (membershipStatus none) — 가입 신청은 방문자가 가입 명령으로 직접 한다. 강퇴된 섬·소속 섬
+        3개는 도착만 남기고 arrival.reason 으로 알린다. 강퇴된 섬(KICKED)은 승인제 섬처럼 신청할 수
+        있다 — 가입 명령이 pending 을 만든다(GROMO-2315). 누구나 가입 섬의 그 밖의 가입 거절은 같은
+        오류로 실패한다. 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다. 초대 검증은 가입
+        커밋이 다시 한다. 구 Data 서버는 모르는 arrive 를 무시하고 미리보기로 답한다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  description: 사용자가 입력한 8자 초대 코드(공유 형식)
+                arrive:
+                  type: boolean
+                  description: true 면 그 섬에 도착까지 한다(GROMO-2264). 없거나 false 면 미리보기
+      responses:
+        '200':
+          description: 해석 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [island, invitationToken, arrival]
+                properties:
+                  island:
+                    type: object
+                    description: PublicIslandSummary — 본인 기준 membershipStatus·joinRequestId 포함(도착 뒤 값)
+                  invitationToken: { type: string }
+                  arrival:
+                    type: [object, 'null']
+                    description: arrive=true 일 때의 도착 결과. 미리보기면 null
+                    required: [islandId, arrived, membershipStatus, reason]
+                    properties:
+                      islandId: { type: string, format: uuid }
+                      arrived: { type: boolean, const: true }
+                      membershipStatus: { type: string, enum: [active, pending, none] }
+                      reason:
+                        type: [string, 'null']
+                        enum: [ISLAND_LIMIT, KICKED, null]
+                        description: 바로 가입하지 않은 사유 — ISLAND_LIMIT 소속 섬 3개(가입·신청 불가) · KICKED 강퇴된 섬(도착만, 가입 신청은 직접 해서 pending — GROMO-2315)
+        '404':
+          description: SLUG_NOT_FOUND — 형식은 맞지만 없는 코드
+        '410':
+          description: INVITATION_EXPIRED — 발급자 이탈·강퇴·재가입 또는 섬 종결로 폐기
+        '422':
+          description: INVITATION_CODE_INVALID — 코드 형식 오류
+
+  /internal/users/{userId}/islands/{islandId}/invitations:
+    post:
+      tags: [data-섬가입]
+      operationId: issueIslandInvitation
+      summary: 섬 초대 코드 발급·재사용 (GROMO-1760 · LLD §3.11)
+      description: |
+        공개 `POST /islands/{islandId}/invitations` 의 상류. 발급자당 활성 코드는 하나다 —
+        이미 유효한 코드가 있으면 같은 값을 돌려주고, 발급자의 멤버십 세대가 발급 이후 바뀌었다면
+        같은 행을 새 슬러그·새 세대로 교체한다. TTL 은 없다 — 폐기는 세대 불일치로만 일어난다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: path
+          name: islandId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 활성 초대 코드
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, url]
+                properties:
+                  code: { type: string }
+                  url: { type: string }
+                  expiresAt: { type: [string, 'null'], format: date-time }
+        '403':
+          description: MEMBER_ONLY — 활성 주민만 발급한다
+        '404':
+          description: GROUP_NOT_FOUND·USER_NOT_FOUND
+        '409':
+          description: 멱등 충돌
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/device-token-deletions:
+    post:
+      tags: [data-내구명령]
+      operationId: recordDeviceTokenDeletion
+      summary: 기기 토큰 삭제 outbox 기록 (A22 ㊲ · ㊿ · ㊨ · ㊪)
+      description: |
+        **Business 는 직접 삭제를 시도하기 「전에」 이 호출을 한다.** 순서를 뒤집으면(실패 후에야 기록)
+        그 사이 프로세스가 죽을 때 직접 삭제도 outbox 도 남지 않고, 앱은 이 DELETE 실패를 삼키고
+        로컬 인증을 지우므로(`App.tsx:528` 의 `.catch(() => {})`) **아무도 재시도하지 않고 이전 계정
+        푸시가 그 기기로 계속 간다**.
+
+        **outbox 를 「로그아웃 처리 자리」가 아니라 「DELETE 처리 자리」에서 만드는 이유**: 앱은 토큰
+        DELETE 와 `/auth/logout` 을 별개 요청으로 보내고(`App.tsx:293-305`) 후자는 `{refreshToken}`
+        만 싣는데(`auth.ts:384-387`), **Business 는 DB 가 없어 앞 요청의 값을 기억했다가 뒤 요청에
+        전달할 수 없다**.
+
+        토큰·소유권이 모두 없으면 Business가 검증한 AT의 `sid`를 `sessionId`로 전달한다.
+        Data는 해당 세션의 사용자 소유자를 검사하고 `sessionId`·`bootstrapNonceHash`를 사건 params와
+        응답 params에 동일하게 담는다. 직접 삭제도 이 범위를 쓰며, Data 조회 실패나 범위 없는 구 응답을
+        사용자 전체 삭제로 대체하지 않는다. sid도 없으면 안전한 no-op 사건으로 소비한다.
+        Data의 단일 legacy 토큰은 명시한 deviceToken과 일치할 때만 지운다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceToken:
+                  type: [string, 'null']
+                  maxLength: 512
+                  description: 대상 FCM 토큰(`X-Device-Token`, ㊪). 구 앱은 못 보내므로 null 가능
+                ownershipToken:
+                  type: [string, 'null']
+                  maxLength: 512
+                  format: uuid
+                  description: CAS 값(`X-Device-Ownership`, ㊚). null 또는 정규 UUID 표기이며, 잘못된 값은 내구 기록 전에 400으로 거절한다.
+                sessionId:
+                  type: [string, 'null']
+                  format: uuid
+                  description: 토큰·CAS가 없을 때만 쓰는 검증된 AT의 sid. 클라이언트 임의 헤더에서 받지 않는다.
+                authGeneration:
+                  type: [integer, 'null']
+                  format: int64
+                  description: |
+                    AT 의 `gen` claim. **없으면 null 이고, 현재 세대로 채우면 안 된다**(A22 ㊍) —
+                    로그아웃 전에 발급된 옛 AT 가 최신 세대로 태깅돼 tombstone 을 우회한다.
+      responses:
+        '200':
+          description: 내구 기록 완료 — 완성된 봉투를 돌려준다
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DurableCommandAck' }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/notification-settings-snapshot:
+    post:
+      tags:
+      - data-내구명령
+      operationId: getSettingsCommandSnapshot
+      summary: 활성 사용자·현재 세션을 검증한 설정 초기화 근거
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsSessionProof'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsSnapshot'
+      x-idempotent: true
+      x-retryable: true
+      description: 실제 mirror5값과 사용자 aggregate version을 같은 잠금 경계에서 읽는다. sid/gen은 검증한 AT에서만 얻으며 누락을 현재값으로 보충하지 않는다.
+
+  /internal/users/{userId}/notification-settings-commands:
+    patch:
+      tags:
+      - data-내구명령
+      operationId: recordPublicSettingsPatch
+      summary: 신규 알림 설정 부분 명령·동일 TX 세션 검증과 원 결과 재생
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatchCommandRequest'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsPatchCommandResult'
+      x-idempotent: true
+      x-retryable: true
+      description: user → session → aggregate 잠금 아래 mirror/receipt/outbox를 함께 저장한다. baseline은 수정 후 같은 version의5값이다.
+        SESSION_NOT_ACTIVE403은 신규 Business에서만401로 매핑한다. Notification 적용 확인 전 공개200을 반환하지 않는다.
+    put:
+      tags: [data-내구명령]
+      operationId: recordNotificationSettings
+      summary: 알림 설정 변경을 Data 에 먼저 내구 저장 (A22 ㊷ · ㋕)
+      description: |
+        동기 호출만으로 끝내면 알림 서버 장애가 공통 HTTP 재시도보다 길 때 변경이 **영구 유실**된다 —
+        현 `NotificationSettingsScreen.tsx:142-148` 은 로컬 캐시와 화면을 먼저 바꾼 뒤 서버 오류를
+        **삼키고 「다음 변경 때」까지 재시도하지 않는다**(주석에 그렇게 적혀 있다). 그러면 사용자는
+        `notificationEnabled=false` 로 보는데 서버 정본은 계속 true 라 **푸시가 무기한** 간다.
+
+        응답의 `version` 은 **필드별 적용 순서를 판정하는 값**이다: 「끔」이 알림 서버엔 성공했는데 완료
+        표시만 실패하고 뒤이은 「켬」이 끝까지 성공하면, relay 가 남은 「끔」을 나중에 적용해 **사용자가
+        켠 설정을 도로 끈다**(반대 순서면 끈 뒤에도 푸시가 계속 간다).
+
+        `version` 은 **aggregate 행 잠금 아래** 발급한다(㊸) — DB sequence 는 «할당 순서»만 보장하고
+        커밋 순서를 보장하지 않아, 먼저 번호를 받고 늦게 커밋한 최신 상태가 폐기된다(`User` 엔
+        `@Version` 도 없다). 또는 outbox 를 **사용자별 최신 상태로 합친다**.
+
+        전체 교체 PUT 이라 §4 의 재시도 대상이다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationSettings' }
+      responses:
+        '200':
+          description: 내구 기록 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DurableCommandAck' }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/outbox-commands/{commandId}/delivered:
+    post:
+      tags: [data-내구명령]
+      operationId: markCommandDelivered
+      summary: 직접 전달이 성공했으니 그 outbox 행을 완료 표시 (A22 ㊿ 의 「빠른 경로」)
+      description: |
+        **이 호출의 실패는 사용자 요청을 실패시키지 않는다** — relay 가 한 번 더 보낼 뿐이고 위성의
+        멱등·version 규칙이 중복 적용을 흡수한다. Business 는 실패를 로그로만 남긴다.
+
+        이미 완료 표시된 행에 다시 와도 **200** 으로 답하라(멱등). 409 로 답하면 Business 가 정상
+        중복을 오류로 남긴다.
+      parameters:
+        - name: commandId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200': { description: 완료 표시됨(또는 이미 완료) }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/devices:
+    post:
+      tags: [noti-기기]
+      operationId: registerDevice
+      summary: 기기 토큰 등록 — 세 축의 값을 모두 받는다 (A22 ㋞)
+      description: |
+        축이 셋인 이유 — 하나라도 빠지면 막을 수 없는 경합이 남는다:
+        - **유저 축** `authGeneration`: 탈퇴·전 기기 로그아웃에만 오른다(㊼). 유저 간 전환을 막는다.
+        - **기기 축** `ownershipToken`: 같은 유저의 **요청 순서**를 가른다. 세대는 유저별 값이라 A·B 를
+          비교할 수 없다(㊌) — A 등록(gen N)이 지연된 사이 A 로그아웃(N+1)과 B 등록이 처리되면 늦게 온
+          A 등록은 **A 기준으론 최신이라 수락**돼 B 행을 밀어낸다.
+        - **세션 축** `deviceBootstrap` + `sessionEpoch`: 그 로그인 세션이 살아 있는가. 개별 기기
+          로그아웃은 세대를 안 올리므로 이 축이 그 자리를 맡는다.
+
+        **판정은 두 갈래다**(㋚): ⓐ 토큰을 실은 요청은 **최신일 때만** 허용(같은 유저의 지연 요청 차단).
+        ⓑ 토큰이 **없는** 요청은 「소유권 이전」으로 보되 유효 AT 만으로는 부족하다 — `deviceBootstrap`
+        을 함께 요구하고 통과하면 새 토큰을 발급한다. ⓑ 가 없으면 막다른 길이 생긴다: relay 가 나중에
+        삭제를 적용하면 `ownershipVersion` 은 전진하는데 앱은 응답을 못 받아 새 토큰을 저장하지 못하고,
+        그 상태에서 계정 전환한 B 는 **가진 토큰은 낡았고 현재 소유자도 아니라** 등록이 영구 거부된다.
+
+        **삭제는 행을 지우지 말고 토큰별 tombstone + 마지막 `ownershipVersion` 을 보존하라**(㋓) —
+        「행 없음」 부트스트랩 예외를 지연 등록이 통과해 토큰을 되살린다.
+
+        **등록 시 같은 FCM 토큰을 쓰던 다른 `userId` 행을 제거하라**(§4 의 두 번째 방어선) — 전달이
+        통째로 유실돼도 새 계정 로그인이 이전 계정 토큰을 자동 회수한다. 단 **같은 사용자의 재로그인에는
+        무력**하므로 위의 세 축이 여전히 필요하다.
+
+        ⚠️ **`Idempotency-Key` 재시도는 「성공으로 재생」이어야 한다**(㊱) — version 이 전진하므로 응답
+        유실 뒤 재시도가 낡은 값으로 **거부**되면 앱은 영구히 토큰을 못 받는다.
+        `sessionEpoch`는 등록 의도의 멱등 비교에서 제외한다. Business는 재시도마다 Data의 현재
+        세션 확인 값을 전달하고, Notification은 저장 응답 재생 직전에도 현재 세션·세대 fence를 검사한다.
+        나머지 등록 입력이 바뀐 같은 키는 `IDEMPOTENCY_KEY_CONFLICT`로 거부한다.
+        소유권·bootstrap 없는 등록 창은 `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`으로 제어한다.
+        AT의 gen 유무를 앱의 소유권 프로토콜 지원 여부로 간주하지 않는다.
+        서명된 sid의 현재 활성 확인 결과를 `legacySessionId`·`sessionEpoch`로 전달한다.
+        별도 legacy 세션 fence의 최초 사용만 bootstrap 미연결 구 행의 이전·재로그인을 허용한다.
+        이후에는 같은 세션의 활성 연결에 한해 재등록·토큰 회전하고 이전 FCM 토큰은 비활성화한다.
+        세션 폐기는 legacySessionId로 연결된 기기도 끊는다. 현대 bootstrap 행을 이 경로로 덮지 않는다.
+        sid 없는 구 AT만 다른 사용자·비활성·세션 연결 행을 덮지 않는 제한된 호환 창을 따른다.
+
+        **2.0 앱도 서명 sid 창에 의존한다.** 등록 응답 유실·일시 오류 뒤 재시작의 확인 전 기록,
+        bootstrap 없는 재생 로그인·계정 전환·구 Business 응답, `SESSION_REVOKED` 뒤 소유권 제거,
+        409 충돌 뒤 새 토큰 등록, 재설치 뒤 남은 확인 전 기록이 소유권과 bootstrap 없이 등록한다.
+        1.x도 서명 sid의 AT를 쓰므로 이 플래그만으로 1.x 등록만 끊을 수 없다.
+        창을 끄려면 구 앱 지원 종료에 더해 2.0의 이 경로를 서버의 상시 sid 등록으로 보완하거나
+        앱에 재로그인 안내를 먼저 제공해야 한다. 끄면 위 요청은 새 토큰이어도 409
+        `DEVICE_OWNERSHIP_CONFLICT`이고, 앱은 실행마다 최대 두 번 PUT·한 번 토큰 교체 후 멈춘다.
+        새 bootstrap을 받은 로그인 전에는 복구되지 않는다. bootstrap을 주지 않는 구 Business에서는
+        재로그인도 복구하지 못한다. 창 종료 전에 이 경로의 빈도를 계측해 확인한다.
+
+        ⚠️ **`authGeneration` 이 null 이면 「세대 검사 없이 수락」**하라(롤아웃 ②기간, ㊍). 현재 세대로
+        채우지 말고, 거부하지도 말라. 창이 AT 최대 수명(3600초)으로 한정되므로 노출이 유한하다.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceToken]
+              properties:
+                deviceToken: { type: string, maxLength: 512 }
+                ownershipToken: { type: [string, 'null'], format: uuid, maxLength: 512 }
+                deviceBootstrap: { type: [string, 'null'], maxLength: 512 }
+                legacySessionId:
+                  type: [string, 'null']
+                  format: uuid
+                  description: Business가 서명된 AT와 Data 활성 조회로 확인한 구 앱 세션. 외부 입력에서 받지 않는다.
+                sessionEpoch:
+                  type: [integer, 'null']
+                  format: int64
+                  description: |
+                    Data 의 동기 확인이 준 fencing 값. **자기 세션 tombstone 과 원자 대조한 뒤에만**
+                    소유권을 바꿔라(㋨) — 확인만으로는 TOCTOU 가 남는다.
+                authGeneration: { type: [integer, 'null'], format: int64 }
+      responses:
+        '200':
+          description: 등록 완료 — **매번 새 `ownershipToken`** 을 돌려준다(㊚)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ownershipToken]
+                properties:
+                  ownershipToken:
+                    type: string
+                    format: uuid
+                    pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    description: 다음 등록·삭제 입력과 같은 정규 UUID. 대소문자는 보존한다.
+                  deliveryTag:
+                    type: string
+                    description: |
+                      이 등록의 수신 확인 태그(불투명 값, GROMO-2520). 토큰 교체(CAS)를 포함해 등록마다 새 값이고,
+                      같은 `Idempotency-Key` 의 재생은 그 키가 처음 받은 값이다 — 그 뒤 다른 키로 다시 등록했다면
+                      재생 값은 지금 행의 값이 아니다. 그래서 앱은 가장 최근에 시작한 등록의 응답만 저장한다.
+                      이 기기 행에 태그가 있으면 그 기기로 가는 모든 푸시 data 에 `deliveryTag` 로 실리고,
+                      태그가 없는 행(알림 서버 V13 전 등록)으로 가는 푸시에는 키가 없다.
+                      앱 대조: 저장 태그가 있으면 같은 값의 푸시만 보인다(키 없는 푸시 포함 다르면 버림),
+                      저장 태그가 없으면 대조하지 않는다.
+                      **필수가 아니다** — 알림 서버 V13 전에 저장된 등록 응답의 재생에는 없고, 그 재생은 탈퇴
+                      전까지 계속될 수 있다. 없다고 거절하지 마라(Business 는 키를 생략한 200 으로 넘긴다).
+        '409':
+          description: |
+            오래된 명령이라 거부했다(세대·소유권·세션 tombstone). **`code` 를 실어라.**
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+      x-idempotent: true
+      x-retryable: true
+
+    delete:
+      tags: [noti-기기]
+      operationId: deleteDevice
+      summary: 기기 토큰 삭제 — §4 가 명시적으로 지정한 재시도 대상
+      description: |
+        **GET 만 재시도하면 안 되는 이유**(§4): 로그아웃의 기기 토큰 삭제가 일시 오류 한 번에 영구
+        실패한다. 앱은 그 실패를 무시하고 로컬 토큰을 지워 **사용자가 재시도할 방법이 없고**, 알림 DB 에
+        남은 이전 계정 토큰으로 푸시가 계속 간다. 그래서 멱등을 보장하고 재시도를 받는다.
+
+        **본문이 없어 값을 헤더로 받는다**(㊪ · ㊟) — 현 요청에는 본문이 아예 없어서
+        (`userApi.ts:91-94` 의 bare axios) 본문으로 요구하면 구 앱의 로그아웃이 전부 거부된다.
+
+        `X-Auth-Generation` 은 **없으면 헤더 자체가 붙지 않는다.** 「세대 없음」과 「세대 0」을 구분해야
+        롤아웃 ②기간의 「검사 없이 수락」이 성립한다.
+
+        ⚠️ **현재 세대보다 오래된 삭제를 거부하라**(ⓡ · ㉴): relay 가 지연된 사이 같은 사용자가 다시
+        로그인해 토큰을 등록하면, 뒤늦게 도착한 삭제가 **그 새 등록까지 지워** 다음 갱신·재등록까지
+        푸시가 끊긴다. 「다른 `userId` 행 제거」 방어는 **같은 사용자의 재로그인에 무력**하다.
+        거부는 **양방향**이다 — 오래된 등록도, 오래된 삭제도 막고, 삭제 시에도 최대 세대를 tombstone
+        으로 보존한다.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: X-Device-Token
+          in: header
+          required: false
+          schema: { type: string, maxLength: 512 }
+          description: |
+            삭제 대상 FCM 토큰(㊪). 없거나 공백이면 소유권 또는 검증된 세션 범위를 사용한다.
+            어느 범위도 없으면 성공 no-op이며 사용자 전체로 넓히지 않는다.
+        - name: X-Device-Ownership
+          in: header
+          required: false
+          schema: { type: string, format: uuid, maxLength: 512 }
+          description: 정규 UUID 표기. 잘못된 값은 상류 호출 및 내구 기록 전에 400으로 거절한다.
+        - name: X-Auth-Generation
+          in: header
+          required: false
+          schema: { type: integer, format: int64 }
+          description: 없으면 **헤더 자체가 없다**. 빈 값이나 0 이 오지 않는다
+        - name: X-Device-Session
+          in: header
+          required: false
+          schema: { type: string, format: uuid }
+          description: 토큰·CAS가 없을 때 Data에서 소유자를 확인한 세션. legacy_session_id와 대조한다.
+        - name: X-Device-Bootstrap-Hash
+          in: header
+          required: false
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+          description: 같은 Data 응답의 bootstrapNonceHash. 해당 세션의 bootstrap 기기도 함께 해제한다.
+      responses:
+        '204': { description: 삭제됨(또는 이미 없음 — 멱등) }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/notification-settings/initialized:
+    post:
+      tags:
+      - noti-설정
+      operationId: initializeAndReadNotificationSettings
+      summary: 검증된 근거로 미존재 행만 생성하고 현재 정본 조회
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsSnapshot'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+      x-idempotent: true
+      x-retryable: true
+      description: 키나 명령 응답 캐시를 만들지 않는다. ever_opened+사용자 fence 검증 후 INSERT ON CONFLICT DO NOTHING 및 strict read. 기존행을
+        baseline으로 덮어쓰지 않는다.
+
+  /internal/users/{userId}/notification-settings:
+    patch:
+      tags:
+      - noti-설정
+      operationId: applyNotificationSettingsPatch
+      summary: 개방 후 필드별 단조 부분 적용
+      parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - name: version
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatchDelivery'
+      responses:
+        '200':
+          description: 검증된 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsApplied'
+      x-idempotent: true
+      x-retryable: true
+      description: ever_opened 확인과 사용자 fence를 같은 TX에서 잠근다. 최초행은 baseline의5값으로 초기화, 기존행은 mask만 적용한다. field version별 비교로
+        늦은 다른필드 요청을 보존한다. MIGRATION_NOT_READY409/STALE_AUTH_GENERATION409은 신규 Business에서503/401로 매핑한다. relay도 동일 병합을
+        적용하며 폐기 세대는 수신 완료 no-op이다. 최초·재전달 모두 같은 TX 잠금에서 현재 정본을 settings로 반환하며 재전달은 다시
+        적용하지 않는다(GROMO-2209).
+    get:
+      tags: [noti-설정]
+      operationId: getNotificationSettings
+      summary: 알림 설정 «정본» 조회 — 소유자가 gromo_notification 이다 (§3)
+      description: |
+        **Data 패스스루로는 정본을 못 읽는다.** 설정의 소유자가 `gromo_notification` 이라 GET 도 여기서
+        읽어야 하고, 그러지 않으면 「껐는데 계속 오는」 상태를 화면에서 정상으로 보이게 만든다.
+
+        응답 5필드는 기존 앱 계약(`NotificationSettingsResponse`, GROMO-612)과 **글자 그대로 같다**.
+        시각은 `"HH:mm"` 문자열이고 미설정이면 null, **시간대를 담지 않는다**(서버 날짜 축이 KST 고정).
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+      responses:
+        '200':
+          description: 정본 설정
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationSettings' }
+      x-idempotent: true
+      x-retryable: true
+
+    put:
+      tags: [noti-설정]
+      operationId: applyNotificationSettings
+      summary: 설정 적용 — Data 내구 명령이 먼저 저장된 뒤에 온다 (§3)
+      description: |
+        Business 는 Data 의 내구 명령을 먼저 저장하고 그 `version` 을 여기 실어 보낸다.
+
+        ⚠️ 개방 후에는 선택한 **각 필드의 version**보다 낮은 값을 적용하지 않는다(㋕). 안 그러면 순서가 뒤집힌다: 「끔」이
+        여기엔 성공했는데 Data 의 완료 표시만 실패하고 뒤이은 「켬」이 끝까지 성공하면, relay 가 남은
+        「끔」을 나중에 적용해 **사용자가 켠 설정을 도로 끈다**(반대 순서면 끈 뒤에도 푸시가 간다).
+
+        ⚠️ **발송 게이트와 무관하게 적용하라**(㋭). `dispatch_enabled=false` 여도 설정·기기 삭제·ack
+        억제 같은 **상태 변경은 계속 반영**된다. 게이트가 막는 것은 FCM 발송뿐이다.
+
+        전체 교체는 5필드를 모두 선택한다. 개방 뒤 각 필드의 더 최신 변경은 보존한다. 빠진 필드를 현재값으로 채우지 말라(전체 교체가 계약이고,
+        그러면 앱이 빠뜨린 필드가 조용히 다른 값으로 남는다).
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: version
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+          description: Data 가 aggregate 락 아래 발급한 단조 version(㊸)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationSettings' }
+      responses:
+        '204': { description: 적용됨 }
+        '409':
+          description: 더 높은 version 이 이미 적용돼 있다 — 거부. **`code` 를 실어라**
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/blocks:
+    get:
+      tags: [data-사용자]
+      operationId: listBlockedUsers
+      summary: 요청자(blocker)가 차단한 사용자 목록
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/UserIdPath'
+      responses:
+        '200':
+          description: blocker 관점의 방향성 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BlockedUser' }
+    post:
+      tags: [data-사용자]
+      operationId: blockUser
+      summary: 사용자 차단 — 같은 방향 재시도도 성공
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/UserIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [blockedUserId]
+              properties:
+                blockedUserId: { type: string, format: uuid }
+      responses:
+        '204': { description: 차단됨 또는 이미 차단됨 }
+        '400': { description: '`SELF_BLOCK`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: '`TARGET_USER_NOT_FOUND`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+      x-idempotent: true
+
+  /internal/users/{userId}/blocks/{blockedUserId}:
+    delete:
+      tags: [data-사용자]
+      operationId: unblockUser
+      summary: 사용자 차단 해제 — 없는 관계도 성공
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/UserIdPath'
+        - name: blockedUserId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 해제됨 또는 이미 해제됨 }
+      x-idempotent: true
+
+components:
+
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: |
+        caller 별로 **분리된** 토큰(A22 ㊀ — ~~총 7종~~ → A23 이 링크 대상 3종을 폐기해 4종). 공유하면 수신 측이 호출자를 구분 못 해 허용목록이
+        합쳐지고 한쪽 유출이 다른 쪽 명령을 연다. Business 가 쓰는 것은 ~~셋~~ 둘이다:
+        `SVC_TOKEN_BIZ_TO_DATA` · `SVC_TOKEN_BIZ_TO_NOTI` · `SVC_TOKEN_BIZ_TO_REALTIME`.
+        수신 측은 **audience + 경로 허용목록**으로 강제한다(㉱) — 이름 분리만으로는 최소 권한이 안 선다.
+
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+      description: |
+        **Business 가 검증한 AT 의 subject.** 외부에서 온 동명 헤더는 Business 가 무조건 폐기하고 이
+        값으로 정확히 한 번 다시 설정한다(A22 ㉸). 수신 측은 **서비스 토큰이 없는 요청의 이 헤더를 절대
+        신뢰하지 않는다** — Data 가 `JwtFilter` 를 떼고 이 헤더를 신뢰하게 되므로, 앱 헤더가 새어
+        들어가면 정상 AT 를 가진 사용자가 임의의 `X-User-Id` 로 **남의 데이터를 읽고 쓴다**.
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: '`X-User-Id` 와 같은 값이어야 한다 — 다르면 거부하라(배선 사고를 드러내는 방어선)'
+    CommandIdPath:
+      name: commandId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionIdPath:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, maxLength: 200 }
+      description: |
+        **키 소유자는 앱**이다(A22 ㉼) — 호출자는 첫 응답 전엔 `eventId` 를 모르고 Business 는 무상태라
+        앱 재시도마다 새 키가 생긴다. 공개 Business 입력은 150자 이내이며 초과는 400이다.
+        이 내부 표면의 200자 한도는 단계 접미를 포함한다. Business 는 앱이 보낸 값에 단계별 접미(`:<step>`)를 붙여 파생한다
+        (한 키를 여러 상류에 그대로 보내면 두 저장소의 멱등 테이블이 서로 다른 명령을 같은 키로 본다).
+
+        수신 측은 UNIQUE 저장 후 **응답을 재생**한다. ⚠️ **요청 본문 해시를 영구 멱등키로 쓰지 말라**
+        (㊞) — 종료된 챌린지를 같은 설정으로 다시 만드는 정상 명령이 접히고, 같은 설정으로 되돌리는
+        정상 설정 변경도 접힌다.
+
+        구 앱은 키를 보내지 않아 **매 호출 새 키**가 된다 — 그 기간엔 「Business 내부 재시도만 보호」로
+        인정하고, 앱 보급 후 필수화한다.
+
+  schemas:
+
+    BlockedUser:
+      type: object
+      required: [id, name]
+      description: blocker가 목록에서 보는 차단 상대. 반대 방향 차단은 이 목록에 없다.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    Error:
+      type: object
+      required: [code, message]
+      description: |
+        **`code` 가 실린 4xx 는 도메인 판정**이다 — Business 가 재해석하지 않고 status·code·message 를
+        그대로 앱에 중계한다. 앱이 이 문자열로 분기하므로(`GROUP_NOT_FOUND` · `NOT_MEMBER` ·
+        `SLUG_NOT_FOUND` · `RESULT_CLAIM_HELD` · `RESULT_CLAIM_STALE` · `RESULT_ALREADY_ACKED` ·
+        `RESULT_NOT_SETTLED` …) **상수 이름은 계약**이다.
+
+        **`code` 를 빼면 의미가 달라진다**: 코드 없는 401/403 은 Business 의 서비스 자격 문제(502 로
+        올린다 — 사용자에게 401 을 주면 정상 세션이 전부 재로그인으로 튄다), 코드 없는 그 밖의 4xx 는
+        계약 어긋남(502), 5xx 는 판정 불가(503)다.
+      properties:
+        code: { type: string }
+        message: { type: string }
+
+    RetryAfterError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [retryAfterMs]
+          properties:
+            retryAfterMs:
+              type: integer
+              format: int64
+              description: |
+                **상대 지연(밀리초)** 이지 만료 시각이 아니다. 절대 시각을 실으면 시계가 어긋난 기기가
+                살아 있는 리스를 즉시 다시 요청하거나(1회 기회 소진) 만료 뒤에도 한참 기다린다.
+                Business 는 이 값을 **다시 계산하지 않고 그대로 중계**한다 — 재계산하면 두 서버의 시계
+                차이가 값에 섞인다.
+
+    DurableCommandAck:
+      type: object
+      required: [commandId, eventId, version]
+      description: |
+        내구 명령의 **완성된 봉투**(A22 ㉵). Business 에는 DB 가 없어 outbox 시퀀스를 다시 읽을 수 없으므로
+        Data 가 여기까지 채워서 준다.
+      properties:
+        params:
+          type: [object, 'null']
+          additionalProperties: true
+          description: 내구 명령에 확정한 입력. 세션 삭제는 최초 봉투의 sessionId·bootstrapNonceHash를 재생한다.
+        commandId:
+          type: string
+          format: uuid
+          description: 직접 전달 성공 시 완료 표시할 대상(㊿)
+        eventId:
+          type: string
+          description: 불변 사건 식별자 — 위성의 dedup 기준
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            **aggregate 행 잠금 아래** 발급된 양수 단조 version(㊸). 0·음수 응답은 직접 적용·완료 전에
+            계약 오류로 거절한다. DB sequence 는 «할당 순서»만 보장하고
+            커밋 순서를 보장하지 않아, 먼저 번호를 받고 늦게 커밋한 최신 상태가 폐기된다.
+            위성은 이 값으로 역순 적용을 막고, **컬렉션 투영은 aggregate 별 version** 을 쓴다(㊂ —
+            유저 단위 최대 version 하나면 지연된 앞 회차가 「오래된 것」으로 거부돼 참가 행이 영구 누락).
+
+    SettingsSessionProof:
+      type: object
+      additionalProperties: false
+      required:
+      - sessionId
+      - authGeneration
+      properties:
+        sessionId: &id001
+          type: string
+          format: uuid
+        authGeneration: &id002
+          type: integer
+          format: int64
+          minimum: 0
+    SettingsPatchCommandRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - notifications
+      - sessionId
+      - authGeneration
+      properties:
+        notifications:
+          type: boolean
+        sessionId: *id001
+        authGeneration: *id002
+    SettingsSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - authGeneration
+      - settings
+      properties:
+        version: *id002
+        authGeneration: *id002
+        settings:
+          $ref: '#/components/schemas/CompleteNotificationSettings'
+    SettingsPatchDelivery:
+      type: object
+      additionalProperties: false
+      required:
+      - mask
+      - patch
+      - baseline
+      - authGeneration
+      properties:
+        mask: &id003
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+            - notificationEnabled
+            - soundEnabled
+            - nightModeEnabled
+            - nightStartTime
+            - nightEndTime
+        patch: &id004
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            notificationEnabled:
+              type: boolean
+            soundEnabled:
+              type: boolean
+            nightModeEnabled:
+              type: boolean
+            nightStartTime:
+              type:
+              - string
+              - 'null'
+              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+            nightEndTime:
+              type:
+              - string
+              - 'null'
+              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+        baseline: &id005
+          $ref: '#/components/schemas/CompleteNotificationSettings'
+        authGeneration: *id002
+    SettingsApplied:
+      type: object
+      additionalProperties: false
+      required:
+      - applied
+      - settings
+      properties:
+        applied:
+          type: boolean
+          const: true
+        settings:
+          $ref: '#/components/schemas/CompleteNotificationSettings'
+          description: 최초·재전달 모두 사용자 잠금과 같은 TX에서 읽은 현재 정본. 요청값·저장된 첫 응답을 재생하지 않는다(GROMO-2209).
+    SettingsPatchCommandResult:
+      type: object
+      additionalProperties: false
+      required:
+      - commandId
+      - eventId
+      - version
+      - mask
+      - patch
+      - baseline
+      - authGeneration
+      - result
+      properties:
+        commandId: *id001
+        eventId:
+          type: string
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        mask: *id003
+        patch: *id004
+        baseline: *id005
+        authGeneration: *id002
+        result:
+          type: object
+          additionalProperties: false
+          required:
+          - notifications
+          properties:
+            notifications:
+              type: boolean
+
+    CompleteNotificationSettings:
+      allOf:
+        - $ref: '#/components/schemas/NotificationSettings'
+      required: [notificationEnabled, soundEnabled, nightModeEnabled, nightStartTime, nightEndTime]
+      description: Data mirror의 실제 5값. nullable 시간 키도 생략하지 않는다.
+
+    NotificationSettings:
+      type: object
+      required: [notificationEnabled, soundEnabled, nightModeEnabled]
+      description: |
+        **전체 교체**다. 기존 앱 계약(`NotificationSettingsRequest`·`NotificationSettingsResponse`)과
+        필드·제약이 글자 그대로 같다 — 세 플래그는 필수라 생략하면 400 이고, 시각은 미설정 시 null 이다.
+
+        시각은 **시간대를 담지 않는다** — 서버 날짜 축이 KST 고정이라 해석도 그 축에서 이뤄진다.
+        자정을 넘기는 구간(예: `22:00`~`07:00`)도 정상 입력이다. 조회 응답도 요청과 동일한 `HH:mm` 형식이며 초를 붙이지 않는다.
+      properties:
+        notificationEnabled: { type: boolean }
+        soundEnabled: { type: boolean }
+        nightModeEnabled: { type: boolean }
+        nightStartTime:
+          type: [string, 'null']
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+        nightEndTime:
+          type: [string, 'null']
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'

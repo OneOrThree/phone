@@ -1,0 +1,254 @@
+package com.oneorthree.phone.group.repository;
+
+import com.oneorthree.phone.group.repository.domain.Group;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * 그룹(방) 조회. "살아 있는 그룹"은 {@code status}(종료 여부)와 {@code deletedAt}(소프트 삭제) 두 축을
+ * 함께 봐야 하는데, 아래 검색 쿼리들은 {@code deleted_at IS NULL} 만 걸고 종료(ENDED) 방은 거르지 않는다.
+ *
+ * <p>방장 판정은 이 테이블이 아니라 group_members 를 통해 한다(GROMO-676 이후 {@code host_id} 폐기) —
+ * {@link #existsGroupOwnedBy} 가 그 조회를 이 리포지토리에 두고 있는 이유는 호출부가 유저 도메인이라서다.
+ */
+public interface GroupRepository extends JpaRepository<Group, UUID> {
+
+
+
+    /**
+     * 그룹 행 배타 락 — 챌린지 생성 직렬화(LLD §2.1 · GROMO-1422)와 그룹 탈퇴의 잠금 순서에 쓴다.
+     *
+     * <p>활성 4개 상한(FR-1)과 창 겹침(§A5)은 <b>그룹 전역</b> 불변식이라 행 단위 제약으로 못 지킨다 —
+     * 동시 생성 2건이 둘 다 "3개네" 하고 통과하면 5개째가 들어온다(부분 유니크는 하루형 카테고리
+     * 중복만 막는다). 생성은 그룹장 전용의 드문 동작이라 경합 비용은 없다시피 하다. 조회는 기존대로 무락.
+     * 그룹 탈퇴도 마지막 멤버일 때 그룹을 닫으므로 멤버십보다 이 행을 먼저 잠근다.
+     *
+     * @param id 잠글 그룹 id
+     * @return 잠긴 그룹 행. <b>상태·삭제를 보지 않으므로</b> 종료됐거나 지워진 방도 그대로 나온다 —
+     *     그 판단은 호출측 몫이다. 다른 트랜잭션이 같은 행을 쥐고 있으면 여기서 <b>대기</b>한다
+     *     (건너뛰지 않는다). readOnly 트랜잭션에서는 쓸 수 없다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select g from Group g where g.id = :id")
+    Optional<Group> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * 그룹 행 <b>공유 락</b> — 「읽은 상태가 커밋까지 유지돼야 하지만 그룹을 바꾸지는 않는」 판정용
+     * (GROMO-1660 · A22 ⓚ).
+     *
+     * <p>초대 자격 확정이 그 자리다. 무락으로 읽으면 판독 직후 커밋된 그룹 종료를 못 보고, 그 창으로
+     * <b>이미 닫힌 그룹의 초대가 유효 귀속으로 확정</b>된다. 배타 락을 쓰지 않는 이유는 이 경로가
+     * 그룹 행을 바꾸지 않기 때문이다 — 동시 확정끼리는 막을 이유가 없다.
+     *
+     * @param id 대상 그룹
+     * @return 그 그룹. 소프트삭제·종료 여부는 <b>호출부가</b> 판정한다 — 여기서 걸러 내면
+     *     「없는 그룹」과 「닫힌 그룹」이 한 값으로 뭉개진다
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select g from Group g where g.id = :id")
+    Optional<Group> findByIdForShare(@Param("id") UUID id);
+
+    /**
+     * GROMO-676: groups.host_id 폐기 — 방장 여부는 group_members.role=OWNER 기준으로 판단한다.
+     * A-0 소프트삭제: 활성 멤버십(is_left=false)만 센다. 이 필터가 없으면 종료된 그룹·위임 전 소유의
+     * 잔존 OWNER 행이 남아, 계정 탈퇴가 영구히 막힌다(그룹 종료 시 방장 행은 leave 로 is_left=true 가 된다).
+     *
+     * @param userId 탈퇴를 시도하는 유저 id
+     * @return 아직 방장으로 남은 활성 멤버십이 하나라도 있으면 true — 탈퇴를 막는 근거다.
+     *     <b>그룹이 종료됐거나 소프트 삭제됐는지는 보지 않는다</b>(방장 행 자체가 leave 로 정리된다는
+     *     전제에 기댄다)
+     */
+    @Query("select count(gm) > 0 from GroupMember gm "
+            + "where gm.user.id = :userId "
+            + "and gm.role = com.oneorthree.phone.group.repository.domain.GroupMemberRole.OWNER "
+            + "and gm.isLeft = false")
+    boolean existsGroupOwnedBy(@Param("userId") UUID userId);
+
+
+
+
+
+    /**
+     * 섬 이름 검색 한 페이지 (GROMO-1759, 섬 소속 LLD §3.2·§5).
+     *
+     * public·생존 그룹을 keyset 커서로 조회한다.
+     *
+     * <p>커서는 마지막 행의 <b>섬 id 하나</b> 이고 trgm 거리는 그 행을 다시 읽어 재계산한다 — 거리
+     * 값을 토큰에 실으면 검색어 원문이 커서로 새기 때문이다(§5).
+     *
+     * @param q 검색어. trgm 유사도({@code %})로 후보를 좁히고 거리({@code <->})로 정렬한다
+     * @param cursorId 직전 페이지 마지막 섬 id 의 문자열. 첫 페이지는 null — 널 바인딩의 타입 추론을
+     *     피하려고 {@code uuid} 가 아니라 문자열로 받아 SQL 에서 캐스팅한다
+     * @param limit 페이지 크기
+     * @return 정렬 순서를 유지한 섬 id
+     */
+    @Query(value = "SELECT g.id FROM islands g "
+            + "WHERE g.name % :q AND g.is_private = false AND g.deleted_at IS NULL "
+            + "AND g.status <> 'ENDED' "
+            + "AND (SELECT count(*) FROM group_members m "
+            + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
+            + "AND (CAST(:cursorId AS uuid) IS NULL "
+            + "     OR ((g.name <-> :q) > (SELECT c.name <-> :q FROM islands c "
+            + "                            WHERE c.id = CAST(:cursorId AS uuid)) "
+            + "         OR ((g.name <-> :q) = (SELECT c.name <-> :q FROM islands c "
+            + "                                WHERE c.id = CAST(:cursorId AS uuid)) "
+            + "             AND g.id > CAST(:cursorId AS uuid)))) "
+            + "ORDER BY (g.name <-> :q) ASC, g.id ASC LIMIT :limit", nativeQuery = true)
+    List<UUID> searchPublicIslandIdsByName(@Param("q") String q,
+            @Param("cursorId") String cursorId,
+            @Param("limit") int limit);
+
+    /**
+     * 검색어 없는 기본 목록 한 페이지 (GROMO-1759, LLD §3.2 "q 가 비어 있으면 최신 생성 순").
+     *
+     * <p>정렬 키가 {@code id} 하나인 것이 의도다. {@code islands.id} 는 UUIDv7 이라 생성 시각과 같은
+     * 방향으로 증가하므로 {@code created_at} 과 동률 키를 따로 둘 필요가 없다 — 한 컬럼 keyset 이면
+     * 동률 자체가 생기지 않아 «빠뜨림/중복» 이 구조적으로 불가능하다.
+     *
+     * @param cursorId 직전 페이지 마지막 섬 id 의 문자열. 첫 페이지는 null
+     * @param limit 페이지 크기
+     * @return 최신순 섬 id
+     */
+    @Query(value = "SELECT g.id FROM islands g "
+            + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
+            + "AND (SELECT count(*) FROM group_members m "
+            + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
+            + "AND (CAST(:cursorId AS uuid) IS NULL OR g.id < CAST(:cursorId AS uuid)) "
+            + "ORDER BY g.id DESC LIMIT :limit", nativeQuery = true)
+    List<UUID> findRecentPublicIslandIds(@Param("cursorId") String cursorId, @Param("limit") int limit);
+
+    /**
+     * 무작위 발견 후보 한 페이지 (GROMO-1759, LLD §3.3·§5).
+     *
+     * <p>순서는 {@code md5(seed || id)} 로 정한다. seed 가 같으면 순서가 같아 «한 탐색 세션의 cursor
+     * 순서가 안정»하고(PRD M03), 인스턴스가 달라도 같은 순서가 나온다. 경계도 그 해시라서 이미
+     * 돌려준 후보가 다시 나오지 않는다.
+     *
+     * <p>공개·생존·<b>실제 남은 정원</b>·미소속을 같은 질의에서 판정한다.
+     * 승인제도 공개 섬이면 후보에 포함하고, 응답의 가입 방식에 따라 즉시 가입/가입 신청을 안내한다.
+     * 자진 탈퇴·강퇴한 섬도 다시 신청할 수 있으므로 제외하지 않는다(강퇴는 GROMO-2315, 10/20 결정).
+     *
+     * @param userId 탐색하는 사용자 id 문자열
+     * @param seed 이 탐색 세션의 셔플 seed
+     * @param afterHandle 직전 페이지 마지막 후보의 해시. 첫 페이지는 null
+     * @param limit 페이지 크기
+     * @return 셔플 순서를 유지한 후보 섬 id
+     */
+    @Query(value = "SELECT g.id FROM islands g "
+            + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
+            + "AND (SELECT count(*) FROM group_members m "
+            + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
+            + "AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "
+            + "                AND k.user_id = CAST(:userId AS uuid) AND k.is_left = false) "
+            + "AND (CAST(:afterHandle AS text) IS NULL "
+            + "     OR md5(CAST(:seed AS text) || CAST(g.id AS text)) > CAST(:afterHandle AS text)) "
+            + "ORDER BY md5(CAST(:seed AS text) || CAST(g.id AS text)) ASC LIMIT :limit",
+            nativeQuery = true)
+    List<UUID> findDiscoverableIslandIds(@Param("userId") String userId,
+            @Param("seed") String seed,
+            @Param("afterHandle") String afterHandle,
+            @Param("limit") int limit);
+
+    /**
+     * «망원경이 보여 줄 수 있는 섬» 표 (GROMO-2265·2268) — 후보와 핀이 <b>같은 술어</b>를 쓰도록 한 곳에 둔다.
+     * 공개·생존·미소속이고 <b>정원 조건은 없다</b>. 강퇴된 섬도 보인다(GROMO-2315, 10/20 결정). 주민 수는
+     * {@link GroupMemberRepository#countByGroupIdIn} 과 같은 모수(탈퇴 계정 제외)다. 바인딩은 {@code :userId} 하나다.
+     */
+    String TELESCOPE_VISIBLE_SQL = "SELECT g.id, g.max_members, "
+            + "(SELECT count(*) FROM group_members m JOIN users u ON u.id = m.user_id "
+            + " WHERE m.group_id = g.id AND m.is_left = false AND u.is_deleted = false) AS member_count "
+            + "FROM islands g "
+            + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
+            + "AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "
+            + "                AND k.user_id = CAST(:userId AS uuid) AND k.is_left = false)";
+
+    /**
+     * 망원경 후보 (GROMO-2265, 섬 외부 계약 §5) — {@link #findDiscoverableIslandIds} 와 같은 공개·생존·미소속
+     * 조건이되 <b>정원 조건이 없다</b>. 정원 찬 섬도 «구경만» 칸을 채우므로 주민 수·정원을 함께 준다.
+     *
+     * <p>순서는 «정원 남은 섬 먼저, 그 안에서 {@code md5(seed || id)}» 다. 조립이 가까운 섬·무작위 칸을 정원 남은
+     * 섬부터 채우고 모자랄 때만 찬 섬을 쓰므로, 앞의 몇 행만 읽어도 해시 순 전체를 훑은 것과 같은 결과다 — 해시
+     * 순으로만 자르면 찬 섬이 앞에 몰린 버킷에서 뒤의 가입 가능한 섬을 놓친다. seed 가 같으면 순서도 같다.
+     *
+     * <p>주민 수는 {@link GroupMemberRepository#countByGroupIdIn} 과 같은 모수(탈퇴 계정 제외)다 — 응답의
+     * 「주민 수/정원」과 «정원 찬 섬» 판정이 가입 경로의 정원 판정과 같아야 한다. discover 의 인라인 집계는 탈퇴
+     * 계정까지 세므로 따라 하지 않는다.
+     *
+     * <p><b>핀 섬은 뺀다</b>(GROMO-2268). 직접 넣은 섬이 가까운 섬·무작위 칸에도 나오면 한 섬이 두 번 나온다.
+     * 제외 목록은 {@code NOT IN (:ids)} 가 아니라 uuid 배열 리터럴이다 — 핀이 없을 때 빈 컬렉션이
+     * {@code NOT IN ()} 으로 펼쳐져 문법 오류가 되고, 배열은 비어도({@code '{}'}) 모든 행에서 참이다.
+     *
+     * @param userId     망원경을 보는 사용자 id 문자열
+     * @param seed       1시간 버킷 시드
+     * @param limit      읽을 행 수
+     * @param excludeIds 후보에서 뺄 섬 id 의 Postgres 배열 리터럴({@code {id1,id2}}, 없으면 {@code {}})
+     * @return 정원 남은 섬 → 정원 찬 섬 순, 각 묶음 안은 시드 해시 순
+     */
+    @Query(value = "SELECT c.id AS \"id\", c.member_count AS \"memberCount\", c.max_members AS \"maxMembers\" "
+            + "FROM (" + TELESCOPE_VISIBLE_SQL + ") c "
+            + "WHERE c.id <> ALL(CAST(:excludeIds AS uuid[])) "
+            + "ORDER BY c.member_count >= c.max_members, md5(CAST(:seed AS text) || CAST(c.id AS text)) "
+            + "LIMIT :limit", nativeQuery = true)
+    List<TelescopeCandidate> findTelescopeCandidates(@Param("userId") String userId,
+            @Param("seed") String seed,
+            @Param("limit") int limit,
+            @Param("excludeIds") String excludeIds);
+
+    /**
+     * 주어진 섬 중 망원경이 아직 보여 줄 수 있는 섬 (GROMO-2268) — 핀 섬이 그사이 비공개·종료·내 소속이 되면
+     * 여기서 빠진다. 후보({@link #findTelescopeCandidates})와 같은 표({@link #TELESCOPE_VISIBLE_SQL})라 «후보가 될 수
+     * 있는 섬만 핀으로 보인다». 순서는 없다 — 호출자가 핀 순서를 쥔다.
+     *
+     * @param userId 망원경을 보는 사용자 id 문자열
+     * @param ids    살펴볼 섬 id 의 Postgres 배열 리터럴({@code {id1,id2}})
+     * @return 보여 줄 수 있는 섬의 id·주민 수·정원
+     */
+    @Query(value = "SELECT c.id AS \"id\", c.member_count AS \"memberCount\", c.max_members AS \"maxMembers\" "
+            + "FROM (" + TELESCOPE_VISIBLE_SQL + ") c "
+            + "WHERE c.id = ANY(CAST(:ids AS uuid[]))", nativeQuery = true)
+    List<TelescopeCandidate> findTelescopeVisibleAmong(@Param("userId") String userId, @Param("ids") String ids);
+
+    /** {@link #findTelescopeCandidates} 결과 한 행. */
+    interface TelescopeCandidate {
+
+        /** @return 섬 id */
+        UUID getId();
+
+        /** @return 활성·미탈퇴 주민 수 */
+        long getMemberCount();
+
+        /** @return 정원 */
+        int getMaxMembers();
+    }
+
+    /**
+     * 살아 있는 섬(소프트 삭제도 종료도 아닌)의 id 전부 — 섬별 7일 평균 배치의 모집단이다 (GROMO-2257).
+     * {@code IslandMovementGuards.isAlive} 와 같은 두 축이고, 공개·비공개를 가리지 않는다. 주민이 0명인 섬도
+     * 포함한다 — 그 섬은 «평균 없음» 행이 돼야 하므로 세션·멤버십이 아니라 <b>이 표에서 출발</b>해야 한다.
+     *
+     * @return 살아 있는 섬 id 전량, id 오름차순. 순서를 고정하는 이유는 이 목록으로 한 문장에 여러 행을 쓰는 두 인스턴스가
+     *     같은 순서로 잠금을 잡아 교착하지 않게 하려는 것이다. 페이징이 없다 — id 만 싣는 전수 조회라 섬 수에 비례할 뿐이다
+     */
+    @Query("SELECT g.id FROM Group g WHERE g.deletedAt IS NULL "
+            + "AND g.status <> com.oneorthree.phone.group.repository.domain.GroupStatus.ENDED ORDER BY g.id")
+    List<UUID> findAliveIslandIds();
+
+    /**
+     * {@code [from, to)} 사이에 만들어진 공개·살아 있는 섬, 먼저 만든 순 {@code limit} 곳 — 고양이 잡지 편집부 칸
+     * 「어제 새로 생긴 섬」(GROMO-2289, 계획 P17)이다. 가입 유도 칸이라 공개 섬만 싣는다 — 비공개 섬도 랭킹·홍보 칸에는
+     * 실린다(10/16, GROMO-2305).
+     */
+    @Query(value = "SELECT * FROM islands g WHERE g.is_private = false AND g.deleted_at IS NULL "
+            + "AND g.status <> 'ENDED' AND g.created_at >= :from AND g.created_at < :to "
+            + "ORDER BY g.created_at, g.id LIMIT :limit", nativeQuery = true)
+    List<Group> findPublicAliveCreatedBetween(@Param("from") Instant from, @Param("to") Instant to,
+                                              @Param("limit") int limit);
+}

@@ -1,0 +1,22 @@
+name: GAR 인증
+description: GCE 러너의 SA 메타데이터 토큰으로 GAR(Google Artifact Registry)에 docker login 한다
+inputs:
+  registry:
+    description: 로그인할 GAR 호스트 (예 asia-northeast3-docker.pkg.dev)
+    required: true
+runs:
+  using: composite
+  steps:
+    # gcloud도 키 파일도 필요 없다 — GCE 러너의 SA 메타데이터 토큰을 그대로 쓴다.
+    # metadata.google.internal 은 GitHub-hosted 러너에서 응답하지 않으므로, GCE(self-hosted)
+    # 러너의 잡에서만 이 액션을 부른다 (GROMO-1918).
+    - name: GAR 인증
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+      run: |
+        set -euo pipefail
+        curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+          "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+        | jq -er .access_token \
+        | docker login -u oauth2accesstoken --password-stdin "$REGISTRY"

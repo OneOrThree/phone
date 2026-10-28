@@ -1,0 +1,226 @@
+package com.oneorthree.phone.internal.service;
+
+import com.oneorthree.phone.auth.exception.AuthErrorCode;
+import com.oneorthree.phone.auth.exception.AuthException;
+import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
+import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
+import com.oneorthree.phone.auth.repository.domain.LoginAttempt;
+import com.oneorthree.phone.auth.repository.domain.LoginAttemptStatus;
+import com.oneorthree.phone.auth.repository.domain.LoginTokenMaterials;
+import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.auth.service.AuthSessionService;
+import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.internal.dto.LoginAttemptExecuteRequest;
+import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.User;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+/**
+ * 선택 AT 의 <b>세션 폐기 관문</b> (GROMO-1908, 계정 LLD §2.1 「선택 AT의 세션 폐기 관문」).
+ *
+ * <p>Business 가 서명·만료를 이미 봤다는 사실은 여기서 전제다. 이 테스트가 고정하는 것은 그 «다음»
+ * 이다 — 서명이 멀쩡해도 세션 원장이 「폐기됨」이면 승격 자격이 아니라는 것. 로그아웃은
+ * {@code authGeneration} 을 올리지 않으므로(LLD §2.4) 이 판정이 빠지면 로그아웃한 게스트의 AT 가
+ * 남은 만료 시간 동안 그대로 승격 자격으로 남는다.
+ */
+@ExtendWith(MockitoExtension.class)
+class LoginAttemptServiceGateTest {
+
+    private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000001908");
+    private static final UUID SESSION_ID = UUID.fromString("00000000-0000-0000-0000-000000001909");
+    private static final String TOKEN = "signed-access-token";
+
+    @Mock
+    private LoginAttemptRepository loginAttemptRepository;
+    @Mock
+    private UserQueryService userQueryService;
+    @Mock
+    private AuthService authService;
+    @Mock
+    private AuthSessionService authSessionService;
+    @Mock
+    private JwtProvider jwtProvider;
+
+    private LoginAttemptService service;
+
+    @BeforeEach
+    void setUp() {
+        // self 프록시는 execute 의 조각 경계용이다 — 관문 메서드 자체는 쓰지 않으므로 null 로 둔다.
+        service = new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
+                authSessionService, null, jwtProvider, null, null);
+        // 기본 골격: 서명으로 증명된 subject·sid·gen=0 이 실린 AT, authGeneration=0 인 활성 사용자.
+        lenient().when(jwtProvider.extractUserId(TOKEN)).thenReturn(USER_ID);
+        lenient().when(jwtProvider.extractSessionId(TOKEN)).thenReturn(SESSION_ID);
+        lenient().when(jwtProvider.extractAuthGeneration(TOKEN)).thenReturn(0L);
+        lenient().when(userQueryService.getCaller(USER_ID)).thenReturn(User.builder().build());
+    }
+
+    /** 세션 관문 거절 스텁 — 판정은 {@code AuthSessionService#requireActive} 의 몫이다 (GROMO-2450). */
+    private void rejectSession(UUID sessionId, Long claimedGeneration) {
+        willThrow(new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE))
+                .given(authSessionService).requireActive(USER_ID, 0L, sessionId, claimedGeneration);
+    }
+
+    @Test
+    @DisplayName("AT 가 없으면 관문을 타지 않는다 — 최초 로그인은 원래 AT 가 없다")
+    void 토큰없음() {
+        assertThatCode(() -> service.gateOptionalSession(null)).doesNotThrowAnyException();
+        verify(userQueryService, never()).getCaller(any());
+        verify(authSessionService, never()).requireActive(any(), anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("활성 세션 + 세대 일치면 통과한다 — 게스트 승격의 정상 경로")
+    void 활성세션통과() {
+        assertThatCode(() -> service.gateOptionalSession(TOKEN)).doesNotThrowAnyException();
+        // requireActive 는 void — 거절이 없으면 통과다. 사용자 세대·AT 의 sid·gen 이 그대로 넘어가는지 고정한다.
+        verify(authSessionService).requireActive(USER_ID, 0L, SESSION_ID, 0L);
+    }
+
+    @Test
+    @DisplayName("폐기된 세션의 AT 는 SESSION_NOT_ACTIVE — 서명이 멀쩡해도 승격 자격이 아니다")
+    void 폐기된세션() {
+        rejectSession(SESSION_ID, 0L);
+
+        assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
+    }
+
+    @Test
+    @DisplayName("세션 행이 없거나 남의 것이면 SESSION_NOT_ACTIVE — requireActive 가 거절한다")
+    void 세션없음() {
+        rejectSession(SESSION_ID, 0L);
+
+        assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
+    }
+
+    @Test
+    @DisplayName("authGeneration 불일치는 SESSION_NOT_ACTIVE — AT 의 세대를 requireActive 에 그대로 넘겨 거절한다")
+    void 세대불일치() {
+        given(jwtProvider.extractAuthGeneration(TOKEN)).willReturn(1L);
+        rejectSession(SESSION_ID, 1L);
+
+        assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
+        verify(authSessionService).requireActive(USER_ID, 0L, SESSION_ID, 1L);
+    }
+
+    @Test
+    @DisplayName("sid 없는 구 AT 는 SESSION_NOT_ACTIVE — 어느 세션인지 증명할 수 없어 폐기 fence 를 못 건다")
+    void sid없음() {
+        given(jwtProvider.extractSessionId(TOKEN)).willReturn(null);
+        rejectSession(null, 0L);
+
+        assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
+        verify(authSessionService).requireActive(USER_ID, 0L, null, 0L);
+    }
+
+    // ── 임차 펜스 (GROMO-2215) ──
+
+    private static final UUID ATTEMPT_ID = UUID.fromString("00000000-0000-0000-0000-000000002215");
+
+    private LoginAttempt pendingClaimedAt(Instant claimedAt) {
+        return LoginAttempt.builder()
+                .attemptId(ATTEMPT_ID).status(LoginAttemptStatus.PENDING)
+                .claimedAt(claimedAt).recoveryExpiresAt(claimedAt.plus(Duration.ofMinutes(5)))
+                .build();
+    }
+
+    private void stubCompletion() {
+        given(jwtProvider.extractUserId("at")).willReturn(USER_ID);
+        given(jwtProvider.freezeMaterials("at", "rt")).willReturn(new LoginTokenMaterials(
+                false, 0L, Instant.now(), Instant.now(), Instant.now(), Instant.now(), UUID.randomUUID()));
+    }
+
+    private static SocialLoginResponse login() {
+        return new SocialLoginResponse("at", "rt", false, "bootstrap", SESSION_ID);
+    }
+
+    @Test
+    @DisplayName("임차를 남이 회수했으면(claimed_at 변경) complete 는 IN_PROGRESS 로 거절하고 아무것도 쓰지 않는다")
+    void 회수된임차는_완료거절() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = pendingClaimedAt(mine.plusSeconds(31)); // 다른 실행자가 회수한 뒤의 값
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+
+        assertThatThrownBy(() -> service.complete(ATTEMPT_ID, login(), mine))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_IN_PROGRESS);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.PENDING);
+        verify(userQueryService, never()).getCaller(any());
+    }
+
+    @Test
+    @DisplayName("탈퇴로 닫힌 시도(INVALIDATED)는 펜스와 무관하게 UNUSABLE — 재시도해도 성공하지 않으니 409 를 주지 않는다")
+    void 닫힌시도는_UNUSABLE() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = LoginAttempt.builder()
+                .attemptId(ATTEMPT_ID).status(LoginAttemptStatus.INVALIDATED)
+                .claimedAt(mine).recoveryExpiresAt(mine.plus(Duration.ofMinutes(5)))
+                .build();
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+
+        assertThatThrownBy(() -> service.complete(ATTEMPT_ID, login(), mine))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
+    }
+
+    @Test
+    @DisplayName("펜스가 claimed_at 과 같으면 complete 가 COMPLETED 로 확정한다")
+    void 펜스일치면_완료() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = pendingClaimedAt(mine);
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+        stubCompletion();
+
+        assertThat(service.complete(ATTEMPT_ID, login(), mine).userId()).isEqualTo(USER_ID);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("claim 은 마이크로초로 자른 펜스를 쓰고 돌려준다 — DB 반올림과 동등 비교가 어긋나지 않게")
+    void claim_펜스는_마이크로초() {
+        given(loginAttemptRepository.insertClaim(any(), any(), any(), any(), any(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+        LoginAttemptExecuteRequest request = new LoginAttemptExecuteRequest(
+                ATTEMPT_ID, "key", "digest", Provider.APPLE, "id_token", "credential", "2026-09", null, false);
+
+        LoginAttemptService.Claim claim = service.claim(request);
+
+        assertThat(claim.replay()).isNull();
+        assertThat(claim.fence().getNano() % 1000).isZero();
+        verify(loginAttemptRepository).insertClaim(any(), any(), any(), any(), any(), any(), anyBoolean(),
+                eq(claim.fence()), any());
+    }
+}

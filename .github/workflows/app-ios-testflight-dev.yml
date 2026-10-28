@@ -1,0 +1,173 @@
+name: iOS TestFlight (dev)
+
+# main 에 앱 변경이 머지되면 **머지한 사람의 맥**에서 dev 서버용 TestFlight 빌드를 올린다 (GROMO-2219)
+#
+# ## 왜 머지한 사람의 맥인가
+# iOS 빌드는 Xcode 가 있는 맥에서만 된다. GitHub 이 빌려주는 macOS 러너는 비공개 레포 기준
+# 리눅스의 10배 요금이고 매번 빈 컴퓨터라 인증서·키를 다시 넣어야 한다. 대신 팀원 각자의 맥을
+# self-hosted 러너로 등록하고(라벨 = 깃허브 아이디), 이 워크플로가 `github.actor` 라벨로
+# 머지 버튼을 누른 사람의 맥을 고른다. 등록 방법은 docs/conventions/ios-testflight-dev-runner.md.
+# 레포 변수 IOS_DEV_RUNNERS 에 없는 아이디가 머지하면 빌드를 건너뛴다. 변수가 없거나 비어
+# 있어도 자동 빌드는 하지 않는다. 등록 스크립트가 변수에 아이디를 덧붙인다.
+# (GITHUB_TOKEN 으로는 러너 목록 API 를 못 읽어 변수로 판단한다.)
+# 수동 실행은 목록과 관계없이 항상 누른 사람의 맥이다(아래 "공개 레포 주의").
+#
+# ## 공개 레포 주의 — 트리거를 늘리지 말 것
+# 이 레포는 공개 레포다. 개인 맥 러너에서 도는 잡은 **main push 와 수동 실행에서만** 돈다.
+# `pull_request` / `pull_request_target` 트리거를 여기에 추가하면 외부인이 보낸 PR 의 코드가
+# 팀원 맥에서 실행될 수 있다. 외부 기여자 워크플로는 레포 설정에서 전부 승인 필요로 돼 있다.
+# 수동 실행도 **실행한 사람의 맥에서만** 돈다. 다른 사람 맥을 고르는 입력은 두지 않는다(실수로 남의 맥에서
+# 돌리는 일을 막는다). 쓰기 권한자가 작정하면 자기 브랜치의 워크플로 파일로 어떤 러너든 고를 수 있으므로
+# self-hosted 러너의 신뢰 경계는 "레포 쓰기 권한" 이다 — 자세한 건 위 문서의 "공개 레포라서 지키는 것".
+#
+# ## 무엇을 돌리나
+# `app/app-dev/ios/testflight.sh --dev` (GROMO-2218) — 서버 주소를 dev 로 고정하고 Fastlane
+# `beta_dev` 로 archive·업로드한다. App Store Connect API 키는 각자 맥의 러너 `.env` 에서
+# 환경변수로 들어오고, 약관 버전·Datadog 같은 공개 설정은 레포의 ios/release-config.sh 에 있다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
+      - '!app/app-dev/android/**'
+      - '!app/app-dev/modules/**/android/**'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-lint.yml'
+      - '.github/scripts/wait-app-checks.py'
+      - '.github/ci/app-change-plan.py'
+  workflow_dispatch:
+
+# 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
+# 실행 중 빌드는 유지하고 대기 중인 빌드는 최신 하나만 남긴다.
+
+concurrency:
+  group: ${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && 'ios-testflight-dev' || format('ios-testflight-validation-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  change-plan:
+    name: iOS 자동 게시 범위 판정
+    if: github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/app-change-plan.py --platform ios
+
+  quality-gate:
+    name: 동일 SHA 앱 필수 검사 확인
+    needs: change-plan
+    if: github.event_name == 'push' && needs.change-plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: 앱 검사 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_PLATFORM: ios
+        run: python3 .github/scripts/wait-app-checks.py
+
+  manual-quality:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-lint.yml
+
+  testflight-dev:
+    needs: [quality-gate, manual-quality, change-plan]
+    # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
+    # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
+    if: >-
+      !cancelled() &&
+      ((github.event_name == 'push' && contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && needs.change-plan.outputs.publish == 'true' && needs.quality-gate.result == 'success' && !contains(github.event.head_commit.message, '[skip testflight]')) ||
+       (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success'))
+    # main push는 등록된 본인의 맥에서만 실행한다. 미등록자는 자동 게시를 생략한다.
+    # 수동 실행도 누른 사람의 맥만 사용한다.
+    name: dev TestFlight 빌드 (${{ github.actor }})
+    runs-on: [self-hosted, macOS, ios, "${{ github.actor }}"]
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      LANG: en_US.UTF-8
+      AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 맥에 깔린 node 가 아니라 앱 CI(app-lint.yml)와 같은 Node 24 를 쓴다 — react-native 가 요구하는
+      # 버전 범위를 러너마다 확인하지 않아도 되게. 러너의 _work/_tool 에 한 번 받아두고 재사용한다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: 러너 준비 상태 확인
+        # 빌드 20분을 돌리기 전에 빠지기 쉬운 것부터 확인한다. 실패 문구가 곧 등록 안내다.
+        run: |
+          fail=0
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::러너 폴더의 .env 에 $v 가 없다 — docs/conventions/ios-testflight-dev-runner.md 3번"; fail=1
+            fi
+          done
+          if [ -n "${ASC_KEY_PATH:-}" ] && [ ! -f "$ASC_KEY_PATH" ]; then
+            echo "::error::ASC_KEY_PATH 가 가리키는 키 파일이 없다: $ASC_KEY_PATH"; fail=1
+          fi
+          for tool in xcodebuild node npm pod bundle; do
+            command -v "$tool" >/dev/null || { echo "::error::러너 PATH 에 $tool 이 없다 (러너를 등록할 때의 셸 PATH 가 .path 에 저장된다)"; fail=1; }
+          done
+          # --dev 는 GROMO-2218(#1070) 에서 들어온다. 그 전의 testflight.sh 는 --dev 를 모르고 운영용 검사로 가므로 여기서 막는다.
+          grep -q -- '--dev' app/app-dev/ios/testflight.sh \
+            || { echo "::error::testflight.sh 가 아직 --dev 를 모른다 — GROMO-2218 이 main 에 먼저 들어가야 한다"; fail=1; }
+          [ "$fail" = 0 ]
+          xcodebuild -version
+          node -v
+
+      - name: npm ci
+        working-directory: app/app-dev
+        run: npm ci
+
+      - name: dev TestFlight 빌드·업로드
+        # Pods 동기화·fastlane 설치·archive·업로드는 전부 스크립트가 한다. 테스트 노트를 달기 위해
+        # Apple 처리 완료까지 기다리므로 운영 빌드보다 5~15분 더 걸린다.
+        working-directory: app/app-dev/ios
+        run: ./testflight.sh --dev
+
+      - name: 성공한 실제 게시 SHA 기록
+        run: python3 .github/ci/app-change-plan.py --platform ios --record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-publication
+          path: app-publication.json
+          retention-days: 90
+          overwrite: true
+
+      - name: 결과 요약
+        if: always()
+        run: |
+          {
+            echo "## dev TestFlight"
+            echo "- 러너: \`${{ runner.name }}\` — 실행한 사람의 라벨: ${{ github.actor }}"
+            echo "- 커밋: \`${{ github.sha }}\`"
+            echo "- 결과: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

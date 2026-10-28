@@ -1,0 +1,69 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tt_db
+    username: ci
+    password: ci
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  # Flyway OFF (GROMO-670). CI 는 create-drop 으로 엔티티에서 스키마를 만든다.
+  # base application.yml 은 gitignored 라 CI 체크아웃에 없음 → 여기 명시하지 않으면 flyway-core 가
+  # 클래스패스에 있어 기본 enabled=true 로 켜지고, Testcontainers 에서 V1 실행과 create-drop 이 충돌한다.
+  flyway:
+    enabled: false
+
+app:
+  scheduling:
+    enabled: false
+
+# USER aggregate 잠금 정본 순서 감시(GROMO-893) — 운영은 경고 로그·지표만 남기고, 테스트는 순서를 거스르는
+# 획득을 즉시 실패시켜 교착 가능한 새 경로가 병합 전에 드러나게 한다.
+outbox:
+  user-lock-order:
+    enforce: true
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: false
+
+kakao:
+  api-base-url: https://kapi.kakao.com
+
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+  client-id: com.oneorthree.gromo
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: ci-test-google-client-id
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
+
+facebook:
+  jwks-url: https://www.facebook.com/.well-known/oauth/openid/jwks/
+  client-id: "990121817063522"
+
+jwt:
+  secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
+  access-expiration: 3600
+  refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
+
+# 초대 링크 — 테스트가 URL 형식을 문자열로 단정하므로 고정값이어야 한다.
+link:
+  base-url: https://link.test
+
+management:
+  health:
+    redis:
+      # Redis 는 이 서비스의 «부가» 의존성이다. 켜 두면 Redis 장애가 곧 컨테이너 unhealthy 가 되어
+      # 멀쩡한 배포를 실패시킨다 — 정작 이 서비스의 Redis 쓰기는 실패해도 무해한데.
+      enabled: false

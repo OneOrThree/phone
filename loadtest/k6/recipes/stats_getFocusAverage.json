@@ -1,0 +1,41 @@
+{
+  "endpoint": "stats_getFocusAverage",
+  "method": "GET",
+  "path": "/api/v1/stats/focus/average",
+  "tag": "stats",
+  "summary": "기간별 평균 집중시간 집계 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [
+    {
+      "name": "scope",
+      "gen": "enum",
+      "values": [
+        "FRIENDS",
+        "TOTAL",
+        "CATEGORY"
+      ]
+    },
+    {
+      "name": "period",
+      "gen": "enum",
+      "values": [
+        "DAY",
+        "WEEK",
+        "MONTH"
+      ]
+    },
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

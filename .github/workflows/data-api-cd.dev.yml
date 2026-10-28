@@ -1,0 +1,175 @@
+# GROMO dev 서버 — CD (main CI digest → 앱 서버 배포)
+#
+# PR CI는 build/cache만 검증한다. squash merge 후 main CI가 최종 main SHA를
+# build·push하고, build-push-action이 반환한 불변 digest를 이 workflow에 직접 넘긴다.
+# CD는 registry tag를 다시 찾거나 이미지를 재빌드하지 않는다.
+
+name: Data·Realtime Dev CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: 복구할 main Data 이미지의 sha256 digest
+        required: true
+        type: string
+      realtime_image_digest:
+        description: 같은 main SHA의 Realtime 이미지 sha256 digest
+        required: true
+        type: string
+      image_revision:
+        description: main에 포함된 이미지의 40자리 SHA (미완료 current DB 복구 전용)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      image_digest:
+        description: main CI가 push한 이미지의 sha256 digest
+        required: true
+        type: string
+      realtime_image_digest:
+        description: 같은 main SHA의 Realtime 이미지 digest
+        required: true
+        type: string
+      image_revision:
+        description: 이미지를 만든 main commit SHA
+        required: true
+        type: string
+
+concurrency:
+  group: dev-vm-deploy
+  cancel-in-progress: false
+  # 기본(queue: single)은 대기 실행을 하나만 남기고 취소 → 머지 한 번에 CD 3개가 겹치면 하나가 사라짐
+  queue: max
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/data-api/data-api
+  REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime
+
+jobs:
+  deploy:
+    name: Data·Realtime 공동 배포
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, dev]
+    environment:
+      name: dev-server/data-api
+      url: https://oneorthree.dev.mooo.com
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+      actions: read # 수동 복구의 동일 SHA 이미지 검사·발행 증거 확인
+      pull-requests: write # 배포 결과 PR 표시
+      issues: write # 라벨은 이슈 API
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: main SHA·digest 및 수동 복구 CI 검증
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+          DATA_DIGEST: ${{ inputs.image_digest }}
+          REALTIME_DIGEST: ${{ inputs.realtime_image_digest }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$DATA_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          [[ "$REALTIME_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then
+            git merge-base --is-ancestor "$IMAGE_REVISION" "$GITHUB_SHA"
+            python3 .github/scripts/deploy-core-dev.py --verify-recovery-builds --revision "$IMAGE_REVISION"
+          else
+            test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          fi
+
+      - name: AWS 자격증명 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      # dev.env(compose 보간)·data-api.env(Data 컨테이너 env)를 job 마다 SM 에서 임시로 만들고 마지막에 지움 (GROMO-2224)
+      - name: 임시 dev.env 생성
+        env:
+          CATUS_PAIRED_DEPLOY: "1"
+          DATA_IMAGE: ${{ env.APP_IMAGE_REPOSITORY }}@${{ inputs.image_digest }}
+        run: .github/scripts/dev-env.sh "$DATA_IMAGE" > /dev/null
+
+      - name: GAR 인증
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
+
+      - name: DB 전환 및 Data·Realtime 공동 교체
+        id: health
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          DATA_IMAGE: ${{ env.APP_IMAGE_REPOSITORY }}@${{ inputs.image_digest }}
+          REALTIME_IMAGE: ${{ env.REALTIME_IMAGE_REPOSITORY }}@${{ inputs.realtime_image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          recovery=()
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then
+            recovery+=(--recovery-only)
+          else
+            test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          fi
+          python3 .github/scripts/deploy-core-dev.py \
+            --data-image "$DATA_IMAGE" --realtime-image "$REALTIME_IMAGE" \
+            --revision "$IMAGE_REVISION" --runtime-env-file "$RUNTIME_ENV_FILE" \
+            --data-env-file "$DATA_API_ENV_FILE" "${recovery[@]}"
+          echo "- Data·Realtime 공동 배포 완료: \`$IMAGE_REVISION\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: README 배포 상태 기록
+        if: always() && (steps.health.outcome == 'success' || failure())
+        env:
+          BADGE_REVISION: ${{ inputs.image_revision }}
+          BADGE_RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/deployment-status"
+          python3 - <<'PYTHON'
+          import datetime, json, os, pathlib
+          records = [{'service': service, 'result': os.environ['BADGE_RESULT']} for service in ('data-api', 'realtime')]
+          now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          for record in records:
+              record.update(environment='dev', revision=os.environ['BADGE_REVISION'], finished_at=now)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'deployment-status', 'dev.json').write_text(json.dumps(records))
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        if: always() && (steps.health.outcome == 'success' || failure())
+        with:
+          name: deployment-status-dev-${{ github.run_attempt }}
+          overwrite: true
+          path: ${{ runner.temp }}/deployment-status/dev.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: 배포 결과 PR 표시
+        if: always() && (steps.health.outcome == 'success' || failure())
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          .github/scripts/mark-deploy.sh "$RESULT" data-api "$IMAGE_REVISION"
+          .github/scripts/mark-deploy.sh "$RESULT" realtime "$IMAGE_REVISION"
+
+      - name: 임시 env 삭제
+        if: always()
+        run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true

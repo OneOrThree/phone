@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OneOrThree/phone/docs/contracts/notification-event-v1.json",
+  "title": "notification-events 봉투 v1",
+  "description": "Data API 의 outbox 가 적고 relay 가 발행하는 정본 이벤트 봉투 (A21 · A22 ㊸ · 서비스 「이벤트」 행). 토픽 notification-events(파티션 3, key = userId)와 notification-events.DLT(파티션 3)가 같은 봉투를 쓴다. 스키마 규칙은 expand/contract 다: additive-only · 소비자 선배포 · 제거는 다음 릴리즈 · 소비자는 모르는 필드를 무시한다(ⓦ). 그래서 additionalProperties 는 true 다 — false 로 바꾸면 producer 가 필드를 더한 순간 구 consumer 가 역직렬화에 실패해 DLQ 로 밀린다.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "eventId",
+    "schemaVersion",
+    "type",
+    "occurredAt",
+    "userId",
+    "version",
+    "params"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "결정적 사건 키 — 소비 측 dedup 의 유일한 근거다. 수신자가 여럿인 사건은 트랜잭션 안에서 수신자별로 펼친 뒤 '<사건키>:<userId>' 를 준다(㊢). 봉투에 userId 가 하나뿐이라 fan-out 을 한 건으로 보내면 수신 측이 대상을 알아낼 방법이 없다."
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "스키마 호환 버전(ⓦ). 순서용 version 과 «다른 값»이며 둘 다 필수다. 소비자는 schemaVersion 별 reader 로 읽고, «알 수 없는 schemaVersion» 을 정상 처리 완료로 삼키지 않는다(계약 §3)."
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "사건 종류. 발송 종류(kind)와 1:1 이 아닐 수 있으므로 소비 측이 매핑을 소유한다."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "사건 발생 시각. ISO-8601 UTC 문자열이다 — epoch 초 실수로 보내지 않는다(언어마다 부동소수 파싱이 갈린다)."
+    },
+    "scheduledAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "예약 발송 시각. 즉시 사건은 null 이다. «키를 빼지 않는다» — 없음이 의미 있는 값이라, 키가 없으면 소비자가 «필드가 아직 없는 구 스키마»와 구분할 수 없다."
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "수신자 하나. Kafka 메시지 키이기도 하다 — 같은 유저가 한 파티션에 모여 브로커 도착 순서가 보존된다. 다만 그것만으로는 역순 적용을 못 막으므로 소비자는 version 을 함께 본다."
+    },
+    "locale": {
+      "type": ["string", "null"],
+      "maxLength": 35,
+      "description": "렌더 로케일. 앱이 아직 보고하지 않은 유저는 null 이고 수신 측이 ko 로 폴백한다. 여기서 ko 를 박으면 «보고받은 ko» 와 «모름» 이 구분되지 않아 나중에 언어 보고가 붙어도 고칠 수 없다."
+    },
+    "subjectId": {
+      "type": ["string", "null"],
+      "maxLength": 200,
+      "description": "사건 대상의 정규 식별자. 컬렉션 투영은 «(userId, subjectId) 별 최대 version» 으로 역순 적용을 막는다(A21) — 유저 단위 최대값 하나로 뭉치면 지연 도착한 다른 subject 의 사건이 «오래된 것» 으로 폐기돼 그 회차의 알림이 통째로 누락된다. uuid 가 아니라 문자열인 이유: 링크 멤버십 전이처럼 복합 키를 정규 문자열로 싣는 자리가 있다. 대상이 없으면 null."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "순서용 단조 증가 값 — Data API 가 «aggregate 행 잠금 아래» 발급한다(㊸). DB 시퀀스를 그대로 쓰지 않는다: 시퀀스는 번호 할당 순서만 보장하고 커밋 순서를 보장하지 않아, 나중에 커밋된 최신 상태가 폐기된다. 필수 필드다 — 없으면 소비자에게 비교할 값이 없어 재시도된 과거 이벤트가 투영을 덮는다. 불변 사건(친구 요청·챌린지 개설처럼 상태를 덮지 않는 트리거)은 version 비교 대상이 아니라 eventId 멱등으로만 처리한다."
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "사건별 발송 입력. 종류마다 모양이 다르므로 여기서 고정하지 않는다 — 종류별 스키마는 알림 서버의 kind 카탈로그가 소유한다. 소비자는 모르는 필드를 무시한다."
+    }
+  },
+  "examples": [
+    {
+      "eventId": "user.withdrawn:8f1a7d6e-2b0c-4a52-9f31-6d5e0c9a41b7",
+      "schemaVersion": 1,
+      "type": "user.withdrawn",
+      "occurredAt": "2026-09-11T06:44:02.635224Z",
+      "scheduledAt": null,
+      "userId": "8f1a7d6e-2b0c-4a52-9f31-6d5e0c9a41b7",
+      "locale": "ko",
+      "subjectId": null,
+      "version": 12,
+      "params": { "reason": "SELF" }
+    }
+  ]
+}

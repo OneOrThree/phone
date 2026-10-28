@@ -1,0 +1,162 @@
+[
+ {
+  "id": "travel",
+  "status": "ok",
+  "note": "소다 섬 → 딸기 섬 항해, 시작 약 0.9초 시점 프레임."
+ },
+ {
+  "id": "focusVisit",
+  "status": "ok",
+  "note": "지도를 오른쪽으로 70px 끌어 낚시 중인 주민 둘(민지·두부)이 다 보이게 했다(처음 화면은 왼쪽 주민이 화면 밖에 걸친다). '뗏목 · 우리 섬으로 돌아가기' 는 뗏목의 접근성 이름이라 화면 글자로는 없다."
+ },
+ {
+  "id": "focusVisit.empty",
+  "status": "ok",
+  "note": "주민 전원 집중 안 함으로 바꿔 찍음."
+ },
+ {
+  "id": "visitIslandFocus",
+  "status": "ok",
+  "note": "딸기 섬 구경 중 상태. 목업 섬들은 주민 구성이 같아 focusVisit 과 왼쪽 위 버튼 글자(닫기 ↔ 돌아가기)만 다르다. 지도는 같은 만큼 끌었다."
+ },
+ {
+  "id": "visitIslandFocus.empty",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "tower",
+  "status": "ok",
+  "note": "목업 모드 랭킹(로컬 섬 3곳, '주민 N' 표시). 서버 모드의 '우리 섬 이번 주 N위' 줄은 없다. 평균 시간이 미리보기 시트와 1분 어긋나지 않게 목업 주민 기록 시각을 5초 과거로 밀었다."
+ },
+ {
+  "id": "tower.rankEmpty",
+  "status": "ok",
+  "note": "문구 아래 갈색 줄은 목업 경로에서 빈 목록 틀(SheetGroup)이 그대로 그려진 것이다(Screens.tsx:4609). 서버 모드에는 이 줄이 없다."
+ },
+ {
+  "id": "explore",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "explore.noResults",
+  "status": "ok",
+  "note": "검색어 '고래 섬'."
+ },
+ {
+  "id": "visit",
+  "status": "ok",
+  "note": "딸기 섬(바로 참여)."
+ },
+ {
+  "id": "visit.joinedIsland",
+  "status": "ok",
+  "note": "딸기 섬을 소속 섬으로 바꿔 찍음. 소속 섬인데도 '바로 참여' 배지는 그대로 보인다."
+ },
+ {
+  "id": "visitIsland",
+  "status": "ok",
+  "note": "실제 흐름으로 도달: 미리보기 시트 → '섬 둘러보기' → 항해 → 자동 도착. '낚시섬 구경하기' 는 지도 영역의 접근성 이름이라 화면 글자로는 없다."
+ },
+ {
+  "id": "mail",
+  "status": "ok",
+  "note": "목업 모드 표시('새 글 2개' + '새 편지 2통'). 서버 모드는 '새 편지 N통' 만."
+ },
+ {
+  "id": "chat",
+  "status": "ok",
+  "note": "목업 모드는 최신 글이 위에 온다(서버 모드는 아래)."
+ },
+ {
+  "id": "chat.empty",
+  "status": "approx",
+  "note": "'아직 남긴 글이 없어요.' 문구는 서버 모드에서만 나온다(목업은 빈 목록뿐). 번들 조건을 풀어 목업 데이터 위에 그 문구를 그렸다. 조건을 풀지 않은 목업 그대로는 shots/tower-mail/014-chat.empty.png."
+ },
+ {
+  "id": "mail.inbox",
+  "status": "ok",
+  "note": "목업 모드(안 읽은 편지 2통)."
+ },
+ {
+  "id": "mail.inboxEmpty",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "mail.letter",
+  "status": "ok",
+  "note": "목업 모드라 보낸 사람 옆 '···' 버튼이 없다. '···' 가 있는 서버 모드 모양은 shots/tower-mail/patched/001-mail.letter-server.png (번들 조건 치환판)."
+ },
+ {
+  "id": "mail.letterSafetySheet",
+  "status": "approx",
+  "note": "서버 모드 전용 화면. review 목업에서는 조건이 꺼져 있어, 브라우저가 받아 오는 번들에서 그 조건만 풀어(capture-tower-mail.cjs, 파일은 그대로) 목업 데이터 위에 실제 컴포넌트를 그렸다. 시트는 화면 전체를 덮는 모달이라 모양은 서버 모드와 같고, 상대 이름만 목업 친구(새봄)다."
+ },
+ {
+  "id": "mail.letterSafetyReport",
+  "status": "approx",
+  "note": "서버 모드 전용 화면. review 목업에서는 조건이 꺼져 있어, 브라우저가 받아 오는 번들에서 그 조건만 풀어(capture-tower-mail.cjs, 파일은 그대로) 목업 데이터 위에 실제 컴포넌트를 그렸다. 시트는 화면 전체를 덮는 모달이라 모양은 서버 모드와 같고, 상대 이름만 목업 친구(새봄)다. friends.safetyReport 와 화면이 같다(신고 대상 종류만 내부적으로 다름)."
+ },
+ {
+  "id": "mail.letterSafetyBlock",
+  "status": "approx",
+  "note": "서버 모드 전용 화면. review 목업에서는 조건이 꺼져 있어, 브라우저가 받아 오는 번들에서 그 조건만 풀어(capture-tower-mail.cjs, 파일은 그대로) 목업 데이터 위에 실제 컴포넌트를 그렸다. 시트는 화면 전체를 덮는 모달이라 모양은 서버 모드와 같고, 상대 이름만 목업 친구(새봄)다. friends.safetyBlock 과 화면이 같다."
+ },
+ {
+  "id": "friendMail",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "friendMail.noFriends",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "friendMail.compose",
+  "status": "ok",
+  "note": "새봄에게 쓰기, 들어온 직후(입력 전) 상태."
+ },
+ {
+  "id": "friends",
+  "status": "ok",
+  "note": "목업 모드 모양(친구 행에 '친구 삭제' 버튼). 서버 모드는 그 자리에 '···' 더보기."
+ },
+ {
+  "id": "friends.empty",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "friends.searchResults",
+  "status": "approx",
+  "note": "검색어 '보리'(목업 사용자 2명). 목업 모드는 요청 중인 사람 행이 '요청 중'(비활성) 대신 '요청 취소' 버튼 + '수락 기다리는 중' 으로 나온다. '친구 요청' 행은 설명과 같다."
+ },
+ {
+  "id": "friends.searchNoResults",
+  "status": "ok",
+  "note": "검색어 '고등어'."
+ },
+ {
+  "id": "friends.safetySheet",
+  "status": "approx",
+  "note": "서버 모드 전용 화면. review 목업에서는 조건이 꺼져 있어, 브라우저가 받아 오는 번들에서 그 조건만 풀어(capture-tower-mail.cjs, 파일은 그대로) 목업 데이터 위에 실제 컴포넌트를 그렸다. 시트는 화면 전체를 덮는 모달이라 모양은 서버 모드와 같고, 상대 이름만 목업 친구(새봄)다. 친구 행의 '···' 로 열어 '친구 삭제' 가 포함된 모양이다."
+ },
+ {
+  "id": "friends.safetyReport",
+  "status": "approx",
+  "note": "서버 모드 전용 화면. review 목업에서는 조건이 꺼져 있어, 브라우저가 받아 오는 번들에서 그 조건만 풀어(capture-tower-mail.cjs, 파일은 그대로) 목업 데이터 위에 실제 컴포넌트를 그렸다. 시트는 화면 전체를 덮는 모달이라 모양은 서버 모드와 같고, 상대 이름만 목업 친구(새봄)다."
+ },
+ {
+  "id": "friends.safetyBlock",
+  "status": "approx",
+  "note": "서버 모드 전용 화면. review 목업에서는 조건이 꺼져 있어, 브라우저가 받아 오는 번들에서 그 조건만 풀어(capture-tower-mail.cjs, 파일은 그대로) 목업 데이터 위에 실제 컴포넌트를 그렸다. 시트는 화면 전체를 덮는 모달이라 모양은 서버 모드와 같고, 상대 이름만 목업 친구(새봄)다."
+ },
+ {
+  "id": "friends.deleteConfirm",
+  "status": "ok",
+  "note": "목업 경로(친구 행의 '친구 삭제' 버튼)로 열었다. 서버 경로(더보기 시트의 '친구 삭제')도 같은 확인창이다."
+ }
+]

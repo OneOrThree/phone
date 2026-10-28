@@ -1,0 +1,443 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Platform, StyleSheet } from 'react-native';
+import { costs, initialState, reducer } from '@/services/model';
+import { Hall } from '@/screens/island/Hall';
+import { useConstruction } from '@/screens/island/useConstruction';
+import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
+import { getSession } from '@/services/api/session';
+import type { ConstructionOptions } from '@/services/api/home';
+import { componentTokens } from '@/design-system/tokens';
+
+// GROMO — 마을회관 「목각 건물 고르기」 실서버 건설 패널 회귀 테스트.
+//
+// 근본 원인(RN 0.86 ReactNativeAttributePayload.diffProperties): 같은 View 인스턴스에서
+// style.transform 값이 [{...}](배열) → undefined 로 바뀌면, "명시적 undefined 는 이전 값을
+// 지우는 null"로 취급해 processTransform(null) 을 호출한다 — processTransform.js 의
+// _validateTransforms 는 null 가드가 없어 `null.forEach` 로 RedBox("Cannot read property
+// 'forEach' of null")를 낸다. Hall.tsx 1334번줄 근처 「목각 건물 고르기」 그리드 컨테이너가
+// `transform: plan ? [{ scale: 0.985 }] : undefined` 였다 — 건설 패널을 열 때(undefined→배열)는
+// 안전하지만 패널을 닫을 때(배열→undefined)는 정확히 이 크래시 조건이다.
+// (jest 의 react-test-renderer 는 네이티브 diff 를 실제로 돌리지 않아 렌더만으로는 크래시가
+// 재현되지 않는다 — 그래서 실제 계약대로 "이 컨테이너의 transform 은 열림/닫힘 어느 쪽에서도
+// 배열이어야 한다"를 직접 검증한다.)
+jest.mock('@/screens/island/useConstruction', () => ({ useConstruction: jest.fn() }));
+jest.mock('@/screens/interiors/useIslandManagement', () => ({ useIslandManagement: jest.fn() }));
+jest.mock('@/services/api/session', () => ({
+  sessionGeneration: () => 0,
+  getSession: jest.fn(),
+}));
+jest.mock('@/screens/island/useLedgerScreen', () => ({
+  shiftMonth: (month: string) => month,
+  useLedgerScreen: () => ({
+    month: '2026-09',
+    offset: 0,
+    canNext: false,
+    prevMonth: jest.fn(),
+    nextMonth: jest.fn(),
+    tab: 'balance',
+    setTab: jest.fn(),
+    status: 'ready',
+    error: null,
+    items: [],
+    villagePoints: null,
+    earnedTotal: 0,
+    spentTotal: 0,
+    nextCursor: null,
+    loadingMore: false,
+    moreError: null,
+    loadMore: jest.fn(),
+    retry: jest.fn(),
+    refresh: jest.fn(),
+  }),
+}));
+// 화면 폭·가로 여부는 테스트마다 바꾼다 — 기본 402(iPhone 17) 세로, 격자 폭 회귀는 393(iPhone 15)·375(SE)·가로 667
+let mockLayoutWidth = 402;
+let mockLandscape = false;
+jest.mock('@/utils/layout', () => ({
+  useAppLayout: () => ({
+    width: mockLayoutWidth,
+    height: 874,
+    insets: { top: 52, bottom: 32, left: 0, right: 0 },
+    landscape: mockLandscape,
+  }),
+}));
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 52, bottom: 32, left: 0, right: 0 }),
+}));
+
+const constructionMock = useConstruction as jest.Mock;
+const managementMock = useIslandManagement as jest.Mock;
+const getSessionMock = getSession as jest.Mock;
+
+const management = (over: object = {}) => ({
+  detail: null,
+  role: 'member',
+  members: null,
+  requests: null,
+  loading: false,
+  error: null,
+  accessLost: false,
+  reload: jest.fn(),
+  saveSettings: jest.fn(),
+  answerRequest: jest.fn(),
+  kickMember: jest.fn(),
+  transferHost: jest.fn(),
+  ...over,
+});
+
+// 재현 서버 응답 — 목표(게시판)는 선택돼 있고 잔액은 원가의 절반이다(0/0 이 아니라 실제 크래시 신고와
+// 같은 값으로 맞춘다).
+const options = (over: Partial<ConstructionOptions> = {}): ConstructionOptions =>
+  ({
+    islandVersion: 2,
+    costPolicyVersion: 1,
+    selectedBuildingId: 'board',
+    villagePoints: 120,
+    walletVersion: 1,
+    items: [
+      {
+        id: 'board',
+        name: '게시판',
+        cost: 240,
+        currency: 'village_points',
+        selectable: true,
+        buildable: false,
+        blockedReason: 'INSUFFICIENT_FUNDS',
+      },
+      {
+        id: 'library',
+        name: '도서관',
+        cost: 200,
+        currency: 'village_points',
+        selectable: false,
+        buildable: false,
+        blockedReason: 'FACILITY_LOCKED',
+      },
+    ],
+    ...over,
+  }) as ConstructionOptions;
+
+const construction = (over: object = {}) => ({
+  status: 'ready',
+  options: options(),
+  members: [
+    { id: 'host', name: '방장' },
+    { id: 'member-1', name: '나' },
+  ],
+  started: null,
+  progress: 0,
+  phase: 'pre',
+  error: null,
+  reload: jest.fn(),
+  retry: jest.fn(),
+  select: jest.fn(),
+  build: jest.fn(),
+  ...over,
+});
+
+const e = (route = 'construction', state = initialState(true)) => ({
+  state,
+  route,
+  now: Date.now(),
+  go: jest.fn(),
+  back: jest.fn(),
+  home: jest.fn(),
+  dispatch: jest.fn(),
+  notify: jest.fn(),
+  reset: jest.fn(),
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  managementMock.mockReturnValue(management());
+  constructionMock.mockReturnValue(construction());
+  getSessionMock.mockReturnValue({ userId: 'member-1' });
+});
+afterEach(cleanup);
+
+test('회관 책상(첫 화면)의 ‹ 는 섬으로 가니 「섬으로 돌아가기」로 읽는다', async () => {
+  const env = e('hall');
+  const screen = await render(<Hall e={env} />);
+  const back = screen.getByTestId('hall-back');
+  expect(back.props.accessibilityLabel).toBe('섬으로 돌아가기');
+  await fireEvent.press(back);
+  expect(env.home).toHaveBeenCalledTimes(1);
+});
+
+test.each(['done', 'none', 'collect', 'locked', 'build'] as const)(
+  '데모 건설 카드는 서버 옵션 없이 설명을 열고 닫는다: %s',
+  async (status) => {
+    const os = jest.replaceProperty(Platform, 'OS', 'web');
+    const previousWindow = globalThis.window;
+    (globalThis as any).window = { location: { search: '?review=1' } };
+    try {
+      let state = initialState(true);
+      if (status !== 'done') state.islands[0].buildings = ['hall', 'board'];
+      if (status === 'collect')
+        state = reducer(state, { type: 'SELECT_BUILDING', building: 'library' });
+      if (status === 'build')
+        state.islands[0].construction = {
+          building: 'library',
+          cost: costs.library,
+          startedAt: Date.now(),
+          endsAt: Date.now() + 60000,
+        };
+      constructionMock.mockReturnValue(construction({ options: null }));
+      const env = e('construction', state);
+      const screen = await render(<Hall e={env} />);
+      await fireEvent.press(
+        screen.getByTestId(`hall-bld-${status === 'locked' ? 'shop' : 'library'}`),
+      );
+      expect(screen.getByTestId('hall-building-plan')).toBeTruthy();
+      if (status === 'done') {
+        await fireEvent.press(screen.getByText('도서관으로 가기'));
+        expect(env.go).toHaveBeenCalledWith('library');
+      } else if (status === 'none') {
+        await fireEvent.press(screen.getByText('이 건물을 목표로 정하기'));
+        expect(env.dispatch).toHaveBeenCalledWith({ type: 'SELECT_BUILDING', building: 'library' });
+      }
+      // 청사진이 열려 있으면 ‹ 는 건물 목록으로 가니 그 목적지를 읽고, 닫히면 이전 화면으로 가는 「뒤로」다
+      expect(screen.getByTestId('hall-back').props.accessibilityLabel).toBe(
+        '건물 목록으로 돌아가기',
+      );
+      await fireEvent.press(screen.getByTestId('hall-back'));
+      expect(screen.queryByTestId('hall-building-plan')).toBeNull();
+      expect(screen.getByTestId('hall-back').props.accessibilityLabel).toBe('뒤로');
+      expect(constructionMock.mock.calls.at(-1)[0].active).toBe(false);
+    } finally {
+      os.restore();
+      if (previousWindow === undefined) delete (globalThis as any).window;
+      else (globalThis as any).window = previousWindow;
+    }
+  },
+);
+
+test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐리게 비활성화한다', async () => {
+  const select = jest.fn(async () => {});
+  const build = jest.fn(async () => {});
+  const initialOptions = options({ selectedBuildingId: null });
+  constructionMock.mockReturnValue(construction({ options: initialOptions, select, build }));
+  const env = e();
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+  assert.ok(screen.getByText('이 건물을 목표로 정하기'));
+  await fireEvent.press(screen.getByTestId('hall-plan-action'));
+  await waitFor(() => assert.equal(select.mock.calls.length, 1));
+
+  const selected = options();
+  constructionMock.mockReturnValue(construction({ options: selected, select, build }));
+  await screen.rerender(<Hall e={env} />);
+  let button = screen.getByTestId('hall-plan-action');
+  assert.ok(screen.getByText('건설하기'));
+  assert.equal(button.props.accessibilityState.disabled, true);
+  assert.equal(
+    StyleSheet.flatten(button.props.style).opacity,
+    componentTokens.button.disabledOpacity,
+  );
+  await fireEvent.press(button);
+  assert.equal(build.mock.calls.length, 0);
+
+  // 잔액만 충분해져도 주민별 기여 등 서버 조건이 남으면 버튼을 열지 않는다.
+  constructionMock.mockReturnValue(
+    construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
+  );
+  await screen.rerender(<Hall e={env} />);
+  assert.equal(screen.getByTestId('hall-plan-action').props.accessibilityState.disabled, true);
+
+  selected.items[0] = { ...selected.items[0], buildable: true, blockedReason: null };
+  constructionMock.mockReturnValue(
+    construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
+  );
+  await screen.rerender(<Hall e={env} />);
+  button = screen.getByTestId('hall-plan-action');
+  assert.equal(button.props.accessibilityState.disabled, false);
+  assert.equal(StyleSheet.flatten(button.props.style).opacity, 1);
+  await fireEvent.press(button);
+  await waitFor(() => expect(build).toHaveBeenCalledWith('board'));
+});
+
+test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널을 열어도 렌더가 죽지 않는다', async () => {
+  const screen = await render(<Hall e={e()} />);
+
+  // 「목각 건물 고르기」 그리드에서 게시판 카드를 눌러 청사진 패널을 연다.
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+
+  await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
+  assert.equal(screen.queryByText('BUILDING PLAN · 01'), null);
+  assert.ok(screen.getByText('120 / 240마리'));
+});
+
+test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드의 transform 이 undefined 가 되지 않는다', async () => {
+  const screen = await render(<Hall e={e()} />);
+
+  // 닫힌 상태(최초 렌더) — 그리드는 축소 애니메이션이 없다.
+  const closedStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
+  assert.ok(
+    Array.isArray(closedStyle.transform),
+    `닫힌 상태의 transform 은 배열이어야 한다 (받은 값: ${JSON.stringify(closedStyle.transform)})`,
+  );
+
+  // 연다 — 그리드가 살짝 축소된다.
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+  await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
+  const openStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
+  assert.ok(
+    Array.isArray(openStyle.transform),
+    `열린 상태의 transform 은 배열이어야 한다 (받은 값: ${JSON.stringify(openStyle.transform)})`,
+  );
+
+  // 다시 닫는다(뒤로가기는 패널이 열려 있으면 라우트 이동 대신 setPlan(null)을 부른다) — 같은 View
+  // 인스턴스가 배열→undefined 로 transform 을 잃으면 RN 이 native 에 null 을 보내
+  // processTransform 의 _validateTransforms 에서 `null.forEach` 로 죽는다(RedBox: "Cannot read
+  // property 'forEach' of null"). 고정 전에는 여기서 transform 이 `undefined` 였다.
+  await fireEvent.press(screen.getByTestId('hall-back'));
+  await waitFor(() => assert.equal(screen.queryByTestId('hall-building-plan'), null));
+  const reClosedStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
+  assert.ok(
+    Array.isArray(reClosedStyle.transform),
+    `다시 닫힌 상태의 transform 도 배열이어야 한다 (받은 값: ${JSON.stringify(reClosedStyle.transform)})`,
+  );
+});
+
+test('회관 청사진은 현재 주민 수가 달라도 목표 당시 주민과 서버 몫을 표시한다', async () => {
+  constructionMock.mockReturnValue(
+    construction({
+      members: [
+        { id: 'host', name: '방장' },
+        { id: 'member-1', name: '나' },
+        { id: 'late', name: '늦게 온 주민' },
+      ],
+      options: options({
+        selectedBuildingId: 'library',
+        items: [{ ...options().items[1], selectable: true, blockedReason: 'INSUFFICIENT_FUNDS' }],
+        residentProgress: {
+          buildingId: 'library',
+          requiredPerResident: 100,
+          residents: [
+            { userId: 'host', name: '목표 주민', contributed: 20, remaining: 80 },
+            { userId: 'member-1', name: '나', contributed: 0, remaining: 100 },
+          ],
+        },
+      }),
+    }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-bld-library'));
+  assert.ok(screen.getByText('100마리 · 2명'));
+  assert.ok(screen.getByText('목표 주민'));
+  assert.ok(screen.getByText('나'));
+  assert.equal(screen.queryByText('늦게 온 주민'), null);
+  assert.equal(screen.queryByText('67마리 · 3명'), null);
+});
+
+test.each(['missing', 'empty', 'unselected'] as const)(
+  '회관은 알 수 없는 대상 몫을 현재 주민 수로 추정하지 않는다: %s',
+  async (kind) => {
+    constructionMock.mockReturnValue(
+      construction({
+        options: options({
+          selectedBuildingId: kind === 'unselected' ? null : 'library',
+          items: [{ ...options().items[1], selectable: true, blockedReason: 'INSUFFICIENT_FUNDS' }],
+          residentProgress:
+            kind === 'empty'
+              ? { buildingId: 'library', requiredPerResident: null, residents: [] }
+              : undefined,
+        }),
+      }),
+    );
+    const screen = await render(<Hall e={e()} />);
+    await fireEvent.press(screen.getByTestId('hall-bld-library'));
+    assert.ok(
+      screen.getByText(
+        kind === 'missing'
+          ? '조회 불가'
+          : kind === 'empty'
+            ? '대상 주민이 없어요'
+            : '목표를 정한 뒤 확인해 주세요',
+      ),
+    );
+    assert.equal(screen.queryByText('100마리 · 2명'), null);
+  },
+);
+
+test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', async () => {
+  constructionMock.mockReturnValue(
+    construction({ options: options({ items: [], selectedBuildingId: null }) }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  expect(screen.getByText('건설 현황')).toBeTruthy();
+  expect(screen.getByTestId('hall-bld-grid')).toBeTruthy();
+  expect(screen.queryByText('모든 건물을 지었어요')).toBeNull();
+  // 마지막 홀수 카드(상점)는 한 줄 전체 폭이고(GROMO-2486), 마을회관·게시판은 목록에 없다
+  const width = (b: string) =>
+    StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+  expect(width('shop')).toBeGreaterThan(width('library') * 2);
+  expect(screen.queryByTestId('hall-bld-hall')).toBeNull();
+  expect(screen.queryByTestId('hall-bld-board')).toBeNull();
+  for (const building of ['library', 'tower', 'mail', 'gram', 'shop']) {
+    expect(screen.getByTestId(`hall-bld-${building}`)).toBeTruthy();
+    expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId(`hall-bld-${building}`));
+  }
+  expect(screen.queryByTestId('hall-building-plan')).toBeNull();
+  expect(constructionMock().select).not.toHaveBeenCalled();
+  expect(constructionMock().build).not.toHaveBeenCalled();
+});
+
+test.each([
+  [393, 318, 152], // iPhone 15: 격자 318 = 393 − 36.2 − 2.6×2 − 33.6, 카드 floor((318 − 12.9) / 2)
+  [375, 300, 143], // iPhone SE
+  [402, 327, 157], // iPhone 17 — 두 장 + 12.9 = 326.9 라 여유가 0.1 뿐이다
+])(
+  '폭 %i 에서 2열 카드 두 장과 간격이 격자 폭을 넘지 않는다(GROMO-2486)',
+  async (w, gridW, cardW) => {
+    mockLayoutWidth = w;
+    try {
+      constructionMock.mockReturnValue(
+        construction({ options: options({ items: [], selectedBuildingId: null }) }),
+      );
+      const screen = await render(<Hall e={e()} />);
+      const width = (b: string) =>
+        StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+      expect(width('library')).toBe(cardW);
+      expect(width('tower')).toBe(cardW);
+      // 테두리를 4 로 빼던 옛 계산은 cardW 가 1 커서 두 장 + 12.9 가 격자 폭을 넘어 둘째 카드가 다음 줄로 밀렸다
+      expect(cardW * 2 + 12.9).toBeLessThanOrEqual(gridW);
+      expect(width('shop')).toBeCloseTo(gridW, 5);
+    } finally {
+      mockLayoutWidth = 402;
+    }
+  },
+);
+
+test('가로 3열(667)에서는 5장이 3+2 라 상점도 다른 카드와 같은 폭이다(GROMO-2486)', async () => {
+  // side = min(300, max(120, 667 − 574)) = 120 → 격자 667 − 120 − 16 − 5.2 − 32 = 493.8 ≥ 450 → 3열, 카드 floor((493.8 − 20) / 3) = 157
+  mockLayoutWidth = 667;
+  mockLandscape = true;
+  try {
+    constructionMock.mockReturnValue(
+      construction({ options: options({ items: [], selectedBuildingId: null }) }),
+    );
+    const screen = await render(<Hall e={e()} />);
+    const width = (b: string) =>
+      StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+    expect(width('library')).toBe(157);
+    expect(width('shop')).toBe(157);
+  } finally {
+    mockLayoutWidth = 402;
+    mockLandscape = false;
+  }
+});
+
+test('미완공 카드는 유지하고 서버 옵션에서 빠진 완공 건물에만 도장을 표시한다', async () => {
+  const screen = await render(<Hall e={e()} />);
+  expect(screen.queryByTestId('hall-completion-stamp-board')).toBeNull();
+  expect(screen.queryByTestId('hall-completion-stamp-library')).toBeNull();
+  for (const building of ['tower', 'mail', 'gram', 'shop']) {
+    expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();
+  }
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+  expect(screen.getByTestId('hall-building-plan')).toBeTruthy();
+});

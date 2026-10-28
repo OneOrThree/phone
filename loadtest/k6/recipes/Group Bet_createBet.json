@@ -1,0 +1,39 @@
+{
+  "endpoint": "Group Bet_createBet",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}/bets",
+  "tag": "Group Bet",
+  "summary": "챌린지 내기 개설 (레거시 브리지)",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "stake": {
+        "gen": "int",
+        "max": 3600
+      },
+      "date": {
+        "gen": "date",
+        "offsetDays": 0,
+        "dateOnly": true
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "path.challengeId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

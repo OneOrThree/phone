@@ -1,0 +1,50 @@
+name: Agent Harness
+
+on:
+  pull_request:
+    paths:
+      - '.claude/**'
+      - '**/AGENTS.md'
+      - '**/CLAUDE.md'
+      - 'server/norm.sh'
+      - 'server/data-api/norm.sh'
+      - '.github/scripts/check-agent-harness.py'
+      - '.github/scripts/test_agent_harness.py'
+      - '.github/scripts/test_data_api_norm.py'
+      - '.github/workflows/agent-harness.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.claude/**'
+      - '**/AGENTS.md'
+      - '**/CLAUDE.md'
+      - 'server/norm.sh'
+      - 'server/data-api/norm.sh'
+      - '.github/scripts/check-agent-harness.py'
+      - '.github/scripts/test_agent_harness.py'
+      - '.github/scripts/test_data_api_norm.py'
+      - '.github/workflows/agent-harness.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-harness-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: 에이전트 설정 · 게이트 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 설정과 PR · Jira 게이트 자체 검사
+        run: python3 .github/scripts/check-agent-harness.py
+      - name: 검증 스크립트 회귀 검사
+        run: python3 -m unittest discover -s .github/scripts -p 'test_agent_harness.py' -v
+      - name: Data API 로컬 검증 진입점 검사
+        run: python3 -m unittest discover -s .github/scripts -p 'test_data_api_norm.py' -v

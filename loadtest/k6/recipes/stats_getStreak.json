@@ -6,7 +6,14 @@
   "summary": "스트릭(연속일) 조회",
   "userPool": "zipf",
   "pathParams": {},
-  "query": [],
+  "query": [
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
   "body": null,
   "paginate": null,
   "gaps": [],

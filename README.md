@@ -1,203 +1,104 @@
-# gromo
+# GROMO
 
-집중 시간 관리 + 캐릭터 커스터마이징 앱
-모노레포: React Native(Expo) 앱 + Spring Boot 백엔드
+[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+[![dev 서버 배포](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fdev.json)](https://github.com/OneOrThree/phone/tree/deployment-status)
+[![Catus prod 배포 버전](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd.yml)
 
-## 프로젝트 구조
 
+dev 배지는 네 서비스의 최근 배포 결과를 합산하고, prod 배지는 마지막으로 배포에 성공한 Catus 버전을 표시합니다. 최초 게시 전에는 배지가 표시되지 않을 수 있습니다. 발행·수동 배포·롤백과 운영 선행 조건은 [Catus 운영 절차](docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따릅니다.
+
+집중한 시간을 캐릭터의 성장과 섬 활동으로 이어 주는 시간 관리 앱입니다.
+React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 관리합니다.
+
+| 바로 시작하기 | 문서 |
+| --- | --- |
+| 앱을 실행하고 싶어요 | [2.0 앱 시작하기](app/app-dev/README.md#로컬-실행) |
+| 서버 스모크 결과·실행 방법을 알고 싶어요 | [전체 실행 흐름](smoke/README.md#전체-실행-흐름) · [로그인 재시도 차트](smoke/server/login-retry.md) |
+| 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) |
+| 기능 정책·설계를 찾고 싶어요 | [문서 인덱스](docs/README.md) |
+| 시스템의 목표 구조를 보고 싶어요 | [서비스 아키텍처](docs/architecture/service-architecture.md) |
+| 개발 규칙을 확인하고 싶어요 | [개발 가이드](CLAUDE.md) · [리뷰 규칙](AGENTS.md) |
+
+## 제품과 시스템
+
+GROMO는 집중 세션과 스크린타임을 기록하고 캐릭터·아이템·재화·친구·그룹 활동을 연결합니다. 기존 앱 API와 인증은 Data API가 담당하며, 서비스 분리에 따라 Business API, Notification, Realtime이 각자의 역할을 나눠 맡습니다.
+
+```mermaid
+flowchart LR
+  app["GROMO 앱"] -->|"기존 API·인증"| data["Data API"]
+  app -->|"조합 API"| business["Business API"]
+  app -->|"채팅"| realtime["Realtime"]
+  business --> data
+  business --> notification["Notification"]
+  data --> coreDb[("코어 PostgreSQL")]
+  data -.-> kafka["Kafka"]
+  kafka --> notification
+  realtime --> chatDb[("채팅 PostgreSQL")]
+  realtime --> redis[("Redis")]
+  notification --> fcm["FCM"]
+  fcm --> app
 ```
-gromo/
-  app/            # React Native 앱 (Expo) — iOS 스크린타임 익스텐션 포함
-  back/           # Spring Boot 백엔드 (Java 17 + PostgreSQL)
-  loadtest/       # k6 부하테스트 하네스 (GCP 러너 + 대시보드)
-  observability/  # dev 관측 스택 (Prometheus·Grafana·Loki·Datadog)
-```
 
-> 각 디렉토리의 `CLAUDE.md`(루트 / `app` / `back`)에 개발 가이드와 컨벤션이 정리되어 있어요.
-> 부하테스트는 `loadtest/README.md`, dev 관측 스택은 `observability/README.md` 참고.
-> DB 스키마는 Flyway 마이그레이션(`back/src/main/resources/db/migration/`)이 소스예요.
+현재 구현과 Target-1 목표 구조의 차이, 데이터 소유권, 서비스별 실행 방법은 [서버 전체 문서](server/README.md)에서 확인합니다.
 
----
+## 저장소 지도
 
-## 시작하기 — 앱 (`app/`)
+| 경로 | 역할 | 상세 문서 |
+| --- | --- | --- |
+| `app/app-dev/` | **활성 2.0 앱** — React Native·Expo 앱과 iOS·Android 네이티브 프로젝트. 현재 제품 흐름은 로컬 목업 데이터로 동작합니다 | [2.0 앱 README](app/app-dev/README.md) |
+| `app/legacy/app-dev/` | **동결된 1.x 앱**(스토어 1.1.0까지) — 기존 iOS 확장과 Android 네이티브 프로젝트를 보관합니다 | [1.x 앱 README](app/legacy/app-dev/README.md) |
+| `server/` | Business·Data·Notification·Realtime와 실행·관측 도구 | [서버 README](server/README.md) |
+| `docs/` | 기능 정책·설계, 아키텍처, 팀 규약 | [문서 인덱스](docs/README.md) |
+| `loadtest/` | k6 부하 테스트 하네스와 결과 해석 | [부하 테스트 README](loadtest/README.md) |
+| `.github/workflows/` | 앱·서버 CI/CD와 문서 생성 | [워크플로 목록](.github/workflows/) |
 
-### 사전 준비
+## 로컬에서 시작하기
 
-- [Node.js 24+](https://nodejs.org)
-- Android Studio 또는 Xcode (에뮬레이터/시뮬레이터)
-- iOS 빌드 시 [CocoaPods](https://cocoapods.org) (`pod install`용)
-- TestFlight 배포 시 Ruby + Bundler (fastlane용 — 아래 [TestFlight 배포](#testflight-배포) 참고)
-- 또는 실기기 + [Expo Dev Client](https://docs.expo.dev/develop/development-builds/introduction/)
+자주 쓰는 첫 실행 명령만 접어 두었습니다. 환경별 설정과 문제 해결은 각 상세 문서를 따릅니다.
 
-### 설치 및 실행
+<details>
+<summary><strong>앱 실행 명령 보기</strong></summary>
 
 ```bash
-cd app
-npm install
-cp .env.example .env             # 환경변수 파일 생성 (아래에서 API 서버 지정)
-cd ios && pod install && cd ..   # iOS 네이티브 의존성 (CocoaPods 필요)
-
-npx expo start                   # 개발 서버 시작
+cd app/app-dev
+npm ci
+npm start
 ```
 
-`.env`의 `EXPO_PUBLIC_API_URL`로 붙을 백엔드를 정해요.
+플랫폼 실행과 검증 범위는 [2.0 앱 README](app/app-dev/README.md)를 참고합니다. 1.x 핫픽스나 기존 배포 절차는 [동결 앱 README](app/legacy/app-dev/README.md)에 남아 있습니다.
 
-- **팀 서버(기본·권장)**: `EXPO_PUBLIC_API_URL=https://xxxxxxxxxx.com` — 백엔드 셋업 불필요
-- **로컬 백엔드**: `back/`를 띄운 뒤 `EXPO_PUBLIC_API_URL=http://localhost:8080` (실기기는 Mac의 LAN IP 사용)
+</details>
 
-### 웹 디버깅
-
-웹 개발 서버는 운영 API URL이 환경변수에 있어도 항상 로컬 백엔드(`localhost:8080`)를
-사용합니다. 웹 배포 번들은 항상 팀 dev API를 사용합니다.
-
-저장소 루트의 `local-web.command`를 더블클릭하거나 아래 명령 하나만 실행합니다.
+<details>
+<summary><strong>Data API 실행 명령 보기</strong></summary>
 
 ```bash
-./local-web.command
+docker compose -f server/scripts/docker-compose.local.yml up -d db redis
+cd server/data-api
+test -f src/main/resources/application-local.yml || cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
+./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
-이 실행기가 Docker DB → 로컬 설정 생성 → 백엔드 → 재실행 가능한 더미 데이터 → Expo 웹을
-순서대로 준비합니다. 이미 떠 있는 DB·백엔드는 그대로 재사용하고, 사용 가능한 웹 포트를 자동으로
-고릅니다.
+API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/index.html`에서 확인합니다. 다른 서버의 실행 조건은 [서버 README](server/README.md)에 연결되어 있습니다.
 
-더미 데이터에는 고정 유저 24명, 90일 집중·스크린타임 통계, 실제 집중 세션, 친구·받은 요청·핀,
-리그, 그룹 8개와 공지, 스트릭·재화 원장이 포함됩니다. 실행 후 새로 온보딩을 완료한 로컬 계정도
-즉시 친구 10명·받은 요청 4명·고정 친구 3명과 대표 그룹, 리그·재화 데이터에 연결됩니다.
+</details>
 
-브라우저에서 Expo가 출력한 URL(기본 <http://localhost:8081>)로 접속합니다. 네이티브 소셜
-로그인·푸시·스크린타임은 웹에서 비활성화되고 게스트 로그인으로 나머지 화면을 확인할 수 있습니다.
-화면 레이아웃과 애니메이션은 네이티브와 같은 구현을 공유하고, 플랫폼별 입력·SDK adapter만 분리합니다.
+## 문서 찾아가기
 
-> `pod install`은 iOS 네이티브 빌드용이에요. 최초 1회, 그리고 브랜치 전환·네이티브 패키지
-> 추가 후에 다시 돌려주세요. (Android는 불필요)
->
-> 개발용 앱이 아직 기기에 없다면 최초 1회만 USB로 연결해 네이티브 빌드를 설치해요.
-> (이후엔 와이파이만으로 충분)
->
-> ```bash
-> npx expo run:ios --device       # iOS (Mac + Xcode + p12 서명 필요)
-> npx expo run:android --device   # Android (USB 디버깅 켠 상태)
-> ```
+| 알고 싶은 것 | 문서 |
+| --- | --- |
+| 서버 전체 연결·현재 상태 | [server/README.md](server/README.md) |
+| Business API | [server/business-api/README.md](server/business-api/README.md) |
+| Data API | [server/data-api/README.md](server/data-api/README.md) |
+| Notification | [server/notification/README.md](server/notification/README.md) |
+| Realtime | [server/realtime/README.md](server/realtime/README.md) |
+| 관측·배포 | [Observability](server/observability/README.md) · [Scripts](server/scripts/README.md) |
+| 2.0 앱 구조·실행·검증 | [app/app-dev/README.md](app/app-dev/README.md) |
+| 동결된 1.x 앱·기존 배포 | [app/legacy/app-dev/README.md](app/legacy/app-dev/README.md) |
+| 목표 아키텍처·결정 장부 | [docs/architecture/README.md](docs/architecture/README.md) |
+| 기능별 PRD·정책·설계 | [docs/README.md](docs/README.md) |
+| 팀 규약 — Git·PR · 지라 티켓 · 백엔드 계층·오류·날짜 | [docs/conventions/](docs/conventions/) |
 
-### TestFlight 배포
+## 변경에 참여하기
 
-**로컬 fastlane**으로 TestFlight에 올려요. 셋업이 끝나 있으면 아래 한 방이면 됩니다.
-(빌드는 macOS + Xcode 필요)
-
-```bash
-cd app/ios
-./testflight.sh
-```
-
-**최초 1회 셋업** (이미 되어 있으면 생략)
-
-1. **fastlane 설치** — 전역 설치 대신 Gemfile(번들러)로 관리해요.
-   ```bash
-   cd app/ios
-   bundle install       # Gemfile 의 fastlane 설치 (Ruby·Bundler 필요)
-   ```
-2. **인증** — App Store Connect API Key(`.p8`)로 로그인해요.
-   `app/ios/fastlane/.env`(gitignore됨)에 아래 3개를 넣어둡니다.
-   ```bash
-   ASC_KEY_ID=XXXXXXXXXX          # AuthKey_XXXXXXXXXX.p8 의 키 ID
-   ASC_ISSUER_ID=xxxxxxxx-....    # ASC → 사용자 및 액세스 → 통합(Integrations) 상단
-   ASC_KEY_PATH=/절대경로/AuthKey_XXXXXXXXXX.p8
-   ```
-3. **서명** — 재영님 개인 Apple 계정의 distribution p12 인증서 + 7개 타겟용
-   `distribution-gromo-*` 프로비저닝 프로파일(수동 서명)이 키체인/Xcode에 설치돼 있어야 해요.
-
-> 자주 막히는 곳(codesign `errSecInternalComponent`, Pods sync 등)과 서명 셋업 상세는
-> `app/.claude/CLAUDE.md` 및 관련 WorkLog을 참고하세요.
-
----
-
-## 시작하기 — 백엔드 (`back/`)
-
-### 사전 준비
-
-- Java 17
-- Docker (로컬 PostgreSQL · 테스트 컨테이너용)
-
-### 실행
-
-```bash
-cd back
-docker compose -f ../docker-compose.local.yml up -d   # 로컬 PostgreSQL
-
-# 최초 1회: 로컬 설정 파일 생성 (gitignore됨 — Flyway 비활성 등 로컬 기본값 포함)
-cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
-
-./gradlew bootRun
-```
-
-- API: <http://localhost:8080>
-- Swagger UI: <http://localhost:8080/swagger-ui/index.html>
-
-### 테스트 · 코드 검사
-
-```bash
-./test-local.sh                                  # Testcontainers 기반 테스트
-./gradlew checkstyleMain spotbugsMain test       # CI와 동일한 검사
-
-# 로컬 DB 초기화 (볼륨 삭제 → 새 DB)
-docker compose -f ../docker-compose.local.yml down -v && docker compose -f ../docker-compose.local.yml up -d
-```
-
----
-
-## 로그인
-
-소셜 로그인은 **카카오 / Apple / Google / LINE / Meta(Facebook)** 를 지원해요.
-
-- **카카오**는 네이티브 앱 키가 `app/app.config.js`에 이미 설정돼 있어 별도 준비 없이 동작해요.
-- **Google / LINE / Meta**는 각 콘솔에서 발급한 키를 `app/.env`(`EXPO_PUBLIC_*`)에 채워야
-  실제 로그인이 됩니다. 값이 없으면 빌드는 통과하되 해당 로그인만 비활성 — 채울 키 목록은
-  `app/.env.example` 참고. (⚠️ App Secret 등 비밀 값은 FE `.env`에 넣지 말 것 — 백엔드 전용)
-
----
-
-## 자주 쓰는 명령어
-
-### 앱 (`app/`)
-
-| 명령어                 | 설명                               |
-| ---------------------- | ---------------------------------- |
-| `npm start`            | Expo 개발 서버 시작 (Dev Client용) |
-| `npx expo run:android` | Android 네이티브 빌드 + 실행       |
-| `npx expo run:ios`     | iOS 네이티브 빌드 + 실행           |
-| `./ios/testflight.sh`  | iOS 빌드 → TestFlight 업로드 (fastlane) |
-| `npm run lint`         | ESLint 검사                        |
-| `npm run format:fix`   | Prettier 포맷 적용                 |
-
-### 백엔드 (`back/`)
-
-| 명령어                                          | 설명                       |
-| ----------------------------------------------- | -------------------------- |
-| `./gradlew bootRun`                             | 백엔드 실행                |
-| `./test-local.sh`                               | 로컬 테스트 (Testcontainers) |
-| `./gradlew checkstyleMain spotbugsMain test`    | CI와 동일한 검사           |
-| `docker compose -f ../docker-compose.local.yml down -v` | 로컬 DB 초기화 (이후 `up -d`) |
-
----
-
-## 기술 스택
-
-### 앱
-
-- React Native 0.81 / Expo SDK 54 / React 19
-- React Navigation (Bottom Tabs)
-- `@react-native-kakao/user` (카카오 로그인)
-- iOS 스크린타임 익스텐션 (Swift)
-
-### 백엔드
-
-- Spring Boot 4 / Java 17 / Gradle
-- PostgreSQL + Spring Data JPA
-- JWT 인증 · WebSocket/STOMP · SpringDoc OpenAPI
-
----
-
-## 개발 컨벤션
-
-- 커밋 · PR 제목: `[TYPE] GROMO-#### 한 줄 요약` (TYPE: FEAT / FIX / CHORE / REFACTOR)
-- 자세한 규칙은 각 `CLAUDE.md`를, CI/CD 파이프라인은 `.github/workflows/`를 참고하세요.
+브랜치 이름과 커밋·PR 형식(담당자·라벨·머지 조건 포함)은 [docs/conventions/git-pr-conventions.md](docs/conventions/git-pr-conventions.md), 지라 티켓 양식은 [docs/conventions/jira-ticket-template.md](docs/conventions/jira-ticket-template.md), 리뷰 언어와 심각도 표기는 [AGENTS.md](AGENTS.md)를 따릅니다. 앱과 서버는 툴링을 공유하지 않으므로 변경한 서비스 디렉터리에서 해당 검증 명령을 실행합니다.

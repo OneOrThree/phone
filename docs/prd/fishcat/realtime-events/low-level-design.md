@@ -1,0 +1,349 @@
+# 섬 실시간 이벤트 — 상세 계약
+
+> GROMO-1754 · 2026-09-12 · [PRD](./prd.md) · [구성 설계](./high-level-design.md)
+> 이 문서의 경로·타입은 구현할 계약이다. 참고 티켓 1755가 골격을 제공하며 각 도메인 생산자는 후속 작업이다.
+
+## 1. 공통 봉투
+
+신규 사건은 다음 **7개 필드**를 가진다. 기존 채팅 토픽의 `ChatMessageResponse`를 이 봉투로 강제 교체하지 않는다.
+
+```json
+{
+  "schemaVersion": 1,
+  "eventId": "019f16a0-0000-7000-8000-000000000001",
+  "type": "playback.updated",
+  "islandId": "019f16a0-0000-7000-8000-000000000002",
+  "aggregateVersion": 3,
+  "occurredAt": "2026-09-12T00:00:00Z",
+  "payload": {
+    "trackId": "campfire",
+    "playing": true,
+    "positionSeconds": 0,
+    "effectiveAt": "2026-09-12T00:00:00Z",
+    "changedBy": "019f16a0-0000-7000-8000-000000000003",
+    "version": 3,
+    "serverNow": "2026-09-12T00:00:00Z"
+  }
+}
+```
+
+식별자·시각·음원 이름은 계약 설명용 예시이며 실제 사용자/음원 지급 정책이 아니다.
+
+| 필드 | 타입/규칙 |
+|---|---|
+| `schemaVersion` | 양의 정수, 이 계약은 1. 상태 순서용 aggregateVersion과 별개인 wire 호환성 버전. 생산자는 지원하는 1만 발행하며 누락/미지원 버전은 검증 거절 |
+| `eventId` | UUID. 생산자가 한 사건에 한 번 부여. 전달·HTTP 재시도·relay 재전달에서 유지. 다른 사건에 재사용하지 않음 |
+| `type` | §2의 dotted string 16종 중 하나. 모르는 타입은 전파하지 않고 관측 |
+| `islandId` | UUID 또는 null. 섬 범위 사건은 필수. 개인 wallet/inventory만 null 사용. 개인 상품을 어느 섬에서 샀는지 이 필드로 공개하지 않음 |
+| `aggregateVersion` | 양의 정수. `focus.emote`만 null. 값과 범위는 §2 정본. client 안전 정수 범위(1~9007199254740991) 밖은 직렬화 거절; 소비자가 부동소수로 반올림해 비교하지 않음 |
+| `occurredAt` | 서버 UTC ISO-8601 instant. 상태 변경 때 고정; relay가 전달 시각으로 바꾸지 않음. 정렬/중복 판정에 사용하는 값이 아님 |
+| `payload` | 타입별 object. 개인 토큰·HTTP header·임의 수신 destination 없음 |
+
+기존 [아키텍처 결정 ⓦ](../../../architecture/decisions.md)의 `schemaVersion`과 expand/contract 규약을 적용한다. 같은 schemaVersion 안의 추가 필드는 소비자가 무시할 수 있지만 필드 제거/의미 변경은 소비자 선배포 후 별도 버전으로 진행한다. 소비자는 누락/미지원 schemaVersion의 payload를 적용하거나 watermark를 올리지 않고 관측 후 지원하는 REST 정본을 재조회한다. 알 수 없는 스키마를 버전 1로 추정하지 않는다.
+
+`version`이 payload에 있는 유형은 `aggregateVersion == payload.version`을 검사한다. 집중/휴식의 `sessionVersion`은 **다른 축**이며 REST 세션 낙관락에 쓰는 값이다. 동일 세션 변경에서 만든 focus/rest 사건은 서로 다른 eventId를 갖고 세션 버전은 같을 수 있다.
+
+용어: `Id`는 실제 도메인 식별자(UUID). `ProductId`/`TrackId`/`BuildingId`/`ThemeId`는 도메인 카탈로그의 불투명 문자열 키이며 클라이언트가 임의 생성하지 않는다. `Instant`는 UTC 문자열. `Version`은 위 양의 정수, `Seconds`는 0 이상의 정수다. 필수 nullable 필드는 키를 생략하지 않고 null을 보낸다. 아래 표의 필드가 해당 payload 정본이며 wire 변경은 이 문서와 타입 검증을 함께 갱신한다.
+
+## 2. 이벤트 16종 정본
+
+| # | type / enum 상수 | payload 필수 필드와 타입 | 버전 비교 key / 의미 | 전달 경로 |
+|---|---|---|---|---|
+| 1 | `focus.member.updated` / `FOCUS_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `subject:string`, `activeSeconds:Seconds`, `serverNow:Instant`, `sessionVersion:Version` | `(focus.member,islandId,userId)`의 주민 집중 투영. 세션이 바뀌어도 단조 증가. REST sessionVersion과 별개 | `focus` |
+| 2 | `rest.member.updated` / `REST_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `restStartedAt:Instant?`, `restSeat:integer?`, `serverNow:Instant`, `sessionVersion:Version` | `(rest.member,islandId,userId)`의 휴식 투영. 세션 교체로 초기화하지 않음 | `rest` |
+| 3 | `focus.emote` / `FOCUS_EMOTE` | `userId:Id`, `sessionId:Id`, `type:hello\|cheer\|sleepy\|laugh\|hearts`, `expiresAt:Instant` | 버전 없음(null). eventId dedup + `expiresAt=occurredAt+3s` 만료만 사용 | `emotes` |
+| 4 | `playback.updated` / `PLAYBACK_UPDATED` | `trackId:TrackId?`, `playing:boolean`, `positionSeconds:Seconds`, `effectiveAt:Instant`, `changedBy:Id`, `version:Version`, `serverNow:Instant` | `(playback,islandId)`의 전체 재생 상태 | `playback` |
+| 5 | `message.created` / `MESSAGE_CREATED` | `messageId:Id`, `islandId:Id`, `senderId:Id`, `sentAt:Instant`, `clientMessageId:Id` — **본문 `text` 없음**(M02: 메시지 정본은 `gromo_chat`, Data 복제 금지. 앱은 `messageId`로 히스토리에서 읽는다) | 불변 사건. `(MESSAGE,messageId)`의 최초 버전 1. 다른 payload.messageId와 버전 비교 금지. 생산 지점은 Data outbox — Business가 realtime 저장 «처음 성공» 뒤 `POST /internal/islands/{islandId}/message-events`로 적재하고 REALTIME transport 등록 전까지 내구 보류 *(2026-09-18 GROMO-1775, M02)* | `messages` |
+| 6 | `quest.progress.updated` / `QUEST_PROGRESS_UPDATED` | `questId:Id`, `occurrenceId:Id`, `version:Version` | `(quest.progress,islandId,questId,occurrenceId)`의 무효화 신호 | `events` |
+| 7 | `wallet.updated` / `WALLET_UPDATED` | `ownerType:island`, `ownerId:Id`(=`islandId`), `currency:village_points`, `version:Version` | `(wallet,ownerType,ownerId,currency)`의 지갑 무효화. **섬 통장 하나뿐**이다 — 개인 지갑 축(user/fish)은 2026-09-21 GROMO-1989/2044 로 계약에서 제거했다(Data 의 유일한 발행자 `IslandWalletEvents` 가 섬 지갑만 내보내 도달할 수 없는 분기였다). 섬 없는 `wallet.updated` 는 봉투가 거절한다 | `events` |
+| 8 | `inventory.updated` / `INVENTORY_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `productId:ProductId`, `version:Version` | `(inventory,ownerType,ownerId)` 보유 목록 무효화. productId는 변경 원인이지 전체목록 버전의 key 아님 | 개인은 개인큐, 공동은 `events` |
+| 9 | `member.appearance.updated` / `MEMBER_APPEARANCE_UPDATED` | `userId:Id`, `appearance:Appearance`, `version:Version` | `(member.appearance,userId)`의 개인 외양 **전체 상태**. 다른 섬에서 온 동일 외양도 같은 버전 축 | `events` |
+| 10 | `island.appearance.updated` / `ISLAND_APPEARANCE_UPDATED` | `islandThemeId:ThemeId`, `buildingThemes:object<BuildingId,ThemeId>`, `version:Version` | `(island.appearance,islandId)`의 공동 외양 전체 상태. 변경 PATCH와 달리 전체결과를 발행 | `events` |
+| 11 | `island.updated` / `ISLAND_UPDATED` | `islandId:Id`, `version:Version` | `(island,islandId)` 섬 정보/시설/목표 무효화 | `events` |
+| 12 | `island.members.updated` / `ISLAND_MEMBERS_UPDATED` | `islandId:Id`, `version:Version` | `(island.members,islandId)` 주민/역할 목록 무효화. 일반 island 버전과 비교하지 않음 | `events` |
+| 13 | `join.request.updated` / `JOIN_REQUEST_UPDATED` | `requestId:Id`, `applicantId:Id`, `status:pending\|approved\|rejected\|cancelled`, `version:Version` | `(join.request,islandId,requestId)` 신청 무효화. 다른 신청은 별개 | 개인큐 |
+| 14 | `notice.updated` / `NOTICE_UPDATED` | `noticeId:Id`, `version:Version` | `(notice,islandId,noticeId)` 공지/댓글 무효화. 삭제 뒤에도 삭제 사건 버전을 보존 | `events` |
+| 15 | `focus.golden` / `GOLDEN_FISH_CAUGHT` | `islandId:Id`, `drawnAt:Instant`, `reward:integer`, `sharePerMember:integer`, `members:[{userId:Id, sessionId:Id}]`(2명 이상) | 버전 없음 — 일회성 컷신 신호(GROMO-1956). `drawnAt` 으로 중복 재생을 거른다 | `focus` |
+| 16 | `island.member.arrived` / `ISLAND_MEMBER_ARRIVED` | `islandId:Id`, `userId:Id`, `name:string?`, `catColor:string?`, `arrivedAt:Instant` | 버전 비교 없음 — 일회성 소식(GROMO-2302). 소속 주민이 «현 가입 이후 처음» 그 섬에 도착했다(`POST /islands/{id}/arrivals`). 순서 축 `(ISLAND_ARRIVAL,islandId)` 는 `island.updated` 의 `ISLAND` 축과 나눈다. Realtime 이 허용 필드만 골라 싣는다 | `events` — **현재 소속 주민** |
+
+`Appearance`는 `{clothes:ProductId?, decor:ProductId?, hull:ProductId, position:front|back}` 전체 상태다. 기본 `raft`, null 해제와 배치 규칙은 원본대로 외양 도메인에서 검증한다. 선체 업그레이드/하위 재착용은 배 종류 폐지(2026-09-16 B23·B25, GROMO-1851)로 대상이 소멸했고 `hull` 은 `raft` 하나다 — 필드 존치는 외양 도메인이 정한다. 기존 캐릭터 HAIR/TOP/BOTTOM/SHOES 모델을 이 DTO와 같은 것으로 취급하지 않는다.
+
+### 2.1 상태 및 범위 불변식
+
+- focus/rest의 완료 표기 `completed`는 이벤트 wire 값이다. 기존 Data enum을 이름만 변환하지 않고 새 세션 수명주기 계약(참고 티켓 1763/1764)이 생성한다. 기존 취소/자동정리도 종료 투영을 만들 때 종료 이유를 새 enum으로 임의 늘리지 않고 최신 스냅샷의 terminal 상태로 매핑한다. 세션 의미 변경은 해당 도메인에서 검토한다.
+- focus `activeSeconds`는 `serverNow` 시점 순수 집중초. active일 때만 이후 시간을 가산하며 paused/completed에는 가산하지 않는다. 재전달 시 activeSeconds와 serverNow를 새로 계산하지 않는다.
+- rest `paused`일 때 restStartedAt과 restSeat가 필수이고 restSeat는 도메인이 정한 유효 자리 번호다. 그 외에는 둘 다 null이며 해당 휴식 행을 제거한다. 자리 정원/배정 정책은 참고 티켓 1763/1765 소유다.
+- 세션별 버전만 쓰면 예전 세션의 큰 버전이 새 세션의 작은 버전을 덮거나, 지연된 예전 입장으로 종료자가 살아난다. 그래서 focus/rest는 **사용자×섬 투영의 지속 버전**을 별도로 저장/조회한다. 이 요구는 현재 Data 모델에 없는 선행 변경이다.
+- `playback`의 null trackId는 음원 미선택 상태의 wire 표현이며 playing=false/positionSeconds=0이어야 한다. 초기 무료곡을 자동 지급한다는 뜻이 아니다. 재생 중 위치는 effectiveAt anchor와 서버 시간 차이로 계산한다. anchor 위치만 현재로 바꾸고 effectiveAt을 그대로 두는 이중 가산을 금지한다.
+- `message.created`는 순서를 가진 상태 덮어쓰기가 아니다. 서로 다른 `payload.messageId`를 모두 처리하고 정렬은 히스토리 계약의 서버 키를 사용한다. `clientMessageId`는 `payload.senderId`와 함께 낙관적 UI를 병합한다. 서로 다른 사용자의 같은 clientMessageId를 하나로 접지 않는다. 이벤트 wire 필드명은 `payload.messageId`·`payload.senderId`·`payload.sentAt`(저장 PK·컬럼과 같은 이름 — outbox params 를 그대로 싣는다), 신규 REST 메시지 DTO의 필드명은 `id`·`userId`·`createdAt`이다(우체통 어댑터가 명시 매핑, island-mailbox LLD §2). 본문 `text`는 이벤트에 없고 REST(히스토리/POST 응답)에만 있다 — 앱은 `payload.messageId`로 히스토리에서 본문을 채운다. 레거시 REST/STOMP의 `messageId` 필드는 그대로 보존한다. *(2026-09-18 GROMO-1775, M02 — 종전 `payload.id/userId/text/createdAt` 정의를 이 PR 의 구현으로 대체)*
+- ownerType=island이면 ownerId=envelope.islandId. ownerType=user이면 islandId=null이고 UserAudience는 해당 ownerId 하나다 — **이 개인 축이 남은 것은 `inventory.updated` 뿐이고 `wallet.updated`는 섬 전용**이다(GROMO-1989/2044). wallet/inventory에 balance/잔액 전체나 타인의 보유 목록을 포함하지 않는다.
+- island.updated/island.members.updated의 payload islandId는 envelope와 같아야 한다. join.request의 개인 수신자는 요청자 본인과 현재 방장의 합집합이며 같은 사용자면 한 번으로 접는다. 생산 시점의 방장 목록은 영구 권한이 아니다. 라우팅 시 신뢰된 membership resolver가 현재 방장으로 audience를 다시 확정하고, 이전 방장은 전달 직전 검사에서도 차단한다.
+- inventory/quest/notice 등 무효화 이벤트는 해당 목록/자원을 다시 읽는 신호다. 높은 버전의 product B가 먼저 왔다고 product A의 개별 소유를 수동으로 삭제하지 않는다. 목록 스냅샷은 A/B를 모두 포함해야 한다.
+- 여러 섬에 보이는 개인외양은 대상별 envelope를 별도 eventId로 내구화하되 같은 외양 version을 사용한다. 적용 중 실제 표시 권한이 사라진 섬에는 보내지 않는다.
+
+### 2.2 생산자와 내구화 소유
+
+| 사건 | 상태가 커밋되는 곳 / 생산 지점 | 후속 구현 소유 |
+|---|---|---|
+| focus.member.updated, rest.member.updated | Data의 시작/휴식/재개/종료 TX, 세션 및 주민 투영 버전+outbox. 동일 명령 재시도는 같은 사건들 | 참고 티켓 1764/1765 |
+| focus.emote | Realtime의 인증된 SEND 검증 후 즉시 생성. DB/outbox/replay 없음 | 참고 티켓 1765 |
+| playback.updated | Data 재생 상태 변경 TX+outbox. GET에는 생산 없음 | 참고 티켓 1779 |
+| message.created | Business가 realtime 저장(`gromo_chat` 커밋) «처음 성공» 뒤 Data outbox에 적재(`POST /internal/islands/{islandId}/message-events`). 저장/적재 사이 원자성 없음 — 적재 실패는 201 성공 + 사건 유실(REALTIME transport 미등록이라 전달 자체가 꺼져 있어 지금은 무해). 히스토리가 복구 정본 | GROMO-1775 구현(2026-09-18), M02 |
+| quest.progress.updated | Data 집중/측정/퀘스트 판정·정산 TX+outbox | 참고 티켓 1769/1773 및 집중 종료 생산자 |
+| wallet.updated | Data 집중보상/퀘스트/건설/구매 TX+해당 지갑버전+outbox | 참고 티켓 1764/1767/1773/1781 |
+| inventory.updated | Data 주문/소유권 부여 TX+목록버전+outbox | 참고 티켓 1781/1783 |
+| member.appearance.updated, island.appearance.updated | Data 외양 적용 TX+외양버전+outbox | 참고 티켓 1783 |
+| island.updated | Data 섬정보/목표선택/건설 TX+outbox | 참고 티켓 1759/1762/1767 |
+| island.members.updated, join.request.updated | Data 소속/요청/승인/거절/취소/역할변경 TX+outbox. 권한철회 제어자료 함께 생성 | 참고 티켓 1760/1762 |
+| notice.updated | Data 공지/댓글 저장·수정·삭제 TX+outbox | 참고 티켓 1771 |
+
+GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 이벤트를 생산한다는 뜻으로 구현하지 않는다. 참고 티켓 1755가 이 표의 producer를 임시 이벤트/샘플 상태로 대체하지 않는다. Kafka 토픽·consumer group·내부 auth allowlist는 기존 내부 이벤트 작업 정본과 합류하며 이 문서에서 별도 공인 ingress를 신설하지 않는다.
+
+## 3. 전송 경로와 router
+
+### 3.1 정확한 목적지
+
+`{islandId}`/`{groupId}`는 UUID를 파싱한 뒤 `UUID.toString()`과 원문이 같은 소문자 canonical 형태만 허용한다. query·후행 slash·matrix parameter·추가 경로·wildcard·인코딩 우회는 허용하지 않는다. 접두 문자열 비교만으로 열지 않는다.
+
+| 동작 | 경로 | 인가 |
+|---|---|---|
+| WebSocket handshake | `/ws/realtime` | Origin 정책 유지, 실제 인증은 STOMP CONNECT. **React Native(iOS SocketRocket·Android)도 `Origin: https://<API 호스트>` 를 보낸다** — 허용 목록 `CHAT_WS_ALLOWED_ORIGINS` 에 환경별 API 도메인을 넣어야 앱이 연결된다. 기본값은 빈 값(거절) 유지, `*` 금지(2026-10-01 결정 로그 RT-WS-Origin, 티켓 2175) |
+| 호환 handshake | `/ws/chat` | 같은 인증 모델. 기능에 따른 목적지 인가 |
+| SUBSCRIBE | `/topic/islands/{islandId}/events` | 현재 소속 주민 — 구독 1회(사용자 축 시도 창 600ms → 멤버십, 집중 검사 없음) + 전달 직전 프레임마다 캐시 멤버십 재검사(GROMO-2302). 지금 이 채널로 전달되는 사건은 `island.member.arrived` 하나이고, 나머지 `events` 유형은 수신만 한다. 메시지/음악/응원·개인 경제/가입요청은 이 채널에 실리지 않음 |
+| SUBSCRIBE | `/topic/islands/{islandId}/focus` | **인증된 사용자**(비소속 관전 개방 2026-09-19 — 같은 목록을 내리는 GET과 같은 문턱). 집중 중 여부로 관람을 차단하지 않음 |
+| SUBSCRIBE | `/topic/islands/{islandId}/rest` | **인증된 사용자**(위와 같음). 로컬 모닥불 관람 때문에 새 세션을 만들지 않음 |
+| SUBSCRIBE | `/topic/islands/{islandId}/emotes` | 현재 같은 섬에서 **진행 중(active·paused) 집중 세션**을 가진 사용자(구독 시 Data 정본 조회). 집중을 시작한 뒤 구독해야 한다 |
+| SUBSCRIBE | `/topic/islands/{islandId}/playback` | 같은 섬 주민 + 방송기 접근 가능 |
+| SUBSCRIBE | `/topic/islands/{islandId}/messages` | 같은 섬 주민 + 우체통 접근 가능 + active·paused 진행 세션의 채팅 차단 |
+| SUBSCRIBE | `/user/queue/events` | 인증된 본인 큐. event별 owner/신청관계/방장권한은 전달 직전 추가 검사 |
+| 신규 SEND | `/app/islands/{islandId}/focus/emotes` | 본인 **진행 세션(active·paused)** sessionId + 현재 같은 섬 + 5종 + 만료/속도 제한. **1765에서 활성화됨**(휴식 허용은 2026-09-20 결정) |
+| 호환 SUBSCRIBE/SEND | `/topic/groups/{groupId}`, `/app/groups/{groupId}/send` | 기존 ChatAccessGuard 및 와이어 유지 |
+| 호환 개인큐 | `/user/queue/errors`, `/user/queue/duplicates` | 발신한 세션에만 실패/중복 결과 회신 |
+
+구독은 목적지 허용목록과 별개로 **세션당 누적 개수와 중복을 제한한다**. 브로커가 구독을 연결이 끊길 때까지 보관하므로 STOMP `id`만 바꾼 반복 구독이 레지스트리 메모리를 불리고, 같은 목적지 중복 구독은 사건 하나를 구독 수만큼 복제해 전송 비용을 증폭시킨다(빈도 창은 상류 조회 수만 막는다). 상한은 계정당 소속 상한 10 × 섬당 목적지 7(`focus`·`rest`·`emotes`·`events`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = 72, 바다 목적지 2를 더한 74에 약 30% 여유를 둔 **96**(`MAX_SUBSCRIPTIONS_PER_SESSION`)이고, UNSUBSCRIBE가 자리를 돌려준다. 존재하지 않는 섬을 거절하려고 구독마다 Data를 조회하지는 않는다 — 그러면 관전 구독마다 상류 호출이 붙어 §4.2가 막으려는 고갈 경로가 다시 열린다.
+
+`/topic/**`, `/queue/**`, `/user/**`로 클라이언트 직접 SEND는 전부 거절한다. 개인큐에 userId를 경로로 받지 않으며 `convertAndSendToUser`의 주체는 서버가 검증한 principal이다. 새 개인 이벤트는 본인 여러 기기에 전달하지만 기존 errors/duplicates는 특정 발신 세션에만 전달한다.
+
+HTTP 집중 쓰기는 `POST /focus-sessions`, `POST /focus-sessions/{sessionId}/pause|resume|finish`. 상태 조회는 `GET /focus-sessions/current`, `GET /islands/{islandId}/focus-members|rest-members`. 이 경로는 담당 도메인에서 제공한다. `/app/.../start|pause|resume|finish` 또는 emote REST 우회 경로를 추가하지 않는다.
+
+### 3.2 구현용 내부 인터페이스
+
+다음은 **서버 내부** 인터페이스이며 외부 사용자가 audience/destination을 제출하는 API가 아니다. Java17 record/enum, 기존 Jackson3 타입을 사용한다.
+
+```java
+record RealtimeEventEnvelope(
+    int schemaVersion,
+    UUID eventId,
+    RealtimeEventType type,
+    UUID islandId,
+    Long aggregateVersion,
+    Instant occurredAt,
+    JsonNode payload
+) {}
+
+sealed interface RealtimeAudience permits IslandAudience, UserAudience {}
+record IslandAudience(UUID islandId, Set<UUID> recipients) implements RealtimeAudience {} // recipients 비면 제한 없음
+record UserAudience(Set<UUID> userIds) implements RealtimeAudience {}
+
+// EventRouter 구체 클래스가 제공하는 메서드의 개념 시그니처:
+// void route(RealtimeEventEnvelope event, RealtimeAudience audience)
+```
+
+`JsonNode`는 `tools.jackson.databind.JsonNode`다. payload 수신 후 type에 맞는 validator를 거쳐야 하며 임의 JsonNode를 그대로 방송하지 않는다. UserAudience는 비어 있지 않은 불변 Set을 복사해 보유한다. 섬 이벤트는 IslandAudience와 같은 islandId여야 하고 개인/신청 이벤트는 UserAudience만 허용한다. enum은 §2의 대문자 상수와 dotted wire 값을 명시적으로 매핑한다.
+
+라우터 흐름: 봉투/payload 검증 → type+ownerType으로 허용 audience 검증 → 현재 수신 정책 확인 → 고정 목적지 계산 → 유효 로컬 세션 전달/내부 fanout. `event.payload.destination`이나 호출자가 넘긴 임의 경로를 사용하지 않는다. domain producer/내부 authenticated consumer만 호출하며 payload에 적힌 신청 방장 ID를 검증 없이 신뢰하지 않는다. 후속 가입 요청 전달 기능을 활성화할 때는 `EventRouter`가 신뢰된 membership resolver를 호출해 요청자와 현재 방장으로 `UserAudience`를 새로 구성한다. producer/relay가 전달한 과거 audience는 이 결과로 대체하며, resolver가 현재 권한을 확인하지 못하면 전달하지 않는다. 이 재구성은 전달 직전 세션별 인가 검사와 별개이며, 1755의 비활성 골격에 이미 구현됐다는 뜻은 아니다.
+
+1755 구현은 EventRouter **구체 클래스**의 위 route 메서드와 구조/매핑/공통 유효성 검사를 제공한다. 별도 router interface 추상화를 필수로 요구하지 않는다. 1755의 검증 범위는 공통 봉투 필수값, 타입, version 안전 정수/nullable 규칙, payload.version이 있을 때 aggregateVersion과 일치, wallet/inventory ownerType·ownerId·currency 및 audience 일치다. **14종 전체 세부 payload의 필드/상태/시설/소유 검증은 각 producer와 후속 adapter 활성화 작업의 책임**이다. 공통 검증만 통과한 payload가 완전한 도메인 검증을 통과했다고 주장하지 않는다.
+
+신규 권한 제공자가 없는 channel의 allowlist 등록은 곧 허용을 뜻하지 않는다. 1755의 신규 전달 adapter는 비활성 상태를 명시적으로 거절하고, 신규 SUBSCRIBE/SEND 및 outbound를 닫는다. handler·시설·멤버십·snapshot·세부 payload validator가 준비된 기능만 후속 단계에서 활성화한다.
+
+추가 다중노드 fanout은 `chat:events:v1`에 `{originInstanceId,destination,event,recipients}` 내부 봉투를 쓴다(1765 구현). `recipients`는 수신 자격이 구독 인가보다 좁은 채널(응원)의 수신 집합이고 비어 있으면 제한 없음이다 — 내부 봉투라 클라이언트에 가지 않는다.
+`audience` 대신 **목적지 문자열**을 싣는다 — 수신 대상 판정은 발행한 인스턴스의 `EventRouter`가 이미
+끝냈고 그 결과가 곧 그 문자열이며, sealed interface를 다형 직렬화하지 않아도 된다. 기존 `chat:fanout`과
+payload를 보존하고 채널을 섞지 않는다. 클라이언트는 이 내부 봉투를 받지 않고 7필드 event만 받는다.
+HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸런서 / 단일 소비 그룹 `realtime-v1`)
+인스턴스별 소비 그룹 대신 이 재분배를 쓴다 — 그래야 HTTP 입구도 함께 덮인다.
+
+## 4. 인가·철회·집중 제한
+
+### 4.1 CONNECT와 채팅 목적지 분리
+
+1. CONNECT에서 현재 JWT 만료/서명/주체를 검증한다. 쿼리스트링 토큰은 사용하지 않는다.
+2. **CONNECT에서 집중 상태를 검사하지 않는다.** 그렇지 않으면 집중 사용자에게 필요한 focus/emote까지 막힌다.
+3. SUBSCRIBE/SEND는 exact allowlist와 현재 세션 인증을 검사한다. 채팅 목적지에서만 기존 ChatAccessGuard를 적용한다.
+4. 채팅 목적지는 active·paused 진행 세션을 둘 다 차단한다(GROMO-1958 — `focus-rest-session` FR-D04/FR-P13). 응원은 별도 채널이라 이 차단을 emotes에 확장하지 않는다. 기존 presence 키 존재 검사로 새 휴식 상태를 판정할 수 있다고 가정하지 않는다.
+5. 음악·집중·경제 이벤트는 채팅 집중 가드로 차단하지 않는다. 1755의 기계적 이름 변경만으로 채팅 guard를 공통 guard로 승격하지 않는다.
+
+### 4.2 이미 연결된 사용자
+
+서버 레지스트리는 세션 id, 검증 주체, 토큰 만료, 구독 id/경로, 섬 및 수신 정책 범주를 관리한다. 서버가 역할/소속 상실을 감지하면 해당 구독을 해지하고, 브로커의 부분 해지 지원이 검증되지 않았으면 소켓을 닫는다. 단지 레지스트리에서만 지우고 실제 SimpleBroker 구독을 남겨두면 안 된다.
+
+인가 캐시 무효화는 모든 인스턴스에 전파한다. Redis Pub/Sub만으로 내구 철회를 보장하지 않는다. membership 원본 변경 TX의 내구 제어자료/리컨실과 전달 직전 현재 인가 검사로 누락을 닫는다. 이 제어자료는 도메인 사건 16종의 공개 payload와 분리한다. `island.members.updated`에는 주민 개인 퇴장 사유/신청 상세를 넣지 않는다.
+
+**채팅의 TTL 멤버십 캐시 즉시 무효화(GROMO-2140)도 같은 분리를 따른다.** `island.members.updated`(MEMBER_ADDED·MEMBER_REMOVED)의 내부 봉투 `params`에 `memberUserId`(실제로 소속이 바뀐 유저 — 강퇴처럼 명령 주체와 다를 수 있다)를 싣고, Realtime `InboundEventService`가 그 값으로 채팅의 `cache:chat:member:{userId}` 한 키만 즉시 지운다(`MembershipService#evict`). `memberUserId`는 위 문단의 제어자료와 같은 성격이라 **이 표(§2)의 공개 payload에는 없다** — 이 type은 아직 §3.1 전달 adapter가 없어 클라이언트로 나가지도 않는다. 필드가 없는 옛 Data 사건은 무효화를 건너뛰고 기존 TTL(`chat.membership.cache-ttl-seconds`)이 그대로 백스톱이다. HOST_TRANSFER는 주민 집합이 바뀌지 않으므로 무효화 대상이 없다.
+
+`events` 채널(GROMO-2302)은 구독 때 멤버십을 한 번 보고, 프레임마다 캐시 멤버십(`cache:chat:member:{userId}`)을 다시 본다 — 강퇴·탈퇴는 위 `MEMBER_REMOVED` 무효화가 캐시를 지우고 TTL(120s)이 상한이다. 조회 실패·비주민은 프레임만 버린다(fail-closed, 소켓 유지). 받는 사람 기준 차단 필터(§4.3)는 채팅·응원과 같다 — 보내는 사람은 `payload.userId`(도착자)이고, 판정 불가는 버린다. 잔여 위험: `island.members.updated(MEMBER_REMOVED)` 의 캐시 evict 가 실패하면 강퇴된 주민이 최대 캐시 TTL(120초) 동안 `events` 프레임을 한 번 더 받을 수 있다 — 실리는 내용은 같은 섬의 도착 알림(이름·털색) 한 건이라 노출은 낮다. 전달 경로가 이동 채널처럼 stale 표시를 읽어 `requireMemberUncached` 로 가면 창이 닫히며, 그 보강은 후속이다.
+
+실시간 데이터 프레임을 실제 소켓으로 내보내기 직전에 세션 인증과 해당 type의 현재 수신 자격을 확인한다. 특히 개인 join.request 수신 중 이전 방장 권한, emote 수신 중 pause/finish, messages 수신 중 집중 시작을 재검증한다. 보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다. 권한 원천 확인 실패는 fail-closed; subscriber 수에 비례한 조회 비용은 배치 권한조회/동일 revision 검사로 최적화하되 허용 가능한 지연창을 몰래 늘리지 않는다.
+
+'권한 상실 후 차단'의 실행 경계는 각 프레임의 최종 인가 검사다. 그 검사 뒤 이미 네트워크로 나간 프레임을 회수하거나 DB 커밋과 TCP 송신을 분산 원자화한다고 약속하지 않는다. 지연된 과거 가입/방장 이벤트가 철회된 세션을 다시 허용하지 않도록 membership 제어 version도 aggregate별로 적용한다.
+
+### 4.3 세션 기준 차단 필터(2182)
+
+2026-10-01 [결정 로그](../decision-log.md) RP-실시간차단필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단이며, **응원(`focus.emote`) 포함은 이 결정이 RP-차단 범위에 새로 더한 것**이다.
+
+| 항목 | 규칙 |
+|---|---|
+| 판정 축 | **받는 세션 기준.** 프레임을 받을 세션의 검증 주체(principal)와 발신자 사이에 차단이 있으면 — 수신자가 차단했든 발신자가 수신자를 차단했든(2026-10-26 GROMO-2469, 결정 로그 RP-차단양방향; 2182 는 수신자=blocker 한 방향이었다) — 그 세션에는 보내지 않는다. Realtime 은 수신자 집합을 먼저, 거기 없을 때만 발신자 집합을 읽고 `user.blocks.updated` 는 차단자 세대 INCR + 양쪽 허용 캐시 삭제다. 방송 전체를 막거나 발신자에게 실패를 돌려주지 않는다 — 발신자는 자신이 차단당했는지 알 수 없어야 한다(정책 D3) |
+| 대상 채널 | 채팅과 응원. 본문을 싣는 프레임은 legacy 그룹 채팅(`/topic/groups/{groupId}`, 발신자 `ChatMessageResponse.senderId`)과 응원(`/topic/islands/{islandId}/emotes` 의 `focus.emote`, 발신자 `payload.userId`)이다. 신규 섬 채팅 `message.created`(`/topic/islands/{islandId}/messages`)는 본문 없는 알림이고 본문은 REST 히스토리 필터(2181)가 막는다. **#1059 는 이 알림 프레임을 거르지 않는다** — 차단 상대의 새 메시지가 왔다는 존재 신호(배지·목록 갱신 계기)는 전달된다. 이 신호까지 막을지는 미결(결정 로그 미결 목록) |
+| 판정 시점 | §4.2 와 같은 **송신 직전** 최종 검사. 구독·SEND 시점 허용을 이후 프레임의 허가증으로 재사용하지 않는다 |
+| 차단 세대 | 차단 확정은 세대(generation)를 가진다. 옛 세대에서 판정해 대기열·fanout·executor 에 쌓여 있던 전송은 송신 직전에 현재 세대와 비교해 **폐기**한다 |
+| 조회 실패 | 차단 관계 조회의 오류·timeout·비정상 응답(스키마 불일치·빈 본문 등)은 **전달하지 않는다(fail-closed)**. 「차단 없음」으로 간주하지 않는다. **현재 차단 세대를 확인할 수 없는 경우도 같다** — 세대 비교가 불가능하면 대기 전송을 보내지 않는다 |
+| 캐시 | TTL 캐시를 최종 판정 증거로 쓰지 않는다. 캐시는 조회 비용을 줄이는 보조일 뿐이며 **TTL 캐시만으로 「차단 즉시 반영」을 주장하지 않는다.** 즉시성은 세대 비교와 송신 직전 재확인으로만 주장한다 |
+| 회수 | 최종 검사 뒤 이미 네트워크로 나간 프레임과 이미 기기에 도착한 내용은 회수하지 않는다(§4.2 와 같은 경계) |
+
+- **상속하는 원칙.** §4.2 의 「보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다 · 권한 원천 확인 실패는 fail-closed」, §6 장애표의 「권한 원천 장애 → 보호 프레임 전달 차단」, [`contracts/realtime-authorization-api.yaml`](../../../contracts/realtime-authorization-api.yaml)의 「오류·timeout·비정상 응답은 프레임 전달 금지」, [현재 멤버십 재확인](../../../architecture/realtime-current-membership-client.md)의 「전에 받은 허용 답변을 다음 메시지의 허가증으로 재사용하지 않는다」를 차단 판정에 그대로 적용한다.
+- **응원의 기존 수신 집합과 합성한다.** 응원은 이미 사건(eventId)에 묶인 수신 집합으로 송신 직전을 대조한다(§7, focus-rest-session LLD §6). 차단 필터는 그 집합에서 발신자를 차단한 수신자를 더 빼는 방향으로만 동작하며 집합을 넓히지 않는다.
+- **구현 PR #1059(머지 전) 기준.** 아래는 그 diff 에서 확인한 것이며, 머지 전에 리뷰로 바뀌면 그 PR 이 이 목록을 고친다.
+  - **거르는 곳:** `ChatOutboundChannelInterceptor`(송신 직전)가 legacy 그룹 채팅 `/topic/groups/{groupId}` 는 `senderId`, 응원 `/topic/islands/{islandId}/emotes` 는 `payload.userId` 로 발신자를 읽는다. 받는 세션의 주체가 그 발신자를 차단했으면 그 세션에만 버린다. 본인과 `senderId: null`(탈퇴 발신자)은 조회 없이 통과하고, 발신자를 판독할 수 없으면 버린다. 신규 `message.created`(`/topic/islands/{islandId}/messages`)는 본문이 없는 알림이라 이 PR 이 거르지 않는다. 본문은 REST 히스토리에서 읽고, 그 조회는 [우체통 LLD §7](../island-mailbox/low-level-design.md#7-차단-필터--rest-조회2181) 필터를 거친다.
+  - **차단 세대:** Data 가 차단·해제 트랜잭션 안에서 내부 제어 사건 `user.blocks.updated`(REALTIME outbox, aggregate `USER_BLOCKS`/blocker, `params.blockerUserId`)를 적는다. 실제로 행이 바뀐 경우에만 적어 멱등 재요청은 세대를 올리지 않는다. Realtime `InboundEventService` 는 이를 받아 `cache:chat:blockgen:{userId}` 를 INCR 한다. 세대 키는 만료되지 않는다.
+  - **차단 집합:** `cache:chat:block:{userId}` 에 `<세대>|<id>,…` 로 캐시한다. 세대가 다르면 버리고 Data 의 기존 `GET /internal/users/{userId}/blocks` 를 다시 읽는다. 조회 전에 읽은 세대로 적재하므로, 늦게 끝난 옛 조회가 세대를 넘어 살아남지 않는다. TTL 120초는 사건 유실·relay OFF 의 백스톱일 뿐이다.
+  - **fail-closed:** 조회에는 호출 단위 총 deadline(기본 1500ms)과 동시 호출 상한(기본 16)이 있다. 상태·Content-Type·redirect·크기(256KiB)·형식이 어긋나면 판정 불가로 보고 프레임을 버린다. 이전 캐시로 대신하지 않는다.
+  - **스위치:** Data 의 `user.blocks.updated` 생산은 **항상 켜짐(10-27, 티켓 2535)** 이다 — 종전 생산 스위치(`user-blocks.realtime-events-enabled`)를 걷었다. Realtime `REALTIME_BLOCKS_FILTER_ENABLED` 는 **기본 OFF** 로 남는다. **OFF 는 조회도 필터도 하지 않는 기존 동작(필터 없음)** 이며, 위 fail-closed 는 Realtime 필터 ON 에서만 성립한다 — OFF 를 fail-open 버그로도, 이미 차단되는 상태로도 읽지 않는다. 즉시성은 relay 가 ON 일 때만 주장한다. relay 가 꺼져 있으면 세대가 오르지 않아 차단 변경이 캐시 TTL(120초) 뒤에야 반영된다.
+- **이 절이 정하지 않는 것.** legacy 채팅 히스토리 REST·방 목록 미리보기·`/user/queue/duplicates` 는 #1059 도 거르지 않는다(결정 로그 미결 목록). 새 내부 계약을 만들면 `docs/contracts/` 에 먼저 적는다. 정책의 「차단 성공 응답 전에 Realtime 적용·기존 fanout 배출 확인」까지 이 결정이 확정한 것은 아니다 — 이번 범위는 송신 직전 재확인과 옛 세대 폐기다.
+- REST 히스토리·게시판 조회 필터는 [우체통 LLD §7](../island-mailbox/low-level-design.md#7-차단-필터--rest-조회2181)·[게시판 LLD §6](../island-board/low-level-design.md#6-차단-필터--rest-조회2181)(2181)이 맡는다.
+
+## 5. 스냅샷과 버전 병합
+
+### 5.1 조회 계약 확장
+
+새 focus/rest GET 및 이를 품은 BFF에는 원본 `items`, `serverNow`와 함께 `watermarks`를 제공한다. 이는 v0.3 예상 계약의 **경쟁 방지용 추가 설계**이며 현재 API에 존재하는 필드가 아니다.
+
+```json
+{
+  "data": {
+    "items": [],
+    "serverNow": "2026-09-12T00:00:00Z",
+    "watermarks": [
+      {
+        "projection": "focus.member",
+        "islandId": "019f16a0-0000-7000-8000-000000000002",
+        "aggregateId": "019f16a0-0000-7000-8000-000000000003",
+        "version": 5
+      }
+    ]
+  }
+}
+```
+
+watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없는 wallet/quest 등은 해당 도메인의 구조화 key 필드를 추가한 공통 DTO를 사용한다. 화면 하나에 여러 domain의 버전이 들어와도 하나의 `screenVersion`으로 대체하지 않는다. 표의 예시는 focus용이고 모든 도메인 스냅샷에 같은 불완전 aggregateId를 강제하는 형태가 아니다.
+
+물리 저장 방식은 Data 담당이 소유한다. 적어도 스냅샷에 포함된 상태/종료 tombstone의 버전은 해당 상태와 같은 DB snapshot으로 읽어야 한다. Data가 준 값의 version을 Business가 새로 발급하지 않는다. Focus user×island 투영 버전은 새 세션이 생겨도 초기화하지 않으며 `sessionVersion`을 대신 사용하지 않는다.
+
+### 5.2 연결과 병합 알고리즘
+
+1. 새 연결/섬 이동마다 클라이언트 connection generation을 바꾼다. 이전 generation의 비동기 REST 결과/이벤트는 적용하지 않는다.
+2. 필요한 SUBSCRIBE마다 브로커 등록이 완료된 RECEIPT를 확인하고 이벤트를 버퍼링한다. 등록 전에 만든 로컬 플래그나 네트워크 송신 성공을 완료로 간주하지 않는다.
+3. REST 또는 BFF 스냅샷을 읽는다. 실패·권한거절이면 화면 상태를 성공으로 확정하지 않고 구독/재시도를 정리한다.
+4. 스냅샷 값과 watermarks를 설치한다. buffer의 동일 eventId는 한 번만 처리한다.
+5. 전체상태형 이벤트는 **같은 projection/key**에서 `version > watermark`일 때만 적용한다. focus와 rest는 서로 다른 투영이며 지갑/재고/다른주민/다른회차의 버전을 비교하지 않는다. completed/비휴식 행 삭제 후에도 해당 key의 마지막 version은 연결 세대 동안 보존한다.
+6. 스냅샷에 key가 없는 이벤트는 누락된 새 주민인지 오래전에 종료된 주민인지 알 수 없다. **이를 새 행으로 바로 추가하지 않고 정본을 재조회한다.** 조회 결과에도 없으면 행을 만들지 않는다. 새로운 정상 입장도 이 경우 조회 후 표시한다. 없는 행의 무한 과거 tombstone을 모두 내려보낸다고 가정하지 않는다.
+7. 무효화형 이벤트는 resource를 dirty로 표시하고 debounce된 재조회로 복구한다. 조회 중 더 높은 version을 받으면 응답 version이 이를 덮을 때까지 dirty를 유지한다. 구독 버전만 먼저 올리고 오래된 GET 응답을 확정하지 않는다. 실패한 재조회를 eventId dedup 때문에 영구 생략하지 않는다.
+8. `message.created`는 버전 최대값으로 버리지 않는다. `payload.messageId`와 `(payload.senderId,payload.clientMessageId)`로 병합하고, 연결복구 때 서버 히스토리 cursor 조회로 빠진 메시지를 읽는다 *(필드명: 2026-09-18 GROMO-1775)*.
+9. `focus.emote`는 스냅샷/replay 버퍼에서 재생하지 않는다. 초기화 완료 후 실시간으로 받은 것 중 `expiresAt > serverNow 추정값`인 사건만 표시한다. 연결전의 남은 말풍선을 복구하지 않는다.
+10. buffer/프레임 크기/연결대기 시간은 유한 상한을 둔다. overflow·서버 Redis 재연결·권한변경·프로토콜 오류가 생기면 해당 세대를 버리고 재조회한다. 구현 상한은 1765의 설정/부하 검증 항목이며 무한 저장을 허용하지 않는다.
+
+전송 끊김뿐 아니라 앱 foreground 복귀/화면 재진입에서도 snapshot을 갱신한다. Redis Pub/Sub의 한 건 유실은 일반 event version의 숫자 차이만으로 항상 검출할 수 없다(다른 사건과 버전 공간을 공유할 수 있음). 정확한 실시간 목록을 계속 보장하는 출시에는 활성 화면의 유한 주기 리컨실 또는 서버 gap 제어를 함께 구현한다. 그 주기/실패 UI는 1765/화면 집계 설계에서 확정하며, 현재 유실 없는 스트림을 제공한다고 쓰지 않는다.
+
+### 5.3 검증할 경쟁 예시
+
+- SUBSCRIBE 전 변경 → 나중 snapshot에 포함.
+- 등록 후 snapshot 읽기 전 변경 → snapshot과 buffer에 중복. watermark로 한 번 적용.
+- snapshot 읽은 뒤 응답 전 변경 → buffer의 더 높은 버전 적용.
+- 새 세션 시작 후 예전 세션의 active 이벤트 지연 → 사용자×섬 지속 버전이 낮아 폐기.
+- snapshot에 없는 종료자에 대한 오래된 입장 → unknown key 재조회, 부활 금지.
+- 회차 B의 version 11 뒤 회차 A의 version 10 → 서로 다른 key라 둘 다 재조회.
+- REST 응답 중 다른 섬으로 이동 → 이전 generation 결과 무시.
+
+## 6. 장애 처리와 관측
+
+| 구간 | 처리 | 복구 정본 |
+|---|---|---|
+| Data TX rollback | 상태/이벤트 모두 없음. 미커밋 이벤트 발행 금지 | 명령 재시도 |
+| Data commit 뒤 HTTP 유실 | 앱은 같은 Idempotency-Key. 저장 결과와 같은 eventId 재생 | Data 명령 결과/outbox |
+| relay 선점 후 장애 | lease 만료 후 같은 eventId 재선점; version 재발급 금지 | 기존 내부 relay 계약 |
+| Realtime 재시작/Redis fanout 유실 | 상태 이벤트 중복 허용, 보호 채널 재인가·snapshot | Data REST 또는 편지 히스토리 |
+| 한 노드 개인 이벤트 전달 | 같은 사용자 다른 노드의 세션에도 내부 fanout; 노드별 권한 재검증 | 본인 REST |
+| 권한 원천 장애 | 보호 프레임 전달 차단, false 멤버/권한없는정보 포함200을 만들지 않음 | 권한 복구 후 재구독 |
+| 차단 관계 조회 장애(§4.3) | 해당 수신 세션에 채팅·응원 프레임 전달 안 함(fail-closed). 「차단 없음」으로 간주 금지 | 채팅은 히스토리 재조회, 응원은 복구하지 않음 |
+| malformed envelope/미지원 type | 해당 사건 전파 거절, 원문본문 로깅 금지, producer 알람 | adapter 수정 후 내구 사건 재전달 |
+| emote 전송 실패/만료 | 재저장·outbox·오프라인 replay 없음 | 복구하지 않음 |
+
+로그는 `requestId`(현재 HTTP 시도), `eventId`, `type`, `projection`, `aggregateVersion`, `phase`, `outcome`, `durationMs`, relay retry/lease를 연결한다. 공개 이벤트 봉투에 requestId를 추가하지 않고 내부 전송 메타데이터/로그에서 연결한다. 메시지 text, subject, payload JSON, 토큰, 원시 헤더는 기록하지 않는다. 메트릭 label은 이벤트 종류/결과/목적지 유형처럼 유한 집합만 사용한다.
+
+필수 지표: accepted/rejected events, authorization rejection, expired token/emote, invalid audience, snapshot retry/overflow, private delivery 실패, fanout publish/parse 실패, outbox oldest age/retry. '연결 수'만 정상이라고 전체 전달이 정상이라고 보고하지 않는다.
+
+## 7. 기존 구현과 변경 소유 경계
+
+기준 코드는 `server/chat` 경로의 `config/WebSocketConfig`, `config/StompAuthChannelInterceptor`, `message/service/ChatAccessGuard`, `fanout/ChatFanout`, `fanout/ChatFanoutSubscriber`, `common/redis/RedisKeys`다. 개명 후 같은 구조가 `server/realtime`으로 이동한다.
+
+- 기존 CONNECT의 `requireNotFocusing`은 목적지와 분리한다. 기존 subscribe/send의 채팅 guard는 보존한다.
+- 기존 `DUPLICATE_QUEUE`는 `/queue/duplicates`이고 구독 문자열은 `/user/queue/duplicates`다. 새 개인 이벤트 큐와 바꾸지 않는다.
+- 기존 `ChatFanoutEvent(originInstanceId,message)` 및 `chat:fanout` payload는 호환 대상. 신규 도메인 사건을 같은 wire로 섞지 않는다.
+- `presence:focus:{userId}`의 존재만 읽는 reader는 섬/세션 정보를 제공하지 않고 **쓰기 자체가 best-effort라 양방향으로 틀릴 수 있다**. 그래서 1765는 emote의 SUBSCRIBE·SEND·**최종 outbound 셋 다** 이 사본을 인가 증거로 쓰지 않는다(focus-rest-session LLD §6). 앞의 둘은 Data 정본(`GET /internal/islands/*/focus-members`)을 직접 조회하고, 최종 outbound는 그 조회가 돌려준 **수신 집합을 사건(eventId)에 묶어** 대조한다 — 구독자 수 × HTTP를 치르지 않는 배치 권한조회(§4.2)다. 집합은 서버 안에만 있고 프레임으로 나가지 않으며, 기록이 없으면 fail-closed다. 이 reader는 기존 채팅 집중 차단에서만 계속 쓴다.
+- 기존 subscription은 멤버십 상실 뒤에도 남는다고 코드가 명시한다. 1755에서 이름만 바꾼 상태와 §4의 최종 전달 차단 완료를 구분해 보고한다.
+- `setPreserveReceiveOrder(true)`는 기존 거절 ERROR 프레임이 정체된다는 코드 경고가 있다. 개명과 함께 이 옵션을 임의로 켜지 않는다. 변경하려면 실제 ERROR/연결 종료 테스트로 별도 검증한다.
+- 아직 없는 Data 투영 버전/시설 정책/outbox producer를 Realtime DB/Redis의 임시 가짜 상태로 대신하지 않는다. Flyway/공통 오류/내부 allowlist는 해당 소유자에게 합류한다.
+
+## 8. 구현 검증표
+
+이 문서 작업은 빌드/실행 결과가 아니다. 아래는 기능 구현 후 통과해야 하는 테스트 목록이다.
+
+| 묶음 | 필수 검증 | 소유 |
+|---|---|---|
+| 이름/호환 | 새/구 handshake, 기존 REST/STOMP 경로·message wire·errors/duplicates 유지, DB/Redis 이름 유지 | 1755 |
+| 타입 골격 | enum 16종, 공통 봉투 필수값/null/version 상한, 존재하는 payload.version 일치, wallet/inventory owner·audience 일치, 임의 destination 거절 | 1755 |
+| 도메인 payload | §2 각 유형의 필수 필드·status·ID·시설·소유·version key 검증, validator 없는 타입의 활성화 금지 | 각 producer 및 후속 adapter |
+| 인증 | CONNECT 무토큰/만료 거절, active 사용자 CONNECT 성공, 채팅 subscribe/send는 기존 제한, idle 만료 후 egress0 | 1755/1765 |
+| 인가 | 비주민/탈퇴/강퇴/시설잠김, wildcard/인코딩/직접브로커SEND, 개인타인·이전방장 수신0 | 1762/1765/각 기능 |
+| 스냅샷 | 등록 전후/응답 전후 경합, out-of-order/duplicate, unknown key 부활금지, 세션교체·회차분리, overflow 재조회 | 1765/BFF |
+| 내구성 | TXrollback 사건0, 커밋후응답유실 같은사건 재생, relay lease 장애·재전달, 버전과 상태 동일snapshot | 내부명령 및 각 producer |
+| 멀티노드 | 두 Realtime 노드의 섬/본인여러기기 전달, origin 반향제거, Redis reconnect 후 리컨실, 모든노드 철회 | fanout/1765 |
+| 응원 | 5종, 본인 **진행 세션(active·paused)** 검증, **휴식 발신 허용**, 다른섬/완료·포기/남의세션 거절, 속도제한, TTL, 재연결replay0 | 1765 |
+| 차단(§4.3) | 수신자가 차단한 발신자의 채팅·응원 수신0, 역방향(발신자가 수신자를 차단)은 이 필터로 막지 않음, 차단 직후 옛 세대 대기 전송 폐기, 차단 조회 오류·timeout·비정상 응답 시 전달0, 해제 후 새 프레임 정상 수신 | 2182 |
+| 경제 | owner/currency 불일치거절(**지갑은 섬 전용 — 섬 없는 `wallet.updated` 거절**, GROMO-2044), wallet/inventory 별개 version, 공유토픽에 개인payload0 | 1781/1783 |
+| 관측 | payload/본문/토큰 비노출, command→event→relay→router 추적, 실패메트릭 | 각 단계 |
+
+문서 자체 검증은 상대 링크 존재, 16개 행/enum 중복 없음, 원본 14종 + 후속 2종(`focus.golden`·`island.member.arrived`)과 정확 집합 일치, 세 문서의 신규/호환 경로·단계 구분 및 미정 정책 보존으로 제한한다.
+
+## 9. 배포·운영 — 주민 첫 도착 사건(GROMO-2302)
+
+`island.member.arrived` 의 Data 생산은 **항상 켜짐(10-27, 티켓 2535)** 이다 — 종전 스위치 `island.arrival.realtime-events-enabled` 와 skip 메트릭 `island.arrival.events.skipped` 를 걷었다. 첫 도착마다 사건을 적고, 도착 API 와 `arrivedBefore` 판정은 그대로다.
+
+**① 배포 순서(강제).** Realtime(이 type 을 받는 버전) → Data. 스위치가 없어 Data 가 뜨는 즉시 생산이 시작된다. 순서가 뒤집히면 옛 Realtime 이 400 을 돌려주고 relay 가 그 행을 재시도해도 풀리지 않아 `ISLAND_ARRIVAL/{islandId}` 축이 막힌다 — 축이 `island.updated` 의 `ISLAND` 와 나뉘어 있어 **그 섬의 도착 소식만** 멈추고 다른 섬 사건은 영향 없다.
+
+**② 배포 직후 10분 점검 SQL.** `event_outbox_deliveries` 에는 상태 열이 없다 — 상태는 `delivered_at`(전달 완료)·`attempt_count`·`last_error`·`next_attempt_at` 조합으로 읽는다(`schema.dbml`, relay 는 재시도 불가 실패도 행을 지우지 않고 `last_error` 에 남긴다).
+
+```sql
+-- 최근 10분 생산 건수
+SELECT count(*) FROM event_outbox
+ WHERE type = 'island.member.arrived' AND created_at > now() - interval '10 minutes';
+
+-- 최근 10분 전달 상태별 건수
+SELECT CASE WHEN d.delivered_at IS NOT NULL THEN 'delivered'
+            WHEN d.attempt_count = 0 THEN 'pending'
+            ELSE 'failing' END AS state,
+       count(*), max(d.attempt_count) AS max_attempts, max(d.last_error) AS sample_error
+  FROM event_outbox_deliveries d JOIN event_outbox o ON o.id = d.outbox_id
+ WHERE o.type = 'island.member.arrived' AND o.created_at > now() - interval '10 minutes'
+ GROUP BY 1;
+```
+
+**③ 배포 직후 1회성 소식.** V127 은 백필하지 않으므로(`member_arrived_at` NULL) 기존 주민의 다음 망원경 도착 1회는 «첫 도착» 으로 판정돼 소식이 나갈 수 있다. 사람·섬당 최대 1건이고 정상이다.
+
+**④ 되돌릴 신호.**
+- `failing` 행이 쌓이고 `last_error` 가 `HTTP 400` — Realtime 이 이 type 을 모르는 버전이다(①의 순서 위반). Data 를 직전 이미지로 되돌리고 Realtime 을 먼저 배포한다.
+- `events` 구독 거절 폭증(`realtime.island.subscribe.total{channel=events,result=deny}`, `code` 태그로 `NOT_A_MEMBER`·`MOVEMENT_TOO_FREQUENT` 등을 가른다; 거절 ERROR 프레임에는 헤더 `channel: events` 가 실린다 — 앱은 이걸로 events 거절을 가르고, 없으면 종전 코드 분류 폴백) — 앱이 주민이 아닌 화면(방문)에서 구독 중이다. 앱 쪽 수정 대상이지 서버 롤백 사유가 아니다.
+- `MOVEMENT_TOO_FREQUENT` 증가 — `events` 시도 창 초과도 같은 코드를 쓰지만 위 카운터의 `channel` 태그로 이동과 갈라 본다.
+
+**⑤ 수동 스모크.** 서버만으로는 앱 토스트를 확인할 수 없다. 주민 계정 하나로 `/topic/islands/{islandId}/events` 를 구독해 두고, 다른 계정이 그 섬에 망원경 가입 → `POST /islands/{islandId}/arrivals` 하면 `island.member.arrived` 프레임 1건이 와야 하고, 같은 계정의 두 번째 도착엔 오지 않아야 한다(`IslandRealtimeIntegrationTest.memberArrivedReachesResidentsOnly` 와 같은 시나리오).

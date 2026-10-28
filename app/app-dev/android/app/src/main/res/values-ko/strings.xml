@@ -1,0 +1,4 @@
+<resources>
+  <!-- 한국어 기기 홈 화면 앱 이름 (GROMO-2458). 영어·기본값은 values/strings.xml -->
+  <string name="app_name">집중할고양</string>
+</resources>

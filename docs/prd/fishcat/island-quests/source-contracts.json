@@ -1,0 +1,146 @@
+[
+  {
+    "id": "quests",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/quests/current",
+    "method": "GET",
+    "path": "/islands/{islandId}/quests/current",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "items": [
+          {
+            "id": "q-focus",
+            "occurrenceId": "q-focus-20260911",
+            "title": "저녁 30분 집중",
+            "type": "focus",
+            "windowStart": "18:00",
+            "windowEnd": "23:00",
+            "timezone": "Asia/Seoul",
+            "date": "2026-09-11",
+            "targetMinutes": 30,
+            "myRate": 60,
+            "reward": {
+              "currency": "village_points",
+              "amount": 10
+            },
+            "settlementStatus": "in_progress",
+            "claimable": false,
+            "claimBlockedReason": "MEMBERS_INCOMPLETE",
+            "claimed": false,
+            "version": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "quest",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/quests/{questId}/progress",
+    "method": "GET",
+    "path": "/islands/{islandId}/quests/{questId}/progress",
+    "request_example": {
+      "occurrenceId": "q-focus-20260911",
+      "cursor": null
+    },
+    "response_example": {
+      "data": {
+        "id": "q-focus",
+        "occurrenceId": "q-focus-20260911",
+        "title": "저녁 30분 집중",
+        "type": "focus",
+        "windowStart": "18:00",
+        "windowEnd": "23:00",
+        "timezone": "Asia/Seoul",
+        "date": "2026-09-11",
+        "targetMinutes": 30,
+        "myRate": 60,
+        "reward": {
+          "currency": "village_points",
+          "amount": 10
+        },
+        "settlementStatus": "in_progress",
+        "claimable": false,
+        "claimBlockedReason": "MEMBERS_INCOMPLETE",
+        "claimed": false,
+        "version": 1,
+        "members": [
+          {
+            "userId": "me",
+            "name": "수빈",
+            "catColor": "black",
+            "rate": 60,
+            "measurementStatus": "authorized"
+          },
+          {
+            "userId": "minji",
+            "name": "민지",
+            "catColor": "ginger",
+            "rate": 100,
+            "measurementStatus": "authorized"
+          }
+        ],
+        "nextCursor": null
+      }
+    }
+  },
+  {
+    "id": "quest-create",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/quests",
+    "method": "POST",
+    "path": "/islands/{islandId}/quests",
+    "request_example": {
+      "title": "저녁 30분 집중",
+      "type": "focus",
+      "targetMinutes": 30,
+      "windowStart": "18:00",
+      "windowEnd": "23:00",
+      "timezone": "Asia/Seoul"
+    },
+    "response_example": {
+      "data": {
+        "id": "q-new",
+        "title": "저녁 30분 집중"
+      }
+    }
+  },
+  {
+    "id": "quest-edit",
+    "source_method": "PATCH",
+    "source_path": "/v1/islands/{islandId}/quests/{questId}",
+    "method": "PATCH",
+    "path": "/islands/{islandId}/quests/{questId}",
+    "request_example": {
+      "title": "저녁 40분 집중",
+      "targetMinutes": 40
+    },
+    "response_example": {
+      "data": {
+        "id": "q-new",
+        "title": "저녁 40분 집중",
+        "targetMinutes": 40
+      }
+    }
+  },
+  {
+    "id": "claim",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/quests/{questId}/claims",
+    "method": "POST",
+    "path": "/islands/{islandId}/quests/{questId}/claims",
+    "request_example": {
+      "occurrenceId": "q-focus-20260911",
+      "expectedVersion": 1
+    },
+    "response_example": {
+      "data": {
+        "claimId": "claim-1",
+        "occurrenceId": "q-focus-20260911",
+        "villagePointsAdded": 10,
+        "claimed": true
+      }
+    }
+  }
+]

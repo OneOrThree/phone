@@ -1,0 +1,26 @@
+{
+  "endpoint": "Group Bet Query_getDeletionPreview",
+  "method": "GET",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}/deletion-preview",
+  "tag": "Group Bet Query",
+  "summary": "챌린지 삭제 프리플라이트 (그룹장 전용)",
+  "userPool": "zipf",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.challengeId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

@@ -1,0 +1,21 @@
+{
+  "endpoint": "InviteLink_issueInviteLink",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/invite-link",
+  "tag": "InviteLink",
+  "summary": "초대 링크 발급",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

@@ -1,0 +1,1293 @@
+{
+  "source_version": "138",
+  "retired_tables": [
+    "bot_profiles",
+    "character_equipment",
+    "character_generation",
+    "currency_transactions",
+    "daily_screen_time_stats",
+    "default_tags",
+    "focus_session_pomodoros",
+    "focus_sessions_pomodoro_setting",
+    "group_challenge_bet_participants",
+    "group_challenge_bet_sessions",
+    "group_challenge_bets",
+    "group_challenge_durations",
+    "group_challenge_members",
+    "group_challenge_windows",
+    "group_challenges",
+    "invite_claim_confirmations",
+    "invite_claim_intents",
+    "invite_click_frozen_rows",
+    "invite_click_migrations",
+    "invite_link_clicks",
+    "invite_link_frozen_rows",
+    "items",
+    "league_arenas",
+    "league_rank_snapshots",
+    "league_tier_configs",
+    "league_weekly_results",
+    "notification_result_bundle_manifests",
+    "notification_result_bundle_members",
+    "notification_result_bundle_slots",
+    "notification_sent_logs",
+    "occupation_default_tags",
+    "occupations",
+    "pinned_users",
+    "sea_focus_totals",
+    "sea_reward_tiers",
+    "user_focus_tags",
+    "user_focus_time_settings",
+    "user_items",
+    "user_screen_time_settings",
+    "user_streaks",
+    "user_wallets"
+  ],
+  "retired_columns": {
+    "users": [
+      "occupation",
+      "tier_level",
+      "stat_visibility",
+      "character_trial_anchor_at",
+      "is_bot",
+      "device_token",
+      "refresh_token_hash",
+      "last_active_at"
+    ],
+    "auth_sessions": [
+      "legacy",
+      "legacy_device_token"
+    ],
+    "focus_sessions": [
+      "focus_tag_id"
+    ],
+    "group_members": [
+      "transition_seq",
+      "snapshot_version"
+    ]
+  },
+  "source_tables": [
+    "aggregate_versions",
+    "audio_tracks",
+    "auth_sessions",
+    "bot_profiles",
+    "catalog_assets",
+    "character_equipment",
+    "character_generation",
+    "command_idempotency",
+    "construction_cost_policies",
+    "construction_cost_policy_publication",
+    "construction_guide_recipients",
+    "currency_transactions",
+    "customization_asset_meta",
+    "customization_reward_items",
+    "customization_reward_policies",
+    "daily_focus_stats",
+    "daily_screen_time_stats",
+    "default_tags",
+    "event_outbox",
+    "event_outbox_deliveries",
+    "focus_live_activities",
+    "focus_reward_accruals",
+    "focus_reward_policies",
+    "focus_session_details",
+    "focus_session_intervals",
+    "focus_session_pomodoros",
+    "focus_sessions",
+    "focus_sessions_pomodoro_setting",
+    "focus_settlements",
+    "focus_statistics_snapshots",
+    "focus_tutorial_rewards",
+    "friendships",
+    "group_announcement_comments",
+    "group_announcements",
+    "group_challenge_bet_participants",
+    "group_challenge_bet_sessions",
+    "group_challenge_bets",
+    "group_challenge_durations",
+    "group_challenge_members",
+    "group_challenge_windows",
+    "group_challenges",
+    "group_invite_links",
+    "group_members",
+    "groups",
+    "guest_device_claims",
+    "invite_claim_confirmations",
+    "invite_claim_intents",
+    "invite_click_frozen_rows",
+    "invite_click_migrations",
+    "invite_link_clicks",
+    "invite_link_frozen_rows",
+    "island_appearances",
+    "island_arrivals",
+    "island_construction_contributions",
+    "island_construction_states",
+    "island_facilities",
+    "island_focus_averages",
+    "island_guestbook_entries",
+    "island_join_requests",
+    "island_layouts",
+    "island_news",
+    "island_playbacks",
+    "island_promotion_reports",
+    "island_promotions",
+    "island_quest_claims",
+    "island_quest_cohort_members",
+    "island_quest_occurrences",
+    "island_quests",
+    "island_wallet_transactions",
+    "island_wallets",
+    "island_weekly_focus",
+    "island_weekly_member_counts",
+    "items",
+    "league_arenas",
+    "league_rank_snapshots",
+    "league_tier_configs",
+    "league_weekly_results",
+    "letters",
+    "login_attempts",
+    "magazine_asset_meta",
+    "magazine_editorial_notes",
+    "magazine_issues",
+    "magazine_receipts",
+    "notification_result_bundle_manifests",
+    "notification_result_bundle_members",
+    "notification_result_bundle_slots",
+    "notification_sent_logs",
+    "occupation_default_tags",
+    "occupations",
+    "onboarding_islands",
+    "owned_products",
+    "personal_appearances",
+    "pinned_users",
+    "screen_time_observations",
+    "sea_focus_totals",
+    "sea_remarks",
+    "sea_reward_tiers",
+    "shedlock",
+    "shop_catalog_active_publication",
+    "shop_catalog_publication_entries",
+    "shop_catalog_publications",
+    "shop_orders",
+    "shop_product_revisions",
+    "social_accounts",
+    "telescope_buckets",
+    "telescope_pins",
+    "user_blocks",
+    "user_fish_wallets",
+    "user_focus_tags",
+    "user_focus_time_settings",
+    "user_island_contexts",
+    "user_items",
+    "user_main_islands",
+    "user_notification_settings",
+    "user_screen_time_settings",
+    "user_streaks",
+    "user_wallets",
+    "users"
+  ],
+  "source_history": [
+    {
+      "version": "1",
+      "type": "SQL",
+      "script": "V1__baseline.sql",
+      "checksum": -1732591618,
+      "success": true
+    },
+    {
+      "version": "2",
+      "type": "SQL",
+      "script": "V2__align_common_columns.sql",
+      "checksum": -1718206112,
+      "success": true
+    },
+    {
+      "version": "3",
+      "type": "SQL",
+      "script": "V3__pinned_users_group_join_codes.sql",
+      "checksum": 847314250,
+      "success": true
+    },
+    {
+      "version": "4",
+      "type": "SQL",
+      "script": "V4__split_focus_tags.sql",
+      "checksum": 662546483,
+      "success": true
+    },
+    {
+      "version": "5",
+      "type": "SQL",
+      "script": "V5__challenge_durations_windows.sql",
+      "checksum": -1880421228,
+      "success": true
+    },
+    {
+      "version": "6",
+      "type": "SQL",
+      "script": "V6__add_pomodoro_tables.sql",
+      "checksum": 2025742152,
+      "success": true
+    },
+    {
+      "version": "7",
+      "type": "SQL",
+      "script": "V7__user_blocks_drop_deprecated.sql",
+      "checksum": 935551056,
+      "success": true
+    },
+    {
+      "version": "8",
+      "type": "SQL",
+      "script": "V8__league_total_focus_seconds.sql",
+      "checksum": 990576171,
+      "success": true
+    },
+    {
+      "version": "9",
+      "type": "SQL",
+      "script": "V9__focus_sessions_auto_closed_status.sql",
+      "checksum": 1889307683,
+      "success": true
+    },
+    {
+      "version": "10",
+      "type": "SQL",
+      "script": "V10__daily_screen_time_finalized.sql",
+      "checksum": -251534467,
+      "success": true
+    },
+    {
+      "version": "11",
+      "type": "SQL",
+      "script": "V11__add_daily_focus_stats_date_index.sql",
+      "checksum": -1160580447,
+      "success": true
+    },
+    {
+      "version": "12",
+      "type": "SQL",
+      "script": "V12__add_tier_foundation.sql",
+      "checksum": 990064647,
+      "success": true
+    },
+    {
+      "version": "13",
+      "type": "SQL",
+      "script": "V13__league_tier_thresholds.sql",
+      "checksum": 81840842,
+      "success": true
+    },
+    {
+      "version": "14",
+      "type": "SQL",
+      "script": "V14__remove_legacy_league_arena_membership.sql",
+      "checksum": -1459011731,
+      "success": true
+    },
+    {
+      "version": "15",
+      "type": "SQL",
+      "script": "V15__league_anchor_and_snapshot_safety.sql",
+      "checksum": 578494555,
+      "success": true
+    },
+    {
+      "version": "16",
+      "type": "SQL",
+      "script": "V16__rename_refresh_token_to_hash.sql",
+      "checksum": -1376377678,
+      "success": true
+    },
+    {
+      "version": "17",
+      "type": "SQL",
+      "script": "V17__group_visibility_and_name_trgm.sql",
+      "checksum": -1697209141,
+      "success": true
+    },
+    {
+      "version": "18",
+      "type": "SQL",
+      "script": "V18__group_name_trgm_index.sql",
+      "checksum": 1289654436,
+      "success": true
+    },
+    {
+      "version": "19",
+      "type": "SQL",
+      "script": "V19__group_challenge_bets.sql",
+      "checksum": -862424807,
+      "success": true
+    },
+    {
+      "version": "20",
+      "type": "SQL",
+      "script": "V20__challenge_window_goal_and_bet_states.sql",
+      "checksum": -1582300538,
+      "success": true
+    },
+    {
+      "version": "21",
+      "type": "SQL",
+      "script": "V21__group_invite_links.sql",
+      "checksum": 51064782,
+      "success": true
+    },
+    {
+      "version": "22",
+      "type": "SQL",
+      "script": "V22__currency_transaction_reward_types.sql",
+      "checksum": 1489335043,
+      "success": true
+    },
+    {
+      "version": "23",
+      "type": "SQL",
+      "script": "V23__character_generation.sql",
+      "checksum": -36833743,
+      "success": true
+    },
+    {
+      "version": "25",
+      "type": "SQL",
+      "script": "V25__group_member_left_reason.sql",
+      "checksum": -194352731,
+      "success": true
+    },
+    {
+      "version": "26",
+      "type": "SQL",
+      "script": "V26__user_character_trial_anchor.sql",
+      "checksum": -95664311,
+      "success": true
+    },
+    {
+      "version": "27",
+      "type": "SQL",
+      "script": "V27__goal_change_history.sql",
+      "checksum": -297283231,
+      "success": true
+    },
+    {
+      "version": "28",
+      "type": "SQL",
+      "script": "V28__bet_partial_unique_and_duration_bound.sql",
+      "checksum": -1022086794,
+      "success": true
+    },
+    {
+      "version": "29",
+      "type": "SQL",
+      "script": "V29__bet_settlement_evidence.sql",
+      "checksum": 24704518,
+      "success": true
+    },
+    {
+      "version": "30",
+      "type": "SQL",
+      "script": "V30__backfill_withdrawn_member_leave.sql",
+      "checksum": -560405215,
+      "success": true
+    },
+    {
+      "version": "31",
+      "type": "SQL",
+      "script": "V31__backfill_ownerless_group_owner.sql",
+      "checksum": -1142630586,
+      "success": true
+    },
+    {
+      "version": "32",
+      "type": "SQL",
+      "script": "V32__focus_sessions_stat_end_at.sql",
+      "checksum": -583439853,
+      "success": true
+    },
+    {
+      "version": "33",
+      "type": "SQL",
+      "script": "V33__focus_sessions_focus_seconds_by_date.sql",
+      "checksum": -1923744962,
+      "success": true
+    },
+    {
+      "version": "34",
+      "type": "SQL",
+      "script": "V34__challenge_repeat_days_lifecycle.sql",
+      "checksum": -553479767,
+      "success": true
+    },
+    {
+      "version": "35",
+      "type": "SQL",
+      "script": "V35__challenge_window_time_type.sql",
+      "checksum": -1498924842,
+      "success": true
+    },
+    {
+      "version": "36",
+      "type": "SQL",
+      "script": "V36__challenge_goal_caps_and_unique_relax.sql",
+      "checksum": -424318421,
+      "success": true
+    },
+    {
+      "version": "37",
+      "type": "SQL",
+      "script": "V37__group_challenge_members_cleanup.sql",
+      "checksum": 226601269,
+      "success": true
+    },
+    {
+      "version": "38",
+      "type": "SQL",
+      "script": "V38__screen_time_nullable_kst.sql",
+      "checksum": 1208798476,
+      "success": true
+    },
+    {
+      "version": "39",
+      "type": "SQL",
+      "script": "V39__bet_two_tier_sessions.sql",
+      "checksum": -839913044,
+      "success": true
+    },
+    {
+      "version": "40",
+      "type": "SQL",
+      "script": "V40__bet_stake_range_check.sql",
+      "checksum": -2061104818,
+      "success": true
+    },
+    {
+      "version": "41",
+      "type": "SQL",
+      "script": "V41__bet_session_void_reason_unused.sql",
+      "checksum": -1755606517,
+      "success": true
+    },
+    {
+      "version": "42",
+      "type": "SQL",
+      "script": "V42__bet_participant_achieved_at.sql",
+      "checksum": 1008403923,
+      "success": true
+    },
+    {
+      "version": "43",
+      "type": "SQL",
+      "script": "V43__challenge_member_measured_at.sql",
+      "checksum": 1458306769,
+      "success": true
+    },
+    {
+      "version": "44",
+      "type": "SQL",
+      "script": "V44__bet_participant_user_session_index.sql",
+      "checksum": -445818977,
+      "success": true
+    },
+    {
+      "version": "45",
+      "type": "SQL",
+      "script": "V45__notification_claim_pipeline_shedlock.sql",
+      "checksum": -626942697,
+      "success": true
+    },
+    {
+      "version": "46",
+      "type": "SQL",
+      "script": "V46__challenge_repeat_days_integer.sql",
+      "checksum": 672251055,
+      "success": true
+    },
+    {
+      "version": "47",
+      "type": "SQL",
+      "script": "V47__focus_sessions_single_live_marker.sql",
+      "checksum": 1699538224,
+      "success": true
+    },
+    {
+      "version": "48",
+      "type": "SQL",
+      "script": "V48__league_bots.sql",
+      "checksum": -184624409,
+      "success": true
+    },
+    {
+      "version": "49",
+      "type": "SQL",
+      "script": "V49__bet_participant_result_ack.sql",
+      "checksum": 1325161946,
+      "success": true
+    },
+    {
+      "version": "50",
+      "type": "SQL",
+      "script": "V50__users_language.sql",
+      "checksum": -2074712010,
+      "success": true
+    },
+    {
+      "version": "51",
+      "type": "SQL",
+      "script": "V51__event_outbox.sql",
+      "checksum": 1183296055,
+      "success": true
+    },
+    {
+      "version": "52",
+      "type": "SQL",
+      "script": "V52__satellite_core_contracts.sql",
+      "checksum": -369769038,
+      "success": true
+    },
+    {
+      "version": "53",
+      "type": "SQL",
+      "script": "V53__result_bundle_completion.sql",
+      "checksum": -481011112,
+      "success": true
+    },
+    {
+      "version": "54",
+      "type": "SQL",
+      "script": "V54__legacy_session_device.sql",
+      "checksum": 762284934,
+      "success": true
+    },
+    {
+      "version": "55",
+      "type": "SQL",
+      "script": "V55__session_logout_refresh_expiry.sql",
+      "checksum": 1676277560,
+      "success": true
+    },
+    {
+      "version": "56",
+      "type": "SQL",
+      "script": "V56__realtime_outbox_target.sql",
+      "checksum": -1074401797,
+      "success": true
+    },
+    {
+      "version": "57",
+      "type": "SQL",
+      "script": "V57__user_island_context.sql",
+      "checksum": -1976665530,
+      "success": true
+    },
+    {
+      "version": "58",
+      "type": "SQL",
+      "script": "V58__focus_session_lifecycle.sql",
+      "checksum": -1643577755,
+      "success": true
+    },
+    {
+      "version": "59",
+      "type": "SQL",
+      "script": "V59__login_attempts.sql",
+      "checksum": 1120478151,
+      "success": true
+    },
+    {
+      "version": "60",
+      "type": "SQL",
+      "script": "V60__friendship_cancel_status.sql",
+      "checksum": 1600650586,
+      "success": true
+    },
+    {
+      "version": "61",
+      "type": "SQL",
+      "script": "V61__letters.sql",
+      "checksum": -2005114278,
+      "success": true
+    },
+    {
+      "version": "62",
+      "type": "SQL",
+      "script": "V62__island_construction.sql",
+      "checksum": -818822175,
+      "success": true
+    },
+    {
+      "version": "63",
+      "type": "SQL",
+      "script": "V63__island_join_requests.sql",
+      "checksum": -1639185705,
+      "success": true
+    },
+    {
+      "version": "64",
+      "type": "SQL",
+      "script": "V64__island_appearance.sql",
+      "checksum": 1016535552,
+      "success": true
+    },
+    {
+      "version": "65",
+      "type": "SQL",
+      "script": "V65__withdrawal_erasure_nullable.sql",
+      "checksum": 2108273528,
+      "success": true
+    },
+    {
+      "version": "66",
+      "type": "SQL",
+      "script": "V66__island_notice_comments.sql",
+      "checksum": -1016253603,
+      "success": true
+    },
+    {
+      "version": "67",
+      "type": "SQL",
+      "script": "V67__focus_session_activation.sql",
+      "checksum": -1485359846,
+      "success": true
+    },
+    {
+      "version": "71",
+      "type": "SQL",
+      "script": "V71__island_quests.sql",
+      "checksum": -1547600017,
+      "success": true
+    },
+    {
+      "version": "73",
+      "type": "SQL",
+      "script": "V73__island_playback.sql",
+      "checksum": 1584618065,
+      "success": true
+    },
+    {
+      "version": "74",
+      "type": "SQL",
+      "script": "V74__island_shop.sql",
+      "checksum": -558302083,
+      "success": true
+    },
+    {
+      "version": "75",
+      "type": "SQL",
+      "script": "V75__withdrawal_quest_claimer_nullable.sql",
+      "checksum": 2033108117,
+      "success": true
+    },
+    {
+      "version": "76",
+      "type": "SQL",
+      "script": "V76__withdrawal_quest_creator_nullable.sql",
+      "checksum": -1404312136,
+      "success": true
+    },
+    {
+      "version": "77",
+      "type": "SQL",
+      "script": "V77__focus_sessions_presence_order.sql",
+      "checksum": 532051332,
+      "success": true
+    },
+    {
+      "version": "79",
+      "type": "SQL",
+      "script": "V79__island_records.sql",
+      "checksum": 1761997254,
+      "success": true
+    },
+    {
+      "version": "80",
+      "type": "SQL",
+      "script": "V80__users_cat_color_and_score_target.sql",
+      "checksum": -1568264923,
+      "success": true
+    },
+    {
+      "version": "81",
+      "type": "SQL",
+      "script": "V81__user_main_islands.sql",
+      "checksum": 1327994766,
+      "success": true
+    },
+    {
+      "version": "82",
+      "type": "SQL",
+      "script": "V82__focus_reward_accruals.sql",
+      "checksum": 841114565,
+      "success": true
+    },
+    {
+      "version": "83",
+      "type": "SQL",
+      "script": "V83__island_quest_personal_claims.sql",
+      "checksum": -142623231,
+      "success": true
+    },
+    {
+      "version": "84",
+      "type": "SQL",
+      "script": "V84__user_island_context_loss_reason.sql",
+      "checksum": 1917915300,
+      "success": true
+    },
+    {
+      "version": "85",
+      "type": "SQL",
+      "script": "V85__island_weekly_member_counts.sql",
+      "checksum": 910980632,
+      "success": true
+    },
+    {
+      "version": "87",
+      "type": "SQL",
+      "script": "V87__guest_device_claims.sql",
+      "checksum": -766355988,
+      "success": true
+    },
+    {
+      "version": "88",
+      "type": "SQL",
+      "script": "V88__focus_rest_auto_close.sql",
+      "checksum": 1479166026,
+      "success": true
+    },
+    {
+      "version": "89",
+      "type": "SQL",
+      "script": "V89__users_nickname_case_insensitive_unique.sql",
+      "checksum": -1416674470,
+      "success": true
+    },
+    {
+      "version": "91",
+      "type": "SQL",
+      "script": "V91__golden_fish.sql",
+      "checksum": 1801522958,
+      "success": true
+    },
+    {
+      "version": "95",
+      "type": "SQL",
+      "script": "V95__users_nickname_strip.sql",
+      "checksum": -237182499,
+      "success": true
+    },
+    {
+      "version": "97",
+      "type": "SQL",
+      "script": "V97__group_members_left_at.sql",
+      "checksum": 1240881888,
+      "success": true
+    },
+    {
+      "version": "98",
+      "type": "SQL",
+      "script": "V98__friendships_pending_pair_unique.sql",
+      "checksum": 1743777899,
+      "success": true
+    },
+    {
+      "version": "99",
+      "type": "SQL",
+      "script": "V99__focus_reward_policies_personal_share_zero.sql",
+      "checksum": -1497500987,
+      "success": true
+    },
+    {
+      "version": "100",
+      "type": "SQL",
+      "script": "V100__island_construction_target_cohort_backfill.sql",
+      "checksum": 2114146358,
+      "success": true
+    },
+    {
+      "version": "101",
+      "type": "SQL",
+      "script": "V101__login_attempt_account_switch_resume.sql",
+      "checksum": 445455042,
+      "success": true
+    },
+    {
+      "version": "102",
+      "type": "SQL",
+      "script": "V102__retire_legacy_group_invites.sql",
+      "checksum": -168614549,
+      "success": true
+    },
+    {
+      "version": "103",
+      "type": "SQL",
+      "script": "V103__island_notice_comments_cascade.sql",
+      "checksum": -1251966976,
+      "success": true
+    },
+    {
+      "version": "104",
+      "type": "SQL",
+      "script": "V104__focus_tutorial_reward.sql",
+      "checksum": -1819111248,
+      "success": true
+    },
+    {
+      "version": "105",
+      "type": "SQL",
+      "script": "V105__tutorial_experience_reward.sql",
+      "checksum": 107911842,
+      "success": true
+    },
+    {
+      "version": "106",
+      "type": "SQL",
+      "script": "V106__island_layouts.sql",
+      "checksum": 1270168264,
+      "success": true
+    },
+    {
+      "version": "107",
+      "type": "SQL",
+      "script": "V107__focus_live_activities.sql",
+      "checksum": 675847672,
+      "success": true
+    },
+    {
+      "version": "108",
+      "type": "SQL",
+      "script": "V108__android_focus_activity_delivery.sql",
+      "checksum": -2058815615,
+      "success": true
+    },
+    {
+      "version": "109",
+      "type": "SQL",
+      "script": "V109__screen_time_final_observations.sql",
+      "checksum": 1758577411,
+      "success": true
+    },
+    {
+      "version": "110",
+      "type": "SQL",
+      "script": "V110__screen_time_calendar_windows.sql",
+      "checksum": -958821741,
+      "success": true
+    },
+    {
+      "version": "111",
+      "type": "SQL",
+      "script": "V111__android_focus_session_lifetime.sql",
+      "checksum": 984901446,
+      "success": true
+    },
+    {
+      "version": "112",
+      "type": "SQL",
+      "script": "V112__island_arrivals_and_system_letters.sql",
+      "checksum": 1477954097,
+      "success": true
+    },
+    {
+      "version": "113",
+      "type": "SQL",
+      "script": "V113__island_greeting_and_guestbook.sql",
+      "checksum": -258173056,
+      "success": true
+    },
+    {
+      "version": "114",
+      "type": "SQL",
+      "script": "V114__island_focus_averages.sql",
+      "checksum": -955405930,
+      "success": true
+    },
+    {
+      "version": "115",
+      "type": "SQL",
+      "script": "V115__telescope_pins.sql",
+      "checksum": 1074003973,
+      "success": true
+    },
+    {
+      "version": "116",
+      "type": "SQL",
+      "script": "V116__island_news.sql",
+      "checksum": 1575063955,
+      "success": true
+    },
+    {
+      "version": "117",
+      "type": "SQL",
+      "script": "V117__sea_reward_engine.sql",
+      "checksum": 1644533992,
+      "success": true
+    },
+    {
+      "version": "118",
+      "type": "SQL",
+      "script": "V118__magazine_assets.sql",
+      "checksum": -365990296,
+      "success": true
+    },
+    {
+      "version": "119",
+      "type": "SQL",
+      "script": "V119__island_promotions.sql",
+      "checksum": -974949091,
+      "success": true
+    },
+    {
+      "version": "120",
+      "type": "SQL",
+      "script": "V120__magazine_issues.sql",
+      "checksum": 56536035,
+      "success": true
+    },
+    {
+      "version": "121",
+      "type": "SQL",
+      "script": "V121__island_promotion_reports.sql",
+      "checksum": 276641279,
+      "success": true
+    },
+    {
+      "version": "122",
+      "type": "SQL",
+      "script": "V122__magazine_funnel.sql",
+      "checksum": 960204502,
+      "success": true
+    },
+    {
+      "version": "123",
+      "type": "SQL",
+      "script": "V123__remove_magazine_funnel.sql",
+      "checksum": 2009613668,
+      "success": true
+    },
+    {
+      "version": "124",
+      "type": "SQL",
+      "script": "V124__sea_focus_sessions.sql",
+      "checksum": 1570662088,
+      "success": true
+    },
+    {
+      "version": "125",
+      "type": "SQL",
+      "script": "V125__telescope_buckets.sql",
+      "checksum": -1897086289,
+      "success": true
+    },
+    {
+      "version": "126",
+      "type": "SQL",
+      "script": "V126__magazine_issue_notified_at.sql",
+      "checksum": -1752034176,
+      "success": true
+    },
+    {
+      "version": "127",
+      "type": "SQL",
+      "script": "V127__island_arrivals_member_arrived_at.sql",
+      "checksum": 518823673,
+      "success": true
+    },
+    {
+      "version": "128",
+      "type": "SQL",
+      "script": "V128__customization_slots_and_asset_meta.sql",
+      "checksum": 1130292116,
+      "success": true
+    },
+    {
+      "version": "129",
+      "type": "SQL",
+      "script": "V129__island_outside_scalability_indexes.sql",
+      "checksum": -1651111117,
+      "success": true
+    },
+    {
+      "version": "130",
+      "type": "SQL",
+      "script": "V130__island_weekly_focus.sql",
+      "checksum": -2021031767,
+      "success": true
+    },
+    {
+      "version": "131",
+      "type": "SQL",
+      "script": "V131__default_free_audio.sql",
+      "checksum": -752030921,
+      "success": true
+    },
+    {
+      "version": "132",
+      "type": "SQL",
+      "script": "V132__construction_guide_recipients.sql",
+      "checksum": 786882411,
+      "success": true
+    },
+    {
+      "version": "133",
+      "type": "SQL",
+      "script": "V133__customization_reward_catalog.sql",
+      "checksum": -1559584123,
+      "success": true
+    },
+    {
+      "version": "134",
+      "type": "SQL",
+      "script": "V134__seed_customization_reward_catalog.sql",
+      "checksum": -977459436,
+      "success": true
+    },
+    {
+      "version": "135",
+      "type": "SQL",
+      "script": "V135__customization_reward_draw.sql",
+      "checksum": -1596763660,
+      "success": true
+    },
+    {
+      "version": "136",
+      "type": "SQL",
+      "script": "V136__customization_reward_fit_colors.sql",
+      "checksum": 1924914982,
+      "success": true
+    },
+    {
+      "version": "137",
+      "type": "SQL",
+      "script": "V137__onboarding_islands.sql",
+      "checksum": 2003107605,
+      "success": true
+    },
+    {
+      "version": "138",
+      "type": "SQL",
+      "script": "V138__drop_link_outbox_deliveries.sql",
+      "checksum": 710010374,
+      "success": true
+    }
+  ],
+  "bot_ids": [
+    "01d1a116-c5fd-ae14-1a32-cbd1752c3d13",
+    "037c1730-aeb5-596a-ec4d-871d1dd591c9",
+    "06242e7f-621c-6392-12e9-75258d355b51",
+    "064091b8-2f59-03ca-a44c-6721215ea148",
+    "087ba316-34e9-9579-f1d4-57111c43ea18",
+    "0a06afc3-262b-96f7-f6f0-e035d43dfd82",
+    "0a7de186-8801-e6d2-0927-ccfe867b2802",
+    "0b3b6efd-92e3-5481-75e7-96048c941ce8",
+    "0ccc9c30-b6c6-f01e-359a-45984202d988",
+    "1671c7e4-3436-b3e1-6b14-82114dc59b7a",
+    "19fdd0c2-efd4-9ef0-24f4-c441559c3a33",
+    "1a1354cc-b8b5-d53e-a538-8ca855d17cbb",
+    "1a59a8c7-a13d-5ba2-d791-bf4c742e6c8d",
+    "1aab6c12-db84-6861-562e-103099798b7b",
+    "1abb3022-8ee6-9c29-3db6-26c296e73506",
+    "1d66b1d8-8f5d-2ef4-eff4-40eb654585d1",
+    "1df2db62-1d24-0909-66c2-0c1198f4f4a4",
+    "216d7bc5-65c8-903c-76e6-281b8bd17639",
+    "22c27216-353b-e48a-3393-875a27661a77",
+    "23fa4d08-2c31-ae67-c5bf-f5b02b101ed0",
+    "251ee92c-e9f7-1e65-920e-4e23ea4c702c",
+    "2583dc41-d89d-520e-b4a7-bd54b7011170",
+    "26a11fd5-59dc-aa32-e6ad-940abade5f74",
+    "2acda8ee-2c90-76c8-07f3-ea976516ef96",
+    "2afa215f-68e2-565d-bda1-47cd63d70527",
+    "2afbac95-e83b-001c-84dd-ea69b46be451",
+    "2b696ac2-7afe-8ced-8c7d-767066b762b7",
+    "2ccad4bf-a042-91c3-da62-1287781071b4",
+    "2cdaede9-5e4a-2eff-1042-663fe431a257",
+    "2d9e1020-74cb-c495-68bd-a979a773bae9",
+    "305d5e41-3a5f-9a4e-2e25-351076000ceb",
+    "30fe26da-bde7-a742-bc10-62972ff1d61a",
+    "332dff02-0ae8-3e40-5aa3-5894d6ab6e22",
+    "35b64e0a-f765-cfcc-457a-db1fb256cc98",
+    "379be311-ea01-1621-56da-10d780a6d78b",
+    "37a47981-1529-cdf5-6c55-6f8c165e0848",
+    "38372162-7908-c5d2-cca8-156a8c876467",
+    "38d919ff-55bd-ad0e-0388-6f5119b2bbf1",
+    "3b0280dd-9a0c-f280-a146-2f15f254f99b",
+    "3c94347a-4452-5e5c-0402-4bdc830eb310",
+    "3cac8851-fd6b-875b-e2a1-c631861af162",
+    "3e67a946-cdc0-fb19-d7be-43edc23aa226",
+    "3f036841-7913-792a-550b-1a63f72c511a",
+    "3f28e03e-063a-82d2-dd13-6906d98e007d",
+    "4157fbab-e6fa-7f1e-f7db-62844ac94de6",
+    "42a54f9d-09c8-c904-efd4-5e1a9b7362df",
+    "436e5310-e885-f561-c44f-16dc40d81f9f",
+    "44b886a1-52da-772e-1dc1-2544f0e4f338",
+    "453b14a5-1b85-b5e7-4e1f-69c6053dc63d",
+    "45b87b2e-4bc8-3c2e-ac87-1e2ebe3a236b",
+    "48a98772-8850-2ddd-6dc1-419306e491b9",
+    "49a0e71c-23da-5f40-b313-f01230b93ed8",
+    "4c4fa9c2-50b8-99b2-fab9-8b8f46d59512",
+    "4c6a8975-348e-ce84-682b-ab9f33810a45",
+    "4d13be0a-dc52-4860-e9fc-7be793f931e6",
+    "4f617c85-c5a4-ce2b-1af6-4aadfaac9585",
+    "5146c8d9-6eb5-5ba3-edc0-1dc8ab8be0a6",
+    "514b2856-d3bf-2de7-55b9-83ae83829709",
+    "51d40f1c-89dd-c37f-82e3-cc23a6dfc061",
+    "52e034de-49a8-2e9b-656e-f49f533b1ade",
+    "53356c40-0fca-bc29-9bd6-4b9819d99d99",
+    "5374b10a-7df2-43e1-e6cd-8beeb4900838",
+    "55f977b1-2395-8a36-30d5-ae26df8cd708",
+    "5ad40cfb-fd86-7cab-1e33-a75a4a4ba634",
+    "5d04ccb2-74ba-e8c9-ee49-f83a953a11a9",
+    "5fb7f707-52ac-9f23-6a11-8f749599e858",
+    "5fe0eca0-8d6c-5c36-b279-220482a4b58d",
+    "63051741-e04a-9731-1063-f7570ac2d240",
+    "63728e4b-498a-5795-434e-724639846955",
+    "65258d9d-b19b-6177-c4ed-17309d93d46d",
+    "65e58a10-cac6-6595-f175-7592b878426e",
+    "65e99310-0457-6a62-cb26-851ea0e0c344",
+    "680303a7-c777-c28b-9c59-82cc9349a73c",
+    "69ba98dd-8908-e07b-da67-253f2cc4f9e1",
+    "6b147758-84d9-9359-76de-e6a9e1dd2de7",
+    "6b79fd54-c0cb-97da-85d1-724a1a7de586",
+    "6e329dcd-efb4-49b1-0542-8d24c810cfae",
+    "6e67ec8a-8888-cf5f-74ad-c4e533e399d2",
+    "7226899c-d50c-4070-8228-9cd11afdb7a8",
+    "757d848d-6877-e061-4345-0794530a9638",
+    "76a3662c-91b0-ab8a-4e9b-6c051b4f7030",
+    "776589c7-b1e9-5a63-107a-001f7060f8c9",
+    "77eaf6b1-b10e-fd4a-a466-d366ad9db1da",
+    "788440a2-a230-0e73-71fe-7f1e94b51e09",
+    "795e2090-66e1-31e7-3d01-d71950e0c609",
+    "7a599e5f-691a-cf09-0ac2-c4d45bb433f7",
+    "7a6a575d-5b43-2760-81c0-75990273a7a4",
+    "7d3ad7f6-0bea-1bb1-a92a-c0b53e3f088f",
+    "7d555e1f-6c6c-b8c0-3d91-4fc25a5b7889",
+    "7f2b5ac6-ea52-af16-09b6-d4834b9b82ee",
+    "7f496982-9190-6cc6-53d1-1c12c8ecf98c",
+    "8193ef95-a2e4-ba36-fa24-d3ec27d7b08e",
+    "81d774bb-2a09-7103-4e29-a1d00b2e0262",
+    "82c16646-be57-9b66-a7ae-df7ce3648c0f",
+    "859e1528-23ab-e86e-ee0c-adf55f6601f9",
+    "8632e54f-42b2-6776-bb40-29c58e6652c6",
+    "86573b40-3d9e-a05c-835f-8d9a51054618",
+    "8950bea3-8028-2735-5f52-ee35e6578fd4",
+    "8b253c9f-8158-6c6c-ee3e-c1f5af0fa334",
+    "8c965a3a-766a-1b91-170d-9d21e369cd83",
+    "8e03e035-73eb-059e-61f1-7f762ce22dda",
+    "8ea14f94-8524-1604-29bc-a4c922bfc63a",
+    "8efcc4df-0e00-4559-fc7c-a796de0045dc",
+    "905aa30d-db73-e2c1-8d9a-7fcc3bb0d970",
+    "927893b4-3765-402c-e3f4-fa701664fd75",
+    "93d17c22-e1b9-96db-109c-5dcc46e0ebe2",
+    "95004db1-9d11-5c41-c290-e6c94b779ff5",
+    "95bfdbbd-3dd0-c363-3f9c-28bf956799cc",
+    "9721d186-581c-05fe-38f7-9631732894ae",
+    "97333a07-8509-3108-ac2d-4d8d3b975397",
+    "99b4f878-da27-0d95-bec8-59aa1fbfa7b8",
+    "9a074d86-8f74-6287-e985-9bf35fc50f12",
+    "9ac4662c-6ac3-a746-5ec3-7c0b33a81a1a",
+    "9b354486-2a27-b31d-7051-ec383e8ac954",
+    "9daaf074-7255-8d3d-e6f9-d97eea5598e9",
+    "9f3097cd-c6d9-7a56-dcfc-9c508f7ae154",
+    "9fc348ea-34d8-fe94-b44a-04e1a9cd5644",
+    "9ff847b7-af15-fa86-3d6f-f946884f0792",
+    "a0a808c1-8fc1-d566-7074-8a7d9b74ff20",
+    "a0c94828-982a-624a-d9d7-1984b7561028",
+    "a370ecac-72d3-17f4-4932-d3c40840f3a7",
+    "a69b4527-2630-dc7d-21fb-0ef89b57bfaf",
+    "a7840de3-74ec-6db9-88f3-278e9bd8aca9",
+    "a87c2c02-55b2-c659-16e4-08e556046c55",
+    "ab823a77-4ba4-940d-e3bd-8aff121a2b49",
+    "acd96f2a-beab-d675-ff83-0bb29219140a",
+    "aeaf2050-ab5a-3ea4-c1a9-114b4b87d21f",
+    "b2326743-f573-0919-3405-c15041c57068",
+    "b36772b1-5c17-6293-55fd-97b1d3be74ae",
+    "b6fc0d04-4c7d-dadd-1ac7-e371099eea91",
+    "b8d19dce-e9ac-c977-815f-c51003f97073",
+    "bcb07e4a-95a3-400d-872c-b18d30d07db8",
+    "bd1c3a7b-145f-6aff-fd82-71f4255327dc",
+    "be1c0baa-9584-1e5b-824f-244c4cd187cf",
+    "be5f419f-c9c1-8df7-e3d4-619f0d65df34",
+    "be8e08a9-dba1-6005-dcee-c8490e166f7b",
+    "bfb76a6f-adf9-55ba-cab4-4850317e1e83",
+    "c075f897-3602-a620-d3ab-395107b2daf0",
+    "c24f63b7-67b8-4927-c913-c15ca3a77094",
+    "c345fd7d-a1eb-7280-3dcf-a36097f98e1d",
+    "c5f9e995-3658-1e8d-a8e2-dc275d54cb12",
+    "c60375ae-6e6d-324d-085a-3aa6ece91615",
+    "c6c0873a-c4e4-cb56-697b-622ae0866a56",
+    "c7690aaa-8889-7673-5b99-5ed2c697bf4a",
+    "c7cd6bd9-bb95-99b9-89d1-01527a6bf590",
+    "c85ba296-5f90-433a-92b8-934fb459b357",
+    "cbde8e09-cb1c-7f8b-801a-78106650b88c",
+    "cc476c17-8d0c-7014-2e52-fde50bae9aec",
+    "cc72ff68-f909-9a32-8fb5-99cbbdb7a69f",
+    "cd6a4024-9bcd-8d2a-9961-a76e7107acf4",
+    "cf3d6990-6621-47e8-2d2d-36c4bf01d7ad",
+    "d083ac2b-42aa-b005-5eff-6884b41c5dd3",
+    "d14e653c-5935-16f3-b4a9-4926fc2fc53e",
+    "d20c6d59-0da1-a0b6-b9b1-2a2116b38697",
+    "d3045643-e963-2460-ae7f-3fe8ad79d81e",
+    "d5a09fc6-94eb-51eb-bac5-27c93b91be26",
+    "d7e18e8c-3eac-f3fa-86be-f25235752be3",
+    "d882336d-00aa-9734-723a-9249cd4954f4",
+    "da0bac1f-2b49-ceff-d946-9d5863115134",
+    "db9125a2-dcd8-e53a-0c26-4c30b607a1e2",
+    "dc0f16dd-ac77-836a-e0af-aa774a37bc00",
+    "dc3766f9-f201-7228-d117-aba39cf04028",
+    "dc72aa13-579a-e08a-9dd3-f34162db8386",
+    "de0cf487-0535-9b79-0ba4-fbbf1d19743b",
+    "e0c22e91-1b52-36f4-7715-2252b410de28",
+    "e126c6cf-ed7f-7cfe-ffd2-2c7fde7516a5",
+    "e22e0491-bbb9-ae57-fedf-b9321284b059",
+    "e254a6ed-9f86-526f-364e-682380b437af",
+    "e259e1c5-11b9-4840-5567-b2deda138182",
+    "e43e666a-c8da-e2a8-2a1a-cc88e38635a7",
+    "e4e8ed60-f86d-03ab-e013-eebd27b46dcb",
+    "e52adc9b-f258-cd23-4839-dc796d2066a7",
+    "e5b93d53-3ff8-b46a-6f17-1636bc828a95",
+    "e68bbe52-9db5-9273-b3a3-14773652278d",
+    "e72b427b-65fe-7a85-a34c-0cf44c03e2c6",
+    "e8089136-a0a0-49d4-bfcf-b68a5cf4a85e",
+    "e977a406-3230-9a60-74c2-1ebceda28313",
+    "ea5924e9-8d60-1503-d514-193bc96079f9",
+    "ea933d61-a70c-34ad-a437-d2be64b6bae4",
+    "ed2db4ed-2482-b7ef-05ab-6e493ec51c4e",
+    "f03f9e8f-a527-f707-845b-406465df8a9d",
+    "f15c3950-067d-773e-297e-02afb08da47c",
+    "f3949332-d063-a404-c0f8-2a1dd2317f46",
+    "f44801d1-d0cb-cb3b-36ee-85af955bed02",
+    "f4602a95-b23f-f952-5c60-9a1c3c59d272",
+    "f819ac62-4bb8-cee2-3ff2-063b6d9d8115",
+    "f9955e6b-45d1-2c0c-1cf3-20266922f816",
+    "fa00c664-7eda-71ee-0a8b-37af0ae545df",
+    "fbc0cd97-9cdc-5f3e-d0e6-e95ae3106a77",
+    "fc0ccd80-0729-7c8b-f4c0-f466cc0f6b62"
+  ],
+  "source_schema": "96ac7deddcc9aa1454a694363e5d7bf8",
+  "target_upgrade_schema": "d8ed95ca887d5fc17eb572f93cccad2e",
+  "v0_checksum": 1073353803,
+  "target_schemas": [
+    "48f284c398d10780a81d084af933d3c5",
+    "7354b32d5b07b1382b774ee76dde4bde",
+    "d8ed95ca887d5fc17eb572f93cccad2e"
+  ],
+  "retire_sha256": "39fef57ba02ea8465e2a2898343245776d51dc806c52f1eebd62550ffed93329",
+  "source_schemas": [
+    "635768c09d095b5267c53c33db4be7b1",
+    "96ac7deddcc9aa1454a694363e5d7bf8"
+  ],
+  "renamed_tables": {
+    "groups": "islands"
+  },
+  "default_rows": {
+    "construction_cost_policies": 7,
+    "construction_cost_policy_publication": 1,
+    "focus_reward_policies": 1,
+    "catalog_assets": 157,
+    "magazine_asset_meta": 64,
+    "audio_tracks": 3,
+    "customization_reward_policies": 2,
+    "customization_reward_items": 110
+  },
+  "seed_sha256": "5e85cf2fdf148fb7b230ea446c38470b1463d540b8198cc44bc6767b76f29278",
+  "seed_checksum": -952153323
+}

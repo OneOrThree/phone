@@ -1,0 +1,301 @@
+package com.oneorthree.realtime.common.redis;
+
+import java.util.UUID;
+
+/**
+ * 이 서비스가 만지는 Redis 키 전부 — <b>여기 없는 패턴은 만들지 않는다</b>.
+ *
+ * <p>목표 아키텍처 A19 가 공유 저장소를 네임스페이스 표로 못 박았고, 이 클래스가 그 표의 채팅 쪽 절반이다.
+ *
+ * <table>
+ *   <caption>채팅이 쓰는 네임스페이스</caption>
+ *   <tr><th>키</th><th>소유(쓰기)</th><th>이 서비스</th><th>용도</th></tr>
+ *   <tr><td>{@code cache:chat:member:{userId}}</td><td>채팅</td><td>읽기·쓰기</td>
+ *       <td>유저가 속한 섬(그룹) id 집합. 서비스 내부 캐시라 <b>다른 서비스와 공유하지 않는다</b></td></tr>
+ *   <tr><td>{@code cache:chat:membergen:{userId}}</td><td>채팅</td><td>읽기·쓰기</td>
+ *       <td>그 유저의 멤버십 캐시 «무효화 표식»(GROMO-2141) — 사건이 무효화할 때마다 새 무작위 값으로 쓴다.
+ *       진행 중이던 조회의 늦은 적재를 거른다. TTL 은 캐시 TTL 과 600 초 중 큰 값</td></tr>
+ *   <tr><td>{@code cache:chat:block:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>그 유저가 차단한 사용자 id 집합 + 적재 당시 세대(GROMO-2182). Data 정본의 사본이다</td></tr>
+ *   <tr><td>{@code cache:chat:blockgen:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>그 유저의 차단 세대 — Data 의 {@code user.blocks.updated} 를 받을 때마다 1 오른다</td></tr>
+ *   <tr><td>{@code cache:chat:revoked:{sessionId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>폐기된 로그인 세션 펜스(GROMO-2350) — {@code SET 1 PX}(그 AT 의 남은 수명). CONNECT 가 재연결을 거절하는 데 쓴다</td></tr>
+ *   <tr><td>{@code chat:fanout}</td><td>채팅</td><td>발행·구독</td>
+ *       <td>인스턴스 간 메시지 전파(Pub/Sub). 저장하지 않는 채널이라 영속 데이터가 아니다</td></tr>
+ *   <tr><td>{@code chat:events:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>인스턴스 간 <b>섬 사건</b> 전파(Pub/Sub). 채팅 wire 와 섞지 않는 별도 채널이다(realtime-events LLD §3.1)</td></tr>
+ *   <tr><td>{@code lock:chat:emote:{islandId}:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>응원 <b>성공</b> 창. 값은 보지 않고 «있으면 이미 보냈다»로만 쓴다</td></tr>
+ *   <tr><td>{@code lock:chat:emote:try:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>응원 <b>발신</b> 시도 창 — 거절된 요청도 여기를 소모해 상류 조회 수를 누른다</td></tr>
+ *   <tr><td>{@code lock:chat:emote:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>응원 <b>구독</b> 시도 창 — SUBSCRIBE 도 상류 조회를 부르므로 같은 상한을 건다</td></tr>
+ *   <tr><td>{@code lock:chat:movement:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>이동 <b>구독</b> 시도 창(GROMO-2247) — 멤버십 조회를 부르는 이동 SUBSCRIBE 의 상한</td></tr>
+ *   <tr><td>{@code lock:chat:events:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>섬 {@code events} <b>구독</b> 시도 창(GROMO-2302, 600ms) — 멤버십 조회를 부르는 events SUBSCRIBE 의 상한</td></tr>
+ *   <tr><td>{@code sea:room:{roomId}:members}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 방 구성원 SET(GROMO-2300). EXPIRE 24h(입장마다 갱신), 비면 DEL</td></tr>
+ *   <tr><td>{@code sea:rooms:open}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>빈자리 있는 바다 방 SET. <b>TTL 없음</b> — 입장·퇴장 스크립트가 스스로 정리한다</td></tr>
+ *   <tr><td>{@code sea:user:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>사용자 바다 상태 HASH({@code roomId, state, remark, sessionId, destinationIslandId,
+ *       sailingMinutes, startedAt, adriftSince}). EXPIRE 24h, 퇴장 시 DEL</td></tr>
+ *   <tr><td>{@code sea:adrift}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>떠 있는 사용자 ZSET(userId → adriftSince ms). 수명 없음 — 10분 정리의 색인</td></tr>
+ *   <tr><td>{@code lock:chat:sea:enter:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 입장 시도 창(600ms, 사용자 축)</td></tr>
+ *   <tr><td>{@code lock:chat:sea:emote:try:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 방 이모트 발신 시도 창(600ms, 사용자 축). 이 키와 아래 성공 창은 ACL 패턴
+ *       {@code lock:chat:sea:emote:*} 하나가 둘 다 덮는다 — 둘째 세그먼트가 {@code try} 와 UUID 로 갈려 키 충돌은 없다</td></tr>
+ *   <tr><td>{@code lock:chat:sea:emote:{roomId}:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 방 이모트 성공 창(3초)</td></tr>
+ *   <tr><td>{@code chat:sea:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>인스턴스 간 <b>바다 방 사건</b> 전파(Pub/Sub). {@code chat:events:v1} 과 모양이 달라 나눈다</td></tr>
+ *   <tr><td>{@code movement:owner:{islandId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>섬 이동 방 소유자 리스(GROMO-2339) — 값 {@code <instanceId>:<epoch>}, PX 3000, 소유자가 1초마다 갱신</td></tr>
+ *   <tr><td>{@code movement:epoch}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>소유권 세대 카운터 — {@code max(직전+1, Redis TIME ms)}. <b>TTL 없음</b>(되돌아가면 옛 프레임이 새 것으로 읽힌다)</td></tr>
+ *   <tr><td>{@code movement:room:{islandId}:handoff}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>소유자가 종료하며 남기는 위치 스냅샷 JSON(사용자 → 좌표). PX 30000, 새 소유자가 GETDEL</td></tr>
+ *   <tr><td>{@code chat:movement:cmd:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>비소유 인스턴스 → 소유자 이동 명령 + 강퇴 재검사·생존 신호 브로드캐스트(Pub/Sub)</td></tr>
+ *   <tr><td>{@code chat:movement:frames:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>소유자 → 전 인스턴스 이동 프레임(Pub/Sub). 소유자 자신도 이 메아리로만 자기 세션에 보낸다</td></tr>
+ *   <tr><td>{@code presence:focus:{userId}}</td><td><b>Data API</b></td><td><b>읽기 전용</b></td>
+ *       <td>집중 세션 리스. 채팅은 존재 여부만 본다 — 쓰지도 지우지도 않는다</td></tr>
+ * </table>
+ *
+ * <p><b>{@code presence:*} 에 쓰지 마라.</b> 소유자는 Data API 이고 채팅은 읽는 쪽이다. 여기서 지우면
+ * 집중 중인 유저가 즉시 채팅에 들어올 수 있게 되고, 그 흔적은 어디에도 남지 않는다.
+ *
+ * <p><b>⚠️ 그리고 지금 그걸 막아 주는 것은 이 주석뿐이다.</b> A19 는 채팅 Redis 유저에게 이 패턴을
+ * {@code %R~presence:*}(읽기 전용 selector)로만 주라고 못 박았지만, <b>그 ACL 을 적용하는 배포가 아직
+ * 없다</b> — dev 오버레이의 redis 는 ACL 파일도 비밀번호도 없는 기본 이미지이고, 두 서비스가 모든
+ * 명령·모든 키에 접근하는 기본 유저를 공유한다(GROMO-1744). 그래서 여기서 실수하면 「집중 중엔 채팅
+ * 불가」가 <b>조용히</b> 풀린다 — 저장소가 막아 주지 않는다.
+ *
+ * <p>키를 문자열 연결로 흩어 쓰지 않고 한 클래스에 모은 이유는 오타 때문이 아니라 <b>감사 때문</b>이다 —
+ * 이 파일 하나만 보면 채팅이 남의 네임스페이스를 건드리는지 즉시 판정할 수 있다.
+ */
+public final class RedisKeys {
+
+    /** 인스턴스 간 팬아웃 채널. 그룹별로 채널을 쪼개지 않는 이유는 {@code fanout} 패키지 설명에 있다. */
+    public static final String FANOUT_CHANNEL = "chat:fanout";
+
+    /**
+     * 섬 사건({@code focus.member.updated}·{@code rest.member.updated}·{@code focus.emote})의 인스턴스 간 채널.
+     *
+     * <p>{@link #FANOUT_CHANNEL} 과 <b>일부러 나눠 뒀다</b>. 채팅 wire 는 {@code ChatFanoutEvent} 로 고정된
+     * 호환 대상이라(realtime-events LLD §7) 다른 모양을 같은 채널에 섞으면 구독자가 매 건 역직렬화를 두 번
+     * 시도하거나 조용히 버리게 된다. 채널 이름은 LLD §3.1 이 정한 {@code chat:events:v1} 그대로다.
+     */
+    public static final String EVENT_FANOUT_CHANNEL = "chat:events:v1";
+
+    /**
+     * 바다 방 사건({@code sea.member.*}·{@code sea.emote})의 인스턴스 간 채널(GROMO-2300). 봉투가
+     * {@code SeaRoomFanoutEvent} 라 {@link #EVENT_FANOUT_CHANNEL} 과 섞지 않는다 — 같은 이유로 나눈 둘이다.
+     */
+    public static final String SEA_FANOUT_CHANNEL = "chat:sea:v1";
+
+    /** 이동 명령·재검사·생존 신호 채널(GROMO-2339) — 비소유 인스턴스가 소유자에게, RECHECK·PING 은 전원에게. */
+    public static final String MOVEMENT_CMD_CHANNEL = "chat:movement:cmd:v1";
+
+    /** 이동 프레임 채널(GROMO-2339) — 소유자가 만든 사건·Snapshot·교체 통지를 전 인스턴스로. */
+    public static final String MOVEMENT_FRAMES_CHANNEL = "chat:movement:frames:v1";
+
+    /** 이동 소유권 세대 — 전역 단조, TTL 없음(GROMO-2339). */
+    public static final String MOVEMENT_EPOCH = "movement:epoch";
+
+    private static final String MOVEMENT_OWNER_PREFIX = "movement:owner:";
+    private static final String MOVEMENT_ROOM_PREFIX = "movement:room:";
+
+    /** 빈자리 있는 바다 방 id 집합. TTL 을 걸면 만료 순간 전원이 새 방을 만들어서 걸지 않는다. */
+    public static final String SEA_ROOMS_OPEN = "sea:rooms:open";
+
+    /** 떠 있는(항해를 끝낸) 사용자 색인 — 점수는 adriftSince(epoch ms). {@code SCAN} 없이 10분 정리를 하려고 둔다. */
+    public static final String SEA_ADRIFT = "sea:adrift";
+
+    private static final String SEA_ROOM_PREFIX = "sea:room:";
+    private static final String SEA_USER_PREFIX = "sea:user:";
+    private static final String SEA_ENTER_PREFIX = "lock:chat:sea:enter:";
+    private static final String SEA_EMOTE_RATE_PREFIX = "lock:chat:sea:emote:";
+    private static final String SEA_EMOTE_ATTEMPT_PREFIX = "lock:chat:sea:emote:try:";
+    private static final String MEMBER_CACHE_PREFIX = "cache:chat:member:";
+    private static final String MEMBER_EVICT_PREFIX = "cache:chat:membergen:";
+    private static final String BLOCK_CACHE_PREFIX = "cache:chat:block:";
+    private static final String BLOCK_GENERATION_PREFIX = "cache:chat:blockgen:";
+    private static final String REVOKED_SESSION_PREFIX = "cache:chat:revoked:";
+    private static final String FOCUS_PRESENCE_PREFIX = "presence:focus:";
+    private static final String EMOTE_RATE_PREFIX = "lock:chat:emote:";
+    private static final String EMOTE_ATTEMPT_PREFIX = "lock:chat:emote:try:";
+    private static final String EMOTE_SUBSCRIBE_PREFIX = "lock:chat:emote:sub:";
+    private static final String MOVEMENT_SUBSCRIBE_PREFIX = "lock:chat:movement:sub:";
+    private static final String ISLAND_EVENTS_SUBSCRIBE_PREFIX = "lock:chat:events:sub:";
+
+    private RedisKeys() {
+    }
+
+    /** 그 인스턴스 앞으로만 가는 이동 명령 채널 — PING 대조(GROMO-2352). 나머지 명령은 {@link #MOVEMENT_CMD_CHANNEL}. */
+    public static String movementCmdChannel(String instanceId) {
+        return MOVEMENT_CMD_CHANNEL + ":" + instanceId;
+    }
+
+    /** 그 섬 이동 방의 소유자 리스 — 값 {@code <instanceId>:<epoch>}(GROMO-2339). */
+    public static String movementOwner(UUID islandId) {
+        return MOVEMENT_OWNER_PREFIX + islandId;
+    }
+
+    /** 종료하는 소유자가 남긴 그 섬 위치 스냅샷 — 새 소유자가 한 번 읽고 지운다(GROMO-2339 단계 B). */
+    public static String movementHandoff(UUID islandId) {
+        return MOVEMENT_ROOM_PREFIX + islandId + ":handoff";
+    }
+
+    /** 유저가 속한 그룹 id 집합(SET). 값은 groupId 의 문자열 표현이다. */
+    public static String memberCache(UUID userId) {
+        return MEMBER_CACHE_PREFIX + userId;
+    }
+
+    /**
+     * 멤버십 캐시의 무효화 표식(GROMO-2141) — 값은 {@code MembershipService#evict} 가 쓰는 무작위 문자열이고 없으면 «표식 없음»이다.
+     *
+     * <p>조회는 상류를 부르기 «전에» 이 값을 읽어 두고, 적재할 때 그 값이 그대로일 때만 {@link #memberCache} 를 쓴다. 강퇴 커밋 직전에
+     * 시작한 조회가 무효화(키 삭제)보다 늦게 적재하면 지우기만으로는 옛 집합이 TTL 내내 살아남기 때문이다. {@link #memberCache} 값
+     * 형식은 그대로 두려고 차단 캐시처럼 세대를 값에 싣지 않고 키를 따로 둔다. 접두사를 {@code cache:chat:member:} 와 일부러 다르게 둔다 —
+     * 그 패턴을 훑는 운영 명령에 표식이 섞이지 않게.
+     */
+    public static String memberGeneration(UUID userId) {
+        return MEMBER_EVICT_PREFIX + userId;
+    }
+
+    /**
+     * 그 유저가 차단한 사용자 id 집합(GROMO-2182) — 값은 {@code <세대>|<id>,<id>…} 문자열 하나다.
+     *
+     * <p>세대를 값에 함께 싣는 이유는 «늦게 도착한 적재»를 거르기 위해서다. 차단 직전에 시작한 Data 조회가
+     * 차단 사건의 무효화보다 늦게 캐시를 쓰면, 지우기만 하는 무효화로는 옛 집합이 TTL 내내 살아남는다.
+     * 읽을 때 {@link #blockGeneration} 과 대조해 다르면 버린다.
+     */
+    public static String blockCache(UUID userId) {
+        return BLOCK_CACHE_PREFIX + userId;
+    }
+
+    /**
+     * 폐기된 로그인 세션 펜스(GROMO-2350) — 값 {@code 1}, TTL 이 곧 그 sid 의 AT 가 거절되기까지의 남은 시간. 재시작·다른 인스턴스의
+     * CONNECT 도 막는다. {@code cache:chat:*} 쓰기 패턴 안이라 ACL 을 늘리지 않는다.
+     */
+    public static String revokedSession(UUID sessionId) {
+        return REVOKED_SESSION_PREFIX + sessionId;
+    }
+
+    /**
+     * 그 유저의 차단 세대(GROMO-2182). 없으면 0 으로 읽는다. {@link #blockCache} 와 접두사를 일부러
+     * 다르게 둔다 — {@code cache:chat:block:*} 를 훑는 운영 명령에 세대 키가 섞이지 않게.
+     */
+    public static String blockGeneration(UUID userId) {
+        return BLOCK_GENERATION_PREFIX + userId;
+    }
+
+    /**
+     * 집중 세션 리스 — <b>존재 자체가 «집중 중»이라는 뜻</b>이고 값은 보지 않는다.
+     *
+     * <p>값을 판정에 쓰지 않는 건 의도다. 값을 읽어 해석하기 시작하면 Data API 가 무엇을 담는지가
+     * 채팅의 계약이 되어, 그쪽이 포맷을 바꾸는 순간 이쪽이 조용히 오판한다. 존재 여부만 보면 그 결합이
+     * 생기지 않는다.
+     *
+     * <p><b>값에 무엇이 들어 있는지는 이미 두 번 바뀌었다</b>(GROMO-1743 순번 · GROMO-2003
+     * {@code 순번:controlVersion:상태}). 두 번 다 이쪽은 한 줄도 고치지 않았다 — 그게 이 결정이 값을
+     * 치른 만큼 돌려받은 자리다. 특히 지금의 값은 {@code active} 와 {@code paused} 를 구분해 담지만,
+     * <b>둘 다 채팅 차단</b>이다(휴식 중 채팅 허용은 미결 제품 결정 FR-D04, focus-rest-session LLD §6).
+     * 그 결정이 나면 고칠 곳은 여기가 아니라 Data 쪽의 「어느 상태에 키를 남기는가」다 — 이쪽은 계속
+     * 존재만 본다.
+     */
+    public static String focusPresence(UUID userId) {
+        return FOCUS_PRESENCE_PREFIX + userId;
+    }
+
+    /**
+     * 응원 빈도 제한 창 — <b>키의 존재 자체가 「이 창에서 이미 보냈다」</b>이고 값은 보지 않는다.
+     *
+     * <p>세는 대신 {@code SET key value NX EX ttl} 한 명령으로 «있으면 거절»한다. INCR 로 세면 수명을
+     * 거는 EXPIRE 가 별도 명령이라, 그 사이에 끊기면 수명 없는 카운터가 남아 그 사람이 영영 응원을 못
+     * 보낸다 — {@code MembershipService} 가 SET 대신 문자열 하나를 쓰는 것과 같은 이유다.
+     */
+    public static String emoteRateLimit(UUID islandId, UUID userId) {
+        return EMOTE_RATE_PREFIX + islandId + ":" + userId;
+    }
+
+    /**
+     * 응원 <b>시도</b> 창 — 성공 창({@link #emoteRateLimit})과 <b>키도 축도 다르다</b>.
+     *
+     * <h2>왜 섬이 키에 없는가</h2>
+     * 막으려는 것이 「<b>임의의 섬 UUID</b> 로 보내는 거절 요청」이기 때문이다. 섬을 키에 넣으면
+     * 공격자가 매번 새 UUID 를 써서 제한을 통째로 비켜 가고, 거절 하나하나가 Data 정본 조회 한 번을
+     * 부른다 — 인가가 거절해도 <b>비용은 이미 치른 뒤</b>다. 사용자 축이어야 그 창이 닫힌다.
+     *
+     * <h2>왜 성공 창과 나누는가</h2>
+     * 한 키로 합치면 잘못된 type 한 번이 정상 응원의 창까지 먹는다. 나눠 두면 거절은 시도 창만
+     * 소모하고 성공 창은 온전히 남는다.
+     */
+    public static String emoteAttempt(UUID userId) {
+        return EMOTE_ATTEMPT_PREFIX + userId;
+    }
+
+    /**
+     * 응원 <b>구독</b> 시도 창 — 발신 창({@link #emoteAttempt})과 <b>키를 나눈다</b>.
+     *
+     * <p>SUBSCRIBE 도 Data 정본 조회를 한 번 부른다. 같은 목적지에 {@code subscription id} 만 바꿔
+     * 반복 SUBSCRIBE 하면 프레임마다 동기 HTTP 가 나가 인바운드 채널과 Data API 가 고갈된다 —
+     * 발신만 막고 구독을 열어 두면 상한이 반쪽이다.
+     *
+     * <p>발신 창과 합치지 않는 이유는 정상 사용을 막기 때문이다: 응원을 보낸 직후 재구독하는
+     * (재연결 직후가 그렇다) 클라이언트가 자기 발신 때문에 구독을 거절당한다.
+     */
+    public static String emoteSubscribeAttempt(UUID userId) {
+        return EMOTE_SUBSCRIBE_PREFIX + userId;
+    }
+
+    /**
+     * 이동 <b>구독</b> 시도 창(GROMO-2247) — {@link #emoteSubscribeAttempt} 와 같은 방식, 사용자 축.
+     *
+     * <p>이동 SUBSCRIBE 는 멤버십 조회를 부른다(옵션 ON 이면 Data HTTP). 그 섬 이동 토픽 둘 중 <b>먼저 오는
+     * 하나만</b> 이 창을 쓴다 — 같은 세션의 짝 토픽은 그 판정을 이어받으므로(관문 참고) 앱이 접속마다 두 토픽을
+     * 연달아 구독해도 창에 걸리지 않는다.
+     */
+    public static String movementSubscribeAttempt(UUID userId) {
+        return MOVEMENT_SUBSCRIBE_PREFIX + userId;
+    }
+
+    /**
+     * 섬 {@code events} <b>구독</b> 시도 창(GROMO-2302) — {@link #movementSubscribeAttempt} 와 같은 방식, 사용자 축.
+     * 이동 창과 나누는 이유는 앱이 접속마다 두 토픽을 연달아 구독하기 때문이다 — 합치면 둘째가 창에 걸린다.
+     */
+    public static String islandEventsSubscribeAttempt(UUID userId) {
+        return ISLAND_EVENTS_SUBSCRIBE_PREFIX + userId;
+    }
+
+    /** 바다 방 구성원(SET userId). */
+    public static String seaRoomMembers(UUID roomId) {
+        return SEA_ROOM_PREFIX + roomId + ":members";
+    }
+
+    /** 사용자 바다 상태(HASH) — 방 소속의 정본이다. 전달 직전 검사가 프레임마다 {@code roomId} 를 읽는다. */
+    public static String seaUser(UUID userId) {
+        return SEA_USER_PREFIX + userId;
+    }
+
+    /** 바다 입장 시도 창 — 사용자 축(입장마다 Data 조회 2회를 부르므로 그 상한). */
+    public static String seaEnterAttempt(UUID userId) {
+        return SEA_ENTER_PREFIX + userId;
+    }
+
+    /** 바다 방 이모트 <b>발신</b> 시도 창 — 사용자 축({@link #emoteAttempt} 와 같은 이유). */
+    public static String seaEmoteAttempt(UUID userId) {
+        return SEA_EMOTE_ATTEMPT_PREFIX + userId;
+    }
+
+    /** 바다 방 이모트 <b>성공</b> 창 — {@link #emoteRateLimit} 의 바다 방 판. */
+    public static String seaEmoteRateLimit(UUID roomId, UUID userId) {
+        return SEA_EMOTE_RATE_PREFIX + roomId + ":" + userId;
+    }
+}

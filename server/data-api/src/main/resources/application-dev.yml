@@ -1,0 +1,119 @@
+spring:
+  datasource:
+    url: ${API_DB_URL}
+    username: ${API_DB_USERNAME}
+    password: ${API_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      # 스키마 변경은 마이그레이션으로만 반영. 엔티티↔DB 드리프트 시 기동 거부해 조기 탐지 (GROMO-577)
+      # ※ live 배포(cd.yml → docker-compose.dev.yml)가 dev 프로파일로 동작하므로 사실상 운영 DB를 검증한다.
+      ddl-auto: validate
+  # 기존 DB는 docs/db/rebase-v0.py로 검증·백업한 뒤 Catus V0 이력으로 전환한다.
+  flyway:
+    enabled: true
+    locations: classpath:db/v0
+    baseline-on-migrate: false
+    baseline-version: 0
+    out-of-order: false
+
+jwt:
+  secret: ${JWT_SECRET}
+  # dev 전용 장수명 access (GROMO-714) — refresh 토큰의 /api/* 직접 인증이 막히면서 dev 에서 API 를
+  # 찔러볼 때 1시간마다 재발급해야 하는 불편이 생긴다. dev 만 30일로 두고 prod 는 3600(1시간) 유지.
+  access-expiration: 2592000
+  refresh-expiration: 2592000
+  # 게스트 전용 refresh 수명(GROMO-1509) — 소셜은 만료돼도 재로그인으로 같은 계정에 돌아오지만
+  # 게스트는 돌아갈 곳이 없어 만료가 곧 계정 소실이다. 사실상 '이 기간 안 켜면 계정 삭제'.
+  guest-refresh-expiration: 7776000   # 90일
+
+apple:
+  jwks-url: https://appleid.apple.com/auth/keys
+  client-id: ${APPLE_CLIENT_ID}
+
+kakao:
+  api-base-url: https://kapi.kakao.com
+
+google:
+  jwks-url: https://www.googleapis.com/oauth2/v3/certs
+  client-id: ${GOOGLE_CLIENT_ID}
+
+line:
+  api-base-url: https://api.line.me
+
+instagram:
+  api-base-url: https://graph.instagram.com
+
+facebook:
+  jwks-url: https://www.facebook.com/.well-known/oauth/openid/jwks/
+  client-id: ${FACEBOOK_CLIENT_ID:990121817063522}
+
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: false
+
+# 관측 (GROMO-588) — base application.yml 은 gitignored(로컬 전용)이라, 배포 이미지에 반영되려면
+# 관측 설정을 추적 파일인 이 dev 프로파일에 둔다. prometheus 는 공개 8080 이 아닌 내부 전용 관리 포트(9091)로
+# 격리 → docker-compose 에서 9091 호스트 미공개, app-network 안 Prometheus 만 app:9091 스크레이프.
+# JwtFilter 는 /api/* 만 필터하므로 /actuator/* 는 무인증 — 포트 격리로 공개 노출을 막는다.
+management:
+  health:
+    redis:
+      # Redis 는 이 서비스의 «부가» 의존성이다. 켜 두면 Redis 장애가 곧 컨테이너 unhealthy 가 되어
+      # 멀쩡한 배포를 실패시킨다 — 정작 이 서비스의 Redis 쓰기는 실패해도 무해한데.
+      enabled: false
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: gromo-back
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    # Grafana p95/p99(histogram_quantile) 용 버킷 생성
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web.servlet.DispatcherServlet: WARN
+    org.springframework.web.filter: WARN
+
+# 섬 초대 공유 URL의 도메인.
+link:
+  base-url: ${LINK_BASE_URL:https://oneorthree.dev.mooo.com}
+
+# ── 집중 프레즌스 (GROMO-292) ────────────────────────────────────────────────
+# 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거를 공유 Redis 에 놓는다(presence:focus:*).
+# 이 서비스는 «쓰기 주인»이고 쓰기는 전부 best-effort 다 — Redis 가 흔들려도 집중은 계속 돌아간다.
+#
+# 기본값이 false 인 것은 의도다: Redis·채팅이 실제로 뜬 뒤에 환경변수로 켠다. 안 뜬 상태에서 켜면
+# 집중 시작·종료마다 연결 타임아웃을 무는다.
+focus:
+  presence:
+    enabled: ${FOCUS_PRESENCE_ENABLED:false}
+
+spring.data.redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  username: ${REDIS_USERNAME:}
+  password: ${REDIS_PASSWORD:}
+  # timeout 은 «명령 응답» 대기만 제한한다 — 연결 수립은 connect-timeout 이 따로 막는다.
+  # 이걸 비워 두면 Lettuce 기본값(10초)이라, Redis 주소가 패킷을 드롭하는 장애에서 요청 스레드가
+  # 10초를 통째로 기다린다. 프레즌스는 AFTER_COMMIT 에서 «동기»로 도는데, 그 시점엔 집중 시작·종료가
+  # 이미 커밋돼 있다 — 즉 부가 기능의 연결 지연이 핵심 기능의 응답을 10초 늦추고 클라 재시도를 부른다.
+  # best-effort 라면 «빨리» 실패해야 한다.
+  connect-timeout: 500ms
+  timeout: 2s
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true

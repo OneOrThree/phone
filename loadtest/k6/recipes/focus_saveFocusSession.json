@@ -9,7 +9,20 @@
   "query": [],
   "body": {
     "gen": "object",
-    "props": {}
+    "props": {
+      "startedAt": {
+        "gen": "datetime",
+        "offsetDays": -0.041666666666666664
+      },
+      "endedAt": {
+        "gen": "datetime",
+        "offsetDays": -0.020833333333333332
+      },
+      "totalDistractionSeconds": {
+        "gen": "const",
+        "value": 0
+      }
+    }
   },
   "paginate": null,
   "gaps": [],

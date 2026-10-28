@@ -1,0 +1,264 @@
+{
+  "project_id": 669473,
+  "dashboard_id": 2234114,
+  "title": "Catus · 섬과 친구",
+  "description": "섬에 소속된 사람과 표류 중인 사람, 친구 수와 재방문 차이를 살펴봅니다.",
+  "pinned": false,
+  "tiles": [
+    {
+      "type": "text",
+      "tile_id": 13905385,
+      "layouts": {
+        "sm": {
+          "h": 1,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "xs": {
+          "h": 2,
+          "w": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "order": 0,
+      "body": "최근 28일에 관측된 사용자 기준입니다. 전체 가입자 통계와 다를 수 있으며, 확인하지 못한 상태는 따로 표시합니다. 날짜별 집계는 한국 시간 기준입니다.\n\n**다른 대시보드:** [첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995) · [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)"
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905373,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 1
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 2
+        }
+      },
+      "order": 1,
+      "insight_id": 12957030,
+      "title": "섬 소속과 표류 중인 사람",
+      "description": "최근 28일에 활동이나 섬 상태가 기록된 사람을 가장 최근 상태로 나눈 수입니다. 소속 섬이 없는 사람은 표류로, 상태를 확인하지 못한 사람은 별도로 표시합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), active_people AS (\n SELECT person_id\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'app_active'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), latest_snapshots AS (\n SELECT person_id, 1 AS has_snapshot,\n  argMax(tuple(toString(properties.island_status)), timestamp) AS snapshot\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'social_state_observed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), population AS (\n SELECT person_id FROM active_people\n UNION DISTINCT\n SELECT person_id FROM latest_snapshots\n), classified AS (\n SELECT p.person_id,\n  multiIf(\n   ifNull(l.has_snapshot, 0) = 0, '스냅샷 없음',\n   tupleElement(l.snapshot, 1) = 'member', '섬 소속',\n   tupleElement(l.snapshot, 1) = 'drifting', '표류',\n   '미확인'\n  ) AS category\n FROM population p\n LEFT JOIN latest_snapshots l ON p.person_id = l.person_id\n)\nSELECT category AS \"구분\", count() AS \"사용자 수\"\nFROM classified\nGROUP BY category\nORDER BY \"사용자 수\" DESC",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsBar",
+        "chartSettings": {
+          "xAxis": {
+            "column": "구분"
+          },
+          "yAxis": [
+            {
+              "column": "사용자 수"
+            }
+          ]
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905374,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 1
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 7
+        }
+      },
+      "order": 2,
+      "insight_id": 12957031,
+      "title": "섬 상태별 다음 날·7일 뒤 재방문",
+      "description": "최근 28일 안에서 처음 확인한 섬 상태별로, 다음 날과 7일 뒤 앱에 다시 온 비율입니다. 가입일 기준이 아니며, 비교할 날짜가 지난 사람만 포함합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), first_snapshot AS (\n SELECT person_id, min(timestamp) AS first_at,\n  argMin(tuple(toString(properties.island_status)), timestamp) AS snapshot\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'social_state_observed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), cohort AS (\n SELECT person_id,\n  toDate(toTimeZone(first_at, 'Asia/Seoul')) AS cohort_day,\n  multiIf(tupleElement(snapshot, 1) = 'member', '섬 소속', tupleElement(snapshot, 1) = 'drifting', '표류', '미확인') AS island_status\n FROM first_snapshot\n), active_days AS (\n SELECT person_id, toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS active_day\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'app_active'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id, active_day\n), per_user AS (\n SELECT c.person_id, c.island_status, c.cohort_day,\n  max(if(a.active_day = c.cohort_day + INTERVAL 1 DAY, 1, 0)) AS returned_d1,\n  max(if(a.active_day = c.cohort_day + INTERVAL 7 DAY, 1, 0)) AS returned_d7\n FROM cohort c\n LEFT JOIN active_days a ON c.person_id = a.person_id\n GROUP BY c.person_id, c.island_status, c.cohort_day\n), aggregated AS (\n SELECT island_status,\n  countIf(cohort_day + INTERVAL 1 DAY < toDate(toTimeZone(now(), 'Asia/Seoul'))) AS d1_n,\n  countIf(cohort_day + INTERVAL 1 DAY < toDate(toTimeZone(now(), 'Asia/Seoul')) AND returned_d1 = 1) AS d1_returned,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul'))) AS d7_n,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul')) AND returned_d7 = 1) AS d7_returned\n FROM per_user\n GROUP BY island_status\n)\nSELECT island_status AS \"첫 관측 섬 상태\",\n nullIf(d1_n, 0) AS \"D1 성숙 분모\",\n if(d1_n = 0, NULL, d1_returned) AS \"D1 재방문자\",\n round(100.0 * d1_returned / nullIf(d1_n, 0), 2) AS \"D1 재방문율 퍼센트\",\n nullIf(d7_n, 0) AS \"D7 성숙 분모\",\n if(d7_n = 0, NULL, d7_returned) AS \"D7 재방문자\",\n round(100.0 * d7_returned / nullIf(d7_n, 0), 2) AS \"D7 재방문율 퍼센트\"\nFROM aggregated\nORDER BY \"첫 관측 섬 상태\"",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905375,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 6
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 12
+        }
+      },
+      "order": 3,
+      "insight_id": 12957034,
+      "title": "친구는 평균 몇 명일까",
+      "description": "최근 28일에 친구 수가 확인된 사람들의 평균·중앙 친구 수와 친구가 0명인 비율입니다. 서로 수락한 친구만 세고, 확인하지 못한 사람은 평균에서 제외합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), latest AS (\n SELECT person_id,\n  argMax(tuple(toFloatOrNull(toString(properties.friend_count))), timestamp) AS snapshot\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'social_state_observed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), values_by_user AS (\n SELECT person_id, if(tupleElement(snapshot, 1) >= 0, tupleElement(snapshot, 1), NULL) AS friend_count\n FROM latest\n), totals AS (\n SELECT count() AS observed_n, count(friend_count) AS known_n,\n  countIf(isNull(friend_count)) AS unknown_n,\n  sumIf(friend_count, isNotNull(friend_count)) AS friend_sum,\n  countIf(friend_count = 0) AS zero_n,\n  (quantileExact(0.5)(friend_count) - quantileExact(0.5)(-friend_count)) / 2.0 AS median_value\n FROM values_by_user\n)\nSELECT\n if(known_n = 0, NULL, round(friend_sum / known_n, 2)) AS \"평균 친구 수\",\n if(known_n = 0, NULL, median_value) AS \"중앙값 친구 수\",\n if(known_n = 0, NULL, round(100.0 * zero_n / known_n, 2)) AS \"친구 0명 비율 퍼센트\",\n if(observed_n = 0, NULL, known_n) AS \"측정 인원\",\n if(observed_n = 0, NULL, unknown_n) AS \"미확인 인원\"\nFROM totals",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905376,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 6
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 17
+        }
+      },
+      "order": 4,
+      "insight_id": 12957035,
+      "title": "친구 수별 사용자 분포",
+      "description": "최근 28일에 기록된 최신 친구 수를 기준으로 0명·1명·2~4명·5명 이상인 사람의 수를 보여줍니다. 친구 수를 확인하지 못한 사람은 별도로 표시합니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), latest AS (\n SELECT person_id,\n  argMax(tuple(toFloatOrNull(toString(properties.friend_count))), timestamp) AS snapshot\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'social_state_observed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), classified AS (\n SELECT person_id,\n  multiIf(tupleElement(snapshot, 1) = 0, '0명', tupleElement(snapshot, 1) = 1, '1명', tupleElement(snapshot, 1) >= 2 AND tupleElement(snapshot, 1) <= 4, '2~4명', tupleElement(snapshot, 1) >= 5, '5명 이상', '미확인') AS bucket\n FROM latest\n)\nSELECT bucket AS \"친구 구간\", count() AS \"사용자 수\"\nFROM classified\nGROUP BY bucket\nORDER BY multiIf(bucket = '0명', 1, bucket = '1명', 2, bucket = '2~4명', 3, bucket = '5명 이상', 4, 5)",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsBar",
+        "chartSettings": {
+          "xAxis": {
+            "column": "친구 구간"
+          },
+          "yAxis": [
+            {
+              "column": "사용자 수"
+            }
+          ]
+        }
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905377,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 11
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 22
+        }
+      },
+      "order": 5,
+      "insight_id": 12957036,
+      "title": "친구 수별 7일 뒤 재방문",
+      "description": "최근 28일 안에서 처음 상태를 확인했을 때 섬에 소속되어 있던 사람을 친구 수로 나눠, 7일 뒤 재방문 비율을 비교합니다. 친구가 재방문을 늘렸다는 인과관계를 뜻하지는 않습니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), first_snapshot AS (\n SELECT person_id, min(timestamp) AS first_at,\n  argMin(tuple(toString(properties.island_status), toFloatOrNull(toString(properties.friend_count)), toString(properties.friend_bucket)), timestamp) AS snapshot\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'social_state_observed'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id\n), cohort AS (\n SELECT person_id, toDate(toTimeZone(first_at, 'Asia/Seoul')) AS cohort_day,\n  if(tupleElement(snapshot, 2) >= 0 AND tupleElement(snapshot, 3) IN ('0','1','2-4','5+'), tupleElement(snapshot, 3), 'unknown') AS friend_bucket\n FROM first_snapshot\n WHERE tupleElement(snapshot, 1) = 'member'\n), active_days AS (\n SELECT person_id, toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS active_day\n FROM filtered_events\n WHERE properties.analytics_environment = 'production'\n  AND event = 'app_active'\n  AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n  AND timestamp <= now()\n GROUP BY person_id, active_day\n), per_user AS (\n SELECT c.person_id, c.friend_bucket, c.cohort_day,\n  max(if(a.active_day = c.cohort_day + INTERVAL 7 DAY, 1, 0)) AS returned\n FROM cohort c\n LEFT JOIN active_days a ON c.person_id = a.person_id\n GROUP BY c.person_id, c.friend_bucket, c.cohort_day\n), aggregated AS (\n SELECT friend_bucket,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul'))) AS mature_n,\n  countIf(cohort_day + INTERVAL 7 DAY < toDate(toTimeZone(now(), 'Asia/Seoul')) AND returned = 1) AS returned_n\n FROM per_user\n GROUP BY friend_bucket\n)\nSELECT friend_bucket AS \"첫 관측 친구 구간\",\n nullIf(mature_n, 0) AS \"D7 성숙 분모\",\n if(mature_n = 0, NULL, returned_n) AS \"D7 재방문자\",\n round(100.0 * returned_n / nullIf(mature_n, 0), 2) AS \"D7 재방문율 퍼센트\"\nFROM aggregated\nORDER BY multiIf(friend_bucket = '0', 1, friend_bucket = '1', 2, friend_bucket = '2-4', 3, friend_bucket = '5+', 4, 5)",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "show_description": true
+    },
+    {
+      "type": "insight",
+      "tile_id": 13905378,
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "xs": {
+          "h": 5,
+          "w": 1,
+          "x": 0,
+          "y": 27
+        }
+      },
+      "order": 6,
+      "insight_id": 12957038,
+      "title": "섬에 합류한 방법",
+      "description": "최근 28일에 섬을 직접 만들거나, 가입하거나, 승인을 받아 합류한 사람의 수입니다. 한 사람이 여러 방법으로 합류하면 각 항목에 포함됩니다.",
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters})\nSELECT\n multiIf(properties.method = 'created', '생성', properties.method = 'joined', '가입', properties.method = 'approved', '승인', '미확인') AS \"활성화 방식\",\n uniqExact(person_id) AS \"사용자 수\"\nFROM filtered_events\nWHERE properties.analytics_environment = 'production'\n AND event = 'island_membership_activated'\n AND toDate(toTimeZone(timestamp, 'Asia/Seoul')) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n AND timestamp <= now()\nGROUP BY \"활성화 방식\"\nORDER BY \"사용자 수\" DESC",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsBar",
+        "chartSettings": {
+          "xAxis": {
+            "column": "활성화 방식"
+          },
+          "yAxis": [
+            {
+              "column": "사용자 수"
+            }
+          ]
+        }
+      },
+      "show_description": true
+    }
+  ],
+  "dashboard_url": "https://us.posthog.com/project/669473/dashboard/2234114"
+}

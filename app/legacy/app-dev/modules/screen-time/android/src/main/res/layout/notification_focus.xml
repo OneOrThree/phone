@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  접힌 알림 본문 — iOS Live Activity의 **컴팩트 다이나믹 아일랜드**에 대응한다.
+  (캐릭터 + 과목 + 경과 타이머, 그 이상은 안 넣는다.)
+
+  ⚠️ 높이 상한 48dp. DecoratedCustomViewStyle의 접힌 본문은 시스템이 이 높이로 자른다 —
+  넘기면 캐릭터 아래가 잘린다. 여기 값을 올리려면 실기기에서 잘림부터 확인할 것.
+
+  색은 하드코딩하지 않고 ?android:attr/textColor* 를 쓴다. 알림은 시스템 테마 위에 그려지고
+  다크 모드에서 배경이 뒤집히므로, ink(#1C1E22)를 박으면 다크에서 글자가 사라진다.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="48dp"
+  android:orientation="horizontal"
+  android:gravity="center_vertical"
+  android:paddingEnd="16dp">
+
+  <ImageView
+    android:id="@+id/notif_character"
+    android:layout_width="44dp"
+    android:layout_height="44dp"
+    android:adjustViewBounds="true"
+    android:scaleType="fitCenter"
+    android:contentDescription="@null" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:layout_marginStart="10dp"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/notif_subject"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:textSize="14sp"
+      android:textStyle="bold"
+      android:textColor="?android:attr/textColorPrimary" />
+
+    <TextView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:id="@+id/notif_caption"
+      android:text="집중하는 중이에요!"
+      android:textSize="12sp"
+      android:textColor="?android:attr/textColorSecondary" />
+  </LinearLayout>
+
+  <!--
+    Chronometer는 시스템이 초당 자체 갱신한다 — 우리가 1초마다 알림을 다시 쏘지 않아도 된다
+    (iOS의 Text(timerInterval:)와 같은 역할).
+  -->
+  <Chronometer
+    android:id="@+id/notif_timer"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:textSize="16sp"
+    android:textStyle="bold"
+    android:fontFamily="monospace"
+    android:textColor="?android:attr/textColorPrimary" />
+</LinearLayout>

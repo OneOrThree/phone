@@ -4,7 +4,7 @@ argument-hint: "<spec 파일명, e.g. bfeat-group-read>"
 allowed-tools: Bash, Read, Edit, Write
 ---
 
-`back/docs/skeleton/$ARGUMENTS.md` 를 읽고 거기에 명시된 파일 목록대로 골격을 생성한다.
+`server/data-api/docs/skeleton/$ARGUMENTS.md` 를 읽고 거기에 명시된 파일 목록대로 골격을 생성한다.
 
 ## 생성 규칙
 
@@ -69,7 +69,7 @@ public class FooService {
 
 **migration SQL 파일 (Flyway)**
 - 완성 코드로 작성한다 (골격 아님 — DDL은 TODO로 미룰 수 없다).
-- `back/src/main/resources/db/migration/V<N+1>__<desc>.sql` — 버전은 기존 파일의
+- `server/data-api/src/main/resources/db/migration/V<N+1>__<desc>.sql` — 버전은 기존 파일의
   **숫자 max+1** (사전순 정렬 금지: `V9`가 `V15`보다 뒤에 온다).
 - 최근 `V<N>__*.sql` 스타일을 따른다: 한국어 헤더 주석(`-- GROMO-####: ...`) + forward DDL.
 - 이미 적용된 마이그레이션은 절대 수정하지 않는다 (Flyway 체크섬).
@@ -98,7 +98,7 @@ public class FooService {
 - `service/GroupService.java` — fooMethod() 추가
 
 ### migration
-- `back/src/main/resources/db/migration/V<N+1>__create_foo.sql` — foo 테이블 생성
+- `server/data-api/src/main/resources/db/migration/V<N+1>__create_foo.sql` — foo 테이블 생성
 
 ## GROMO-YYY: ...
 ```

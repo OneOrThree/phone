@@ -29,7 +29,8 @@
   },
   "paginate": null,
   "gaps": [
-    "path.announcementId"
+    "path.announcementId",
+    "contract:시드·상태 전이 검증 필요"
   ],
   "runnable": false
 }
