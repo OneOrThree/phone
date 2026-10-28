@@ -4,6 +4,8 @@
  * 동기화 위치가 없는 주민(FullState 전·채널 거절·미접속·목업 섬·웹)은 고정 자리(StandingResident)에 서 있다.
  */
 import React from 'react';
+import * as apiClient from '@/services/api/client';
+import { memberLooks } from '@/services/memberLooks';
 import { Animated, AppState } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
@@ -1827,4 +1829,35 @@ describe('initialMapAssets (GROMO-2244)', () => {
     expect(initialMapAssets(false, false, promote)).toEqual({ kind: 'bundle' });
     expect(promote).not.toHaveBeenCalled();
   });
+});
+
+it('홈 스냅샷의 최신 외양을 공용 캐시에 병합하고 재진입의 옛 응답으로 되돌리지 않는다', async () => {
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [
+      { userId: U1, catColor: 'ginger', appearance: { head: 'old', neck: null, version: 1 } },
+    ],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([U1]);
+  const island = nextIsland();
+  const state = serverState(island);
+  (state.serverIslands as any).home.members[1].appearance = { head: 'new', neck: null, version: 4 };
+  const screen = await renderHome(island, { state });
+  const headOf = (screen: Screen) =>
+    screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === 'ginger')
+      ?.props.testPropOutfit?.head;
+  expect(headOf(screen)).toBe('new');
+  expect(memberLooks.get(U1)?.appearance?.version).toBe(4);
+  await screen.unmount();
+  const oldState = serverState(island);
+  (oldState.serverIslands as any).home.members[1].appearance = {
+    head: 'stale',
+    neck: null,
+    version: 2,
+  };
+  const reopened = await renderHome(island, { state: oldState });
+  expect(headOf(reopened)).toBe('new');
+  expect(memberLooks.get(U1)?.appearance?.version).toBe(4);
+  await reopened.unmount();
+  request.mockRestore();
 });

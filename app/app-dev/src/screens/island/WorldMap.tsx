@@ -129,6 +129,7 @@ import {
   lookOf,
   newerLook,
   parseAppearanceEvent,
+  parseLook,
   type MemberLook,
 } from '@/services/memberAppearance';
 import {
@@ -2233,6 +2234,12 @@ function FinalIslandScene({
   // (서버는 내가 차단한 주민의 catColor 를 null 로 가린다)을 빼도 다른 주민 자리가 당겨지지 않게.
   const blockedIds = useBlockedUserIds(false);
   const residentLooks = useMemberLooks(facts?.members.map((member) => member.id) ?? [], !!facts);
+  useEffect(() => {
+    for (const member of facts?.members ?? []) {
+      const appearance = parseLook(member.appearance);
+      if (appearance) memberLooks.accept(member.id, appearance);
+    }
+  }, [facts]);
   const residents = useMemo(() => {
     const myId = getSession()?.userId;
     const others = facts
@@ -2245,7 +2252,14 @@ function FinalIslandScene({
               !!(residentLooks[m.id] ? residentLooks[m.id].catColor : m.catColor) &&
               !residentLooks[m.id]?.hidden,
             color: catColor(residentLooks[m.id] ? residentLooks[m.id].catColor : m.catColor),
-            outfit: lookOf(looks, m.id, residentLooks[m.id] ?? m),
+            outfit: lookOf(looks, m.id, {
+              ...m,
+              ...residentLooks[m.id],
+              appearance: newerLook(
+                parseLook(m.appearance),
+                residentLooks[m.id]?.appearance ?? null,
+              ),
+            }),
           }))
       : i.members
           .filter((m) => m.id !== 'me')
