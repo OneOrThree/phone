@@ -216,7 +216,7 @@ server/.github/workflows/
 
 ### 기기 등록·발송 게이트 운영 규칙
 
-Data 알림 export·Notification import/verify 검증 경로는 #1247(티켓 2421)에서 제거했다. 발송 게이트의 개방·차단은 아래 규칙에 따른다.
+Data 알림 export·Notification import/verify 검증 경로는 #1247(티켓 2421)에서 제거했다. 발송 게이트의 개방·차단은 [Notification 운영 절차](../../server/notification/README.md#dev-발송-게이트)를 따른다.
 
 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/fishcat/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
 

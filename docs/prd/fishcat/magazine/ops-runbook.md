@@ -211,7 +211,7 @@ SELECT count(*) FROM users WHERE is_guest = false AND is_deleted = false;
 2. **Flyway(당시)**: data-api V125·V126과 알림 서버 V8을 기준으로 한 조치였다. V0 이후 DB의 `flyway_schema_history`에는 data-api V125·V126 행이 없으므로 현재 DB에 그대로 적용하지 않는다.
 3. **2306**: `telescope_buckets` 행이 남아, 재배포하면 같은 1시간 안의 낡은 스냅샷이 정본처럼 재사용된다(영향 작음). 당겨진 핀 `expires_at` 은 복구할 수 없다.
 4. **2305**: 롤백 사이 비공개 섬이 낸 홍보는 돈이 빠졌는데 잡지에 실리지 않는 상태다. `groups.is_private` 는 현재 값이므로, 현재 비공개인 섬의 홍보 중 롤백 기간에 신청된 것(`island_promotions.applied_at` 범위, 조인 `island_promotions.island_id = groups.id`)을 센다. 환불 판단의 후보 목록일 뿐이다.
-5. **2307**: 재배포 뒤 `notified_at` 이 NULL 인 오늘 호는 첫 틱에 다시 펼쳐지지만, 선점 행이 중복을 막는다.
+5. **2307**: 재배포 뒤 `notified_at`이 NULL인 오늘 호는 첫 틱에 다시 펼쳐진다. 이미 적힌 사용자별 사건은 결정적 사건 키가 중복을 접는다.
 
 ### 4-7. 10/16 마무리 에픽 — 배포 직후 확인
 
