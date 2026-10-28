@@ -85,9 +85,6 @@ class IslandBlockFilterIntegrationTest {
         MessageAuthorsResponse unblocked = mailbox.authors(is.id, viewer, List.of(is.owner, other));
         assertThat(unblocked.hiddenUserIds()).isEmpty();
         assertThat(unblocked.authors()).extracting(MailboxViewerResponse::userId).containsExactly(is.owner, other);
-        // 털색·착용 외양도 «추가» 필드로 실린다(GROMO-2389) — 외양 행이 없으면 기본 외양
-        assertThat(unblocked.authors()).allSatisfy(author ->
-                assertThat(author.appearance()).isNotNull());
     }
 
     @Test

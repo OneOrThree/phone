@@ -8,7 +8,6 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
-import com.oneorthree.phone.common.port.MemberLookPort;
 import com.oneorthree.phone.internal.dto.LetterItemView;
 import com.oneorthree.phone.internal.dto.LetterSendRequest;
 import com.oneorthree.phone.internal.dto.LetterSliceView;
@@ -32,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -92,7 +90,6 @@ public class InternalLetterService {
     private final PerUserHourlyLimiter sendLimiter;
     private final BannedWords bannedWords;
     private final UserBlockService userBlockService;
-    private final MemberLookPort memberLooks;
 
     /**
      * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
@@ -104,8 +101,7 @@ public class InternalLetterService {
                                  GroupMemberRepository islandMemberships,
                                  IslandFacilityQueryService islandFacilityQueryService,
                                  @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter,
-                                 BannedWords bannedWords, UserBlockService userBlockService,
-                                 MemberLookPort memberLooks) {
+                                 BannedWords bannedWords, UserBlockService userBlockService) {
         this.letters = letters;
         this.users = users;
         this.friendships = friendships;
@@ -114,7 +110,6 @@ public class InternalLetterService {
         this.sendLimiter = sendLimiter;
         this.bannedWords = bannedWords;
         this.userBlockService = userBlockService;
-        this.memberLooks = memberLooks;
     }
 
     /**
@@ -168,10 +163,8 @@ public class InternalLetterService {
                 .receiver(receiver)
                 .content(content)
                 .build());
-        MemberLookPort.MemberLook look = memberLooks.looksByUserId(List.of(sender.getId())).get(sender.getId());
         return new LetterView(saved.getId(), sender.getId(), sender.getNickname(),
-                receiver.getId(), saved.getContent(), saved.getCreatedAt(), null, null, null,
-                look == null ? null : look.catColor(), look == null ? null : look.appearance());
+                receiver.getId(), saved.getContent(), saved.getCreatedAt(), null, null, null);
     }
 
     /**
@@ -238,11 +231,8 @@ public class InternalLetterService {
                 ? letters.findSentByCursor(userId, cursor, PageRequest.of(0, pageSize))
                 : letters.findReceivedByCursor(userId, cursor, PageRequest.of(0, pageSize));
 
-        // 상대의 털색·외양은 id 묶음 한 번으로 읽는다(N+1 방지). 탈퇴한 상대는 맵에 없어 null 이다.
-        Map<UUID, MemberLookPort.MemberLook> looks = memberLooks.looksByUserId(page.getContent().stream()
-                .map(letter -> letter.counterpartOf(userId).getId()).toList());
         List<LetterItemView> items = page.getContent().stream()
-                .map(letter -> item(letter, userId, sent, looks.get(letter.counterpartOf(userId).getId())))
+                .map(letter -> item(letter, userId, sent))
                 .toList();
         UUID nextCursor = page.hasNext() && !items.isEmpty() ? items.get(items.size() - 1).id() : null;
         return new LetterSliceView(items, pageSize, page.hasNext(), nextCursor);
@@ -284,7 +274,7 @@ public class InternalLetterService {
             LetterKind kind = system.getKind();
             UUID islandId = system.getIslandId();
             Instant readAt = system.getReadAt() == null ? markRead(letterId) : system.getReadAt();
-            return new LetterView(letterId, null, null, userId, content, createdAt, readAt, kind, islandId, null, null);
+            return new LetterView(letterId, null, null, userId, content, createdAt, readAt, kind, islandId);
         }
         // 친구 편지 — 판정 순서는 종전 그대로다(게이트 → 없음 → 참여자). 조회를 앞당겼을 뿐 결과를 쓰는 것은 게이트 뒤다.
         requireMailboxUnlocked(caller);
@@ -308,14 +298,8 @@ public class InternalLetterService {
         if (!masked && readAt == null && receiverId.equals(userId)) {
             readAt = markRead(letterId);
         }
-        MemberLookPort.MemberLook look = memberLooks.looksByUserId(List.of(senderId)).get(senderId);
-        // 차단한 상대가 발신자일 때만 다른 목록처럼 기본 외양으로 가린다(version·hull 만 유지). 내가 쓴 편지의 발신자는 나다.
-        boolean hideLook = masked && !senderId.equals(userId);
-        String catColor = look == null || hideLook ? null : look.catColor();
-        MemberLookPort.Appearance appearance = look == null ? null
-                : hideLook ? neutral(look.appearance()) : look.appearance();
         return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt,
-                null, null, catColor, appearance);
+                null, null);
     }
 
     /**
@@ -410,24 +394,18 @@ public class InternalLetterService {
         return userBlockService.blockedIds(me).contains(letter.counterpartOf(me).getId());
     }
 
-    /** 차단 대상의 외양 — 착용 아이템·자리를 기본값으로 가린다. hull 과 version 은 유지한다(주민 목록과 같다). */
-    private static MemberLookPort.Appearance neutral(MemberLookPort.Appearance a) {
-        return new MemberLookPort.Appearance(null, null, null, null, null, a.hull(), "front", a.version());
-    }
-
-    private static LetterItemView item(Letter letter, UUID me, boolean sent, MemberLookPort.MemberLook look) {
+    private static LetterItemView item(Letter letter, UUID me, boolean sent) {
         User counterpart = letter.counterpartOf(me);
         // 보낸 편지함의 isRead 는 항상 false 로 고정한다 (LLD §1.13) — 상대의 열람 여부를 노출하지 않는다.
         boolean read = !sent && letter.getReadAt() != null;
         return new LetterItemView(letter.getId(), counterpart.getId(), counterpart.getNickname(),
-                letter.getContent(), read, letter.getCreatedAt(), null, null, null,
-                look == null ? null : look.catColor(), look == null ? null : look.appearance());
+                letter.getContent(), read, letter.getCreatedAt(), null, null, null);
     }
 
     /** 시스템 편지함의 한 건 (GROMO-2260) — 발신자가 없고 종류·섬·열람 시각이 함께 나간다. */
     private static LetterItemView systemItem(Letter letter) {
         return new LetterItemView(letter.getId(), null, null, letter.getContent(), letter.getReadAt() != null,
-                letter.getCreatedAt(), letter.getKind(), letter.getIslandId(), letter.getReadAt(), null, null);
+                letter.getCreatedAt(), letter.getKind(), letter.getIslandId(), letter.getReadAt());
     }
 
     /** 내가 받은 시스템 편지인가 — 시스템 편지는 수신자 본인에게만, 우체통 게이트 없이 열린다(GROMO-2260). */

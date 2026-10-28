@@ -167,39 +167,6 @@ class ChatOutboundChannelInterceptorTest {
         verify(blockedUsers, never()).hasBlocked(any(), any());
     }
 
-    @Test
-    void islandAppearanceFramesAreMaskedPerViewerEvenWhenTheFilterIsOff() throws Exception {
-        // 외양 사건(GROMO-2389)은 버리지 않고 가린다 — 필터 스위치와 무관하고 version 은 유지한다.
-        when(blockedUsers.enabled()).thenReturn(false);
-        UUID blocked = UUID.randomUUID();
-        UUID other = UUID.randomUUID();
-        when(blockedUsers.hasBlockedUnfiltered(user, blocked)).thenReturn(true);
-        var mapper = new tools.jackson.databind.ObjectMapper();
-
-        var hidden = mapper.readTree((byte[]) interceptor.beforeHandle(appearance(blocked), null, null).getPayload());
-        var look = hidden.get("payload").get("appearance");
-        assertThat(look.get("head").isNull()).isTrue();
-        assertThat(look.get("neck").isNull()).isTrue();
-        assertThat(look.get("hull").asString()).isEqualTo("raft");
-        assertThat(hidden.get("payload").get("version").asLong()).isEqualTo(4L);
-
-        Message<?> visible = appearance(other);
-        assertThat(interceptor.beforeHandle(visible, null, null)).isSameAs(visible);
-
-        // 판정 불가는 가린다(fail-closed)
-        UUID unknown = UUID.randomUUID();
-        when(blockedUsers.hasBlockedUnfiltered(user, unknown)).thenThrow(new UpstreamUnavailableException());
-        var failClosed = mapper.readTree((byte[]) interceptor.beforeHandle(appearance(unknown), null, null).getPayload());
-        assertThat(failClosed.get("payload").get("appearance").get("head").isNull()).isTrue();
-    }
-
-    private Message<?> appearance(UUID owner) {
-        return frame("socket", "/topic/islands/" + island + "/events",
-                "{\"type\":\"member.appearance.updated\",\"payload\":{\"userId\":\"" + owner + "\","
-                        + "\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,\"head\":\"h\",\"neck\":\"n\","
-                        + "\"shoes\":null,\"hull\":\"raft\",\"position\":\"back\"},\"version\":4}}");
-    }
-
     private Message<?> arrival(UUID arriver) {
         return frame("socket", "/topic/islands/" + island + "/events",
                 "{\"type\":\"island.member.arrived\",\"payload\":{\"userId\":\"" + arriver + "\"}}");

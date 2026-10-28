@@ -392,21 +392,15 @@ class InternalUserBlockIntegrationTest {
         UUID received = letterService.send(b, new LetterSendRequest(a, "받은 편지")).id();
         UUID sent = letterService.send(a, new LetterSendRequest(b, "보낸 편지")).id();
         userBlockService.block(a, b);
-        jdbc.update("update users set cat_color = 'ginger' where id in (?, ?)", a, b);
 
         as(a, get(path(a, "/letters/" + received)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(received.toString()))
                 .andExpect(jsonPath("$.content").value(BLOCKED_PLACEHOLDER))
-                // 차단한 발신자의 털색·외양은 기본값이다(GROMO-2389)
-                .andExpect(jsonPath("$.catColor").value((Object) null))
-                .andExpect(jsonPath("$.appearance.position").value("front"))
                 .andExpect(jsonPath("$.readAt").doesNotExist());
         as(a, get(path(a, "/letters/" + sent)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value(BLOCKED_PLACEHOLDER))
-                // 내가 쓴 편지의 발신자는 나라서 가리지 않는다
-                .andExpect(jsonPath("$.catColor").value("ginger"));
+                .andExpect(jsonPath("$.content").value(BLOCKED_PLACEHOLDER));
         assertThat(jdbc.queryForObject("select content from letters where id = ?", String.class, received))
                 .as("원문은 DB 에 그대로 남는다").isEqualTo("받은 편지");
         assertThat(jdbc.queryForObject("select read_at is null from letters where id = ?", Boolean.class, received))

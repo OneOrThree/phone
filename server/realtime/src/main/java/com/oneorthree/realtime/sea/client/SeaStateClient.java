@@ -72,39 +72,12 @@ public class SeaStateClient {
     }
 
     /** 응답 — 판정·표시에 쓰는 필드만. {@code session} 이 {@code null} 이면 항해 중이 아니다. */
-    public record SeaState(String remark, Instant remarkChangedAt, Session session, String name, String catColor,
-            Appearance appearance) {
-        /** 외양을 모르는 호출(테스트·옛 Data 응답 모양). */
-        public SeaState(String remark, Instant remarkChangedAt, Session session, String name, String catColor) {
-            this(remark, remarkChangedAt, session, name, catColor, null);
-        }
-
+    public record SeaState(String remark, Instant remarkChangedAt, Session session, String name, String catColor) {
         /** 이름·털색을 모르는 호출(테스트·옛 Data 응답 모양). */
         public SeaState(String remark, Instant remarkChangedAt, Session session) {
-            this(remark, remarkChangedAt, session, null, null, null);
+            this(remark, remarkChangedAt, session, null, null);
         }
 
-        /** 방 구성원 표시에 쓰는 머리·목 착용 아이템 — 없으면 null (GROMO-2389). */
-        public String head() {
-            return appearance == null ? null : appearance.head();
-        }
-
-        public String neck() {
-            return appearance == null ? null : appearance.neck();
-        }
-
-        /** 외양 version — 모르면 0. 입장 뒤 늦게 오는 옛 사건을 거르는 기준이다. */
-        public long appearanceVersion() {
-            return appearance == null ? 0L : appearance.version();
-        }
-    }
-
-    /** Data 착용 외양 중 바다 방 표시에 쓰는 머리·목 (GROMO-2389). 나머지 필드는 읽지 않는다. */
-    public record Appearance(String head, String neck, long version) {
-        /** 버전을 모르는 호출(테스트) — 0 이다. */
-        public Appearance(String head, String neck) {
-            this(head, neck, 0L);
-        }
     }
 
     public record Session(UUID sessionId, UUID destinationIslandId, Integer sailingMinutes, Long activeSeconds,

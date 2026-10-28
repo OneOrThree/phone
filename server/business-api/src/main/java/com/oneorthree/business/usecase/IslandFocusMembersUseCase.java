@@ -2,7 +2,6 @@ package com.oneorthree.business.usecase;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.oneorthree.business.api.dto.MemberAppearanceView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -33,10 +32,6 @@ import java.util.function.Supplier;
  * <p>focus-members 에서 요청자가 차단한 주민은 행을 빼지 않고 이름만 중립 표시로 바꾼다 — 집중 상태·경과 시간은
  * 섬 공동 진행 표시라 그대로 둔다(GROMO-2183, {@link BlockedProfileMask}). 확정 범위는 주민 목록과 focus-members
  * 두 곳이라 rest-members 는 아직 원래 이름을 내린다.
- *
- * <p>털색·착용 외양(GROMO-2389)은 두 목록 모두 차단 대상을 기본값으로 가린다. focus-members 항목에는 BFF 정책 B14 의 {@code appearanceVersion}
- * (= 같은 스냅샷의 {@code appearance.version}, 탈퇴 계정은 null)도 싣는다 — 털색 null, 착용 아이템·자리는
- * 기본(주민 목록과 같은 {@link MemberAppearanceView#neutral}).
  */
 @Service
 @RequiredArgsConstructor
@@ -66,9 +61,7 @@ public class IslandFocusMembersUseCase {
         if (members == null) {
             throw new UpstreamContractMismatchException("휴식 주민 응답이 없습니다");
         }
-        Set<UUID> blocked = mask.blockedAmong(claims.userId(), members.items().stream().filter(Objects::nonNull)
-                .map(item -> BlockedProfileMask.parse(item.userId())).toList(), deadline);
-        return new RestMembersView(members.items().stream().map(item -> RestMemberView.from(item, blocked)).toList(),
+        return new RestMembersView(members.items().stream().map(RestMemberView::from).toList(),
                 members.serverNow(), members.watermarks().stream().map(MemberWatermarkView::from).toList());
     }
 
@@ -116,22 +109,12 @@ public class IslandFocusMembersUseCase {
             @JsonProperty(required = true) String sessionId,
             @JsonProperty(required = true) String subject,
             @JsonProperty(required = true) long activeSeconds,
-            @JsonProperty(required = true) String status,
-            @JsonInclude(JsonInclude.Include.ALWAYS) String catColor,
-            @JsonInclude(JsonInclude.Include.ALWAYS) MemberAppearanceView appearance,
-            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Long appearanceVersion) {
+            @JsonProperty(required = true) String status) {
         private static FocusMemberView from(IslandFocusMembers.Item item, Set<UUID> blocked) {
-            if (item == null) {
-                return null;
-            }
-            boolean hidden = blocked.contains(UUID.fromString(item.userId()));
-            return new FocusMemberView(item.userId(), hidden ? BlockedProfileMask.NEUTRAL_NAME : item.name(),
-                    item.sessionId(), item.subject(), item.activeSeconds(), item.status(),
-                    hidden ? null : item.catColor(),
-                    hidden ? MemberAppearanceView.neutral(item.appearance())
-                            : MemberAppearanceView.from(item.appearance()),
-                    // 같은 스냅샷의 개인 외양 version 을 그대로(B14) — 차단 대상이어도 단조 값이라 유지한다
-                    item.appearance() == null ? null : item.appearance().version());
+            return item == null ? null : new FocusMemberView(item.userId(),
+                    blocked.contains(UUID.fromString(item.userId())) ? BlockedProfileMask.NEUTRAL_NAME : item.name(),
+                    item.sessionId(),
+                    item.subject(), item.activeSeconds(), item.status());
         }
     }
 
@@ -139,18 +122,10 @@ public class IslandFocusMembersUseCase {
             @JsonProperty(required = true) String userId,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String name,
             @JsonProperty(required = true) int restSeat,
-            @JsonProperty(required = true) String restStartedAt,
-            @JsonInclude(JsonInclude.Include.ALWAYS) String catColor,
-            @JsonInclude(JsonInclude.Include.ALWAYS) MemberAppearanceView appearance) {
-        private static RestMemberView from(IslandRestMembers.Item item, Set<UUID> blocked) {
-            if (item == null) {
-                return null;
-            }
-            boolean hidden = blocked.contains(UUID.fromString(item.userId()));
-            return new RestMemberView(item.userId(), item.name(), item.restSeat(), item.restStartedAt(),
-                    hidden ? null : item.catColor(),
-                    hidden ? MemberAppearanceView.neutral(item.appearance())
-                            : MemberAppearanceView.from(item.appearance()));
+            @JsonProperty(required = true) String restStartedAt) {
+        private static RestMemberView from(IslandRestMembers.Item item) {
+            return item == null ? null : new RestMemberView(item.userId(), item.name(), item.restSeat(),
+                    item.restStartedAt());
         }
     }
 

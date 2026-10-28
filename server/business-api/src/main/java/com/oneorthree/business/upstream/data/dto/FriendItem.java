@@ -23,8 +23,6 @@ import java.util.UUID;
  * @param focusStartedAt   진행 중 세션 시작 시각. 미집중이면 null
  * @param focusTagName     진행 중 세션 태그명. 없으면 null
  * @param mainIslandName   상대의 메인 섬 이름(GROMO-1971). 소속이 하나도 없으면 null — nickname 처럼 필수가 아니다
- * @param catColor         상대의 고양이 색(GROMO-2389). 미선택·탈퇴면 null — 필수가 아니다(옛 Data 응답 호환)
- * @param appearance       상대의 착용 외양(GROMO-2389). 탈퇴면 null — 필수가 아니다
  */
 public record FriendItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID userId,
@@ -36,7 +34,5 @@ public record FriendItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int focusTimeMinutes,
         String focusStartedAt,
         String focusTagName,
-        String mainIslandName,
-        String catColor,
-        PersonalAppearanceState appearance) {
+        String mainIslandName) {
 }

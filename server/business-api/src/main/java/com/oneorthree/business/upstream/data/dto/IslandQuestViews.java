@@ -83,8 +83,6 @@ public final class IslandQuestViews {
     /**
      * 판정 대상 주민 — measurementStatus 는 authorized/pending/unavailable. {@code achieved}(목표 달성)와
      * {@code claimed}(개인 몫 수령)는 GROMO-1991 로 추가됐다 — rate 100 으로 달성을 추정하지 않는다.
-     * {@code catColor}·{@code appearance}(GROMO-2389)는 필수가 아니다 — 이 필드를 싣기 전의 Data 가 먼저 떠 있어도
-     * 역직렬화가 깨지지 않는다(탈퇴 계정이면 둘 다 null).
      */
     @Schema(name = "IslandQuestMember")
     public record Member(
@@ -93,9 +91,7 @@ public final class IslandQuestViews {
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer rate,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String measurementStatus,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean achieved,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimed,
-            String catColor,
-            PersonalAppearanceState appearance) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimed) {
     }
 
     public record Created(

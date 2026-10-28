@@ -2,7 +2,6 @@ package com.oneorthree.phone.quest.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.common.port.MemberLookPort;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
@@ -102,7 +101,6 @@ public class IslandQuestService {
     private final IslandQuestOccurrenceRepository occurrences;
     private final IslandQuestClaimRepository claims;
     private final IslandQuestJudge judge;
-    private final MemberLookPort memberLooks;
     private final IslandQuestEvents questEvents;
     private final IslandWalletService wallet;
     private final IslandWalletEvents walletEvents;
@@ -157,15 +155,9 @@ public class IslandQuestService {
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_OCCURRENCE_NOT_FOUND));
         IslandQuestJudge.Judgement judgement = judge.judge(occurrence, now);
         List<UUID> claimers = claimers(occurrence);
-        Map<UUID, MemberLookPort.MemberLook> looks = memberLooks.looksByUserId(
-                judgement.rows().stream().map(IslandQuestJudge.Row::userId).toList());
         List<QuestViews.Member> list = judgement.rows().stream()
-                .map(r -> {
-                    MemberLookPort.MemberLook look = looks.get(r.userId());
-                    return new QuestViews.Member(r.userId(), r.name(), r.rate(), r.measurementStatus(),
-                            r.achieved(), claimers.contains(r.userId()),
-                            look == null ? null : look.catColor(), look == null ? null : look.appearance());
-                })
+                .map(r -> new QuestViews.Member(r.userId(), r.name(), r.rate(), r.measurementStatus(),
+                        r.achieved(), claimers.contains(r.userId())))
                 .toList();
         return new QuestViews.Progress(header(occurrence, judgement, userId, claimers), list, null);
     }

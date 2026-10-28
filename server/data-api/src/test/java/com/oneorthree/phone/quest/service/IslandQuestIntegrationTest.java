@@ -268,9 +268,6 @@ class IslandQuestIntegrationTest {
         assertThat(json.has("header")).isFalse();
         assertThat(json.get("occurrenceId").asString()).isEqualTo(occurrenceOf(created).toString());
         assertThat(json.get("members").size()).isEqualTo(2);
-        // 주민 한 명마다 털색 키와 착용 외양이 «추가» 필드로 실린다(GROMO-2389)
-        assertThat(json.get("members").get(0).has("catColor")).isTrue();
-        assertThat(json.get("members").get(0).get("appearance").get("hull").asString()).isEqualTo("raft");
         assertThat(json.has("nextCursor")).isTrue();
 
         // 뒤늦은 가입자는 조회는 되지만 판정 대상이 아니라 myRate 가 없다.

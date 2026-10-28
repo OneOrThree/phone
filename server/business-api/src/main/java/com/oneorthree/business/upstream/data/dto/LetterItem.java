@@ -21,8 +21,6 @@ import java.util.UUID;
  * @param kind                {@code FRIEND|KICK|JOIN_APPROVED} (GROMO-2260). 구 Data 서버는 내려보내지 않는다
  * @param islandId            시스템 편지가 가리키는 섬. 친구 편지는 null
  * @param readAt              시스템 편지를 처음 연 시각. 친구 편지·안 읽은 편지는 null
- * @param catColor            상대 고양이 색(GROMO-2389). 미선택·탈퇴·시스템 편지면 null — 필수가 아니다(옛 Data 응답 호환)
- * @param appearance          상대 착용 외양(GROMO-2389). 탈퇴·시스템 편지면 null — 필수가 아니다
  */
 public record LetterItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -33,7 +31,5 @@ public record LetterItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String createdAt,
         String kind,
         UUID islandId,
-        String readAt,
-        String catColor,
-        PersonalAppearanceState appearance) {
+        String readAt) {
 }

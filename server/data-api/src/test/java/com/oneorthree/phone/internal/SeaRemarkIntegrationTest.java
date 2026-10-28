@@ -183,11 +183,7 @@ class SeaRemarkIntegrationTest {
 
         getState(picked).andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("고등어" + picked))
-                .andExpect(jsonPath("$.catColor").value("ginger"))
-                // 착용 외양(GROMO-2389) — 행이 없으면 기본 외양, head·neck 은 미착용(null)
-                .andExpect(jsonPath("$.appearance.hull").value("raft"))
-                .andExpect(jsonPath("$.appearance.head").doesNotExist())
-                .andExpect(jsonPath("$.appearance.neck").doesNotExist());
+                .andExpect(jsonPath("$.catColor").value("ginger"));
         getState(unpicked).andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("무색" + unpicked))
                 .andExpect(jsonPath("$.catColor").doesNotExist());

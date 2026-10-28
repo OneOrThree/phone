@@ -64,19 +64,15 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     private static final String FOCUS_ME = "{\"scope\":\"me\",\"totalSeconds\":1500,\"series\":[{\"date\":\"2026-09-11\","
             + "\"seconds\":1500}],\"records\":[" + RECORD + "],\"members\":null,\"asOf\":\"2026-09-11T09:10:00Z\","
             + "\"nextSnapshotId\":\"" + SNAPSHOT + "\",\"nextOffset\":30,\"earnedFish\":28}";
-    /** 이웃의 착용 외양(GROMO-2389) — head·neck·shoes 는 미착용이면 키가 없다. */
-    private static final String LOOK = "{\"clothes\":null,\"decor\":null,\"head\":\"head-ribbon\","
-            + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}";
     private static final String FOCUS_ISLAND = "{\"scope\":\"island\",\"totalSeconds\":null,\"series\":null,"
             + "\"records\":null,\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
-            + "\"totalSeconds\":60,\"series\":[{\"date\":\"2026-09-11\",\"seconds\":60}],\"appearance\":" + LOOK + "}],"
+            + "\"totalSeconds\":60,\"series\":[{\"date\":\"2026-09-11\",\"seconds\":60}]}],"
             + "\"asOf\":\"2026-09-11T09:10:00Z\",\"nextSnapshotId\":null,\"nextOffset\":null}";
     private static final String SCREEN_ME = "{\"scope\":\"me\",\"measurementStatus\":\"unavailable\",\"totalMinutes\":null,"
             + "\"series\":[],\"updatedAt\":null,\"members\":null}";
     private static final String SCREEN_ISLAND = "{\"scope\":\"island\",\"measurementStatus\":null,\"totalMinutes\":null,"
             + "\"series\":null,\"updatedAt\":null,\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\","
-            + "\"catColor\":null,\"minutes\":null,\"measurementStatus\":\"denied\",\"series\":[],\"updatedAt\":null,"
-            + "\"appearance\":" + LOOK + "}]}";
+            + "\"catColor\":null,\"minutes\":null,\"measurementStatus\":\"denied\",\"series\":[],\"updatedAt\":null}]}";
     private static final String UPLOAD_BODY = "{\"minutes\":90,\"measurementStatus\":\"authorized\",\"timezone\":\"UTC\","
             + "\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"" + SESSION + "\"}";
 

@@ -1,7 +1,6 @@
 package com.oneorthree.phone.quest.dto;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
-import com.oneorthree.phone.common.port.MemberLookPort;
 
 import java.util.List;
 import java.util.UUID;
@@ -52,14 +51,14 @@ public final class QuestViews {
     }
 
     /**
-     * 판정 대상 주민 한 명. {@code catColor}·{@code appearance} 는 GROMO-2389 로 실린다 — 탈퇴 계정이면 둘 다 null.
+     * 판정 대상 주민 한 명. {@code catColor} 는 제공자가 main 에 없어 싣지 않는다(GROMO-1765 와 같은 결정).
      * {@code measurementStatus} 는 authorized/pending/unavailable.
      *
      * @param achieved 목표를 채웠다 — {@code rate} 100 과 같지 않다(측정 대기·분모 제외가 있다)
      * @param claimed  개인 몫을 이미 받았다(GROMO-1991)
      */
     public record Member(UUID userId, String name, Integer rate, String measurementStatus, boolean achieved,
-                         boolean claimed, String catColor, MemberLookPort.Appearance appearance) {
+                         boolean claimed) {
     }
 
     /**

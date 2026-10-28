@@ -1,7 +1,5 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
-import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -66,10 +64,8 @@ import java.util.stream.Collectors;
  * {@code MEMBER_ONLY} 다 — 임의 {@code islandId} 를 넣어 보는 것만으로 섬의 존재가 새면 안 된다.
  * 섬에 «비공개» 속성이 생기면 그 판정이 들어갈 자리는 {@link #requireVisitableIsland} 한 곳이다.
  *
- * <h2>무엇을 싣는가</h2>
- * 주민별 catColor·appearance(착용 외양, GROMO-2389) — 프로필과 외양을 각각 id 묶음 한 번씩 읽는다.
- * 차단자 치환은 Business 가 한다({@code BlockedProfileMask}). appearanceVersion 은 싣지 않는다 —
- * 외양 version 은 appearance.version 이 대신한다.
+ * <h2>무엇을 싣지 않는가</h2>
+ * catColor·appearance·appearanceVersion — 제공자가 main 에 없다({@link IslandFocusMembersView} 참조).
  *
  * <h2>기본 마커가 닫힌 진행 세션</h2>
  * 레거시 start 가 v0.3 세션의 기본 행을 닫으면 상세만 진행 중으로 남는다
@@ -91,7 +87,6 @@ public class IslandFocusMembersService {
     private final FocusSessionIntervalRepository intervals;
     private final AggregateVersionRepository aggregateVersions;
     private final IslandRecordsService records;
-    private final AppearanceService appearances;
     private final Clock clock;
 
     /** focus 목록 — 진행 중(active/paused) 주민. completed·abandoned 는 없다. */
@@ -106,17 +101,15 @@ public class IslandFocusMembersService {
         Map<UUID, List<FocusSessionInterval>> bySession = intervals
                 .findBySessionIdInOrderByOrdinalAsc(rows.stream().map(FocusSessionDetail::getSessionId).toList())
                 .stream().collect(Collectors.groupingBy(FocusSessionInterval::getSessionId));
-        Map<UUID, User> profiles = profiles(rows);
-        Map<UUID, PersonalAppearanceView> looks = looks(rows, profiles);
+        Map<UUID, String> names = names(rows);
 
         List<IslandFocusMembersView.Item> items = rows.stream()
                 .sorted(Comparator.comparing(FocusSessionDetail::getCreatedAt))
-                .map(row -> new IslandFocusMembersView.Item(row.getUserId(), nameOf(profiles, row),
+                .map(row -> new IslandFocusMembersView.Item(row.getUserId(), names.get(row.getUserId()),
                         row.getSessionId(), row.getSubject(),
                         FocusIntervalMath.activeSecondsAsOf(bySession.getOrDefault(row.getSessionId(), List.of()), now),
                         row.getLifecycle() == FocusSessionLifecycle.PAUSED
-                                ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE,
-                        catColorOf(profiles, row), looks.get(row.getUserId())))
+                                ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE))
                 .toList();
         return new IslandFocusMembersView(items, now, watermarks(MemberWatermark.FOCUS_MEMBER,
                 FocusMemberEvents.FOCUS_AGGREGATE_TYPE, islandId, rows));
@@ -143,15 +136,13 @@ public class IslandFocusMembersService {
         if (rows.isEmpty()) {
             return new IslandRestMembersView(List.of(), now, List.of());
         }
-        Map<UUID, User> profiles = profiles(rows);
-        Map<UUID, PersonalAppearanceView> looks = looks(rows, profiles);
+        Map<UUID, String> names = names(rows);
 
         List<IslandRestMembersView.Item> items = rows.stream()
                 .sorted(Comparator.comparing(FocusSessionDetail::getRestSeat))
                 // paused 로 들어오는 길은 applyPause 하나이고, 그 t 가 열린 REST 구간의 시작과 같다.
-                .map(row -> new IslandRestMembersView.Item(row.getUserId(), nameOf(profiles, row),
-                        row.getRestSeat(), row.getLastTransitionAt(), catColorOf(profiles, row),
-                        looks.get(row.getUserId())))
+                .map(row -> new IslandRestMembersView.Item(row.getUserId(), names.get(row.getUserId()),
+                        row.getRestSeat(), row.getLastTransitionAt()))
                 .toList();
         return new IslandRestMembersView(items, now, watermarks(MemberWatermark.REST_MEMBER,
                 FocusMemberEvents.REST_AGGREGATE_TYPE, islandId, rows));
@@ -203,31 +194,13 @@ public class IslandFocusMembersService {
         return rows.stream().filter(row -> !closed.contains(row.getSessionId())).toList();
     }
 
-    /** 활성 계정의 프로필 — 한 번의 IN 조회다(N+1 아님). 탈퇴·미존재 주민은 키가 없다. */
-    private Map<UUID, User> profiles(List<FocusSessionDetail> rows) {
-        Map<UUID, User> profiles = new HashMap<>();
+    /** 닉네임은 온보딩 전이면 null 일 수 있어 toMap(null 값 거부) 대신 HashMap 에 담는다. */
+    private Map<UUID, String> names(List<FocusSessionDetail> rows) {
+        Map<UUID, String> names = new HashMap<>();
         for (User user : users.findAllActive(rows.stream().map(FocusSessionDetail::getUserId).toList())) {
-            profiles.put(user.getId(), user);
+            names.put(user.getId(), user.getNickname());
         }
-        return profiles;
-    }
-
-    /** 착용 외양 — 한 번의 IN 조회. 행이 없는 주민은 기본 외양이다. */
-    private Map<UUID, PersonalAppearanceView> looks(List<FocusSessionDetail> rows, Map<UUID, User> profiles) {
-        // 탈퇴·미존재 계정은 외양도 싣지 않는다(우체통과 같다) — 키가 없어 get 이 null 이다.
-        return appearances.equippedOf(rows.stream().map(FocusSessionDetail::getUserId)
-                .filter(profiles::containsKey).toList());
-    }
-
-    /** 닉네임은 온보딩 전이면 null 일 수 있다. */
-    private static String nameOf(Map<UUID, User> profiles, FocusSessionDetail row) {
-        User user = profiles.get(row.getUserId());
-        return user == null ? null : user.getNickname();
-    }
-
-    private static String catColorOf(Map<UUID, User> profiles, FocusSessionDetail row) {
-        User user = profiles.get(row.getUserId());
-        return user == null ? null : user.getCatColor();
+        return names;
     }
 
     /** 목록의 각 주민 key 의 마지막 발급 version — 같은 스냅샷에서 읽고, 없으면 0. */

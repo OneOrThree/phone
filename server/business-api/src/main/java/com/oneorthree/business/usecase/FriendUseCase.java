@@ -1,7 +1,6 @@
 package com.oneorthree.business.usecase;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.oneorthree.business.api.dto.MemberAppearanceView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -142,14 +141,11 @@ public class FriendUseCase {
             @JsonProperty(required = true) int focusTimeMinutes,
             String focusStartedAt,
             String focusTagName,
-            String mainIslandName,
-            String catColor,
-            MemberAppearanceView appearance) {
+            String mainIslandName) {
         private static FriendView from(FriendItem source) {
             return source == null ? null : new FriendView(source.userId(), source.nickname(), source.tierLevel(),
                     source.occupation(), source.isPinned(), source.isFocusing(), source.focusTimeMinutes(),
-                    source.focusStartedAt(), source.focusTagName(), source.mainIslandName(), source.catColor(),
-                    MemberAppearanceView.from(source.appearance()));
+                    source.focusStartedAt(), source.focusTagName(), source.mainIslandName());
         }
     }
 
@@ -158,13 +154,10 @@ public class FriendUseCase {
             @JsonProperty(required = true) UUID userId,
             String nickname,
             Integer tierLevel,
-            @JsonProperty(required = true) String createdAt,
-            String catColor,
-            MemberAppearanceView appearance) {
+            @JsonProperty(required = true) String createdAt) {
         private static RequestView from(FriendRequestItem source) {
             return source == null ? null : new RequestView(source.requestId(), source.userId(), source.nickname(),
-                    source.tierLevel(), source.createdAt(), source.catColor(),
-                    MemberAppearanceView.from(source.appearance()));
+                    source.tierLevel(), source.createdAt());
         }
     }
 
@@ -173,13 +166,10 @@ public class FriendUseCase {
             @JsonProperty(required = true) String nickname,
             Integer tierLevel,
             String occupation,
-            @JsonProperty(required = true) String relation,
-            String catColor,
-            MemberAppearanceView appearance) {
+            @JsonProperty(required = true) String relation) {
         private static SearchView from(FriendSearchItem source) {
             return source == null ? null : new SearchView(source.userId(), source.nickname(), source.tierLevel(),
-                    source.occupation(), source.relation(), source.catColor(),
-                    MemberAppearanceView.from(source.appearance()));
+                    source.occupation(), source.relation());
         }
     }
 

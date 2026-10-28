@@ -15,15 +15,11 @@ import java.util.UUID;
  * @param nickname  상대 닉네임 — 탈퇴자는 null 일 수 있다
  * @param tierLevel 상대 티어. 리그 미참여면 null
  * @param createdAt 이번 요청 사이클이 시작된 시각(문자열 그대로 전달)
- * @param catColor   상대 고양이 색(GROMO-2389). 미선택·탈퇴면 null — 필수가 아니다(옛 Data 응답 호환)
- * @param appearance 상대 착용 외양(GROMO-2389). 탈퇴면 null — 필수가 아니다
  */
 public record FriendRequestItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID requestId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID userId,
         String nickname,
         Integer tierLevel,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String createdAt,
-        String catColor,
-        PersonalAppearanceState appearance) {
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String createdAt) {
 }

@@ -66,9 +66,6 @@ final class EventPayloadValidator {
             uuidField(payload, "userId");
             instantField(payload, "arrivedAt", false);
         }
-        if (type == RealtimeEventType.MEMBER_APPEARANCE_UPDATED) {
-            validateMemberAppearance(payload);
-        }
         if (type == RealtimeEventType.FOCUS_EMOTE) {
             validateEmote(payload);
         }
@@ -90,40 +87,6 @@ final class EventPayloadValidator {
                     && !"village_points".equals(textField(payload, "currency"))) {
                 throw new IllegalArgumentException("자산 소유자와 재화가 일치하지 않습니다.");
             }
-        }
-    }
-
-    /** 외양 슬롯 — 키는 항상 있고 값은 문자열 또는 null(미착용)이다. */
-    private static final Set<String> APPEARANCE_SLOTS = Set.of("clothes", "decor", "head", "neck", "shoes");
-
-    /**
-     * 외양 변경 봉투의 도메인 불변식 (GROMO-2389) — 이 사건은 외양 <b>전체 스냅샷</b>이다(Data
-     * {@code AppearanceEvents#personalAppearanceMap} 이 슬롯 다섯과 hull·position 을 항상 싣는다). 그래서 «없으면 기존값
-     * 유지»가 아니라 모든 키가 있어야 한다: 슬롯 다섯은 키 필수·값 문자열 또는 null, hull·position 은 필수 문자열, version 은
-     * 양수다({@code version} 의 봉투 일치는 위 공통 검사가 본다). 바다 방 상태(Redis)와 앱 전달 둘 다에 쓰이므로 호출자가
-     * 부수 효과 전에 먼저 부른다.
-     */
-    private static void validateMemberAppearance(JsonNode payload) {
-        uuidField(payload, "userId");
-        JsonNode appearance = payload.get("appearance");
-        if (appearance == null || !appearance.isObject()) {
-            throw new IllegalArgumentException("외양 사건에 appearance 객체가 없습니다.");
-        }
-        for (String slot : APPEARANCE_SLOTS) {
-            JsonNode value = appearance.get(slot);
-            if (value == null || !(value.isNull() || value.isString())) {
-                throw new IllegalArgumentException("외양 슬롯은 키가 있고 값이 문자열 또는 null 이어야 합니다.");
-            }
-        }
-        for (String field : new String[] {"hull", "position"}) {
-            JsonNode value = appearance.get(field);
-            if (value == null || !value.isString() || value.stringValue().isBlank()) {
-                throw new IllegalArgumentException("외양 hull·position 은 필수 문자열입니다.");
-            }
-        }
-        JsonNode version = payload.get("version");
-        if (version == null || !version.isIntegralNumber() || !version.canConvertToLong() || version.longValue() < 1) {
-            throw new IllegalArgumentException("외양 version 은 양수여야 합니다.");
         }
     }
 

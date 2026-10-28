@@ -1,7 +1,5 @@
 package com.oneorthree.phone.internal.dto;
 
-import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
-
 import java.time.Instant;
 import java.util.UUID;
 
@@ -13,10 +11,8 @@ import java.util.UUID;
  * @param session         진행 중인 바다 세션. 없으면 null
  * @param name            표시 이름(users.nickname). 없으면 null (GROMO-2330)
  * @param catColor        고양이 색 6종 중 하나. 미선택이면 null (GROMO-2330)
- * @param appearance      착용 외양(GROMO-2389) — realtime 은 head·neck 만 방 구성원 표시에 쓴다
  */
-public record SeaStateView(String remark, Instant remarkChangedAt, Session session, String name, String catColor,
-                           PersonalAppearanceView appearance) {
+public record SeaStateView(String remark, Instant remarkChangedAt, Session session, String name, String catColor) {
 
     /**
      * @param sessionId           세션 id

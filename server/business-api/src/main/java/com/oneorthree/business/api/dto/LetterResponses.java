@@ -29,9 +29,7 @@ public final class LetterResponses {
             @JsonProperty(required = true) String createdAt,
             String readAt,
             @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
-            @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId,
-            String catColor,
-            MemberAppearanceView appearance) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId) {
         public static LetterDetailView from(LetterView value) {
             if (value == null) {
                 return null;
@@ -45,9 +43,7 @@ public final class LetterResponses {
                     value.createdAt(),
                     value.readAt(),
                     value.kind(),
-                    value.islandId(),
-                    value.catColor(),
-                    MemberAppearanceView.from(value.appearance()));
+                    value.islandId());
         }
     }
 
@@ -77,9 +73,7 @@ public final class LetterResponses {
             @JsonProperty(required = true) String createdAt,
             @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
             @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String readAt,
-            String catColor,
-            MemberAppearanceView appearance) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String readAt) {
         public static LetterItemView from(LetterItem value) {
             if (value == null) {
                 return null;
@@ -93,9 +87,7 @@ public final class LetterResponses {
                     value.createdAt(),
                     value.kind(),
                     value.islandId(),
-                    value.readAt(),
-                    value.catColor(),
-                    MemberAppearanceView.from(value.appearance()));
+                    value.readAt());
         }
     }
 }

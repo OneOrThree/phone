@@ -32,9 +32,9 @@ public final class IslandRecordViews {
     public record FocusRecord(String id, String subject, long activeSeconds, String completedAt) {
     }
 
-    /** 섬 주민의 이 섬 기여 — 개인 기록·과목 없음. {@code appearance}(GROMO-2389)는 없는 Data 를 위해 필수가 아니다. */
+    /** 섬 주민의 이 섬 기여 — 개인 기록·과목 없음. */
     public record FocusMember(String userId, String name, String catColor, long totalSeconds,
-            List<DaySeconds> series, PersonalAppearanceState appearance) {
+            List<DaySeconds> series) {
     }
 
     /** 스크린타임 통계 상류. */
@@ -51,7 +51,7 @@ public final class IslandRecordViews {
 
     /** 섬 주민의 기간 측정 — 기기 목록·deviceId 없음. */
     public record ScreenMember(String userId, String name, String catColor, Integer minutes,
-            String measurementStatus, List<ScreenDay> series, String updatedAt, PersonalAppearanceState appearance) {
+            String measurementStatus, List<ScreenDay> series, String updatedAt) {
     }
 
     /** PUT 결과 — 그 기기·날짜의 최신 선택 관측(계정 병합값 아님). 공개 {@code data} 와 같다. */

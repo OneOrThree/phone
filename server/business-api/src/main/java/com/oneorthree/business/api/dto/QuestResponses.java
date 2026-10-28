@@ -136,9 +136,7 @@ public final class QuestResponses {
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer rate,
             @JsonProperty(required = true) String measurementStatus,
             @JsonProperty(required = true) boolean achieved,
-            @JsonProperty(required = true) boolean claimed,
-            @JsonInclude(JsonInclude.Include.ALWAYS) String catColor,
-            @JsonInclude(JsonInclude.Include.ALWAYS) MemberAppearanceView appearance) {
+            @JsonProperty(required = true) boolean claimed) {
         public static IslandQuestMember from(IslandQuestViews.Member value) {
             if (value == null) {
                 return null;
@@ -149,9 +147,7 @@ public final class QuestResponses {
                     value.rate(),
                     value.measurementStatus(),
                     value.achieved(),
-                    value.claimed(),
-                    value.catColor(),
-                    MemberAppearanceView.from(value.appearance()));
+                    value.claimed());
         }
     }
 

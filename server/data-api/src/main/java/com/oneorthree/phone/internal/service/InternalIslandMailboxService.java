@@ -1,7 +1,5 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
-import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -76,14 +74,12 @@ public class InternalIslandMailboxService {
     private final EventOutboxRepository events;
     private final IslandFacilityQueryService islandFacilityQueryService;
     private final UserBlockService userBlocks;
-    private final AppearanceService appearances;
 
     /** 주민 인가 + 요청자 본인의 표시 projection(POST 응답의 {@code name} 이 된다). */
     @Transactional(readOnly = true)
     public MailboxViewerResponse access(UUID islandId, UUID userId) {
         User viewer = requireResident(islandId, userId);
-        return new MailboxViewerResponse(viewer.getId(), viewer.getNickname(), viewer.getCatColor(),
-                appearances.equippedOf(List.of(viewer.getId())).get(viewer.getId()));
+        return new MailboxViewerResponse(viewer.getId(), viewer.getNickname());
     }
 
     /**
@@ -108,15 +104,11 @@ public class InternalIslandMailboxService {
         distinct.removeAll(blocked);
         Map<UUID, User> found = userRepository.findAllById(distinct).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
-        Map<UUID, PersonalAppearanceView> looks = appearances.equippedOf(found.values().stream()
-                .filter(user -> !user.isDeleted()).map(User::getId).toList());
         List<MailboxViewerResponse> authors = new ArrayList<>(distinct.size());
         for (UUID id : distinct) {
             User user = found.get(id);
             if (user != null) {
-                boolean gone = user.isDeleted();
-                authors.add(new MailboxViewerResponse(id, gone ? null : user.getNickname(),
-                        gone ? null : user.getCatColor(), gone ? null : looks.get(id)));
+                authors.add(new MailboxViewerResponse(id, user.isDeleted() ? null : user.getNickname()));
             }
         }
         return new MessageAuthorsResponse(authors, hidden);

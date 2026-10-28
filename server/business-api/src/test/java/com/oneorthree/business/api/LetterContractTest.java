@@ -38,16 +38,12 @@ class LetterContractTest extends UpstreamTestBase {
     private static final String DATA_DETAIL = "GET " + INTERNAL + "/letters/" + LETTER;
     private static final String DATA_CLOSE = "DELETE " + INTERNAL + "/letters/" + LETTER;
     private static final String SEND_BODY = "{\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\"}";
-    /** 상대(발신자)의 털색과 착용 외양(GROMO-2389) — head·neck·shoes 는 미착용이면 키가 없다. */
-    private static final String LOOK = "\"catColor\":\"ginger\",\"appearance\":{\"clothes\":null,"
-            + "\"decor\":null,\"head\":\"head-ribbon\",\"hull\":\"raft\",\"position\":\"front\","
-            + "\"version\":2}";
     private static final String VIEW = "{\"id\":\"" + LETTER + "\",\"senderId\":\"" + USER + "\","
             + "\"senderNickname\":\"나\",\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\","
-            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"readAt\":null," + LOOK + "}";
+            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"readAt\":null}";
     private static final String SLICE = "{\"content\":[{\"id\":\"" + LETTER + "\","
             + "\"counterpartUserId\":\"" + PEER + "\",\"counterpartNickname\":\"짝꿍\","
-            + "\"content\":\"안녕\",\"isRead\":false,\"createdAt\":\"2026-09-18T01:00:00Z\"," + LOOK + "}],"
+            + "\"content\":\"안녕\",\"isRead\":false,\"createdAt\":\"2026-09-18T01:00:00Z\"}],"
             + "\"size\":20,\"hasNext\":false,\"nextCursor\":null}";
 
     /** 시스템 편지함 한 페이지 — 발신자 없이 kind·islandId·readAt 이 실린다 (GROMO-2260). */
@@ -243,9 +239,7 @@ class LetterContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/letters/" + LETTER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(LETTER.toString()))
-                .andExpect(jsonPath("$.data.senderNickname").value("나"))
-                .andExpect(jsonPath("$.data.catColor").value("ginger"))
-                .andExpect(jsonPath("$.data.appearance.head").value("head-ribbon"));
+                .andExpect(jsonPath("$.data.senderNickname").value("나"));
         mockMvc.perform(auth(get("/letters/1-2-3-4-5")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
@@ -430,10 +424,10 @@ class LetterContractTest extends UpstreamTestBase {
     }
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "/letters|post|200||id senderId senderNickname receiverId content createdAt readAt kind islandId catColor appearance|id receiverId content createdAt",
-            "/letters/{letterId}|get|200||id senderId senderNickname receiverId content createdAt readAt kind islandId catColor appearance|id receiverId content createdAt",
+            "/letters|post|200||id senderId senderNickname receiverId content createdAt readAt kind islandId|id receiverId content createdAt",
+            "/letters/{letterId}|get|200||id senderId senderNickname receiverId content createdAt readAt kind islandId|id receiverId content createdAt",
             "/letters|get|200||content size hasNext nextCursor|content size hasNext",
-            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt kind islandId readAt catColor appearance|id content isRead createdAt"})
+            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt kind islandId readAt|id content isRead createdAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {
         var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();

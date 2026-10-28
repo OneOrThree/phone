@@ -114,7 +114,7 @@ public class InboundEventService {
 
     private static final Set<String> DELIVERED_TYPES = Set.of(
             RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName(),
-            RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName(), RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName());
+            RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName());
 
     /** {@code island.member.arrived} 가 앱으로 내보내는 필드 — 그 밖은 버린다(주민 전용 채널이라도 고른 것만). */
     private static final List<String> ARRIVAL_FIELDS = List.of("islandId", "userId", "name", "catColor", "arrivedAt");
@@ -170,43 +170,10 @@ public class InboundEventService {
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
             seaRooms.applyMemberUpdated(envelope);
         } else {
-            if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)) {
-                if (!validAppearance(eventId, envelope)) {
-                    return true; // 계약 밖 payload — Redis 도 앱 전달도 건드리지 않는다(수신 기록만 남겨 재전달을 끊는다)
-                }
-                // 바다 방에 있는 사용자의 머리·목 표시를 고친다(GROMO-2389) — 앱 전달과는 별개의 부수 효과다.
-                seaRooms.applyAppearanceUpdated(envelope);
-            }
             evictMembershipCacheIfNeeded(type, envelope);
             deliver(eventId, type, envelope);
         }
         return true;
-    }
-
-    /**
-     * 외양 사건을 부수 효과(바다 방 Redis 갱신)·전달 전에 검증한다 — 늦게 발견하면 잘못 큰 version 이 이미 저장돼 이후 정상
-     * 사건이 모두 무시된다. 실패는 400 이 아니라 «기록만 하고 끝»이다(relay 가 permanent 로 적어 순서 축을 막지 않게,
-     * 다른 type 의 봉투 검증 실패와 같은 취급).
-     */
-    private static boolean validAppearance(String eventId, JsonNode envelope) {
-        try {
-            JsonNode params = envelope.get("params");
-            if (params == null || !params.isObject()) {
-                throw new IllegalArgumentException("외양 사건 params 가 객체가 아닙니다.");
-            }
-            JsonNode subject = envelope.get("subjectId");
-            UUID islandId = subject == null || subject.isNull() ? null : UUID.fromString(requiredText(envelope,
-                    "subjectId"));
-            // 봉투 전체 계약(schemaVersion·version 범위·payload 검증)을 전달용 봉투 생성과 같은 코드로 먼저 확인한다
-            new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"),
-                    RealtimeEventType.MEMBER_APPEARANCE_UPDATED, islandId, longValue(envelope, "version"),
-                    Instant.parse(requiredText(envelope, "occurredAt")), params);
-            return true;
-        } catch (RuntimeException e) {
-            log.error("외양 사건 검증 실패 — 적용·전달하지 않는다. eventId={} reason={}", eventId,
-                    e.getClass().getSimpleName());
-            return false;
-        }
     }
 
     /**
@@ -340,12 +307,6 @@ public class InboundEventService {
             log.debug("앱 사건 수신 — 이 type 의 전달 어댑터가 아직 없다. eventId={} type={}", eventId, type);
             return;
         }
-        JsonNode subject = envelope.get("subjectId");
-        boolean noIsland = subject == null || subject.isNull();
-        if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type) && noIsland) {
-            // 섬이 하나도 없는 사용자의 사용자 축 사건(GROMO-2389) — 섬 토픽으로 보낼 곳이 없다. 바다 방 적용만 한다.
-            return;
-        }
         RealtimeEventEnvelope event;
         try {
             event = RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName().equals(type)
@@ -375,9 +336,7 @@ public class InboundEventService {
      */
     private static RealtimeEventEnvelope memberEvent(String eventId, String type, JsonNode envelope) {
         RealtimeEventType eventType = RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName().equals(type)
-                ? RealtimeEventType.FOCUS_MEMBER_UPDATED
-                : RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)
-                ? RealtimeEventType.MEMBER_APPEARANCE_UPDATED : RealtimeEventType.REST_MEMBER_UPDATED;
+                ? RealtimeEventType.FOCUS_MEMBER_UPDATED : RealtimeEventType.REST_MEMBER_UPDATED;
         JsonNode params = envelope.get("params");
         if (params == null || !params.isObject()) {
             throw new IllegalArgumentException("주민 사건 params 가 객체가 아닙니다.");
