@@ -4,7 +4,7 @@ const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
 // iOS 스토어 버전(1.0.2)은 아래 version(2.0.0, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
-const metaApp = require('./src/config/metaApp.json');
+const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
 // 여기서는 expo prebuild 가 Info.plist 에 심을 URL 스킴만 dev.ios 에서 만든다(이 레포는 체크인된 ios/ 를 쓴다).
 // 체크인된 Info.plist 에는 dev·prod 스킴을 둘 다 등록한다(규칙은 src/config/googleClientIds.md).
@@ -66,7 +66,7 @@ module.exports = {
       package: 'com.oneorthree.gromo',
       versionCode: 20,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.0-no-special-use-meta',
+      runtimeVersion: '2.0.0-no-special-use',
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
       blockedPermissions: [
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
@@ -82,25 +82,7 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
-      [
-        'react-native-fbsdk-next',
-        {
-          appID: metaApp.appId,
-          clientToken: metaApp.clientToken,
-          displayName: metaApp.displayName,
-          scheme: `fb${metaApp.appId}`,
-          isAutoInitEnabled: false,
-          autoLogAppEventsEnabled: false,
-          advertiserIDCollectionEnabled: false,
-        },
-      ],
-      [
-        'expo-tracking-transparency',
-        {
-          userTrackingPermission:
-            '광고를 통해 앱을 설치한 경로와 광고 효과를 측정하는 데 사용해요.',
-        },
-      ],
+      withIosMeta,
       // 현재 음원은 앱 안에서만 재생하므로 미디어 포그라운드 서비스를 추가하지 않는다.
       [
         'expo-audio',

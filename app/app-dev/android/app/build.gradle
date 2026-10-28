@@ -284,8 +284,6 @@ dependencies {
   coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
-    // MainApplication에서 이전 실행의 자동 수집 설정을 초기화한다.
-    implementation("com.facebook.android:facebook-core:${rootProject.ext.facebookSdkVersion}")
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

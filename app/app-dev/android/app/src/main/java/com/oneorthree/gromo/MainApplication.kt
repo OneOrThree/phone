@@ -1,10 +1,8 @@
 package com.oneorthree.gromo
 
 import android.app.Application
-import android.content.Context
 import android.content.res.Configuration
 import android.util.Log
-import com.facebook.FacebookSdk
 
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -36,14 +34,6 @@ class MainApplication : Application(), ReactApplication {
           // add(MyReactNativePackage())
         }
     )
-  }
-
-  override fun attachBaseContext(base: Context) {
-    super.attachBaseContext(base)
-    // FacebookInitProvider는 onCreate보다 먼저 돈다. 이전 실행의 설정을 provider 초기화 전 끄고,
-    // 운영·목업 판정 뒤 JS만 수집을 켠다(GROMO-2544). false setter는 SDK 초기화 전에도 안전하다.
-    FacebookSdk.setAutoLogAppEventsEnabled(false)
-    FacebookSdk.setAdvertiserIDCollectionEnabled(false)
   }
 
   override fun onCreate() {

@@ -118,6 +118,17 @@
 	</dict>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>광고를 통해 앱을 설치한 경로와 광고 효과를 측정하는 데 사용해요.</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>v9wttpbfk9.skadnetwork</string>
+		</dict>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>n38lu8286q.skadnetwork</string>
+		</dict>
+	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>RCTMetroPort</key>

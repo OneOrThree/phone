@@ -98,10 +98,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - ExpoAdapterFBSDKNext (13.4.3):
-    - ExpoModulesCore
-    - FBSDKCoreKit
-    - React-Core
   - ExpoAdapterGoogleSignIn (16.1.5):
     - ExpoModulesCore
     - GoogleSignIn (~> 9.0)
@@ -195,8 +191,6 @@ PODS:
     - Yoga
   - ExpoSecureStore (57.0.4):
     - ExpoModulesCore
-  - ExpoTrackingTransparency (57.0.2):
-    - ExpoModulesCore
   - ExpoVideo (57.0.5):
     - ExpoModulesCore
   - EXStructuredHeaders (57.0.1)
@@ -237,14 +231,6 @@ PODS:
     - FBAEMKit (= 18.1.1)
     - FBSDKCoreKit_Basics (= 18.1.1)
   - FBSDKCoreKit_Basics (18.1.1)
-  - FBSDKGamingServicesKit (18.1.1):
-    - FBSDKCoreKit (= 18.1.1)
-    - FBSDKCoreKit_Basics (= 18.1.1)
-    - FBSDKShareKit (= 18.1.1)
-  - FBSDKLoginKit (18.1.1):
-    - FBSDKCoreKit (= 18.1.1)
-  - FBSDKShareKit (18.1.1):
-    - FBSDKCoreKit (= 18.1.1)
   - FirebaseCore (12.19.0):
     - FirebaseCoreInternal (~> 12.19.0)
     - GoogleUtilities/Environment (~> 8.1)
@@ -1786,21 +1772,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-fbsdk-next (13.4.3):
-    - React-Core
-    - react-native-fbsdk-next/Core (= 13.4.3)
-    - react-native-fbsdk-next/Login (= 13.4.3)
-    - react-native-fbsdk-next/Share (= 13.4.3)
-  - react-native-fbsdk-next/Core (13.4.3):
-    - FBSDKCoreKit (~> 18.0)
-    - React-Core
-  - react-native-fbsdk-next/Login (13.4.3):
-    - FBSDKLoginKit (~> 18.0)
-    - React-Core
-  - react-native-fbsdk-next/Share (13.4.3):
-    - FBSDKGamingServicesKit (~> 18.0)
-    - FBSDKShareKit (~> 18.0)
-    - React-Core
   - react-native-line (6.0.1):
     - hermes-engine
     - LineSDKSwift (~> 5.16.1)
@@ -2633,7 +2604,6 @@ DEPENDENCIES:
   - EXJSONUtils (from `../node_modules/expo-json-utils/ios`)
   - EXManifests (from `../node_modules/expo-manifests/ios`)
   - Expo (from `../node_modules/expo`)
-  - ExpoAdapterFBSDKNext (from `../node_modules/react-native-fbsdk-next/ios`)
   - "ExpoAdapterGoogleSignIn (from `../node_modules/@react-native-google-signin/google-signin/expo/ios`)"
   - ExpoAppleAuthentication (from `../node_modules/expo-apple-authentication/ios`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
@@ -2654,12 +2624,12 @@ DEPENDENCIES:
   - ExpoNotifications (from `../node_modules/expo-notifications/ios`)
   - ExpoScreenOrientation (from `../node_modules/expo-screen-orientation/ios`)
   - ExpoSecureStore (from `../node_modules/expo-secure-store/ios`)
-  - ExpoTrackingTransparency (from `../node_modules/expo-tracking-transparency/ios`)
   - ExpoVideo (from `../node_modules/expo-video/ios/ExpoVideo.podspec`)
   - EXStructuredHeaders (from `../node_modules/expo-structured-headers/ios`)
   - EXUpdates (from `../node_modules/expo-updates/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
+  - FBSDKCoreKit (~> 18.1.1)
   - FirebaseMessaging (~> 12.19.0)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - "posthog-react-native-plugin (from `../node_modules/@posthog/react-native-plugin`)"
@@ -2701,7 +2671,6 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
-  - react-native-fbsdk-next (from `../node_modules/react-native-fbsdk-next`)
   - "react-native-line (from `../node_modules/@xmartlabs/react-native-line`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - "react-native-skia (from `../node_modules/@shopify/react-native-skia`)"
@@ -2766,9 +2735,6 @@ SPEC REPOS:
     - FBAEMKit
     - FBSDKCoreKit
     - FBSDKCoreKit_Basics
-    - FBSDKGamingServicesKit
-    - FBSDKLoginKit
-    - FBSDKShareKit
     - FirebaseCore
     - FirebaseCoreInternal
     - FirebaseInstallations
@@ -2808,8 +2774,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-manifests/ios"
   Expo:
     :path: "../node_modules/expo"
-  ExpoAdapterFBSDKNext:
-    :path: "../node_modules/react-native-fbsdk-next/ios"
   ExpoAdapterGoogleSignIn:
     :path: "../node_modules/@react-native-google-signin/google-signin/expo/ios"
   ExpoAppleAuthentication:
@@ -2850,8 +2814,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-screen-orientation/ios"
   ExpoSecureStore:
     :path: "../node_modules/expo-secure-store/ios"
-  ExpoTrackingTransparency:
-    :path: "../node_modules/expo-tracking-transparency/ios"
   ExpoVideo:
     :podspec: "../node_modules/expo-video/ios/ExpoVideo.podspec"
   EXStructuredHeaders:
@@ -2941,8 +2903,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   React-mutationobservernativemodule:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
-  react-native-fbsdk-next:
-    :path: "../node_modules/react-native-fbsdk-next"
   react-native-line:
     :path: "../node_modules/@xmartlabs/react-native-line"
   react-native-safe-area-context:
@@ -3057,7 +3017,6 @@ SPEC CHECKSUMS:
   EXJSONUtils: a49e3ef80dff762108e5690c7b2f360675dcf7f6
   EXManifests: 4c53b2602e03ccf44d0b4ff9c5d655b2c5acba3f
   Expo: 8fcd49c9918bb861a881ea9844a3f099a9b0bd3b
-  ExpoAdapterFBSDKNext: 49ecf2414e4787250b0ed1faae99d1295dee674e
   ExpoAdapterGoogleSignIn: dd506e5b1d8b9a172843ff6fc72875e0a9d241e1
   ExpoAppleAuthentication: 16c2955d33ec7315e5a99d17fb5d62ed33cdb5b9
   ExpoAsset: bea9115098b9f4ddfb0456961c8a7d2779ccc8f5
@@ -3078,7 +3037,6 @@ SPEC CHECKSUMS:
   ExpoNotifications: 42cba361a6b378e6e54b795f55932e4eba058829
   ExpoScreenOrientation: 29f306f9e1a37b304862310ceb9664866f653ebd
   ExpoSecureStore: ff1fd5e073957417ba8f9dec0bebcbd55a60e747
-  ExpoTrackingTransparency: 233f97aced6da78301e74e1d9cff2bc3763b40fe
   ExpoVideo: 31d5dc617d913808aeba05c3ab900712637b0e47
   EXStructuredHeaders: 07c88ee9f7dfcbafeaaab0e78ea276dfe0eb332e
   EXUpdates: 0b001ff17e727d89c7dc832b080a2a675268eb9c
@@ -3087,9 +3045,6 @@ SPEC CHECKSUMS:
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
   FBSDKCoreKit: 0063014b3b1f7e975e70b60232b0cf8003839746
   FBSDKCoreKit_Basics: f4a1e0f38769eb71abaf6395b85e015318fcda49
-  FBSDKGamingServicesKit: b53cdd0293c559ba9a72add38ccd6b541df379e9
-  FBSDKLoginKit: 0e6d0df30ae0a5b33f33d9050ca10ca21e0da234
-  FBSDKShareKit: b588264311416ed8d7eabe1333c552fc4b86aa48
   FirebaseCore: c990214798d7c568ad436a15ba7da25c7a278c9a
   FirebaseCoreInternal: 656b1c2fd5a1c5976183dc54b73deda78fb26ee3
   FirebaseInstallations: f70a49eed611f5602f373e40974b3b01556ac217
@@ -3149,7 +3104,6 @@ SPEC CHECKSUMS:
   React-Mapbuffer: ce449ccdf3b80384415b925606be8a4bdcfc65d3
   React-microtasksnativemodule: 2eb3f49d0d8e77b5343455eccd057010b8d38b6b
   React-mutationobservernativemodule: f0a0d5ae9b51caf7becbeabf836d716cfedb6bf2
-  react-native-fbsdk-next: 325e4973a478f098bb9406fb2a13fa2e1f5dffeb
   react-native-line: cd5eaad4be1725b05814fa9ed0794c1295744294
   react-native-safe-area-context: 6b4966397ada0f7dd481e4486a2ef936834861a1
   react-native-skia: b319389e81797af11985805fcfad0714b8670cab
@@ -3198,6 +3152,6 @@ SPEC CHECKSUMS:
   RNWorklets: 43af89f696342f91118a2f1f3a879056e2f47331
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
 
-PODFILE CHECKSUM: 1a791d39342c89085498743aad01c534e5b53f77
+PODFILE CHECKSUM: d8f6b0ba2418cd50ac1941a9bbb08ed93b54289f
 
 COCOAPODS: 1.16.2
