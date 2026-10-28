@@ -6,17 +6,33 @@ import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { art } from '@/constants/art';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
-import { getFriendsScreen, searchFriends } from '@/services/api/friends';
+import {
+  cancelFriendRequest,
+  getFriendsScreen,
+  rejectFriendRequest,
+  searchFriends,
+} from '@/services/api/friends';
+import { blockUser, getBlockedUsers } from '@/services/api/safety';
+import { replaceBlockedUsers } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/friends', () => ({
   ...jest.requireActual('@/services/api/friends'),
   getFriendsScreen: jest.fn(),
   searchFriends: jest.fn(),
+  cancelFriendRequest: jest.fn(),
+  rejectFriendRequest: jest.fn(),
 }));
-jest.mock('@/services/blockedUsers', () => ({
-  ...jest.requireActual('@/services/blockedUsers'),
-  useBlockedUsers: () => ({ ids: new Set<string>(), status: 'ready', retry: jest.fn() }),
+// 차단 목록 저장소는 진짜를 쓴다 — 차단하면 그 줄이 실제 필터로 사라지는지 본다(GROMO-2467)
+jest.mock('@/services/api/safety', () => ({
+  ...jest.requireActual('@/services/api/safety'),
+  blockUser: jest.fn(),
+  getBlockedUsers: jest.fn(),
 }));
+
+beforeEach(() => {
+  replaceBlockedUsers([]);
+  jest.mocked(getBlockedUsers).mockReset().mockResolvedValue([]);
+});
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -227,4 +243,137 @@ test('검색 뒤 친구 관리를 닫았다 열면 입력과 검색 결과 영�
   assert.equal(screen.queryByText('검색 결과'), null);
   assert.equal(screen.queryByText('이전결과'), null);
   assert.equal(searchMock.mock.calls.length, 1);
+});
+
+// ── 친구 관리 네 줄의 ··· 차단(GROMO-2467) ──
+const sentRequest = {
+  requestId: 'r-sent',
+  userId: 'u-sent',
+  nickname: '보낸이',
+  tierLevel: null,
+  createdAt: 't',
+};
+const receivedRequest = {
+  requestId: 'r-recv',
+  userId: 'u-recv',
+  nickname: '받은이',
+  tierLevel: null,
+  createdAt: 't',
+};
+
+async function renderBlockScreen() {
+  jest
+    .mocked(getFriendsScreen)
+    .mockReset()
+    .mockResolvedValue({
+      friends: [friend('u-friend', '짝꿍')],
+      friendRequests: [receivedRequest],
+      sentFriendRequests: [sentRequest],
+    });
+  jest.mocked(searchFriends).mockReset();
+  jest.mocked(blockUser).mockReset().mockResolvedValue(undefined);
+  jest.mocked(cancelFriendRequest).mockReset().mockResolvedValue(undefined);
+  jest.mocked(rejectFriendRequest).mockReset().mockResolvedValue(undefined);
+  const screen = await render(<LiveHarness open />);
+  await screen.findByText('보낸이');
+  return screen;
+}
+
+async function search(screen: Awaited<ReturnType<typeof render>>, nickname: string) {
+  await fireEvent.changeText(screen.getByPlaceholderText('닉네임으로 친구 찾기'), nickname);
+  await waitFor(() => assert.ok(screen.getByText('검색 결과')));
+  await waitFor(() => assert.ok(screen.getByLabelText(`${nickname} 더보기`)));
+}
+
+async function blockFromMenu(screen: Awaited<ReturnType<typeof render>>, name: string) {
+  await fireEvent.press(screen.getByLabelText(`${name} 더보기`));
+  // 친구 삭제는 친구 줄 메뉴에만 있다
+  assert.equal(screen.queryByText('친구 삭제'), null);
+  await fireEvent.press(screen.getByText('차단하기'));
+  await fireEvent.press(screen.getByText('차단'));
+}
+
+test('친구 줄 ··· 메뉴에는 차단하기와 친구 삭제가 함께 있다', async () => {
+  const screen = await renderBlockScreen();
+
+  await fireEvent.press(screen.getByLabelText('짝꿍 더보기'));
+
+  assert.ok(screen.getByText('차단하기'));
+  assert.ok(screen.getByText('친구 삭제'));
+});
+
+test('검색 결과 줄 ··· 로 차단하면 차단 API 뒤 그 줄이 사라지고, 보낸 요청이 없으면 취소하지 않는다', async () => {
+  const screen = await renderBlockScreen();
+  jest
+    .mocked(searchFriends)
+    .mockResolvedValue([
+      { userId: 'u-new', nickname: '구름', relation: 'NONE', tierLevel: null, occupation: null },
+    ]);
+  await search(screen, '구름');
+  assert.ok(screen.getByText('친구 요청'));
+
+  await blockFromMenu(screen, '구름');
+
+  await waitFor(() => assert.equal(screen.queryByText('구름'), null));
+  expect(jest.mocked(blockUser).mock.calls).toEqual([['u-new']]);
+  assert.equal(jest.mocked(cancelFriendRequest).mock.calls.length, 0);
+});
+
+test('보낸 요청 줄 ··· 로 차단하면 차단 성공 뒤 그 요청을 취소하고 줄이 사라진다', async () => {
+  const screen = await renderBlockScreen();
+  assert.ok(screen.getByText('요청 취소'));
+
+  await blockFromMenu(screen, '보낸이');
+
+  await waitFor(() => expect(jest.mocked(cancelFriendRequest).mock.calls).toEqual([['r-sent']]));
+  expect(jest.mocked(blockUser).mock.calls).toEqual([['u-sent']]);
+  assert.ok(
+    jest.mocked(blockUser).mock.invocationCallOrder[0] <
+      jest.mocked(cancelFriendRequest).mock.invocationCallOrder[0],
+  );
+  await waitFor(() => assert.equal(screen.queryByText('보낸이'), null));
+  assert.equal(screen.queryByText('요청 취소'), null);
+});
+
+test('검색에서 「요청 중」인 상대를 차단해도 보낸 요청을 취소한다', async () => {
+  const screen = await renderBlockScreen();
+  jest.mocked(searchFriends).mockResolvedValue([
+    {
+      userId: 'u-sent',
+      nickname: '보낸이',
+      relation: 'PENDING',
+      tierLevel: null,
+      occupation: null,
+    },
+  ]);
+  await search(screen, '보낸이');
+  assert.ok(screen.getByText('요청 중'));
+
+  await blockFromMenu(screen, '보낸이');
+
+  await waitFor(() => expect(jest.mocked(cancelFriendRequest).mock.calls).toEqual([['r-sent']]));
+  await waitFor(() => assert.equal(screen.queryByText('보낸이'), null));
+});
+
+test('차단이 실패하면 보낸 요청을 취소하지 않고 줄도 남는다', async () => {
+  const screen = await renderBlockScreen();
+  jest.mocked(blockUser).mockRejectedValue(new Error('offline'));
+
+  await blockFromMenu(screen, '보낸이');
+
+  await waitFor(() => assert.ok(screen.getByText(/처리하지 못했어요/)));
+  assert.equal(jest.mocked(cancelFriendRequest).mock.calls.length, 0);
+  await waitFor(() => assert.ok(screen.getByText('보낸이')));
+});
+
+test('받은 요청 줄에서 차단하면 거절하지 않고 숨기기만 한다', async () => {
+  const screen = await renderBlockScreen();
+
+  await blockFromMenu(screen, '받은이');
+
+  await waitFor(() => assert.equal(screen.queryByText('받은이'), null));
+  expect(jest.mocked(blockUser).mock.calls).toEqual([['u-recv']]);
+  assert.equal(jest.mocked(rejectFriendRequest).mock.calls.length, 0);
+  assert.equal(jest.mocked(cancelFriendRequest).mock.calls.length, 0);
+  assert.ok(screen.getByText('보낸이'));
 });

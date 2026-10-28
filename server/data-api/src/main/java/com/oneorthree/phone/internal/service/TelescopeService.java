@@ -56,7 +56,7 @@ import java.util.stream.Stream;
  * 「빈칸 없음」보다 앞선다(정본 SCOPE-03). 핀을 넣으면 그 섬은 스냅샷 칸에서 감춰지고, 빼면 별도 복귀 로직 없이 스냅샷에서
  * 밀려났던 섬이 순서대로 돌아온다.
  *
- * <p>칸은 넷이고 응답도 이 순서다.
+ * <p>기본 칸은 넷이다. 무인도 후보는 이 목록과 독립적으로 추첨해 맨 앞에 추가한다.
  * <ul>
  *   <li>{@code joined} — 활성 소속 섬 전부(≤3). 항해 분도 계산해 둔다.</li>
  *   <li>{@code nearby} — 스냅샷의 첫 섬이 뽑힌 순간 정원이 남아 있었다면 그 섬 하나, 항해 {@value #NEARBY_SAILING_MINUTES}분.
@@ -79,8 +79,8 @@ import java.util.stream.Stream;
  * 잠근 쓰기 트랜잭션 안에서 이 목록을 부른다. 새 트랜잭션은 커넥션을 하나 더 잡고(풀 고갈), 바깥이 방금 넣은 핀을 보지
  * 못한다. 바깥 트랜잭션에 합류하면 같은 커넥션·같은 스냅샷에서 끝나고, 바깥이 롤백하면 스냅샷도 함께 사라져 다음 요청이
  * 같은 시드로 다시 뽑는다. 단 {@code readOnly} 트랜잭션 안에서 부르면 INSERT 가 실패하므로 그런 호출자를 만들지 않는다.
- * 사용자 행은 <b>배타 잠금</b>으로 읽어 동시 첫 요청의 스냅샷·개인 무인도 준비를 직렬화한다. 탈퇴와도
- * 직렬화해 탈퇴 뒤 스냅샷이나 예약이 다시 남는 틈을 막는다. 스냅샷 INSERT의 {@code ON CONFLICT DO NOTHING}도 유지한다.
+ * 사용자 행은 <b>배타 잠금</b>으로 읽어 동시 첫 요청의 스냅샷을 직렬화한다. 무인도 후보는 저장하지 않는다.
+ * 탈퇴와도 직렬화하며 스냅샷 INSERT의 {@code ON CONFLICT DO NOTHING}을 유지한다.
  * 그래서 {@code GET /me/telescope} 는 같은 사용자의 {@code FOR UPDATE} 쓰기(핀 넣기·빼기·탈퇴 등)와 서로 기다린다 — 같은
  * 사용자 안의 경합뿐이고 다른 사용자끼리는 막지 않는다.
  *
@@ -95,6 +95,7 @@ public class TelescopeService {
     static final String SLOT_NEARBY = "nearby";
     static final String SLOT_PINNED = "pinned";
     static final String SLOT_RANDOM = "random";
+    static final String SLOT_UNINHABITED = "uninhabited";
     static final int NEARBY_SAILING_MINUTES = 15;
     static final int RANDOM_SLOTS = 4;
     /** 핀은 무작위 칸을 대신한다 — 무작위 칸 수를 넘지 않아야 새 섬 칸(1 + 4 − 핀 수)이 1 아래로 내려가지 않는다. */
@@ -144,7 +145,7 @@ public class TelescopeService {
      */
     @Transactional
     public TelescopeView list(UUID userId, Instant now) {
-        // 탈퇴·동시 첫 조회와 직렬화한다. 소속 없는 사용자의 무인도 예약도 이 잠금 안에서 하나만 만든다.
+        // 탈퇴·동시 첫 조회와 직렬화한다. 무인도 후보는 저장하지 않는다.
         userQueryService.getCallerForUpdate(userId);
         Instant bucketStart = now.truncatedTo(ChronoUnit.HOURS);
 
@@ -239,7 +240,8 @@ public class TelescopeService {
         }
         int firstRandom = (int) items.stream().takeWhile(view -> !SLOT_RANDOM.equals(view.slot())).count();
         items.addAll(firstRandom, pinnedItems);
-        onboardingIslands.destination(userId, joinedIds, items).ifPresent(item -> items.add(0, item));
+        onboardingIslands.destination(userId, joinedIds, items, bucketStart)
+                .ifPresent(item -> items.add(0, item));
         // 60 − 버킷 안에서 지난 «온전한» 분 = ceil((bucketStart + 1h − now) / 1분). 정각엔 60, 59분 59초엔 1.
         int nextRefreshMinutes = 60 - (int) Duration.between(bucketStart, now).toMinutes();
         return new TelescopeView(bucketStart, nextRefreshMinutes, items);

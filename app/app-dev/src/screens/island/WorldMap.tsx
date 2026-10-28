@@ -123,6 +123,7 @@ import { CatInfoPopup } from './CatInfoPopup';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import {
   lookOf,
   newerLook,
@@ -171,9 +172,10 @@ const TILE_ISLAND = Platform.OS !== 'web';
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
-// 홈 지도 확대·축소 한계. 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
+// 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
 const MIN_ZOOM = 0.35,
-  MAX_ZOOM = 2.6;
+  HOME_MAX_ZOOM = 1,
+  OTHER_MAX_ZOOM = 2.6;
 /**
  * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
  * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
@@ -248,7 +250,7 @@ export const legacyDoors: Record<string, Door> = (() => {
         return t('home.a11y.campfire');
       },
       memberOnly: true,
-      // 낮 연기와 밤 불꽃이 그려지는 영역을 함께 덮는다.
+      // 늘 켜진 불꽃 영역(405, 437 · 140×93)을 덮는다. 위 여백은 종전 낮 연기 자리라 누르는 범위를 줄이지 않고 둔다(GROMO-2483).
       hitbox: d.fire.hitbox,
     },
     hall: building('hall', 'hall'),
@@ -660,6 +662,10 @@ export function WorldMap({
     : L.landscape
       ? (L.height / 1140) * 1.5
       : (((L.height / 874) * 402) / 1536) * 2.8;
+  const maxZoom = fishing || village ? OTHER_MAX_ZOOM : HOME_MAX_ZOOM;
+  useEffect(() => {
+    setCamera((c) => (c.z > maxZoom ? { ...c, z: maxZoom } : c));
+  }, [maxZoom]);
   const scale = base * camera.z,
     left = L.width / 2 - camera.x * scale,
     top = L.height / 2 - camera.y * scale;
@@ -671,6 +677,7 @@ export function WorldMap({
     top,
     width: L.width,
     height: L.height,
+    maxZoom,
     onSpot,
   });
   current.current = {
@@ -681,6 +688,7 @@ export function WorldMap({
     top,
     width: L.width,
     height: L.height,
+    maxZoom,
     onSpot,
   };
   const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
@@ -696,7 +704,7 @@ export function WorldMap({
     ...c,
     x: Math.max(0, Math.min(grid.w, c.x)),
     y: Math.max(0, Math.min(grid.h, c.y)),
-    z: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, c.z)),
+    z: Math.max(MIN_ZOOM, Math.min(current.current.maxZoom, c.z)),
   });
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof camera) => {
@@ -760,7 +768,7 @@ export function WorldMap({
             begin(tp);
             return;
           }
-          const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (o.z * dist(tp)) / o.dist)),
+          const z = Math.max(MIN_ZOOM, Math.min(v.maxZoom, (o.z * dist(tp)) / o.dist)),
             m = midpoint(tp);
           show(
             clamp({
@@ -1129,17 +1137,17 @@ export function WorldMap({
                 }}
               />
             )}
+            {/* 모닥불은 낮에도 밤과 같은 불꽃으로 늘 켜져 있다(GROMO-2483, 2026-10-27 오스카) — 밤 불꽃의 화덕 경계를 그대로 쓴다 */}
             <FireMotion
               testID="world-fire-motion"
-              mode={dayNight === 'day' ? 'day' : 'evening'}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 ...pressStyle('fire'),
                 position: 'absolute',
-                left: left + (dayNight === 'day' ? 402 : 405) * scale,
-                top: top + (dayNight === 'day' ? 425 : 437) * scale,
-                width: (dayNight === 'day' ? 116 : 140) * scale,
-                height: (dayNight === 'day' ? 77 : 93) * scale,
+                left: left + 405 * scale,
+                top: top + 437 * scale,
+                width: 140 * scale,
+                height: 93 * scale,
               }}
             />
             <RaftWaterMotion
@@ -1324,6 +1332,7 @@ function FinalIslandScene({
   onBuildingEntrySound,
   layeredPreview = false,
   onServerBuilt,
+  homeChat,
   onReturnFromVisit,
   visitHud,
   visitJoin,
@@ -1356,6 +1365,8 @@ function FinalIslandScene({
   layeredPreview?: boolean;
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
+  /** 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501) — 집중 시작 버튼 왼쪽, 건설 카드가 있으면 그 위에 둔다. */
+  homeChat?: React.ReactNode;
   /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
   onReturnFromVisit?: () => void;
   /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
@@ -2216,22 +2227,34 @@ function FinalIslandScene({
   // 홈 섬 다른 주민(GROMO-2476) — 서버 홈은 facts.members, 목업 섬은 i.members 순서 그대로. 털색을 고른 주민만
   // (catColor null 은 임의 색으로 채우지 않는다). 동기화 위치가 있으면 RemoteResident, 없으면 이 순서의 고정 자리(spot)다.
   // name 은 홈 섬 이름표(GROMO-2475)에 쓴다.
+  // 차단한 상대(GROMO-2470)는 그리지 않는다. 고정 자리는 거르기 전 명단 순서로 먼저 정한다 — 차단 상대·털색 미선택
+  // (서버는 내가 차단한 주민의 catColor 를 null 로 가린다)을 빼도 다른 주민 자리가 당겨지지 않게.
+  const blockedIds = useBlockedUserIds(false);
   const residents = useMemo(() => {
     const myId = getSession()?.userId;
     const others = facts
       ? facts.members
-          .filter((m) => m.id !== myId && m.catColor)
+          .filter((m) => m.id !== myId)
           .map((m) => ({
             id: m.id,
             name: m.name,
+            drawn: !!m.catColor,
             color: catColor(m.catColor),
             outfit: lookOf(looks, m.id, m),
           }))
       : i.members
           .filter((m) => m.id !== 'me')
-          .map((m) => ({ id: m.id, name: m.name, color: m.color as Color, outfit: undefined }));
-    return others.map((m, n) => ({ ...m, spot: residentSpot(grid, n) }));
-  }, [i.members, facts, looks, grid]);
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            drawn: true,
+            color: m.color as Color,
+            outfit: undefined,
+          }));
+    return others
+      .map((m, n) => ({ ...m, spot: residentSpot(grid, n) }))
+      .filter((m) => m.drawn && !blockedIds.has(m.id));
+  }, [i.members, facts, looks, grid, blockedIds]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
@@ -2551,6 +2574,8 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
+  // 건설 카드가 떠 있으면 채팅 줄을 그 위로 올린다 — 카드 높이는 그려진 뒤 잰다
+  const [buildCardHeight, setBuildCardHeight] = useState(0);
   const buildCardStyle = {
     position: 'absolute',
     left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
@@ -2565,6 +2590,10 @@ function FinalIslandScene({
     paddingHorizontal: semanticTokens.spacing.control,
     gap: primitiveTokens.space[2],
   } as const;
+  // 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139). 로컬 비용·BUILD 카드는 목업에서만
+  const serverBuildCard =
+    !visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt;
+  const mockBuildCard = !visiting && !facts && (i.construction || next);
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
       .map((v) => String(v).padStart(2, '0'))
@@ -2752,7 +2781,7 @@ function FinalIslandScene({
       {showActions && (
         <>
           {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
-          {!visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt && (
+          {serverBuildCard && (
             <ServerBuildCard
               key={`${facts.islandId}:${next}`}
               islandId={facts.islandId}
@@ -2760,6 +2789,7 @@ function FinalIslandScene({
               villagePoints={facts.home.wallets.villagePoints}
               tracked={trackedConstruction}
               style={buildCardStyle}
+              onLayout={(ev) => setBuildCardHeight(ev.nativeEvent.layout.height)}
               onStarted={(receipt) =>
                 dispatch?.({
                   type: 'SERVER_CONSTRUCTION_STARTED',
@@ -2770,8 +2800,12 @@ function FinalIslandScene({
             />
           )}
           {/* 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
-          {!visiting && !facts && (i.construction || next) && (
-            <View style={buildCardStyle}>
+          {mockBuildCard && (
+            <View
+              testID="local-build-card"
+              style={buildCardStyle}
+              onLayout={(ev) => setBuildCardHeight(ev.nativeEvent.layout.height)}
+            >
               <View
                 style={{
                   flexDirection: 'row',
@@ -2841,6 +2875,23 @@ function FinalIslandScene({
                   onPress={() => build(next)}
                 />
               )}
+            </View>
+          )}
+          {!visiting && homeChat && (
+            <View
+              testID="home-chat-slot"
+              pointerEvents="box-none"
+              style={{
+                position: 'absolute',
+                left: buildCardStyle.left,
+                right: focusButtonInset(L).right + FOCUS_BUTTON_SIZE + primitiveTokens.space[3],
+                bottom:
+                  serverBuildCard || mockBuildCard
+                    ? buildCardStyle.bottom + buildCardHeight + primitiveTokens.space[2]
+                    : focusButtonInset(L).bottom,
+              }}
+            >
+              {homeChat}
             </View>
           )}
           <View

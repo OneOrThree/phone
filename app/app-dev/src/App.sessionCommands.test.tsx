@@ -25,6 +25,7 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+let mockFocusBlockingIntro: any;
 // 앱 state 저장은 1초 모아 쓴다(GROMO-2372) — 저장본을 기다리는 waitFor 는 그보다 넉넉히 기다린다
 const SAVED_WRITE = { timeout: 3000 };
 // 저장은 1초 모아 쓴다(SAVE_DELAY_MS) — 저장을 여러 번 기다리는 테스트가 느린 CI 러너에서 기본 5초를 넘지 않게 늘린다
@@ -74,6 +75,10 @@ let mockBootRoute: Route = 'login';
 jest.mock('@/screens/island/CurrentScreens', () => ({
   CurrentScreens: ({ e }: any) => {
     captured = e;
+    return null;
+  },
+  FocusBlockingIntro: ({ e }: any) => {
+    mockFocusBlockingIntro = e;
     return null;
   },
 }));
@@ -234,6 +239,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   const savedA = {
     ...initialState(true),
     name: 'A-only-private-state',
+    focusBlockingIntro: 'pending',
     settings: { ...initialState(true).settings, sound: false },
   };
   await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(savedA));
@@ -284,6 +290,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b'));
 
   assert.notEqual(captured.state.fish, 777);
+  expect(captured.state.focusBlockingIntro).toBeUndefined();
   assert.equal(captured.state.settings.sound, false);
   await waitFor(() => {
     assert.equal(captured.state.loggedIn, true);
@@ -2776,6 +2783,8 @@ test('실제 앱의 집중 체험 완료는 일반 저장본과 별도 계정 �
   await waitFor(async () =>
     expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true),
   );
+  expect((await readAccountGuides('guide-persistence-user')).focusBlockingIntro).toBe('pending');
+  expect(captured.state.focusBlockingIntro).toBe('pending');
   await AsyncStorage.removeItem('gromo-r61-user-v2');
   expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true);
   await app.unmount();
@@ -2791,6 +2800,32 @@ test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이�
   expect((await readAccountGuides('guide-new')).focusDone).toBe(false);
   await app.unmount();
 });
+
+test.each(['island', 'sea'])(
+  '%s 집중 안내를 열면 해당 계정의 열람 이력을 저장한다',
+  async (kind) => {
+    const owner = `blocking-intro-${kind}`;
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: owner });
+    const app = await render(<App />);
+    await waitFor(() => expect(captured).toBeDefined());
+    await act(async () => captured.setGuideStep(22));
+    mockFocusBlockingIntro = undefined;
+    await act(async () => {
+      if (kind === 'sea') captured.beforeSeaVoyage(jest.fn());
+      else captured.go('focusTravel');
+    });
+    expect(mockFocusBlockingIntro).toBeDefined();
+    expect(captured.state.focusBlockingIntro).toBe('seen');
+    expect((await readAccountGuides(owner)).focusBlockingIntro).toBe('seen');
+    await act(async () => mockFocusBlockingIntro.onClose());
+    mockFocusBlockingIntro = undefined;
+    const prepare = jest.fn();
+    await act(async () => captured.beforeSeaVoyage(prepare));
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(mockFocusBlockingIntro).toBeUndefined();
+    await app.unmount();
+  },
+);
 
 const islandSync = (
   currentIslandId: string | null,

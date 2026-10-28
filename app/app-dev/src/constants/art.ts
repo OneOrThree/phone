@@ -3,6 +3,7 @@ import { ImageSourcePropType } from 'react-native';
 export const art: Record<string, ImageSourcePropType> = {
   welcome: require('@/assets/redesign/welcome.jpg'),
   'cat/black/sitting': require('@/assets/redesign/cat-black-sitting.png'),
+  'cat/black/phone': require('@/assets/redesign/cat-black-phone.png'),
   'avatar/black': require('@/assets/redesign/avatar-black.png'),
   'avatar/ginger': require('@/assets/redesign/avatar-ginger.png'),
   'avatar/cream': require('@/assets/redesign/avatar-cream.png'),

@@ -282,6 +282,7 @@ export function RestCampfireFront({
           {([1, 2, 3] as const).map((f) => (
             <Animated.Image
               key={f}
+              testID={`rest-campfire-flame-${f}`}
               source={flames[f]}
               accessible={false}
               style={{

@@ -202,19 +202,34 @@ const SPLASH_END = SPLASH_AT + 1.15;
 const FISH_FROM = 6.1;
 const FISH_TO = 7.55;
 
+export function fishingFishFlight(
+  q: number,
+  launch: { x: number; y: number },
+  home: { x: number; y: number },
+  k: number,
+) {
+  const progress = clamp(q);
+  return {
+    x: launch.x + (home.x - launch.x) * progress,
+    y: launch.y + (home.y - launch.y) * progress - Math.sin(Math.PI * progress) * 260 * k,
+  };
+}
+
 /**
- * 낚아올리기 물보라(찌 자리 왼쪽 17px)와 물고기 포물선(높이 260px)을 reel 시계(LAB 초)로 그린다.
+ * 낚아올리기 물보라(찌 자리 왼쪽 17px)와 낚싯대 끝에서 시작하는 물고기 포물선(높이 260px)을 reel 시계(LAB 초)로 그린다.
  * 황금 물고기 진행 중에는 FishingActor 가 이 컴포넌트를 그리지 않는다.
  */
 export function FishingCatchMotion({
   reel,
   bob,
+  launch,
   home,
   k,
   face,
 }: {
   reel: Animated.Value;
   bob: { x: number; y: number };
+  launch: { x: number; y: number };
   home: { x: number; y: number } | null;
   k: number;
   face: number;
@@ -293,17 +308,12 @@ export function FishingCatchMotion({
         extrapolate: 'clamp',
       }),
       transform: (() => {
-        const start = { x: bob.x - 57 * k * face, y: bob.y + Math.sin(6.1 * 19) * 3 * k };
         const p = (t: number) => clamp((t - FISH_FROM) / (FISH_TO - FISH_FROM));
         const along = (fn: (q: number) => number) =>
           sampled(reel, FISH_FROM, FISH_TO, 30, (t) => fn(p(t)));
         return [
-          { translateX: along((q) => start.x + (home.x - start.x) * q) },
-          {
-            translateY: along(
-              (q) => start.y + (home.y - start.y) * q - Math.sin(Math.PI * q) * 260 * k,
-            ),
-          },
+          { translateX: along((q) => fishingFishFlight(q, launch, home, k).x) },
+          { translateY: along((q) => fishingFishFlight(q, launch, home, k).y) },
           { scaleX: face < 0 ? -1 : 1 },
           {
             rotate: toRad(
@@ -314,7 +324,7 @@ export function FishingCatchMotion({
       })(),
     };
     return { drops, ring, fish };
-  }, [reel, bob.x, bob.y, home, k, face]);
+  }, [reel, bob.x, bob.y, launch.x, launch.y, home, k, face]);
   return (
     <View
       testID="fishing-catch-motion"

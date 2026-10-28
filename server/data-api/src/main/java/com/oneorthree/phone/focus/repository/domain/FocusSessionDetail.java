@@ -47,9 +47,22 @@ public class FocusSessionDetail {
     @Column(name = "user_id")
     private UUID userId;
 
-    /** 시작 시 고정, 진행 중 불변(FR-P03) — 소속 변경은 진행 세션에 반영되지 않는다. */
+    /** SEA 무인도 후보는 출항 중 가상 ID이며, 성공 완료 때 생성된 실제 섬 ID로 교체된다. */
     @Column(name = "island_id", nullable = false)
     private UUID islandId;
+
+    /** 망원경 독립 추첨 무인도 목적지. 기존 섬 항해 및 섬 집중은 false. */
+    @Column(name = "new_island_destination", nullable = false)
+    @Builder.Default
+    private boolean newIslandDestination = false;
+
+    public void materializeDestination(UUID createdIslandId) {
+        if (!newIslandDestination || kind != FocusSessionKind.SEA || !Boolean.TRUE.equals(arrived)) {
+            throw new IllegalStateException("도착한 무인도 항해만 실제 목적지로 교체할 수 있습니다");
+        }
+        islandId = createdIslandId;
+        newIslandDestination = false;
+    }
 
     /**
      * 시작 시점의 {@code GroupMember.membershipEpoch} 스냅샷 — 강퇴·재가입 감지용 앵커.

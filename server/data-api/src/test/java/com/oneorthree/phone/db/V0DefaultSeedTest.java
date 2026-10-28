@@ -169,9 +169,9 @@ class V0DefaultSeedTest {
         assertVersionZero();
     }
 
-    /** 이력은 V0 체인(후속 V1 = GROMO-2477) 그대로다 — 기본데이터 콜백은 버전 행을 남기지 않는다. */
+    /** 기본데이터 콜백은 V0 체인에 버전 행을 남기지 않는다. */
     private void assertVersionZero() {
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0", "1");
+                .containsExactly("0", "1", "2", "3");
     }
 }

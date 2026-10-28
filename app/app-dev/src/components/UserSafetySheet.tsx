@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Image,
-  ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -16,13 +14,6 @@ import { blockUser } from '@/services/api/safety';
 import { errorTextOr, t } from '@/i18n';
 import { isUserBlocked, markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
-
-const SAFETY_ART = {
-  background: require('@/assets/interiors/mail-cute-v1.png'),
-  envelope: require('@/assets/interiors/ui/letter-envelope-v1.png'),
-  cat: require('@/assets/redesign/cat-black-sitting.png'),
-  postbird: require('@/assets/characters/pelican/npc/on-mailbox.png'),
-};
 
 type Props = {
   visible: boolean;
@@ -90,7 +81,8 @@ export function UserSafetySheet(props: Props) {
 
   return (
     <Modal transparent visible={props.visible} animationType="fade" onRequestClose={close}>
-      <ImageBackground source={SAFETY_ART.background} resizeMode="cover" style={{ flex: 1 }}>
+      {/* 연 화면 위에 딤만 깔고 띄운다 — 전체 화면 우체통 그림은 깔지 않는다(GROMO-2467) */}
+      <View style={{ flex: 1 }}>
         <View
           testID="user-safety-overlay"
           style={[StyleSheet.absoluteFill, { backgroundColor: componentTokens.overlay.background }]}
@@ -111,33 +103,7 @@ export function UserSafetySheet(props: Props) {
             accessibilityState={{ disabled: busy }}
             disabled={busy}
             onPress={close}
-          >
-            <Image
-              source={SAFETY_ART.envelope}
-              resizeMode="contain"
-              accessible={false}
-              style={{
-                position: 'absolute',
-                left: 18,
-                top: 42,
-                width: 94,
-                height: 94,
-                transform: [{ rotate: '-9deg' }],
-              }}
-            />
-            <Image
-              source={SAFETY_ART.postbird}
-              resizeMode="contain"
-              accessible={false}
-              style={{ position: 'absolute', right: -12, top: 8, width: 154, height: 154 }}
-            />
-            <Image
-              source={SAFETY_ART.cat}
-              resizeMode="contain"
-              accessible={false}
-              style={{ position: 'absolute', left: '33%', bottom: -18, width: 112, height: 112 }}
-            />
-          </Pressable>
+          />
           <View
             testID="user-safety-panel"
             accessibilityViewIsModal
@@ -215,7 +181,7 @@ export function UserSafetySheet(props: Props) {
             {error ? <Txt style={{ color: C.danger }}>{error}</Txt> : null}
           </View>
         </KeyboardAvoidingView>
-      </ImageBackground>
+      </View>
     </Modal>
   );
 }

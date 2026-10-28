@@ -278,6 +278,24 @@ test.each([
   },
 );
 
+test('추첨된 무인도 후보(slot=uninhabited)는 들어갈 섬이 있어도 맨 앞에 함께 뜬다', async () => {
+  const e = env();
+  e.state = initialState();
+  const lottery = item('lottery', {
+    name: '무인도',
+    memberCount: 0,
+    buildingCount: 0,
+    slot: 'uninhabited',
+    sailingMinutes: 15,
+  });
+  const regular = [mine('joined'), item('open'), item('full', { full: true })];
+  const { screen } = await open([lottery, ...regular], e);
+  expect(screen.getAllByTestId(/^telescope-island-/).map((n) => n.props.testID)).toEqual(
+    [lottery, ...regular].map((i) => `telescope-island-${i.islandId}`),
+  );
+  expect(screen.getByTestId('telescope-art-lottery').props.source).toBe(ISLAND_STAGE_ART.houses0);
+});
+
 test('섬 8개가 응답 순서대로 파노라마에 뜨고 소속 섬(joined)에만 깃발이 꽂힌다', async () => {
   const { screen } = await open(EIGHT());
   const order = screen.getAllByTestId(/^telescope-island-/).map((n: any) => n.props.testID);
@@ -712,6 +730,45 @@ describe('가입', () => {
 });
 
 describe('항해하기(바다 항해 집중, GROMO-2310)', () => {
+  test('권한 미리보기는 서버 연결 없이 항해를 시작하고 목적지와 한마디를 유지한다', async () => {
+    const e = { ...env({ islands: false }), focus: undefined, focusBlockingIntroPreview: true };
+    const screen = await render(<Telescope e={e} previewItems={[item('r1')]} />);
+    await press(screen, 'r1');
+    await fireEvent.press(screen.getByLabelText('항해하기'));
+    await fireEvent.changeText(screen.getByLabelText('한마디 (선택)'), '영어 공부');
+    await fireEvent.press(screen.getByLabelText('항해 시작'));
+    expect(e.dispatch).toHaveBeenCalledWith({
+      type: 'SESSION_SYNC',
+      session: expect.objectContaining({
+        islandId: 'r1',
+        destinationIslandName: '섬 r1',
+        kind: 'sea',
+        subject: '영어 공부',
+        status: 'active',
+        targetMinutes: 30,
+      }),
+    });
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
+    expect(mockUnpin).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  test('섬을 고른 뒤 항해하기를 눌러야 권한 안내를 요청하고, 완료 뒤 항해 준비를 연다', async () => {
+    const beforeSeaVoyage = jest.fn();
+    const e = { ...env(), beforeSeaVoyage };
+    const { screen } = await open([item('r1')], e);
+    expect(beforeSeaVoyage).not.toHaveBeenCalled();
+    await press(screen, 'r1');
+    expect(beforeSeaVoyage).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('항해하기'));
+    expect(beforeSeaVoyage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('항해 시작')).toBeNull();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
+    await act(async () => beforeSeaVoyage.mock.calls[0][0]());
+    expect(screen.getByLabelText('항해 시작')).toBeTruthy();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
+  });
+
   const sailTo = async (screen: any, id: string) => {
     await press(screen, id);
     await fireEvent.press(screen.getByLabelText('항해하기'));

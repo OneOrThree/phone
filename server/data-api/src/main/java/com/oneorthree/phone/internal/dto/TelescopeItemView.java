@@ -11,7 +11,7 @@ import java.util.UUID;
  *
  * @param intro                     한 줄 소개. 소개가 없으면 빈 문자열
  * @param membershipStatus          {@code active|pending|none} — 본인 기준
- * @param slot                      {@code joined|nearby|pinned|random}
+ * @param slot                      {@code joined|nearby|pinned|random|uninhabited}
  * @param sailingMinutes            항해 분 — {@code nearby} 는 15, 나머지는 30·60·90 중 하나
  * @param averageFocusMinutesPerDay 주민 1인당 하루 평균 집중(분, 최근 7일 스냅샷). 아직 집계 전이거나 주민이 없으면 null
  * @param full                      정원이 찼다 — 구경만 할 수 있다

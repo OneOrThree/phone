@@ -86,6 +86,15 @@ const promotionRowBusy = {
   opacity: componentTokens.button.disabledOpacity,
 } as const;
 const completionStamp = componentTokens.hallCompletionStamp;
+// 공동 가계부 장부 한 장과 잔액·적립·지출 고양이 포스트잇(GROMO-2487) — 새 그림이라 OTA 경로(src/assets/ota/)에 둔다
+const ledgerArt = {
+  book: require('@/assets/ota/interiors/ui/ledger-book-v2.png'),
+  tabs: [
+    require('@/assets/ota/interiors/ui/tab-pink.png'),
+    require('@/assets/ota/interiors/ui/tab-yellow.png'),
+    require('@/assets/ota/interiors/ui/tab-blue.png'),
+  ],
+};
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -330,8 +339,6 @@ export function Hall({ e }: any) {
   });
   const [mockMonth, setMockMonth] = useState(0);
   const [mockTab, setMockTab] = useState<LedgerTab>('balance');
-  // 가계부 제목표·책갈피 줄이 두 줄로 접혀 위로 늘어난 높이 — 그만큼 책을 내려 제목표를 제자리에 둔다(onLayout 으로 잰다)
-  const [ledgerHeadingExtra, setLedgerHeadingExtra] = useState(0);
   // 모크 모드용 로컬 view model — 서버 모델과 같은 모양으로 맞춰 아래 렌더를 공유한다.
   // reason 자리에는 표시용 로컬 제목(l.title)을 싣는다(아래 렌더가 mockLedger 면 그대로 그린다).
   const mockLedgerState = useMemo<LedgerScreenState>(() => {
@@ -752,7 +759,7 @@ export function Hall({ e }: any) {
       );
     }
     const [ledgerYear, ledgerMonth] = ledger.month.split('-').map(Number);
-    // 책갈피 라벨 ↔ 서버 direction scope. 잔액은 무필터(최근 두 줄), 적립·지출은 해당 방향 전체
+    // 포스트잇 라벨 ↔ 서버 direction scope. 잔액은 무필터(최근 두 줄), 적립·지출은 해당 방향 전체
     const TAB_KEY = { 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as const;
     const TAB_LABEL = { balance: '잔액', earn: '적립', spend: '지출' } as const;
     // 서버 원장 사유 → 한 줄 표시 (GROMO-1786 · IslandWalletTransactionType). 거래 주체는 계약에 없다
@@ -765,89 +772,61 @@ export function Hall({ e }: any) {
       promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
-    const bookmark = (label: keyof typeof TAB_KEY, n: number) => {
-      const key = TAB_KEY[label];
-      const on = ledger.tab === key;
-      const color = ['#f2c1c8', '#f1d77f', '#acd5df'][n];
-      return (
-        <Pressable
-          key={label}
-          testID={`ledger-tab-${label}`}
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityState={{ selected: on }}
-          onPress={() => ledger.setTab(key)}
-          style={[
-            {
-              // 시안 폭 72.3까지만 커지고, 제목표 옆에 남는 폭이 모자라면 셋이 똑같이 줄어든다(최소 터치 폭 44)
-              flex: 1,
-              minWidth: semanticTokens.size.tapMin,
-              maxWidth: 72.3,
-              height: 51.6,
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingTop: 6.5,
-              paddingBottom: 10.3,
-              transform: [{ translateY: on ? -7.7 : 0 }],
-            },
-            on && web({ filter: 'brightness(1.04)' }),
-          ]}
-        >
-          {/* 아래가 제비꼬리로 파인 책갈피. 테두리는 위·양옆만. 폭이 줄면 모양만 가로로 눌리고 선 굵기는 그대로 */}
-          <Svg
-            width="100%"
-            height={51.6}
-            viewBox="0 0 72.3 51.6"
-            preserveAspectRatio="none"
-            style={{ position: 'absolute', left: 0, top: 0 }}
-          >
-            <Path d="M0 0H72.3V51.6L36.15 41.28L0 51.6Z" fill={color} />
-            <Path
-              d="M0.95 51.6V6.15Q0.95 0.95 6.15 0.95H66.15Q71.35 0.95 71.35 6.15V51.6"
-              fill="none"
-              stroke="#775846"
-              strokeWidth={1.9}
-              vectorEffect="non-scaling-stroke"
-            />
-          </Svg>
-          <T style={g(15.5, 19.375, { fontWeight: '800' })}>{label}</T>
-        </Pressable>
-      );
-    };
     const numberText = (n: number, sign: '+' | '−') =>
       `${sign}${Math.abs(n).toLocaleString('ko-KR')}`;
+    const LG = componentTokens.ledger;
+    // 토큰의 { 크기, 줄높이 } 로 고운돋움 글자 스타일을 만든다
+    const lt = (type: { fontSize: number; lineHeight: number }, extra?: object) =>
+      g(type.fontSize, type.lineHeight, extra);
+    const tnum = { fontVariant: ['tabular-nums'] };
+    // 이번 달이 아니면 「그 달」
+    const monthWord = ledger.offset ? '그 달' : '이번 달';
+    // 통장 표 한 줄: 날짜 | 내용(묶인 줄은 · N회) | 물고기 금액. 금액 줄높이 22 > 크기 18 이라 고운돋움 숫자 윗부분이 잘리지 않는다
     const list = shown.map((l) => {
-      const [mm, dd] = kstMonthDay(Date.parse(l.createdAt)).split('/');
+      const spend = l.direction === 'spend';
       return (
         <View
           key={l.id}
           style={{
             flexDirection: 'row',
-            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: 10.3,
-            paddingVertical: 9,
-            paddingHorizontal: 1.3,
-            borderBottomWidth: 1.3,
+            gap: LG.columnGap,
+            paddingVertical: LG.rowPaddingVertical,
+            paddingHorizontal: LG.cellPaddingHorizontal,
+            borderBottomWidth: LG.rowRule,
             borderStyle: 'dashed',
-            borderBottomColor: '#c9ad87',
+            borderBottomColor: LG.dash,
           }}
         >
-          <View style={{ flexShrink: 1 }}>
-            {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
-            <T style={g(16.8, 26.88, { fontWeight: '700' })}>
-              {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
-            </T>
-            <T style={g(15.5, 24.8, { color: MUTED })}>
-              {mm}월 {dd}일{l.entryCount > 1 ? ` · ${l.entryCount}회 적립` : ''}
-            </T>
-          </View>
+          <T style={lt(LG.date, { minWidth: LG.dateWidth, color: LG.faint, ...tnum })}>
+            {kstMonthDay(Date.parse(l.createdAt))}
+          </T>
+          {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
+          <T style={lt(LG.reason, { flex: 1, minWidth: 0 })}>
+            {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
+            {l.entryCount > 1 ? (
+              <T
+                style={{ fontSize: LG.countFontSize, color: LG.faint }}
+              >{` · ${l.entryCount}회`}</T>
+            ) : null}
+          </T>
           {/* 서버 amount 는 항상 양수 — 부호는 direction 이 정한다 */}
-          <T style={g(20.7, 20.7)}>{numberText(l.amount, l.direction === 'spend' ? '−' : '+')}</T>
+          <T
+            testID={`ledger-amount-${l.id}`}
+            style={lt(LG.amount, {
+              minWidth: LG.amountMinWidth,
+              textAlign: 'right',
+              fontWeight: '700',
+              color: spend ? LG.spend : LG.earn,
+              ...tnum,
+            })}
+          >
+            {numberText(l.amount, spend ? '−' : '+')}
+          </T>
         </View>
       );
     });
-    // 다음 쪽(같은 월·방향의 서명 커서) 더 보기. 잔액 책갈피는 최근 두 줄만 보는 자리라 붙이지 않는다
+    // 다음 쪽(같은 월·방향의 서명 커서) 더 보기. 잔액 장은 최근 두 줄만 보는 자리라 붙이지 않는다
     const more =
       ledger.tab !== 'balance' && ledger.nextCursor ? (
         <Pressable
@@ -934,98 +913,110 @@ export function Hall({ e }: any) {
           </Pressable>
         </View>
       ) : null;
-    const left = (
-      <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
-        <T style={g(36.2, 45.25, { marginTop: 2.6 })} numberOfLines={1}>
-          🐟 {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
-          마리
-        </T>
-        <View
-          style={{
-            alignSelf: 'flex-start',
-            marginTop: 6.5,
-            marginBottom: 11.6,
-            paddingVertical: 2.6,
-            paddingHorizontal: 9,
-            borderWidth: 1.3,
-            borderColor: '#886b53',
-            borderRadius: 6.5,
-            backgroundColor: '#efd070',
-            transform: [{ rotate: '-2deg' }],
-          }}
+    const tableHead = (
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: LG.columnGap,
+          paddingTop: LG.tableHeadPadding.top,
+          paddingBottom: LG.tableHeadPadding.bottom,
+          paddingHorizontal: LG.cellPaddingHorizontal,
+          borderBottomWidth: LG.headRule,
+          borderBottomColor: LG.rule,
+        }}
+      >
+        <T style={lt(LG.tableHead, { minWidth: LG.dateWidth, color: LG.faint })}>날짜</T>
+        <T style={lt(LG.tableHead, { flex: 1, color: LG.faint })}>내용</T>
+        <T
+          style={lt(LG.tableHead, {
+            minWidth: LG.amountMinWidth,
+            textAlign: 'right',
+            color: LG.faint,
+          })}
         >
-          <T style={g(15.5, 20.15)}>섬 주민이 함께 모은 물고기</T>
-        </View>
+          🐟
+        </T>
       </View>
     );
-    const right = (
-      <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
-        <View
-          style={{ flexDirection: 'row', gap: 9, marginTop: land ? 0 : 11.6, marginBottom: 11.6 }}
-        >
-          {[
-            ['이번 달 적립', numberText(ledger.earnedTotal, '+')],
-            ['이번 달 사용', numberText(ledger.spentTotal, '−')],
-          ].map(([label, value]) => (
-            <View
-              key={label}
-              style={{
-                flex: 1,
-                padding: 9,
-                borderWidth: 1.3,
-                borderColor: '#c7aa83',
-                backgroundColor: '#fff8e7',
-              }}
-            >
-              <T style={g(15.5, 24.8)}>{ledger.offset ? label.replace('이번', '그') : label}</T>
-              <T style={g(22, 30.8, { marginBottom: 1.24 })}>{value}</T>
-            </View>
-          ))}
-        </View>
-        {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
-        {stateBox ? (
-          stateBox
-        ) : shown.length ? (
-          land ? (
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {list}
-              {more}
-              {moreRetry}
-            </ScrollView>
-          ) : (
-            <>
-              {list}
-              {more}
-              {moreRetry}
-            </>
-          )
-        ) : (
+    const empty = (
+      <View
+        testID="ledger-empty"
+        style={{
+          alignItems: 'center',
+          gap: 5.2,
+          paddingVertical: 23.2,
+          paddingHorizontal: 12.9,
+          borderWidth: 1.9,
+          borderStyle: 'dashed',
+          borderColor: '#c5ad8a',
+          borderRadius: 12.9,
+        }}
+      >
+        <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
+          {ledger.tab === 'balance'
+            ? '아직 쌓인 내역이 없어요'
+            : `이 달 ${TAB_LABEL[ledger.tab]} 내역이 없어요`}
+        </T>
+        <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
+          주민이 함께 모으고 쓰면 여기 쌓여요
+        </T>
+      </View>
+    );
+    // 잔액 장: 물고기 + 잔액 + 단위, 그 아래 이번 달 적립·사용 한 줄. 적립·지출 장: 그 달 합계 하나
+    // 큰 숫자는 줄높이 40 > 크기 34. 긴 금액·큰 글자는 자르지 않고 한 줄에 맞게 줄인다
+    const head =
+      ledger.tab === 'balance' ? (
+        <>
           <View
-            testID="ledger-empty"
             style={{
-              alignItems: 'center',
-              gap: 5.2,
-              paddingVertical: 23.2,
-              paddingHorizontal: 12.9,
-              borderWidth: 1.9,
-              borderStyle: 'dashed',
-              borderColor: '#c5ad8a',
-              borderRadius: 12.9,
+              flexDirection: 'row',
+              alignItems: 'baseline',
+              gap: LG.headGap,
+              marginTop: LG.headTop,
             }}
           >
-            <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
-              {ledger.tab === 'balance'
-                ? '아직 쌓인 내역이 없어요'
-                : `이 달 ${TAB_LABEL[ledger.tab]} 내역이 없어요`}
+            <Image
+              source={art.fish}
+              accessible={false}
+              style={{ width: LG.fishSize, height: LG.fishSize }}
+            />
+            <T
+              testID="ledger-balance"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={lt(LG.balance, { flexShrink: 1, ...tnum })}
+            >
+              {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
             </T>
-            <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
-              주민이 함께 모으고 쓰면 여기 쌓여요
-            </T>
+            <T style={lt(LG.unit, { color: MUTED })}>마리</T>
           </View>
-        )}
-      </View>
-    );
-    const perBtn = (dir: -1 | 1) => {
+          <T style={lt(LG.caption, { marginTop: LG.summaryTop, color: MUTED })}>
+            {`${monthWord} 적립 `}
+            <T style={{ color: LG.earn, ...tnum }}>{numberText(ledger.earnedTotal, '+')}</T>
+            {` · ${monthWord} 사용 `}
+            <T style={{ color: LG.spend, ...tnum }}>{numberText(ledger.spentTotal, '−')}</T>
+          </T>
+        </>
+      ) : (
+        <>
+          <T style={lt(LG.caption, { marginTop: LG.headTop, color: MUTED })}>
+            {`${monthWord} ${ledger.tab === 'earn' ? '적립' : '사용'}`}
+          </T>
+          <T
+            testID="ledger-total"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={lt(LG.balance, { color: ledger.tab === 'earn' ? LG.earn : LG.spend, ...tnum })}
+          >
+            {ledger.tab === 'earn'
+              ? numberText(ledger.earnedTotal, '+')
+              : numberText(ledger.spentTotal, '−')}
+          </T>
+        </>
+      );
+    // 월 이동 ‹ › — 글자만 보이고 버튼 상자 자체가 44×44 다(hitSlop 은 부모 행·스크롤 경계를 못 넘어 44 가 안 나온다).
+    // 화살표는 시안 자리대로 ‹ 는 왼쪽 끝, › 는 오른쪽 끝에 붙이고 세로 가운데. 두 상자 폭이 같아 월 글자는 가운데 그대로
+    const nav = (dir: -1 | 1) => {
       const disabled = dir === 1 && !ledger.canNext;
       return (
         <Pressable
@@ -1036,234 +1027,206 @@ export function Hall({ e }: any) {
           disabled={disabled}
           onPress={() => (dir < 0 ? ledger.prevMonth() : ledger.nextMonth())}
           style={{
-            width: 41.3,
-            height: 41.3,
-            borderRadius: 20.65,
-            borderWidth: 2.6,
-            borderColor: BROWN,
-            backgroundColor: '#fff7eb',
-            boxShadow: disabled ? undefined : `0px 3.9px 0px ${BROWN}`,
-            opacity: disabled ? 0.35 : 1,
-            alignItems: 'center',
+            minWidth: semanticTokens.size.tapMin,
+            minHeight: semanticTokens.size.tapMin,
+            alignItems: dir < 0 ? 'flex-start' : 'flex-end',
             justifyContent: 'center',
+            opacity: disabled ? LG.navDisabledOpacity : 1,
           }}
         >
-          <T style={g(16.8, 26.88, { fontWeight: '800' })}>{dir < 0 ? '‹' : '›'}</T>
+          <T style={lt(LG.navArrow, { fontWeight: '800', color: LG.faint })}>
+            {dir < 0 ? '‹' : '›'}
+          </T>
         </Pressable>
       );
     };
-    // 한 줄일 때 제목표·책갈피 줄 높이: 제목표 윗변(책 위 43.9) ~ 책갈피 아랫변(책 위 22 + 책갈피 51.6)
-    const headingRow = 43.9 - 22 + 51.6;
+    // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(세로는 폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰
+    // 가운데) 그림 속 종이 영역 비율로 글을 둔다
+    const A = LG.art;
+    const bookLeft = land ? side : LG.side;
+    const room = W - bookLeft - (land ? LG.landRight : LG.side);
+    // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
+    const bookTop = land
+      ? LG.landTop
+      : Math.max(L.insets.top + LG.topBelowInset, H - LG.bottom - LG.maxHeight);
+    const visibleH = H - bookTop - (land ? LG.landBottom : LG.bottom);
+    // 가로는 높이에 맞춰 줄이지 않는다 — 세로 폰과 비슷한 폭으로 크게 두고 아래쪽을 화면 밖으로 잘라 낸다(2026-10-27 오스카)
+    const sc = land
+      ? Math.min(room, LG.landscapeBookWidth) / A.width
+      : Math.min(room / A.width, visibleH / A.height);
+    const artH = A.height * sc;
+    // 보이는 책 몸통 높이 — 세로는 그림 높이 그대로, 가로는 화면 아래 여백에서 잘린다
+    const bodyH = Math.min(artH, visibleH);
+    const paper = {
+      left: A.paperLeft * sc,
+      top: A.paperTop * sc,
+      right: (A.width - A.paperRight) * sc,
+      bottom: (A.height - A.paperBottom) * sc,
+    };
+    const labels = ['잔액', '적립', '지출'] as const;
+    const bookW = A.width * sc;
+    const tabLeft = (n: number) => paper.left + LG.tabLeft + n * (LG.tabSize + LG.tabGap);
+    // 포스트잇은 책 위로(좁은 화면은 오른쪽으로도) 나온다. 안드로이드는 부모 상자 밖 터치를 자르므로 바깥 상자를
+    // 누르는 자리(hitSlop 포함)까지 위·오른쪽으로 늘리고, 책은 그 안에서 rise 만큼 내려 화면상 자리는 그대로 둔다.
+    // rise 는 장과 상관없이 가장 높이 오는 자리(가장 위 단면 또는 펼친 자리) 기준이라 장을 넘겨도 책이 움직이지 않는다
+    const rise = Math.max(
+      0,
+      LG.tabSize * LG.tabArtBottom +
+        LG.tabHitSlop -
+        Math.min(
+          A.bandBottom * sc + LG.tabOpenOverlap,
+          ...LG.pageEdges.map((y) => y * sc + LG.tabRestOverlap),
+        ),
+    );
+    const frameW = Math.max(bookW, tabLeft(labels.length - 1) + LG.tabSize + LG.tabHitSlop);
+    // 고양이 포스트잇 — 세 장 모두 책 그림 앞. 펼친 장은 아래가 단면 띠 바닥 +4(종이에 붙음), 나머지는 제 색 단면 +6 에 걸친다.
+    // 누르면 그 장이 펼쳐진다(넘김 애니메이션 없음)
+    const postIt = (label: (typeof labels)[number], n: number) => {
+      const on = ledger.tab === TAB_KEY[label];
+      const artBottom = on
+        ? A.bandBottom * sc + LG.tabOpenOverlap
+        : LG.pageEdges[n] * sc + LG.tabRestOverlap;
+      return (
+        <Pressable
+          key={label}
+          testID={`ledger-tab-${label}`}
+          accessibilityRole="tab"
+          accessibilityLabel={label}
+          accessibilityState={{ selected: on }}
+          hitSlop={LG.tabHitSlop}
+          onPress={() => ledger.setTab(TAB_KEY[label])}
+          style={{
+            position: 'absolute',
+            zIndex: on ? LG.tabOpenZ : LG.tabZ,
+            left: tabLeft(n),
+            top: rise + artBottom - LG.tabSize * LG.tabArtBottom,
+            width: LG.tabSize,
+            height: LG.tabSize,
+          }}
+        >
+          <Image source={ledgerArt.tabs[n]} resizeMode="contain" style={fill} />
+          <T
+            style={lt(LG.tabLabel, {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: LG.tabSize * LG.tabLabelTop,
+              textAlign: 'center',
+              fontWeight: '800',
+            })}
+          >
+            {label}
+          </T>
+        </Pressable>
+      );
+    };
     return shell(
+      // 바깥 상자 = 책 + 포스트잇 누르는 자리. 빈 부분은 터치를 받지 않는다(box-none)
       <View
         testID="ledger-book"
+        pointerEvents="box-none"
         style={[
           {
             position: 'absolute',
             zIndex: 7,
-            left: land ? side : 18.1,
-            right: land ? 18 : 18.1,
-            // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작.
-            // 제목표·책갈피가 두 줄로 접히면 늘어난 높이만큼 내려 제목표가 뒤로 버튼 쪽으로 올라가지 않게 한다
-            top: (land ? 46 : Math.max(L.insets.top + 94, H - 28.4 - 635.3)) + ledgerHeadingExtra,
-            bottom: land ? 12 : 28.4,
+            left: bookLeft + (room - bookW) / 2,
+            top: bookTop - rise,
+            width: frameW,
+            height: bodyH + rise,
           },
           web({ filter: 'drop-shadow(rgba(60, 38, 27, 0.384) 0px 14.2px 15.5px)' }),
         ]}
       >
-        {/* 종이 겹과 초록 표지 */}
+        {/* 책 몸통은 보이는 높이에서 그림을 자른다. 포스트잇은 몸통 밖 형제라 잘리지 않는다 */}
         <View
-          style={[
-            {
-              position: 'absolute',
-              top: 11.6,
-              right: -3.9,
-              bottom: -6.5,
-              left: 12.9,
-              borderWidth: 2.6,
-              borderColor: '#6f503a',
-              borderTopLeftRadius: 9,
-              borderTopRightRadius: 16.8,
-              borderBottomRightRadius: 16.8,
-              borderBottomLeftRadius: 7.7,
-              backgroundColor: '#f1e4c9',
-              boxShadow: 'inset 9px 0px 0px rgb(72, 99, 77)',
-            },
-            web({
-              backgroundImage:
-                'repeating-linear-gradient(rgb(241, 228, 201) 0px, rgb(241, 228, 201) 3.9px, rgb(185, 155, 118) 5.2px, rgb(241, 228, 201) 6.5px)',
-            }),
-          ]}
-        />
-        <View
+          testID="ledger-book-body"
           style={{
             position: 'absolute',
-            top: 5.2,
-            right: 5.2,
-            bottom: 1.3,
-            left: 6.5,
-            borderWidth: 2.6,
-            borderColor: '#684d39',
-            borderTopLeftRadius: 7.7,
-            borderTopRightRadius: 15.5,
-            borderBottomRightRadius: 15.5,
-            borderBottomLeftRadius: 7.7,
-            backgroundColor: '#678268',
-            boxShadow: 'inset 10.3px 0px 0px rgb(64, 94, 72)',
+            zIndex: LG.artZ,
+            left: 0,
+            top: rise,
+            width: bookW,
+            height: bodyH,
+            overflow: 'hidden',
           }}
-        />
-        <View
-          style={[
-            {
-              position: 'absolute',
-              top: 12.9,
-              right: 10.3,
-              bottom: 9,
-              left: 19.4,
-              paddingTop: land ? 66 : 60.7,
-              paddingRight: land ? 20 : 28.4,
-              paddingBottom: land ? 12 : 23.2,
-              paddingLeft: land ? 30 : 37.4,
-              borderWidth: 1.9,
-              borderColor: '#937154',
-              borderTopLeftRadius: 5.2,
-              borderTopRightRadius: 12.9,
-              borderBottomRightRadius: 12.9,
-              borderBottomLeftRadius: 6.5,
-              backgroundColor: '#fff3d8',
-              boxShadow: 'inset 9px 0px 11.6px rgba(141, 112, 67, 0.2)',
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(90deg, rgba(195, 167, 125, 0.133) 0px, rgba(195, 167, 125, 0.133) 3%, transparent 8%), repeating-linear-gradient(rgb(255, 243, 216) 0px, rgb(255, 243, 216) 31px, rgb(234, 216, 185) 32.3px)',
-            }),
-          ]}
         >
-          <View
+          <Image
+            testID="ledger-book-art"
+            source={ledgerArt.book}
+            resizeMode="contain"
             style={{
               position: 'absolute',
-              left: 5.2,
-              top: '4%',
-              bottom: '4%',
-              width: 12.9,
-              borderRadius: 6.45,
-              backgroundColor: 'rgba(153, 118, 75, 0.133)',
-              // 시안은 50% 둥글기(세로로 긴 타원)
-              ...web({ borderRadius: '50%' }),
-              boxShadow: 'inset -3.9px 0px 5.2px rgba(122, 90, 56, 0.2)',
+              zIndex: LG.artZ,
+              left: 0,
+              top: 0,
+              width: bookW,
+              height: artH,
             }}
           />
+          {/* 펼친 장 종이에 그 장 포스트잇 색을 곱하기로 옅게 덮는다 */}
           <View
+            testID="ledger-tint"
+            pointerEvents="none"
             style={{
               position: 'absolute',
-              left: 41.3,
-              right: 28.4,
-              top: 18.1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6.5,
+              zIndex: LG.tintZ,
+              left: paper.left,
+              right: paper.right,
+              top: paper.top,
+              height: artH - paper.top - paper.bottom,
+              borderRadius: LG.tintRadius,
+              backgroundColor: LG.tabColors[labels.findIndex((x) => TAB_KEY[x] === ledger.tab)],
+              opacity: LG.tintOpacity,
+              mixBlendMode: 'multiply',
             }}
-          >
-            {perBtn(-1)}
-            <T style={g(15.5, 24.8, { flex: 1, textAlign: 'center' })}>
-              {ledgerYear}년 {ledgerMonth}월
-            </T>
-            {perBtn(1)}
-          </View>
-          {land ? (
-            <View style={{ flex: 1, flexDirection: 'row', gap: 24 }}>
-              {left}
-              {right}
-            </View>
-          ) : (
-            // 세로는 화면이 낮으면 책 안에서 스크롤한다
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {left}
-              {right}
-            </ScrollView>
-          )}
-        </View>
-        {/* 제목표와 책갈피를 한 줄에 둔다 — 따로 절대 배치하면 좁은 화면·큰 글자에서 책갈피가 제목을 덮는다.
-            책갈피가 44 아래로 줄어야 할 만큼 좁으면 책갈피 묶음이 제목표 아래 줄로 내려간다(flexWrap). 줄은 책갈피
-            아랫변(책 안 headingRow − 43.9)에 붙여 위로 쌓으므로 책갈피는 늘 책 위 같은 자리에 걸린다 */}
-        <View
-          pointerEvents="box-none"
-          style={{
-            position: 'absolute',
-            zIndex: 5,
-            left: 12.9,
-            right: 19.4,
-            top: headingRow - 43.9,
-            height: 0,
-          }}
-        >
-          <View
-            testID="ledger-heading"
-            onLayout={(ev) =>
-              setLedgerHeadingExtra(Math.max(0, ev.nativeEvent.layout.height - headingRow))
-            }
+          />
+          {/* 종이 안: 낮은 화면·긴 내역은 종이 안에서 스크롤한다. 아래 끝은 그림의 종이 바닥과 보이는 몸통 아래 끝 중
+              위쪽(− 여백) — 가로에서 잘린 책이어도 글이 화면 밖으로 숨지 않고 스크롤된다 */}
+          <ScrollView
+            testID="ledger-page"
+            showsVerticalScrollIndicator={false}
             style={{
               position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              alignItems: 'flex-start',
-              columnGap: semanticTokens.spacing.control,
+              zIndex: LG.contentZ,
+              left: paper.left + LG.contentInsetX,
+              right: paper.right + LG.contentInsetX,
+              top: paper.top + LG.contentInsetY,
+              bottom: Math.max(0, bodyH - artH + paper.bottom) + LG.contentInsetY,
             }}
           >
             <View
-              style={[
-                {
-                  minWidth: 133,
-                  paddingTop: 7.7,
-                  paddingHorizontal: 19.4,
-                  paddingBottom: 9,
-                  borderWidth: 1.9,
-                  borderColor: '#68482f',
-                  borderTopLeftRadius: 7.7,
-                  borderTopRightRadius: 7.7,
-                  borderBottomLeftRadius: 11.6,
-                  borderBottomRightRadius: 11.6,
-                  backgroundColor: '#c78e58',
-                  boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
-                  transform: [{ rotate: '-1deg' }],
-                },
-                web({
-                  backgroundImage:
-                    'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
-                }),
-              ]}
-            >
-              <T
-                style={g(19.4, 23.28, {
-                  color: '#fff8e8',
-                  textAlign: 'center',
-                  textShadowColor: 'rgb(102, 68, 46)',
-                  textShadowOffset: { width: 0, height: 1.3 },
-                  textShadowRadius: 0,
-                })}
-              >
-                공동 가계부
-              </T>
-            </View>
-            {/* 책갈피 윗변은 시안대로 책 위 22(제목표 윗변보다 43.9 − 22 아래). 셋 다 44 를 지킬 폭이 없으면 다음 줄로 */}
-            <View
-              testID="ledger-tabs"
+              testID="ledger-month-row"
               style={{
-                flexGrow: 1,
-                minWidth: 3 * semanticTokens.size.tapMin + 2 * 3.9,
                 flexDirection: 'row',
-                justifyContent: 'flex-end',
-                gap: 3.9,
-                marginTop: 43.9 - 22,
+                alignItems: 'center',
+                gap: LG.navGap,
+                minHeight: semanticTokens.size.tapMin,
               }}
             >
-              {(['잔액', '적립', '지출'] as const).map(bookmark)}
+              {nav(-1)}
+              <T style={lt(LG.month, { flex: 1, textAlign: 'center', color: LG.faint })}>
+                {ledgerYear}년 {ledgerMonth}월
+              </T>
+              {nav(1)}
             </View>
-          </View>
+            {head}
+            {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
+            <View style={{ marginTop: LG.tableTop }}>
+              {stateBox ??
+                (shown.length ? (
+                  <>
+                    {tableHead}
+                    {list}
+                    {more}
+                    {moreRetry}
+                  </>
+                ) : (
+                  empty
+                ))}
+            </View>
+          </ScrollView>
         </View>
+        {labels.map(postIt)}
       </View>,
       e.back,
     );

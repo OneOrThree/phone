@@ -34,7 +34,7 @@ export function GuideBox({
   skipTitle = t('onboarding.spotlightSkip'),
 }: {
   text: string;
-  character?: 'mongdol' | 'pelican' | 'dog';
+  character?: 'mongdol' | 'pelican' | 'dog' | null;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
   accessibilityViewIsModal?: boolean;
@@ -45,7 +45,7 @@ export function GuideBox({
   return (
     <View style={[styles.box, style]} accessibilityViewIsModal={accessibilityViewIsModal}>
       <View style={styles.dialogue}>
-        {character === 'pelican' ? (
+        {character === null ? null : character === 'pelican' ? (
           <Image
             source={assets['characters/pelican/npc/idle.png']}
             accessible={false}

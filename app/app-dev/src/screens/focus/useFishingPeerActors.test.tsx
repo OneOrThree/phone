@@ -19,6 +19,7 @@ import {
   underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
 import { onLand } from '@/utils/world-grid';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 const peer: FishingPeer = {
   userId: 'u1',
@@ -635,15 +636,12 @@ test('내 자리가 고정 칸 둘을 막아도 정원 안 주민 14명은 모�
 });
 
 test('같은 주민의 세션이 교체되면 이전 자리 곁으로 옮긴 새 seat 를 그대로 쓴다', async () => {
-  const before = { x: 34.1, y: 55.9 },
-    after = { x: 35.1, y: 55.9 };
+  const before = { x: 34.1, y: 57 },
+    after = { x: 35.1, y: 57 };
   const { result } = await renderHook(() =>
     useFishingPeerActors({ members: [{ ...peer, seat: before }], ready: true, reduce: false }),
   );
-  assert.deepEqual(
-    [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
-    [34.1, 55.9],
-  );
+  assert.deepEqual([result.current.actors[0].spot.x, result.current.actors[0].spot.y], [34.1, 57]);
   await act(async () =>
     result.current.onTransition({
       source: 'event',
@@ -655,10 +653,7 @@ test('같은 주민의 세션이 교체되면 이전 자리 곁으로 옮긴 새
   );
   assert.equal(result.current.actors.length, 1);
   assert.equal(result.current.actors[0].key, 'u1:s2');
-  assert.deepEqual(
-    [result.current.actors[0].spot.x, result.current.actors[0].spot.y],
-    [35.1, 55.9],
-  );
+  assert.deepEqual([result.current.actors[0].spot.x, result.current.actors[0].spot.y], [35.1, 57]);
 });
 
 test('스냅숏에서 좌표 없는 주민이 앞에 와도 뒤 주민의 서버 seat 를 먼저 예약한다', async () => {
@@ -706,7 +701,7 @@ test('내가 자리로 걷는 사이 같은 seat 로 들어온 주민은 내 자
 });
 
 test('서버 자리 주민의 물고기 그림은 곁 주민 고양이를 덮지 않는다', async () => {
-  const first = { x: 60.2, y: 44.1 },
+  const first = { x: 62.5, y: 40 },
     second = { x: 75, y: 45 };
   // 회피 없이 정한 첫 주민의 물고기 자리는 둘째 고양이를 덮는다(그러면 둘째의 판정이 null)
   const naive = { ...castSpot(first), catchPlacement: fishingCatchPlacement(castSpot(first)) };
@@ -784,9 +779,9 @@ test('내가 DEFAULT_SPOT 에 앉으면 서버 자리 주민의 물고기 더미
     overlap = (a: ReturnType<typeof pile>, b: ReturnType<typeof pile>) =>
       a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top,
     myPile = pile(DEFAULT_SPOT, DEFAULT_CATCH_PLACEMENT!),
-    seat = { x: 24, y: 52 };
+    seat = { x: 24, y: 54 };
   // 땅 위이고 내 고양이 곁도 고정 더미 아래도 아니라 seat 그대로 앉지만, 내 고양이만 피한 더미는 내 고정 더미와 겹친다.
-  // 고정 더미를 피하고도 곁에 더미 놓을 땅이 남는 자리다({x:27,y:46} 처럼 남지 않으면 더미를 숨긴다 — null)
+  // 고정 더미를 피하고도 곁에 더미 놓을 땅이 남는 자리다(남지 않으면 더미를 숨긴다 — null)
   assert.ok(onLand(fishingGrid, seat));
   assert.equal(occupied(seat, [DEFAULT_SPOT]), false);
   assert.equal(underDefaultCatch(seat), false);
@@ -925,4 +920,142 @@ test('서버 자리 주민이 없으면 고정 칸의 물고기 더미는 미리
   assert.equal(result.current.actors.length, PEER_SPOTS.length);
   for (const actor of result.current.actors)
     assert.equal(actor.spot.catchPlacement, PEER_SPOTS[actor.slot].catchPlacement);
+});
+
+test('차단한 주민(GROMO-2470)은 자리를 쥔 채 숨고(낚싯줄 없음) 다른 주민 슬롯은 스냅숏을 다시 받아도 그대로, 해제하면 같은 자리에 다시 보인다', async () => {
+  replaceBlockedUsers([]);
+  const members: FishingPeer[] = [
+    { ...peer, userId: 'blocked', sessionId: 's-a' },
+    { ...peer, userId: 'other', sessionId: 's-b' },
+  ];
+  const { result, rerender } = await renderHook(
+    (p: { snapshotVersion: number }) =>
+      useFishingPeerActors({
+        members,
+        ready: true,
+        reduce: false,
+        realtime: true,
+        snapshotVersion: p.snapshotVersion,
+      }),
+    { initialProps: { snapshotVersion: 1 } },
+  );
+  const before = result.current.actors.map((actor) => [actor.userId, actor.slot, actor.spot]);
+  assert.deepEqual(
+    before.map(([id, slot]) => [id, slot]),
+    [
+      ['blocked', 0],
+      ['other', 1],
+    ],
+  );
+  // UserSafetySheet 의 차단 성공 신호 — 화면을 다시 열지 않아도 바로 숨는다
+  await act(async () => markUserBlocked('blocked'));
+  const hidden = result.current.actors.find((actor) => actor.userId === 'blocked')!;
+  assert.equal(hidden.visible, false);
+  assert.equal(hidden.spot, before[0][2]);
+  assert.deepEqual(fishingSpotsForActors(result.current.actors), [before[1][2]]);
+  // 재연결 스냅숏(같은 명단)이 와도 숨은 주민이 자리를 쥐고 있어 다른 주민이 0번으로 옮기지 않는다
+  await rerender({ snapshotVersion: 2 });
+  const other = result.current.actors.find((actor) => actor.userId === 'other')!;
+  assert.equal(other.slot, 1);
+  assert.equal(result.current.actors.find((actor) => actor.userId === 'blocked')!.visible, false);
+  await act(async () => markUserUnblocked('blocked'));
+  const back = result.current.actors.find((actor) => actor.userId === 'blocked')!;
+  assert.equal(back.visible, true);
+  assert.equal(back.slot, 0);
+  await act(async () => replaceBlockedUsers([]));
+});
+
+describe('차단한 주민의 집중 종료는 자리를 바로 반납한다 (GROMO-2470)', () => {
+  const live = (userId: string, sessionId: string) =>
+    ({ ...member('active'), userId, sessionId }) as LiveFocusMember;
+  const done = (userId: string, sessionId: string): IslandPresenceTransition => ({
+    source: 'event',
+    kind: 'focus',
+    userId,
+    previous: live(userId, sessionId),
+    current: null,
+  });
+  const start = (userId: string, sessionId: string): IslandPresenceTransition => ({
+    source: 'event',
+    kind: 'focus',
+    userId,
+    previous: null,
+    current: live(userId, sessionId),
+  });
+  const mount = (initial: FishingPeer[]) => {
+    let members = initial;
+    const hook = renderHook(() =>
+      useFishingPeerActors({
+        members,
+        ready: true,
+        reduce: false,
+        realtime: true,
+        snapshotVersion: 1,
+      }),
+    );
+    return {
+      hook,
+      setMembers: (next: FishingPeer[]) => {
+        members = next;
+      },
+    };
+  };
+  const peerOf = (userId: string, sessionId: string): FishingPeer => ({
+    ...peer,
+    userId,
+    sessionId,
+  });
+  beforeEach(() => replaceBlockedUsers([]));
+  afterEach(() => replaceBlockedUsers([]));
+
+  test('차단 중 집중을 끝내면 모션 없이 actor 와 자리 예약이 바로 사라져 그 자리에 새 주민이 앉는다', async () => {
+    const { hook, setMembers } = mount([peerOf('blocked', 's-a'), peerOf('other', 's-b')]);
+    const { result, rerender, unmount } = await hook;
+    assert.equal(result.current.actors.find((actor) => actor.userId === 'blocked')!.slot, 0);
+    await act(async () => markUserBlocked('blocked'));
+    await act(async () => result.current.onTransition(done('blocked', 's-a')));
+    assert.equal(
+      result.current.actors.some((actor) => actor.userId === 'blocked'),
+      false,
+    );
+    setMembers([peerOf('other', 's-b'), peerOf('newbie', 's-n')]);
+    await rerender(undefined);
+    await act(async () => result.current.onTransition(start('newbie', 's-n')));
+    const entrant = result.current.actors.find((actor) => actor.userId === 'newbie')!;
+    assert.equal(entrant.slot, 0);
+    assert.equal(entrant.visible, true);
+    await unmount();
+  });
+
+  test('만석(15)에서 차단한 주민이 집중을 끝내면 보류 없이 새 주민이 들어와 보인다', async () => {
+    const full = Array.from({ length: 15 }, (_, index) => peerOf(`u${index}`, `s${index}`));
+    const { hook, setMembers } = mount(full);
+    const { result, rerender, unmount } = await hook;
+    await act(async () => markUserBlocked('u14'));
+    await act(async () => result.current.onTransition(done('u14', 's14')));
+    setMembers([...full.slice(0, 14), peerOf('u15', 's15')]);
+    await rerender(undefined);
+    await act(async () => result.current.onTransition(start('u15', 's15')));
+    const entrant = result.current.actors.find((actor) => actor.key === 'u15:s15');
+    assert.equal(entrant?.visible, true);
+    assert.equal(entrant?.phase, 'entering');
+    assert.equal(entrant?.slot, 14);
+    await unmount();
+  });
+
+  test('보이는 주민의 종료는 종전처럼 finishing 모션을 거치고, 퇴장 중에 차단하면 그때 바로 자리를 반납한다', async () => {
+    const { hook, setMembers } = mount([peerOf('other', 's-b')]);
+    const { result, rerender, unmount } = await hook;
+    await act(async () => result.current.onTransition(done('other', 's-b')));
+    const leaving = result.current.actors.find((actor) => actor.userId === 'other')!;
+    assert.equal(leaving.phase, 'finishing');
+    assert.equal(leaving.visible, true);
+    await act(async () => markUserBlocked('other'));
+    assert.equal(result.current.actors.length, 0);
+    setMembers([peerOf('newbie', 's-n')]);
+    await rerender(undefined);
+    await act(async () => result.current.onTransition(start('newbie', 's-n')));
+    assert.equal(result.current.actors.find((actor) => actor.userId === 'newbie')!.slot, 0);
+    await unmount();
+  });
 });

@@ -144,6 +144,12 @@
         "connect": "Connect Screen Time",
         "sub": "{{description}} · Used for phone-use quests and records"
       },
+      "focusBlockingIntro": {
+        "title": "Block apps during focus",
+        "dialogue": "I can block other apps while you focus.\nAllow access, then pick only the apps you really need!\nYou can always set this up later in Settings!",
+        "allow": "Allow access",
+        "later": "Not now"
+      },
       "measuredApps": {
         "title": "Measured apps",
         "a11y": "Measured apps, {{description}}",
@@ -655,17 +661,15 @@
     "spot": {
       "pickPrompt": "Choose a spot to focus!",
       "backToMainIsland": "← Main island",
-      "onWater": "You can't sit on the water.",
       "occupied": "A resident is sitting here. Please sit a little further over.",
       "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",
       "nearRaft": "This is where the raft docks. Please sit a little further over.",
-      "noCatchRoom": "There's no room to place a fish here. Please sit a little further over.",
       "unreachable": "Please choose a spot connected by land.",
       "noneFound": "Couldn't find an open spot. Please try again in a moment.",
-      "groundA11y": "Fishing Island ground · Tap where you want to sit",
+      "groundA11y": "Fishing Island ground · Tap where you want to walk",
       "sitEmptyA11y": "Sit in an empty spot",
       "sitEmptyButton": "Take a spot on empty ground",
-      "available": "Available focus spot"
+      "start": "Start Focus"
     },
     "setup": {
       "title": "Get Ready to Focus",
@@ -699,7 +703,23 @@
     "music": {
       "title": "Gramophone Music",
       "subtitle": "Choose from the tracks you own.",
+      "activeSubtitle": "Choose a track and control playback.",
+      "inactiveSubtitle": "You can buy tracks and choose the next one before focusing.",
       "changeFailed": "Couldn't change the music.",
+      "purchaseFailed": "Couldn't purchase the track.",
+      "purchaseConfirm": "Purchase {{title}}?",
+      "purchaseSuccess": "Purchased",
+      "insufficientFish": "Not enough fish",
+      "sharedPurchaseHint": "Everyone on your island can use purchased tracks.",
+      "buyForFish": "Buy for {{price}} fish",
+      "switchTrack": "Switch to This Track",
+      "play": "Play",
+      "stop": "Stop",
+      "deviceVolume": "Device Volume",
+      "loadFailed": "Couldn't load the track list.",
+      "loading": "Loading tracks.",
+      "free": "Free",
+      "owned": "Owned",
       "backToSpot": "Back to My Spot",
       "gramA11y": "Gramophone · Choose music"
     },
@@ -719,8 +739,8 @@
       "backByBoat": "By Boat to Our Island"
     },
     "tutorial": {
-      "step5": "Tap an empty spot on the ground to choose your seat.",
-      "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
+      "step5": "Walk to where you want to focus, then tap Start Focus below.",
+      "step6": "You can't start where another resident sits.\nStep aside a little and try again.",
       "step6SkipButton": "Stop Showing This Guide",
       "step7": "Write what you want to do, or skip this step.",
       "step7Done": "Done",
@@ -906,6 +926,26 @@
   "mailbox": {
     "systemSender": "Island notice"
   },
+  "islandChat": {
+    "title": "Island chat",
+    "open": "Open island chat",
+    "placeholder": "Message to all residents",
+    "send": "Send",
+    "loading": "Loading messages…",
+    "empty": "No messages yet.",
+    "more": "Load earlier messages",
+    "loadingMore": "Loading…",
+    "failed": "Not sent",
+    "resend": "Resend",
+    "me": "Me",
+    "unknown": "Unknown",
+    "emptyText": "Write a message first",
+    "sendFailed": "Couldn't send the message",
+    "justNow": "just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago",
+    "date": "{{month}}/{{date}}"
+  },
   "magazine": {
     "islandTitle": "{{name}} Island",
     "cell": {
@@ -1031,7 +1071,10 @@
     },
     "mail": {
       "open": "Read Cat Magazine · No. {{no}}",
-      "unreadA11y": "Read Cat Magazine No. {{no}}, unread"
+      "unreadA11y": "Read Cat Magazine No. {{no}}, unread",
+      "slot": "Cat Magazine",
+      "issueNo": "No. {{no}}",
+      "pastIssues": "Past issues"
     },
     "delivery": {
       "mailbox": "A cat magazine arrived in your mailbox!",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import {
@@ -62,10 +63,10 @@ const blockedByMine = (p: Point, mine?: Point) =>
   (occupied(p, [mine]) ||
     (mine.x === DEFAULT_SPOT.x && mine.y === DEFAULT_SPOT.y && underDefaultCatch(p)));
 // 예비 자리: 내 자리·서버 자리가 PEER_SPOTS 칸을 여럿 막아 정원 안 주민이 앉을 칸이 모자랄 때만 쓴다.
-// 네 이웃도 땅인 칸 가운데 축음기·뗏목을 피한 곳을 섬 가운데에 가까운 순서로(기기마다 같은 순서).
+// 걸을 수 있는 칸 가운데 네 이웃이 물이 아니고 축음기·뗏목을 피한 곳을 섬 가운데에 가까운 순서로(기기마다 같은 순서).
 const SPARE_SPOTS: Point[] = (() => {
   const { cols, rows, w, h, cells } = fishingGrid,
-    land = (c: number) => cells[c] === '1',
+    dry = (c: number) => cells[c] !== '0',
     spots: Point[] = [];
   for (let c = 0; c < cells.length; c++) {
     const col = c % cols,
@@ -76,7 +77,8 @@ const SPARE_SPOTS: Point[] = (() => {
       row &&
       col < cols - 1 &&
       row < rows - 1 &&
-      [c, c - 1, c + 1, c - cols, c + cols].every(land) &&
+      cells[c] === '1' &&
+      [c - 1, c + 1, c - cols, c + cols].every(dry) &&
       !nearGram(p) &&
       !nearRaft(p)
     )
@@ -541,6 +543,30 @@ export function useFishingPeerActors({
     setRevision((value) => value + 1);
   }, [reduce]);
 
+  // 차단한 상대(GROMO-2470)는 그려지지 않아 퇴장 모션 콜백(stretched·leftForComplete)이 오지 않는다 — 집중 중에는
+  // 자리를 쥐지만, 종료(finishing·leaving-complete)는 Reduce Motion 처럼 모션 없이 actor 와 자리 예약을 바로 지운다.
+  // 차단 중에 끝났든, 퇴장 중에 차단했든 같다. 보이는 주민의 종료 모션은 그대로다.
+  const blockedIds = useBlockedUserIds(false);
+  const blockedExit = useCallback(
+    (actor: FishingPeerActor) =>
+      blockedIds.has(actor.userId) &&
+      (actor.phase === 'finishing' || actor.phase === 'leaving-complete'),
+    [blockedIds],
+  );
+  const hasBlockedExit = actors.some(blockedExit);
+  useEffect(() => {
+    if (!hasBlockedExit) return;
+    setActors((current) =>
+      current.filter((actor) => {
+        if (!blockedExit(actor)) return true;
+        slots.current.delete(actor.key);
+        return false;
+      }),
+    );
+    // 반납한 자리로 만석 때문에 보류된 입장을 다시 처리한다.
+    setRevision((value) => value + 1);
+  }, [hasBlockedExit, blockedExit]);
+
   // 물고기 자리는 배치(누가 어디)가 바뀔 때만 다시 잰다 — 초마다 바뀌는 집중 시간 갱신은 무시한다
   const layout = actors.map((actor) => `${actor.key}@${actor.spot.x},${actor.spot.y}`).join('|');
   const placed = useMemo(
@@ -548,13 +574,16 @@ export function useFishingPeerActors({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 배치·내 자리가 같으면 결과도 같다
     [layout, mineX, mineY],
   );
+  // 차단한 상대(GROMO-2470)는 휴식 중 주민처럼 자리를 쥔 채 그리지 않는다(visible false) — 다른 주민 자리·물고기
+  // 더미 회피는 그대로이고, 낚싯줄·이름표·누르는 자리·응원 말풍선은 visible 인 actor 에만 붙는다.
   const shown = useMemo(
     () =>
       actors.map((actor) => {
         const spot = placed.get(actor.key);
-        return spot && spot !== actor.spot ? { ...actor, spot } : actor;
+        const next = spot && spot !== actor.spot ? { ...actor, spot } : actor;
+        return next.visible && blockedIds.has(actor.userId) ? { ...next, visible: false } : next;
       }),
-    [actors, placed],
+    [actors, placed, blockedIds],
   );
   return { actors: shown, onTransition, entered, cast, leftForPause, stretched, leftForComplete };
 }
