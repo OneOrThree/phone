@@ -1,0 +1,39 @@
+{
+  "endpoint": "Group Challenge_reportChallengeWindowUsage",
+  "method": "PUT",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}/window-usage",
+  "tag": "Group Challenge",
+  "summary": "스크린타임 창 사용분 보고",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "usageDate": {
+        "gen": "date",
+        "offsetDays": 0,
+        "dateOnly": true
+      },
+      "progressMinutes": {
+        "gen": "int",
+        "max": 3600
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "path.challengeId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

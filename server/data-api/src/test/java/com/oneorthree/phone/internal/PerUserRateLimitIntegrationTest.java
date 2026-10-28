@@ -1,0 +1,187 @@
+package com.oneorthree.phone.internal;
+
+import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.friend.service.FriendService;
+import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** 현재 친구 요청의 소셜 계정 제한과 편지 전송의 계정별 한도를 검증한다. */
+@SpringBootTest
+@AutoConfigureMockMvc
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+class PerUserRateLimitIntegrationTest {
+
+    private static final String TOKEN = "test-rate-limit-business";
+    private static final int CAP = 3;
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        registry.add("internal.api.callers.business.token", () -> TOKEN);
+        registry.add("internal.api.callers.business.allow[0]", () -> "POST /internal/users/*/friend-requests");
+        registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/users/*/letters");
+        registry.add("letter.send.rate-limit.max-per-hour", () -> CAP);
+    }
+
+    @Autowired
+    MockMvc mvc;
+    @Autowired
+    AuthService auth;
+    @Autowired
+    JwtProvider jwt;
+    @Autowired
+    FriendService friendService;
+    @Autowired
+    JdbcTemplate jdbc;
+
+    // ---------------------------------------------------------------- 친구 요청 (게스트만)
+
+    @Test
+    @DisplayName("게스트 친구 요청(내부 표면) — 한도 이전에 403 SOCIAL_LOGIN_REQUIRED 로 막힌다 (GROMO-1992)")
+    void guestFriendRequestsAreRejectedOnInternalSurface() throws Exception {
+        UUID guest = newUser();
+        assertThat(isGuest(guest)).isTrue();
+
+        // 정책 「친구 추가…를 처음 시도할 때 소셜 로그인을 요청한다」 — 2.0 표면에서는 «첫 번째» 요청부터
+        // 막힌다. GROMO-1934 의 시간당 한도는 이 표면에서 도달 불가능해졌고 레거시 축에만 남는다.
+        internalFriendRequest(guest, newUser())
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+    }
+
+    @Test
+    @DisplayName("정회원 친구 요청 — cap+1 번을 보내도 429 가 없다")
+    void nonGuestFriendRequestsAreNeverCapped() throws Exception {
+        UUID member = newMember();
+
+        for (int i = 0; i < CAP + 1; i++) {
+            internalFriendRequest(member, newUser()).andExpect(status().isCreated());
+        }
+    }
+
+
+
+    // ---------------------------------------------------------------- 편지 (전 계정)
+
+    @Test
+    @DisplayName("정회원 편지 발송 — 1..cap 은 201, cap+1 번째만 429 RATE_LIMITED (게스트 분기 없음)")
+    void nonGuestLettersAreCapped() throws Exception {
+        UUID sender = newUser();
+        jdbc.update("update users set is_guest = false where id = ?", sender);
+        UUID receiver = newUser();
+        // 수신자 쪽에서 요청해 친구로 만든다 — 발신자의 친구 요청 한도를 건드리지 않게.
+        friendService.acceptRequest(sender, friendService.createRequest(receiver, sender));
+
+        for (int i = 0; i < CAP; i++) {
+            sendLetter(sender, receiver).andExpect(status().isCreated());
+        }
+        expectRateLimited(sendLetter(sender, receiver));
+        assertThat(jdbc.queryForObject("select count(*) from letters where sender_id = ?", Integer.class, sender))
+                .as("막힌 요청은 쓰지 않는다").isEqualTo(CAP);
+    }
+
+    @Test
+    @DisplayName("친구 아닌 수신자에게 보낸 거절(404)은 편지 한도를 먹지 않는다")
+    void rejectedLettersDoNotConsumeTheCap() throws Exception {
+        UUID sender = newMember();  // GROMO-1992 — 게스트는 계정 gate 의 403 이 먼저라 404 에 닿지 않는다
+        UUID stranger = newUser();
+        UUID receiver = newUser();
+        friendService.acceptRequest(sender, friendService.createRequest(receiver, sender));
+
+        for (int i = 0; i < CAP + 1; i++) {
+            sendLetter(sender, stranger).andExpect(status().isNotFound());
+        }
+        for (int i = 0; i < CAP; i++) {
+            sendLetter(sender, receiver).andExpect(status().isCreated());
+        }
+        expectRateLimited(sendLetter(sender, receiver));
+    }
+
+    @Test
+    @DisplayName("게스트 편지 발송 — 한도 이전에 403 SOCIAL_LOGIN_REQUIRED 로 막히고 카운터를 먹지 않는다 (GROMO-1992)")
+    void guestLetterSendIsRejectedBeforeTheCap() throws Exception {
+        UUID guest = newUser();
+        assertThat(isGuest(guest)).isTrue();
+        UUID receiver = newUser();
+        // 게스트가 친구를 갖는 유일한 길 — 받은 요청 «수락»은 서비스 수준에서 열려 있다.
+        friendService.acceptRequest(guest, friendService.createRequest(receiver, guest));
+
+        // 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을 요청한다」 — «첫 번째» 발송부터 막힌다.
+        for (int i = 0; i < CAP + 1; i++) {
+            sendLetter(guest, receiver)
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        }
+        assertThat(jdbc.queryForObject("select count(*) from letters where sender_id = ?",
+                Integer.class, guest)).as("거절은 행을 남기지 않는다").isZero();
+
+        // 거절이 카운터를 먹었다면 승격 뒤 첫 발송부터 429 다 — cap 번 전부 201 이어야 증명된다.
+        jdbc.update("update users set is_guest = false where id = ?", guest);
+        for (int i = 0; i < CAP; i++) {
+            sendLetter(guest, receiver).andExpect(status().isCreated());
+        }
+        expectRateLimited(sendLetter(guest, receiver));
+    }
+
+    // ---------------------------------------------------------------- 도구
+
+    private static void expectRateLimited(ResultActions result) throws Exception {
+        result.andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                .andExpect(jsonPath("$.retryAfterMs").value(greaterThan(0)))
+                .andExpect(header().exists("Retry-After"));
+    }
+
+    private UUID newUser() {
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
+    }
+
+    /** 게스트로 만든 뒤 회원으로 승격시킨다 — 소셜 어댑터 없이 {@code is_guest} 만 필요한 테스트용. */
+    private UUID newMember() {
+        UUID id = newUser();
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
+    }
+
+    private boolean isGuest(UUID userId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select is_guest from users where id = ?", Boolean.class, userId));
+    }
+
+    private ResultActions internalFriendRequest(UUID actor, UUID target) throws Exception {
+        return mvc.perform(post("/internal/users/" + actor + "/friend-requests")
+                .header("Authorization", "Bearer " + TOKEN)
+                .header("X-User-Id", actor.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + target + "\"}"));
+    }
+
+
+    private ResultActions sendLetter(UUID from, UUID to) throws Exception {
+        return mvc.perform(post("/internal/users/" + from + "/letters")
+                .header("Authorization", "Bearer " + TOKEN)
+                .header("X-User-Id", from.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"receiverId\":\"" + to + "\",\"content\":\"안녕\"}"));
+    }
+}

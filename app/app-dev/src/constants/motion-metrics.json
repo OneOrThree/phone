@@ -1,0 +1,98 @@
+{
+  "black": {
+    "blink": {
+      "scale": 1,
+      "footAnchor": [256, 464]
+    },
+    "walking": {
+      "scale": 1.2,
+      "footAnchor": [256, 464],
+      "headWidthPx": [220, 220.0, 221, 221.0, 220.0, 220.0]
+    },
+    "reading": {
+      "scale": 1.13548,
+      "footAnchor": [256, 464]
+    },
+    "referenceHeadWidthPx": 264.0
+  },
+  "ginger": {
+    "blink": {
+      "scale": 1,
+      "footAnchor": [256, 464]
+    },
+    "walking": {
+      "scale": 1.22299,
+      "footAnchor": [256, 464],
+      "headWidthPx": [221.0, 219.0, 217, 218.0, 217, 217.0]
+    },
+    "reading": {
+      "scale": 0.94662,
+      "footAnchor": [256, 464]
+    },
+    "referenceHeadWidthPx": 266
+  },
+  "cream": {
+    "blink": {
+      "scale": 1,
+      "footAnchor": [256, 464]
+    },
+    "walking": {
+      "scale": 1.25837,
+      "footAnchor": [256, 464],
+      "headWidthPx": [209, 209, 209, 210, 210, 209]
+    },
+    "reading": {
+      "scale": 0.94946,
+      "footAnchor": [256, 464]
+    },
+    "referenceHeadWidthPx": 263
+  },
+  "gray": {
+    "blink": {
+      "scale": 1,
+      "footAnchor": [256, 464]
+    },
+    "walking": {
+      "scale": 1.30713,
+      "footAnchor": [256, 464],
+      "headWidthPx": [202.0, 203, 203, 204, 204, 204]
+    },
+    "reading": {
+      "scale": 0.95,
+      "footAnchor": [256, 464]
+    },
+    "referenceHeadWidthPx": 266.0
+  },
+  "white": {
+    "blink": {
+      "scale": 1,
+      "footAnchor": [256, 464]
+    },
+    "walking": {
+      "scale": 1.22326,
+      "footAnchor": [256, 464],
+      "headWidthPx": [216, 215.0, 213.0, 215, 214.0, 215.0]
+    },
+    "reading": {
+      "scale": 0.94265,
+      "footAnchor": [256, 464]
+    },
+    "referenceHeadWidthPx": 263.0
+  },
+  "calico": {
+    "blink": {
+      "scale": 1,
+      "footAnchor": [256, 464]
+    },
+    "walking": {
+      "scale": 1.21461,
+      "footAnchor": [256, 464],
+      "headWidthPx": [221.0, 220, 219.0, 219, 219.0, 219]
+    },
+    "reading": {
+      "scale": 0.89262,
+      "footAnchor": [256, 464]
+    },
+    "referenceHeadWidthPx": 266.0
+  }
+}

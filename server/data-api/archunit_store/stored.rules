@@ -1,0 +1,3 @@
+#
+#Sat Oct 24 01:36:02 KST 2026
+classes\ that\ com.oneorthree.phone\ \uC758\ \uB808\uC774\uC5B4\ \uD45C\ \uB3C4\uBA54\uC778\uC5D0\ \uC18D\uD558\uB418\ config\u00B7common\u00B7internal\ \uC774\ \uC544\uB2C8\uB2E4\ should\ \uC790\uAE30\ \uB3C4\uBA54\uC778\uC774\ \uC544\uB2CC\ \uB3C4\uBA54\uC778\uC758\ repository\ \uC5D0\ \uC758\uC874\uD558\uC9C0\ \uC54A\uB294\uB2E4,\ because\ \uB3C4\uBA54\uC778\ \uAC04\ \uC811\uADFC\uC740\ service\ \uB97C\ \uD1B5\uD55C\uB2E4.\ \uC608\uC678\:\ \uCD9C\uBC1C\ config\u00B7common\u00B7internal(L10\ \uC870\uD569\ \uC790\uB9AC),\ \uB300\uC0C1\ *QueryService(\uC77D\uAE30\ \uACBD\uACC4)\u00B7outbox(L-1\ \uAE30\uBC18)=8dbca501-cf3e-4eaa-974b-3078e27ed995

@@ -1,0 +1,257 @@
+[
+  {
+    "id": "start",
+    "source_method": "POST",
+    "source_path": "/v1/focus-sessions",
+    "method": "POST",
+    "path": "/focus-sessions",
+    "request_example": {
+      "islandId": "soda",
+      "subject": "수학 문제 풀기",
+      "targetMinutes": 25
+    },
+    "response_example": {
+      "data": {
+        "id": "focus-1",
+        "islandId": "soda",
+        "subject": "수학 문제 풀기",
+        "targetMinutes": 25,
+        "status": "active",
+        "activeSeconds": 0,
+        "serverNow": "2026-09-11T09:10:00Z",
+        "startedAt": "2026-09-11T09:10:00Z",
+        "restStartedAt": null,
+        "version": 1
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1764",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "session",
+    "source_method": "GET",
+    "source_path": "/v1/focus-sessions/current",
+    "method": "GET",
+    "path": "/focus-sessions/current",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "id": "focus-1",
+        "islandId": "soda",
+        "subject": "수학 문제 풀기",
+        "targetMinutes": 25,
+        "status": "active",
+        "activeSeconds": 600,
+        "serverNow": "2026-09-11T09:10:00Z",
+        "startedAt": "2026-09-11T09:00:00Z",
+        "restStartedAt": null,
+        "version": 1
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1764",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "pause",
+    "source_method": "POST",
+    "source_path": "/v1/focus-sessions/{sessionId}/pause",
+    "method": "POST",
+    "path": "/focus-sessions/{sessionId}/pause",
+    "request_example": {
+      "expectedVersion": 1
+    },
+    "response_example": {
+      "data": {
+        "id": "focus-1",
+        "islandId": "soda",
+        "subject": "수학 문제 풀기",
+        "targetMinutes": 25,
+        "status": "paused",
+        "activeSeconds": 600,
+        "serverNow": "2026-09-11T09:10:00Z",
+        "startedAt": "2026-09-11T09:00:00Z",
+        "restStartedAt": "2026-09-11T09:10:00Z",
+        "version": 2
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1764",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "resume",
+    "source_method": "POST",
+    "source_path": "/v1/focus-sessions/{sessionId}/resume",
+    "method": "POST",
+    "path": "/focus-sessions/{sessionId}/resume",
+    "request_example": {
+      "expectedVersion": 2
+    },
+    "response_example": {
+      "data": {
+        "id": "focus-1",
+        "islandId": "soda",
+        "subject": "수학 문제 풀기",
+        "targetMinutes": 25,
+        "status": "active",
+        "activeSeconds": 600,
+        "serverNow": "2026-09-11T09:10:00Z",
+        "startedAt": "2026-09-11T09:00:00Z",
+        "restStartedAt": null,
+        "version": 3
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1764",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "finish",
+    "source_method": "POST",
+    "source_path": "/v1/focus-sessions/{sessionId}/finish",
+    "method": "POST",
+    "path": "/focus-sessions/{sessionId}/finish",
+    "request_example": {
+      "expectedVersion": 3
+    },
+    "response_example": {
+      "data": {
+        "recordId": "focus-1",
+        "islandId": "soda",
+        "subject": "수학 문제 풀기",
+        "targetMinutes": 25,
+        "activeSeconds": 1500,
+        "goalAchieved": true,
+        "earnedFish": 5,
+        "allocation": {
+          "personalFishAdded": 5,
+          "constructionFishAdded": 0
+        },
+        "completedAt": "2026-09-11T09:10:00Z",
+        "questProgress": [
+          {
+            "id": "q-focus",
+            "myRate": 83
+          }
+        ]
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1764",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "focus-group",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/focus-members",
+    "method": "GET",
+    "path": "/islands/{islandId}/focus-members",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "items": [
+          {
+            "userId": "minji",
+            "name": "민지",
+            "catColor": "ginger",
+            "appearance": {
+              "clothes": "scarf",
+              "decor": "flag",
+              "hull": "sailboat",
+              "position": "front"
+            },
+            "sessionId": "focus-minji",
+            "subject": "영어 단어",
+            "activeSeconds": 1320,
+            "status": "active"
+          }
+        ],
+        "serverNow": "2026-09-11T09:10:00Z"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1765",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "emote",
+    "source_method": "POST",
+    "source_path": "/v1/islands/{islandId}/emotes",
+    "method": "STOMP SEND",
+    "path": "/app/islands/{islandId}/focus/emotes",
+    "request_example": {
+      "sessionId": "focus-1",
+      "type": "hello"
+    },
+    "response_example": {
+      "data": {
+        "eventId": "emote-1",
+        "userId": "me",
+        "type": "hello",
+        "expiresAt": "2026-09-11T09:10:03Z"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1765",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "rest-members",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/rest-members",
+    "method": "GET",
+    "path": "/islands/{islandId}/rest-members",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "items": [
+          {
+            "userId": "sua",
+            "name": "수아",
+            "catColor": "gray",
+            "restSeat": 1,
+            "restStartedAt": "2026-09-11T09:07:00Z"
+          }
+        ],
+        "serverNow": "2026-09-11T09:10:00Z"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1765",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "home-summary",
+    "source_method": "GET",
+    "source_path": "/v1/me/focus-summary",
+    "method": "GET",
+    "path": "/me/focus-summary",
+    "request_example": {
+      "date": "2026-09-11",
+      "timezone": "Asia/Seoul"
+    },
+    "response_example": {
+      "data": {
+        "date": "2026-09-11",
+        "completedSeconds": 3600,
+        "currentSessionSecondsToday": 600,
+        "totalSeconds": 4200,
+        "serverNow": "2026-09-11T09:10:00Z"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1764",
+    "code": [],
+    "tests": []
+  }
+]

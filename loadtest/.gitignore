@@ -1,0 +1,4 @@
+.local/
+summary.json
+__pycache__/
+/survey/

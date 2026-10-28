@@ -13,7 +13,7 @@ REGION ?= asia-northeast3
 ZONE ?= asia-northeast3-c
 PROFILE ?= smoke
 TARGET ?= scenarios/daily_mix.js
-SEED_VERSION ?= seed-v1
+SEED_VERSION ?= seed-v2
 SCALE ?= 1
 # 고급 설정(expert) override — 빈값이면 k6 프로파일 기본값 사용 (run.sh 가 k6 __ENV 로 전달).
 # rate 계열: RATE/DURATION(constant) · START_RATE(stress) · BASE_RATE/SPIKE_RATE(spike).
@@ -31,7 +31,7 @@ SPOTS ?= 1
 SCENARIO ?=
 
 SHA := $(shell git rev-parse --short HEAD)
-# SUT 이미지 — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드 (make image)
+# SUT 이미지 — prod 와 같은 server/data-api/Dockerfile 을 핀 SHA 로 빌드 (make image)
 IMAGE ?= $(REGION)-docker.pkg.dev/$(PROJECT_ID)/loadtest/gromo-back:$(SHA)
 # := 로 1회 고정 — ?= 는 참조마다 date 를 재평가해 REPORT_DIR 이 초 경계에서 어긋나고,
 # standalone make report/verdict 가 매번 새 타임스탬프를 만들어 직전 run 을 못 찾는다 (#183 리뷰).
@@ -65,7 +65,7 @@ infra-up: guard
 	terraform apply -var "project_id=$(PROJECT_ID)"
 
 image: guard
-	docker build --platform linux/amd64 -t $(IMAGE) ../back
+	docker build --platform linux/amd64 -t $(IMAGE) ../server/data-api
 	gcloud auth configure-docker $(REGION)-docker.pkg.dev --quiet
 	docker push $(IMAGE)
 
@@ -160,3 +160,58 @@ grafana: guard
 	@echo "  Ctrl+C 로 터널 종료"
 	gcloud compute start-iap-tunnel obs 3000 --local-host-port=localhost:3000 \
 		--zone=$(ZONE) --project=$(PROJECT_ID)
+
+# 이미 구성한 격리 서버의 공개 API 부하. golden reset·클라우드 기동 없이 실행한다.
+# PARAMS_DIR은 해당 서버에 존재하는 세션의 users_uniform.json을 포함한 절대 경로.
+# K6_SCRIPT로 다른 시나리오를 고른다. 쓰기 시나리오(island_switch·join_approval·letter_exchange·telescope_pin)는
+# PARAMS_DIR에 write_fixture.json이 필요하다 — `make write-fixture`(로컬 스택 전용)로 만든다.
+K6_SCRIPT ?= k6/scenarios/business_reads.js
+.PHONY: test-existing
+test-existing:
+	@test -n "$(BASE_URL)" -a -n "$(PARAMS_DIR)" || { echo 'BASE_URL과 PARAMS_DIR 필요'; exit 1; }
+	BASE_URL="$(BASE_URL)" PARAMS_DIR="$(PARAMS_DIR)" PROFILE="$(PROFILE)" \
+	  k6 run $(K6_SCRIPT)
+
+.PHONY: check
+check:
+	tests/seed-contract.sh
+
+# 현재 전체 서버 조사. GCP 경로와 격리하며 Outbox/Kafka/Realtime 공유를 기본 활성화한다.
+SURVEY_SIZES ?= 100,1000,10000
+SURVEY_OUT ?= reports/matrix-$(RUN_ID)
+.PHONY: local-build local-up local-down survey survey-report survey-check
+local-build:
+	@for service in data-api business-api realtime notification; do \
+	  docker compose -f infra/local/compose.yml build "$$service" || exit $$?; \
+	done
+
+local-up: local-build
+	docker compose -f infra/local/compose.yml up -d --wait
+
+local-down:
+	docker compose -f infra/local/compose.yml down
+
+# survey/ 는 조사용 로컬 스크립트·결과(gitignored, .gitignore 의 /survey/) — 저장소에는 없다. 없으면 안내만 하고 멈춘다.
+survey: survey-check
+	python3 survey/matrix.py --out "$(SURVEY_OUT)" --sizes "$(SURVEY_SIZES)"
+
+survey-report: survey-check
+	python3 survey/aggregate.py "$(SURVEY_OUT)" "$(SURVEY_OUT)/summary"
+	python3 survey/coverage.py "$(SURVEY_OUT)" "$(SURVEY_OUT)/summary/public-api-coverage.csv"
+	python3 survey/tables.py "$(SURVEY_OUT)/summary"
+
+survey-check:
+	@for f in matrix.py aggregate.py coverage.py tables.py; do test -f "survey/$$f" || { echo "loadtest/survey/$$f 가 없습니다 — 조사 스크립트는 로컬 전용(gitignored)입니다. 조사 담당자에게 받아 loadtest/survey/ 에 두세요."; exit 2; }; done
+
+# 공개 OpenAPI 전 operation × k6 시나리오 재대조 (GROMO-2346). 결과: docs/public-api-coverage.csv
+# 스펙 갱신: scripts/coverage.py --refresh http://<business>/v0/api-docs/public
+.PHONY: coverage coverage-check write-fixture
+coverage:
+	python3 scripts/coverage.py
+
+coverage-check:
+	python3 scripts/coverage.py --check
+
+# 쓰기 시나리오용 slot fixture(계정 2 + 섬 3, SLOTS ≥ 시나리오 MAX_VUS). 로컬 격리 스택(localhost)에만 쓴다.
+write-fixture:
+	SLOTS="$(or $(SLOTS),50)" seed/60_write_fixture.sh

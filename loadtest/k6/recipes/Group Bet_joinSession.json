@@ -1,0 +1,26 @@
+{
+  "endpoint": "Group Bet_joinSession",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/sessions/{sessionId}/join",
+  "tag": "Group Bet",
+  "summary": "회차 참여 (신 경로, GROMO-1408 · LLD §2.2)",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "sessionId": {
+      "gen": "gap",
+      "reason": "path-id:sessionId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.sessionId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

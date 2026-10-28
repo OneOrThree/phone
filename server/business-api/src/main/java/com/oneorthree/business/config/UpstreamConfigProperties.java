@@ -1,0 +1,98 @@
+package com.oneorthree.business.config;
+
+import com.oneorthree.business.common.http.Deadline;
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
+
+/**
+ * {@code business.upstream.*} 바인딩.
+ *
+ * <p>토큰·주소에 <b>기본값을 주지 않는다</b>. yml 에 {@code ${SVC_TOKEN_BIZ_TO_DATA}} 같은 플레이스홀더만
+ * 두고 값은 환경에서 온다 — 기본값을 두면 시크릿이 안 꽂힌 채 부팅되고, 그 상태는 상류의 401 로만
+ * 드러나서 「인증 장애」로 오진된다. 실제 fail-fast 는 {@code InternalHttpClient} 생성자가 한다.
+ */
+@Getter
+@Setter
+@ConfigurationProperties(prefix = "business.upstream")
+public class UpstreamConfigProperties {
+
+    private Target data = new Target();
+    private Target notification = new Target();
+    /**
+     * 실시간 서버(GROMO-1775 우체통). 사용자 액션당 GET/POST 한 번이라 기본 연결 수는 2다.
+     */
+    private Target realtime = withMaxConnections(2);
+    private Composition composition = new Composition();
+
+    /**
+     * 공개 요청 하나가 상류 호출들에 쓸 공유 시간 예산 — {@code composition.deadline} 값으로
+     * 지금부터 시작하는 새 {@link Deadline}. 화면 조합 컨트롤러뿐 아니라 단건 위임 컨트롤러도 같은
+     * 값을 쓴다.
+     */
+    public Deadline deadline() {
+        return Deadline.startingNow(composition.getDeadline());
+    }
+
+    /** 대상 셋과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
+    public void validateWorkerBudget() {
+        if (data.getMaxConnections() < 1 || notification.getMaxConnections() < 1
+                || realtime.getMaxConnections() < 1
+                || composition.getPoolSize() < 1) {
+            throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker는 각각 1 이상이어야 합니다.");
+        }
+        long total = (long) data.getMaxConnections() + notification.getMaxConnections()
+                + realtime.getMaxConnections() + composition.getPoolSize();
+        if (total > 18) {
+            throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker 합계는 18 이하여야 합니다.");
+        }
+    }
+
+    private static Target withMaxConnections(int maxConnections) {
+        Target target = new Target();
+        target.setMaxConnections(maxConnections);
+        return target;
+    }
+
+    /**
+     * 초기 JVM 안전 상한이며 운영 처리량/SLO를 보장하는 수치가 아니다.
+     *
+     * <p>pool-size 4 의 근거(GROMO-2345 재검토): 스레드 합계 18(= Data 4 + Notification 4 + Link 4 + Realtime 2 +
+     * 조합 4)은 컨테이너 PID 128 에서 Tomcat 16+16·미리보기/DNS 8·JVM/Redis/PDF 자식을 빼고 남긴 몫이다. 조합 스레드는
+     * 조각이 끝날 때까지 Data worker 하나를 붙잡으므로 조합 4 : Data 4 로 맞춰 둔 것이다. 홈은 요청 1건이 최대
+     * 7조각을 한 단계에서 낸다(소속 1, 섬 상세 1, 섬 단계 7, 방송기 1) — 4 스레드면 섬 단계가 2번에 나뉘지만, 홈 외 화면과
+     * Notification·Link 몫을 줄일 부하 근거가 아직 없어 값은 그대로다(바꾸려면 혼합 부하로 합계 18 안 재배분을 측정).
+     * 운영에서 보는 곳: {@code executor_queued_tasks{name="business-screen-composer"}} 와
+     * {@code business_upstream_connections{target="DATA",state="pending"}}.
+     */
+    @Getter
+    @Setter
+    public static class Composition {
+        private int poolSize = 4;
+        private int queueCapacity = 64;
+        private Duration deadline = Duration.ofSeconds(3);
+    }
+
+    /** 상류 하나의 설정. */
+    @Getter
+    @Setter
+    public static class Target {
+
+        private String baseUrl;
+        private String serviceToken;
+        /** 연결 수립 제한. 무제한은 허용하지 않는다. */
+        private Duration connectTimeout = Duration.ofMillis(500);
+        /** 응답 대기 제한. 상류 응답 대기에 적용하며 요청 전체 예산으로 추가 제한한다. */
+        private Duration readTimeout = Duration.ofMillis(1500);
+        /** 연속 실패 몇 번에 서킷을 여는가. */
+        private int failureThreshold = 5;
+        private int maxAttempts = 2;
+        private Duration retryDelay = Duration.ofMillis(50);
+        private int maxConnections = 4;
+        private int queueCapacity = 64;
+        /** 서킷 차단 시간. */
+        private Duration openDuration = Duration.ofSeconds(10);
+    }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "library",
+  "name": "도서관",
+  "status": "final",
+  "source_id": "library",
+  "source": "../../island-final-6/enhanced/buildings/day/library.png",
+  "canvas": [814, 1178],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 802, 1166],
+  "island_box": [1120, 288, 239, 323],
+  "day_night_alpha_equal": true,
+  "npc": null
+}

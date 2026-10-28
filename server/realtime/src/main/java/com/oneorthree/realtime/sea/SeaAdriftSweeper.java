@@ -1,0 +1,142 @@
+package com.oneorthree.realtime.sea;
+
+import com.oneorthree.realtime.common.redis.RedisKeys;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 떠 있는 채(항해를 끝낸 채) 10분이 지난 사용자를 바다 방에서 내보낸다 (GROMO-2300, 계약 §5 「다중 인스턴스」).
+ *
+ * <p>{@code @EnableScheduling} 없이 전용 데몬 executor 60초 주기다({@code MovementTicker} 패턴). 인스턴스가 여럿이어도
+ * 같은 사용자를 둘이 집을 수 있는데, LEAVE Lua 가 {@code adriftSince} 를 CAS 로 비교하므로 늦은 쪽은 0 을 받고
+ * 아무것도 하지 않는다 — 사건({@code sea.member.left{adrift}})은 1 을 받은 쪽만 낸다.
+ *
+ * <p>고른 뒤 그 사람이 다시 항해를 시작했으면 해시의 {@code adriftSince} 가 바뀌어 있어 LEAVE 가 0 이다 — 읽은 값을
+ * 그대로 {@code expectedAdriftSince} 로 넘기는 것이 이 보호의 전부다.
+ *
+ * <p><b>ci 프로필에서는 꺼 둔다</b>({@code realtime.sea.adrift-sweep-enabled=false}). 테스트는 직접 {@code sweep()} 을
+ * 부른다 — 실시계 스위퍼가 {@code @SpringBootTest} 캐시 컨텍스트마다 떠서 공유 테스트 Redis 를 훑으면 다른 테스트가 심은
+ * 옛 {@code adriftSince} 항목을 LEAVE 해 방·SET·사건을 어지럽힌다.
+ */
+@Component
+@ConditionalOnProperty(name = "realtime.sea.adrift-sweep-enabled", havingValue = "true", matchIfMissing = true)
+public class SeaAdriftSweeper {
+
+    static final Duration ADRIFT_LIMIT = Duration.ofMinutes(10);
+    private static final Logger LOG = LoggerFactory.getLogger(SeaAdriftSweeper.class);
+
+    /** KEYS: adrift / ARGV: userId, 기대 점수. ZSCORE 는 문자열이라 양쪽을 숫자로 바꿔 비교한다. */
+    private static final RedisScript<Long> REMOVE_IF_SCORE = new DefaultRedisScript<>(
+            "local s = redis.call('ZSCORE', KEYS[1], ARGV[1])\n"
+            + "if s and tonumber(s) == tonumber(ARGV[2]) then return redis.call('ZREM', KEYS[1], ARGV[1]) end\n"
+            + "return 0", Long.class);
+
+    private final StringRedisTemplate redis;
+    private final SeaRooms seaRooms;
+    private final Clock clock;
+    private final long periodSeconds;
+    private ScheduledExecutorService executor;
+
+    public SeaAdriftSweeper(StringRedisTemplate redis, SeaRooms seaRooms, Clock clock,
+            @Value("${realtime.sea.adrift-sweep-seconds:60}") long periodSeconds) {
+        this.periodSeconds = periodSeconds;
+        this.redis = redis;
+        this.seaRooms = seaRooms;
+        this.clock = clock;
+    }
+
+    @PostConstruct
+    void start() {
+        executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "sea-adrift-sweep");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.scheduleWithFixedDelay(this::sweepSafely, periodSeconds, periodSeconds, TimeUnit.SECONDS);
+    }
+
+    @PreDestroy
+    void stop() {
+        if (executor != null) {
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * {@code ScheduledExecutorService} 는 한 번의 예외(Error 포함)로 이후 틱을 영구 취소한다({@code MovementTicker} 선례).
+     * 그래서 {@code Throwable} 까지 삼키고 다음 틱을 시도한다 — 프로세스를 죽일지는 오케스트레이터 몫이다.
+     * {@code Error} 는 원인 추적을 위해 스택까지 남긴다.
+     */
+    private void sweepSafely() {
+        try {
+            sweep();
+        } catch (Throwable t) {
+            if (t instanceof Error) {
+                LOG.error("바다 떠 있음 정리 중 Error — 다음 틱에 다시 한다", t);
+            } else {
+                LOG.error("바다 떠 있음 정리 실패 — 다음 틱에 다시 한다. reason={}", t.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /** 한 번 훑는다 — 테스트가 직접 부른다. 사용자 하나의 실패는 그 사용자만 건너뛴다. */
+    void sweep() {
+        long cutoff = clock.millis() - ADRIFT_LIMIT.toMillis();
+        Set<ZSetOperations.TypedTuple<String>> due = redis.opsForZSet()
+                .rangeByScoreWithScores(RedisKeys.SEA_ADRIFT, Double.NEGATIVE_INFINITY, cutoff);
+        if (due == null) {
+            return;
+        }
+        for (ZSetOperations.TypedTuple<String> entry : due) {
+            try {
+                if (entry.getValue() != null && entry.getScore() != null) {
+                    sweepOne(UUID.fromString(entry.getValue()), entry.getScore().longValue());
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("바다 떠 있음 정리 — 한 명 건너뜀. reason={}", e.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /**
+     * @param adriftSince 색인에서 <b>고를 때 읽은</b> 점수. 해시에서 다시 읽으면 그사이 바뀐 새 값이 되어 CAS 가 헛돈다 —
+     *                    이 값을 그대로 LEAVE 에 넘겨 «고른 뒤 다시 항해했다가 끝낸» 사람을 지키게 한다.
+     */
+    private void sweepOne(UUID userId, long adriftSince) {
+        Object roomId = redis.opsForHash().get(RedisKeys.seaUser(userId), "roomId");
+        if (!(roomId instanceof String room)) {
+            // 해시가 이미 없다 — 색인에 남은 잔재만 치운다(점수 CAS: 그사이 재입장해 새로 올라온 항목은 건드리지 않는다).
+            removeIndexIfUnchanged(userId, adriftSince);
+            return;
+        }
+        if (!seaRooms.leave(userId, UUID.fromString(room), SeaRooms.ADRIFT, Long.toString(adriftSince))
+                && redis.opsForHash().get(RedisKeys.seaUser(userId), "adriftSince") == null) {
+            // 해시에 adriftSince 가 없는데 색인에 남았다 — 불변식이 깨진 항목이 매 분 다시 읽히지 않게 자기 치유한다.
+            removeIndexIfUnchanged(userId, adriftSince);
+        }
+    }
+
+    /** 색인 항목의 점수가 고를 때 읽은 값 그대로일 때만 지운다 — 비교와 삭제가 한 Lua 라 그 사이에 끼어들 수 없다. */
+    boolean removeIndexIfUnchanged(UUID userId, long adriftSince) {
+        return Long.valueOf(1L).equals(redis.execute(REMOVE_IF_SCORE, List.of(RedisKeys.SEA_ADRIFT),
+                userId.toString(), Long.toString(adriftSince)));
+    }
+}

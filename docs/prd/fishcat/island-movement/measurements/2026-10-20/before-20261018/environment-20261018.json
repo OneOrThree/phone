@@ -1,0 +1,20 @@
+{
+  "collectedAt": "2026-10-18T08:17:14.610710+00:00",
+  "hostCpu": "Apple M5 Pro",
+  "hostPhysicalCores": 15,
+  "hostMemoryBytes": 51539607552,
+  "loadGeneratorPlatform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "k6Version": "k6 v2.0.0 (commit/devel, go1.26.3, darwin/arm64)",
+  "nodeVersion": "v24.20.0",
+  "pythonVersion": "3.14.4",
+  "dockerVm": {
+    "cpus": 8,
+    "memoryBytes": 8217145344
+  },
+  "note": "발생기는 macOS 호스트, SUT는 Docker Linux VM. 기존 개발 컨테이너도 같은 VM을 공유하며 중지하지 않음.",
+  "imageArchitectures": {
+    "loadtest-survey/data-api:local": "linux/arm64",
+    "postgres:16-alpine": "linux/arm64",
+    "apache/kafka:3.8.1": "linux/arm64"
+  }
+}

@@ -1,0 +1,275 @@
+# 건설 상세 설계
+
+이 문서는 [정책](policy.md)의 미결 조건을 전제로 구현1767의 계약·저장 경계를 확정한다. 기준 main에 새 시설 도메인이 존재한다고 가정하지 않는다.
+
+## 1. 원본 예시 보존
+
+아래는 v0.3-proposed 원본 요청·응답이다. 운영 확정값이나 추가 필드 예시와 섞지 않는다. 경로만 채택 경로를 함께 표시한다.
+
+### GET `/islands/{islandId}/construction-options`
+
+원본: `GET /v1/islands/{islandId}/construction-options`. GET의 `{}`는 원본 표기이며 실제 GET body를 보내라는 뜻이 아니다. 성공은 원본대로200이다.
+
+요청:
+
+```json
+{}
+```
+
+응답:
+
+```json
+{
+  "data": {
+    "islandVersion": 4,
+    "selectedBuildingId": "gram",
+    "villagePoints": 150,
+    "items": [
+      {
+        "id": "tower",
+        "name": "전망대",
+        "cost": 300,
+        "currency": "village_points",
+        "selectable": true,
+        "buildable": false,
+        "blockedReason": "INSUFFICIENT_FUNDS"
+      },
+      {
+        "id": "mail",
+        "name": "우체통",
+        "cost": 400,
+        "currency": "village_points",
+        "selectable": true,
+        "buildable": false,
+        "blockedReason": "INSUFFICIENT_FUNDS"
+      },
+      {
+        "id": "gram",
+        "name": "꽃나팔 방송기",
+        "cost": 100,
+        "currency": "village_points",
+        "selectable": true,
+        "buildable": true,
+        "blockedReason": null
+      },
+      {
+        "id": "shop",
+        "name": "상점",
+        "cost": 500,
+        "currency": "village_points",
+        "selectable": false,
+        "buildable": false,
+        "blockedReason": "REQUIRES_TOWER_AND_MAIL"
+      }
+    ]
+  }
+}
+```
+
+### POST `/islands/{islandId}/constructions`
+
+원본: `POST /v1/islands/{islandId}/constructions`. GET의 `{}`는 원본 표기이며 실제 GET body를 보내라는 뜻이 아니다. 성공은 원본대로200이다.
+
+요청:
+
+```json
+{
+  "buildingId": "gram",
+  "expectedVersion": 4
+}
+```
+
+응답:
+
+```json
+{
+  "data": {
+    "buildingId": "gram",
+    "status": "completed",
+    "spent": {
+      "currency": "village_points",
+      "amount": 100
+    },
+    "version": 5,
+    "villagePoints": 50
+  }
+}
+```
+
+### PUT `/islands/{islandId}/construction-target`
+
+원본: `PUT /v1/islands/{islandId}/construction-target`. GET의 `{}`는 원본 표기이며 실제 GET body를 보내라는 뜻이 아니다. 성공은 원본대로200이다.
+
+요청:
+
+```json
+{
+  "buildingId": "gram",
+  "expectedVersion": 4
+}
+```
+
+응답:
+
+```json
+{
+  "data": {
+    "buildingId": "gram",
+    "selected": true,
+    "spent": 0,
+    "version": 5
+  }
+}
+```
+
+## 2. 채택 스키마와 추가 예시
+
+모든 경로 islandId는 UUID36, 인증은 서버가 검증한 활성 사용자다. 앱의 X-User-Id·session·generation 값을 그대로 신뢰하지 않는다. Business가 검증한 주체와 내부 서비스 인증만 전달하고 Data는 TX 안에서 현재 사용자·세션·소속·섬 종료 상태를 다시 검사한다. 모든 조회도 일관된 스냅샷에서 현재 소속과 시설/잔액/정책을 읽는다. 요청에 사용자 ID, 가격, 잔액, 완료 상태를 받지 않는다.
+
+구현(GROMO-2207): Business는 세 라우트 모두 서명된 AT의 sid·gen을 `X-Session-Id`·`X-Auth-Generation` 헤더로 싣고, Data 내부 라우트는 두 헤더를 필수로 받는다(없으면 400). 앱이 보낸 같은 이름의 헤더는 상류로 복사하지 않는다. Data의 폐기 판정 403 `SESSION_NOT_ACTIVE`는 공개 401 `UNAUTHORIZED`로 옮긴다.
+
+| API | request | data |
+| --- | --- | --- |
+| GET options | query/body 없음 | islandVersion, **costPolicyVersion**, selectedBuildingId nullable, villagePoints, **walletVersion**, items[] |
+| PUT target | buildingId, expectedVersion 필수 | buildingId, selected=true, spent=0, version |
+| POST constructions | buildingId, expectedVersion, **expectedCostPolicyVersion** 필수 | buildingId, status=completed, spent:{currency,amount}, version, villagePoints, **walletVersion** |
+
+items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. ~~GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다.~~ 건물은 7개이고 게시판 뒤 넷은 자유 순서(정책 C01, GROMO-1999)라 목록의 후보는 아직 완공하지 않은 건물 전부이며 도서관이 추가된다 — `selectable` 로 고를 수 있는 것을 가른다 — 위 원본 JSON 의 tower/mail/gram/shop 후보 집합과 `cost` 값은 D4 반영 전 형태다. 회관·게시판도 별도 진행량이 아니라 섬 통장 잔액으로 짓는다(D1·D6). 초기 단계의 목록·가격 반환 방식과 「각자 몫 n빵」 표현은 정책 P-D02 잔여·P-D04 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
+
+GET options는 활성 주민의 조회다. 변경 권한이 없는 주민도 GET에서는 항목별 selectable=false/blockedReason=FORBIDDEN을 받으며 변경 권한만으로 GET 전체를403으로 거절하지 않는다. PUT/POST는 승인된 실행 권한을 요구한다. selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족하는지 나타내며 잔액은 보지 않는다. buildable은 selectable에 건설 가능 상태와 현재 잔액을 더해 평가한다. blockedReason은 HTTP 오류 code가 아닌 UI 사유다. 우선순위는 FORBIDDEN → FACILITY_LOCKED → REQUIRES_TOWER_AND_MAIL → INSUFFICIENT_FUNDS이며 통과하면 null이다. 상점은 tower/mail가 하나라도 없으면 REQUIRES_TOWER_AND_MAIL이다. 서버 실행도 같은 evaluator를 쓰되 TX 안에서 재검사한다. 승인되지 않은 권한/가격 정책을 evaluator 기본값으로 통과시키지 않는다.
+
+다음은 **승인된 추가 필드만** 보여주는 실행 예시다. 원본 응답 값/가격을 변경한 것이 아니다.
+
+```json
+{"buildingId":"gram","expectedVersion":4,"expectedCostPolicyVersion":1}
+```
+
+GET은 원본 data와 같은 스냅샷에서 읽은 `costPolicyVersion:1`을 추가한다. GET과 POST의 data에는 `walletVersion`도 필수 추가하며 반환 villagePoints의 공동 지갑 version이다. 원본 JSON은 보존하고 추가 필드 예시는 `{"walletVersion":7}`이다. islandVersion 및 costPolicyVersion과 비교하지 않는다. 앱은 응답 walletVersion이 이미 관측한 wallet.updated보다 낮으면 잔액과 잔액 의존 buildable을 적용하지 않고 새 GET으로 복구한다. 같은 지갑 버전이어도 island/cost 축이 낮으면 해당 옵션 부분을 적용하지 않는다. POST receipt는 원 walletVersion과 원 잔액을 보존하며 과거 성공 재생으로 최신 화면을 되돌리지 않는다. 이 숫자1은 예시 revision이다. cost revision이 바뀌었으면 섬 version이 같아도409 VERSION_CONFLICT(field=expectedCostPolicyVersion)다. current에는 현재 사용자가 볼 수 있는 options 공개 DTO만 넣고 재조회·금액 재확인 후 새 키를 사용한다. 가격 publication과 명령이 같은 정책 잠금 경계를 사용하여 검증 직후 가격만 교체되는 경합을 막는다.
+
+#### 주민별 준비량 조회 (2026-10-09)
+
+GET options는 `residentProgress`를 추가한다. 각자 몫 방식의 현재 목표가 있으면 `{buildingId, requiredPerResident, residents:[{userId,name,contributed,remaining}]}`를 반환한다. `name`은 nullable이고, `contributed`는 그 목표 epoch 이후 실제 기여, `remaining`은 `max(0, requiredPerResident - contributed)`다. 가격·대상 주민·기여는 착공 판정과 동일한 읽기 스냅샷을 사용한다. 탈퇴·강퇴·재가입 제외와 목표 선택 뒤 가입한 주민 제외도 같은 대상 산식을 따른다.
+
+`requiredPerResident`는 총액 ÷ 대상 인원을 올림한 정수다. 대상이 0명이면 null과 빈 주민 배열을 반환하며 착공은 불가능하다. 목표가 없거나 회관·게시판처럼 섬 잔액 합산 방식이면 `residentProgress=null`이다. 일반 주민도 이 정보를 조회할 수 있고, 목표 선택·착공 권한은 방장만 유지한다. 앱은 청사진을 눌러 열린 상세에서만 총 건설비·각자 목표량·주민별 남은 수량을 보여 준다.
+
+dev의 테스트 가격 1마리도 같은 산식을 적용한다. 대상이 2명이면 각자 1마리를 채워야 하지만 실제 착공 차감은 총액 1마리이므로, 둘이 모은 2마리 중 1마리는 섬 잔액에 남는다. 가격 설정은 이 조회 확장으로 변경하지 않는다.
+
+필드 추가는 Data → Business → 앱 순차 배포를 지원한다. 이전 Data 응답에는 필드가 없을 수 있으며 Business·앱은 이를 허용한다. 앱은 누락된 진행량을 주민 수·섬 잔액으로 추측하지 않고 조회 불가로 표시한다. DB 스키마 변경은 없다.
+
+목표 PUT은 costPolicyVersion과 잔액을 요구하지 않는다. target 변경에는 island version만 증가하고 wallet/appearance 사건은 없다. 같은 목표·현재 version은200/차감0/기존 version이며 receipt에 빈 events를 저장한다. 건설은 원본처럼 buildingId를 명시하는 별도 명령으로, 숨은 '현재 선택 목표와 반드시 일치' 제약을 새로 추가하지 않는다.
+
+## 3. 멱등·오류·재생
+
+PUT/POST에 Idempotency-Key(UUID36)를 요구한다. scope는 검증 사용자 + HTTP method + resource islandId + operation이며 fingerprint는 정규화한 본문 전체와 resource context를 포함한다. 두 버전 필드를 빠뜨리지 않는다. 같은 키/본문의 확정 receipt를 먼저 찾고 현재 활성·소속·행위 권한을 검증한 뒤 원 결과를 재생한다. 이후 달라진 expectedVersion/잔액으로 원 명령을 다시 검증하거나 차감하지 않는다. 이 도메인은 탈퇴/강퇴 후 특례 재생을 허용하지 않는다.
+
+| HTTP / code | field | retryable / 동작 |
+| --- | --- | --- |
+|400 INVALID_REQUEST / INVALID_IDEMPOTENCY_KEY|해당 입력 / Idempotency-Key|false, 누락·타입·키 수정|
+|401 UNAUTHORIZED| null |false, 사용자 인증 복구|
+|403 FORBIDDEN| null |false, 모든 API의 비주민; 실행 권한 없음은 PUT/POST에만 적용|
+|403 FACILITY_LOCKED| null |false, 목표 선택의 게시판 미해금|
+|404 USER_NOT_FOUND / GROUP_NOT_FOUND| null |false, 기존 대상 부재404 보존. GROUP_NOT_FOUND 공개 등록/명시404 매핑은1767 활성화 전 검증|
+|409 VERSION_CONFLICT|expectedVersion 또는 expectedCostPolicyVersion|false, 현재 공개 상태 재확인|
+|409 STATE_CONFLICT|buildingId|false, 이미 완료/건설 선행 조건 불충족|
+|409 INSUFFICIENT_FUNDS|buildingId|false, 공동 잔액 부족|
+|409 IDEMPOTENCY_KEY_REUSED|Idempotency-Key|false, 다른 본문; 원 본문/결과 공개 금지|
+|409 REQUEST_IN_PROGRESS|Idempotency-Key|true, Retry-After:1, 같은 키/본문|
+|422 OUT_OF_RANGE|해당 필드|false, 미지원 ID·범위 위반|
+|429 RATE_LIMITED / 503 SERVICE_UNAVAILABLE| null |true, 유한 재시도; 알려진 Retry-After 준수|
+|502 UPSTREAM_CONTRACT_ERROR / UPSTREAM_AUTH_FAILED| null |false, 상류 계약/서비스 인증 오류|
+|504 UPSTREAM_TIMEOUT| null |true, 커밋 여부 미확정이므로 같은 키/본문|
+|500 INTERNAL_ERROR| null |false, 서버 requestId로 조사|
+
+상위 공통의413/415/405/빈406도 적용한다. code/message/field/retryable + requestId 기본 봉투를 유지하고 허용된409에만 top-level current를 추가한다. current는 공개 DTO·그 버전만, 내부 행/타인 정보/원 요청 본문은 금지한다. 예상 버전 충돌은 새 버전으로 자동 재실행하지 않는다. 검증4xx로 rollback되어 receipt가 없으면 재생 보장 밖이며 수정된 의도는 새 키다.
+
+Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차감을 증명하지 않는다. 공통 retryable=false를 유지하고 requestId로 조사·정본 GET 재확인 후 원 키/본문으로 receipt를 복구한다. 결과가 불명확하다고 새 키로 같은 건설을 다시 실행하지 않는다. 500을 무한 자동 재시도하거나 성공으로 추정하지 않는다.
+
+## 4. Data 저장·원자 경계
+
+논리 저장 단위는 섬 시설(섬+buildingId 유일, 완료 시각), 섬 목표/공개 island version, 불변 비용 revision과 publication, 초기 집중 기여 진행량, 공동 지갑/원장, 전체 외양 projection이다. 물리 테이블·Flyway 번호·DBML 컬럼은 구현 조정자가 배정한다. 기존 공통 PublicCommandService/receipt와 outbox를 재사용하며 별도 receipt/outbox 테이블을 발명하지 않는다.
+
+잠금 순서는 PR743/742와 합류한다: 영향 사용자 UUID 정렬 lifecycle → receipt 선점 → 섬/현재 membership/context → 필요한 집중/시설 → 정책 publication/불변 자산 → 지갑(ownerType/id/currency 정렬) → 외양/각 projection. 건설은 없는 단계를 건너뛴다. 강퇴/탈퇴/집중 종료 writer도 같은 순서다. 그룹 잠금 뒤 새 사용자 잠금을 역순으로 잡아야 하면 TX를 다시 시작한다. 건설 명령(GROMO-2207)은 이 순서 앞에 users → auth_sessions(세션 행) 두 단계가 붙는다 — 로그아웃과 같은 순서이고, 건설 쪽에서 이 둘을 역순으로 잡는 경로는 없다.
+
+1. 검증 사용자·session/generation·활성 소속·섬 활성 및 승인된 실행 권한을 TX에서 검사한다. 동일 키 결과가 있으면 현재 권한을 확인하고 재생한다.
+   구현(GROMO-2207): session/generation은 internal(L10) 관문 `InternalIslandConstructionService`가 users 행을 FOR UPDATE로 잠근 뒤(로그아웃과 같은 순서) receipt 재생보다 먼저 검사하고, 같은 TX에서 건설 서비스를 부른다 — 폐기된 세션은 성공 receipt를 받지 못한다. 건설(L6)은 auth(L8)를 참조할 수 없어 검사가 관문에 있다. GET options는 행 잠금이 필요한 세션 검사를 짧은 쓰기 TX로 먼저 끝내고 조회는 기존 읽기 전용 REPEATABLE READ TX에서 따로 한다. 두 TX 사이의 로그아웃은 조회라 상태를 바꾸지 않는다.
+2. 새 명령은 expectedVersion과 가격 expectedCostPolicyVersion을 현재 publication과 비교한다. 시설 완료 유일성·선행 조건을 검사한다.
+3. 게시판 이후 건설은 island/village_points의 충분한 잔액을 잠근 뒤 원장 debit와 잔액 갱신을 수행한다. 개인 fish를 대신 차감하거나 다른 서비스 TX로 보내지 않는다.
+4. 동일 완공 primitive로 시설, 승인된 목표 후처리, island version, 새 기본 테마를 포함한 전체 외양 및 appearance version을 저장한다. 초기 건설도 이 primitive를 쓴다. ~~개인/기여 분배는 FR-D02 승인 전 구현 활성화 금지다.~~ FR-D02 는 D6 로 폐기됐다 — 분배 축이 없고, 완공 트리거(P-D02 잔여)·n빵 정산(P-D04) 확정 전 활성화 금지다.
+5. 해당 지갑 version, 원 성공 data, 공개 events 전부, 내구 outbox를 같은 TX에 저장한다. 하나라도 실패하면 시설·차감·외양·receipt·사건 모두 rollback한다.
+6. 커밋 후 Business는 data만 공개 봉투로 반환하고 기존 relay가 events를 재전달한다. 릴레이 실패가 이미 커밋한 차감을 다시 실행하지 않는다.
+
+~~초기 earnedFish=E, personal=P, contribution=C이면 E=P+C 보존식 및 cap/초과분 결정이 필요하다.~~ 이 보존식은 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 초기 건설 기여 C 라는 축이 없고 회관·게시판도 섬 통장(D1) 잔액에서 짓는다. 초기 hall/board 의 완공 트리거(자동/POST 명령)·spent 의미·자동 완공 응답은 P-D02 잔여 결정 후 계약을 보완해야 하므로 해당 명령은 출시 차단이다. 원본 세 계약의 예시는 게시판 이후 gram 이며 통화는 섬 통장(서버 식별자 `village_points`, 개명 미결)이다.
+
+시설 완공은 island.updated, 실제 공동 차감은 wallet.updated, 외양 변경은 island.appearance.updated를 각각 만든다. 각 사건은 해당 projection 버전과 고유 eventId를 갖는다. 기본 테마 값은 PR742 자산 정본에서 찾고 임의 문자열로 seed하지 않는다. Data 내부 명령 결과는 `{data:공개DTO,events:완성된RealtimeEventEnvelope[]}`다. 7필드 schemaVersion/eventId/type/islandId/aggregateVersion/occurredAt/payload를 모두 저장해 응답 유실에도 그대로 재생한다. Data outbox의 기존10필드 저장 EventEnvelope와 이 공개7필드 배열은 다른 표현이며 같은 작성 TX가 둘 다 보관한다. Business에서 outbox를 다시 읽어 사건을 재구성하지 않는다.
+
+공동 wallet.updated와 island.updated는 현재 주민의 `/topic/islands/{islandId}/events`, 외양 사건은 PR737의 events 라우팅을 따른다. ~~개인 지갑이 함께 바뀌는 승인된 집중 정산이면 그 사건은 해당 개인큐로만 보낸다~~ 는 2026-09-21 재화-단일로 **대상 소멸**이다 — 개인 물고기 지갑이 없어 집중 정산이 바꾸는 지갑은 섬 통장 하나뿐이고 개인큐로 가는 `wallet.updated` 는 발행되지 않는다. 집단 events에 개인 지급 상세를 섞지 않는다는 규율은 그대로다(개인 보유품 사건 `inventory.updated` 는 여전히 개인큐다).
+
+## 5. 기존 코드·구현 순서·검증
+
+기준 main 증거:
+
+- [기존 Group](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/Group.java#L37): id/name/description/status/version만 있고 새 시설·재생 컬럼은 없다.
+- [GroupQueryService:79/94](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/group/repository/GroupQueryService.java#L79)는 GROUP_NOT_FOUND404와 잠금 조회를 제공하지만 종료·삭제·행위 권한은 호출 서비스 몫이다. 조회 helper만 호출했다고 안전한 명령이 되지 않는다.
+- [CurrencyLedgerService:73/83/165](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/currency/service/CurrencyLedgerService.java#L73)는 User 지갑용이다. WalletOwner.CALLER/TARGET을 user/island로 오독하지 않는다. 원장·잠금 패턴은 재사용하고 공동 지갑 모델은 PR742 구현과 합류해야 한다.
+- [FocusService:487](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java#L487)의 기존 서버 보상은 신규 초기 건설 분배를 구현한 근거가 아니다.
+
+구현 순서: 잔여 결정(P-D01 잔여·P-D02 잔여·P-D04) 승인 → 공통/섬/경제/외양 기반 통합 → 불변 비용 publication·조회(1829 표를 첫 revision 으로 등록) → 목표 PUT → 건설 원자 명령(섬 통장 합산 / 각자 몫 n빵) → Realtime producer 검증. ~~FR-D02 승인 후 초기 기여 연결~~ 은 D6 로 사라졌다. 기존 `/api/v1` writer가 새 시설·지갑·섬 버전을 건드리는 부분을 전수 조사하고 같은 잠금/버전/사건 경계로 합류시킨 뒤 노출한다.
+
+실제 PostgreSQL·HTTP·relay 회귀는1767에서 실행한다:
+
+- 옵션 표의 각 선행 조합, gram이 shop 조건이 아닌 경우, 잔액부족이어도 목표 선택 가능, 비주민/권한/게시판403.
+- 같은 키 동시 두 요청에서 차감1·시설1·각 사건1·같은 결과; 다른 키의 동시 동일 시설은 성공1과409, 음수 잔액0.
+- 조회 후 가격만 교체하면 expectedCostPolicyVersion409; 가격 publication과 실행 경합에서도 검증한 가격으로만 확정.
+- 외양/receipt/outbox 저장 실패 주입 시 원장까지 rollback; 응답 유실 후 같은 키 재생에서 버전/사건 추가0.
+- 섬 통장 총액(또는 각자 몫 전원 충족)에 동시 도달할 때 완공1·기존 테마 보존 및 전체 외양 version 일치(보존식은 D6 로 폐기).
+- 강퇴/탈퇴/섬 종료와 건설 경합, 전달 직전 소속 상실, 서비스 토큰 실패502와 사용자401 분리.
+- 실제 HTTP 공개 오류 registry와 current 필드, 각 이벤트7필드·자기 axis 버전, 지갑 정보 audience 검사.
+
+로그는 서버 requestId, commandId/eventId, operation, phase, outcome, durationMs와 정책 revision을 연결한다. 키 원문·토큰·헤더·전체 payload는 기록하지 않는다. debit/완공/재생·conflict·relay 지연은 유한 label로 계측한다. 이 문서 작업에서 빌드·테스트를 실행했다는 주장은 하지 않는다.
+
+검증 추가: 다른 주민 거래/GET/POST receipt가 역순 도착해도 walletVersion으로 오래된 잔액·buildable 적용을 막고 새 options GET으로 복구한다. 무접두어 공인 ingress/JWT/내부 차단은 HLD 선행 조건을 실제 배포 환경에서 검증한다.
+
+## 6. 공동 가계부 — GET `/islands/{islandId}/resources/ledger`
+
+GROMO-1895 추가(town-hall 화면 `ledger` 조각, 기획 `GET /v1/islands/{islandId}/resources/ledger`). 섬 공동 지갑(`island_wallets`)의 원장 `island_wallet_transactions`(V62)를 그대로 읽는다 — 새 테이블·마이그레이션이 없다. 섬 지갑의 소유가 이 도메인이라 island-shop 이 아니라 여기 둔다(상점 §2.1 의 `wallets` 는 잔액만 준다).
+
+| 입력 | 규칙 |
+| --- | --- |
+| `month` | 필수 `YYYY-MM`. **KST 달력 월** `[1일 00:00 KST, 다음 달 1일 00:00 KST)` — 서버 날짜 축 규약([date-axis](../../../conventions/date-axis.md) §2, UTC 컷오버(GROMO-1930) 전까지). 형식 오류·누락은 400 `INVALID_PARAMETER` |
+| `direction` | 선택 `earn\|spend`. 생략이면 둘 다. 그 밖의 값은 422 `OUT_OF_RANGE` |
+| `limit`·`cursor` | `limit` 1~100. Business 가 cursor 를 서명·검증한 뒤 Data 에는 `afterCreatedAt`+`afterEntryId` 를 둘 다 넘긴다(하나만이면 400 `INVALID_PAGE_REQUEST`) |
+
+성공200:
+
+```json
+{"data":{"month":"2026-09","earnedTotal":60,"spentTotal":15,
+  "items":[{"id":"…","direction":"spend","reason":"construction_debit","amount":15,
+            "createdAt":"2026-09-21T03:00:00Z","groupedUntil":"2026-09-21T03:00:00Z","entryCount":1},
+           {"id":"…","direction":"earn","reason":"contribution","amount":480,
+            "createdAt":"2026-09-20T00:12:00Z","groupedUntil":"2026-09-20T09:51:00Z","entryCount":480}],
+  "nextCursor":null}}
+```
+
+- `earnedTotal`·`spentTotal` 은 **그 달 전체의 합**이다 — `direction` 필터·페이지와 무관하다. 합계와 목록은 한 REPEATABLE READ 스냅샷에서 읽어 서로 다른 순간을 말하지 않는다.
+- `amount` 는 원장처럼 항상 양수이고 방향은 `direction` 이 말한다. `reason` 은 원장 사유의 소문자(`contribution`·`construction_debit`)다. 방향은 사유가 정한다 — 새 사유를 더하면 `IslandWalletTransactionType` 에서 방향도 함께 정한다(GROMO-1924 의 집중 정산 적립과 GROMO-1990 의 분당 적립은 둘 다 기존 `contribution` 사유를 쓴다).
+- **집중 적립(`contribution`)은 KST 하루로 접힌 줄이다**(2026-09-20 결정 가계부-묶음). 집중 보상이 «유효 집중 60초마다 적립»로 바뀌면서(D5-적립) 이 사유만 주민 1명당 하루 최대 480행이 되어, 건별로 내보내면 한 달이 수천 줄이 된다. **원장은 건별 그대로 두고 조회에서만 접는다** — 감사 추적(어느 분에 얼마가 들어왔는가)은 행에 남는다. 적립 틱이 밀려 한 번에 여러 분을 처리해도 마찬가지다: 원장 줄은 **분마다 하나이고 금액은 언제나 1**이다. 접는 축이 KST 인 것은 이 조회의 창(`month`)이 이미 KST 달력 월이라서다(집중 «상한»의 UTC 축과는 다른 체인이다). 반려한 대안: 원장 자체를 묶기(추적 소실·이미 보여 준 금액이 변함) · 묶음을 별도 배열로 분리(앱이 두 목록을 섞어야 함).
+- `entryCount` 는 그 줄이 접고 있는 원장 행 수, `groupedUntil` 은 그 하루의 마지막 기입 시각이다. **접히지 않은 줄도 널이 아니다** — `entryCount=1`, `groupedUntil=createdAt` 이라 앱은 널 분기 없이 `entryCount>1` 로만 묶음을 가른다. 접히는 사유는 `contribution` 하나뿐이고 퀘스트 정산·건설 차감·상점 구매는 건별로 남는다(빈도가 낮고 건별 의미가 있다).
+- 정렬은 최신순 `(createdAt DESC, id DESC)` keyset — 같은 시각의 행은 id 가 가른다. 묶음 줄의 `id`·`createdAt` 은 그 하루의 **첫** 기입 것이라 커서가 그대로 이어진다(묶음 뒤에는 그 시각보다 오래된 줄만 온다). id 비교는 PostgreSQL 과 같은 **무부호** 순서다 — `UUID.compareTo` 는 부호 있는 long 비교라 경계에서 갈린다.
+- 권한: 살아 있는 섬의 **활성 주민 전원**(방장·일반 주민 동일). 구경꾼·떠난 주민은 403 `MEMBER_ONLY`, 종료·삭제 섬은 404 `GROUP_NOT_FOUND`. 지출 권한(C13)은 보지 않는다 — 읽기다.
+- 원장 행에 주체(누가 적립했나)가 없어 항목에 사용자 필드가 없다. 주민별 몫은 [회관 기록 LLD](../island-records/low-level-design.md) §7 의 누적 획득이 답한다.
+- 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. **분당 적립(D5-적립)으로 섬당 행 수가 빠르게 는다 — `(island_id, created_at, id)` 인덱스를 더할 시점이 가까워졌다**(하루 묶음 집계도 같은 스캔을 탄다).
+- 내부 경로(B26): `GET /internal/islands/{islandId}/resources/ledger` + 허용목록 `'GET /internal/islands/*/resources/ledger'`.
+
+GET options의 `activeConstruction`은 진행 중인 공사의 `{buildingId, startedAt, completesAt}`이며 공사가 없으면 null이다. 목표 ID는 착공 때 해제되므로 진행 중인 건물은 이 필드로 식별한다. 앱은 시각 도달을 재조회 신호로만 쓰고, 옵션에서 해당 건물이 빠진 뒤 홈 정본의 완공 목록을 확인하여 시설에 진입한다. 이전 서버에는 이 필드가 없을 수 있다.
+
+공개 `residentProgress.residents`는 차단한 주민의 이름을 주민 목록과 동일한 중립 이름으로 바꾼다. 대상 행·사용자 ID·기여량·남은 수량은 유지하며, 차단 조회에 실패하면 이름을 그대로 노출하지 않는다. 버전 충돌의 `current`에도 같은 정책을 적용한다.
+
+### 완공 안내 대상과 사용 설명 이력 (2026-10-16)
+
+GET options의 `contributedCompletions`는 요청자가 건설에 기여했고 서버에서 완공된 건물 ID 배열이다. 현재 활성 주민만 조회할 수 있으며, 단순 가입이나 완공 목록 증가를 기여로 추정하지 않는다.
+
+착공 트랜잭션에서 `construction_guide_recipients`에 대상 주민을 고정한다. 각자 몫 건물은 소비하기 전 목표 epoch의 양수 기여 주민을, 회관·게시판처럼 합산 방식인 건물은 섬의 누적 획득 물고기가 양수인 현재 주민을 기록한다. 착공 후 가입자는 추가되지 않는다. 서버 완공 확정 전에는 응답 배열에 포함하지 않는다. V112 이전 시설은 기여 명단을 소급 추정하지 않는다.
+
+완공 안내 열람 여부는 현재 기기의 계정·섬·건물별로, 사용 설명은 현재 기기의 계정·건물별로 각각 보관한다. 설명을 이미 본 기여자는 완공 안내만 받는다. 미열람 신규 주민은 실제 완공 건물을 눌러 진입할 때 설명을 받으며, 없는 시설의 사용법을 홈에서 자동으로 표시하지 않는다. 구서버가 이 필드를 생략하면 앱은 완공 안내를 표시하지 않고, 사용 설명은 홈 정본의 완공 목록으로 정상 판정한다.
+
+집중 체험도 현재 기기에서 계정당 1회다. 별도 계정 키의 완료·그만 보기 기록을 섬 소속 동기화 전에 읽으며, 섬 이동·재가입·재로그인으로 초기화하지 않는다. 재설치·다른 기기 간 동기화는 이번 범위에 포함하지 않는다.

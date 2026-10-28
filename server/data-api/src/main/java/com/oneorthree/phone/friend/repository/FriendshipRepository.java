@@ -1,0 +1,229 @@
+package com.oneorthree.phone.friend.repository;
+
+import com.oneorthree.phone.friend.repository.domain.Friendship;
+import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
+import com.oneorthree.phone.user.repository.domain.User;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * 친구 관계(Friendship) 조회·정리 창구. 관계는 (fromUser → toUser) 한 방향으로만 저장되므로 "내 친구"류
+ * 조회는 전부 from·to 양방향 OR 로 훑고, 나 아닌 쪽을 골라낸다.
+ *
+ * <p>거절·삭제는 행을 지우지 않고 {@code deletedAt} 을 찍는 soft delete 다. 그래서 목록성 조회에는
+ * {@code deletedAt IS NULL} 이 필수고, 반대로 재요청 판정({@code findPair})은 삭제 행까지 봐야 한다 —
+ * 각 메서드 주석의 필터 유무는 의도적인 차이지 누락이 아니다.
+ */
+public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
+
+    /**
+     * 보낸 요청 목록 (sent) — 예: findByFromUserAndStatusAndDeletedAtIsNull(me, PENDING)
+     * deletedAt 조건은 탈퇴자 정리분 제외용 (GROMO-801) — 아래 findByToUser… 와 같은 이유.
+     *
+     * @param fromUser 요청을 보낸 쪽 — 여기에 나를 넣어야 "보낸 요청"이 된다
+     * @param status   걸러낼 상태. 보낸 요청 목록은 PENDING 만 본다
+     * @return 조건에 맞는 관계 행. 없으면 빈 리스트
+     */
+    List<Friendship> findByFromUserAndStatusAndDeletedAtIsNull(User fromUser, FriendshipStatus status);
+
+    /**
+     * 받은 요청 목록 (received) — 예: findByToUserAndStatusAndDeletedAtIsNull(me, PENDING)
+     * 탈퇴 시 PENDING 요청도 deletedAt 이 찍히는데(GROMO-801), 이 목록만 status 파생 조회라
+     * deletedAt 을 안 보면 탈퇴자 요청이 그대로 노출되고 수락 시 유령 친구가 생긴다.
+     *
+     * @param toUser 요청을 받은 쪽 — 여기에 나를 넣어야 "받은 요청"이 된다
+     * @param status 걸러낼 상태. 받은 요청 목록은 PENDING 만 본다
+     * @return 조건에 맞는 관계 행. 없으면 빈 리스트
+     */
+    List<Friendship> findByToUserAndStatusAndDeletedAtIsNull(User toUser, FriendshipStatus status);
+
+    /**
+     * 방향 고정 단건 조회 — REJECTED → PENDING 재전환 시 (me→target) row 특정용
+     *
+     * @param fromUser 보낸 쪽 — 방향이 고정이라 인자를 바꿔 넣으면 다른 행을 가리킨다
+     * @param toUser   받은 쪽
+     * @return 그 방향의 관계 행. soft delete 된 행도 걸러내지 않고 그대로 돌려준다
+     */
+    Optional<Friendship> findByFromUserAndToUser(User fromUser, User toUser);
+
+    /**
+     * 요청 수락·거절 대상 단건 (GROMO-801) — 목록에서 숨긴 행은 변경도 막아야 계약이 일치한다.
+     * 화면을 열어둔 사이 발신자가 탈퇴하면 클라가 들고 있던 requestId 로 수락을 호출할 수 있는데,
+     * deletedAt 을 안 보면 200 + FRIEND_ADDED 이벤트가 나가고도 친구 목록엔 안 나타난다
+     * (findAcceptedByUser 는 deletedAt IS NULL 이므로).
+     *
+     * 배타 락이 필요한 이유: deletedAt IS NULL 은 '조회 시점' 조건일 뿐이라 락 없이는 lost update 가 난다.
+     * 수락이 행을 읽은 뒤 탈퇴가 그 행을 soft delete 하고 커밋하면, Friendship 에 @Version·@DynamicUpdate 가
+     * 없어 수락의 더티체킹 UPDATE 가 전체 컬럼을 자기 스냅샷으로 덮어쓴다 → deletedAt 이 다시 null 이 되며
+     * 관계가 ACCEPTED 로 되살아나 탈퇴자 유령 친구가 노출된다.
+     * 락을 잡으면 READ COMMITTED 에서 Postgres 가 잠금 획득 후 조건을 재평가하므로,
+     * 탈퇴가 먼저 커밋된 경우 이 조회가 빈 결과가 되어 REQUEST_NOT_FOUND 로 떨어진다.
+     *
+     * @param id 수락·거절할 요청 행 id
+     * @return 살아 있는 요청 행. 탈퇴로 이미 정리됐으면 빈 값이라 호출측이 REQUEST_NOT_FOUND 로 떨어뜨린다.
+     *         반환된 행은 이 트랜잭션이 끝날 때까지 잠긴다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Friendship> findByIdAndDeletedAtIsNull(UUID id);
+
+    /**
+     * 알림 경로의 상태 재확인 전용 — 위 조회와 조건은 같지만 **락을 잡지 않는다**.
+     * 위 findByIdAndDeletedAtIsNull 은 수락·거절이 행을 변경하기 직전에 쓰라고 만든 배타 락이다.
+     * 그걸 알림 경로가 재사용하면, 잠긴 행이 그 트랜잭션이 끝날 때까지 — 즉 FCM 발송이 끝날 때까지 —
+     * 묶인다. FCM RestClient 에 타임아웃이 없어 발송이 지연·정지하면 같은 요청의 수락·거절과
+     * 관련 유저의 탈퇴가 무기한 대기하게 된다(@codex 리뷰 P1).
+     * 알림은 행을 바꾸지 않고 "지금도 PENDING 인가" 만 보므로 락이 필요 없다. 이 조회와 발송 사이에
+     * 상태가 바뀌는 경합은 남지만, 그건 락으로 못 막는다 — 발송은 어차피 트랜잭션 밖의 외부 호출이다.
+     *
+     * @param id 알림을 보내기 직전 상태를 되짚을 요청 행 id
+     * @return 지금 상태. 행이 없거나 이미 정리됐으면 빈 값이고, 그때 발송을 건너뛴다
+     */
+    @Query("select f.status from Friendship f where f.id = :id and f.deletedAt is null")
+    Optional<FriendshipStatus> findStatusByIdAndDeletedAtIsNull(@Param("id") UUID id);
+
+    /**
+     * 두 유저 사이 페어 양방향 조회 — (a→b) / (b→a) 모두 포함.
+     * createRequest 의 중복·이미친구·REJECTED 재전환 판정용 (정렬: 최신 updatedAt 우선).
+     * ⚠️ deletedAt 필터를 넣지 말 것 — createRequest 의 소프트삭제 행 복원 분기(GROMO-719)가
+     * 삭제 행까지 돌려받는 데 의존한다. 필터가 생기면 재요청이 insert 로 빠져 F1(409)이 재발한다.
+     *
+     * <p><b>이 조회는 락을 잡지 않는다 — 동시 경합의 방어선이 아니다</b>(GROMO-2042). A→B 와 B→A 가
+     * 동시에 오면 둘 다 「기존 행 없음」을 보고 지나간다. 그 자리를 막는 것은 V98 의 표현식 부분 유니크
+     * 인덱스 {@code uq_friendships_pending_pair}
+     * ({@code least(from_user_id,to_user_id), greatest(from_user_id,to_user_id)}
+     * where {@code status='PENDING' AND deleted_at IS NULL}) 다 — 방향 무관으로 「살아 있는 PENDING 은
+     * 쌍당 하나」를 강제하고, 지는 쪽은 커밋 시점 유니크 위반 → 409 가 된다.
+     * <b>여기에 배타 락을 달아 대신하려 하지 말 것</b> — 잠글 행이 아직 없는 경합이라 락이 걸릴 대상이
+     * 없고, {@code users} 두 행으로 올리면 방향마다 순서가 갈려 교착이 생긴다
+     * ({@link #findAcceptedBetweenForUpdate} 의 「쌍당 한 행」 전제가 성립하지 않는 경우다).
+     *
+     * @param a 두 유저 중 한 쪽 — a·b 는 대칭이라 순서를 바꿔도 같은 결과다
+     * @param b 나머지 한 쪽
+     * @return 두 방향 행 전부, 최신 updatedAt 순. soft delete 된 행도 포함되며 그게 이 조회의 목적이다
+     */
+    @Query("SELECT f FROM Friendship f"
+            + " WHERE (f.fromUser = :a AND f.toUser = :b)"
+            + " OR (f.fromUser = :b AND f.toUser = :a)"
+            + " ORDER BY f.updatedAt DESC")
+    List<Friendship> findPair(@Param("a") User a, @Param("b") User b);
+
+    /**
+     * 단일 ACCEPTED 친구 관계 양방향 단건 조회 (deletedAt IS NULL) — <b>락을 잡지 않는다</b>.
+     *
+     * <p><b>관계를 근거로 무언가를 쓰는 경로에서는 쓰지 말 것</b> — 그쪽은
+     * {@link #findAcceptedBetweenForUpdate} 다. 이 조회는 "지금 친구인가"를 <b>표시·열람 판정</b>에만
+     * 쓰는 읽기 경로용이다(공개 프로필의 친구 배지, 통계 열람 권한). 거기서 배타 락을 잡으면
+     * 남의 프로필을 여는 것만으로 그 관계 행이 트랜잭션 내내 잠겨 친구 삭제·편지 발송이 줄을 선다 —
+     * {@link #findStatusByIdAndDeletedAtIsNull} 를 알림 경로용으로 따로 판 것과 같은 이유다.
+     *
+     * @param me     보는 쪽
+     * @param friend 상대 — 관계가 어느 방향으로 저장돼 있든 걸린다
+     * @return 살아 있는 ACCEPTED 관계. 조회 직후 삭제가 커밋될 수 있다
+     */
+    @Query("SELECT f FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND ((f.fromUser = :me AND f.toUser = :friend)"
+            + " OR (f.fromUser = :friend AND f.toUser = :me))")
+    Optional<Friendship> findAcceptedBetween(@Param("me") User me, @Param("friend") User friend);
+
+    /**
+     * 위 조회와 조건은 같지만 <b>배타 락</b>을 잡는다 (codex 리뷰 P1) — 친구 삭제와 편지 발송을
+     * <b>같은 관계 행</b>에서 직렬화하는 경계다.
+     *
+     * <p>락이 없으면 이렇게 깨진다: 발송이 관계를 확인(통과)한 직후 삭제가 관계를 끊고
+     * 미확인 편지 정리까지 커밋하고, 그 <b>뒤에</b> 발송이 새 {@code letters} 행을 넣는다. 정리가
+     * 이미 지나간 자리라 <b>관계는 끊겼는데 미확인 편지가 양쪽 편지함에 남는다</b> —
+     * friend-letter LLD §결정 3(B) 의 삭제 계약 위반이다.
+     *
+     * <p>락을 잡으면 어느 쪽이 먼저 잡든 결과가 계약과 맞는다:
+     * <ul>
+     *   <li><b>발송이 먼저</b> — 삭제가 대기하다 발송 커밋 후 진행하고, 방금 꽂힌 편지까지
+     *       {@code softDeleteUnreadBetween} 가 함께 지운다</li>
+     *   <li><b>삭제가 먼저</b> — 발송이 대기하다, READ COMMITTED 의 술어 재평가로
+     *       {@code deletedAt IS NULL} 이 깨져 <b>빈 결과</b>를 받고 {@code LETTER_RECIPIENT_NOT_FRIEND}
+     *       로 떨어진다({@link #findByIdAndDeletedAtIsNull} 와 같은 원리)</li>
+     * </ul>
+     *
+     * <p><b>교착이 없는 이유 — 잠금 순서 규칙.</b> 두 가지가 함께 받쳐 준다:
+     * <ol>
+     *   <li><b>잠그는 관계 행은 «쌍당 한 개»다.</b> 이 조회는 {@code (from,to)}·{@code (to,from)} 을
+     *       OR 로 훑는 대칭 질의라 인자 순서를 뒤집어도 <b>같은 행 id</b>를 가리킨다(살아 있는 ACCEPTED
+     *       행은 쌍당 하나 — {@code Optional} 인 것이 그 전제다). 여러 행을 잡을 때만 생기는
+     *       「두 방향이 서로 다른 순서로 잠근다」 문제가 성립하지 않으므로 {@code userId} 정렬 같은
+     *       순서 규칙 자체가 필요 없다. 여러 행을 잡아야 하는 날이 오면 그때
+     *       {@code GroupMembershipMutationLocks.lockGroups} 처럼 정렬해서 잠근다.
+     *       <b>이 전제가 성립하지 않는 경합이 하나 있다</b> — 요청 생성(GROMO-2042)은 행이 «아직 없을 때»
+     *       나는 경합이라 잡을 행 자체가 없다. 거기서는 락 대신 V98 의 유니크 인덱스
+     *       {@code uq_friendships_pending_pair} 로 막았다({@link #findPair} 참조)</li>
+     *   <li><b>층 순서는 언제나 users → friendships 다.</b> 이 락을 쓰는 두 경로가 그 앞에서 잡는
+     *       {@code users} 락은 둘 다 <b>공유 락</b>({@code getCallerForShare}·{@code getTargetForShare})
+     *       이라 서로 막지 않는다. 배타 {@code users} 락을 잡는 탈퇴도 users 를 먼저 잡고
+     *       {@code deleteAllInvolving} 으로 friendships 를 나중에 잡아 같은 방향이다.
+     *       역방향(friendships 를 잡고 users 를 잡는) 경로는 없다 — 생기면 여기서부터 다시 따질 것</li>
+     * </ol>
+     *
+     * @param me     관계를 근거로 쓰는 쪽
+     * @param friend 상대 — 관계가 어느 방향으로 저장돼 있든 걸린다
+     * @return 잠긴 ACCEPTED 관계. 락 대기 중 삭제가 커밋됐으면 술어 재평가로 빈 값이 되고,
+     *         그것이 "관계 끊김 확정" 신호다. 반환된 행은 이 트랜잭션이 끝날 때까지 잠긴다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT f FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND ((f.fromUser = :me AND f.toUser = :friend)"
+            + " OR (f.fromUser = :friend AND f.toUser = :me))")
+    Optional<Friendship> findAcceptedBetweenForUpdate(@Param("me") User me, @Param("friend") User friend);
+
+    /**
+     * 내 친구 목록 — ACCEPTED, 미삭제, 내가 from 또는 to인 모든 관계 (getFriends 용).
+     *
+     * @param me 친구 목록의 주인
+     * @return 관계 행 자체 — 상대가 fromUser 쪽인지 toUser 쪽인지는 호출측이 골라내야 한다
+     */
+    @Query("SELECT f FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND (f.fromUser = :me OR f.toUser = :me)")
+    List<Friendship> findAcceptedByUser(@Param("me") User me);
+
+    /**
+     * 바다 화면에 표시할 친구 상대편 ID를 양방향에서 모은다.
+     *
+     * @param userId 친구 관계의 주인
+     * @return 수락되었고 삭제되지 않은 관계의 상대 ID 집합
+     */
+    @Query("SELECT CASE WHEN f.fromUser.id = :userId THEN f.toUser.id ELSE f.fromUser.id END"
+            + " FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND (f.fromUser.id = :userId OR f.toUser.id = :userId)")
+    Set<UUID> findFriendUserIdsByUserId(@Param("userId") UUID userId);
+
+    /**
+     * 탈퇴자가 낀 친구 관계를 status·deleted_at 과 무관하게 전부 지운다 (GROMO-1801 · 계정 LLD §4 friendships).
+     *
+     * <p>종전 탈퇴는 활성 행만 soft delete 해 요청·수락·거절 이력과 이미 soft delete 된 행이 탈퇴자 UUID 에
+     * 계속 묶여 있었다. 두 FK 가 NOT NULL 이라 nullify 로 비식별화할 수도 없어 행을 지운다.
+     *
+     * <p>벌크 DELETE 도 행 잠금을 얻는다 — 수락·거절이 먼저 행을 잠갔으면 그 커밋을 기다렸다가 결과까지
+     * 지운다. flushAutomatically 로 앞선 엔티티 변경을 먼저 내보내, 지연 flush 가 지운 행을 되살리거나
+     * 0행 UPDATE 를 내지 않게 한다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM Friendship f WHERE f.fromUser.id = :userId OR f.toUser.id = :userId")
+    int deleteAllInvolving(@Param("userId") UUID userId);
+}

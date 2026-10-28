@@ -1,0 +1,617 @@
+package com.oneorthree.notification;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("ci")
+@Testcontainers
+class NotificationStoreTest {
+    @Container
+    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final UUID USER = UUID.fromString("11111111-1111-4111-8111-111111111111");
+    static final Instant DAY = Instant.parse("2026-09-11T03:00:00Z");
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", PG::getJdbcUrl);
+        registry.add("spring.datasource.username", PG::getUsername);
+        registry.add("spring.datasource.password", PG::getPassword);
+    }
+    @Autowired Store store;
+    @Autowired MockMvc mvc;
+    @Autowired PlatformTransactionManager transactions;
+    @Autowired DeviceService devices;
+    @Autowired InboundService inbound;
+    @Autowired SettingsService settings;
+    @Autowired DispatchService dispatch;
+    @Autowired JobRegistry jobs;
+    @Autowired SnapshotReconciler snapshots;
+    @MockitoBean PushTransport transport;
+    @MockitoBean DataClient data;
+    @MockitoBean Clock clock;
+
+    @BeforeEach
+    void resetState() {
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
+                + "session_fences,legacy_session_fences,"
+                + "user_fences,settings,projections,templates,deeplinks,kinds CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false");
+        store.update("DELETE FROM job_runs");
+        store.update("UPDATE jobs SET enabled=false");
+        store.update("INSERT INTO kinds(id,quiet_policy,eligibility_required) VALUES('FRIEND_REQUEST','DEFER',true)");
+        store.update("INSERT INTO templates(id,kind,locale,title,body)"
+                + " VALUES('FRIEND_REQUEST.ko','FRIEND_REQUEST','ko','결과','내기 {count}건')");
+        reset(transport, data, clock);
+        when(clock.instant()).thenReturn(DAY);
+        when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+        when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+    }
+
+    @Test
+    void savedQuietTimesRoundTripThroughThePublicMinutePrecisionContract() {
+        Map<String, Object> body = preferences(true);
+        body.put("nightModeEnabled", true);
+        body.put("nightStartTime", "23:05");
+        body.put("nightEndTime", "07:09");
+        settings.apply(USER, body, 1, "quiet-settings");
+
+        Map<String, Object> read = settings.read(USER);
+        assertThat(read).containsEntry("nightStartTime", "23:05").containsEntry("nightEndTime", "07:09");
+        read.put("soundEnabled", false);
+        settings.apply(USER, read, 2, "quiet-settings-sound-off");
+        assertThat(settings.read(USER)).containsEntry("soundEnabled", false)
+                .containsEntry("nightStartTime", "23:05").containsEntry("nightEndTime", "07:09");
+    }
+
+    @Test
+    void legacySessionRevocationWithoutNonceIsAcceptedWithoutTouchingANewSession() {
+        register(USER, "device", "new-bootstrap", "register");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("bootstrapNonceHash", null);
+        params.put("sessionEpoch", 1);
+        inbound.accept(event("legacy-revoked", "auth.session.revoked", USER, 1, null, params));
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", true);
+        assertThat(store.one("SELECT event_id FROM inbound_events WHERE event_id='legacy-revoked'")).isNotNull();
+    }
+
+    @Test
+    void registryDoesNotCompleteClosedGateReplayAndActuallyRunsAfterOpening() {
+        register(USER, "device", "bootstrap", "register");
+        inbound.accept(event("scheduled", "notification.requested", USER, 1, UUID.randomUUID().toString(),
+                Map.of("kind", "FRIEND_REQUEST", "count", 1)));
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.minusSeconds(60)));
+        jobs.tick();
+        assertThat(store.one("SELECT completed_at FROM job_runs WHERE job_id='delivery-dispatch'"))
+                .containsEntry("completed_at", null);
+        verifyNoInteractions(transport);
+        store.update("UPDATE dispatch_control SET enabled=true");
+        jobs.tick();
+        assertThat(status(delivery("scheduled"))).isEqualTo("SENT");
+        assertThat(store.one("SELECT completed_at FROM job_runs WHERE job_id='delivery-dispatch'").get("completed_at"))
+                .isNotNull();
+    }
+
+    /**
+     * 콘솔에서 한 kind 의 템플릿을 끄는 것은 정상 관리 동작이다. 그 kind 의 발송이 «후보 맨 앞»에
+     * 놓였다고 해서 뒤의 다른 종류·다른 사용자의 정상 알림까지 멈춰서는 안 된다.
+     * 실패한 한 건은 재시도 시각을 밀어 내구화하고 — 밀지 않으면 같은 정렬로 다음 tick 에도
+     * 맨 앞에 다시 서서 큐가 «무기한» 막힌다 — 나머지 후보는 그 회차 안에서 계속 나간다.
+     */
+    @Test
+    void oneUnrenderableCandidateIsBackedOffAndTheRestOfTheQueueStillGoesOut() {
+        register(USER, "device", "bootstrap", "register");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('MAIN_ISLAND_TRANSFERRED','BYPASS')");
+        store.update("INSERT INTO templates(id,kind,locale,title,body,enabled)"
+                + " VALUES('MAIN_ISLAND_TRANSFERRED.ko','MAIN_ISLAND_TRANSFERRED','ko','모집','열렸습니다',false)");
+        inbound.accept(event("blocked", "notification.requested", USER, 1, null,
+                Map.of("kind", "MAIN_ISLAND_TRANSFERRED")));
+        inbound.accept(event("healthy", "notification.requested", USER, 2, UUID.randomUUID().toString(),
+                Map.of("kind", "FRIEND_REQUEST", "count", 1)));
+        // 막힌 건이 후보 정렬(next_attempt_at,id)의 맨 앞에 서게 만든다.
+        store.update("UPDATE deliveries SET next_attempt_at=? WHERE event_id='blocked'",
+                java.sql.Timestamp.from(DAY.minusSeconds(600)));
+        assertThat(dispatch.candidates().get(0)).isEqualTo(delivery("blocked"));
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.minusSeconds(60)));
+        jobs.tick();
+        // 뒤에 있던 정상 알림은 같은 회차에 나갔다.
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status(delivery("healthy"))).isEqualTo("SENT");
+        // 실패한 건은 사유·시도횟수·재시도 시각이 «커밋»돼 있다(dispatch 트랜잭션은 되감겼다).
+        Map<String, Object> blocked = store.one("SELECT status,attempts,last_error,next_attempt_at"
+                + " FROM deliveries WHERE event_id='blocked'");
+        assertThat(blocked).containsEntry("status", "PENDING").containsEntry("attempts", 1)
+                .containsEntry("last_error", "TEMPLATE_UNAVAILABLE");
+        assertThat(((java.sql.Timestamp) blocked.get("next_attempt_at")).toInstant())
+                .isEqualTo(DAY.plusSeconds(60));
+        // 다음 후보 목록에서 빠진다 — 같은 행이 큐 맨 앞을 다시 점거하지 않는다.
+        assertThat(dispatch.candidates()).doesNotContain(delivery("blocked"));
+        // 회차는 완료되고 사유만 남는다. 잡 전체가 실패로 접히면 뒤의 회차도 계속 밀린다.
+        Map<String, Object> run = store.one("SELECT completed_at,error FROM job_runs"
+                + " WHERE job_id='delivery-dispatch' AND scheduled_at=?",
+                java.sql.Timestamp.from(DAY.minusSeconds(60)));
+        assertThat(run.get("completed_at")).isNotNull();
+        assertThat(run).containsEntry("error", "TEMPLATE_UNAVAILABLE");
+    }
+
+    /**
+     * 첫 prepare 뒤 Data ack 가 실패해 보류가 RELEASED 로 풀린 상태에서, 앱이 «같은
+     * Idempotency-Key» 로 재시도한다. 과거 응답만 재생하면 실제 보류 없이 Data ack 가 커밋되고
+     * 그 사이에 낀 flush 가 「이미 확인한 결과」를 푸시한다(A22 ⓓ).
+     */
+
+    @Test
+    void reconcileKeepsSatellitePreferencesAndAppliesWithdrawalWithoutResurrection() {
+        register(USER, "device", "bootstrap", "register");
+        settings.apply(USER, preferences(false), 50, "disabled");
+        Map<String, Object> source = new LinkedHashMap<>(preferences(true));
+        source.put("userId", USER.toString());
+        source.put("withdrawn", false);
+        source.put("authGeneration", 0);
+        source.put("version", 1);
+        source.put("locale", "ja");
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("items", java.util.List.of(source));
+        page.put("nextCursor", null);
+        when(data.snapshot(null, 500)).thenReturn(page);
+        snapshots.reconcile();
+        assertThat(settings.read(USER)).containsEntry("notificationEnabled", false);
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", true);
+        source.put("withdrawn", true);
+        source.put("authGeneration", 1);
+        source.put("version", 2);
+        snapshots.reconcile();
+        source.put("withdrawn", false);
+        source.put("authGeneration", 0);
+        source.put("version", 1);
+        snapshots.reconcile();
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", false);
+        assertThat(store.rows("SELECT * FROM projections WHERE user_id=?", USER)).isEmpty();
+    }
+
+    @Test
+    void closedGateBuffersAndOpenDispatchesOnce() {
+        register(USER, "device", "bootstrap", "register");
+        Map<String, Object> event = event("one", "notification.requested", USER, 1, UUID.randomUUID().toString(),
+                Map.of("kind", "FRIEND_REQUEST", "count", 1));
+        inbound.accept(event);
+        inbound.accept(event);
+        UUID id = delivery("one");
+        dispatch.dispatch(id);
+        verifyNoInteractions(transport);
+        assertThat(status(id)).isEqualTo("PENDING");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        dispatch.dispatch(id);
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status(id)).isEqualTo("SENT");
+    }
+
+    @Test
+    void independentSubjectsIgnoreUnrelatedHighVersion() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        inbound.accept(event("new", "friend.request.resolved", USER, 100, first.toString(), Map.of("active", true)));
+        inbound.accept(event("old-other", "friend.request.resolved", USER, 1, second.toString(), Map.of("active", true)));
+        inbound.accept(event("old-same", "friend.request.resolved", USER, 2, first.toString(), Map.of("active", false)));
+        assertThat(store.rows("SELECT * FROM projections")).hasSize(2);
+        assertThat(Json.map(store.one("SELECT payload::text FROM projections WHERE subject_id=?", first.toString())
+                .get("payload"))).containsEntry("active", true);
+    }
+
+    @Test
+    void sessionRevocationBeforeRegistrationCannotResurrectToken() {
+        inbound.accept(event("revoke", "auth.session.revoked", USER, 1, null,
+                Map.of("bootstrapNonceHash", Json.digest("bootstrap"), "sessionEpoch", 2)));
+        assertThatThrownBy(() -> register(USER, "device", "bootstrap", "register"))
+                .isInstanceOf(NotificationFailure.class).hasMessage("SESSION_REVOKED");
+        assertThat(store.rows("SELECT * FROM device_tokens")).isEmpty();
+    }
+
+    @Test
+    void ownershipTransferAndDelayedDeletePreserveNewOwner() {
+        String ownerA = register(USER, "device", "session-A", "reg-A");
+        UUID other = UUID.randomUUID();
+        String ownerB = register(other, "device", "session-B", "reg-B");
+        devices.delete(USER, "device", ownerA, 0L, "delete-A");
+        assertThat(store.one("SELECT user_id,ownership_token,active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("user_id", other).containsEntry("ownership_token", UUID.fromString(ownerB))
+                .containsEntry("active", true);
+        assertThatThrownBy(() -> devices.register(USER, Map.of("deviceToken", "device", "ownershipToken", ownerA,
+                "authGeneration", 0), "old-CAS")).hasMessage("DEVICE_OWNERSHIP_CONFLICT");
+    }
+
+    @Test
+    void responseLossReplaysSameOwnerButChangedRequestConflicts() {
+        String first = register(USER, "device", "nonce", "same");
+        assertThat(register(USER, "device", "nonce", "same")).isEqualTo(first);
+        assertThatThrownBy(() -> register(USER, "other-device", "nonce", "same"))
+                .hasMessage("IDEMPOTENCY_KEY_CONFLICT");
+    }
+
+
+    @Test
+    void outOfOrderSettingsKeepLatestIncludingNullQuietTimes() {
+        Map<String, Object> latest = preferences(false);
+        settings.apply(USER, latest, 2, "off");
+        settings.apply(USER, preferences(true), 1, "old-on");
+        assertThat(settings.read(USER)).containsEntry("notificationEnabled", false)
+                .containsEntry("nightStartTime", null).containsEntry("nightEndTime", null);
+    }
+
+    @Test
+    void unknownSchemaIsNotMarkedReceived() {
+        Map<String, Object> event = event("future", "user.updated", USER, 1, null, Map.of());
+        event.put("schemaVersion", 99);
+        assertThatThrownBy(() -> inbound.accept(event)).hasMessage("UNSUPPORTED_SCHEMA_VERSION");
+        assertThat(store.rows("SELECT * FROM inbound_events")).isEmpty();
+    }
+
+
+
+    @Test
+    void deleteBeforeFirstLegacyRegistrationLeavesTombstoneButFreshLoginCanTransfer() {
+        devices.delete(USER, "device", null, 0L, "delete");
+        assertThatThrownBy(() -> devices.register(USER, Map.of("deviceToken", "device"), "legacy-retry"))
+                .hasMessage("DEVICE_OWNERSHIP_CONFLICT");
+        register(USER, "device", "new-login", "fresh");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'").get("active"))
+                .isEqualTo(true);
+    }
+
+    @Test
+    void casWithoutBootstrapPreservesBindingForLaterLogout() {
+        String old = register(USER, "device", "bootstrap", "register");
+        devices.register(USER, Map.of("deviceToken", "rotated", "ownershipToken", old, "authGeneration", 0), "rotate");
+        inbound.accept(event("logout", "auth.session.revoked", USER, 2, null,
+                Map.of("bootstrapNonceHash", Json.digest("bootstrap"), "sessionEpoch", 2)));
+        assertThat(store.rows("SELECT * FROM device_tokens WHERE active")).isEmpty();
+    }
+
+    /**
+     * 발송이 느려도 <b>다른 사용자의</b> 설정 초기화·부분 변경은 Business 3초 예산 안에 끝난다.
+     *
+     * <p>근거가 GROMO-1659 합류로 바뀌었다. 종전에는 발송이 전역 잠금을 «쥔 채» 외부 호출을 돌았고
+     * 이 테스트는 그 잠금이 잡혀 있음을 확인한 뒤 다른 사용자만 통과함을 봤다. 지금은 판정 트랜잭션이
+     * 커밋하며 잠금을 놓고 외부 호출이 그 «밖»에서 돌므로(DispatchService#dispatch), 전송 중에는
+     * 잡힌 advisory 잠금이 아예 없다 — 그것이 다른 사용자가 막히지 않는 진짜 이유다.
+     * 그래서 「잠금이 잡혀 있다」가 아니라 「잡힌 잠금이 없다」를 단언한다. 되돌리면 이 단언이 깨진다.
+     */
+    @Test
+    void slowDispatchDoesNotBlockAnotherUsersSettingsInitializationAndPatch() throws Exception {
+        UUID other = UUID.fromString("22222222-2222-4222-8222-222222222222");
+        UUID pending = prepareSettingsRaceDelivery();
+        var sending = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        AtomicInteger dispatchPid = new AtomicInteger();
+        holdTransport(sending, release, dispatchPid);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var sent = executor.submit(() -> dispatch.dispatch(pending));
+            assertThat(sending.await(5, TimeUnit.SECONDS)).isTrue();
+            // 외부 호출은 트랜잭션·잠금 밖에서 돈다 — 이 순간 잡힌 advisory 잠금이 하나도 없어야 한다.
+            assertThat(store.rows("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted")).isEmpty();
+            var changed = executor.submit(() -> {
+                assertThat(settings.initialize(other, Map.of("version", 0, "authGeneration", 0,
+                        "settings", preferences(true)))).containsEntry("notificationEnabled", true);
+                return settings.patch(other, settingsPatch(false), 1, "other-off");
+            });
+            // 실제 전송 TX를 열린 채 유지한다. Business 3초 예산보다 먼저 두 서비스 호출이 끝나야 한다.
+            assertThat(changed.get(2, TimeUnit.SECONDS)).containsEntry("applied", true);
+            assertThat(release.getCount()).isEqualTo(1);
+            assertThat(settings.read(other)).containsEntry("notificationEnabled", false);
+            release.countDown();
+            sent.get(5, TimeUnit.SECONDS);
+            assertThat(status(pending)).isEqualTo("SENT");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * 같은 사용자의 opt-out 은 발송의 <b>판정</b>과 직렬화되고, 그 뒤의 발송은 억제된다.
+     *
+     * <p>GROMO-1659 합류로 직렬화의 «경계»가 바뀌었다. 종전에는 발송이 외부 호출까지 잠금을 쥐고
+     * 있어 opt-out 이 전송이 끝나기를 기다렸다. 지금은 판정(prepare)이 커밋하며 잠금을 놓으므로
+     * opt-out 은 전송을 기다리지 «않는다» — 이미 「보낸다」로 끝난 판정을 뒤늦은 보류가 되돌리지
+     * 못한다는 점은 종전에도 같았고, 달라진 것은 기다림뿐이다.
+     *
+     * <p>그래서 두 조각으로 나눠 못 박는다. ① 판정은 여전히 {@code user-state:<user>} 로 직렬화된다
+     * — 그 잠금을 테스트가 쥐고 있으면 dispatch 가 기다린다(prepare 에서 이 잠금을 빼면 깨진다).
+     * ② 전송 중의 opt-out 은 기다리지 않고 적용되며, 그 뒤에 선 발송은 SUPPRESSED 로 끝나 외부
+     * 호출은 진행 중이던 한 번뿐이다(설정이 발송 적격성에 반영되지 않으면 깨진다).
+     */
+    @Test
+    void sameUsersOptOutSerializesWithTheDispatchDecisionAndSuppressesTheNextDelivery() throws Exception {
+        UUID pending = prepareSettingsRaceDelivery();
+        var executor = Executors.newFixedThreadPool(2);
+        var held = new CountDownLatch(1);
+        var releaseLock = new CountDownLatch(1);
+        try {
+            // ① 판정이 쥐는 것과 «같은» 사용자 잠금을 테스트가 먼저 잡는다.
+            var holder = executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                store.lock("user-state:" + USER);
+                held.countDown();
+                awaitLatch(releaseLock);
+                return null;
+            }));
+            assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+            var deciding = executor.submit(() -> dispatch.dispatch(pending));
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            boolean blocked = false;
+            while (!blocked && System.nanoTime() < until) {
+                blocked = store.one("SELECT pid FROM pg_stat_activity WHERE datname=current_database()"
+                        + " AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock%' LIMIT 1") != null;
+                if (!blocked) {
+                    Thread.sleep(10);
+                }
+            }
+            assertThat(blocked).as("판정은 같은 사용자 잠금으로 직렬화된다").isTrue();
+            releaseLock.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            deciding.get(10, TimeUnit.SECONDS);
+            assertThat(status(pending)).isEqualTo("SENT");
+            verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+
+            // ② 판정이 끝난 뒤의 opt-out 은 기다림 없이 적용되고, 그 뒤에 선 발송을 억제한다.
+            assertThat(settings.patch(USER, settingsPatch(false), 1, "same-user-off"))
+                    .containsEntry("applied", true);
+            inbound.accept(event("after-opt-out", "notification.requested", USER, 2,
+                    UUID.randomUUID().toString(), Map.of("kind", "FRIEND_REQUEST", "count", 1)));
+            UUID next = delivery("after-opt-out");
+            dispatch.dispatch(next);
+            assertThat(status(next)).isEqualTo("SUPPRESSED");
+            verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+        } finally {
+            releaseLock.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("테스트 잠금 해제 시간 초과");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("테스트 잠금 대기 중 인터럽트", interrupted);
+        }
+    }
+
+    private UUID prepareSettingsRaceDelivery() {
+        register(USER, "settings-race-device", "settings-race-bootstrap", "settings-race-register");
+        inbound.accept(event("settings-race-delivery", "notification.requested", USER, 1,
+                UUID.randomUUID().toString(), Map.of("kind", "FRIEND_REQUEST", "count", 1)));
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        return delivery("settings-race-delivery");
+    }
+
+    private void holdTransport(CountDownLatch sending, CountDownLatch release, AtomicInteger pid) {
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(invocation -> {
+            pid.set(((Number) store.one("SELECT pg_backend_pid() AS pid").get("pid")).intValue());
+            sending.countDown();
+            if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("전송 경합 테스트 해제 시간 초과");
+            }
+            return PushTransport.Result.SENT;
+        });
+    }
+
+    private static Map<String, Object> settingsPatch(boolean enabled) {
+        return Map.of("mask", List.of("notificationEnabled"), "patch", Map.of("notificationEnabled", enabled),
+                "baseline", preferences(enabled), "authGeneration", 0);
+    }
+
+    /**
+     * 앱이 보관하던 소유권 값이 깨진 채로 올라온 경우 (R10).
+     *
+     * <p>세 가지를 한 번에 못 박는다 — ① 동기 경로는 <b>내구 기록보다 먼저</b> 거절하고 멱등 원장에도
+     * 남기지 않는다(남기면 고친 재시도가 같은 키로 영구 충돌한다), ② {@code UUID.fromString} 이
+     * 받아 주는 <b>축약형</b>도 거절한다, ③ 이미 내구화된 봉투는 예외를 던지지도({@code relay} 가
+     * 그 유저의 뒤 이벤트를 전부 막는다) 소유권을 {@code null} 로 접지도(지금 기기까지 지운다)
+     * 않고 <b>아무것도 바꾸지 않은 채</b> 소비하며, 뒤따르는 정상 이벤트는 그대로 반영된다.
+     */
+    @Test
+    void aMalformedOwnershipTokenIsRejectedUpFrontAndNeverPoisonsTheUsersEventOrder() {
+        register(USER, "device", "bootstrap", "register");
+
+        assertThatThrownBy(() -> devices.delete(USER, "device", "not-a-uuid", 0L, "delete-key"))
+                .hasMessage("INVALID_ownershipToken");
+        assertThat(store.one("SELECT command_key FROM commands WHERE command_key='delete-key'")).isNull();
+        // 축약형은 UUID.fromString 이 받지만 정규 표기로 다시 쓰면 다른 문자열이다 — CAS 대조가 어긋난다.
+        assertThatThrownBy(() -> devices.delete(USER, "device", "1-1-1-1-1", 0L, "short-key"))
+                .hasMessage("INVALID_ownershipToken");
+        // 등록도 같은 자리에서 막는다. 여기서 통과시키면 다음 삭제가 깨진 값을 되싣는다.
+        assertThatThrownBy(() -> devices.register(USER,
+                Map.of("deviceToken", "device", "ownershipToken", "not-a-uuid", "authGeneration", 0), "reg-bad"))
+                .hasMessage("INVALID_ownershipToken");
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", true);
+
+        // 봉투에 실린 값은 «있는 그대로» 꺼낸다. Json.nullableText 로 꺼내면 빈 문자열·공백·문자열
+        // 아닌 값이 400 으로 거절돼 deleteLocked 의 무해 소비에 닿기도 전에 축이 막힌다.
+        // 반대로 null 로 접으면 CAS 검사를 잃어 지금 기기까지 지운다 — 셋 다 「맞지 않는 소유권」이다.
+        long version = 0;
+        for (Object owner : new Object[] {"not-a-uuid", "", "   ", 12345}) {
+            version += 1;
+            Map<String, Object> broken = new LinkedHashMap<>();
+            broken.put("deviceToken", "device");
+            broken.put("ownershipToken", owner);
+            broken.put("authGeneration", 0);
+            assertThat(inbound.accept(event("broken-owner-" + version,
+                    "notification.deviceToken.deleted", USER, version, null, broken)))
+                    .containsEntry("accepted", true);
+            // 아무 행에도 맞지 않는 소유권이므로 지금 살아 있는 기기는 그대로다(범위를 넓히지 않는다).
+            assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                    .containsEntry("active", true);
+        }
+
+        Map<String, Object> valid = new LinkedHashMap<>();
+        valid.put("deviceToken", "device");
+        valid.put("ownershipToken", null);
+        valid.put("authGeneration", 0);
+        inbound.accept(event("valid-delete", "notification.deviceToken.deleted", USER, version + 1, null, valid));
+        assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='device'"))
+                .containsEntry("active", false);
+    }
+
+    @Test
+    void deletionWithoutATargetNeverDisablesAnotherSession() {
+        register(USER, "first", "bootstrap-first", "first");
+        register(USER, "second", "bootstrap-second", "second");
+        devices.delete(USER, null, null, 0L, "headerless");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active")).hasSize(2);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("deviceToken", null);
+        params.put("ownershipToken", null);
+        params.put("authGeneration", 0L);
+        inbound.accept(event("headerless-event", "notification.deviceToken.deleted", USER, 1, null, params));
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active")).hasSize(2);
+    }
+
+    @Test
+    void headerlessOutboxDeletionOnlyDisablesItsBootstrapAndLegacySession() throws Exception {
+        register(USER, "modern", "bootstrap-first", "modern");
+        register(USER, "other", "bootstrap-second", "other");
+        UUID session = UUID.randomUUID();
+        devices.register(USER, Map.of("deviceToken", "legacy", "legacySessionId", session.toString(),
+                "sessionEpoch", 1, "authGeneration", 0), "legacy");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("deviceToken", null);
+        params.put("ownershipToken", null);
+        params.put("authGeneration", 0L);
+        params.put("sessionId", session.toString());
+        params.put("bootstrapNonceHash", Json.digest("bootstrap-first"));
+        params.put("deviceToken", "  ");
+        mvc.perform(MockMvcRequestBuilders.post("/internal/events")
+                        .header("Authorization", "Bearer test-data").contentType("application/json")
+                        .content(Json.write(event("session-delete", "notification.deviceToken.deleted",
+                                USER, 1, null, params))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "other"));
+        inbound.accept(event("revoke", "auth.session.revoked", USER, 2, null,
+                Map.of("sessionId", session.toString(), "bootstrapNonceHash", Json.digest("bootstrap-first"),
+                        "sessionEpoch", 1)));
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "other"));
+    }
+
+    @Test
+    void directHeaderlessDeletionOnlyDisablesItsBootstrapAndLegacySession() throws Exception {
+        register(USER, "modern", "bootstrap-first", "modern");
+        register(USER, "other", "bootstrap-second", "other");
+        UUID session = UUID.randomUUID();
+        devices.register(USER, Map.of("deviceToken", "legacy", "legacySessionId", session.toString(),
+                "sessionEpoch", 1, "authGeneration", 0), "legacy");
+        mvc.perform(MockMvcRequestBuilders.delete("/internal/devices")
+                        .header("Authorization", "Bearer test-business").header("X-User-Id", USER.toString())
+                        .header("Idempotency-Key", "direct-session-delete")
+                        .header("X-Device-Session", session.toString())
+                        .header("X-Device-Bootstrap-Hash", Json.digest("bootstrap-first")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "other"));
+    }
+
+    @Test
+    void explicitOwnershipAndTokenCannotBroadenIntoTheSuppliedSession() {
+        String first = register(USER, "first", "bootstrap-first", "first");
+        register(USER, "second", "bootstrap-second", "second");
+        UUID session = UUID.randomUUID();
+        devices.delete(USER, "second", first, 0L, session.toString(), Json.digest("bootstrap-second"), "mismatch");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active")).hasSize(2);
+        assertThatThrownBy(() -> devices.delete(USER, null, "invalid", 0L, "corrected"))
+                .hasMessage("INVALID_ownershipToken");
+        devices.delete(USER, null, first, 0L, "corrected");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "second"));
+        devices.delete(USER, "  ", null, 0L, "blank-token");
+        assertThat(store.rows("SELECT device_token FROM device_tokens WHERE active"))
+                .containsExactly(Map.of("device_token", "second"));
+    }
+
+    private String register(UUID user, String token, String bootstrap, String key) {
+        return devices.register(user, Map.of("deviceToken", token, "deviceBootstrap", bootstrap,
+                "sessionEpoch", 1, "authGeneration", 0), key).get("ownershipToken").toString();
+    }
+    private UUID delivery(String eventId) {
+        return (UUID) store.one("SELECT id FROM deliveries WHERE event_id=?", eventId).get("id");
+    }
+    private String status(UUID id) {
+        return store.one("SELECT status FROM deliveries WHERE id=?", id).get("status").toString();
+    }
+    static Map<String, Object> preferences(boolean enabled) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("notificationEnabled", enabled);
+        values.put("soundEnabled", true);
+        values.put("nightModeEnabled", false);
+        values.put("nightStartTime", null);
+        values.put("nightEndTime", null);
+        return values;
+    }
+    static Map<String, Object> event(String id, String type, UUID user, long version, String subject,
+            Map<String, Object> params) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("eventId", id);
+        value.put("schemaVersion", 1);
+        value.put("type", type);
+        value.put("userId", user.toString());
+        value.put("version", version);
+        value.put("subjectId", subject);
+        value.put("locale", "ko");
+        value.put("occurredAt", DAY.toString());
+        value.put("scheduledAt", DAY.toString());
+        value.put("params", params);
+        return value;
+    }
+}

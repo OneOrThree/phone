@@ -1,0 +1,671 @@
+{
+  "sourceWorkbookSha256": "c6d624ee8f8c9c2d487ffd023a1c2c5d6acfb0e291c3e052fab9cab4916c766e",
+  "policy": {
+    "revision": 1,
+    "minimumActiveSeconds": 900,
+    "rareUnlockSeconds": 1800,
+    "legendaryUnlockSeconds": 3600,
+    "timeHalfSeconds": 7200,
+    "rareMaxBonusPpm": 30000,
+    "legendaryMaxBonusPpm": 10000,
+    "rewardsPerEligibleSession": 1,
+    "duplicatesAllowed": true,
+    "locationWeights": {
+      "ISLAND": {
+        "common": 48,
+        "uncommon": 30,
+        "rare": 18,
+        "legendary": 4
+      },
+      "SEA": {
+        "common": 66,
+        "uncommon": 26,
+        "rare": 7,
+        "legendary": 1
+      }
+    },
+    "categoryWeights": {
+      "head": 1,
+      "neck": 1,
+      "shoes": 1,
+      "flag": 1,
+      "mat": 1,
+      "oar": 1,
+      "cargo": 1,
+      "lantern": 1,
+      "canopy": 1
+    }
+  },
+  "items": [
+    {
+      "sourceId": "head-mandarin",
+      "title": "귤 한 알",
+      "category": "head",
+      "rarity": "common",
+      "rarityReason": "일상적인 과일로 시작하기 좋은 기본 소품"
+    },
+    {
+      "sourceId": "head-riceball",
+      "title": "꼬마 주먹밥",
+      "category": "head",
+      "rarity": "common",
+      "rarityReason": "단순한 삼각 실루엣의 친숙한 먹거리"
+    },
+    {
+      "sourceId": "head-bun",
+      "title": "동글 빵",
+      "category": "head",
+      "rarity": "common",
+      "rarityReason": "작고 둥근 기본 먹거리 형태"
+    },
+    {
+      "sourceId": "head-peach",
+      "title": "복숭아 한 알",
+      "category": "head",
+      "rarity": "common",
+      "rarityReason": "기본 과일 형태와 부드러운 색감"
+    },
+    {
+      "sourceId": "head-duck",
+      "title": "오리 인형",
+      "category": "head",
+      "rarity": "uncommon",
+      "rarityReason": "얼굴·날개가 있는 친숙한 동물 인형"
+    },
+    {
+      "sourceId": "head-chick",
+      "title": "병아리 인형",
+      "category": "head",
+      "rarity": "uncommon",
+      "rarityReason": "발·날개·머리 깃털로 형태가 풍부함"
+    },
+    {
+      "sourceId": "head-frog",
+      "title": "개구리 인형",
+      "category": "head",
+      "rarity": "uncommon",
+      "rarityReason": "눈과 앞발이 드러나는 개성 있는 인형"
+    },
+    {
+      "sourceId": "head-bear",
+      "title": "곰돌이 인형",
+      "category": "head",
+      "rarity": "rare",
+      "rarityReason": "앉은 자세와 팔다리가 뚜렷한 수집형 인형"
+    },
+    {
+      "sourceId": "head-bunny",
+      "title": "토끼 인형",
+      "category": "head",
+      "rarity": "rare",
+      "rarityReason": "귀가 길게 솟아 머리 장착 변화가 큼"
+    },
+    {
+      "sourceId": "head-seal",
+      "title": "잠자는 물범 인형",
+      "category": "head",
+      "rarity": "legendary",
+      "rarityReason": "누워 자는 독특한 자세를 가진 대표 인형"
+    },
+    {
+      "sourceId": "neck-bell",
+      "title": "버터 방울 목걸이",
+      "category": "neck",
+      "rarity": "common",
+      "rarityReason": "작은 방울 하나로 구성된 기본 목걸이"
+    },
+    {
+      "sourceId": "neck-bow",
+      "title": "버터 리본",
+      "category": "neck",
+      "rarity": "common",
+      "rarityReason": "어떤 조합에도 어울리는 단순한 리본"
+    },
+    {
+      "sourceId": "neck-picnic",
+      "title": "소풍 스카프",
+      "category": "neck",
+      "rarity": "common",
+      "rarityReason": "친숙한 체크무늬의 기본 스카프"
+    },
+    {
+      "sourceId": "neck-leaf",
+      "title": "잎사귀 목수건",
+      "category": "neck",
+      "rarity": "common",
+      "rarityReason": "자연 소재를 표현한 담백한 목수건"
+    },
+    {
+      "sourceId": "neck-shell",
+      "title": "조개 목걸이",
+      "category": "neck",
+      "rarity": "uncommon",
+      "rarityReason": "조개 형태의 장식으로 해변 테마를 강조"
+    },
+    {
+      "sourceId": "neck-flower",
+      "title": "데이지 목걸이",
+      "category": "neck",
+      "rarity": "uncommon",
+      "rarityReason": "꽃잎이 구분되는 펜던트로 형태가 풍부함"
+    },
+    {
+      "sourceId": "neck-sailor",
+      "title": "선원 스카프",
+      "category": "neck",
+      "rarity": "uncommon",
+      "rarityReason": "선원 테마가 분명한 배색 목수건"
+    },
+    {
+      "sourceId": "neck-strawberry",
+      "title": "딸기 목수건",
+      "category": "neck",
+      "rarity": "rare",
+      "rarityReason": "딸기 무늬가 있어 테마 세트 수집에 적합"
+    },
+    {
+      "sourceId": "neck-pompom",
+      "title": "방울 스카프",
+      "category": "neck",
+      "rarity": "rare",
+      "rarityReason": "천 끝 방울이 붙어 일반 스카프와 구별됨"
+    },
+    {
+      "sourceId": "neck-star",
+      "title": "별 리본",
+      "category": "neck",
+      "rarity": "legendary",
+      "rarityReason": "별 중심 장식과 리본을 결합한 대표 목 장식"
+    },
+    {
+      "sourceId": "shoes-butter",
+      "title": "버터 덧신",
+      "category": "shoes",
+      "rarity": "common",
+      "rarityReason": "단색에 가까운 가장 기본적인 덧신"
+    },
+    {
+      "sourceId": "shoes-leaf",
+      "title": "잎사귀 덧신",
+      "category": "shoes",
+      "rarity": "common",
+      "rarityReason": "차분한 잎사귀 색상의 일상 덧신"
+    },
+    {
+      "sourceId": "shoes-acorn",
+      "title": "도토리 덧신",
+      "category": "shoes",
+      "rarity": "common",
+      "rarityReason": "도토리 테마의 소박한 자연 소재 표현"
+    },
+    {
+      "sourceId": "shoes-sailor",
+      "title": "선원 덧신",
+      "category": "shoes",
+      "rarity": "common",
+      "rarityReason": "기본 선원 세트에 맞추기 쉬운 덧신"
+    },
+    {
+      "sourceId": "shoes-peach",
+      "title": "복숭아 덧신",
+      "category": "shoes",
+      "rarity": "uncommon",
+      "rarityReason": "과일 색상과 포인트로 조합의 개성을 줌"
+    },
+    {
+      "sourceId": "shoes-flower",
+      "title": "꽃 덧신",
+      "category": "shoes",
+      "rarity": "uncommon",
+      "rarityReason": "꽃 장식으로 발끝의 테마가 드러남"
+    },
+    {
+      "sourceId": "shoes-strawberry",
+      "title": "딸기 덧신",
+      "category": "shoes",
+      "rarity": "uncommon",
+      "rarityReason": "딸기 모티프가 뚜렷한 수집형 덧신"
+    },
+    {
+      "sourceId": "shoes-cloud",
+      "title": "구름 덧신",
+      "category": "shoes",
+      "rarity": "rare",
+      "rarityReason": "구름 모티프와 밝은 색감의 특별한 조합"
+    },
+    {
+      "sourceId": "shoes-shell",
+      "title": "조개 덧신",
+      "category": "shoes",
+      "rarity": "rare",
+      "rarityReason": "조개 모티프로 해변 세트의 포인트가 됨"
+    },
+    {
+      "sourceId": "shoes-pudding",
+      "title": "푸딩 덧신",
+      "category": "shoes",
+      "rarity": "legendary",
+      "rarityReason": "푸딩이라는 이색 먹거리 테마의 대표 덧신"
+    },
+    {
+      "sourceId": "flag-fish",
+      "title": "물고기 깃발",
+      "category": "flag",
+      "rarity": "common",
+      "rarityReason": "바다 활동과 직접 이어지는 기본 문양"
+    },
+    {
+      "sourceId": "flag-paw",
+      "title": "발바닥 깃발",
+      "category": "flag",
+      "rarity": "common",
+      "rarityReason": "고양이를 상징하는 기본 발바닥 문양"
+    },
+    {
+      "sourceId": "flag-leaf",
+      "title": "잎사귀 깃발",
+      "category": "flag",
+      "rarity": "common",
+      "rarityReason": "소박한 자연 테마의 기본 깃발"
+    },
+    {
+      "sourceId": "flag-picnic",
+      "title": "소풍 깃발",
+      "category": "flag",
+      "rarity": "common",
+      "rarityReason": "친숙한 체크무늬의 기본 깃발"
+    },
+    {
+      "sourceId": "flag-strawberry",
+      "title": "딸기 깃발",
+      "category": "flag",
+      "rarity": "uncommon",
+      "rarityReason": "과일 문양으로 소풍 테마를 강조"
+    },
+    {
+      "sourceId": "flag-flower",
+      "title": "꽃 깃발",
+      "category": "flag",
+      "rarity": "uncommon",
+      "rarityReason": "꽃 문양으로 색감과 장식성을 더함"
+    },
+    {
+      "sourceId": "flag-shell",
+      "title": "조개 깃발",
+      "category": "flag",
+      "rarity": "uncommon",
+      "rarityReason": "조개 문양으로 해변 테마를 강조"
+    },
+    {
+      "sourceId": "flag-duck",
+      "title": "오리 깃발",
+      "category": "flag",
+      "rarity": "rare",
+      "rarityReason": "동물 모티프가 뚜렷한 포인트 깃발"
+    },
+    {
+      "sourceId": "flag-cloud",
+      "title": "구름 깃발",
+      "category": "flag",
+      "rarity": "rare",
+      "rarityReason": "구름 테마가 주는 특별한 분위기"
+    },
+    {
+      "sourceId": "flag-moon",
+      "title": "달밤 깃발",
+      "category": "flag",
+      "rarity": "legendary",
+      "rarityReason": "달밤 테마를 대표하는 상징적인 깃발"
+    },
+    {
+      "sourceId": "mat-leaf",
+      "title": "잎사귀 매트",
+      "category": "mat",
+      "rarity": "common",
+      "rarityReason": "자연 소재의 기본 바닥 장식"
+    },
+    {
+      "sourceId": "mat-picnic",
+      "title": "체크 돗자리",
+      "category": "mat",
+      "rarity": "common",
+      "rarityReason": "소풍에 익숙한 기본 체크 돗자리"
+    },
+    {
+      "sourceId": "mat-basket",
+      "title": "짜임 방석",
+      "category": "mat",
+      "rarity": "common",
+      "rarityReason": "생활 소품 성격이 강한 기본 방석"
+    },
+    {
+      "sourceId": "mat-fish",
+      "title": "물고기 방석",
+      "category": "mat",
+      "rarity": "common",
+      "rarityReason": "낚시 테마와 자연스럽게 맞는 방석"
+    },
+    {
+      "sourceId": "mat-flower",
+      "title": "꽃 방석",
+      "category": "mat",
+      "rarity": "uncommon",
+      "rarityReason": "꽃 형태로 바닥 실루엣에 변화를 줌"
+    },
+    {
+      "sourceId": "mat-strawberry",
+      "title": "딸기 매트",
+      "category": "mat",
+      "rarity": "uncommon",
+      "rarityReason": "과일 테마로 선명한 색 포인트를 줌"
+    },
+    {
+      "sourceId": "mat-toast",
+      "title": "식빵 방석",
+      "category": "mat",
+      "rarity": "uncommon",
+      "rarityReason": "먹거리를 방석으로 바꾼 재미있는 형태"
+    },
+    {
+      "sourceId": "mat-shell",
+      "title": "조개 방석",
+      "category": "mat",
+      "rarity": "rare",
+      "rarityReason": "조개 형태의 독특한 해변 방석"
+    },
+    {
+      "sourceId": "mat-cloud",
+      "title": "구름 방석",
+      "category": "mat",
+      "rarity": "rare",
+      "rarityReason": "구름 형태로 부드러운 분위기를 강조"
+    },
+    {
+      "sourceId": "mat-moon",
+      "title": "초승달 방석",
+      "category": "mat",
+      "rarity": "legendary",
+      "rarityReason": "초승달 실루엣이 뚜렷한 대표 방석"
+    },
+    {
+      "sourceId": "oar-fish",
+      "title": "물고기 꼬리 노",
+      "category": "oar",
+      "rarity": "common",
+      "rarityReason": "기본 낚시 테마에 어울리는 꼬리 형태"
+    },
+    {
+      "sourceId": "oar-leaf",
+      "title": "잎사귀 노",
+      "category": "oar",
+      "rarity": "common",
+      "rarityReason": "잎사귀 모양의 소박한 기본 노"
+    },
+    {
+      "sourceId": "oar-spoon",
+      "title": "나무 숟가락 노",
+      "category": "oar",
+      "rarity": "common",
+      "rarityReason": "일상 도구를 닮은 단순한 나무 노"
+    },
+    {
+      "sourceId": "oar-paw",
+      "title": "발바닥 노",
+      "category": "oar",
+      "rarity": "common",
+      "rarityReason": "고양이 발바닥을 살린 친숙한 노"
+    },
+    {
+      "sourceId": "oar-flower",
+      "title": "꽃잎 노",
+      "category": "oar",
+      "rarity": "uncommon",
+      "rarityReason": "꽃잎 끝으로 형태에 장식성을 더함"
+    },
+    {
+      "sourceId": "oar-shell",
+      "title": "조개 노",
+      "category": "oar",
+      "rarity": "uncommon",
+      "rarityReason": "조개 끝으로 해변 테마를 강조"
+    },
+    {
+      "sourceId": "oar-heart",
+      "title": "하트 노",
+      "category": "oar",
+      "rarity": "uncommon",
+      "rarityReason": "하트 형태로 감정 표현이 가능한 노"
+    },
+    {
+      "sourceId": "oar-duck",
+      "title": "오리발 노",
+      "category": "oar",
+      "rarity": "rare",
+      "rarityReason": "오리발이라는 익살스러운 대체 형태"
+    },
+    {
+      "sourceId": "oar-whale",
+      "title": "고래 꼬리 노",
+      "category": "oar",
+      "rarity": "rare",
+      "rarityReason": "큰 고래 꼬리로 실루엣 변화가 큼"
+    },
+    {
+      "sourceId": "oar-star",
+      "title": "별 노",
+      "category": "oar",
+      "rarity": "legendary",
+      "rarityReason": "별 끝 장식이 눈에 띄는 대표 노"
+    },
+    {
+      "sourceId": "cargo-fishbucket",
+      "title": "물고기 양동이",
+      "category": "cargo",
+      "rarity": "common",
+      "rarityReason": "낚시 생활에 직접 연결되는 기본 짐"
+    },
+    {
+      "sourceId": "cargo-tackle",
+      "title": "낚시 상자",
+      "category": "cargo",
+      "rarity": "common",
+      "rarityReason": "기능이 명확한 기본 낚시 상자"
+    },
+    {
+      "sourceId": "cargo-bundle",
+      "title": "여행 보따리",
+      "category": "cargo",
+      "rarity": "common",
+      "rarityReason": "여행을 표현하는 소박한 기본 보따리"
+    },
+    {
+      "sourceId": "cargo-bread",
+      "title": "빵 바구니",
+      "category": "cargo",
+      "rarity": "common",
+      "rarityReason": "일상 먹거리가 담긴 기본 바구니"
+    },
+    {
+      "sourceId": "cargo-picnic",
+      "title": "도시락 바구니",
+      "category": "cargo",
+      "rarity": "uncommon",
+      "rarityReason": "뚜껑과 도시락으로 소풍 이야기가 생김"
+    },
+    {
+      "sourceId": "cargo-shells",
+      "title": "조개 바구니",
+      "category": "cargo",
+      "rarity": "uncommon",
+      "rarityReason": "조개 수집이라는 해변 이야기가 생김"
+    },
+    {
+      "sourceId": "cargo-plant",
+      "title": "새싹 화분",
+      "category": "cargo",
+      "rarity": "uncommon",
+      "rarityReason": "살아 있는 새싹이 뗏목에 색을 더함"
+    },
+    {
+      "sourceId": "cargo-berries",
+      "title": "딸기 바구니",
+      "category": "cargo",
+      "rarity": "rare",
+      "rarityReason": "풍성한 딸기와 바구니 조합의 장식성"
+    },
+    {
+      "sourceId": "cargo-teapot",
+      "title": "소풍 찻주전자",
+      "category": "cargo",
+      "rarity": "rare",
+      "rarityReason": "찻주전자를 싣는 이색적인 소풍 소품"
+    },
+    {
+      "sourceId": "cargo-bottle",
+      "title": "편지병",
+      "category": "cargo",
+      "rarity": "legendary",
+      "rarityReason": "편지를 담은 병의 발견·여행 이야기가 강함"
+    },
+    {
+      "sourceId": "lantern-milk",
+      "title": "우유병 탁상등",
+      "category": "lantern",
+      "rarity": "common",
+      "rarityReason": "생활 용기를 활용한 기본 탁상등"
+    },
+    {
+      "sourceId": "lantern-buoy",
+      "title": "바다 탁상등",
+      "category": "lantern",
+      "rarity": "common",
+      "rarityReason": "항해 도구를 닮은 기본 탁상등"
+    },
+    {
+      "sourceId": "lantern-fish",
+      "title": "물고기 탁상등",
+      "category": "lantern",
+      "rarity": "common",
+      "rarityReason": "낚시 테마의 친숙한 물고기 모티프"
+    },
+    {
+      "sourceId": "lantern-pumpkin",
+      "title": "호박 탁상등",
+      "category": "lantern",
+      "rarity": "common",
+      "rarityReason": "친숙한 채소 형태의 기본 탁상등"
+    },
+    {
+      "sourceId": "lantern-flower",
+      "title": "꽃 탁상등",
+      "category": "lantern",
+      "rarity": "uncommon",
+      "rarityReason": "꽃 형태로 주변 소품과 조합하기 좋음"
+    },
+    {
+      "sourceId": "lantern-shell",
+      "title": "조개 탁상등",
+      "category": "lantern",
+      "rarity": "uncommon",
+      "rarityReason": "조개 형태로 해변 분위기를 더함"
+    },
+    {
+      "sourceId": "lantern-mushroom",
+      "title": "버섯 탁상등",
+      "category": "lantern",
+      "rarity": "uncommon",
+      "rarityReason": "버섯 형태로 작은 숲 분위기를 더함"
+    },
+    {
+      "sourceId": "lantern-star",
+      "title": "별 탁상등",
+      "category": "lantern",
+      "rarity": "rare",
+      "rarityReason": "별 실루엣이 눈에 띄는 포인트 조명"
+    },
+    {
+      "sourceId": "lantern-moon",
+      "title": "초승달 탁상등",
+      "category": "lantern",
+      "rarity": "rare",
+      "rarityReason": "초승달 실루엣이 분명한 야간 테마"
+    },
+    {
+      "sourceId": "lantern-firefly",
+      "title": "반딧불이 병 램프",
+      "category": "lantern",
+      "rarity": "legendary",
+      "rarityReason": "병 속 반딧불이라는 특별한 발광 모티프"
+    },
+    {
+      "sourceId": "canopy-picnic",
+      "title": "체크 파라솔",
+      "category": "canopy",
+      "rarity": "common",
+      "rarityReason": "친숙한 체크 천을 쓴 기본 파라솔"
+    },
+    {
+      "sourceId": "canopy-sailor",
+      "title": "선원 파라솔",
+      "category": "canopy",
+      "rarity": "common",
+      "rarityReason": "기본 항해 세트에 어울리는 배색"
+    },
+    {
+      "sourceId": "canopy-leaf",
+      "title": "잎사귀 파라솔",
+      "category": "canopy",
+      "rarity": "common",
+      "rarityReason": "잎사귀를 활용한 기본 자연 차양"
+    },
+    {
+      "sourceId": "canopy-lotus",
+      "title": "연잎 파라솔",
+      "category": "canopy",
+      "rarity": "common",
+      "rarityReason": "연잎을 활용한 친숙한 자연 차양"
+    },
+    {
+      "sourceId": "canopy-flower",
+      "title": "꽃 파라솔",
+      "category": "canopy",
+      "rarity": "uncommon",
+      "rarityReason": "꽃잎 형태로 큰 실루엣에 변화를 줌"
+    },
+    {
+      "sourceId": "canopy-strawberry",
+      "title": "딸기 파라솔",
+      "category": "canopy",
+      "rarity": "uncommon",
+      "rarityReason": "과일 테마를 크게 드러내는 차양"
+    },
+    {
+      "sourceId": "canopy-shell",
+      "title": "조개 양산",
+      "category": "canopy",
+      "rarity": "uncommon",
+      "rarityReason": "조개 형태로 해변 테마를 강조"
+    },
+    {
+      "sourceId": "canopy-mushroom",
+      "title": "버섯 파라솔",
+      "category": "canopy",
+      "rarity": "rare",
+      "rarityReason": "버섯을 차양으로 쓴 동화적 형태"
+    },
+    {
+      "sourceId": "canopy-cloud",
+      "title": "구름 차양",
+      "category": "canopy",
+      "rarity": "rare",
+      "rarityReason": "구름 형태의 독특하고 부드러운 차양"
+    },
+    {
+      "sourceId": "canopy-moon",
+      "title": "달빛 파라솔",
+      "category": "canopy",
+      "rarity": "legendary",
+      "rarityReason": "달밤 테마를 완성하는 대표 파라솔"
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+[
+ {
+  "id": "shop",
+  "status": "ok",
+  "note": "섬 물고기 500마리로 설정. 첫 상점 안내(강아지)는 꺼 둠."
+ },
+ {
+  "id": "shop.islandTab",
+  "status": "ok",
+  "note": "'우리 섬 꾸미기' 칩을 실제로 눌러 전환. 카드가 6개라 아래 2장은 스크롤 아래로 이어짐."
+ },
+ {
+  "id": "shop.guide",
+  "status": "ok",
+  "note": "3단계 중 1단계(건너뛰기/다음). 2·3단계와 마지막 버튼 「상점 둘러보기」는 이 장에 없음."
+ },
+ {
+  "id": "shop.enterTransition",
+  "status": "ok",
+  "note": "홈에서 상점 건물을 누른 뒤 약 5.8초 시점 한 프레임 — 크림색 원형 덮개가 상점 앞에서 커지기 시작한 순간. 그 앞 단계(걷기 약 5초, 문 프레임 0.66초)는 이 한 장에 담기지 않음. 타이밍으로 잡은 프레임이라 다시 돌리면 원 크기가 조금 달라질 수 있음."
+ },
+ {
+  "id": "shop.returnTransition",
+  "status": "ok",
+  "note": "실제 흐름대로 걸어서 상점에 들어간 뒤 × 를 누르고 약 0.34초 시점 — 원형 덮개가 줄어드는 중(고양이는 상점 앞). 타이밍 프레임."
+ },
+ {
+  "id": "product",
+  "status": "ok",
+  "note": "바다 스카프(100마리), 잔액 500마리."
+ },
+ {
+  "id": "product.blocked",
+  "status": "ok",
+  "note": "잔액 부족 한 가지만 찍음(잔액 40마리, 목업 문구 '섬 물고기 잔액이 부족해요.'). 판매 준비 중·건물 없음·주민 아님 사유와 서버 모드 문구는 따로 찍지 않음."
+ },
+ {
+  "id": "product.buyConfirm",
+  "status": "ok",
+  "note": "'100마리로 구매'를 실제로 눌러 연 확인창."
+ },
+ {
+  "id": "product.ownedClothes",
+  "status": "ok",
+  "note": "바다 스카프 보유 상태. 구매 직후 토스트('구매했어요.')는 없는 정지 상태."
+ },
+ {
+  "id": "product.ownedTheme",
+  "status": "ok",
+  "note": "소다 섬 테마 보유·미적용."
+ },
+ {
+  "id": "product.themeApplied",
+  "status": "ok",
+  "note": "소다 섬 테마 적용 중. 주 버튼 '우리 섬에 적용됨'은 눌리지 않지만 모양은 활성 버튼과 같음(코드 주석상 의도)."
+ },
+ {
+  "id": "product.ownedAudio",
+  "status": "ok",
+  "note": "빗방울 소리 보유. 배경·간판이 축음기."
+ },
+ {
+  "id": "orders",
+  "status": "ok",
+  "note": "목업 구매 기록 2건(밀짚모자·바다 스카프)을 넣어 찍음."
+ },
+ {
+  "id": "orders.sharedTab",
+  "status": "ok",
+  "note": "'섬 공동 구매' 탭을 실제로 눌러 전환. 구매자 표시는 민지·두부·방장(내가 방장이라 내 구매는 '방장')."
+ },
+ {
+  "id": "orders.empty",
+  "status": "ok",
+  "note": "'내 구매' 탭이 빈 상태."
+ },
+ {
+  "id": "boat",
+  "status": "ok",
+  "note": "가입한 섬 2개 상태로 찍음 → 메인 섬 카드에 '메인 섬 변경하기'와 화살표가 보임(mainIsland 로 가는 길). 섬 1개 기본 상태(카드 안 눌림, 문구 없음)는 shots/shop-boat/015-extra-boat.oneIsland.png 에 참고용으로 있음."
+ },
+ {
+  "id": "mainIsland",
+  "status": "ok",
+  "note": "소다 섬(현재 메인)·딸기 섬 2개. 아무것도 안 고른 상태라 버튼은 비활성."
+ },
+ {
+  "id": "mainIsland.picked",
+  "status": "ok",
+  "note": "딸기 섬 행을 실제로 눌러 '선택됨' + '딸기 섬으로 변경하기' 활성."
+ },
+ {
+  "id": "wardrobe",
+  "status": "ok",
+  "note": "바다 스카프·밀짚모자 보유, 스카프 착용 중."
+ },
+ {
+  "id": "wardrobe.empty",
+  "status": "ok",
+  "note": "보유품 없이 '기본' 썸네일만."
+ },
+ {
+  "id": "profile",
+  "status": "ok",
+  "note": "연동 계정을 카카오로 설정해 찍음(목업 기본값은 '연결된 계정 없음')."
+ },
+ {
+  "id": "profile.logoutConfirm",
+  "status": "ok",
+  "note": "'로그아웃'을 실제로 눌러 연 확인창."
+ },
+ {
+  "id": "profile.deleteAccountConfirm",
+  "status": "ok",
+  "note": "목업 기본은 내가 방장이라 확인창 대신 안내 토스트가 뜸 → 다른 주민(민지)을 방장으로 바꿔 놓고 찍음."
+ },
+ {
+  "id": "profile.withdrawCleanupRetry",
+  "status": "ok",
+  "note": "브라우저 저장소 쓰기를 2.5초 동안 일부러 실패시키고 '탈퇴'를 눌러 재현. 버튼이 '기기 데이터 정리 다시 시도'로 바뀌고 안내 토스트가 함께 보임."
+ },
+ {
+  "id": "settings",
+  "status": "ok",
+  "note": "'안전' 섹션(차단한 사용자 행) 포함. 실제 앱(서버 모드) 전용이라 목업에 없음 → 브라우저 안에서 번들 3줄을 바꿔 켬(capture-shop-boat.cjs, 옵션 serverUi/blocks). 레포 파일은 그대로. 순수 목업 버전은 shots-probe/018-settings.png."
+ },
+ {
+  "id": "settings.privacyNotice",
+  "status": "ok",
+  "note": "행이 시트 아래쪽에 있어 설정 시트가 맨 아래로 스크롤된 상태에서 팝업이 뜸. 배경 설정은 '안전' 섹션 포함 버전."
+ },
+ {
+  "id": "settings.termsExternal",
+  "status": "approx",
+  "note": "앱 화면이 아니라 외부 웹 페이지(https://oneorthree.world/catus/terms)를 같은 크기 브라우저 탭에서 찍은 것. 실제 기기의 사파리/크롬 주소창·상태바는 없음. 페이지 맨 위만 보임."
+ },
+ {
+  "id": "settings.privacyExternal",
+  "status": "approx",
+  "note": "위와 같음(https://oneorthree.world/catus/privacy). 표가 화면 폭을 넘어 오른쪽이 잘려 보임(페이지 자체의 가로 스크롤)."
+ },
+ {
+  "id": "blockedUsers",
+  "status": "ok",
+  "note": "실제 앱(서버 모드) 전용이라 목업에 없음 → 브라우저 안에서 번들 3줄을 바꿔 켬(capture-shop-boat.cjs, 옵션 serverUi/blocks). 레포 파일은 그대로. 목록은 흉내 응답(하늘·보리)."
+ },
+ {
+  "id": "blockedUsers.empty",
+  "status": "ok",
+  "note": "실제 앱(서버 모드) 전용이라 목업에 없음 → 브라우저 안에서 번들 3줄을 바꿔 켬(capture-shop-boat.cjs, 옵션 serverUi/blocks). 레포 파일은 그대로. 빈 목록 흉내 응답."
+ },
+ {
+  "id": "blockedUsers.loadError",
+  "status": "ok",
+  "note": "실제 앱(서버 모드) 전용이라 목업에 없음 → 브라우저 안에서 번들 3줄을 바꿔 켬(capture-shop-boat.cjs, 옵션 serverUi/blocks). 레포 파일은 그대로. 목록 조회를 실패시켜 '차단 목록을 불러오지 못했어요.' + '다시 시도'. 차단 해제 실패 문구('차단을 해제하지 못했어요.')는 따로 찍지 않음."
+ }
+]

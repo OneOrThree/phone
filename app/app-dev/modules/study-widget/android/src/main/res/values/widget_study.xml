@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 위젯 문자열·색 — 1.x 앱(values/strings.xml·colors.xml)의 위젯 항목을 그대로 옮겼다.
+     위젯은 다크모드에서도 라이트 톤 고정(1.x·iOS 결정 유지). -->
+<resources>
+  <string name="widget_study_label">고양이와 오늘 집중</string>
+  <string name="widget_study_description">고양이와 오늘의 총 집중시간을 보여줘요.</string>
+  <!-- 제목 줄 오른쪽에 총합(00:00:00)이 붙어 최소 폭 180dp에서도 잘리지 않게 짧게 둔다 -->
+  <string name="widget_study_title">오늘 집중</string>
+  <string name="widget_study_empty">아직 오늘 집중 기록이 없어요</string>
+
+  <string name="widget_cat_description">오늘도 함께 집중하는 고양이</string>
+</resources>

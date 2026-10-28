@@ -17,8 +17,8 @@
             "desc": "스트릭"
           },
           {
-            "recipe": "user_getProfile",
-            "desc": "내 프로필"
+            "recipe": "league_getMyTier",
+            "desc": "내 티어"
           }
         ]
       },
@@ -65,12 +65,12 @@
         "weight": 20,
         "steps": [
           {
-            "recipe": "Group_getGroupDetail",
-            "desc": "그룹 상세"
+            "recipe": "Group_getMyGroups",
+            "desc": "내 그룹"
           },
           {
-            "recipe": "Group_getGroupChallenges",
-            "desc": "그룹 챌린지"
+            "recipe": "Group_searchGroups",
+            "desc": "그룹 검색"
           }
         ]
       }

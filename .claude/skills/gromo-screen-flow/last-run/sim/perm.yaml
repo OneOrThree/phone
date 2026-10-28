@@ -1,0 +1,17 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn:
+    point: 375,424
+- extendedWaitUntil:
+    visible: "앱 설정.*"
+    timeout: 30000
+- tapOn: "앱 설정.*"
+- extendedWaitUntil:
+    visible: "앱 권한 관리.*"
+    timeout: 10000
+- runFlow:
+    when:
+      visible: ".*Open debugger.*"
+    commands:
+      - tapOn:
+          point: 93%, 93%

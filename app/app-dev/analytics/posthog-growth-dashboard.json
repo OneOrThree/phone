@@ -1,0 +1,228 @@
+{
+  "project_id": 669473,
+  "title": "Catus · 섬 성장과 경제",
+  "description": "건설이 늦어지는 이유와 공동 물고기의 획득·소비·잔액을 확인합니다.",
+  "pinned": false,
+  "preparation": {
+    "remote_status": "created_and_verified",
+    "instrumentation_status": "not_implemented",
+    "query_validation_status": "executed_on_posthog_and_saved_dashboard",
+    "verified_at": "2026-10-21",
+    "contract": "posthog-growth-metric-contract.md"
+  },
+  "tiles": [
+    {
+      "type": "text",
+      "key": "growth-intro",
+      "tile_id": 13936019,
+      "body": "건설 준비·착수·완공과 섬 공동 통장의 흐름을 봅니다. 데이터 수집 연결 전이며, 빈 결과는 실제 0을 뜻하지 않습니다. 날짜는 한국 시간 기준입니다.",
+      "layouts": {
+        "sm": {
+          "h": 2,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "order": 0
+    },
+    {
+      "type": "insight",
+      "key": "construction-progress",
+      "tile_id": 13935947,
+      "insight_id": 13089484,
+      "short_id": "WxbQXwL2",
+      "title": "건물별 건설 진행 상황 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일에 선택한 건설 목표가 준비 중·공사 중·완공·취소 중 어디에 있는지 봅니다. 목표를 바꾼 시도도 포함하며, 같은 섬이 여러 번 집계될 수 있습니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), construction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.attempt_id) AS attempt_id,\n  toString(properties.building_id) AS building_id,\n  toString(properties.stage) AS stage,\n  toFloatOrNull(toString(properties.observation_version)) AS observation_version,\n  toFloatOrNull(toString(properties.selected_at_ms)) AS selected_at_ms,\n  toFloatOrNull(toString(properties.saving_seconds)) AS saving_seconds,\n  toFloatOrNull(toString(properties.ready_wait_seconds)) AS ready_wait_seconds,\n  toFloatOrNull(toString(properties.build_seconds)) AS build_seconds,\n  toFloatOrNull(toString(properties.elapsed_seconds)) AS elapsed_seconds\n FROM filtered_events\n WHERE event = 'island_construction_observed' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp >= toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul') AND timestamp <= now()\n  AND toFloatOrNull(toString(properties.selected_at_ms)) >= toUnixTimestamp(toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul')) * 1000\n  AND toFloatOrNull(toString(properties.selected_at_ms)) <= toUnixTimestamp(now()) * 1000\n), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT building_id AS \"건물\", uniqExact(island_id) AS \"섬 수\", count() AS \"선택한 목표\",\n countIf(stage IN ('waiting_balance', 'waiting_contribution', 'ready')) AS \"착수 전\",\n countIf(stage = 'building') AS \"공사 중\", countIf(stage = 'completed') AS \"완공\",\n countIf(stage = 'cancelled') AS \"취소·변경\",\n countIf(stage NOT IN ('completed', 'cancelled') AND observed_at < now() - INTERVAL 1 DAY) AS \"상태 갱신 지연\"\nFROM attempts GROUP BY building_id ORDER BY building_id",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 2
+        }
+      },
+      "order": 1
+    },
+    {
+      "type": "insight",
+      "key": "construction-speed",
+      "tile_id": 13935949,
+      "insight_id": 13089486,
+      "short_id": "Gn3vgBR9",
+      "title": "건물을 짓는 데 걸린 시간 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일에 선택해 완공한 목표의 준비·착수 대기·공사 시간 중앙값입니다. 완공한 시도의 속도이므로 진행 중·취소 건수도 함께 봅니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), construction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.attempt_id) AS attempt_id,\n  toString(properties.building_id) AS building_id,\n  toString(properties.stage) AS stage,\n  toFloatOrNull(toString(properties.observation_version)) AS observation_version,\n  toFloatOrNull(toString(properties.selected_at_ms)) AS selected_at_ms,\n  toFloatOrNull(toString(properties.saving_seconds)) AS saving_seconds,\n  toFloatOrNull(toString(properties.ready_wait_seconds)) AS ready_wait_seconds,\n  toFloatOrNull(toString(properties.build_seconds)) AS build_seconds,\n  toFloatOrNull(toString(properties.elapsed_seconds)) AS elapsed_seconds\n FROM filtered_events\n WHERE event = 'island_construction_observed' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp >= toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul') AND timestamp <= now()\n  AND toFloatOrNull(toString(properties.selected_at_ms)) >= toUnixTimestamp(toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul')) * 1000\n  AND toFloatOrNull(toString(properties.selected_at_ms)) <= toUnixTimestamp(now()) * 1000\n), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT building_id AS \"건물\", countIf(stage = 'completed') AS \"완공 표본\",\n countIf(stage NOT IN ('completed', 'cancelled')) AS \"아직 진행 중\", countIf(stage = 'cancelled') AS \"취소·변경\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', saving_seconds / 3600.0, NULL))) AS \"준비 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', ready_wait_seconds / 3600.0, NULL))) AS \"착수 대기 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', build_seconds / 3600.0, NULL))) AS \"공사 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', elapsed_seconds / 3600.0, NULL))) AS \"전체 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.9)(if(stage = 'completed', elapsed_seconds / 3600.0, NULL))) AS \"전체 90백분위 시간\"\nFROM attempts GROUP BY building_id ORDER BY building_id",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 7
+        }
+      },
+      "order": 2
+    },
+    {
+      "type": "insight",
+      "key": "construction-bottlenecks",
+      "tile_id": 13935950,
+      "insight_id": 13089487,
+      "short_id": "It4XLMvR",
+      "title": "건설이 어디서 기다리고 있을까 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일에 선택했고 하루 안에 상태를 확인한 미완료 목표입니다. 섬 잔액 부족·주민 몫 부족·착수 대기를 나누고, 선택 후 지난 시간을 함께 봅니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), construction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.attempt_id) AS attempt_id,\n  toString(properties.building_id) AS building_id,\n  toString(properties.stage) AS stage,\n  toFloatOrNull(toString(properties.observation_version)) AS observation_version,\n  toFloatOrNull(toString(properties.selected_at_ms)) AS selected_at_ms,\n  toFloatOrNull(toString(properties.saving_seconds)) AS saving_seconds,\n  toFloatOrNull(toString(properties.ready_wait_seconds)) AS ready_wait_seconds,\n  toFloatOrNull(toString(properties.build_seconds)) AS build_seconds,\n  toFloatOrNull(toString(properties.elapsed_seconds)) AS elapsed_seconds\n FROM filtered_events\n WHERE event = 'island_construction_observed' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp >= toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul') AND timestamp <= now()\n  AND toFloatOrNull(toString(properties.selected_at_ms)) >= toUnixTimestamp(toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul')) * 1000\n  AND toFloatOrNull(toString(properties.selected_at_ms)) <= toUnixTimestamp(now()) * 1000\n), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT multiIf(stage = 'waiting_balance', '섬 잔액 부족', stage = 'waiting_contribution', '주민 몫 부족', stage = 'ready', '조건 충족·착수 대기', '공사 중') AS \"현재 상태\",\n uniqExact(island_id) AS \"섬 수\", count() AS \"목표 수\",\n round(quantileExact(0.5)(elapsed_seconds / 3600.0), 2) AS \"선택 후 경과 중앙값 시간\",\n round(max(elapsed_seconds) / 3600.0, 2) AS \"선택 후 최장 경과 시간\"\nFROM attempts WHERE stage NOT IN ('completed', 'cancelled') AND observed_at >= now() - INTERVAL 1 DAY\nGROUP BY stage ORDER BY \"섬 수\" DESC",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 12
+        }
+      },
+      "order": 3
+    },
+    {
+      "type": "insight",
+      "key": "currency-flow",
+      "tile_id": 13935951,
+      "insight_id": 13089488,
+      "short_id": "guhhfn89",
+      "title": "매일 들어오고 나간 물고기 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일 섬 공동 통장의 확정 입금·출금입니다. 두 값의 차이는 그날의 순증감이며 통장 잔액과는 다릅니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), transaction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.transaction_id) AS transaction_id,\n  toString(properties.reason) AS reason, toFloatOrNull(toString(properties.amount_delta)) AS amount_delta\n FROM filtered_events\n WHERE event = 'island_currency_transaction' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), transaction_latest AS (\n SELECT island_id, transaction_id, argMax(tuple(timestamp, reason, amount_delta), timestamp) AS entry\n FROM transaction_raw WHERE island_id != '' AND transaction_id != ''\n GROUP BY island_id, transaction_id\n), transactions AS (\n SELECT island_id, transaction_id, entry.1 AS occurred_at, entry.2 AS reason, entry.3 AS amount_delta\n FROM transaction_latest WHERE entry.3 IS NOT NULL AND entry.3 != 0\n)\nSELECT toDate(toString(toTimeZone(occurred_at, 'Asia/Seoul'))) AS \"날짜\",\n sumIf(amount_delta, amount_delta > 0) AS \"들어온 물고기\",\n -sumIf(amount_delta, amount_delta < 0) AS \"나간 물고기\",\n sum(amount_delta) AS \"순증감\"\nFROM transactions GROUP BY \"날짜\" ORDER BY \"날짜\"",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsLineGraph",
+        "chartSettings": {
+          "xAxis": {
+            "column": "날짜"
+          },
+          "yAxis": [
+            {
+              "column": "들어온 물고기"
+            },
+            {
+              "column": "나간 물고기"
+            },
+            {
+              "column": "순증감"
+            }
+          ]
+        }
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 12,
+          "x": 0,
+          "y": 17
+        }
+      },
+      "order": 4
+    },
+    {
+      "type": "insight",
+      "key": "currency-reasons",
+      "tile_id": 13935952,
+      "insight_id": 13089489,
+      "short_id": "5EZuLd6G",
+      "title": "물고기는 어디서 벌고 어디에 쓸까 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 최근 28일 물고기의 획득·소비 원인과 금액을 비교합니다. 집중·퀘스트·건설·상점 외에 환불과 운영 조정도 따로 셉니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), transaction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.transaction_id) AS transaction_id,\n  toString(properties.reason) AS reason, toFloatOrNull(toString(properties.amount_delta)) AS amount_delta\n FROM filtered_events\n WHERE event = 'island_currency_transaction' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), transaction_latest AS (\n SELECT island_id, transaction_id, argMax(tuple(timestamp, reason, amount_delta), timestamp) AS entry\n FROM transaction_raw WHERE island_id != '' AND transaction_id != ''\n GROUP BY island_id, transaction_id\n), transactions AS (\n SELECT island_id, transaction_id, entry.1 AS occurred_at, entry.2 AS reason, entry.3 AS amount_delta\n FROM transaction_latest WHERE entry.3 IS NOT NULL AND entry.3 != 0\n)\nSELECT if(amount_delta > 0, '입금', '출금') AS \"방향\",\n multiIf(reason = 'focus', '집중', reason = 'quest', '퀘스트', reason = 'construction', '건설', reason = 'shop', '상점', reason = 'refund', '환불', reason = 'adjustment', '운영 조정', '기타·원인 미분류') AS \"원인\",\n sum(abs(amount_delta)) AS \"물고기 수\", count() AS \"거래 수\", uniqExact(island_id) AS \"거래한 섬 수\"\nFROM transactions GROUP BY \"방향\", \"원인\" ORDER BY \"방향\", \"물고기 수\" DESC",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 22
+        }
+      },
+      "order": 5
+    },
+    {
+      "type": "insight",
+      "key": "wallet-distribution",
+      "tile_id": 13935954,
+      "insight_id": 13089491,
+      "short_id": "SrxHJcTI",
+      "title": "섬 통장에는 얼마나 남아 있을까 · 미계측",
+      "description": "미계측 · 수집 연결 전이며 빈 결과는 실제 0이 아닙니다. 지난 하루 안에 서버가 확인한 섬별 잔액입니다. 중앙값·상위 10% 경계와 빈 통장 비율로 물고기의 축적·부족을 봅니다.",
+      "show_description": true,
+      "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+          "kind": "HogQLQuery",
+          "query": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), wallet_latest AS (\n SELECT toString(properties.island_id) AS island_id,\n  argMax(tuple(toFloatOrNull(toString(properties.balance)), timestamp), tuple(toFloatOrNull(toString(properties.wallet_version)), timestamp)) AS latest\n FROM filtered_events\n WHERE event = 'island_wallet_snapshot' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp <= now()\n  AND timestamp >= now() - INTERVAL 1 DAY\n  AND toString(properties.island_id) != '' AND toFloatOrNull(toString(properties.wallet_version)) >= 0\n GROUP BY island_id\n), wallets AS (\n SELECT island_id, latest.1 AS balance FROM wallet_latest WHERE latest.1 >= 0\n)\nSELECT count() AS \"확인한 섬 수\", countIf(balance = 0) AS \"잔액 0인 섬\",\n round(100.0 * countIf(balance = 0) / nullIf(count(), 0), 2) AS \"잔액 0 비율 퍼센트\",\n round(avg(balance), 2) AS \"평균 잔액\", quantileExact(0.5)(balance) AS \"중앙값 잔액\",\n quantileExact(0.9)(balance) AS \"상위 10퍼센트 경계 잔액\", sum(balance) AS \"관측 섬 잔액 합계\"\nFROM wallets HAVING count() > 0",
+          "filters": {
+            "filterTestAccounts": true
+          }
+        },
+        "display": "ActionsTable"
+      },
+      "layouts": {
+        "sm": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 22
+        }
+      },
+      "order": 6
+    }
+  ],
+  "dashboard_id": 2236458,
+  "dashboard_url": "https://us.posthog.com/project/669473/dashboard/2236458"
+}

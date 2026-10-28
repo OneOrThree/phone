@@ -1,0 +1,202 @@
+# 전체 아키텍처
+
+상태: 제안. 이 문서의 신규 화살표는 [현재 아키텍처](../../../architecture/README.md)의 승인된 호출 표를 자동 변경하지 않는다.
+
+## 1. 현행과 목표
+
+| 영역 | 현재 코드 | 목표 |
+| --- | --- | --- |
+| 앱 좌표·탐색 | [village-world.ts](../../../../app/app-dev/src/utils/village-world.ts), [map.json](../../../../app/app-dev/src/assets/village-world/map.json): 1536×1024 픽셀, 통행 96×64·길 비용 48×32 | 공통 좌표·서버 통행 산출물을 읽는 예측 A* |
+| 화면 | [WorldMap.tsx](../../../../app/app-dev/src/screens/island/WorldMap.tsx), [VillageScenery.tsx](../../../../app/app-dev/src/screens/island/VillageScenery.tsx): 로컬 캐릭터·Wanderer 연출 | 내 actor 예측과 실제 원격 actor 렌더링 분리 |
+| 실시간 | [islandRealtime.ts](../../../../app/app-dev/src/services/islandRealtime.ts), [realtime 서버](../../../../server/realtime/README.md): STOMP 이벤트 | 기존 도메인 이벤트 유지. 이동 좌표는 별도 연결 |
+| 데이터 | Business 유스케이스, Data의 섬·주민·완공 시설 | 코어 정본 유지, 이동 서비스에는 필요한 버전 스냅샷을 push |
+| 이동 서버 | 없음 | 맵 합성·방·A*·20Hz 시뮬레이션·팬아웃을 담당하는 신규 서비스 |
+
+## 2. 논리 구조
+
+![전체 서비스 구조](diagrams/01-architecture.svg)
+
+[Mermaid 원본](diagrams/01-architecture.mmd)
+
+| 구성 요소 | 책임 | 제외하는 책임 |
+| --- | --- | --- |
+| Business API | 기존 인증·현재 섬 검사, 입장 티켓, 권한 lease·배치 스냅샷 push, 소유자 배정 조정 | 매 틱 좌표 계산 |
+| Data API | 소속·현재 섬·시설 배치 정본, 변경 트랜잭션과 재전달 가능한 변경 기록 | 위치 틱 쓰기 |
+| 맵 배포 저장소/CDN | content hash로 식별되는 원본·통행 산출물 배포 | 권한 판정·클라이언트 업로드 신뢰 |
+| Movement 제어 어댑터 | worker 프로세스 안의 내부 HTTPS 수신 모듈. Business로부터 권한·배치 수신, 방 주소·상태 응답, 멱등·버전 검사. 아래 문서들의 「worker」는 이 어댑터를 포함한 프로세스를 가리킨다 | 코어 DB 접근 |
+| Movement worker | 방 단일 작성자, 인증된 입력, A*, 위치·도착, 암호화 연결 | 재화·시설·집중 유스케이스 실행 |
+| 소유권 저장소 | 방→worker 주소·만료·단조 증가 epoch의 선형화 가능한 lease/CAS | 틱별 위치 저장 |
+| 앱 | 입력, 맵 캐시, A*, 네이티브 QUIC, 시간 동기화, 보간·보정·렌더링 | 서버 위치·권한의 정본 |
+
+## 3. 호출·신뢰 경계
+
+| 호출자 → 수신자 | 통로 | 허용 데이터 / 시점 |
+| --- | --- | --- |
+| 앱 → Business | 기존 HTTPS 인증 | 입장·재입장 티켓 요청, 기존 도메인 동작 |
+| Business → Data | 기존 내부 API | 입장 권한·배치 조회, 기존 쓰기 유스케이스 |
+| Business → Movement 제어 어댑터 | 내부 HTTPS + 서비스 인증 | 입장 준비, 권한 갱신/취소, layoutRevision 스냅샷. 틱과 독립 |
+| Business → 소유권 저장소 | 내부 인증 연결 | 방 배정·주소 조회. 위치 쓰기 없음 |
+| worker → 소유권 저장소 | 내부 인증 연결 | 배정된 방의 lease 갱신·해제 |
+| 앱 ↔ Movement | **1단계: 기존 Realtime STOMP/WSS(`/ws/realtime`)** · 2단계 QUIC(보류 — §7 「2단계 판단」): 신규 공개 QUIC/UDP, Java/Netty 후보 | 1단계는 기존 CONNECT 인증·섬 구독 인가로 입장, 목적지·경로·좌표를 STOMP 프레임으로. 2단계는 scope가 해당 방인 티켓. Kafka를 좌표 전달 경로에 넣지 않음 |
+| 앱·worker → 맵 저장소 | HTTPS, worker 쓰기는 서비스 자격 | 승인 manifest의 hash가 일치하는 산출물만 사용 |
+| 도메인 이벤트 → 기존 Realtime → 앱 | 현행 경로 | 집중·휴식·감정·재생 등 기존 이벤트. 위치 팬아웃 아님 |
+
+Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않는다. 가입 시 필요한 사실을 Business가 먼저 push하고, worker가 준비 상태를 응답한 뒤 티켓을 발급한다. 갱신은 Business가 방별로 묶어 push한다. 매 갱신에는 최신 로그인/계정·현재 섬·소속 상태를 확인한 근거가 필요하며, 확인에 실패한 캐시 값을 새 기한으로 연장하지 않는다. 만료 시각은 권한 확인 시점에서 계산한다. 알 수 없는 권한 버전·배치 누락은 재시도 가능한 거부로 처리한다.
+
+**권한 취소·배치 변경은 Redis Pub/Sub 단독 전달에 의존하지 않는다.** 해당 유스케이스가 커밋한 변경을 재전달 가능한 기록으로 남기고 Business 제어 어댑터가 ack까지 재시도한다. 이벤트 봉투는 [서비스 아키텍처](../../../architecture/service-architecture.md) §4 정본을 사용한다. 제어 이벤트에서 `locale` 은 비우고 `scheduledAt` 은 `occurredAt` 과 같게 두며, `subjectId` 는 roomId, `version` 은 권한 버전 또는 `layoutRevision` 이다. `eventId` 중복 거부와 해당 subject의 `version` 순서 검사를 적용하며, 버전 공백에는 전체 스냅샷으로 수렴한다. 이 제어 어댑터·변경 기록 연결도 신규 구현 범위다.
+
+## 4. 데이터 소유
+
+| 데이터 | 정본·쓰기 소유 | 수명 / 복구 |
+| --- | --- | --- |
+| 소속·현재 섬·완공 시설·시설/장식 배치(`island_layouts`, jsonb 좌표, `layoutRevision`) | Data | 기존 DB·트랜잭션. 행이 없는 섬은 첫 조회 때 서버 기본 템플릿으로 지연 생성(결정 2026-10-07) |
+| 원본 지형·충돌 재료 | 승인된 맵 빌드 파이프라인 | 불변 버전 파일, 배포 manifest |
+| 합성 통행 맵 | Movement 맵 컴파일러 | 지형+배치+rulesVersion+반경의 hash, 다시 생성 가능 |
+| actor 위치·경로·속도 | 해당 방 worker 메모리 | epoch 동안만. 장애 후 입구 복귀 제안 |
+| 권한 투영·세션·사용한 jti | 해당 방 worker 메모리 | 현재 epoch·유효기간. 새 epoch는 옛 티켓을 거부. worker 프로세스 재시작은 lease 재획득 때 항상 epoch 를 올린다 — 같은 epoch 로 재개하지 않으므로 jti 캐시를 영속화할 필요가 없다 |
+| room lease·epoch | 소유권 저장소 | 다중 노드 장애에서도 유일한 소유권 보장 |
+| 로그·지표 | 관측 시스템 | 운영 보존 정책. 위치 전체 이력은 기본 저장 안 함 |
+
+코어 RDS에 매초 20번 위치를 쓰지 않는다. 1차 범위에서는 위치용 RDB도 만들지 않는다. 소유권 저장소는 기존 Redis 단일 키 락만으로 확정하지 않고, **[etcd](https://etcd.io/docs/v3.6/learning/api_guarantees/) lease/CAS 같은 선형화 가능한 후보**를 POC에서 검증한다. 사용 시 전용 prefix `/movement/{gameId}/rooms/`와 쓰기 주체를 등록한다. 메모리 state의 roomEpoch는 소유권 저장소가 제공하는 단조 증가 64비트 토큰으로 할당하며, 저장소 재구축 시 기존 epoch가 재사용되지 않도록 모든 세션을 폐기하고 새 namespace 세대로 전환한다.
+
+## 5. 배포·확장
+
+이 절의 worker·UDP endpoint·lease 설계는 **2단계 QUIC(보류 — §7 「2단계 판단」)** 전제다. 1단계는 Realtime 안에서 돈다(섬별 단일 소유자 — 아래 문단).
+
+**1단계 Realtime 다중 인스턴스(GROMO-2339, [ADR A26](../../../architecture/decisions.md), 플래그 `realtime.movement.multi-instance.enabled` 기본 ON — `false` 로 옵트아웃하면 단일 인스턴스 현행 경로)** — 아래 2단계의 «방 하나 = 소유자 하나·lease·epoch» 원칙을 Realtime 안에 먼저 옮긴 것이다. 섬마다 Redis 리스 `movement:owner:{islandId}`(`<instanceId>:<epoch>`, PX 3s, 1s 갱신)를 든 인스턴스 하나만 `RoomRuntime` 을 돌린다. 다른 인스턴스에 붙은 세션의 JOIN·LEAVE·INTENT·FULL_STATE 는 `chat:movement:cmd:v1` 로 소유자에게 가고, 소유자가 만든 사건·Snapshot 은 `chat:movement:frames:v1` 로 전 인스턴스에 퍼진다(소유자 자신의 세션도 그 메아리로 받는다). 리스를 잃으면 방을 버리고 발행을 멈춘다(fail-closed). 옛 epoch 프레임은 버린다. 소유자 종료 시 위치를 `movement:room:{islandId}:handoff`(30s)에 남겨 새 소유자가 이어받는다. 앱 wire 는 그대로다 — 소유자 교체는 세션 한정 FullState 재동기화로 보인다. 코드: `server/realtime/.../movement/stomp/MovementCluster`·`MovementOwnership`·`MovementRelay`.
+
+![배포와 소유권](diagrams/02-deployment.svg)
+
+[Mermaid 원본](diagrams/02-deployment.mmd)
+
+- 방 하나는 worker 하나가 소유하고, worker 하나는 여러 방을 처리한다. 같은 방의 A* 결과 적용·틱 갱신은 직렬화한다.
+- 최초 배정은 `gameId/roomId` 기준 해시+부하를 후보 선택에 사용한다. 실제 권한은 lease/CAS로 확정한다. 살아 있는 방을 단순 해시 변경으로 다른 worker에 동시에 배정하지 않는다.
+- 티켓은 roomEpoch와 해당 shard의 공개 endpoint를 포함한다. UDP ingress는 연결을 동일 worker로 전달해야 한다. 일반 HTTP nginx 설정만으로 QUIC 전달이 된다고 가정하지 않는다.
+- 1차 배포는 shard별 UDP endpoint를 사용한다. 향후 L4 로드밸런서를 쓰면 QUIC connection ID 또는 세션 affinity와 연결 이동을 검증한다. 네트워크 전환으로 기존 경로가 유지되지 않으면 새 티켓으로 재접속한다.
+- worker는 소유 lease의 보수적 로컬 만료 전에 틱·송신을 중단한다. 새 소유자는 이전 lease 만료 뒤 새 epoch로 시작한다. 단절된 이전 프로세스가 복귀해도 재획득 없이 재개할 수 없다.
+- 축소·배포는 신규 방 배정 중단→유예→재접속 안내→lease 해제로 drain한다. 1차에는 무중단 live room migration을 구현하지 않는다.
+- 방 내 최대 15 actor의 부하 시나리오는 전체 팬아웃으로 시작한다. 일반 엔진은 가시 영역 구독을 확장 지점으로 둔다. `방 인원²`로 커지는 송신량을 CPU와 별도로 측정한다.
+
+### 자원·네트워크 등록 초안
+
+| 항목 | 제안 |
+| --- | --- |
+| 구현/레포 | Java 코어 + Netty QUIC 어댑터. A17의 JVM 대상 레포 `oneorthree/server` 내 `services/movement/` 후보로 등록하고 기존 서버 이관 계획과 맞춘다. 이 PR은 레포·서비스를 생성하지 않음 |
+| 공개 포트 | shard endpoint UDP 443 후보. **Cloudflare 프록시 밖의 별도 공개 호스트·IP** — prod 오리진은 결정 ㊾(→ A23 대체문: `set_real_ip_from` = Cloudflare CIDR + 오리진 방화벽)로 HTTP 오리진을 Cloudflare 뒤에만 두는데, 그 전제는 HTTP 오리진에만 해당하므로 별도 UDP 호스트는 이 전제 밖이며 신규 A 결정으로 규정한다(MV-D06 기록 때 ㊾ 옆에 「UDP 별도 호스트 예외」 각주). Cloudflare 밖이라 `CF-Connecting-IP` 처리가 적용되지 않으므로 요청 제한은 직접 출발지 IP 기준이다. QUIC 주소 검증(Retry)·핸드셰이크 요청 제한·DDoS 노출을 함께 승인. **2단계 QUIC(분리 서버) 항목 — 보류, §7 「2단계 판단」** |
+| 내부 포트 | 제어 HTTPS 8443·관측 9090 후보, 외부 차단 |
+| 프로세스 예산 | 초기 부하 측정은 worker 4 vCPU / 8GiB. 운영 인스턴스·복제 수는 실측 후 자원표에 반영 |
+| 시크릿 | **공개 CA 인증서**(Cloudflare Origin Cert 는 앱이 신뢰하지 않음)와 자동 갱신, Business 티켓 서명 키 쌍(Business 비밀키·worker 공개키), 내부 서비스 자격은 A11 에 따라 caller(Business→Movement, worker→소유권 저장소) 별로 분리, 저장소 권한. 앱에 공유 비밀을 넣지 않음 |
+| CI | Java 코어·패킷 fuzz·TS/Java 공통 fixture·상호 운용·모바일 네이티브 빌드; 맵 산출물 hash 검증 |
+| 관측 | `DD_SERVICE=movement-server` 후보. room/actor 고유 ID를 메트릭 태그로 무제한 사용하지 않음 |
+
+## 6. 아키텍처 변경 절차
+
+[새 서비스 8단계](../../../architecture/README.md)에 따라 구현 PR 착수 전에 다음을 정식 문서에 반영한다.
+
+1. Java 서비스 모듈 위치와 독립 빌드·배포 단위 확정.
+2. 위 호출 표를 정식 service-architecture 허용 표와 대조·등록.
+3. 맵·메모리·lease 저장소의 소유와 namespace 등록.
+4. 제어 이벤트의 정본 봉투·재시도·취소 계약 등록.
+5. 시스템 자원·시크릿·CI 필터·관측 비용 등록.
+6. 앱 직접 UDP 공개 면과 인증 예외 승인 — Cloudflare 밖 별도 호스트, 오리진 방화벽 예외, 공개 CA 인증서, 요청 제한을 포함(MV-D06).
+7. 정식 서비스·배포 그림과 SVG 동시 갱신.
+8. 기존 규칙 변경의 A 결정 번호 기록.
+
+이번 PR은 위 변경을 검토할 입력 문서다. 승인되지 않은 예외를 기존 규칙의 확정 사실로 기록하지 않는다.
+
+**게이트와 Phase 의 관계(검증 계획 §3 과 같은 규칙):** Phase 0(계약·fixture)과 Phase 2(맵·코어, headless)는 위 8단계와 무관하게 시작할 수 있다. Phase 1(전송 POC)은 dev VM 에서 **출발지 IP 허용목록으로 닫힌 UDP 포트**로 먼저 수행하고, 공개망 노출은 6번 승인 뒤에만 한다. Phase 3 이후(수직 연결·상태 변화·부하·배포)는 8단계 전부 반영 뒤 착수한다.
+
+## 7. Java · Kafka · Realtime 선택 검토
+
+**2026-09-23 Plannotator 피드백:** Java로 좌표를 계산하고 Kafka를 앱이 소비할지, 직접 통신과 C++ 분리가 필요한지, 이미 연결된 Realtime에 합칠지 비교해 달라는 질문이다.
+
+**결정(2026-10-07, 조재영): 1단계는 A 안 — Realtime JVM 에 이동 엔진을 넣고 기존 STOMP/WebSocket 연결·기존 JWT·멤버십 인가를 재사용한다. 분리된 Java worker + 앱 직접 QUIC(C 안)은 1단계 측정(틱 p99·송신 큐·GC pause·배터리) 뒤 2단계로 간다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체했고, 그 후보는 2단계의 출발안으로 남는다. 1단계의 알려진 단점: TCP 라 손실 때 앞선 패킷을 기다린다(head-of-line), 채팅과 CPU·GC·장애를 공유한다, 20Hz×15명 팬아웃이 Realtime 송신 큐를 지난다 — 이 셋의 측정값이 2단계로 가는 판단 기준이다. → 측정 결과와 판단은 아래 「2단계 판단」.
+
+**측정 결과 2026-10-09(로컬, 서버 측만 — [검증 §7](validation.md#7-1단계-측정-2026-10-09-로컬))**. 측정 범위: 왕복·Snapshot 간격·거절은 목표 안, **틱 p99 는 히스토그램 미노출로 측정 불가**(후속 chore), **데이터 예산은 N=15 세션당 197 MB/시간으로 목표 30 의 6.6배**(헤더·reliable 사건 몫 포함 — validation §7 데이터 예산). 재검토 조건: 실기기 측정 후(배터리·dev 서버 RTT·보정 점프·체감은 실기기 잔여, 티켓 2250).
+
+**2단계 판단(2026-10-12, 제안 — 조재영 확정 전, 티켓 2251)**
+
+**결정(한 줄)** — **2단계 QUIC**(분리 worker + 앱 직접 QUIC, C 안 — §5 와 7.3 표가 전제하던 것)은 **보류**한다. 지연·끊김·송신 큐는 목표 안이었고 **데이터 예산은 실패**(6.6배)했지만, 실패 원인이 전송이 아니라 페이로드(아래 표)라 전송을 바꾸지 않고 1차에서 축소한다 — 축소 뒤 재측정(티켓 2272)에서도 못 맞추면 조건 ② 로 2단계 QUIC 을 재검토한다. **2단계 1차** = 전송 계층(STOMP/WSS) 유지 + 페이로드 축소. 확정 전까지 이 두 용어로 「2단계」를 구분해 쓴다.
+
+**근거 수치** — 로컬 측정(2026-10-09, [검증 §7](validation.md#7-1단계-측정-2026-10-09-로컬)). 실기기는 아직 없다.
+
+| 항목 | 값 | 출처 |
+| --- | --- | --- |
+| intent → PathAccepted 왕복 p99 | 58.6 ms (N=5, N=1·5·15 중 최대) | 검증 §7 표 |
+| Snapshot 간격 p99 | 57.2 ms (N=15) · 100 ms 이상 간격 0건 | 검증 §7 표 |
+| 끊김·STOMP ERROR·오류 큐 | 0 · 0 · 0 | 검증 §7 표 |
+| reliable 송신 큐 깊이 최대 | 13 / 상한 256 (N=15) | 검증 §7 표(13)·관찰(상한 256) |
+| GC pause 최대 | 13.0 ms | 검증 §7 표 |
+| 세션당 수신량 | 197 MB/시간 (N=15) — 목표 30 의 6.6배 | 검증 §7 데이터 예산 |
+| 수신량 분해(실측 2026-10-20) | N=15 Snapshot 본문 150.0 · Snapshot 헤더 몫 15.4 · PathAccepted 28.9 · Arrived 2.1 MB/시간(합 196.5). 10-09 역산(≈ 150 · 13 · 33)과 대체로 일치 | 검증 §7-2 데이터 예산 분해 |
+| 2단계 QUIC 의 근거였던 셋 | 채팅과 CPU·GC 공유 — **미검증**(검증 §7 부하는 이동 전용이라 채팅·도메인 이벤트를 병행하지 않았다 → 조건 ④) · 20Hz×15 팬아웃 큐 — 이동 전용 부하에서 문제 없음(최대 13/256) · head-of-line — 손실 망에서만 보여 실기기 뒤 | 위 행들 + 티켓 2250 잔여 |
+
+**2단계 1차 범위(전송 유지)** — Snapshot 만 줄여서는 목표 30 MB/시간에 못 간다(본문을 0 으로 놓아도 ≈ 46.4 남음). 셋을 함께 본다. 실측 비교는 티켓 2272.
+- **바이너리 Snapshot** — 본문 ≈ 150 MB/시간 몫. protocol.md §4 의 DATAGRAM 레이아웃을 **출발점**으로 삼되 그대로는 못 쓴다 — 1단계에는 header 의 `roomEpoch` 가 없고 actor 식별자가 `uint32` 가 아닌 UUID `userId`(MV-D11)다. 1단계용 STOMP 변형 두 안을 티켓 2272 에서 크기·복잡도·QUIC 호환으로 비교해 정한다: ⓐ entity 의 actorId 를 UUID 16 B 로 넓힌다(entity 36 B, 매핑 없음) ⓑ 방이 join 때 배정하는 **방 전체 공통** 별칭(`uint32`)↔`userId` 표를 FullState 가 전원에 같은 내용으로 내려주고 Snapshot 은 별칭만 싣는다(entity 24 B 유지, QUIC 계약의 `actorId:uint32` 와 바로 호환, MV-D11 의 별칭 id 가 1차에서 먼저 들어옴). 별칭은 세션별이면 안 된다 — `MovementPublisher.onSnapshot` 은 Snapshot 을 한 번 직렬화해 모든 outbox 에 같은 바이트를 넣으므로, 세션별 표는 세션별 직렬화(구조 변경·비용)를 뜻해 후보에서 뺀다. 어느 쪽이든 `roomEpoch` 는 1단계에서 0 또는 생략으로 고정한다.
+- **송신 주기 저감** — 정지·원거리 주민·셀룰러 5 Hz(정책 §3 행). 본문과 Snapshot 프레임 헤더(15.4) 를 함께 줄인다.
+- **PathAccepted 축소** — waypoints 델타·Arrived 생략. reliable 사건 31.0 MB/시간(PathAccepted 28.9 + Arrived 2.1) 몫 — 이것만으로도 목표를 넘는다.
+
+**축소안 비교 — 2272(2026-10-21)** · 기준 N=15, 전원이 2초마다 intent 를 내며 쉬지 않고 걷는 부하(검증 §7-2). 20 Hz 열은 10-20 실측 196.5 MB/시간(Snapshot 본문 150.0 · 헤더 15.4 · PathAccepted 28.9 · Arrived 2.1)에서, 5 Hz 열은 **추정(미측정 — 서버에 5 Hz 모드 코드가 없다)** 이다. 5 Hz 기준선 = (본문 150.0 + 헤더 15.4)/4 + reliable 31.0 = 72.4 MB/시간(JSON, 변경 전). 각 행은 그 안 하나만 적용한 값이고 「조합」 행만 누적이다. 값의 등급 셋: **실측** = 10-20 측정값 그대로(기준선 196.5·72.4 의 20 Hz 성분), **산정** = 실측 단위 × 설계 크기(ⓐ/ⓑ 의 572/392 B 는 protocol §4 레이아웃으로 계산한 값이지 구현 뒤 잰 값이 아니다), **추정** = 미측정 가정을 품은 값(5 Hz 열 전부, ③ 의 waypoint 20 B·헤더 215 B, 정지 생략의 IDLE 일정) — 조합 행의 굵은 55.0·24.4 도 추정을 품은 합계다. 단위 크기는 [검증 §7-2 단위 행](validation.md#데이터-예산-분해--역산-vs-실측)(STOMP 헤더 215 B/프레임, PathAccepted 프레임 1,071 B, waypoint 31.8개).
+
+| 안 | 20 Hz 절감 (MB/h, 산정) | 5 Hz 절감 (MB/h, 추정) | 20 Hz 뒤 총량 (산정) | 5 Hz 뒤 총량 (추정) | 산식 (N=15) | protocol.md 변경 범위 | 앱/서버 sp (대략) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ① ⓐ 바이너리 Snapshot, entity 36 B (actorId UUID 16 B) | 108.8 | 27.2 | 87.7 | 45.2 | 본문 (32 + 36×15) = 572 B × 20 Hz × 3600/1e6 = 41.2 → 150.0 − 41.2 = 108.8. 5 Hz: 572 × 5 × 3600/1e6 = 10.3 → 37.5 − 10.3 = 27.2. STOMP 헤더는 프레임 수가 같아 15.4(5 Hz 3.9) 그대로 | §0 표 Snapshot 행 JSON→바이너리(STOMP binary 본문) · §4 entity actorId u32→UUID 16 B(QUIC 계약과 갈라짐 — 2단계 QUIC 때 재변환) · `roomEpoch` 는 0/생략 · 별칭 없음. **전송 경로도 범위**(ⓐ·ⓑ 공통): `MovementOutbox.frame()` 이 모든 payload 를 `application/json` 으로 고정하므로 snapshot 전용 이진 STOMP 프레임(content-type `application/octet-stream`)·`MovementRelay.Frame` 봉투(`Frame`·`Outgoing` 의 `payload` 가 String 이고 봉투째 `writeValueAsString` 으로 Redis 에 실린다 — `byte[]` 로 바꾸면 Jackson 이 base64 로 내 인스턴스 간 Redis 구간이 약 33 % 커지므로, base64 를 받아들이거나 Snapshot 만 봉투 밖·별도 채널로 분리)·앱 `islandRealtime.ts` 의 공용 `JSON.parse` 수신 핸들러에 **구독별 이진 디코드 분기**가 함께 바뀌어야 한다 — 없으면 앱이 바이너리 Snapshot 을 조용히 버려 위치 갱신이 전부 멈춘다. 위험 한 줄: 앱은 `@stomp/stompjs` 에서 이진 본문을 `msg.binaryBody` 로 읽어야 하고(`msg.body` 는 UTF-8 문자열), 0x00 을 품은 본문은 MESSAGE 프레임에 `content-length` 가 있어야 NUL 종결에서 안 잘린다 — Spring `StompEncoder`·`appendMissingNULLonIncoming` 과의 궁합은 RN 에서 짧게 선결 확인 | 서버 5~6 · 앱 5 — 직렬화기·디코더 + 위 전송 경로 3곳(`Frame` 봉투 범위에 따라 서버 +1), 매핑 없음 |
+| ① ⓑ 바이너리 Snapshot, entity 24 B (방 공통 별칭 표) | 121.8 | 30.4 | 74.7 | 42.0 | (32 + 24×15) = 392 B × 20 × 3600/1e6 = 28.2 → 150.0 − 28.2 = 121.8. 5 Hz: 392 × 5 × 3600/1e6 = 7.1 → 37.5 − 7.1 = 30.4, 남는 총량 72.4 − 30.4 = 42.0(반올림 전 41.96). 기준선 150.0 은 실측 19.95 Hz 값이고 새 안은 20 Hz 로 계산 — 차이 0.1 미만 | ⓐ 의 변경(전송 경로 3곳 포함) + §3 FullState 에 별칭 표(`alias:uint32` ↔ `userId`) 필드 추가, Snapshot 은 별칭만 · §4 레이아웃은 QUIC 계약 그대로 · MV-D11 의 별칭 id 가 2단계 1차로 당겨짐 · `roomEpoch` 는 0/생략 | 서버 8 · 앱 8 — ⓐ 의 전송 경로 + 별칭 배정·join/leave 때 표 갱신(FullState 재송 또는 ActorJoined 확장)·앱의 별칭→주민 매칭 |
+| ② 송신 주기 저감 — 정지 주민 생략 | 15.5 | 3.9 | 181.0 | 68.5 | IDLE 10.7% × JSON entity 몫(150.0 × (2,089 − 67)/2,089 = 145.2) = 15.5(추정 — IDLE 비율이 전 프레임에 일정하다고 본 값, 헤더 절감은 0: 다른 주민이 움직이면 프레임은 계속 나간다. 전원 정지 때 프레임 자체를 건너뛰는 여지는 부하 가정 재검토와 함께). 5 Hz 는 ÷4 = 3.9. 바이너리와 겹치면 절감이 entity 바이트에 비례해 줄어든다(조합 행 참고) | §3 Snapshot 에 「생략된 actor 는 직전 값 유지」 규칙 · **정지 전이는 reliable 로 전달 보장이 필요**(Arrived 유지 또는 세션별 전달 보장) — `MovementOutbox.offerSnapshot()` 은 미전송 Snapshot 을 덮어쓰고(10-20 `movement_outbox_snapshot_superseded_total` Δ30), 5 Hz 선택 송신도 그 프레임을 건너뛸 수 있어 「마지막 IDLE Snapshot 한 번」은 유실되면 복구 수단이 없다. `Arrived.position` 이 정지 지점을 운반하므로, 덮어쓰기로 마지막 MOVING Snapshot 이 사라져 클라이언트 위치가 도착점보다 앞에 남아도 Arrived 가 보정한다 | 서버 3 · 앱 2 (전달 보장 포함 시 +3) |
+| ② 송신 주기 저감 — 5 Hz 모드(셀룰러·배경·AFK) | 해당 없음 (20 Hz 사용자는 안 줄어든다) | 124.1 (20 Hz → 5 Hz) | — | 72.4 | (본문 150.0 + 헤더 15.4) × (1 − 1/4) = 124.1. reliable 31.0 은 주기와 무관하게 그대로 | §3 `sendRateHz`(protocol §5, 5~20) 를 STOMP 에서도 쓰도록: 세션별 주기 지정 메시지 추가. 현 `MovementPublisher` 는 Snapshot 을 한 번 직렬화해 전 outbox 에 넣으므로 5 Hz 세션은 4번에 1번만 넣는 선택 송신으로 가야 한다 | 서버 5 · 앱 3 — 세션별 주기·outbox 선택 송신·앱의 보간 지연 재조정 |
+| ② 송신 주기 저감 — 원거리 주민 생략 | 미측정 | 미측정 | — | — | 거리 컷 기준·섬 크기가 없어 산식 불가 | 정책 §3 에 컷 반경 값이 먼저 필요 | 정지 생략과 같은 구조 + 컷 반경 판단 |
+| ③ PathAccepted 축소 — waypoints 델타 (**최대치**: waypoints 전부 제거) | 16.9 | 16.9 | 179.6 | 55.5 | waypoint ≈ 20 B(`{"x":12.5,"y":34.5},` — `RoomRuntime.toWaypoints()` 가 셀 중심(0.5 단위)만 내고 세계 좌표 0..100 이라 구분 쉼표 포함 추정) × 31.8 = 636 B → 본문 866 − 636 = 230 B, 프레임 230 + 215 = 445 B(헤더 215 는 Snapshot 값 차용 추정 — 단위 행의 PathAccepted 실측 차분 205 B 를 쓰면 절감 ≈ 17.1) × 7.5건/s(부하 스크립트의 2초 간격 가정 — 실제 사용의 intent 빈도가 아니다) × 3600/1e6 = 12.0 → 28.9 − 12.0 = 16.9. 실제 델타는 waypoints 를 다 지울 수 없으므로 이보다 적게 줄어든다. Arrived 생략(+2.1 → 19.0)은 **② 정지 생략과 양립 불가 — 둘 중 하나**(정지 상태를 운반하는 reliable 이 Arrived 뿐이다) | §3 PathAccepted 의 `waypoints` 를 델타/요약(끝점+꺾임점)으로 · 정지 보정 규칙(§4 예외) 확인. Arrived 는 ② 를 쓰면 유지 | 서버 3 · 앱 3 — 앱의 경로 복원 |
+| **조합 ⓑ + 정지 생략 + ③ 최대치 (Arrived 유지)** | 121.8 + 2.8 + 16.9 = 141.5 | 30.4 + 0.7 + 16.9 ≈ 48.0 | **55.0** | **24.4** | 20 Hz: 본문 28.2 − 25.9 × 0.107 = 25.5 + 헤더 15.4 + PathAccepted 12.0 + Arrived 2.1 = 55.0. 5 Hz: 본문 25.5/4 = 6.4 + 헤더 15.4/4 = 3.9 + 12.0 + 2.1 = 24.4(반올림 전 합 24.33). (ⓐ 로 바꾸면 66.5 / 27.2). ③ 이 최대 절감 가정이라 실제 총량은 이 값과 같거나 크다 — 55.0·24.4 는 하한에 가깝고, 추정이 어느 쪽으로 틀려도 「미달」 은 뒤집히지 않는다 | 위 ⓑ·②·③ 의 합 | 합 서버 ≈ 14 · 앱 ≈ 13 (ⓑ 8/8 + 정지 생략 3/2 + ③ 3/3; Arrived 유지라 정지 전이 보장 +3 은 불필요 — Arrived 대신 세션별 전달 보장을 택하면 +3, 5 Hz 모드까지 하면 서버 +5 · 앱 +3) |
+| **결론 (목표 30 MB/h @20 Hz · 8 MB/h @5 Hz)** | | | **미달** — 55.0 은 목표 30 의 약 1.8배 | **미달** — 24.4 는 목표 8 의 약 3.0배 | 바닥: STOMP 헤더 15.4(20 Hz)·3.9(5 Hz)와 reliable 14.1(PathAccepted 12.0 + Arrived 2.1)은 위 세 안으로 못 줄이고(20 Hz 바닥 합 15.4 + 14.1 = 29.5 로 이미 목표 30 에 닿는다), ⓑ 본문 28.2 만으로 20 Hz 목표 30 을 거의 채운다(정책 §3 「payload 만 약 28」과 같은 값). 헤더를 0 으로 놓아도 5 Hz 는 본문 6.4 + reliable 14.1 = 20.5 로 8 을 넘는다 | 부하 가정(전원 보행 · intent 2초)이 실제 사용보다 크다 — 목표를 맞추려면 **부하 가정 재검토**(정지 비율·intent 간격 반영한 현실 부하로 재측정) 또는 **헤더 축소**(프레임 묶음, 또는 215 B 의 대부분인 STOMP 헤더 필드 — destination·subscription·message-id — 자체 축소)가 추가로 필요하다 | 추천(확정 아님, MV-D10 은 재영님 몫): ⓑ + ③ 부터 하고 실측 N=15 로 다시 잰 뒤 부하 가정을 정한다 |
+
+추정 근거: ③ 의 waypoint 당 20 B 는 직접 재지 않은 추정이다. 정지 생략 15.5 는 IDLE 비율을 전 프레임에 일정하다고 본 값이다. sp 는 구현 전 대략 추정이며 근거는 각 행의 한 줄이다. Snapshot 델타(protocol §4 「처음에는 delta·gzip 을 적용하지 않는다」)는 ③ 의 waypoints 델타와 다른 것이다.
+
+**2단계 QUIC 재검토 조건** — 판정은 오너(조재영)가 한다. 하나라도 열리면 아래 「열리면 할 일」로.
+
+| 조건 | 누가 | 무엇을 재서 | 비교 대상 |
+| --- | --- | --- | --- |
+| ①-a 실기기 Snapshot 간격 | 오너 | 검증 §7 실기기 잔여 표 「실기기 Snapshot 간격 p99」 행 — 실기기(Wi-Fi·LTE), 「dev 서버 RTT」 와 같은 세션 | 앱 `movementSync` 의 실제 한도: 렌더는 최신 틱보다 2틱(100 ms) 뒤를 그리고 외삽하지 않으며, 샘플 공백이 6틱(300 ms)에 닿으면 주민을 멈춘다(`GAP_TICKS`). 재검토는 **p99 ≥ 300 ms(멈춤 발생)**; 100~300 ms 구간은 멈춤이 아니라 지연 증가라 ①-b 체감으로 본다. 정책 §3 의 100 ms 는 보간 지연 설계값. p99 는 임시 기준(오너가 p99.9 등으로 조정 가능). **10-20 로컬 실측(서버 측, 실기기 아님)**: N=15 Snapshot 간격 p99 57.7 ms · 최대 253.9 ms · 100 ms 이상 0.08% — 로컬이라 실기기 값은 아니다(검증 §7-2) |
+| ①-b 체감 | 오너 | 검증 §7 실기기 잔여 표 「MV-D05 체감」·「보정 점프 최대 px」 행 값 | 기준값 없음 — 그 측정이 1단계 기준값이 된다(MV-D05) |
+| ② 데이터 예산 | 오너 | 2단계 1차 jar 로 realtime 을 재기동한 뒤 **로컬 스택 N=15, 검증 §7 과 같은 부하(측정 스크립트 `--users 15`)에서 세션당 WebSocket 수신 바이트 — 20 Hz 모드와 5 Hz 모드(셀룰러·배경·AFK, 정책 §3 송신 주기 저감 행) 각각** — 티켓 2272 와 같은 방법. 실기기 수신량(T18)은 보조 확인 | 정책 §3·T18 세션당 상한 **30 MB/시간(20 Hz)** 과 **8 MB/시간(5 Hz)** 둘 다(「실측 후 조정」 대상이라 상한이 바뀌면 그 값). 5 Hz 는 Snapshot 만 줄고 reliable 사건 31.0 MB/시간 몫은 그대로라 PathAccepted 축소 없이는 8 MB 를 못 넘긴다. **10-20 로컬 실측**: N=15 20 Hz 세션당 54,572 B/s ≈ 196.5 MB/시간(목표 30 의 약 6.5배), reliable 사건 몫 = PathAccepted 28.9 + Arrived 2.1 = 31.0 MB/시간 — 5 Hz 모드는 아직 재지 않았다(검증 §7-2) |
+| ③ 배터리·재접속 | 오너 | 검증 §7 실기기 잔여 표 「이동 배터리 % (약 21분)」·「T10 재접속 횟수·복구 시간」 행 | 기준값 없음 — 1단계 STOMP 의 그 측정이 기준값이 되고, 2단계 QUIC POC 는 같은 측정으로 비교한다 |
+| ④ 채팅 병행 부하(위 표의 「미검증」 해소) | 오너 | 이동 부하(N=15)에 채팅·응원·도메인 이벤트를 병행한 혼합 부하에서 틱 최대·송신 큐·GC pause(지표 보강 2270 뒤에는 틱 p99) | 검증 §7 의 이동 전용 값 대비 눈에 띄는 악화 — 기준값은 혼합 부하 첫 측정으로 정한다(측정 티켓은 미정, 2272 범위 밖) |
+
+**열리면 할 일** — MV-D02·D03·D06 을 그때 닫고 모바일·부하 POC 로 간다. POC 의 기기·망 매트릭스는 [검증 §3](validation.md#3-구현-순서와-완료-증거)(Wi-Fi·LTE/5G·3G 대역 제한·UDP 443 차단망)과 T17 폴백을 그대로 쓴다.
+
+**확정 절차** — 이 제안이 확정되면 이 블록과 정책 MV-D10 의 「제안 — 확정 전」을 「확정(날짜)」로 바꾸는 한 줄 커밋이 뒤따른다.
+
+### 7.1 언어·연결·서비스 분리는 각각 선택한다
+
+- Java로 A*·틱·위치를 계산하면서 QUIC/UDP 연결을 직접 받을 수 있다. Java용 [Netty QUIC API](https://netty.io/4.2/api/io/netty/handler/codec/quic/package-summary.html)와 [DATAGRAM 설정](https://netty.io/4.2/api/io/netty/handler/codec/quic/QuicCodecBuilder.html)이 있다. 서버 언어와 전송 프로토콜을 함께 바꿀 필요는 없다.
+- 여기서 직접 연결은 **클라이언트 세션 하나가 방 소유 worker에 연결**된다는 의미다. 사용자마다 프로세스·서버 한 대를 만드는 방식이 아니다. worker 하나가 여러 연결과 여러 방을 관리한다.
+- 별도 프로세스는 이동의 CPU·GC·큐·배포 장애를 채팅에서 격리하고 게임별 재사용을 쉽게 하기 위한 선택이다. 별도 언어나 별도 레포가 필수인 것은 아니다. Java 서비스는 기존 JVM 저장소 규칙에 맞춰 배치한다.
+- Java의 20Hz 처리 가능 용량은 아직 측정하지 않았다. A* 실행 시간·할당률·GC pause·틱 p99·송신 큐를 먼저 측정한다. 자원 조정과 병목 개선 후에도 목표를 못 맞추는 구체 근거가 생기면 해당 모듈의 네이티브화 또는 언어 변경을 비교한다.
+
+### 7.2 Kafka의 소비자는 서버에 둔다
+
+Kafka는 도메인 사건의 서버 간 전달·재처리에 사용할 수 있다. 앱의 위치 표시용 20Hz 스냅샷은 worker가 연결된 앱에 직접 보낸다. 위치는 오래된 데이터를 빨리 버리고 최신 상태로 수렴해야 하므로, 각 틱을 로그에 적재한 후 broker→consumer→gateway로 되읽는 경로를 기본으로 채택하지 않는다. 이는 Kafka가 저지연을 지원하지 못한다는 주장이 아니라, 이 기능에 필요한 전달 성질과 운영 비용에 따른 선택이다.
+
+Kafka의 일반 consumer group은 레코드를 그룹 내 소비자 중 하나에 분배한다. 같은 그룹에 앱을 넣는 것만으로 모든 주민에게 방송되는 구조가 되지 않는다. 그룹·offset·재접속·브로커 접근 제어까지 모바일 세션에 노출하는 설계는 채택하지 않는다. 서버가 소비하고 앱 수신 권한을 검사해 소켓으로 전달한다. [KafkaConsumer 공식 문서](https://kafka.apache.org/42/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html)
+
+현재 코드에도 서버 소비 경로가 있다. [KafkaEventInbound](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/KafkaEventInbound.java)는 설정으로 켜는 Kafka 입구이며, [RealtimeEventDelivery](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventDelivery.java)와 [Redis 수신기](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutSubscriber.java)가 로컬·다른 인스턴스의 STOMP 구독자에게 전달한다. 코드 존재와 운영 활성화는 별개다. README의 `DisabledRealtimeDelivery` 설명은 현재 구현과 달라 이 비교는 구현 파일을 기준으로 했다.
+
+권한 취소·시설 변경처럼 다시 처리해야 하는 제어 정보의 신뢰성은 §3을 따른다. 실제 도메인에 이미 연결된 HTTP/outbox·Kafka 전달 경로를 확인해 재사용한다. 이동 기능을 위해 20Hz 좌표 토픽이나 새 Kafka 클러스터를 만드는 계획은 없다.
+
+![좌표 연결과 도메인 사건 전달](diagrams/07-transport-boundaries.svg)
+
+[Mermaid 원본](diagrams/07-transport-boundaries.mmd)
+
+### 7.3 기존 Realtime 연결에 합칠 수는 있는가?
+
+가능하지만 두 방식을 구분해야 한다. **같은 JVM에 이동 엔진까지 넣기**와 **Realtime이 소켓 gateway만 맡고 별도 worker로 중계하기**는 다른 구조다.
+
+| 선택지 | 이점 | 추가 비용·제약 | 이번 추천 |
+| --- | --- | --- | --- |
+| Realtime JVM에 Java 이동 엔진·STOMP 채널 추가 | 기존 앱 연결과 배포를 재사용, 초기 연결 작업 적음 | 채팅과 A*·틱의 CPU/GC/장애 공유, 방 소유·20Hz 큐 정책 신규 구현, 기존 WebSocket은 UDP 요구 미충족 | **1단계 확정(2026-10-07)**. 최종 UDP/서버 분리 요구 충족으로 표시하지 않음 — 측정 뒤 2단계(지금은 2단계 1차 제안, 2단계 QUIC 은 보류 — §7 「2단계 판단」) |
+| Realtime은 gateway, Java Movement는 별도 worker | 앱 연결 하나 유지 가능, 이동 계산은 격리 | 앱→gateway→owner 추가 홉, owner 라우팅·구독·권한 취소·backpressure를 두 서비스에 구현. 기존 STOMP 연결의 전송 성질 유지 | 단일 앱 연결이 더 중요한 요구로 확정되면 재비교 |
+| **Java Movement + 앱 직접 QUIC** | UDP 요구 충족, 위치 경로가 짧고 채팅과 연산·송신 장애 분리 | 모바일 네이티브 어댑터·추가 연결·공개 UDP endpoint·망 차단 대응 필요 | **보류(2026-10-12 제안 — 확정 전)**. 2단계 1차는 페이로드 축소(전송 유지, 티켓 2272). QUIC 은 §7 「2단계 판단」의 재검토 조건이 열릴 때 모바일·부하 POC 와 함께 |
+| C++ Movement + 앱 직접 연결 | 향후 측정된 CPU/메모리 병목을 더 세밀하게 제어할 여지 | 별도 언어·빌드·디버깅·운영 비용, 모바일 전송 문제는 여전히 검증 필요 | 측정 근거가 생길 때 재검토 |
+
+[현재 앱 연결](../../../../app/app-dev/src/services/islandRealtime.ts)은 `startIslandRealtime`에서 열고 `dispose()`에서 닫는다. 앱 전역에 단 하나의 영구 소켓이 항상 있다는 전제로 설계하지 않는다. 같은 연결을 재사용할 때도 섬 구독·배경 전환·재접속의 수명을 확인해야 한다.
+
+직접 연결안(2단계 QUIC — 2026-10-12 보류 제안)에서는 기존 Realtime은 채팅·도메인 이벤트를 맡고, Movement 연결은 섬에서 실제 이동을 표시하는 동안 유지한다. 추가 연결의 배터리·재접속 비용은 iOS/Android 실기기로 측정한다. 개발용 WebSocket/mock 어댑터로 Java 코어를 먼저 검증할 수 있지만, 해당 결과는 QUIC/UDP 수용 시험을 대신하지 않는다.

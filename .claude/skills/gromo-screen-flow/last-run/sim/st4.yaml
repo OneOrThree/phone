@@ -1,0 +1,6 @@
+appId: com.oneorthree.focuscat
+---
+- inputText: "1234"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 8000

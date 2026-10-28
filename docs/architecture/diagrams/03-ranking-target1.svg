@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 420" role="img" aria-label="Target-1: 앱은 /bff/league 한 번, Business API 가 Data API 내부 조회 6종을 합쳐 응답, 정산은 Data API, 알림은 Kafka 이벤트로 티어를 스냅샷">
+  <defs>
+    <marker id="rb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1B2430"/></marker>
+    <marker id="rbd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1F6F8B"/></marker>
+  </defs>
+  <g stroke="#1B2430" stroke-width="1.75" fill="none" stroke-linejoin="miter" stroke-linecap="square">
+    <path d="M200,85 H280" marker-end="url(#rb)"/>
+    <path d="M500,85 H580" marker-end="url(#rb)"/>
+    <path d="M710,130 V190" marker-end="url(#rb)"/>
+    <path d="M710,320 V250" marker-end="url(#rb)"/>
+    <path d="M840,350 H880 V85 H840" marker-end="url(#rb)"/>
+  </g>
+  <g stroke="#1F6F8B" stroke-width="1.75" fill="none" stroke-dasharray="7 5" stroke-linejoin="miter" stroke-linecap="square">
+    <path d="M580,350 H300" marker-end="url(#rbd)"/>
+  </g>
+  <g stroke="#1B2430" stroke-width="1.75" fill="#FFFFFF">
+    <rect x="40" y="55" width="160" height="60"/>
+    <rect x="280" y="55" width="220" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+    <rect x="580" y="40" width="260" height="90"/>
+    <rect x="580" y="190" width="260" height="60"/>
+    <rect x="580" y="320" width="260" height="60"/>
+    <rect x="40" y="320" width="260" height="60" fill="#E3EFF3" stroke="#1F6F8B"/>
+  </g>
+  <g font-size="15" font-weight="600" text-anchor="middle" fill="#1B2430">
+    <text x="120" y="80">gromo 앱</text><text x="120" y="101" font-size="12" font-weight="400" fill="#5E6670">리그 화면 = 1콜</text>
+    <text x="390" y="80">Business API</text><text x="390" y="101" font-size="12" font-weight="400" fill="#5E6670">GET /bff/league — 섹션 조합</text>
+    <text x="710" y="66">Data API · /internal</text><text x="710" y="88" font-size="12" font-weight="400" fill="#5E6670">top · my-rank · tier · schedule · last-result</text><text x="710" y="106" font-size="12" font-weight="400" fill="#5E6670">+ 주간 집중초 서버 집계 (신설)</text>
+    <text x="710" y="215">read model 쿼리 (그대로)</text><text x="710" y="236" font-size="12" font-weight="400" fill="#5E6670">daily_focus_stats SUM · CTE</text>
+    <text x="710" y="345">주간 정산 배치 (Data API)</text><text x="710" y="366" font-size="12" font-weight="400" fill="#5E6670">월 00:00 → users.tier_level · weekly_results</text>
+    <text x="170" y="345">알림 서버 · user_snapshot</text><text x="170" y="366" font-size="12" font-weight="400" fill="#5E6670">tier · 20:00 rank 스냅샷 → "약 N위"</text>
+  </g>
+  <g font-size="12" fill="#5E6670">
+    <text x="208" y="77">1콜</text>
+    <text x="508" y="77">6종 병렬</text>
+    <text x="718" y="165">SUM</text>
+    <text x="718" y="290">같은 쿼리</text>
+    <text x="886" y="220">tier 쓰기</text>
+    <text x="330" y="340" fill="#1F6F8B">league.settled 이벤트 (Kafka)</text>
+  </g>
+</svg>

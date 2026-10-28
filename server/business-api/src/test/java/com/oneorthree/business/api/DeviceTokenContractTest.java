@@ -1,0 +1,344 @@
+package com.oneorthree.business.api;
+
+import com.oneorthree.business.support.MockUpstream;
+import com.oneorthree.business.support.Tokens;
+import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** 기기 토큰 등록·삭제의 순서 계약(A22 ㊲ · ㊿ · ㊨ · ㊪ · ㊍ · ⓖ). */
+@DisplayName("기기 토큰 조합")
+class DeviceTokenContractTest extends UpstreamTestBase {
+
+    private static final UUID USER = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
+    private static final String COMMAND_ID = "bbbbbbbb-0000-0000-0000-000000000001";
+    // 소유권 값은 알림 서버가 UUID 로 발급해 앱이 그대로 되싣는 CAS 다 — 테스트도 정규 표기를 쓴다.
+    private static final String OWNER = "dddddddd-0000-0000-0000-000000000001";
+    private static final String OWNER_PREV = "dddddddd-0000-0000-0000-000000000002";
+    private static final String OWNER_NEXT = "dddddddd-0000-0000-0000-000000000003";
+
+    @Test
+    void headerlessDeleteUsesOnlyTheVerifiedAccessTokensSessionAndTheDataResolvedBootstrap() throws Exception {
+        UUID session = UUID.randomUUID();
+        String hash = "a".repeat(64);
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + COMMAND_ID + "\",\"eventId\":\"evt\",\"version\":3,"
+                                + "\"params\":{\"sessionId\":\"" + session
+                                + "\",\"bootstrapNonceHash\":\"" + hash + "\"}}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/" + COMMAND_ID + "/delivered",
+                request -> new MockUpstream.Response(200, null));
+
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, session))
+                        .header("X-Device-Session", UUID.randomUUID().toString())
+                        .header("X-Device-Bootstrap-Hash", "forged"))
+                .andExpect(status().isNoContent());
+        assertThat(DATA.received().get(0).body()).contains("\"sessionId\":\"" + session + "\"");
+        var deletion = NOTI.received().get(0);
+        assertThat(deletion.header("X-Device-Token")).isNull();
+        assertThat(deletion.header("X-Device-Ownership")).isNull();
+        assertThat(deletion.header("X-Device-Session")).isEqualTo(session.toString());
+        assertThat(deletion.header("X-Device-Bootstrap-Hash")).isEqualTo(hash);
+    }
+
+    @Test
+    void headerlessSessionDeletionDoesNotFallBackToAnUnscopedDeleteWhenDataFails() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions",
+                request -> new MockUpstream.Response(500, "{}"));
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, UUID.randomUUID())))
+                .andExpect(status().isServiceUnavailable());
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    void headerlessOldAccessTokenWithoutSessionNeverInventsADeviceScope() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + COMMAND_ID + "\",\"eventId\":\"evt\",\"version\":3}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/" + COMMAND_ID + "/delivered",
+                request -> new MockUpstream.Response(200, null));
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isNoContent());
+        assertThat(DATA.received().get(0).body()).contains("\"sessionId\":null");
+        assertThat(NOTI.received().get(0).header("X-Device-Session")).isNull();
+        assertThat(NOTI.received().get(0).header("X-Device-Token")).isNull();
+    }
+
+    @Test
+    @DisplayName("삭제는 Data outbox 를 「먼저」 기록하고 그다음 직접 삭제한다 — 뒤집으면 둘 다 안 남는다")
+    void 삭제순서() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + COMMAND_ID + "\",\"eventId\":\"evt\",\"version\":3}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/" + COMMAND_ID + "/delivered",
+                request -> new MockUpstream.Response(200, null));
+
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 5))
+                        .header("X-Device-Token", "fcm-token-1")
+                        .header("X-Device-Ownership", OWNER))
+                .andExpect(status().isNoContent());
+
+        // 시간 순서: outbox 기록이 직접 삭제보다 앞에 있어야 한다.
+        var all = DATA.received();
+        assertThat(all.get(0).methodAndPath())
+                .isEqualTo("POST /internal/users/" + USER + "/device-token-deletions");
+        assertThat(NOTI.received()).hasSize(1);
+
+        // 대상 토큰·소유권·세대가 outbox 봉투에 전부 실렸다 — 하나라도 빠지면 계약대로 못 만든다.
+        assertThat(all.get(0).body()).contains("fcm-token-1", OWNER, "\"authGeneration\":5");
+
+        // 삭제 요청은 본문이 없으므로 세 값이 헤더로 나간다(㊪ · ㊟).
+        var deleteRequest = NOTI.received().get(0);
+        assertThat(deleteRequest.header("X-Device-Token")).isEqualTo("fcm-token-1");
+        assertThat(deleteRequest.header("X-Device-Ownership")).isEqualTo(OWNER);
+        assertThat(deleteRequest.header("X-Auth-Generation")).isEqualTo("5");
+    }
+
+    @Test
+    @DisplayName("gen 없는 구 AT 은 X-Auth-Generation 헤더 자체를 붙이지 않는다 — 채우면 tombstone 우회 (A22 ㊍)")
+    void 세대없는AT는헤더없음() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions", request ->
+                new MockUpstream.Response(200,
+                        "{\"commandId\":\"" + COMMAND_ID + "\",\"eventId\":\"evt\",\"version\":3}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+        DATA.on("POST /internal/outbox-commands/" + COMMAND_ID + "/delivered",
+                request -> new MockUpstream.Response(200, null));
+
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("X-Device-Token", "fcm-token-1"))
+                .andExpect(status().isNoContent());
+
+        // 「세대 없음」과 「세대 0」은 다르다 — 빈 값이나 0 이 아니라 헤더가 아예 없어야 한다.
+        assertThat(NOTI.received().get(0).header("X-Auth-Generation")).isNull();
+        // outbox 에도 null 로 실린다. Data 의 현재 세대로 채우지 않는다.
+        assertThat(DATA.received().get(0).body()).contains("\"authGeneration\":null");
+    }
+
+    @Test
+    @DisplayName("outbox 기록이 실패해도 직접 삭제는 시도한다 (A22 ㋩) — 둘 다 실패하면 503 으로 앱에 남긴다")
+    void outbox실패에도직접삭제시도() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions",
+                request -> new MockUpstream.Response(500, "{\"error\":\"down\"}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(204, null));
+
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("X-Device-Token", "fcm-token-1"))
+                .andExpect(status().isNoContent());
+
+        // outbox 가 죽었어도 직접 삭제가 실제로 나갔다. 여기서 멈추면 이전 계정 푸시가 계속 간다.
+        assertThat(NOTI.hits("DELETE /internal/devices")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("outbox·직접 삭제 모두 실패하면 503 — 성공한 척하면 앱의 내구 재시도까지 사라진다")
+    void 둘다실패면503() throws Exception {
+        DATA.on("POST /internal/users/" + USER + "/device-token-deletions",
+                request -> new MockUpstream.Response(500, "{}"));
+        NOTI.on("DELETE /internal/devices", request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .header("X-Device-Token", "fcm-token-1"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("형식이 깨진 X-Device-Ownership 은 400 — Data outbox 에 «적기 전»에 막는다 (R10)")
+    void 깨진소유권은내구기록전에거절() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 5))
+                        .header("X-Device-Token", "fcm-token-1")
+                        .header("X-Device-Ownership", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+
+        // 깨진 값이 봉투에 실리면 알림 서버가 그 봉투를 소비하지 못하고, relay 는 고갈 처리가 없어
+        // 그 유저의 «뒤 이벤트 전부»가 막힌다(A18). 그래서 내구 기록도 직접 삭제도 나가면 안 된다.
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("UUID 축약 표기도 거절한다 — UUID.fromString 은 받지만 정규 표기로 다시 쓰면 다른 값이다")
+    void 축약UUID소유권도거절() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithGeneration(USER, 5))
+                        .header("X-Device-Token", "fcm-token-1")
+                        .header("X-Device-Ownership", "1-1-1-1-1"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("등록의 깨진 ownershipToken 도 400 — 상류를 두드리기 전에 막는다")
+    void 등록의깨진소유권도거절() throws Exception {
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\",\"ownershipToken\":\"not-a-uuid\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(DATA.received()).isEmpty();
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("비활성 사용자의 등록은 막는다 — 위성 직행 쓰기는 Data 활성 검사를 안 거친다 (A22 ⓖ)")
+    void 비활성사용자등록차단() throws Exception {
+        DATA.on("GET /internal/users/" + USER + "/activation",
+                request -> new MockUpstream.Response(200, "{\"active\":false}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER_INACTIVE"));
+
+        // 알림 서버에는 아무것도 도달하지 않았다.
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("활성 검사가 판정 불가면 503 — 「비활성」으로 접으면 Data 장애가 전원 차단이 된다")
+    void 활성검사장애는503() throws Exception {
+        DATA.on("GET /internal/users/" + USER + "/activation",
+                request -> new MockUpstream.Response(500, "{}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("deviceBootstrap 을 실으면 Data 에 세션을 동기 확인하고 sessionEpoch 를 봉투에 넣는다 (A22 ㋨)")
+    void 세션확인과fencing() throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/auth/device-sessions/verify", request ->
+                new MockUpstream.Response(200, "{\"active\":true,\"sessionEpoch\":42}"));
+        NOTI.on("POST /internal/devices",
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"" + OWNER_NEXT + "\"}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 9,
+                                UUID.fromString("cccccccc-0000-0000-0000-000000000009")))
+                        .contentType("application/json")
+                        .content("""
+                                {"deviceToken":"fcm-token-1","ownershipToken":"%s",
+                                 "deviceBootstrap":"boot-1"}""".formatted(OWNER_PREV)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownershipToken").value(OWNER_NEXT));
+
+        // 세 축의 값이 전부 등록 봉투에 실렸다 — 하나라도 빠지면 막을 수 없는 경합이 남는다(A22 ㋞).
+        String body = NOTI.receivedFor("POST /internal/devices").get(0).body();
+        assertThat(body).contains("fcm-token-1", OWNER_PREV, "boot-1",
+                "\"sessionEpoch\":42", "\"authGeneration\":9");
+        // AT 에 sid 가 있어도 자격이 있으면 자격 축으로만 간다 — 두 축을 함께 주면 어느 쪽으로
+        // 판정했는지가 사라지고, 알림 서버의 「처음 쓰는 세션」 판정이 자격 판정과 겹친다.
+        assertThat(body).contains("\"legacySessionId\":null");
+        assertThat(DATA.hits("POST /internal/auth/sessions/verify")).isZero();
+    }
+
+    @Test
+    @DisplayName("deviceBootstrap 세션이 이미 끝났으면 등록을 거절한다 — 지연 등록이 남의 기기 토큰을 되찾아간다")
+    void 죽은세션등록거절() throws Exception {
+        stubActiveUser(USER);
+        DATA.on("POST /internal/auth/device-sessions/verify", request ->
+                new MockUpstream.Response(200, "{\"active\":false,\"sessionEpoch\":42}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\",\"deviceBootstrap\":\"boot-stale\"}"))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("자격 없는 구 앱 등록도 AT 의 sid 로 세션 활성을 확인한다 — 로그아웃된 세션은 거절")
+    void 자격없는등록도sid로세션확인() throws Exception {
+        UUID sessionId = UUID.fromString("cccccccc-0000-0000-0000-000000000001");
+        stubActiveUser(USER);
+        DATA.on("POST /internal/auth/sessions/verify", request ->
+                new MockUpstream.Response(200, "{\"active\":false,\"sessionEpoch\":12}"));
+
+        // 구 앱 본문 — deviceToken 만. 그래도 AT 에는 서명된 sid 가 있다.
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, sessionId))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER_INACTIVE"));
+
+        // 확인 요청에는 sid 만 실린다 — 자격은 주지도 받지도 않는다.
+        String verifyBody = DATA.receivedFor("POST /internal/auth/sessions/verify").get(0).body();
+        assertThat(verifyBody).contains(sessionId.toString()).doesNotContain("deviceBootstrap");
+        // 로그아웃된 세션의 AT 가 「다른 새 FCM 토큰」을 등록하지 못한다 — 그 행은 자격에 묶이지 않아
+        // 세션 폐기 relay 도 닿지 못하므로, 여기서 막지 않으면 영구히 남는다.
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("살아 있는 세션이면 구 앱 등록은 확인된 sid 를 별도 축으로 싣고 통과한다")
+    void 살아있는세션의구앱등록은통과() throws Exception {
+        UUID sessionId = UUID.fromString("cccccccc-0000-0000-0000-000000000002");
+        stubActiveUser(USER);
+        DATA.on("POST /internal/auth/sessions/verify", request ->
+                new MockUpstream.Response(200, "{\"active\":true,\"sessionEpoch\":12}"));
+        NOTI.on("POST /internal/devices",
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"" + OWNER_NEXT + "\"}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, sessionId))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownershipToken").value(OWNER_NEXT));
+
+        // 자격 축은 «비운 채», 구 앱 세션 축에 확인된 sid 와 그 fencing 값을 싣는다. 자격을 지어내지
+        // 않는 것이 계약이다 — deviceBootstrap 은 null 그대로 간다.
+        String body = NOTI.receivedFor("POST /internal/devices").get(0).body();
+        assertThat(body).contains("fcm-token-1", "\"authGeneration\":0", "\"deviceBootstrap\":null",
+                "\"sessionEpoch\":12", "\"legacySessionId\":\"" + sessionId + "\"");
+    }
+
+    @Test
+    @DisplayName("sid 도 gen 도 없는 구 AT 은 세션 확인 없이 내려간다 — 그 토큰은 AT 수명 안에 만료된다")
+    void sid없는구AT는세션확인없음() throws Exception {
+        stubActiveUser(USER);
+        NOTI.on("POST /internal/devices",
+                request -> new MockUpstream.Response(200, "{\"ownershipToken\":\"" + OWNER_NEXT + "\"}"));
+
+        mockMvc.perform(put("/api/v1/users/me/device-token")
+                        .header("Authorization", "Bearer " + Tokens.access(USER))
+                        .contentType("application/json")
+                        .content("{\"deviceToken\":\"fcm-token-1\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(DATA.hits("POST /internal/auth/sessions/verify")).isZero();
+    }
+}

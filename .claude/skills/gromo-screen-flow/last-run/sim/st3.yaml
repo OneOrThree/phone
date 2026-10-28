@@ -1,0 +1,5 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn: "암호로 허용"
+- waitForAnimationToEnd:
+    timeout: 8000

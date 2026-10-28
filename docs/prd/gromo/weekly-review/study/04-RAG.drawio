@@ -1,0 +1,102 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram id="rag-textbook" name="교과서 RAG 파이프라인">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ph1" value="사전 준비 — 문서를 넣을 때 1회" style="text;html=1;align=left;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="docs" value="문서들&#10;(사내 위키·아티클 등)" style="shape=note;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;size=15;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="chunk" value="청크 분할&#10;(수백 자 단위 조각)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="95" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="embed1" value="임베딩 모델&#10;텍스트 → 의미 좌표&#10;(숫자 배열, 예: 1536차원)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="90" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="vdb" value="벡터 DB&#10;(pgvector = PostgreSQL 확장으로도 가능)&#10;&quot;이 좌표와 가까운 k개&quot;를 빨리 찾음" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="700" y="70" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="docs" target="chunk">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="chunk" target="embed1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e3" value="벡터 저장" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;" edge="1" parent="1" source="embed1" target="vdb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ph2" value="질문할 때 — 매 요청" style="text;html=1;align=left;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="260" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="q" value="질문&#10;&quot;집중력 회복엔 뭐가 좋아?&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="310" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="embed2" value="같은 임베딩 모델로&#10;질문도 좌표화" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="270" y="310" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="search" value="유사도 검색&#10;가장 가까운 청크 top-k&#10;(예: 3개)만 꺼냄" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="490" y="305" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="prompt" value="프롬프트 조립&#10;= 질문 + 찾은 청크들&#10;(&quot;아래 자료를 근거로 답해라&quot;)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="305" width="190" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" value="LLM (3편의 API 호출 그대로)&#10;→ 근거 있는 답변 생성" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="430" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="q" target="embed2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="embed2" target="search">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e3" value="벡터 DB 조회" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=11;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="search" target="vdb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="search" target="prompt">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="prompt" target="llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="insight" value="핵심: RAG의 본질 = &quot;LLM에게 뭘 보여줄지 고르는 검색 문제&quot;.&#10;LLM 호출 부분은 3편과 동일하고, 새로운 건 앞단의 검색(Retrieval)뿐이다." style="text;html=1;align=left;fontSize=12;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="600" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="rag-ours" name="우리 기능의 현실">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ours" value="주간 리포트의 Retrieval — 이미 결정론적" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="60" width="460" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="o1" value="질문 없음 — 매주 같은 작업 1개&#10;자료 = 그 사용자의 지난 2주 세션뿐 (정형 데이터)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="100" width="420" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="o2" value="→ 뭘 가져올지 이미 안다:&#10;WHERE user_id = ? AND week = ?  (SQL 한 방)&#10;벡터 검색·임베딩·벡터 DB가 할 일이 없다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="180" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="future" value="RAG가 진짜 필요해지는 미래 (확장 시나리오 — 지금 요구사항 아님)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="600" y="60" width="480" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="fu1" value="① &quot;과거의 비슷한 주&quot; 회상&#10;리포트 12주+ 축적 후, 이번 주와 패턴이 유사한 과거 주 회상.&#10;단 정형 숫자 벡터라 SQL 거리 계산이 먼저 — 임베딩은 비정형용" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="100" width="440" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="fu2" value="② 코칭 지식베이스&#10;집중력·습관 아티클 수백 편 중 이번 주 상황에 맞는 조언을&#10;의미 검색으로 골라 인용 — 교과서 RAG 그대로" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="185" width="440" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="bridge" value="그때 붙일 것: pgvector (PostgreSQL 확장 — 기존 DB 그대로 확장)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;dashed=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="ours" target="future">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="answer" value="면접·리뷰 대비 한 줄: &quot;왜 RAG 안 썼어요?&quot;&#10;→ &quot;Retrieval이 결정론적(사용자·주차로 특정됨)이라 벡터 검색이 필요 없었습니다.&#10;   자료가 방대해지고 뭘 보여줄지 골라야 하는 확장 시나리오에서 pgvector로 도입 계획입니다.&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="340" width="1020" height="90" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

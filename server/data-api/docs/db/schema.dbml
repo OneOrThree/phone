@@ -1,0 +1,1333 @@
+// Catus — Flyway V0 스키마 (GROMO-2421).
+// 정본: src/main/resources/db/v0/V0__baseline.sql. V138까지의 현행 스키마에서 폐기 도메인을 제거했다.
+// 기본 데이터: src/main/resources/db/seed/insert.sql (afterMigrate 콜백으로 누락 행 복원).
+// 검증: ./verify-schema-dbml.sh — 실제 PostgreSQL의 테이블·컬럼·타입·NULL·FK·ON DELETE와 대조한다.
+// 기본값·인덱스·UNIQUE/CHECK는 대조 범위가 아니다. Enum은 varchar의 논리 타입 표기다.
+// 관계는 독립 Ref 줄로 적고 같은 자식 컬럼 묶음은 한 번만 둔다. 복합 FK는 묶음과 순서를 보존한다. 논리 관계는 DB FK가 없음을 주석에 명시한다.
+
+Enum provider {              // 소셜 로그인 제공자
+  APPLE
+  GOOGLE
+  KAKAO
+  LINE
+  INSTAGRAM
+  FACEBOOK
+}
+
+Enum friendship_status {     // 친구 관계 상태 (요청 → 수락/거절/취소). 실제 컬럼은 varchar + CHECK(friendships_status_check)
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED                   // 발신자가 요청 취소 (V60, GROMO-1894). 수신자가 수락으로 되살릴 수 없다
+}
+
+Enum focus_type {
+  INFINITE                  // 카운트업 / 무제한 (구 UP)
+  RANGE                     // 목표시간 카운트다운 (구 DOWN)
+  POMODORO
+}
+
+Enum focus_session_status {  // 세션 생명주기 (deleted_at 대체 — 소거 대상 데이터를 딜리트 마커로 쌓지 않음)
+  ACTIVE                    // 진행중(라이브) — ended_at IS NULL
+  COMPLETED                 // 정상 종료
+  CANCELED                  // 유저 취소/폐기
+  AUTO_CLOSED               // orphan 자동 종료(sweepOrphanSessions) — by-category 실시간 집계에서 제외 (GROMO-804, V9)
+}
+
+Enum group_status {           // 그룹 진행 상태
+  WAITING
+  ACTIVE
+  ENDED
+}
+
+Enum group_member_role {      // 멤버 역할
+  OWNER
+  MEMBER
+}
+
+Enum group_member_status {    // 멤버 활동 상태 (챌린지/포커스 진행)
+  INACTIVE
+  CHALLENGE
+  FOCUS
+}
+
+Enum group_permission_scope { // 그룹 단위 권한 범위 (초대 등)
+  OWNER_ONLY
+  ALL_MEMBERS
+}
+
+Enum group_announcement_grant { // 멤버 단위 공지 작성 권한 (개별 허용/차단)
+  DISALLOW
+  ALLOW
+}
+
+Table customization_reward_policies [note: '꾸미기 보상 추첨(GROMO-2301 CustomizationRewardService)의 입력. 정산은 가장 큰 revision 을 쓴다 — revision 2(V135)는 신발·뗏목을 뺀 머리·목만'] {
+  revision integer [pk, note: '> 0']
+  minimum_active_seconds integer [not null, note: '> 0, 1회 세션 기준']
+  rare_unlock_seconds integer [not null, note: 'minimum_active_seconds 이상']
+  legendary_unlock_seconds integer [not null, note: 'rare_unlock_seconds 이상']
+  time_half_seconds integer [not null, note: '> 0']
+  rare_max_bonus_ppm integer [not null, note: '0~1000000']
+  legendary_max_bonus_ppm integer [not null, note: '0~1000000']
+  rewards_per_eligible_session integer [not null, note: 'CHECK = 1']
+  duplicates_allowed boolean [not null, note: 'CHECK true']
+  location_weights jsonb [not null, note: 'ISLAND·SEA 각각 common/uncommon/rare/legendary 가중치']
+  category_weights jsonb [not null, note: '카테고리 → 양수 가중치. 여기 없는 카테고리의 아이템은 뽑히지 않는다(revision 1 = 9분류, revision 2 = head·neck)']
+  source_workbook_sha256 character(64) [not null, note: 'char(64) — 승인 엑셀 SHA-256']
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table customization_reward_items [note: 'revision별 후보(revision 1 = 90종, revision 2 = 머리·목 20종 — 신발·뗏목은 등록만 되고 지급되지 않는다). 뗏목은 kind=decor, category로 6분류 보존. 원본 시트를 기존 정적 오버레이 API에 넣지 않는다'] {
+  revision integer [not null]
+  product_id varchar(80) [not null]
+  source_asset_id varchar(80) [not null]
+  category varchar(10) [not null, note: 'head/neck/shoes/flag/mat/oar/cargo/lantern/canopy']
+  rarity varchar(10) [not null, note: 'common/uncommon/rare/legendary']
+  rarity_reason varchar(200) [not null]
+  render_data jsonb [not null, note: 'cat-fit-v1 또는 raft-fit-v1: 원본·크롭·동작 보정·배치']
+  sort_order integer [not null, note: '>= 0']
+  indexes {
+    (revision, product_id) [pk]
+    (revision, source_asset_id) [unique]
+    (revision, category, rarity) [name: 'idx_customization_reward_items_draw']
+  }
+}
+
+Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프트 딜리트)'] {
+  id                             uuid        [pk]
+  is_guest                       boolean     [not null, default: false, note: '게스트 계정 여부']
+
+  nickname                       varchar(255) [note: "표시 닉네임. 저장 값에는 «앞뒤 공백이 없다» — UserService.normalizeNickname 이 String.strip 으로 다듬고 V95 가 기존 행을 같은 규칙으로 백필했다. 종전의 trim 은 U+0020 이하만 잘라 U+2003 이 붙은 닉네임을 통과시켰고, 그 탓에 아래 uq_users_nickname_lower 가 ' alice' 와 'alice' 를 서로 다른 키로 보았다. DB CHECK 은 걸지 않았다 — writer 가 changeNickname 한 곳뿐이다. GROMO-2051, V95"]
+  country_code                   varchar(255) [note: 'ISO 3166-1 alpha-2 (예: KR, US) — 값은 2자지만 컬럼은 varchar(255)']
+  language                       varchar(8)  [note: '앱이 적용 중인 표시 언어(BCP-47: ko·en·ja·zh-Hant). 푸시 렌더 언어의 정본. NULL=미보고. 국가와 다른 축. GROMO-1659 D11 · 1692 계약, V50']
+  cat_color                      varchar(16) [note: "고양이 색 자산 ID. CHECK 'black'|'ginger'|'cream'|'gray'|'white'|'calico'. NULL=미선택(온보딩 전, 백필 없음). 이름과 함께 있어야 온보딩 완료(Q04). 탈퇴 시 파기. GROMO-1945 Q03, V80"]
+
+  auth_generation                bigint      [not null, default: 0, note: '유저 축 세대 (V52, A22 ㊼·㊓·㊹) — «탈퇴·전 기기 로그아웃»에만 오른다. 개별 기기 로그아웃에서 올리면 로그인 중인 다른 기기의 재등록이 거부돼 그 기기 푸시가 끊긴다(기기 축=알림 서버 ownershipVersion, 세션 축=auth_sessions). 0 은 「아직 한 번도 올린 적 없다」이지 「구 토큰의 세대」가 아니다 — 구 AT 에는 gen claim 이 없고(㊍) 그 없음을 현재 값으로 채우면 tombstone 우회다']
+
+  created_at                     timestamptz [default: `now()`, note: '가입 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
+  updated_at                     timestamptz
+  is_deleted                     boolean [not null, default: false, note: '회원탈퇴 삭제 대기 플래그 — 동의 보관기간 경과 후 배치 하드 삭제(retention→purge)']
+
+  indexes {
+    // GROMO-1996, V89: 닉네임 대소문자 무시 «유일성» + 친구 검색(정확 일치) 인덱스.
+    //   정책(policy-2026-09-14) 「닉네임은 대소문자를 구분하지 않고 중복될 수 없다」 + 「친구 검색은
+    //   대소문자를 구분하지 않고 정확히 일치할 때만」 두 문장이 이 한 표현식 축을 공유한다.
+    //   탈퇴자는 nickname=NULL(PII 파기)이라 유니크에 걸리지 않는다. V1 의 uq_users_nickname(정확 일치)은
+    //   이미 적용된 마이그레이션이라 그대로 둔다 — 이 인덱스에 포섭되는 중복 제약이다.
+    //   DBML 은 표현식 인덱스를 백틱으로 적는다: CREATE UNIQUE INDEX … ON users (lower(nickname))
+    (`lower(nickname)`) [unique, name: 'uq_users_nickname_lower', note: '닉네임 대소문자 무시 유일성 + 친구 검색 GROMO-1996, V89']
+    // GROMO-460: 친구 닉네임 fuzzy 검색용 GIN 트라이그램 인덱스 (run-migration-v13.sh)
+    //   ⚠ GROMO-1996 이 검색을 전체 일치로 바꾸면서 «쓰는 쿼리가 없다». 안정화 전까지 남겨 두고
+    //     제거는 별건으로 다룬다. islands.name 의 trgm(V18)은 계속 쓰인다.
+    nickname [type: gin, note: 'pg_trgm GIN (gin_trgm_ops) — 닉네임 trgm 검색 GROMO-460 (GROMO-1996 이후 미사용)']
+  }
+}
+
+Table user_notification_settings [note: '유저별 알림 설정 (users 1:1)'] {
+  user_id                        uuid       [pk, note: 'FK → users.id (1:1)']
+
+  notification_enabled           boolean     [not null, default: true,  note: '전역 알림 on/off']
+
+  sound_enabled                  boolean     [not null, default: true,  note: '알림 소리 on/off']
+
+  night_mode_enabled             boolean     [not null, default: false, note: '심야 모드 on/off']
+
+  night_start_time               time(0)        [note: '심야 모드 시작 시각']
+  night_end_time                 time(0)        [note: '심야 모드 종료 시각']
+
+  updated_at                     timestamptz
+  deleted_at                     timestamptz [note: '탈퇴 시각 (소프트 딜리트 감사 로그용)']
+}
+
+Table social_accounts [note: '소셜 로그인 연동 정보 (provider + provider_id 조합으로 유저 식별)'] {
+  id          uuid        [pk]
+  user_id     uuid        [not null, note: 'FK → users.id']
+
+  provider    provider    [not null, note: 'APPLE / GOOGLE / KAKAO / LINE / INSTAGRAM / FACEBOOK']
+  provider_id varchar(255) [not null, note: '소셜 제공자 측 사용자 식별자']
+
+  created_at  timestamptz [default: `now()`, note: '연동 시각 — 어떤 소셜로 처음 가입했는지 추적(최초 provider 식별). DB 는 NOT NULL 아님 — @CreationTimestamp']
+  deleted_at  timestamptz [note: '연동 해제 시각 (소프트 딜리트)']
+
+  indexes {
+    (provider, provider_id) [unique, note: '외부 신원 식별키 — provider_id는 제공자 네임스페이스 내에서만 유일하므로 복합 unique']
+  }
+}
+
+Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). from_user가 to_user에게 신청'] {
+  id           uuid              [pk]
+
+  from_user_id uuid              [not null, note: '친구 신청한 유저 (FK → users.id)']
+  to_user_id   uuid              [not null, note: '신청 받은 유저 (FK → users.id)']
+
+  status       friendship_status [not null, default: 'PENDING', note: 'PENDING / ACCEPTED / REJECTED / CANCELED(V60, GROMO-1894 발신자 취소). CHECK 제약 friendships_status_check 가 이 넷으로 제한']
+
+  created_at   timestamptz       [default: `now()`, note: '신청 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
+  updated_at   timestamptz       [note: '상태 변경(수락/거절) 시각']
+  deleted_at   timestamptz       [note: '친구 삭제 시각 (소프트 딜리트)']
+
+  indexes {
+    // V1 의 ukcw1b2t1f9600yhvikefbpd1gn — 조건 없는 unique 다(부분 인덱스가 아니다).
+    // 소프트 딜리트 행도 걸리므로 재친구 요청은 새 행을 넣지 못한다 → createRequest 가 기존 행을 복원·재전환한다(GROMO-719).
+    (from_user_id, to_user_id) [unique, note: '같은 «방향»의 중복 행 차단. WHERE 절 없는 unique 라 deleted_at 이 찍힌 행도 자리를 차지한다 — 재요청이 insert 로 빠지면 409 가 나므로 FriendService.createRequest 가 복원(GROMO-719)·재전환으로 같은 행을 되쓴다']
+
+    // V98(GROMO-2042) 표현식 부분 unique — 위 인덱스는 방향이 같을 때만 막아서, A→B 와 B→A 가
+    // 동시에 오면 둘 다 findPair 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
+    //   CREATE UNIQUE INDEX uq_friendships_pending_pair ON friendships
+    //     (least(from_user_id, to_user_id), greatest(from_user_id, to_user_id))
+    //     WHERE status = 'PENDING' AND deleted_at IS NULL;
+    (`least(from_user_id, to_user_id)`, `greatest(from_user_id, to_user_id)`) [unique, name: 'uq_friendships_pending_pair', note: '살아 있는 PENDING 요청은 두 사람당 한 건 — 방향 무관(V98, GROMO-2042). 양방향 동시 요청의 마지막 방어선이며, 지는 쪽은 409 로 떨어진다. ACCEPTED 는 술어에 넣지 않았다 — 「거절했던 요청을 뒤늦게 수락」(acceptRequest 의 전 상태 관용)이 반대 방향 PENDING 과 겹치는 기존 경로를 깨기 때문']
+  }
+}
+
+Table user_blocks [note: '유저 차단 (방향성: blocker가 blocked를 차단). 친구관계와 독립'] {
+  id         uuid        [pk]
+
+  blocker_id uuid        [not null, note: '차단한 유저 (FK → users.id)']
+  blocked_id uuid        [not null, note: '차단당한 유저 (FK → users.id)']
+
+  created_at timestamptz [not null, default: `now()`, note: '차단 시각']
+
+  indexes {
+    (blocker_id, blocked_id) [unique, note: '중복 차단 방지']
+  }
+}
+
+Table letters [note: '친구 사이 1:1 편지 (GROMO-1933, friend-letter LLD §1.12~1.14 · §2, V61). 섬 공개 우체통 메시지(island-mailbox, Realtime gromo_chat)와 다른 도메인 — 화면에 나란히 떠도 저장소·권한이 갈린다'] {
+  id          uuid        [pk]
+
+  sender_id   uuid        [note: '보낸 유저 (FK → users.id, ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다. 운영 탈퇴는 소프트 삭제라 닿지 않음). 시스템 편지(kind != FRIEND)는 NULL — V112 이 NOT NULL 을 풀었다(GROMO-2260)']
+  receiver_id uuid        [not null, note: '받는 유저 (FK → users.id, ON DELETE RESTRICT — sender 와 동일)']
+
+  content     varchar(500) [not null, note: '본문 상한 500 — 재영님 확정(2026-09-18). LLD·HLD 의 1000 은 폐기된 제안']
+  read_at     timestamptz [note: '수신자가 처음 상세 조회한 시각. NULL = 안 읽음. status enum 없이 이 컬럼 하나가 유일한 전이']
+  created_at  timestamptz [not null, default: `now()`, note: '발송 시각. 커서 정렬 축은 이 컬럼이 아니라 id(UUID v7, 시간순)']
+  deleted_at  timestamptz [note: '시스템 소프트 삭제 필드 — 지금 쓰는 경로 없음. 친구 삭제 후 편지 처리(LLD §4 결정 3)가 «삭제»로 결정되면 그 실행에 쓸 자리. 읽기는 전부 deleted_at IS NULL']
+  kind        varchar(20) [not null, default: 'FRIEND', note: '편지 종류 — FRIEND|KICK|JOIN_APPROVED (CHECK). FRIEND 만 사람이 보내고 나머지는 시스템 편지(강퇴·가입 승인 안내, sender_id NULL). GROMO-2260, V112']
+  island_id   uuid        [note: '시스템 편지가 가리키는 섬 (FK → islands.id, ON DELETE SET NULL). 친구 편지는 NULL. GROMO-2260, V112']
+
+  indexes {
+    (receiver_id, id) [note: '받은 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_receiver_cursor)']
+    (sender_id, id)   [note: '보낸 편지함 커서 — 실제는 (sender_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_sender_cursor)']
+    (receiver_id, id) [name: 'letters_receiver_system_idx', note: "시스템 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL AND kind <> 'FRIEND' 부분 인덱스. GROMO-2260, V112"]
+  }
+}
+
+Table group_invite_links [note: '그룹 초대 링크 원장: slug → (그룹, 초대자). (그룹, 초대자)당 1링크를 재사용한다(멱등 발급). 공유 URL = https://link.oneorthree.world/l/{slug}?g={group_id}. migration V21'] {
+  id         uuid        [pk]
+
+  slug       varchar(12) [not null, unique, note: '초대 링크 식별자. 생성 규칙은 8자(혼동 문자 제외 알파벳 23456789abcdefghjkmnpqrstuvwxyz), 규칙 변경 여지로 컬럼은 12']
+  group_id   uuid        [not null, note: 'FK → islands.id — 링크가 가리키는 그룹']
+  inviter_id uuid        [note: 'FK → users.id — 누가 데려왔나(어트리뷰션 앵커). V65: 발급자 탈퇴 시 null — 발급자 없는 링크는 폐기(랜딩 만료·매치/claim/귀속 없음)']
+
+  issuance_epoch bigint  [not null, default: 0, note: '발급 시점 발급자의 group_members.membership_epoch — 이탈/강퇴/재가입으로 세대가 바뀌면 이 코드는 폐기(410). migration V63']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (group_id, inviter_id) [unique, note: '멱등 발급의 최후 방어선 — 동시 발급 레이스 포함']
+  }
+}
+
+Table island_join_requests [note: '섬 가입 요청 — 논리 모델 JoinRequest(island-membership LLD §4). PENDING 이 유일한 열린 상태이고 APPROVED·REJECTED·CANCELLED 는 전부 terminal. 전이는 요청 행 배타 잠금 아래서만. migration V63'] {
+  id             uuid        [pk]
+
+  island_id      uuid        [not null, note: 'FK → islands.id — 신청 대상 섬 (ON DELETE RESTRICT)']
+  applicant_id   uuid        [not null, note: 'FK → users.id — 신청자. 소유 판정은 이 컬럼으로만 (ON DELETE RESTRICT)']
+
+  status         varchar(20) [not null, default: 'PENDING', note: "CHECK: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'"]
+  terminal_reason varchar(30) [note: "CHECK: 'APPLICANT_CANCELLED' | 'HOST_APPROVED' | 'HOST_REJECTED' | 'ISLAND_CLOSED' — 닫은 내부 사유, 응답에 나가지 않는다"]
+
+  invite_link_id uuid        [note: 'FK → group_invite_links.id — 초대 근거(식별자만). 없으면 일반 신청 (ON DELETE RESTRICT)']
+
+  version        bigint      [not null, default: 0, note: '낙관 버전 — 전이마다 +1, 이벤트의 requestVersion 과 같은 축']
+  created_at     timestamptz [not null, default: `now()`]
+  resolved_at    timestamptz
+
+  indexes {
+    (island_id, applicant_id) [name: 'uq_island_join_requests_pending', unique, note: "(섬, 신청자)당 PENDING 은 하나 — 부분 유니크(WHERE status = 'PENDING')가 최후 방어선"]
+    (applicant_id, island_id, created_at) [name: 'ix_island_join_requests_applicant_island', note: '본인 요청 조회(/me/join-requests/{id})와 요약의 «본인 최신 신청» 해석']
+  }
+}
+
+Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 횟수/시간)'] {
+  id                        uuid        [pk]
+
+  user_id                   uuid        [note: 'nullable — 탈퇴 시 null (FK → users.id)']
+  daily_focus_stat_id       uuid        [note: 'nullable — 소속 일일 집계 (FK → daily_focus_stats.id)']
+
+  focus_type                focus_type  [not null, default: 'INFINITE', note: 'INFINITE / RANGE / POMODORO']
+
+  started_at                timestamptz [not null, note: '세션 시작 시각']
+  client_started_at         timestamptz [note: 'nullable — 클라가 보고한 시작 시각 원본. started_at 은 서버 보정 후 값이라 둘을 분리 보관']
+  ended_at                  timestamptz [note: '세션 종료 시각 — 진행중(라이브) 세션이면 null (GROMO-610)']
+  stat_end_at               timestamptz [note: 'nullable — 통계 귀속용 유효 종료 = min(ended_at, 완료 시점 now). ended_at 은 재업로드 중복 검사 때문에 클라 값 그대로 저장하므로, 미래 endedAt 위조가 조회 시점마다 더 세지 않도록 완료 순간 클램프를 고정 보관 (GROMO-1252). 레거시 row 는 null → 조회측이 ended_at 폴백']
+  focus_seconds_by_date     jsonb       [note: 'nullable — 완료 시점에 확정한 날짜별 집중 초 (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). daily_focus_stats 에 가산한 값과 동일 (GROMO-1252). 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 자르지 않고 이 분포를 쓴다. 레거시 row 는 null → 조회측이 벽시계 클리핑 폴백']
+
+  status                    focus_session_status [not null, default: 'ACTIVE', note: '세션 생명주기 (deleted_at 대체). 라이브 = ACTIVE(단, GROMO-610 레거시 경로로 ended_at 만 채워진 채 ACTIVE 로 남은 완료 행도 존재 — 라이브 판정은 status 가 아니라 ended_at IS NULL 로 한다). 마감 종류: COMPLETED(정상 완료) / CANCELED(유저 취소·POST 폴백 선점) / AUTO_CLOSED(서버 대신 마감 — orphan 12h 스윕 + 새 마커 시작 시 close-then-open, GROMO-1287). 집계 쿼리는 NOT IN (CANCELED, AUTO_CLOSED) 제외 목록 방식']
+
+  total_distraction_seconds integer     [not null, default: 0, note: '집중 중 이탈 누적 시간(초)']
+
+  presence_order            bigint      [default: `nextval('focus_sessions_presence_order_seq')`, note: 'nullable — 집중 프레즌스 리스(presence:focus:{userId})의 순서 판정 키, DB 시퀀스가 INSERT 때 채운다 (GROMO-1743). UUID v7 id 는 인스턴스 시계라 다중화하면 순서가 어긋난다. V77 이전에 끝난 행은 NULL(열린 마커는 V77 이 백필) — 프레즌스가 순서 판정을 건너뛴다. migration V77']
+
+  created_at         timestamptz        [default: `now()`, note: 'DB 는 NOT NULL 아님 — @CreationTimestamp']
+
+  // (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도 존재한 적이 없어
+  // GROMO-1287 에서 삭제했다 — 없는 것을 문서가 있다고 말하고 있었다. 아래는 실제로 만든 것이다.)
+  //
+  // 「유저당 라이브 마커(ended_at IS NULL) 1개」 불변식은 현재 **서비스 레이어**가 지킨다
+  // (FocusService.startFocusSession: users 행 배타 락 + close-then-open + startedAt 단조성).
+  // 이를 DB 로 강제하는 부분 유니크 인덱스 — (user_id) WHERE ended_at IS NULL — 는 **후속 티켓**이다:
+  // prod 롤백이 Flyway 를 유지한 채 이미지만 되돌리므로, close-then-open 이 안착하기 전에 인덱스를
+  // 넣으면 롤백된 구버전 서버가 마커 회전마다 유니크 위반 500 을 낸다.
+  //
+  // 다만 **비고유** 부분 인덱스는 롤백해도 INSERT 를 막지 않으므로 V47 이 함께 만든다 — 매 start 가
+  // 배타 락을 쥔 채 (user_id, ended_at IS NULL) 조회와 벌크 마감을 연달아 돌려, 인덱스가 없으면
+  // 요청마다 풀스캔 2회에 락 보유 시간까지 길어진다.
+
+  indexes {
+    (user_id, started_at) [name: 'idx_focus_sessions_live_marker', note: '라이브 마커 조회·마감 전용 **비고유** 부분 인덱스 (WHERE ended_at IS NULL, started_at DESC). migration V47. 유니크가 아닌 이유는 위 주석 — 롤백 호환']
+  }
+}
+
+Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 귀속·subject·목표·lifecycle·낙관 버전). focus_sessions 1:1, 이 행의 존재가 v0.3 프로토콜 판별자(migration V58)'] {
+  session_id                uuid    [pk, note: 'FK → focus_sessions.id ON DELETE CASCADE — 별도 발급 없이 레거시 세션 PK를 공유']
+  user_id                   uuid    [note: 'nullable — 탈퇴 시 null (FK → users.id ON DELETE SET NULL). 레거시 focus_sessions 와 같은 익명화: 행은 남기고 user_id 절단 + 자유 입력 subject 파기(AccountWithdrawalService)']
+  island_id                 uuid    [not null, note: '섬 세션/일반 SEA는 실제 섬, 무인도 SEA 진행 중에는 가상 후보 ID. 성공 정산 때 실제 섬 ID로 교체. V139에서 FK 제거']
+  new_island_destination    boolean [not null, default: false, note: 'V139: 가상 무인도 후보 항해. kind=SEA만 true. 성공 정산 때 섬 생성과 함께 false']
+  membership_epoch_at_start bigint  [note: 'nullable(V124) — 바다 세션은 멤버십이 없어 null. 시작 시점 GroupMember.membershipEpoch 스냅샷 — 기록만. 소속 상실은 강퇴 TX 가 직접 종결한다(FR-D03, GROMO-1924)']
+  kind                      varchar(10) [not null, default: 'ISLAND', note: 'V124·GROMO-2299: ISLAND / SEA. SEA 면 island_id 는 목적지 섬이고 멤버십·휴식·presence 투영이 없다']
+  sailing_minutes           integer [note: 'V124: SEA 만. 시작 시 망원경 목록의 항해 분을 고정. CHECK focus_session_details_sea_sailing_ck — kind=SEA 면 NOT NULL']
+  arrived                   boolean [note: 'V124: SEA 정산 때 activeSeconds >= sailing_minutes*60. 진행 중·섬 세션은 null']
+  subject                   varchar(200) [not null, note: '자유 입력 — 탈퇴 익명화가 빈 문자열로 파기한다(NOT NULL 불변식이라 null 대신 빈 값)']
+  target_minutes            integer [note: 'nullable — 목표는 선택이다(V82·GROMO-1990: 보상이 시간에만 걸린다). 값이 있으면 0 이하만 거절, 허용 범위는 FR-D06 미결']
+  lifecycle                 varchar(20) [not null, note: 'ACTIVE / PAUSED / COMPLETED / ABANDONED / MEMBERSHIP_LOST — 레거시 focus_session_status와 별개 축. ABANDONED = 기본 focus_sessions 마커가 레거시 start(autoCloseOpenMarkersOf)에 닫혀 진행 불가가 된 세션(정상 완료 아님). MEMBERSHIP_LOST = 강퇴 TX 가 서버 시각으로 종결한 세션(FR-D03 B1 강제 종료·미정산, GROMO-1924). 열 폭 10→20 은 V67']
+  version                   bigint  [not null, default: 1, note: '낙관 버전 — pause/resume/finish마다 +1(expectedVersion 검사 대상)']
+  last_transition_at        timestamptz [not null]
+  policy_revision           integer [note: '시작 시 고정한 보상 정책 revision(focus_reward_policies.revision, GROMO-1924). 운영이 새 revision 을 내도 진행 세션의 지급률은 그대로']
+  rest_seat                 integer [note: 'paused 동안만 값 존재. 섬 안 1..N 중 빈 최소 번호(예약 API 아님)']
+  seat_x                    "double precision" [note: 'V1·GROMO-2477: 집중섬에서 앉은 자리 — 시작 때 앱이 고른 지도 % 좌표(0~100, 반올림 없음). 시작 후 불변. 자리 없이 시작한 세션(옛 앱·바다)은 seat_y 와 함께 null. CHECK focus_session_details_seat_ck — 둘 다 null 이거나 둘 다 0~100(NaN 거절). 모닥불 자리 rest_seat 와 별개']
+  seat_y                    "double precision" [note: 'V1·GROMO-2477: seat_x 와 짝 — 세로 % 좌표']
+  rewarded_seconds          bigint  [not null, default: 0, note: 'V82·GROMO-1990: 적립 틱이 판정을 마친 순수 집중 초(secondsPerFish 의 배수). 하루 상한에 걸려 못 받은 몫도 포함 — 자정에 소급 지급하지 않기 위해서다']
+  created_at                timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id) [unique, name: 'focus_session_details_user_progressing_uk', note: 'WHERE lifecycle IN (ACTIVE,PAUSED) — 사용자당 진행 세션 1개(FR-P02). COMPLETED/ABANDONED/MEMBERSHIP_LOST는 제약 밖']
+    (island_id, rest_seat) [unique, name: 'focus_session_details_rest_seat_uk', note: 'WHERE lifecycle = PAUSED — 같은 섬 휴식 자리 중복 배정 방지']
+    (user_id, island_id, session_id) [name: 'focus_session_details_user_island_idx', note: 'V82 — 하루 상한(sumEarnedFishOnDay)·주민 누적 획득의 조인 경로. 위 부분 UNIQUE 는 «진행 중» 만 담아 완료 세션까지 세는 이 조회에 못 쓴다']
+    (user_id, island_id, last_transition_at) [name: 'focus_session_details_user_transition_idx', note: 'V130/GROMO-2344 — 회관 기록 findOverlapping[OnIsland] 의 시간 경계(끝난 세션은 last_transition_at > 창 시작). 주민 전생애 세션 탐침을 없앤다. scope=me 는 user_id 범위 안에서 last_transition_at 을 인덱스 튜플로 거른다']
+  }
+}
+
+Table sea_remarks [note: 'V124·GROMO-2299: 바다 방에서 보이는 한마디(1~20자). 행 없음 = 한마디 없음. 탈퇴 시 AccountWithdrawalService 가 삭제'] {
+  user_id    uuid        [pk, note: 'FK → users.id ON DELETE CASCADE']
+  remark     varchar(20) [not null]
+  changed_at timestamptz [not null, note: '직전 변경 시각 — 5분 안 재변경은 SEA_REMARK_LOCKED']
+}
+
+Table focus_session_intervals [note: 'GROMO-1764: v0.3 세션의 ACTIVE/REST 실제 서버 시간 구간. [started_at, ended_at) 반열림'] {
+  id          bigint [pk, increment]
+  session_id  uuid    [not null, note: 'FK → focus_session_details.session_id ON DELETE CASCADE']
+  ordinal     integer [not null, note: '세션 안에서 1부터 증가 — (session_id, ordinal) UNIQUE']
+  kind        varchar(10) [not null, note: 'ACTIVE / REST']
+  started_at  timestamptz [not null]
+  ended_at    timestamptz [note: 'null이면 진행 중(열린 구간). 세션당 열린 구간 최대 1개(부분 UNIQUE)']
+
+  indexes {
+    (session_id, ordinal) [unique]
+    (session_id) [unique, name: 'focus_session_intervals_open_uk', note: 'WHERE ended_at IS NULL — 열린 구간 세션당 최대 1개']
+    (started_at, ended_at) [name: 'focus_session_intervals_active_window_idx', note: 'V85 — WHERE kind = ACTIVE AND ended_at IS NOT NULL. 주간 섬 랭킹 분자의 스캔 경로(주 창과 겹치는 «닫힌» ACTIVE 구간). 없으면 랭킹 한 번에 전체 구간을 훑는다']
+  }
+}
+
+Table focus_settlements [note: 'GROMO-1764: v0.3 세션당 정산 결과(다른 idempotency-key 완료 재생·중복 지급 방어). GROMO-1990 부터 «지급의 근거가 아니라 확정 기록» 이다 — 물고기는 focus_reward_accruals 의 매분 적립이 이미 넣었고 finish 는 그 합을 옮겨 적는다(추가 지급 없음)'] {
+  session_id                uuid    [pk, note: 'FK → focus_session_details.session_id ON DELETE RESTRICT — 정산 원장 행은 상세가 사라져도 임의로 함께 지우지 않는다']
+  contract_version          integer [not null, default: 1]
+  policy_revision           integer
+  active_seconds            bigint  [not null]
+  goal_achieved             boolean [not null]
+  earned_fish               integer [not null, default: 0, note: 'E = personal_fish_added + construction_fish_added 보존식']
+  personal_fish_added       integer [not null, default: 0, note: '개인 지갑(user_fish_wallets) 적립분 — D5-귀속-개정 이후 언제나 0(집중 보상은 섬 통장 100%)']
+  construction_fish_added   integer [not null, default: 0, note: '섬 통장(island_wallets, village_points) 적립분 — 열 이름은 V58 그대로']
+  quest_progress            jsonb
+  events                    jsonb   [note: '내부 결과 — 공개 finish 응답에 그대로 노출하지 않는다']
+  completed_at              timestamptz [not null, note: '정산을 확정한 서버 시각. 하루 상한 합산 축은 V82 에서 focus_reward_accruals.accrued_on 으로 옮겼다(진행 중 적립분이 상한에 잡혀야 한다)']
+  auto_closed               boolean [not null, default: false, note: 'V88 — 휴식 1시간 초과로 «서버가» 끝낸 정산(GROMO-1998). finish 로 끝난 정산은 false 다. 소속 상실 종결은 정산 행 자체를 만들지 않는다']
+  acknowledged_at           timestamptz [note: 'V88 — 자동 종료 결과창을 보여 준 시각(GROMO-1998). auto_closed AND acknowledged_at IS NULL 이 「다음 접속에 한 번 보여줄 결과」이고, IS NULL 조건부 UPDATE 가 최초 1회만 성공한다']
+  created_at                timestamptz [not null, default: `now()`]
+  customization_reward_revision   integer     [note: 'V135 — 이 세션이 뽑은 꾸미기 보상의 정책 revision(GROMO-2301). 15분 미만·정책 없음이면 NULL. CHECK focus_settlements_customization_reward_pair(NOT VALID — 새 행에만 강제): product_id 와 둘 다 NULL 이거나 둘 다 NOT NULL']
+  customization_reward_product_id varchar(80) [note: 'V135 — 뽑힌 상품. 이미 가진 상품이어도 남는다(중복 획득 — owned_products 행은 처음 한 번). finish 응답 seaReward.grantedProductIds 의 정본 — 재조회(새 키 finish·pending-result)는 다시 뽑지 않고 이 값을 읽는다']
+  customization_reward_new        boolean     [note: 'V135 — 이번 지급으로 owned_products 행이 새로 생겼는가(결과창 NEW!, seaReward.newProductIds 의 정본). 이미 가진 상품을 또 뽑았으면 false. CHECK focus_settlements_customization_reward_new_pair(NOT VALID — 새 행에만 강제): revision 과 둘 다 NULL 이거나 둘 다 NOT NULL']
+
+  indexes {
+    (completed_at) [name: 'focus_settlements_completed_at_idx', note: 'V67']
+  }
+}
+
+Table focus_reward_accruals [note: 'GROMO-1990: 집중 보상 적립 원장(migration V82). (세션, 적립일) 당 한 행 — 매분 적립 틱이 «유효 집중 60초당 1마리» 를 섬 통장에 넣을 때마다 누적한다. V82 가 기존 focus_settlements 의 지급분을 (세션, completed_at 의 UTC 날짜) 한 행으로 이관해 상한·누적 획득이 과거분을 잃지 않는다. 하루 상한 합산과 회관 기록의 주민 누적 획득이 둘 다 이 표를 읽는다(정산 행만 세면 진행 중·강퇴 세션의 적립분이 빠진다). user_id·island_id 는 복제하지 않고 focus_session_details 와 조인한다 — 탈퇴 익명화가 그대로 따라오게'] {
+  id          uuid    [pk]
+  session_id  uuid    [not null, note: 'FK → focus_session_details.session_id ON DELETE CASCADE']
+  accrued_on  date    [not null, note: '적립일 = UTC 날짜(결정 D8 — 하루 리셋 UTC 00:00). daily_focus_stats 의 KST 축과 일부러 다르다(전환 대기 중인 레거시 축)']
+  earned_fish integer [not null, note: '그날 이 세션이 «실제로» 적립한 마리 수. 상한에 걸려 못 받은 몫은 여기 없다(워터마크는 focus_session_details.rewarded_seconds). V91 이 CHECK 를 earned_fish+golden_fish>0 으로 옮겼다 — 기본 적립 없이 황금만 받은 날의 행을 허용하려고']
+  golden_fish integer [not null, default: 0, note: 'V91/GROMO-1956: 그날 이 세션이 황금 물고기로 받은 «자기 몫»(50 ÷ 함께 낚은 인원, 내림)의 합. earned_fish 와 섞지 않는 것이 핵심 — 하루 480 상한(sumEarnedFishOnDay)은 earned_fish 만 합산하므로 「황금 물고기는 480 상한과 별도」가 지켜진다. 주민 누적 획득 기록만 두 열의 합을 읽는다. 섬 잔액에 들어간 50마리는 island_wallet_transactions(GOLDEN_FISH)가 정본이다']
+  created_at  timestamptz [not null, default: `now()`]
+  updated_at  timestamptz [not null, default: `now()`]
+
+  tutorial_fish integer [not null, default: 0, note: 'V104: 최초 5초 집중 보상. 0 또는 1. 일반 480마리 상한과 별도이며 세션 결과와 주민 누적 획득에 포함한다. 세 적립 열(earned_fish+golden_fish+tutorial_fish)의 합이 양수여야 한다 — CHECK focus_reward_accruals_fish_ck']
+
+  // 트리거: focus_settlements_mirror_accrual_trg (AFTER INSERT ON focus_settlements) — earned_fish>0 이고 그 세션의 적립 행이 하나도 없을 때만 완료 시각의 UTC 날짜로 한 행을 옮긴다. 롤링 배포 중 «옛» finish 가 쓴 정산을 메우는 안전망(V82)
+  indexes {
+    (session_id, accrued_on) [unique, name: 'focus_reward_accruals_session_day_uk', note: '같은 세션의 같은 날 적립은 한 행에 누적 — 동시 기입의 최후 방어선']
+    (accrued_on) [name: 'focus_reward_accruals_accrued_on_idx']
+  }
+}
+
+Table focus_tutorial_rewards [note: '계정당 1회 지급 영수증. 세션 삭제로 수령 자격이 되살아나지 않도록 session_id는 FK가 아닌 기록값이다'] {
+  user_id uuid [pk, note: 'ON DELETE CASCADE']
+  session_id uuid [note: 'V105: 체험 보상은 null, 기존 집중 보상은 세션 기록값 유지']
+  island_id uuid [note: 'V105: 체험 보상의 귀속. ON DELETE SET NULL로 수령 이력 보존. session_id IS NULL 부분 인덱스 ix_focus_tutorial_rewards_island']
+  claimed_at timestamptz [not null]
+}
+
+Table island_weekly_member_counts [note: 'GROMO-1997: 주간 섬 랭킹의 «동결된 분모»(migration V85) — 주 마감(UTC 일요일 00:00Z) 시점의 그 섬 활성 주민 수. 주 마감 크론이 INSERT … SELECT … ON CONFLICT DO NOTHING 한 문장으로 적고 그 뒤로는 바뀌지 않는다. 동결하는 이유: group_members 는 (user_id, group_id) 한 행이고 left_at 이 없어 「그 주에 몇 명이었나」를 사후 복원할 수 없다 — 동결하지 않으면 주민을 강퇴하는 것만으로 지난 주 평균(= 섬 집중 초 합 ÷ 주민 수)이 오른다. 분자는 V130 부터 read model island_weekly_focus 에서 읽는다(정본은 그대로 focus_session_*). 끝난 주에 행이 없는 섬은 랭킹에서 빠진다(「지금 인원으로」 대체하지 않는다)'] {
+  week_start   date        [not null, note: '주 시작일 = UTC 일요일. 동결 기준 시각은 크론 실행 순간이 아니라 «주 종료 경계»(다음 주 00:00Z)다 — V97 이후 가입·이탈 «양방향»을 경계로 판정하므로(COALESCE(rejoined_at, created_at) < 경계 AND (is_left=false OR left_at >= 경계), GROMO-2050) 배치가 언제 돌든 값이 같다. 종전의 실행 유예 ranking.freeze.grace 는 그래서 삭제됐다. CHECK EXTRACT(ISODOW FROM week_start) = 7 — 키가 정말 일요일인지 DB 가 지킨다(크론 존이나 호출측 계산이 틀어져도 월요일자 주가 섞이지 않는다). ISO YYYY-Www 표기를 쓰지 않는 이유는 island-rankings policy RK-P01-키']
+  island_id    uuid        [not null, note: 'FK → islands.id ON DELETE CASCADE']
+  member_count integer     [not null, note: 'CHECK > 0 — 「주 종료 경계에 그 섬 주민이었던 사람」 수. 동결 시점 기준으로는 GroupMemberRepository.countByGroupIdIn 과 같은 모수라 주민 목록·정원 판정과 어긋나지 않는다. users 조인은 V97 에서 뺐다 — 계정 탈퇴가 같은 TX 에서 모든 활성 멤버십에 leave() 를 밟으므로(V30 이 그 이전 데이터를 정리) 같은 것을 두 번 묻는 것이고, 남겨 두면 경계 뒤의 계정 탈퇴가 지난 주 분모를 줄인다. 0명인 섬은 GROUP BY 에서 행이 안 나와 자연히 빠진다']
+  frozen_at    timestamptz [not null, default: `now()`, note: '동결 시각 — 배치가 언제 돌았는지의 기록이지 주 경계가 아니다']
+
+  indexes {
+    (week_start, island_id) [pk]
+  }
+}
+
+Table island_weekly_focus [note: 'GROMO-2343: 주간 섬 랭킹 «분자» read model(migration V130) — (UTC 일요일 주, 섬)의 끝난 섬 집중(lifecycle COMPLETED · kind ISLAND · 닫힌 ACTIVE 구간) 교집합 μs 합. 섬 세션 완료 전이(FocusSessionLifecycleService.settle)가 같은 TX 에서 주마다 UPSERT 가산하고, 주 마감 크론이 방금 끝난 주를 정본(focus_session_details × focus_session_intervals)으로 재계산한다(IslandWeeklyFocusService.recompute — LOCK SHARE ROW EXCLUSIVE → DELETE → INSERT … SELECT). V130 이 기존 모든 주를 백필했다. 읽기는 active_micros / 1e6 을 섬마다 한 번만 내리고 1초 미만 섬을 뺀다 — FocusSessionDetailRepository.sumIslandActiveSeconds 와 같은 값'] {
+  week_start    date        [not null, note: '주 시작일 = UTC 일요일(RankingWeek). CHECK EXTRACT(ISODOW FROM week_start) = 7']
+  island_id     uuid        [not null, note: '세션이 시작할 때 고정한 섬. FK 없음 — 재계산의 테이블 잠금과 finish 의 islands FOR UPDATE 사이 잠금 순서 역전(교착)을 피한다. islands 는 소프트 삭제라 CASCADE 가 무의미하고, 고아 행은 읽기 쪽 isAlive·이름 조회가 거른다']
+  active_micros bigint      [not null, default: 0, note: 'CHECK >= 0. 초가 아니라 μs — 세션마다 초로 내려 더하면 원본 집계(마지막에 한 번만 내림)와 어긋난다']
+  updated_at    timestamptz [not null, default: `now()`, note: '마지막 가산·재계산 시각(운영 관측용)']
+
+  indexes {
+    (week_start, island_id) [pk, name: 'island_weekly_focus_pk']
+  }
+}
+
+Table island_focus_averages [note: 'GROMO-2257: 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷(migration V114, 섬 외부 계약 §3). 매일 07:00 KST 배치가 살아 있는(미삭제·미종료) 섬 «전부»(비공개 포함)마다 한 행을 적는다 — 창은 [D-7 07:00 KST, D 07:00 KST), 분자는 FocusSessionDetailRepository.sumIslandActiveSeconds(끝난 세션의 ACTIVE 구간 초 합), 분모는 그 시점의 GroupMemberRepository.countByGroupIdIn × 7. 망원경 목록(GROMO-2265)이 섬마다 «가장 최근 snapshot_date 행»을 읽는다. 주간 섬 랭킹(초 단위·고정 분모)과는 값이 다르다 — 계약이 수용한 차이. 섬 × 일 1행. GROMO-2280: 운영자 수동 실행(POST /internal/admin/island-focus-averages/snapshots, 가장 최근에 지난 07:00 KST 의 날짜까지)이 같은 INSERT 를 쓴다. 정리 — 07시 크론이 스냅샷 뒤 island.focus-average.retention-days(기본 90)일보다 오래된 행을 지우되 섬마다 최신 1행은 남긴다'] {
+  snapshot_date              date        [not null, note: '배치가 도는 날의 KST 날짜(07시 실행일). (snapshot_date, island_id) PK + INSERT … ON CONFLICT DO NOTHING 이 «하루 1회·같은 날 2회 조회 = 같은 값» 을 지킨다 — 같은 날 재실행은 첫 값을 덮지 않는다']
+  island_id                  uuid        [not null, note: 'FK → islands.id ON DELETE CASCADE. 배치는 islands 에서 출발하므로 집중이 0인 섬·주민이 0명인 섬도 행이 생긴다']
+  member_count               integer     [not null, note: '계산 시점의 현재 주민 수(GroupMemberRepository.countByGroupIdIn 과 같은 모수 — 활성·미탈퇴). 0 이면 avg 는 NULL']
+  avg_minutes_per_member_day integer     [note: 'round(창 안 섬 집중 초 ÷ 60 ÷ member_count ÷ 7). NULL = 주민 0명(분모 0). 주민이 있고 집중이 없으면 NULL 이 아니라 0']
+  computed_at                timestamptz [not null, default: `now()`, note: '배치가 적은 시각(운영 관측용). 엔티티는 매핑하지 않는다']
+
+  indexes {
+    (snapshot_date, island_id) [pk]
+    (island_id, snapshot_date) [name: 'island_focus_averages_island_date_idx', note: '섬마다 가장 최근 행(DISTINCT ON (island_id) … ORDER BY island_id, snapshot_date DESC) 읽기용. 실제 인덱스는 snapshot_date DESC']
+  }
+}
+
+Table focus_reward_policies [note: 'GROMO-1924: 집중 보상 산식 revision(FR-D01 · 2026-09-18 결정 D5 · D5-귀속, migration V67). 추가만 한다 — 가장 큰 revision 이 현재 정책, 세션은 시작 시 revision 고정'] {
+  revision                integer [pk]
+  seconds_per_fish        integer [not null, note: 'CHECK > 0 — 이 초만큼의 순수 집중마다 1마리(D5: 60)']
+  daily_cap_fish          integer [not null, note: 'CHECK >= 0 — 주민·섬별 하루 상한(D5: 480)']
+  personal_share_percent  integer [not null, note: 'CHECK = 0 (V99/GROMO-2045 이 V67 의 0..100 을 좁혔다) — 개인 지갑 몫이 0 이라 전액이 섬 통장으로 간다(D5-귀속-개정). 값 하나로 폐기한 개인 재화가 되살아나지 않게 DB 가 막는다. 열을 지우지 않는 것은 E=P+C 보존식의 P 자리를 응답 계약(allocation.personalFishAdded)이 아직 쓰기 때문이다']
+  golden_fish_reward      integer [not null, default: 50, note: 'V91/GROMO-1956: 황금 물고기 한 번의 섬 적립량(기획 정본 50). 인원수만큼 곱하지 않는다']
+  golden_max_members      integer [not null, default: 5, note: 'V91/GROMO-1956: 확률표가 세는 ACTIVE 인원 상한(기획 정본 5). 그 이상은 5명과 같은 확률']
+  golden_chance_ppm       text    [not null, default: '4000,12000,24000,40000', note: 'V91/GROMO-1956: ACTIVE 2명부터의 1분당 당첨 확률(ppm)을 쉼표로 이은 표 — 2명 0.4% · 3명 1.2% · 4명 2.4% · 5명 이상 4%. 열 네 개로 펼치지 않는 이유는 인원 상한도 운영값이라서다']
+  published_at            timestamptz [not null, default: `now()`]
+}
+
+Table user_fish_wallets [note: 'GROMO-1924: 개인 물고기 지갑(통화 fish, 2026-09-18 결정 D1, migration V67). 코인(user_wallets)과 별개 — D11 로 코인 잔액을 옮기지 않는다'] {
+  user_id     uuid    [pk, note: 'FK → users.id ON DELETE CASCADE']
+  balance     integer [not null, default: 0, note: 'CHECK >= 0']
+  updated_at  timestamptz [not null, default: `now()`]
+}
+
+Table islands [note: '스터디/챌린지 그룹'] {
+  id               uuid                  [pk]
+  name             varchar(50)           [not null, default: '', note: '그룹 이름']
+  description      varchar(200)          [note: '그룹 소개']
+  greeting         varchar(160)          [note: '섬장 환영 인사말(≤40 코드포인트). NULL = 기본 문구 — 읽을 때 «{name}섬에 온 걸 환영해요! 같이 집중해요 🐟» 로 합성한다. GROMO-2262, V113']
+
+  password         varchar(100)          [note: '레거시 BCrypt 해시(참여 시 확인). 공개/비공개와 무관 — 공개 여부는 is_private 가 결정']
+
+  is_private       boolean               [not null, default: false, note: 'true면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여 (V17)']
+
+  status           group_status          [not null, default: 'WAITING', note: '챌린지 진행중 여부 파악']
+
+  max_members      integer               [not null, note: '섬 정원 1~15, 미입력 기본 15 (GROMO-1993 정책). 방장을 포함한 현재 주민만 세고 승인 대기 신청·NPC 는 세지 않는다. 계정당 소속 섬 상한(10)과는 다른 축']
+
+  is_chat_enabled  boolean               [not null, default: true, note: '그룹 채팅 활성화 여부']
+  chat_limit_per_person integer            [note: '1인당 채팅 가능한 횟수']
+
+  invite_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '초대 권한 범위 (그룹 단위)']
+
+  shared_purchase_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '⚠️ 사용 중지(GROMO-2000) — 읽는 코드가 없다. 기획 정본이 권한을 「건설=방장 / 공동 구매·공동 테마=주민 누구나」로 고정해 토글이 판정 근거에서 빠졌다. 열 제거는 별도 마이그레이션 몫']
+
+  approval_required boolean               [not null, default: false, note: '가입에 방장 승인이 필요한지 — GROMO-1907, island-membership LLD §3.1. 기존 행은 전부 false(즉시가입)']
+
+  version          bigint                [note: 'JPA @Version 낙관락 — 엔티티가 채운다(DB NOT NULL·기본값 없음). 기존 행은 NULL 가능']
+
+  created_at                     timestamptz [default: `now()`, note: 'DB 는 NOT NULL 아님 — @CreationTimestamp']
+  deleted_at                     timestamptz [note: '삭제 시각 (소프트 딜리트 감사 로그용)']
+  // updated_at 은 «없다» — 이 파일이 지어냈던 컬럼이라 GROMO-1912 에서 제거했다. 필요하면 마이그레이션부터.
+
+  indexes {
+    // 공개 그룹 이름 fuzzy 검색용 GIN 트라이그램 인덱스 (V18, 닉네임 검색과 동형)
+    //   전제 확장: CREATE EXTENSION pg_trgm  /  쿼리: name % :q ORDER BY name <-> :q
+    name [type: gin, name: 'idx_groups_name_trgm', note: 'pg_trgm GIN (gin_trgm_ops) — 그룹 이름 trgm 검색, V18']
+  }
+}
+
+Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1:1) — 논리 모델 UserIslandContext. GROMO-1907, island-membership LLD §4'] {
+  user_id            uuid   [pk, note: 'FK → users.id (1:1)']
+  current_island_id  uuid   [note: 'FK → islands.id. NULL 이면 지금 접속한 섬이 없다 — "한 번도 없음"인지 "잃었음"인지는 loss_reason 이 가른다(GROMO-1995, V84)']
+  loss_reason        varchar(20) [note: '현재 섬을 잃은 이유 — LEFT|KICKED. current_island_id 가 NULL 일 때만 값이 있다(CHECK 로 강제). 값 집합은 group_members.left_reason 과 같다. LEFT 는 마지막 소속 섬 이탈, KICKED 는 현재 섬에서의 강퇴다 — 강퇴는 다른 소속이 남아 있어도 먼바다로 비운다(GROMO-2315). 앱이 상실 안내를 고르는 근거이고, NULL 이면 첫 소속 탐색 대상이다. V84 백필은 배포 전에 이미 죽어 있던 현재 섬을 같은 규칙으로 회수하되, 사유를 알 수 없는 행(멤버십 행이 없거나 left_reason 이 NULL)은 지어내지 않고 NULL 로 둔다. GROMO-1995, V84']
+  context_version    bigint [not null, default: 0, note: 'JPA @Version 낙관락 — islands.version 과 같은 방식. outbox 순서용 aggregate_versions(USER, userId) 축과는 별개 값(컨텍스트 전이는 outbox 사건이 아님)']
+
+  created_at  timestamptz [not null, default: `now()`]
+  updated_at  timestamptz
+}
+
+Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V112 이 살아 있는 섬(deleted_at IS NULL·status<>ENDED)의 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필하고, 지금 서 있는 섬(user_island_contexts.current_island_id)의 last_arrived_at 만 now() 로 올림. GROMO-2260'] {
+  user_id          uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE)']
+  island_id        uuid        [not null, note: 'FK → islands.id (ON DELETE CASCADE)']
+  first_arrived_at timestamptz [not null, note: '처음 도착한 시각']
+  last_arrived_at  timestamptz [not null, note: '최근 머문 시각 — 도착·섬 생성·방문 중 가입·즉시 이동 성공마다 갱신']
+  member_arrived_at timestamptz [note: '주민으로서 마지막 도착 시각 — 주민 맥락의 도착 writer 가 매번 GREATEST(now, 현 멤버십 시작)으로 덮고 방문자 도착은 건드리지 않는다. NULL=주민 도착 없음. POST /islands/{id}/arrivals 가 이 값이 NULL 이거나 현 멤버십 시작(COALESCE(rejoined_at, created_at))보다 이르면 «현 가입 이후 첫 도착» 으로 보고 island.member.arrived 를 낸다. 백필 없음. GROMO-2302, V127']
+
+  indexes {
+    (user_id, island_id) [pk]
+    island_id [name: 'island_arrivals_island_idx', note: '섬 purge 의 DELETE·섬별 조회 — PK 는 user_id 가 앞이라 이 축을 받지 못한다']
+  }
+}
+
+Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 개수 제한 없이 보관하며 섬장이 지운 글은 deleted_at으로 숨긴다. GROMO-2262·2304, V113'] {
+  id         uuid        [pk]
+  island_id  uuid        [not null, note: 'FK → islands.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다']
+  author_id  uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행도 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 먼저 지운 글까지 포함해 delete 한다(IslandGuestbookEntryRepository.deleteAllOfUser — 공지 댓글과 같은 선례)']
+  content    varchar(80) [not null, note: '≤20 코드포인트(서비스 검증), 금칙어 판정 대상']
+  written_on date        [not null, note: 'KST 날짜 — (island_id, author_id, written_on) 유일']
+  created_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz [note: '섬장 삭제 또는 31번째 이후 정리']
+
+  indexes {
+    (island_id, author_id, written_on) [unique]
+    (island_id, created_at) [name: 'island_guestbook_island_created_idx']
+    (island_id, created_at, id) [name: 'island_guestbook_live_recent_idx', note: 'V129 GROMO-2287: 부분 인덱스 WHERE deleted_at IS NULL, (created_at DESC, id DESC) — 최신순 페이지 조회가 지운 글을 훑지 않는다']
+  }
+}
+
+Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬». 한 사람의 만료 안 된 핀은 보이는 것 기준 최대 4개이고 5번째를 넣으면 pinned_at 이 가장 오래된 핀이 같은 트랜잭션에서 빠진다(서비스 몫 — 표는 개수를 제한하지 않는다). 만료는 읽을 때 거른다(expires_at > now, 정리 잡 없음 — 같은 사람이 핀을 넣을 때 그 사람의 만료 행만 함께 지운다). 목록 조립(TelescopeService)이 핀을 nearby 다음·random 앞 slot=pinned 로 끼운다. GROMO-2268, V115, 섬 외부 계약 §6'] {
+  user_id    uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopePinRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords) — 개인 목록이라 남길 이유가 없다']
+  island_id  uuid        [not null, note: 'FK → islands.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다. 핀 섬이 그사이 비공개·종료·내 소속이 되면 행은 남고 목록에서만 빠진다(강퇴된 섬은 GROMO-2315 부터 빠지지 않는다)']
+  source     varchar(20) [not null, note: "CHECK IN ('magazine','observatory') — 잡지(찜 리본·잡지 칸) / 전망대 검색·랭킹"]
+  promotion_id uuid      [note: "잡지 홍보 칸에서 넣었으면 그 홍보 (FK → island_promotions.id, ON DELETE SET NULL). 넣을 때 그 섬의 현재 호에 보이는 칸으로 확인된 값만 들어간다(PIN 집계와 같은 판정). 편집부 무료 칸·전망대 핀은 NULL — CHECK (promotion_id IS NULL OR source = 'magazine'). 망원경 말풍선 미리보기(magazineCell)는 이 칸만 싣는다. 이미 있는 핀을 다시 넣어도 바꾸지 않는다. GROMO-2289, V122"]
+  pinned_at  timestamptz [not null, note: '넣은 시각 — 5번째를 넣을 때 가장 오래된 핀을 고르는 축. 이미 있는 핀을 다시 넣어도 갱신하지 않는다(멱등)']
+  expires_at timestamptz [not null, note: '넣은 1시간 버킷의 끝(다음 정시 = truncatedTo(HOURS) + 1h) — 이 시각 이후엔 목록에 나오지 않는다. 무작위 섬과 함께 1시간마다 사라진다(GROMO-2306, V125 가 기존 행을 넣은 정시 + 1h 로 줄였다). V115 원래 규칙은 «다음 07:00 KST»']
+
+  indexes {
+    (user_id, island_id) [pk]
+    (user_id, pinned_at) [name: 'telescope_pins_user_pinned_idx', note: '한 사람의 핀을 오래된 순으로 읽는다(목록·5번째 밀어내기). PK 는 섬이 둘째라 정렬을 돕지 못한다']
+  }
+}
+
+Table telescope_buckets [note: '망원경 1시간 목록 스냅샷 — 사람마다 버킷마다 한 행. 그 버킷의 첫 목록 요청이 새 섬 후보(가까운 섬 1 + 무작위 4)를 버킷 시드로 뽑아 넣고(INSERT … ON CONFLICT DO NOTHING 뒤 다시 읽기 — 두 기기 동시 첫 요청은 한쪽 행이 이긴다), 같은 버킷 요청은 이 행을 읽는다. 정원·가입·비공개 변동은 표시(full·membershipStatus·칸 빠짐)만 바꾸고 빠진 칸은 새로 뽑지 않는다. 정리 잡 없음 — 새 버킷 행을 넣을 때 그 사람의 옛 버킷 행을 지운다. GROMO-2306, V125'] {
+  user_id      uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopeBucketRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords)']
+  bucket_start timestamptz [not null, note: '1시간 버킷 시작(UTC 정시)']
+  island_ids   "uuid[]"    [not null, note: '뽑은 새 섬 후보, 표시 순서 그대로(최대 5). FK 가 아니다 — 섬이 지워지거나 보여 줄 수 없게 되면 읽을 때 거른다. 핀 섬은 뽑을 때 빼고, 나중에 넣은 핀은 표시에서 감춘다']
+  has_nearby   boolean     [not null, note: 'island_ids[1] 이 뽑힌 순간 정원이 남아 있었다 — 그 섬이 이 버킷 동안 가까운 섬(15분)이다. 정원이 차도 full=true 로 남는다']
+  created_at   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, bucket_start) [pk]
+  }
+}
+
+Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 섬 공동 피드(수신자별 행·읽음 표시 없음). 지금은 잡지 홍보 신청 한 종류(kind=PROMOTION)뿐이고, 홍보 «내용»(글·틀·스티커)은 잡지 도메인의 몫이라 여기엔 없다. GROMO-2267, V116'] {
+  id         uuid         [pk]
+  island_id  uuid         [not null, note: 'FK → islands.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 지운다(유저 컬럼이 없어 계정 탈퇴 정리는 없다)']
+  kind       varchar(20)  [not null, note: '소식 종류 — 지금은 PROMOTION. CHECK 없음(다음 종류가 마이그레이션 없이 들어온다). 읽는 쪽은 모르는 kind 도 그대로 내려보낸다']
+  body       varchar(200) [not null, note: '완성된 한 줄 문구. PROMOTION 은 「섬장이 오늘 잡지 홍보에 60마리를 썼어요」(보낸 사람을 싣지 않는다)']
+  created_at timestamptz  [not null, default: `now()`, note: '주입 Clock 의 시각을 서비스가 채운다']
+
+  indexes {
+    (island_id, created_at) [name: 'island_news_island_created_idx', note: '최신순 목록 읽기용. 실제 인덱스는 created_at DESC']
+  }
+}
+
+Table island_promotions [note: '고양이 잡지 홍보 칸 — 섬장이 신청한 홍보 한 건 = 한 행, 한 섬은 한 호에 한 칸. 신청 창은 실릴 호 전날 KST 07:00~24:00 이고 고치기도 그 창 안에서만 된다(00시가 지나면 글·틀·스티커 모두 굳는다). 홍보비 60마리는 island_wallet_transactions(PROMOTION_FEE, 키 promotion:{섬}:{issue_date})가 들고, 주민 소식은 island_news 가 든다. 운영 사전 검토가 없어 검토·승인 열이 없다. 섬이 닫히면 IslandPurgeService 가 지운다. GROMO-2289, V119'] {
+  id         uuid        [pk, note: 'UUID v7']
+  island_id  uuid        [not null, note: 'FK → islands.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다']
+  issue_date date        [not null, note: '실릴 호의 KST 날짜(= 신청한 KST 날짜 + 1)']
+  applied_by uuid        [not null, note: 'FK → users.id — 신청한 섬장. 유저는 익명화만 되고 지워지지 않아 탈퇴 정리 대상이 아니다']
+  applied_at timestamptz [not null, note: '지면 순서(먼저 신청한 순)의 기준 — 고쳐도 바뀌지 않는다']
+  updated_at timestamptz [not null, note: '마지막으로 고친 시각']
+  body       varchar(60) [not null, note: '한 줄 글(신고 대상) — 앞뒤 공백을 뗀 1~60자(코드 포인트), 줄바꿈 없음. 금칙어 검사를 거친다']
+  layout     jsonb       [not null, note: '{v:1, frameId, stickers:[{assetId,x,y,scale,rotation}] ≤5, tape:{assetId,x,y,rotation}|null} — 칸 기준 정규화 좌표(-0.08~1.08), 배열 뒤쪽이 위에 그려진다. 서비스가 검증한 정규형만 들어온다']
+  snapshot   jsonb       [note: '발행 때 고정하는 섬 숫자 {islandId, name, buildingCount, memberCount, maxMembers, averageFocusMinutesPerDay}. 발행 전 NULL — 호가 나온 뒤에도 NULL 이면 그 순간 비공개·닫힌 섬이라 싣지 않은 칸이다(V120 발행 배치)']
+  moderation varchar(10) [not null, default: 'NONE', note: 'NONE / HIDDEN / REMOVED / CLEARED — CHECK. 신고 3건이면 HIDDEN, 운영이 REMOVED(내림·환불 없음) 또는 CLEARED(되살림)']
+  hidden_at  timestamptz [note: '신고로 숨긴 시각 — 서로 다른 사람 3명이 신고한 트랜잭션이 moderation=HIDDEN 과 함께 적는다(V121)']
+
+  indexes {
+    (island_id, issue_date) [unique, note: '한 섬은 한 호에 한 칸 — 「지난번에 실은 칸」(섬별 최신 호)도 이 인덱스를 거꾸로 탄다']
+    (issue_date, applied_at, id) [name: 'island_promotions_issue_order_idx', note: '지면 순서(같은 호 안에서 먼저 신청한 순) 읽기용']
+  }
+}
+
+Table island_promotion_reports [note: '홍보 칸 신고 — 한 사람이 한 칸을 한 번. 서로 다른 사람 3명이면 같은 트랜잭션에서 island_promotions.moderation=HIDDEN(모든 독자에게서 즉시 숨김). 운영이 SQL 로 REMOVED(내림, 환불 없음)·CLEARED(되살림, 이후 자동 숨김 없음)로 바꾼다. 소셜 로그인 계정만 신고한다. 운영 사전 검토는 없다. GROMO-2289, V121'] {
+  promotion_id uuid        [pk, note: 'FK → island_promotions.id (ON DELETE CASCADE)']
+  reporter_id  uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 익명화만 되고 지워지지 않는다. 숨김 판정의 근거라 탈퇴해도 남긴다']
+  reason       varchar(30) [not null, note: 'HARASSMENT / HATE / SPAM_FRAUD / SEXUAL / CHILD_SAFETY / THREAT / PRIVACY_IMPERSONATION / OTHER — CHECK, 앱 유저 신고 창과 같은 8종']
+  created_at   timestamptz [not null]
+}
+
+Table magazine_issues [note: '고양이 잡지 한 호 — 하루 한 행. 발행 배치가 07:00~23:50 KST 10분마다 «그날 호가 없으면» 만든다. 지우지 않는다. GROMO-2289, V120'] {
+  id              uuid        [pk, note: 'UUID v7']
+  issue_date      date        [not null, note: '호의 KST 날짜']
+  slot            varchar(10) [not null, default: 'MORNING', note: 'CHECK MORNING — 조간·석간 전환(OPS-03) 때 EVENING 을 더한다']
+  issue_no        integer     [not null, unique, note: '호수(1호부터, CHECK > 0) — 유일 제약이 중복 발행을 한 번 더 막는다']
+  published_at    timestamptz [not null]
+  editorial       jsonb       [not null, note: '편집부 페이지 고정값 {ranking:[{rank, island}], newIslands:[island], note:{type EDITOR|TIP, body, tipNo}} — island 는 island_promotions.snapshot 과 같은 모양. 읽는 순간 비공개·닫힌 섬은 뺀다']
+  promotion_count integer     [not null, note: '실린 홍보 수(CHECK >= 0) — 조간·석간 전환 판단용']
+  notified_at     timestamptz [note: '알림 펼치기 완료 시각 — NULL 이면 틱마다 재시도(GROMO-2307, V126)']
+
+  indexes {
+    (issue_date, slot) [unique]
+  }
+}
+
+Table magazine_receipts [note: '계정당 1부의 받음·나중에·읽음 — 행이 없으면 아직 안 받음. 앱이 처음 알릴 때 생기고(07시에 미리 만들지 않는다) 받은 곳·시각은 처음 값으로 고정된다. 최근 7호보다 오래된 호의 행은 발행 배치가 지운다. GROMO-2289, V120'] {
+  user_id        uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 지워지지 않아 탈퇴 TX(AccountWithdrawalService)가 직접 지운다']
+  issue_id       uuid        [pk, note: 'FK → magazine_issues.id (ON DELETE CASCADE)']
+  received_place varchar(10) [not null, note: 'SEA / ISLAND — CHECK. 바다 화면 전에는 늘 ISLAND']
+  received_at    timestamptz [not null]
+  deferred_at    timestamptz [note: '[나중에 읽기] 를 처음 누른 시각']
+  opened_at      timestamptz [note: '처음 펼친 시각 — NULL 이면 안 읽음(빨간 점)']
+
+  indexes {
+    issue_id [name: 'magazine_receipts_issue_idx', note: '7호 정리용']
+  }
+}
+
+Table magazine_editorial_notes [note: '편집부 소식 — 운영이 SQL 로 날짜별 문구를 넣는다. 없는 날은 몽돌 팁(번호 = 호수 % 14). GROMO-2289, V120'] {
+  issue_date date        [pk]
+  body       varchar(80) [not null, note: '칸 실측 전 임시 80자']
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table user_main_islands [note: '사용자가 고른 메인 섬 (users 1:1) — 행이 없으면 «가장 먼저 가입한 활성 섬»으로 도출한다(그래서 백필이 없다). 현재 섬(user_island_contexts.current_island_id)과 다른 축이다. GROMO-1971, V81'] {
+  user_id    uuid [pk, note: 'FK → users.id (1:1). users 컬럼이 아니라 별도 테이블인 이유는 User 엔티티에 @Version·@DynamicUpdate 가 없어 더티 갱신이 전 컬럼 UPDATE 를 내기 때문이다 — 이탈/탈퇴 TX 의 PII 파기와 순서를 다투지 않게 자기 행을 준다']
+  island_id  uuid [not null, note: 'FK → islands.id. 이 행이 있는 동안 사용자는 그 섬의 활성 주민이다 — 이탈·강퇴·계정탈퇴가 같은 TX 에서 가장 최근 가입 섬으로 옮기거나 행을 지운다']
+
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz
+}
+
+Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 설정)'] {
+  id                   uuid              [pk]
+
+  user_id              uuid              [not null, note: 'FK → users.id']
+  group_id             uuid              [not null, note: 'FK → islands.id']
+
+  role                 group_member_role [not null, default: 'MEMBER', note: '방장 여부. 유령 방장(V30 이탈 처리)만 남아 활성 OWNER 가 없던 그룹은 V31 백필이 최고참 활성 멤버를 승계(GROMO-1243, created_at·id 오름차순)']
+  status               group_member_status [not null, default: 'INACTIVE', note: '그룹 활동 (챌린지, 포커스) 진행 여부']
+
+  announcement_permission group_announcement_grant [not null, default: 'DISALLOW', note: '멤버 단위 공지 작성 권한, 방장은 제외']
+  notification_enabled boolean           [not null, default: true, note: '그룹 알림 수신 설정 (콕찌르기 등)']
+
+  is_left              boolean           [not null, default: false, note: 'A-0 소프트삭제: 활성=false, 탈퇴/강퇴=true. 재가입은 이 행을 되살림(rejoin). 계정 탈퇴 정리(GROMO-801) 이전 탈퇴자의 유령 활성 행은 V30 백필이 LEFT 로 이탈 처리(GROMO-1220)']
+
+  membership_epoch     bigint            [not null, default: 1, note: '멤버십 세대 (V52, A22 ⓚ·ⓑ″·㋑) — 탈퇴·강퇴·재가입에만 오른다. 일반 낙관락 version 과 «분리»된 값이다: 낙관락이면 첫 수신자의 가입이 초대자 행 version 을 올려 재사용 링크의 이후 수신자가 전부 실패한다']
+  left_reason          varchar(10)       [null, note: 'A-0(V25) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴 — 재가입은 승인 대기 신청, 승인되면 rejoin 이 null 로 되돌린다. GROMO-2315 전에는 재가입 차단). CHECK IN (LEFT,KICKED)']
+
+  left_at              timestamptz       [null, note: '이탈 시각 (V97, GROMO-2050) — 자진 탈퇴·강퇴·계정 탈퇴가 모두 찍는다(GroupMember.leave/kick, 주입 Clock). is_left=false 면 항상 null(rejoin 이 비운다). V97 이전 이탈 행은 근거가 없어 null — updated_at 은 @UpdateTimestamp 라 알림 토글에도 갱신돼 이탈의 증거가 아니다']
+  rejoined_at          timestamptz       [null, note: '재가입으로 멤버십이 다시 시작된 시각 (V97, GROMO-2050). null 이면 최초 가입 그대로. created_at 을 덮지 않는 이유는 그 값이 주민 목록 keyset 정렬·메인 섬 도출(GROMO-1971)의 계약이기 때문 — 과거 시점 소속의 시작 축은 COALESCE(rejoined_at, created_at)']
+
+  created_at           timestamptz       [default: `now()`, note: '행이 생긴 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp). rejoin 이 갱신하지 않으므로 «최초» 가입 시각이다 — 멤버십 시작 시각은 rejoined_at 과의 COALESCE']
+  updated_at           timestamptz
+  indexes {
+    // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
+    (user_id, group_id) [unique, note: '멤버십 1행 보장. 자진 탈퇴자 재가입=행 되살리기, 강퇴자=승인 후 행 되살리기(GROMO-2315)']
+    (group_id, user_id) [name: 'group_members_active_group_user_idx', note: 'V129 GROMO-2287: 부분 인덱스 WHERE is_left = false — 섬 → 활성 주민 접근(망원경 후보의 «주민 수» 상관 서브쿼리 — Index Only Scan 은 visibility map 의존이라 autovacuum 지연 시 Heap Fetches 증가. «내 소속» NOT EXISTS 는 위 unique 를 탄다 — GROMO-2315 전에는 KICKED(is_left=true)도 함께 봤다). 선두 열이 달라 위 unique 와 중복이 아니다']
+  }
+}
+
+Table island_wallets [note: '섬 공동 지갑 (village_points) — GROMO-1767, island-construction 정책 C05/D1. 개인 user_wallets 와 다른 축. 잔액 변경은 행 배타락 아래에서만. V62 백필로 기존 섬 전부 0원 지갑 생성'] {
+  island_id  uuid    [pk, note: 'FK → islands.id ON DELETE RESTRICT — 「섬」은 islands 다(별도 섬 테이블 없음)']
+  balance    integer [not null, default: 0, note: 'CHECK balance >= 0 — 음수 잔액 불가']
+  version    bigint  [not null, default: 0, note: 'JPA @Version 낙관락 (user_wallets 와 같은 방식)']
+  updated_at timestamptz
+}
+
+Table island_wallet_transactions [note: '섬 공동 원장 — user 지갑의 currency_transactions 에 대응하는 섬 축 원장 (GROMO-1767). amount 는 항상 양수, 방향은 type 이 표현. idempotency_key 는 중복 기입의 최후 방어선'] {
+  id              uuid        [pk]
+  island_id       uuid        [not null, note: 'FK → island_wallets.island_id ON DELETE RESTRICT']
+  amount          integer     [not null, note: 'CHECK amount > 0 — 항상 양수, 부호는 type']
+  type            varchar(40) [not null, note: 'CONTRIBUTION / CONSTRUCTION_DEBIT / QUEST_SETTLEMENT(V71 코드 추가 — 퀘스트 정산 적립, 건설 기여를 쌓지 않는다) / PROMOTION_FEE(V116/GROMO-2267 코드 추가 — 잡지 홍보비 차감, 스키마 무변경. 멱등 키 promotion:{섬 id}:{KST 날짜}) (IslandWalletTransactionType, DB CHECK 없음)']
+  idempotency_key varchar(200) [note: '중복 기입 방어 — 명령 멱등키를 그대로 심는다']
+  created_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, type, idempotency_key) [unique, note: 'uq_island_wallet_tx_idem — 멱등 scope (섬, operation=type, 키)']
+  }
+}
+
+Table construction_buildings [note: '건물 종류 정본. id는 기존 API·시설·가격표의 변경 불가 계약 문자열. 이름·표시 순서·모금 방식은 DB에서 읽는다'] {
+  id            varchar(30)  [pk, note: '소문자 계약 ID']
+  display_name  varchar(100) [not null, note: '빈 문자열·공백만 허용하지 않음']
+  display_order integer      [not null, note: '오름차순 표시. 동순위는 id 순']
+  funding       varchar(20)  [not null, note: 'WALLET_TOTAL / RESIDENT_SPLIT']
+}
+
+Table construction_building_prerequisites [note: '건물별 직접 선행 관계. 선행 건물이 모두 COMPLETED여야 선택 가능'] {
+  building_id      varchar(30) [not null]
+  prerequisite_id  varchar(30) [not null, note: '자기 자신은 선행으로 지정할 수 없음']
+
+  indexes {
+    (building_id, prerequisite_id) [pk]
+  }
+}
+
+Table construction_cost_policies [note: '불변 건설 비용 revision (GROMO-1767, 정책 C10) — revision 은 한 번 쓰면 바꾸지 않는다. 「건설 가격·공사 시간」표(D4, 1829 코멘트 #11077)가 revision 1: hall 60마리·1분 / board 240·15분 / gram 1360·30분 / library 2720·1시간 / mail 4080·1시간30분 / tower 5440·2시간30분 / shop 6800·4시간'] {
+  revision      integer     [not null, note: '(revision, building_id) 복합 PK — 같은 revision 안에서 건물별 1행']
+  building_id   varchar(30) [not null, note: 'hall/board/gram/library/mail/tower/shop — construction_buildings.id 계약']
+  cost          integer     [not null, note: 'CHECK cost >= 0']
+  build_seconds integer     [not null, note: 'CHECK build_seconds >= 0 — 공사 시간(초)']
+  created_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (revision, building_id) [pk]
+  }
+}
+
+Table construction_cost_policy_publication [note: '현재 비용 정책 포인터 (GROMO-1767, 정책 C10) — singleton 1행. POST 가 이 행을 잠그고 expectedCostPolicyVersion 을 비교해 검증 직후 가격만 교체되는 경합을 막는다(LLD §2)'] {
+  singleton    boolean   [pk, default: true, note: 'CHECK singleton — 항상 true 인 1행 테이블']
+  revision     integer   [not null, note: '현재 publication 중인 construction_cost_policies.revision']
+  published_at timestamptz [not null, default: `now()`]
+}
+
+Table island_construction_states [note: '섬 건설 상태/목표 (GROMO-1767, 정책 C03) — target 선택은 0원이라 지갑과 다른 테이블. target_epoch 는 목표가 바뀔 때마다 +1 — 「각자 몫 n빵」은 목표를 고른 뒤부터 모은 물고기로 판단(P-D04)하므로 기여 집계 범위를 자르는 축'] {
+  island_id          uuid        [pk, note: 'FK → islands.id ON DELETE RESTRICT. V62 백필로 기존 섬 전부 생성']
+  target_building_id varchar(30) [note: '선택된 목표 — null 이면 미선택. 건설 시작 시 null 로 돌아간다']
+  target_epoch       bigint      [not null, default: 0, note: '목표가 바뀔 때마다 +1 — island_construction_contributions 집계의 epoch 축']
+  created_at         timestamptz [not null, default: `now()`]
+  updated_at         timestamptz
+}
+
+Table island_construction_contributions [note: '목표 epoch 의 «대상 주민 명단 + 주민별 기여» (GROMO-1767·1999, P-D04) — 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」. 목표를 고를 때 그 시점의 활성 주민을 amount=0 으로 심으므로 «행이 있으면 대상, 없으면 대상 아님»이다(기획 정본 「목표 선택 시점의 주민으로 대상을 고정한다」). 그래서 별도 cohort 표가 없다. 같은 epoch 안에서는 사용자당 1행에 amount 누적'] {
+  island_id  uuid    [not null, note: 'FK → island_construction_states.island_id ON DELETE RESTRICT']
+  epoch      bigint  [not null, note: 'island_construction_states.target_epoch 스냅샷 — 목표가 바뀌면 새 epoch 행부터 다시']
+  user_id    uuid    [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  amount     integer [not null, default: 0, note: 'CHECK amount >= 0 — 해당 epoch 에 기여한 누적 물고기. 0 은 「대상이지만 아직 못 채웠다」다']
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, epoch, user_id) [pk]
+  }
+}
+
+Table island_layouts [note: '섬 배치 정본 (GROMO-2232, map-assets §6) — 건물 좌표를 JSON 으로 저장한다. 백필 없이 첫 조회 때 서버 기본 템플릿(IslandLayoutTemplate)으로 지연 생성. 시설 완공(BUILDING→COMPLETED)마다 layout_revision +1 → island.updated 페이로드에 layoutRevision'] {
+  island_id       uuid        [pk, note: 'FK → islands.id ON DELETE RESTRICT']
+  layout_revision bigint      [not null, default: 1, note: 'CHECK layout_revision >= 1 — 섬 단위 단조 정수. 앱은 감소하는 revision 을 버린다(앱 도입 예정 — 10/9 는 홈 재조회로만 반영)']
+  layout          jsonb       [not null, note: '{ schemaVersion: 1, mapId: "home", buildings: [{ id, cell{x,y}, anchor, footprint[[x,y]...] }] } — 100×100 통행 셀 좌표. mapVersion 은 넣지 않는다']
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table island_facilities [note: '섬 시설 (섬+buildingId 유일, LLD §4) — GROMO-1767. status 는 BUILDING→COMPLETED 단방향, 완료한 시설 재건설은 유일성이 막는다(C06). 스케줄러가 completes_at<=now() 인 BUILDING 행을 쓸어 COMPLETED 전이 + island.updated 발행'] {
+  island_id     uuid        [not null, note: 'FK → islands.id ON DELETE RESTRICT']
+  building_id   varchar(30) [not null, note: 'hall/board/gram/library/mail/tower/shop']
+  status        varchar(20) [not null, note: 'BUILDING / COMPLETED — CHECK. 단방향 전이']
+  cost          integer     [not null, note: 'CHECK cost >= 0 — 시작 시점에 고정된 비용 스냅샷']
+  cost_revision integer     [not null, note: '건설 시점의 비용 정책 revision — 감사용']
+  started_by    uuid        [note: '건설을 확정한 주민 — 스케줄러 완공 island.updated 봉투의 주체 참조']
+  started_at    timestamptz [note: '건설 시작 시각']
+  completes_at  timestamptz [note: 'started_at + build_seconds — 스케줄러 스윕 기준 시각']
+  completed_at  timestamptz [note: 'COMPLETED 전이 시각 — BUILDING 이면 null']
+  created_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, building_id) [pk]
+    completes_at [name: 'idx_island_facilities_due', note: '부분 인덱스 WHERE status=BUILDING — 완공 스윕은 이것만 훑는다']
+  }
+}
+
+Table catalog_assets [note: '카탈로그 불변 자산 정의 (GROMO-1783, island-appearance LLD §2, V64) — 상점(1781)의 asset definition 정본. 외양 적용은 판매 publication 이 아니라 이 불변 의미로 해석한다(퇴역해도 보유품 해석 유지). kind·owner_type·target_building 은 productId 수명 동안 불변 — 갱신 경로 없음. 레거시 items/character_equipment 는 이관하지 않는다'] {
+  product_id      varchar(80)  [pk]
+  title           varchar(120) [not null]
+  kind            varchar(20)  [not null, note: "clothes / decor / island_theme / building_theme / audio / ad_frame / ad_sticker / ad_tape / head / neck / shoes — CHECK catalog_assets_kind_check. head·neck·shoes 는 개인 꾸미기 슬롯(GROMO-2331 V128). ad_* 는 고양이 잡지 꾸미기 재료(GROMO-2289 V118 — 시드 64행, product_id 는 mag.<앱 그림 id>)"]
+  owner_type      varchar(10)  [not null, note: "user / island — CHECK catalog_assets_owner_type_check. CHECK catalog_assets_kind_owner_check: clothes·decor·ad_frame·ad_sticker·ad_tape·head·neck·shoes ↔ user, island_theme·building_theme·audio ↔ island"]
+  target_building varchar(30)  [note: 'building_theme 만 대상 건물을 갖는다 — CHECK catalog_assets_target_building_check: (kind = building_theme) = (target_building IS NOT NULL)']
+  created_at      timestamptz  [not null, default: `now()`]
+}
+
+Table magazine_asset_meta [note: '고양이 잡지 꾸미기 재료(ad_frame·ad_sticker·ad_tape)의 부가 정보 — catalog_assets 와 1:1. 카탈로그 행이 불변이라 서랍 탭·묶음·정렬·퇴역을 옆 표에 둔다. 시드 64행(틀 11 · 스티커 45 · 테이프 8, 10/14 에셋 id 표)은 전부 free 다. 운영 카탈로그라 탈퇴·섬 정리 대상이 아니다. GROMO-2289, V118'] {
+  product_id varchar(80) [pk, note: '(product_id, kind) 복합 FK → catalog_assets(product_id, kind) ON DELETE RESTRICT — 대상 유일 제약 catalog_assets_product_kind_key']
+  kind       varchar(20) [not null, note: "ad_frame / ad_sticker / ad_tape — CHECK. 카탈로그 종류의 사본(복합 FK 로 어긋나지 못한다) — 이 표의 CHECK 가 종류별 규칙을 보려고 둔다"]
+  bundle     varchar(10) [not null, note: "free / season — CHECK. free = 모든 계정이 가진 것(소유 행을 만들지 않는다), season = 바다 시즌 보상으로 owned_products 행이 생겨야 가진 것"]
+  drawer_tab varchar(10) [note: "cat / sea / friends / deco — CHECK. 스티커 서랍 탭 — CHECK magazine_asset_meta_tab_check: 스티커는 NOT NULL, 틀·테이프는 NULL"]
+  sort_order integer     [not null, note: '종류 안의 정렬 순서(1부터)']
+  retired_at timestamptz [note: '서랍에서 내린 시각 — 이미 붙인 칸은 그대로 그린다. 퇴역한 재료는 free 라도 보유 행이 있거나 직전 칸에 있던 것만 다시 실을 수 있다']
+}
+
+Table customization_asset_meta [note: '개인 꾸미기 상품(clothes·decor·head·neck·shoes)의 그림 부가 정보 — catalog_assets 와 1:1(magazine_asset_meta 선례). 카탈로그 행이 불변이라 이미지·크기·고정점·정렬·퇴역을 옆 표에 둔다. 시드 없음(prod) — 로컬 시드는 server/scripts/local/seed-customization.sql. GROMO-2331, V128, 결정 ④'] {
+  product_id varchar(80)   [pk, note: '(product_id, kind) 복합 FK → catalog_assets(product_id, kind) ON DELETE RESTRICT']
+  kind       varchar(20)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 카탈로그 종류의 사본']
+  slot       varchar(10)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 앱 렌더 슬롯(지금은 kind 와 같다) — CHECK customization_asset_meta_slot_kind_check: slot = kind']
+  image_path varchar(200)  [not null, note: '/static/customization/<kind>/<이름>.<sha8>.png (예 head/duck.9572baaf.png, product_id 는 cust.<kind>.<이름>) — 내용 해시 포함 불변 URL(맵 에셋 정적 서빙 규칙)']
+  width      integer       [not null, note: 'CHECK width > 0 — 픽셀']
+  height     integer       [not null, note: 'CHECK height > 0 — 픽셀']
+  anchor_x   "numeric(5,4)" [not null, note: '고양이 기준 정규화 좌표 x — CHECK customization_asset_meta_anchor_check: anchor_x·anchor_y 모두 0~1']
+  anchor_y   "numeric(5,4)" [not null, note: '고양이 기준 정규화 좌표 y']
+  sort_order integer       [not null]
+  retired_at timestamptz   [note: '서랍에서 내린 시각 — 이미 가진 사람은 계속 그린다']
+}
+
+Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품) 유일. 주인은 user 또는 island(islands) 정확히 하나. 지급·회수 writer 는 상점(1781). 외양 적용은 제출 상품의 보유 행을 FOR SHARE 로 잡은 뒤 외양 행을 잠근다(잠금 순서 카탈로그 → 보유 → 외양). raft 는 예약 표현이라 행을 만들지 않는다. 계정 탈퇴 시 owner_type=user 본인 행 삭제, island 행은 보존(GROMO-1950)'] {
+  id          uuid         [pk]
+  owner_type  varchar(10)  [not null, note: "user / island — CHECK owned_products_owner_type_check. CHECK owned_products_owner_check: user 면 user_id 만, island 면 group_id 만 NOT NULL"]
+  user_id     uuid         [note: 'FK → users.id ON DELETE RESTRICT — owner_type=user 일 때만']
+  group_id    uuid         [note: 'FK → islands.id ON DELETE RESTRICT — owner_type=island 일 때만']
+  product_id  varchar(80)  [not null, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  granted_ref varchar(120) [note: '주문 ID 또는 명시 지급 근거 — 구매 writer(1781)가 채운다']
+  granted_at  timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (user_id, product_id)  [unique, name: 'uq_owned_products_user', note: '부분 유일 WHERE owner_type = user']
+    (group_id, product_id) [unique, name: 'uq_owned_products_island', note: '부분 유일 WHERE owner_type = island']
+    user_id  [name: 'idx_owned_products_user', note: '부분 인덱스 WHERE owner_type = user']
+    group_id [name: 'idx_owned_products_island', note: '부분 인덱스 WHERE owner_type = island']
+  }
+}
+
+Table personal_appearances [note: '개인 외양 (GROMO-1783, V64) — 유저당 1행의 전체 상태. 첫 writer 접근 때 INSERT ON CONFLICT DO NOTHING 으로 생긴다(행 없음 = 기본 외양, version 0). version 은 행 배타락 아래에서만 +1 — member.appearance.updated 의 aggregateVersion. 계정 탈퇴 시 본인 행 삭제(GROMO-1950)'] {
+  user_id    uuid        [pk, note: 'FK → users.id ON DELETE RESTRICT']
+  clothes    varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
+  decor      varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
+  head       varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착 (GROMO-2331 V128)']
+  neck       varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착 (GROMO-2331 V128)']
+  shoes      varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착 (GROMO-2331 V128)']
+  hull       varchar(20) [not null, default: 'raft', note: "CHECK hull = 'raft' — 배 종류 폐지(GROMO-1851). 상품이 아니라 예약 표현"]
+  position   varchar(10) [not null, default: 'front', note: 'front / back — CHECK']
+  version    bigint      [not null, default: 0]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table island_appearances [note: '섬 공동 외양 (GROMO-1783, V64) — 섬당 1행. building_themes 는 「완공 건물 → ThemeId|default」 전체 맵으로, key 집합 = 외양 대상 완공 건물 집합. writer 는 테마 PATCH(방장, expectedVersion)와 시설 완공(키 시드) 둘뿐이고 GET 은 즉석에서 채우지 않는다. V64 가 기존 섬 전부를 백필 — COMPLETED 시설 key 를 default 로 채우고 기존 key 는 보존(ON CONFLICT 재실행 멱등)'] {
+  island_id       uuid        [pk, note: 'FK → islands.id ON DELETE RESTRICT. V64 백필로 기존 섬 전부 생성']
+  island_theme_id varchar(80) [not null, default: 'default', note: "'default' 또는 island_theme 상품 ID — DB FK 없음(default 가 상품이 아니라서), 서비스가 카탈로그·보유를 검증"]
+  building_themes jsonb       [not null, default: `'{}'::jsonb`, note: '{buildingId: productId|default} — 부분 병합 PATCH 는 기존 key 만 갱신(미등록 key 422)']
+  version         bigint      [not null, default: 0, note: '행 배타락 아래에서만 +1 — island.appearance.updated 의 aggregateVersion 이자 PATCH expectedVersion 비교 대상']
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table shop_product_revisions [note: '상점 판매 revision (GROMO-1781, V74, island-shop LLD §3) — (product_id, revision) 유일, 발행 후 불변. 제목·kind·owner_type 은 catalog_assets 정본이라 중복하지 않는다. V74 는 행을 심지 않는다 — 가격은 S03·S04 확정 뒤(2026-09-19 결정)'] {
+  product_id          varchar(80)  [not null, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  revision            integer      [not null, note: 'CHECK revision >= 1']
+  currency            varchar(20)  [not null, default: 'village_points', note: "CHECK shop_product_revisions_currency_check: village_points 만 — 모든 재화는 섬 귀속(2026-09-19 결정)"]
+  price               integer      [note: 'NULL = 승인 가격 없음 → 구매 불가. CHECK shop_product_revisions_price_check: NULL 또는 > 0 — 0원 위장 금지(S03)']
+  required_building   varchar(30)  [note: '구매 허용 시설 조건 (예: 음원은 gram)']
+  required_product_id varchar(80)  [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT — 구매 선행 상품. CHECK 자기 자신 금지']
+  preview_media_key   varchar(200) [note: '서버 등록 미리듣기 media 키 — 음원 상품']
+  created_at          timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (product_id, revision) [pk]
+  }
+}
+
+Table shop_catalog_publications [note: '카탈로그 발행본 (GROMO-1781, V74) — version = catalogPublicationVersion. 컬렉션 전체의 불변 발행본'] {
+  version        bigint      [pk, note: 'CHECK version >= 1']
+  published_at   timestamptz [not null, default: `now()`]
+  retired_at     timestamptz
+  invalidated_at timestamptz [note: '즉시 폐기 — cursor 는 409 CURSOR_EXPIRED']
+}
+
+Table shop_catalog_publication_entries [note: '발행본 항목 (GROMO-1781, V74) — 한 발행본의 상품 집합·정렬 복원'] {
+  publication_version bigint      [not null, note: 'FK → shop_catalog_publications.version ON DELETE RESTRICT']
+  product_id          varchar(80) [not null]
+  product_revision    integer     [not null, note: '(product_id, product_revision) FK → shop_product_revisions ON DELETE RESTRICT']
+  category            varchar(20) [not null, note: 'personal / island / sound — CHECK']
+  display_order       integer     [not null]
+
+  indexes {
+    (publication_version, product_id) [pk]
+    (publication_version, category, display_order, product_id) [name: 'idx_shop_catalog_entries_page', note: 'catalog keyset (displayOrder ASC, productId ASC)']
+  }
+}
+
+Table shop_catalog_active_publication [note: '활성 발행본 포인터 (GROMO-1781, V74) — 싱글톤. 행 없음 = 활성 카탈로그 없음(가격 확정 전 상태)'] {
+  singleton           boolean     [pk, default: true, note: 'CHECK singleton']
+  publication_version bigint      [not null, note: 'FK → shop_catalog_publications.version ON DELETE RESTRICT']
+  activated_at        timestamptz [not null, default: `now()`]
+}
+
+Table shop_orders [note: '상점 주문 (GROMO-1781, V74) — 섬 하나에 귀속(BG18, 2026-09-19 결정). 결제 당시 revision·가격·통화 불변 snapshot. 보유 행은 owned_products.granted_ref = 주문 id. 결제자는 섬 통장(island_wallets)뿐 — 개인 지갑 결제는 CHECK 를 넓혀 payer_type=user + payer_user_id 로 추가'] {
+  id                     uuid        [pk]
+  island_id              uuid        [not null, note: 'FK → islands.id ON DELETE RESTRICT — 주문이 속한 섬']
+  requester_id           uuid        [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  owner_type             varchar(10) [not null, note: 'user / island — CHECK. 상품의 불변 ownerType. user 면 requester 본인, island 면 island_id 가 주인']
+  product_id             varchar(80) [not null]
+  product_revision       integer     [not null, note: '(product_id, product_revision) FK → shop_product_revisions ON DELETE RESTRICT']
+  paid_price             integer     [not null, note: 'CHECK > 0']
+  currency               varchar(20) [not null, note: 'village_points — CHECK']
+  payer_type             varchar(10) [not null, default: 'island', note: "CHECK shop_orders_payer_check: payer_type = island AND payer_user_id IS NULL"]
+  payer_user_id          uuid        [note: 'FK → users.id ON DELETE RESTRICT — 개인 결제 확장용, 지금은 항상 NULL(CHECK 가 강제 — 그래서 계정 탈퇴 파기 대상이 아니다, GROMO-1952)']
+  wallet_version_after   bigint      [not null, note: 'CHECK >= 0 — 차감 후 섬 지갑 version']
+  balance_after          integer     [not null, note: 'CHECK >= 0 — currency_spent 의 balance_after']
+  analytics_delivered_at timestamptz [note: 'currency_spent 내구 전달 의도 — NULL = 미전달. 분석 사건 id = 주문 id']
+  created_at             timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, created_at, id) [name: 'idx_shop_orders_island', note: 'shared 내역 keyset (created_at DESC, id DESC)']
+    (island_id, requester_id, created_at, id) [name: 'idx_shop_orders_island_requester', note: 'personal 내역 keyset — 섬 안의 본인']
+  }
+}
+
+Table audio_tracks [note: '음원 불변 미디어 메타데이터 (GROMO-1779, V73) — kind=audio 카탈로그 자산마다 곡 길이 한 행. 같은 trackId 의 오디오·길이를 바꾸지 않으므로 갱신 경로가 없다. 행이 없는 음원은 재생 PATCH 가 422'] {
+  product_id      varchar(80) [pk, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  duration_millis integer     [not null, note: 'CHECK > 0. 밀리초 정수 — NaN·무한 불가, 소수초 보존. 공개 durationSeconds = /1000']
+  created_at      timestamptz [not null, default: `now()`]
+}
+
+Table island_playbacks [note: '섬 공용 음악(방송기) 재생 상태 (GROMO-1779, V73) — 섬당 1행. 행이 없으면 초기 상태(곡 없음·정지·0초·version 0, anchor = 섬 생성 시각)이며 최초 PATCH 가 만든다. writer 는 재생 PATCH 하나. CHECK: track_id IS NOT NULL OR NOT playing'] {
+  island_id        uuid        [pk, note: 'FK → islands.id ON DELETE RESTRICT']
+  track_id         varchar(80) [note: 'FK → audio_tracks.product_id. 초기 미선택 null']
+  playing          boolean     [not null, default: false]
+  position_seconds bigint      [not null, default: 0, note: 'effective_at 시점 위치(초, 내림). 재생 중이면 서버 경과를 더해 곡 길이로 반복 — 곡 끝마다 갱신하지 않는다']
+  effective_at     timestamptz [not null, note: '위치 anchor 시각 — t = max(now, 이전 anchor)']
+  changed_by       uuid        [note: 'FK → users.id. 마지막 실제 변경 사용자, 초기 null']
+  version          bigint      [not null, default: 0, note: '행 배타락 아래에서만 +1 — PATCH expectedVersion 비교 대상이자 playback.updated 의 aggregateVersion']
+  updated_at       timestamptz [not null, default: `now()`]
+}
+
+Table island_quests [note: '섬 퀘스트 정의 (GROMO-1773, island-quests LLD §3, V71) — 방장만 만들고 고친다(D3). PATCH 는 revision 을 올리고 다음 회차부터 적용된다(2026-09-19 결정 Q-4). 창은 UTC 벽시계(결정 Q-6)이고 자정을 넘지 않는다'] {
+  id             uuid        [pk]
+  island_id      uuid        [not null, note: 'FK → islands.id ON DELETE RESTRICT']
+  type           varchar(10) [not null, note: "CHECK IN ('FOCUS','SCREEN')"]
+  title          varchar(40) [not null]
+  target_minutes integer     [not null, note: 'CHECK 1~1440 — focus 는 창 길이 이하(서비스 검증)']
+  window_start   time        [note: 'focus 만 NOT NULL, screen 은 NULL — CHECK island_quests_window_check(window_start < window_end)']
+  window_end     time
+  revision       integer     [not null, default: 1, note: '정의 수정마다 +1 — 회차가 어느 정의에서 나왔는지']
+  created_by     uuid        [note: '만든 방장 — FK 없음. 스케줄러가 여는 회차 사건의 주체. 계정 탈퇴 시 null(GROMO-1952, V76) — 그 뒤 회차는 시스템 주체로 연다']
+  created_at     timestamptz [not null, default: `now()`]
+  updated_at     timestamptz [not null, default: `now()`]
+
+  indexes {
+    island_id [name: 'idx_island_quests_island']
+  }
+}
+
+Table island_quest_occurrences [note: '퀘스트 회차 (GROMO-1773, V71) — (퀘스트, UTC 날짜) 유일. 여는 순간 정의·보상 설정을 스냅샷으로 복사한다. version 은 quest.progress 축 마지막 발급값(여는 사건 1, 이후 개인 수령마다 +1 — GROMO-1991)'] {
+  id                      uuid        [pk]
+  quest_id                uuid        [not null, note: 'FK → island_quests.id ON DELETE RESTRICT']
+  island_id               uuid        [not null, note: 'FK → islands.id ON DELETE RESTRICT']
+  occurrence_date         date        [not null, note: 'UTC 날짜']
+  definition_revision     integer     [not null]
+  type                    varchar(10) [not null, note: "CHECK IN ('FOCUS','SCREEN')"]
+  title                   varchar(40) [not null]
+  target_minutes          integer     [not null]
+  window_start            time
+  window_end              time
+  reward_per_achiever     integer     [not null, note: 'D5 개인 달성 +10 — 전액 섬 통장(결정 Q-1). CHECK >= 0']
+  reward_bonus_per_member integer     [not null, note: 'D5 전원 달성 보너스 1인당 5. CHECK >= 0']
+  version                 bigint      [not null]
+  bonus_settled_at        timestamptz [note: '전원 달성 보너스 적립 시각 — null 이면 아직(V83, GROMO-1991). 개인 수령 시각은 주민마다 달라 island_quest_claims 행에 있다']
+  created_at              timestamptz [not null, default: `now()`]
+
+  indexes {
+    (quest_id, occurrence_date) [unique, name: 'uq_island_quest_occurrence']
+    (island_id, occurrence_date) [name: 'idx_island_quest_occurrences_island_date']
+    occurrence_date [name: 'idx_island_quest_occurrences_bonus_pending'] // V83. 부분 인덱스 WHERE bonus_settled_at IS NULL — 매분 보너스 finalizer 조회(섬·퀘스트 조건이 없어 앞 두 인덱스를 못 쓴다). DBML 은 부분 조건을 표기하지 못한다
+  }
+}
+
+Table island_quest_cohort_members [note: '회차 시작 cohort (GROMO-1773, V71, 결정 Q-3) — 여는 순간 활성 주민 전원. 이후 가입자는 없고 탈퇴·강퇴·계정 탈퇴자는 판정 때 현재 활성 멤버와의 교집합에서 빠진다. 쓰기·읽기는 네이티브 쿼리(엔티티 IslandQuestCohortMember 는 CI create-drop 스키마 선언용, GROMO-1950)'] {
+  occurrence_id uuid [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
+  user_id       uuid [not null, note: 'FK 없음. 계정 탈퇴 시 본인 행 삭제(GROMO-1950, V71 주석의 「행 수 불변」 의도를 대체) — 판정은 활성 교집합이라 결과가 같다']
+
+  indexes {
+    (occurrence_id, user_id) [pk]
+  }
+}
+
+Table island_quest_claims [note: '회차 정산 (GROMO-1773, V71 · V83) — 도메인 유일 (섬, 회차, kind, 수령자). 개인 달성분은 주민마다 1행, 전원 달성 보너스는 회차당 1행(GROMO-1991). 같은 주민이 다른 키로 두 번 눌러도 지급 1회(Q06). 원장은 island_wallet_transactions QUEST_SETTLEMENT'] {
+  id                     uuid         [pk]
+  island_id              uuid         [not null, note: 'FK → islands.id ON DELETE RESTRICT']
+  occurrence_id          uuid         [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
+  kind                   varchar(20)  [not null, note: "CHECK IN ('ACHIEVER','ALL_ACHIEVED_BONUS') — V83. 개인 달성분 / 전원 달성 보너스"]
+  amount                 integer      [not null, note: 'CHECK > 0 — 섬 통장 적립량']
+  claimed_by             uuid         [note: '수령을 누른 주민 — FK 없음. 보너스 행은 수령 행위가 없어 처음부터 null(V83). 계정 탈퇴 시에도 null(GROMO-1950, V75) — 정산 행은 원장 근거라 남는다']
+  wallet_idempotency_key varchar(200) [not null, note: "개인 'quest:' || occurrence_id || ':' || claimed_by, 보너스 'quest-bonus:' || occurrence_id — 원장 기입 키"]
+  created_at             timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (island_id, occurrence_id, kind, claimed_by) [unique, name: 'uq_island_quest_claim'] // V83. 보너스 행(claimed_by null)의 1회는 회차 잠금 + bonus_settled_at + 지갑 원장 유일키가 보장한다
+  }
+}
+
+Table group_announcements [note: '그룹 공지 — 섬 게시판 공지(GROMO-1771)의 저장소이기도 하다. 공지 version 은 컬럼이 아니라 aggregate_versions(NOTICE, id) — V66 이 기존 공지를 1 로 백필'] {
+  id         uuid         [pk]
+
+  group_id   uuid         [not null, note: 'FK → islands.id']
+  user_id    uuid         [note: '작성자, 탈퇴 시 null (FK → users.id)']
+
+  title      varchar(100) [not null, note: '공지 제목']
+  content    text         [not null, note: '공지 본문']
+
+  created_at timestamptz  [not null, default: `now()`]
+  updated_at timestamptz
+  deleted_at timestamptz  [note: '삭제 시각 (소프트 딜리트). 콘텐츠 수정 불가 → 수정은 삭제 후 새 row, 옛 내용 보존']
+
+  indexes {
+    (group_id, created_at, id) [name: 'ix_group_announcements_group_created', note: '게시판 목록 keyset (createdAt DESC, id DESC). migration V66']
+  }
+}
+
+Table group_announcement_comments [note: '섬 게시판 공지 댓글 — 작성만 있고 수정 API 없음. GROMO-1771, island-board LLD §3. migration V66, V103(2026-09-25 결정 GROMO-2136 — BQ02 확정)'] {
+  id         uuid        [pk]
+
+  notice_id  uuid        [note: 'FK → group_announcements.id (ON DELETE CASCADE, V103) — 공지가 지워지면 댓글도 함께 지워진다']
+  author_id  uuid        [note: 'FK → users.id (ON DELETE SET NULL) — 탈퇴자 댓글은 애플리케이션이 먼저 delete 하므로(deleteAllOfUser) 이 FK 는 사실상 발동하지 않는다']
+
+  text       text        [not null, note: '댓글 본문. 상한은 island-board.comment-max-length(2026-09-25 결정 GROMO-2136 — BQ03 확정)']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (notice_id, created_at, id) [name: 'ix_group_announcement_comments_notice_created', note: '댓글 페이지 keyset (createdAt ASC, id ASC) + commentCount']
+  }
+}
+
+Table daily_focus_stats [note: '유저별 일일 집중 집계 (LLM·리포트용)'] {
+  id                          uuid    [pk]
+  user_id                     uuid    [note: 'nullable — 탈퇴 유저 익명 보존 (FK → users.id)']
+
+  date                        date    [not null, note: '일별 집계 버킷 날짜 — KST 고정(GROMO-1259 — FocusService.statDate 가 endedAt 을 ZonePolicy.KST 로 환산). 구 country_code 존 전환 예정 문구는 1259 로 폐기. UTC 전환은 ticket 1930 계획']
+
+  total_focus_seconds         integer [not null, default: 0, note: '일일 누적 집중 시간(초) — GROMO-642, 분 내림 손실 제거']
+  session_count               integer [not null, default: 0, note: '일일 세션 수']
+  total_distraction_seconds   integer [not null, default: 0, note: '일일 이탈 총 시간']
+  is_focus_time_goal_achieved boolean [not null, default: false, note: '집중 목표 달성 여부']
+
+  updated_at                  timestamptz
+
+  indexes {
+    (user_id, date) [unique]
+    date [name: 'idx_daily_focus_stats_date', note: '기간 집계 date BETWEEN range scan (user_id 선행 아님) GROMO-753, V11']
+  }
+}
+
+Table screen_time_observations [note: 'GROMO-1769 (V79): 기기별 스크린타임 관측 — (user, device, UTC 날짜, measured_at) 불변 행. 기기·날짜의 최신 선택 = measured_at 최댓값(포인터 행 없음). 병합 projection 은 저장하지 않는다(RC-D02 보류). legacy daily_screen_time_stats 와 별개(KST 라벨 미사용). 탈퇴 시 삭제'] {
+  id                 bigint      [pk, increment]
+  user_id            uuid        [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  device_id          uuid        [not null, note: '서명된 로그인 세션 id(AT sid) — 2026-09-19 결정 RC-D02-기기']
+  measured_date      date        [not null, note: 'UTC 날짜 버킷(2026-09-19 결정 RC-축)']
+  measured_at        timestamptz [not null]
+  timezone varchar(32) [not null, default: 'UTC', note: 'UTC 퀘스트 / Asia/Seoul 도서관 집계 경계']
+  finalized boolean [not null, default: false, note: '하루 전체 측정 완료. 중간 수치로 보상하지 않음']
+  minutes            integer     [note: 'authorized 일 때만 0~1440, 나머지 상태는 NULL(CHECK)']
+  measurement_status varchar(12) [not null, note: 'authorized / denied / unavailable / pending (CHECK)']
+  created_at         timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, device_id, measured_date, timezone, measured_at) [unique, name: 'uq_screen_time_observation']
+    (user_id, measured_date) [name: 'idx_screen_time_observations_user_date']
+  }
+}
+
+Table focus_statistics_snapshots [note: 'GROMO-1769 (V79): 회관 집중 기록 scope=me 조회 스냅샷 — 첫 페이지의 합계·일별·기록 전체를 15분 고정. 요청자 본인 기록만 담는다. 탈퇴 시 삭제'] {
+  id         uuid        [pk, note: '무작위 UUID — 커서(Business HMAC)에 실린다. 조회는 늘 user_id 와 함께']
+  user_id    uuid        [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  payload    text        [not null, note: '고정한 결과 JSON']
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id) [name: 'idx_focus_statistics_snapshots_user']
+  }
+}
+
+Table shedlock [note: 'ShedLock 분산 락 (GROMO-1283 · policy §E4, V45) — 챌린지·정산·알림 크론의 멀티 인스턴스 중복 실행 차단. shedlock-provider-jdbc-template 표준 스키마'] {
+  name       varchar(64)  [pk, note: '락 이름 — @SchedulerLock(name) 크론별 고유']
+  lock_until timestamp    [not null]
+  locked_at  timestamp    [not null]
+  locked_by  varchar(255) [not null]
+}
+
+Table auth_sessions [note: '로그인 세션 한 건 — 세션 축 (V52, A22 ㋣·㋞·㋨). users.refresh_token_hash 는 세션이 하나라는 전제라 ① B 로그인이 A 를 무효화하고 ② 한 기기 로그아웃이 전 세션을 지운다. 구 RT 에는 sessionId 가 없어 이 테이블은 «병행»이다(㋪)'] {
+  id                   uuid        [pk]
+  user_id              uuid        [not null, note: 'FK 없음 — 탈퇴 익명화 뒤에도 폐기 사실이 남아야 한다']
+  refresh_token_hash   varchar(64) [unique, note: '이 세션이 인정하는 RT 의 SHA-256 hex. 회전 때 갈아끼운다. V65: 탈퇴가 폐기 행에서 bootstrap_nonce_hash·legacy_device_token 과 함께 null 로 파기']
+  bootstrap_nonce_hash varchar(64) [note: 'deviceBootstrap 자격의 SHA-256 hex — 원문은 저장하지 않는다(저장하면 DB 유출이 곧 소유권 이전 자격 유출). 현 앱이 아직 보내지 않아 null 허용. 세션 폐기 이벤트에도 이 «해시»만 실린다']
+  session_epoch        bigint      [not null, note: 'fencing 값 (A22 ㋨) — 알림 서버가 자기 tombstone 과 원자 대조해 이보다 오래된 소유권 변경을 거부한다. 유저 축 aggregate 잠금 아래 발급된다']
+  revoked_at           timestamptz [note: '폐기 시각. 개별 로그아웃은 이 행만, 전 기기 로그아웃·탈퇴는 유저의 모든 행']
+  revoke_reason        varchar(30)
+  logout_refresh_expires_at timestamptz [note: 'V53 신규 RT-only 로그아웃에서 확정한 원 RT 만료. 원 refresh hash와 LOGOUT 사유로만 재생하며 기존 행 NULL은 증명 아님']
+  created_at           timestamptz [not null]
+  updated_at           timestamptz [not null]
+
+  indexes {
+    refresh_token_hash [unique, name: 'uq_auth_sessions_refresh_token_hash']
+    bootstrap_nonce_hash [unique, name: 'uq_auth_sessions_bootstrap_nonce_hash', note: '부분 인덱스 WHERE bootstrap_nonce_hash IS NOT NULL']
+    user_id [name: 'idx_auth_sessions_user_active', note: '부분 인덱스 WHERE revoked_at IS NULL — 전 기기 로그아웃·탈퇴가 매번 훑는다']
+  }
+}
+
+Table login_attempts [note: 'POST /auth/sessions 의 내구 로그인 시도 원장 (V59, GROMO-1908 · 계정 LLD §3). 제공자 authorizationCode 는 일회용이라, 201 응답이 유실된 재시도에서 다시 교환하면 제공자가 거절하거나 결과를 모르는 세션이 하나 더 생긴다. 토큰 «원문» 을 담지 않는다 — LLD §3 이 두 번 금지하며, 대신 고정 서명 재료를 남겨 재생 때 같은 claims 로 다시 서명한다(HS256 은 결정적이라 바이트가 같다)'] {
+  attempt_id           uuid        [pk, note: '앱이 만든 X-Login-Attempt-Id 그대로. 이 값만으로는 아무것도 얻을 수 없다 — 조회에는 언제나 원 자격에서 계산한 credential_digest 가 함께 있어야 한다']
+  status               varchar(24) [not null, note: "PENDING | COMPLETED | REPREPARE_REQUIRED | INVALIDATED — CHECK 제약. REPREPARE_REQUIRED 는 «아직 기록되지 않는다»: 그 CAS 경쟁은 Business 가 서명 주체가 될 때(GROMO-1661) 생기고, 1908 은 Data 가 발급하므로 경쟁할 자리가 없다. 계약상의 상태라 CHECK 에만 미리 넣어 뒀다"]
+
+  digest_key_id        varchar(64) [note: 'V65: 탈퇴 시 INVALIDATED 와 함께 null(credential_digest·고정 서명 재료도). Business 가 keyed digest 를 계산한 비밀의 식별자. digest 만 비교하면 「키가 교체됐다」와 「자격이 다르다」가 구분되지 않는데, LLD §3 은 전자를 IDEMPOTENCY_KEY_REUSED 로 판정하는 것을 명시적으로 금지한다 — 정상 사용자가 배포 한 번에 409 로 막히기 때문. 그래서 key id 를 digest «보다 먼저» 대조한다']
+  credential_digest    varchar(64) [note: 'HMAC-SHA256 hex. 원 code/credential 자체는 어떤 형태로도 저장하지 않는다']
+
+  provider             varchar(32) [not null, note: 'APPLE / GOOGLE / KAKAO / LINE / INSTAGRAM / FACEBOOK']
+  credential_kind      varchar(32) [not null, note: 'id_token / access_token / authorization_code — digest 입력에 들어가는 자격 «종류»']
+  terms_version        varchar(64) [not null, note: '수락 당시 앱이 제시한 약관 버전. 허용 카탈로그(정책 Q05 미결)는 이 표가 아니라 설정이 정한다']
+
+  user_id              uuid        [note: 'FK 없음 — auth_sessions.user_id 와 같은 이유다. 탈퇴 익명화 뒤에도 「그 시도는 끝났다」가 남아야 하고, RESTRICT 로 남의 정리 작업을 막아서도 안 된다. status=COMPLETED 일 때만 채워진다']
+  session_id           uuid        [note: '결과 세션. FK 없음(위와 같은 이유)']
+  onboarding_complete  boolean     [note: '확정 시점의 온보딩 판정 결과 — 재생이 판정을 다시 돌리지 않도록 함께 고정한다']
+
+  token_guest          boolean     [note: '고정 서명 재료 — 발급 시점 guest claim']
+  auth_generation      bigint      [note: '고정 서명 재료 — 발급 시점 gen claim. 없던 토큰이면 NULL 이고 «현재 값으로 채우지 않는다»(채우면 재생 토큰이 원본과 달라진다)']
+  access_issued_at     timestamptz [note: '고정 서명 재료 — AT 의 iat']
+  access_expires_at    timestamptz [note: '고정 서명 재료 — AT 의 exp']
+  refresh_issued_at    timestamptz [note: '고정 서명 재료 — RT 의 iat. AT 와 따로 서명되므로 같은 초라는 보장이 없어 별도 컬럼이다']
+  refresh_expires_at   timestamptz [note: '고정 서명 재료 — RT 의 exp']
+  refresh_jti          uuid        [note: '고정 서명 재료 — RT 의 jti. JwtProvider 가 같은 초의 두 발급을 가르려고 무작위로 박는 값이라, 고정하지 않으면 재생 토큰이 원본과 달라져 저장된 RT 해시와 어긋난다']
+
+  // ── 계정 전환 재개 증거 (V101, GROMO-1992). ck_login_attempts_switch_state CHECK 가 세 모양만 허용: ① phase null + evidence 전부 null, ② phase + status∈(PENDING,COMPLETED) + confirmed + evidence 전부 non-null, ③ phase + INVALIDATED + confirmed + evidence 전부 null. FK 없음 — 탈퇴로 지워지는 source/target 을 넘어 복구 사실을 보존한다 ──
+  account_switch_confirmed      boolean     [not null, default: false, note: '「회원으로 전환」이 확정된 시도. false 면 나머지 전환 7열은 전부 null — confirmed 만 찍히고 일반 로그인으로 끝난 행도 첫 CHECK 절을 만족한다']
+  switch_phase                  varchar(24) [note: 'VERIFIED | GUEST_WITHDRAWN — 일반/미준비 시도는 NONE 문자열이 아니라 NULL']
+  switch_source_user_id         uuid        [note: '전환 «되는» 게스트. FK 없음 — 탈퇴로 사라져도 증거는 남는다']
+  switch_source_session_id      uuid        [note: 'source 게스트의 세션. FK 없음']
+  switch_source_auth_generation bigint      [note: 'source 게스트의 auth generation — 재생 시 토큰 폐기 세대 판정 근거. ≥ 0']
+  switch_target_user_id         uuid        [note: '전환 «받는» 회원. FK 없음']
+  switch_target_social_account_id uuid      [note: '전환 «받는» social account 행. FK 없음']
+  switch_verified_at            timestamptz [note: '전환 검증이 끝난 시각']
+
+  claimed_at           timestamptz [not null, note: 'PENDING 실행권의 임차 시각. 실행자가 죽어 PENDING 이 남으면 이 시각으로 회수한다 — 회수가 없으면 그 attempt id 가 영원히 409 REQUEST_IN_PROGRESS 라 사용자가 갇힌다']
+  completed_at         timestamptz
+  recovery_expires_at  timestamptz [not null, note: '고정 복구 마감(기술 초기값 5분, LLD §3). 넘으면 재생하지 않고 새 제공자 인증을 요구한다']
+
+  created_at           timestamptz [not null, default: `now()`]
+  updated_at           timestamptz [not null, default: `now()`]
+}
+
+Table guest_device_claims [note: '게스트 기기 점유 원장 (V87, GROMO-2036). login_attempts 가 소셜 로그인에 대해 하는 일을 게스트 축에서 한다 — 게스트 발급은 호출 한 번마다 users 행이 하나 생기므로, 201 이 유실된 재시도가 같은 사람에게 계정을 둘 만들지 않게 막는다. 축이 「앱이 만든 시도 id」가 아니라 «기기» 라서 PK 가 다르다'] {
+  device_digest       varchar(64) [pk, note: 'Business 가 자기 비밀로 계산한 기기 식별자의 keyed HMAC-SHA256 hex. 원 기기 식별자는 Data 에 도달하지 않는다 — 이 표가 통째로 유출돼도 기기 식별자는 나오지 않는다 (계정 LLD §3 「앱이 제출한 digest 를 자격으로 수락하지 않는다」)']
+  user_id             uuid        [not null, note: 'ON DELETE CASCADE — user_main_islands(V81)·user_island_contexts(V57) 와 같은 이유다. 탈퇴는 소프트 딜리트라 여기서 사라지지 않지만, 발급 경로가 「활성 게스트가 아니면 점유를 버린다」로 판정하므로 탈퇴·승격된 유저를 가리키는 행은 재사용되지 않는다']
+  claimed_at          timestamptz [not null, default: `now()`]
+  recovery_expires_at timestamptz [not null, note: '이 점유가 같은 유저를 재생해 주는 마감(5분 — LoginAttemptService.RECOVERY_WINDOW 와 같은 근거: 유실된 201 의 즉시 재시도). 무기한으로 두면 기기 식별자가 게스트 계정의 영구 bearer 자격이 되는데, 계정 LLD §3 은 「게스트의 복구창 밖 처리에는 아직 승인된 대체 복구 수단이 없다」(Q06)고 명시한다. 지난 행은 다음 점유가 같은 PK 로 덮어 재사용하며, 별도 청소 배치는 두지 않았다(게스트 생성이 GuestLoginRateLimiter 로 묶여 있어 증가율이 작다)']
+}
+
+Table event_outbox [note: '내구 이벤트 봉투 (V51, A21) — 명령 트랜잭션이 도메인 변경과 «같은 트랜잭션에서» 적는다. 발행은 이 행을 읽어서 relay 가 한다. 불변이다 — 전달 상태는 전부 event_outbox_deliveries 에 있다'] {
+  id             uuid         [pk]
+
+  event_id       varchar(200) [not null, unique, note: '결정적 사건 키 — 소비 측 dedup 의 유일한 근거. fan-out 은 수신자별로 펼쳐 «<사건키>:<userId>» (A22 ㊢)']
+  schema_version integer      [not null, note: '스키마 호환용 (ⓦ) — 순서용 version 과 «다른 값»이며 둘 다 필수']
+  type           varchar(100) [not null, note: '사건 종류']
+  occurred_at    timestamptz  [not null]
+  scheduled_at   timestamptz  [note: '예약 발송 시각 — 즉시 사건은 null. relay 의 첫 시도 시각이 된다']
+  user_id        uuid         [not null, note: '수신자 하나. Kafka key 이기도 하다 (FK 없음 — 봉투는 탈퇴 후에도 남아야 relay 가 정리 명령을 보낸다)']
+  locale         varchar(35)  [note: '렌더 로케일 — 미보고는 null 로 두고 수신 측이 ko 폴백. ko 를 박으면 「보고받은 ko」와 「모름」이 구분되지 않는다']
+  subject_id     varchar(200) [note: '사건 대상의 정규 식별자 — 컬렉션 투영은 (userId, subjectId) 별 최대 version 으로 역순을 막는다 (A21). uuid 가 아닌 이유: 링크 멤버십 전이처럼 복합 키를 싣는 자리가 있다']
+  aggregate_type varchar(60)  [not null, note: '순서 축의 종류 — USER·ISLAND·ISLAND_ARRIVAL 등. version 을 발급한 축이자 relay 의 전달 순서 축이다']
+  aggregate_id   varchar(200) [not null, note: '순서 축의 식별자 — 유저 축은 userId, 링크 멤버십 전이는 «<groupId>:<inviterId>» (A22 ㋥)']
+  version        bigint       [not null, note: 'aggregate 행 잠금 아래 발급된 단조 증가 값 (A22 ㊸). 시퀀스 금지 — 할당 순서 ≠ 커밋 순서라 나중에 커밋된 최신 상태가 폐기된다']
+  params         jsonb        [not null, note: '사건별 발송 입력. 소비자는 모르는 필드를 무시한다']
+  created_at     timestamptz  [not null]
+
+  indexes {
+    event_id [unique, name: 'uq_event_outbox_event_id']
+    (aggregate_type, aggregate_id, version) [unique, name: 'uq_event_outbox_aggregate_version', note: '같은 축에서 같은 version 이 두 번 나오면 순서 판정이 무너진다 — 발급 경로의 버그를 즉시 실패로 드러낸다']
+  }
+}
+
+Table event_outbox_deliveries [note: '대상별 전달 상태 (V51, A21) — 같은 사건의 브로커·HTTP 전달을 대상별로 추적한다. 합치면 한쪽 실패에 성공한 쪽까지 재전달(중복)되거나 실패한 쪽이 영영 안 간다(유실)'] {
+  id                uuid         [pk]
+  outbox_id         uuid         [not null, note: 'FK → event_outbox.id (ON DELETE CASCADE)']
+  target            varchar(20)  [not null, note: "CHECK 'KAFKA' | 'NOTI' | 'REALTIME' | 'SCORE'; SCORE(score-events 랭킹 소비자, V80)는 transport 등록 전 내구 보류"]
+
+  aggregate_type    varchar(60)  [not null, note: '봉투에서 복제 — 선행 미전달 검사(NOT EXISTS)가 이 테이블 안에서 끝나게 한다. 봉투가 불변이라 복제본이 낡을 수 없다']
+  aggregate_id      varchar(200) [not null, note: '봉투에서 복제']
+  aggregate_version bigint       [not null, note: '봉투에서 복제']
+
+  payload           jsonb        [not null, note: '이 대상에 보낼 본문. Kafka 는 정본 봉투 그대로, HTTP 대상은 그 명령의 본문(세션 폐기·알림 설정 등)']
+  endpoint_key      varchar(80)  [note: 'HTTP 대상의 «논리» 엔드포인트 키. URL·method·caller 토큰은 서버 설정의 허용목록에만 있다 — 저장된 payload 가 목적지를 고를 수 있으면 그게 곧 SSRF 다. Kafka 대상은 null']
+
+  delivered_at      timestamptz  [note: '전달 완료 표시. null = 아직 안 갔다 — relay 는 비어 있는 대상만 재시도한다']
+  attempt_count     integer      [not null, note: '선점 시점에 증가한다 — 죽은 워커의 시도도 세어야 「몇 번째부터 이상한가」가 보인다']
+  last_attempt_at   timestamptz
+  last_error        text
+  next_attempt_at   timestamptz  [not null, note: '다음 시도 시각 — 백오프가 민다. 예약 사건은 scheduled_at 으로 시작한다']
+
+  lease_owner       varchar(80)  [note: '선점한 워커']
+  lease_token       uuid         [note: '펜싱 토큰 — 완료·실패 표시가 이 값과 일치할 때만 반영된다. 리스 만료 후 재클레임하면 값이 바뀌어 옛 워커의 낡은 완료 표시가 거부된다']
+  lease_expires_at  timestamptz  [note: '리스 만료 — 지나면 다른 워커가 회수한다']
+  created_at        timestamptz  [not null]
+
+  indexes {
+    (outbox_id, target) [unique, name: 'uq_event_outbox_deliveries_outbox_target', note: '한 봉투에 같은 대상 행이 둘이면 그 대상이 두 번 전달된다']
+    (target, next_attempt_at, lease_expires_at) [name: 'idx_event_outbox_deliveries_pending', note: '부분 인덱스 WHERE delivered_at IS NULL — 미전달 스캔']
+    (target, aggregate_type, aggregate_id, aggregate_version) [name: 'idx_event_outbox_deliveries_ordering', note: '부분 인덱스 WHERE delivered_at IS NULL — 「같은 순서 축의 선행 미전달이 있는가」 전용']
+  }
+}
+
+Table aggregate_versions [note: '순서용 version 발급구 (V51, A22 ㊸) — 이 행을 «잠근 채» 번호를 올려 같은 축의 두 트랜잭션을 직렬화한다. 그래야 번호 순서가 곧 커밋 순서가 된다. users 에는 @Version 도 없어 기존 낙관락이 이 경합을 막지 못한다'] {
+  aggregate_type varchar(60)  [pk, note: '복합 PK (aggregate_type, aggregate_id)']
+  aggregate_id   varchar(200) [pk]
+  last_version   bigint       [not null, note: '마지막으로 «발급한» 값. 다음 발급은 +1']
+  updated_at     timestamptz  [not null]
+}
+
+Table command_idempotency [note: '명령 멱등 기록 (V51, A21 · A22 ㊼) — 키의 소유자는 앱이다. 커밋 직후 응답이 유실돼 같은 POST 가 다시 오면 두 번째 트랜잭션이 새 도메인 객체와 새 outbox 행을 만든다'] {
+  idempotency_key     varchar(200) [pk, note: 'SHA-256(userId + NUL + Idempotency-Key 헤더)의 64자 hex. 원 요청 키는 사용자별로 격리한다']
+  user_id             uuid         [not null, note: '명령 주체']
+  command_type        varchar(100) [not null]
+  request_fingerprint varchar(64)  [not null, note: 'SHA-256 hex. «영구 멱등 키가 아니다» — 계약 §3 이 본문 해시를 키로 쓰는 것을 금지한다. 같은 키로 «다른» 본문이 왔는지만 본다']
+  response_body       jsonb        [note: '재생할 응답. 선점과 저장이 같은 트랜잭션이라 «커밋된 행 = 응답 있음» 이다']
+  created_at          timestamptz  [not null]
+}
+
+Table focus_live_activities [note: '집중 상태 APNs·Android FCM 등록·전송 상태. iOS 8시간, Android 세션 종료까지 보관'] {
+  id uuid [pk]
+  session_id uuid [not null, unique]
+  user_id uuid [not null]
+  activity_id varchar(128) [not null]
+  push_token varchar(1024) [not null]
+  environment varchar(16) [not null]
+  cat_color varchar(16) [not null]
+  sent_version bigint [not null]
+  sent_timestamp bigint [not null]
+  next_attempt_at timestamptz [not null]
+  expires_at timestamptz [note: 'iOS 만료 시각, Android는 NULL']
+  indexes {
+    next_attempt_at [name: 'focus_live_activities_due_idx']
+  }
+}
+
+Table construction_guide_recipients [note: '착공 당시 양수 기여 주민. 완공 후 해당 주민에게만 완료 안내 — 2296'] {
+  island_id uuid [not null]
+  building_id varchar(30) [not null]
+  user_id uuid [not null]
+  indexes {
+    (island_id, building_id, user_id) [pk]
+    user_id
+  }
+}
+
+Table onboarding_islands [note: '첫 소속 없는 사용자의 개인 무인도. 도착 전 비공개·주민 0명, 실제 바다 도착 후 방장 소속과 함께 예약 삭제. V137'] {
+  user_id uuid [pk]
+  island_id uuid [not null, unique]
+}
+
+// 물리 FK와 두 논리 관계. 복합 FK는 컬럼별 단일 관계로 나누지 않는다.
+Ref: audio_tracks.product_id - catalog_assets.product_id [delete: restrict]
+Ref: construction_building_prerequisites.building_id > construction_buildings.id [delete: restrict]
+Ref: construction_building_prerequisites.prerequisite_id > construction_buildings.id [delete: restrict]
+Ref: construction_cost_policies.building_id > construction_buildings.id [delete: restrict]
+Ref: island_facilities.building_id > construction_buildings.id [delete: restrict]
+Ref: island_construction_states.target_building_id > construction_buildings.id [delete: restrict]
+Ref: construction_guide_recipients.(island_id, building_id) > island_facilities.(island_id, building_id) [delete: cascade]
+Ref: construction_guide_recipients.user_id > users.id [delete: cascade]
+Ref: customization_asset_meta.(product_id, kind) > catalog_assets.(product_id, kind) [delete: restrict]
+Ref: customization_reward_items.product_id > catalog_assets.product_id [delete: restrict]  // GROMO-2313 V133
+Ref: customization_reward_items.revision > customization_reward_policies.revision [delete: restrict]  // GROMO-2313 V133
+Ref: daily_focus_stats.user_id > users.id
+Ref: event_outbox_deliveries.outbox_id > event_outbox.id [delete: cascade]  // V51 — 본체가 지워지면 배달 이력도 같이 지워진다
+Ref: focus_live_activities.session_id > focus_session_details.session_id [delete: cascade]
+Ref: focus_live_activities.user_id > users.id [delete: cascade]
+Ref: focus_reward_accruals.session_id > focus_session_details.session_id [delete: cascade]
+Ref: focus_session_details.session_id > focus_sessions.id [delete: cascade]
+Ref: focus_session_details.user_id > users.id [delete: set null]
+Ref: focus_session_intervals.session_id > focus_session_details.session_id [delete: cascade]
+Ref: focus_sessions.daily_focus_stat_id > daily_focus_stats.id  // 논리 관계 — DB FK 제약 없음
+Ref: focus_sessions.user_id > users.id
+Ref: focus_settlements.(customization_reward_revision, customization_reward_product_id) > customization_reward_items.(revision, product_id) [delete: restrict]
+Ref: focus_settlements.session_id > focus_session_details.session_id [delete: restrict]  // V58 — 정산 원장 행은 상세가 사라져도 함께 지우지 않는다
+Ref: focus_statistics_snapshots.user_id > users.id [delete: restrict]
+Ref: focus_tutorial_rewards.island_id > islands.id [delete: set null]
+Ref: focus_tutorial_rewards.user_id > users.id [delete: cascade]
+Ref: friendships.from_user_id > users.id
+Ref: friendships.to_user_id > users.id
+Ref: group_announcement_comments.author_id > users.id [delete: set null]
+Ref: group_announcement_comments.notice_id > group_announcements.id [delete: cascade]
+Ref: group_announcements.group_id > islands.id
+Ref: group_announcements.user_id > users.id
+Ref: group_invite_links.group_id > islands.id
+Ref: group_invite_links.inviter_id > users.id
+Ref: group_members.group_id > islands.id
+Ref: group_members.user_id > users.id
+Ref: guest_device_claims.user_id > users.id [delete: cascade]
+Ref: island_appearances.island_id - islands.id [delete: restrict]
+Ref: island_arrivals.island_id > islands.id [delete: cascade]
+Ref: island_arrivals.user_id > users.id [delete: cascade]
+Ref: island_construction_contributions.island_id > island_construction_states.island_id [delete: restrict]
+Ref: island_construction_contributions.user_id > users.id [delete: restrict]
+Ref: island_construction_states.island_id > islands.id [delete: restrict]
+Ref: island_facilities.island_id > islands.id [delete: restrict]
+Ref: island_focus_averages.island_id > islands.id [delete: cascade]  // GROMO-2257 — 섬이 사라지면 그 섬의 스냅샷도 같이 지운다
+Ref: island_guestbook_entries.author_id > users.id [delete: cascade]
+Ref: island_guestbook_entries.island_id > islands.id [delete: cascade]
+Ref: island_join_requests.applicant_id > users.id [delete: restrict]
+Ref: island_join_requests.invite_link_id > group_invite_links.id [delete: restrict]
+Ref: island_join_requests.island_id > islands.id [delete: restrict]
+Ref: island_layouts.island_id > islands.id [delete: restrict]
+Ref: island_news.island_id > islands.id [delete: cascade]
+Ref: island_playbacks.changed_by > users.id [delete: restrict]
+Ref: island_playbacks.island_id - islands.id [delete: restrict]
+Ref: island_playbacks.track_id > audio_tracks.product_id [delete: restrict]
+Ref: island_promotion_reports.promotion_id > island_promotions.id [delete: cascade]  // GROMO-2289 V121
+Ref: island_promotion_reports.reporter_id > users.id [delete: cascade]  // GROMO-2289 V121 — 사용자 행은 지워지지 않아 신고는 남는다
+Ref: island_promotions.applied_by > users.id  // GROMO-2289 V119 — 사용자 행은 익명화만 되고 지워지지 않는다
+Ref: island_promotions.island_id > islands.id [delete: cascade]  // GROMO-2289 V119 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
+Ref: island_quest_claims.island_id > islands.id [delete: restrict]
+Ref: island_quest_claims.occurrence_id > island_quest_occurrences.id [delete: restrict]
+Ref: island_quest_cohort_members.occurrence_id > island_quest_occurrences.id [delete: restrict]
+Ref: island_quest_occurrences.island_id > islands.id [delete: restrict]
+Ref: island_quest_occurrences.quest_id > island_quests.id [delete: restrict]
+Ref: island_quests.island_id > islands.id [delete: restrict]
+Ref: island_wallet_transactions.island_id > island_wallets.island_id [delete: restrict]
+Ref: island_wallets.island_id > islands.id [delete: restrict]
+Ref: island_weekly_member_counts.island_id > islands.id [delete: cascade]  // GROMO-1997 — 섬이 사라지면 그 섬의 동결 분모도 같이 지운다
+Ref: letters.island_id > islands.id [delete: set null]
+Ref: letters.receiver_id > users.id [delete: restrict]
+Ref: letters.sender_id > users.id [delete: restrict]
+Ref: magazine_asset_meta.(product_id, kind) - catalog_assets.(product_id, kind) [delete: restrict]  // GROMO-2289 V118 — 복합 FK, ON DELETE RESTRICT
+Ref: magazine_receipts.issue_id > magazine_issues.id [delete: cascade]  // GROMO-2289 V120
+Ref: magazine_receipts.user_id > users.id [delete: cascade]  // GROMO-2289 V120 — 사용자 행은 익명화만 되고 지워지지 않아 탈퇴 TX 가 지운다
+Ref: onboarding_islands.island_id > islands.id [delete: cascade]
+Ref: onboarding_islands.user_id > users.id [delete: cascade]
+Ref: owned_products.group_id > islands.id [delete: restrict]
+Ref: owned_products.product_id > catalog_assets.product_id [delete: restrict]
+Ref: owned_products.user_id > users.id [delete: restrict]
+Ref: personal_appearances.clothes > catalog_assets.product_id [delete: restrict]
+Ref: personal_appearances.decor > catalog_assets.product_id [delete: restrict]
+Ref: personal_appearances.head > catalog_assets.product_id [delete: restrict]
+Ref: personal_appearances.neck > catalog_assets.product_id [delete: restrict]
+Ref: personal_appearances.shoes > catalog_assets.product_id [delete: restrict]
+Ref: personal_appearances.user_id - users.id [delete: restrict]
+Ref: screen_time_observations.user_id > users.id [delete: restrict]
+Ref: sea_remarks.user_id > users.id [delete: cascade]
+Ref: shop_catalog_active_publication.publication_version > shop_catalog_publications.version [delete: restrict]
+Ref: shop_catalog_publication_entries.(product_id, product_revision) > shop_product_revisions.(product_id, revision) [delete: restrict]
+Ref: shop_catalog_publication_entries.publication_version > shop_catalog_publications.version [delete: restrict]
+Ref: shop_orders.island_id > islands.id [delete: restrict]
+Ref: shop_orders.payer_user_id > users.id [delete: restrict]
+Ref: shop_orders.(product_id, product_revision) > shop_product_revisions.(product_id, revision) [delete: restrict]
+Ref: shop_orders.requester_id > users.id [delete: restrict]
+Ref: shop_product_revisions.product_id > catalog_assets.product_id [delete: restrict]
+Ref: shop_product_revisions.required_product_id > catalog_assets.product_id [delete: restrict]
+Ref: social_accounts.user_id > users.id
+Ref: telescope_buckets.user_id > users.id [delete: cascade]  // GROMO-2306 V125 — 사용자 행은 소프트 삭제라 탈퇴 때 애플리케이션이 지운다
+Ref: telescope_pins.island_id > islands.id [delete: cascade]  // GROMO-2268 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
+Ref: telescope_pins.promotion_id > island_promotions.id [delete: set null]  // GROMO-2289 — 칸이 지워지면 핀은 남고 말풍선 미리보기만 빠진다
+Ref: telescope_pins.user_id > users.id [delete: cascade]  // GROMO-2268 — 사용자 행은 소프트 삭제라 탈퇴 때 애플리케이션이 지운다
+Ref: user_blocks.blocked_id > users.id
+Ref: user_blocks.blocker_id > users.id
+Ref: user_fish_wallets.user_id > users.id [delete: cascade]
+Ref: user_island_contexts.current_island_id > islands.id [delete: set null]
+Ref: user_island_contexts.user_id - users.id [delete: cascade]
+Ref: user_main_islands.island_id > islands.id [delete: cascade]
+Ref: user_main_islands.user_id - users.id [delete: cascade]
+Ref: user_notification_settings.user_id - users.id  // 논리 관계 — DB FK 제약 없음

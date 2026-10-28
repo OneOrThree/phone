@@ -12,24 +12,12 @@
     "props": {
       "name": {
         "gen": "string"
-      },
-      "missionType": {
-        "gen": "enum",
-        "values": [
-          "TIME_WINDOW",
-          "DURATION"
-        ]
-      },
-      "missionCategory": {
-        "gen": "enum",
-        "values": [
-          "FOCUS",
-          "SCREEN_TIME"
-        ]
       }
     }
   },
   "paginate": null,
-  "gaps": [],
-  "runnable": true
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
 }

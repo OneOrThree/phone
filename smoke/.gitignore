@@ -1,0 +1,5 @@
+# 실행 결과·자격 임시 파일은 커밋하지 않는다.
+results*.tsv
+.local/
+__pycache__/
+*.pyc

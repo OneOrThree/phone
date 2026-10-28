@@ -1,0 +1,148 @@
+# 모든 프로파일이 공유하는 설정 — 파일 미리보기(1747)와 Data·알림·실시간 조합(1659)이 한 서비스에 있다.
+#
+# ⚠️ 상류 주소·서비스 토큰은 여기 두지 않는다. 여기에 ${SVC_TOKEN_BIZ_TO_DATA} 같은 플레이스홀더를
+#    두면 ci 프로파일에서도 그 바인딩이 일어나 환경변수가 없다며 부팅이 실패한다. 접속·자격은
+#    프로파일별 파일이 각자 채운다(server/chat 과 같은 규율).
+#
+# ⚠️ 이 서비스에 datasource·flyway 설정이 «없는 것»은 계약이다 — 도메인 DB·트랜잭션·크론·브로커를
+#    갖지 않는다(목표 아키텍처 §2 「안 하는 일」). 아래 Redis 는 그 예외가 아니라 «사본»이다:
+#    A19 네임스페이스 표의 cache:business:* 소유자로서 자기 미리보기 캐시만 담고, 비워도 다음 요청이
+#    다시 만든다. 어떤 도메인 판정도 여기에 의존하지 않는다.
+spring:
+  application:
+    name: business-api
+  data:
+    redis:
+      host: ${BUSINESS_REDIS_HOST:localhost}
+      port: ${BUSINESS_REDIS_PORT:6379}
+      # 배포 준비 도구가 business ACL 사용자와 암호를 주입한다. 빈 기본값은 테스트용 Redis에만 쓴다.
+      username: ${BUSINESS_REDIS_USERNAME:}
+      password: ${BUSINESS_REDIS_PASSWORD:}
+      connect-timeout: 2s
+      timeout: 2s
+
+server:
+  # 루트가 배선한 compose 가 SERVER_PORT=8080 을 준다. 기본값도 8080 으로 맞춰 두 값이 갈라지지 않게 한다.
+  # ⚠️ 8082 로 두지 않는다 — 위성 배포에서 그 포트는 알림 서버 몫이다.
+  port: ${SERVER_PORT:8080}
+  tomcat:
+    mbeanregistry:
+      enabled: true
+    # cgroup pids_limit 128에는 JVM 스레드·PDF 자식 프로세스도 포함된다.
+    # 서비스/관리 worker 합계32 + 상류/조합16 + preview/DNS8 외에 JVM·Redis·PDF 여유를 남긴다.
+    threads:
+      max: 16
+      min-spare: 4
+    # 상류 재시도 예산을 확보하도록 커넥션 대기 시간을 제한한다.
+    connection-timeout: 3s
+    # 413 을 내린 뒤 남은 본문을 삼키지 않는다. 삼키면 거절해 놓고도 그 바이트를 다 읽게 된다.
+    max-swallow-size: 0
+
+# 관리 포트는 호스트에 publish 하지 않는다 — 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      # 준비성에 «상류»는 넣지 않는다. 이 서비스의 일은 상류 장애를 503 으로 전달하는 것이고, 상류가
+      # 흔들릴 때 컨테이너를 unhealthy 로 만들면 로드밸런서가 멀쩡한 인스턴스를 빼 버려 그 503 조차
+      # 못 내려준다. 상류 건강은 서킷 메트릭으로 본다.
+      # 반면 redis 는 «자기 저장소»다 — 붙지 않으면 미리보기가 통째로 안 되므로 준비성에 넣는다.
+      group:
+        readiness:
+          include: readinessState,redis
+
+# OpenAPI 문서 경로 — data-api 와 같은 /v0 규약으로 맞춘다(GROMO-2069).
+# 게시용 스펙은 /v0/api-docs/public 그룹 하나다 — 그 경로만 AccessTokenFilter 가 연다.
+springdoc:
+  api-docs:
+    path: /v0/api-docs
+
+business:
+  upstream:
+    data:
+      connect-timeout: 500ms
+      # 5초 예산 안에서 재시도 2회가 들어가도록 잡았다(1.5s × 2 + 여유).
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
+    notification:
+      connect-timeout: 500ms
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
+    # 실시간 서버 — 우체통 편지방의 저장소 어댑터(GROMO-1775). 주소·토큰은 프로파일별 파일이 채운다.
+    realtime:
+      connect-timeout: 500ms
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
+  # 목록 커서 서명 (GROMO-1759) — 키는 프로파일별 파일의 business.cursor 가 채운다(ci: 테스트 키, dev/prod: 환경변수).
+  #
+  # 서명기는 «항상» 있다(2026-10-27, 티켓 2535 — business.cursor.enabled 를 걷었다). 키(active-key 가 가리키는
+  # keys 항목)가 없거나 치환되지 않았거나 «JWT 와 독립인» 256비트(32바이트) 미만이면 CursorConfig 가 RequiredConfig 로
+  # «부팅을 실패»시킨다. 종전처럼 부팅은 정상인데 목록의 첫 요청만 503 이 되는 모양은 없다 — 부팅 실패가 배포 게이트다.
+  # 커서를 «없는 셈» 치고 첫 페이지를 돌려주지 않는 것은 의도다 — 그건 위조 커서를 조용히 허용하는 것과 같다.
+
+  # 공개 Drive 메타데이터 조회용. 비어 있으면 Drive 경로만 못 쓰고 나머지 미리보기는 동작한다.
+  drive-api-key: ${GOOGLE_DRIVE_API_KEY:}
+
+# JWT 발급자인 Data API와 같은 키로 검증한다.
+# 프로파일별 파일(dev/prod/ci)이 각자 덮어쓰므로, 여기 값은 프로파일 없이 띄우는 로컬 compose 용이다.
+jwt:
+  secret: ${JWT_SECRET}
+
+auth:
+  # 폐기된 세션 id 거부목록 보관 시간 — «data-api 의 access-token 수명(기본 3600초)과 같아야» 한다.
+  # 짧으면 폐기된 AT 가 거부목록이 비워진 뒤 되살아나고, 길면 Redis 에 쓸모없는 키가 남는다.
+  # ⚠️ 로컬 data-api 예시(application-local.yml.example)는 AT 30일이다 — 프로파일 없이 띄우면
+  #    AUTH_REVOKED_SESSION_TTL=2592000s 를 같이 준다(server/scripts/README.md §3 bootRun 줄).
+  revoked-session:
+    ttl: 3600s
+  # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
+  # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
+  #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
+  # ⚠️ 비거나 치환되지 않으면 «부팅이 실패»한다(CredentialDigest 의 RequiredConfig fail-fast).
+  #    비밀 없는 digest 는 「원 자격을 들고 있다」는 증거이기를 그만두는데, 로그인은 «정상 동작하는
+  #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
+  login-attempt:
+    digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
+
+# 카탈로그 이미지 절대 URL 의 앞부분(GROMO-2331) — 비우면 imagePath 를 상대 경로 그대로 내린다.
+app:
+  static-base-url: ${STATIC_ASSETS_BASE_URL:}
+
+# 탈퇴 시 Sign in with Apple 토큰 폐기(GROMO-2401). team-id·key-id·private-key 중 하나라도 비면 «폐기를 건너뛴다»
+# (부팅은 정상, 탈퇴마다 WARN). private-key 는 .p8 PEM 이고 개행은 \n 리터럴이어도 된다.
+# ⚠️ APPLE_CLIENT_ID 는 data-api 의 aud 목록(쉼표 구분)이라 재사용하지 않는다.
+apple:
+  revoke:
+    client-id: com.oneorthree.focuscat # 2.0 앱 번들 id — code 를 받은 앱과 같아야 한다
+    team-id: ${APPLE_TEAM_ID:}
+    key-id: ${APPLE_KEY_ID:}
+    private-key: ${APPLE_PRIVATE_KEY:}
+    base-url: https://appleid.apple.com
+
+logging:
+  level:
+    com.oneorthree.business: INFO
+    org.apache.hc.client5.http: WARN
+  file:
+    name: ${BUSINESS_LOG_PATH:logs/business-api.log}
+  logback:
+    rollingpolicy:
+      max-file-size: 20MB
+      max-history: 7
+      total-size-cap: 200MB
