@@ -82,7 +82,7 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
-      withIosMeta,
+      [withIosMeta],
       // 현재 음원은 앱 안에서만 재생하므로 미디어 포그라운드 서비스를 추가하지 않는다.
       [
         'expo-audio',
