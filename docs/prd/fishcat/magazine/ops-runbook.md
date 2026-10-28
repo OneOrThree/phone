@@ -137,56 +137,55 @@ COMMIT;
 
 ### 4-4. 발행 알림(GROMO-2307)
 
-07시 발행 뒤 10분 틱마다 `magazine_issues.notified_at IS NULL` 인 **오늘** 호를 정식 계정 전원(게스트·탈퇴 제외)에게 펼친다. 기본(LEGACY)은 Data 가 FCM 을 직접 부르고, `NOTIFICATION_DISPATCH_MODE=OUTBOX` 면 알림 서버(V8 카탈로그)가 보낸다. 전부 끝나면 `notified_at` 을 확정하고, 확정된 호는 다시 펼치지 않는다. 앱 2090·2091 전까지 2.0 앱은 FCM 을 받지 못한다(서버 발송만 준비됨).
+07시 발행 뒤 10분 틱마다 `magazine_issues.notified_at IS NULL` 인 **오늘** 호를 정식 계정 전원(게스트·탈퇴 제외)에게 펼친다. `MagazinePublishScheduler`가 `MagazineIssueNotifier`를 호출하고, Data는 사용자별 `MAGAZINE_PUBLISHED` 사건을 outbox의 Kafka 대상으로 적는다. Relay가 `notification-events`로 전달하면 Notification이 소비해 `deliveries`에 적재하고 발송한다. 펼치기가 전부 끝나면 `notified_at`을 확정하고, 확정된 호는 다시 펼치지 않는다. 앱 실수신은 배포 빌드·FCM 자격과 발송 상태를 함께 확인한다.
+
+경로를 열려면 Data의 `OUTBOX_RELAY_ENABLED=true`, Notification의 `NOTIFICATION_KAFKA_ENABLED=true`·`NOTIFICATION_SCHEDULING_ENABLED=true`, 알림 DB의 `dispatch_control.enabled=true`가 모두 필요하다. 실제 발송에는 등록부의 `delivery-dispatch` job 활성화와 FCM 자격도 필요하다([알림 서버 운영 절차](../../../../server/notification/README.md#dev-발송-게이트)). 운영의 실제 설정값은 배포 환경에서 확인한다. `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED`는 잡지 알림과 무관하다.
 
 **로그** — `고양이 잡지 알림` 접두로 찾는다.
 
 | 문구 | 수준 | 뜻 |
 | --- | --- | --- |
 | `펼치기 완료` | info | 먼저 확정한 틱만 남긴다(겹친 틱은 남기지 않는다) |
-| `일시 실패 … 다음 틱(10분 뒤)에 이어서 한다` | warn | 전송 오류가 남았다 — `notified_at` 은 NULL, 다음 틱이 실패분만 다시 한다 |
 | `펼치기 실패 — 다음 틱(10분 뒤)에 이어서 한다` | warn | 예외로 끊겼다 — 같은 방식으로 이어진다 |
-| `그날 마지막 틱까지 실패분 N건을 남겼다 — 수동 확인 필요` | error | 23:50 틱 — 다음 날은 다른 호만 보므로 자동 재시도는 끝났다 |
-| `고양이 잡지 알림 펼치기가 그날 마지막 틱까지 실패했다` | error | 23:50 틱에서 예외로 끊겼다 — 위와 같이 자동 재시도는 끝났고 실패분은 수동 확인한다 |
+| `고양이 잡지 알림 펼치기가 그날 마지막 틱까지 실패했다` | error | 23:50 틱에서 예외로 끊겼다 — 다음 날은 다른 호만 보므로 자동 재시도는 끝났다 |
 
 **확인**
 
 ```sql
--- ① 호 상태 — notified_at 이 NULL 이면 아직 펼치는 중이거나 실패분이 남았다.
-SELECT issue_date, issue_no, notified_at FROM magazine_issues ORDER BY issue_date DESC LIMIT 3;
+-- ① Data DB: 호 상태. notified_at 이 NULL 이면 펼치기 미완료다.
+SELECT id, issue_date, issue_no, notified_at FROM magazine_issues ORDER BY issue_date DESC LIMIT 3;
+```
 
--- ② 호 id 로 발송/폐기 집계 — 실제 발송 기준은 sent_at IS NOT NULL 이다(필터로 폐기한 건도 status = SENT).
-SELECT count(*) FILTER (WHERE sent_at IS NOT NULL) AS sent,
-       count(*) FILTER (WHERE sent_at IS NULL) AS dropped
-  FROM notification_sent_logs
- WHERE kind = 'MAGAZINE_PUBLISHED' AND subject_id = '<호 id>';
+호 id를 확인한 뒤 알림 서버 DB에서 발송 상태를 조회한다. `notified_at`은 outbox 적재 완료 표시이며 FCM 발송 완료 표시가 아니다.
 
--- 대상 수 — sent + dropped 가 이 수에 못 미치면 처리되지 않은 계정이 있다.
+```sql
+-- ② 알림 서버 DB: 그 호의 발송 상태. subject_id 는 위에서 확인한 호 id다.
+SELECT status, count(*) FROM deliveries
+ WHERE kind = 'MAGAZINE_PUBLISHED' AND subject_id = '<호 id>'
+ GROUP BY status;
+```
+
+```sql
+-- ③ Data DB: 현재 정식 계정 수. 펼치기 당시의 대상 수와는 달라질 수 있다.
 SELECT count(*) FROM users WHERE is_guest = false AND is_deleted = false;
 ```
 
-**마지막 틱 error 뒤** — 같은 날이면 `notified_at` 이 NULL 인 채 다음 틱이 이어 간다. 23:50 이후에는 다음 날 틱이 **다른 날짜의 호**만 보므로 그 호의 실패분은 재시도되지 않는다. `UPDATE magazine_issues SET notified_at = NULL WHERE id = '<호 id>'` 로는 되살릴 수 없다(날짜가 다르다). 남은 계정은 수동 발송 대상으로 뽑는다.
-
-```sql
-SELECT u.id
-  FROM users u
- WHERE u.is_guest = false AND u.is_deleted = false
-   AND NOT EXISTS (SELECT 1 FROM notification_sent_logs l
-                    WHERE l.user_id = u.id AND l.kind = 'MAGAZINE_PUBLISHED' AND l.subject_id = '<호 id>');
-```
+**펼치기 실패 뒤** — 같은 날 다음 틱이 남아 있다면 `notified_at IS NULL`인 호를 다시 펼친다. 사용자별 독립 트랜잭션과 결정적 사건 키가 이미 적힌 요청의 중복을 접는다. `notified_at`이 잘못 확정된 경우에는 원인을 확인한 뒤 같은 날 `notified_at`을 NULL로 되돌려 다음 틱에 다시 펼칠 수 있다. 23:50 이후에는 다음 날 틱이 **다른 날짜의 호**만 보므로 지난 호는 이 방법으로 되살릴 수 없다. `deliveries`의 미발송 상태와 `notification-events.DLT`를 확인하고 담당자에게 알린다.
 
 **주의**
 
 - cron 이 10분이고 `lockAtMostFor` 가 PT9M 이라 펼치기가 9분을 넘기면 틱이 겹칠 수 있다. 선점·결정적 키가 중복을 막고, 겹친 틱이 같은 사용자에서 서로 기다릴 수 있다.
-- 한 호를 펼치는 중에는 `NOTIFICATION_DISPATCH_MODE` 를 바꾸지 않는다. 두 경로의 중복 키가 달라 같은 호가 두 번 나간다.
+- Relay·Kafka 소비·발송 스케줄러·DB 발송 게이트 중 하나라도 닫혀 있으면 알림이 발송되지 않는다. `notified_at`만으로 수신을 판단하지 않는다.
 - 하루 중간에 배포하면 그날 호 알림이 그 시각에 나간다(DROP 은 조용한 시간만 버린다). 23:50 이후~07:00 전 배포는 다음 07:00 틱이 정상 경로로 처리한다(cron `0 0/10 7-23`).
 - 틱은 발행 결과와 상관없이 `notifyIfPending` 을 부른다 — 오늘 날짜 호 행이 있고 `notified_at IS NULL` 이면 펼치고, 그 호가 없으면 조용히 끝난다.
-- `NOTIFICATION_DISPATCH_MODE=OUTBOX` 면 `notification_sent_logs` 는 LEGACY 기록이라 0 건이 정상이다. 발송 확인은 알림 서버 DB 의 `deliveries` 에서 한다(`kind = 'MAGAZINE_PUBLISHED'`, `event_id` 는 `noti:MAGAZINE_PUBLISHED:<userId>:<호 id>:<KST 날짜>`, `status` 가 `SENT`/`SUPPRESSED`/`FAILED`). 처리 못 한 레코드는 Kafka `notification-events.DLT` 토픽에 쌓인다 — DLT 를 비우거나 다시 읽는 절차 문서는 아직 없다(담당자 보강).
-- `OUTBOX` 로 전환하기 전에 알림 서버 V8 적용을 확인한다.
+- 발송 확인은 알림 서버 DB의 `deliveries`에서 한다. `event_id`는 `noti:MAGAZINE_PUBLISHED:<userId>:<호 id>:<KST 날짜>`이며 상태는 `PENDING`·`DEFERRED`·`SENT`·`SUPPRESSED`·`FAILED` 중 하나다. 처리 못 한 Kafka 레코드는 `notification-events.DLT`에 쌓인다. DLT 재처리 절차는 아직 문서화되지 않았다(담당자 보강).
+- Data에서 잡지 사건을 내보내기 전에 알림 서버 V8 카탈로그 적용을 확인한다. 없으면 `UNKNOWN_NOTIFICATION_KIND`로 거절될 수 있다.
 
-**롤백** — data-api 만 되돌리면 알림 서버 V8 은 두어도 된다. 알림 서버를 되돌릴 때는 outbox 에 남은 `MAGAZINE_PUBLISHED` 가 422(`UNKNOWN_NOTIFICATION_KIND`)로 DLT 에 가므로 먼저 비운다. V126 의 `notified_at` 열과 선점 행은 남아도 무해하다.
+**롤백** — 알림 서버를 V8 카탈로그가 없는 버전으로 되돌리면 남은 `MAGAZINE_PUBLISHED`가 422(`UNKNOWN_NOTIFICATION_KIND`)로 DLT에 갈 수 있다. Data와 알림 서버의 배포 버전·미전달 outbox를 먼저 확인한다. 아래 V125·V126 기준 절차는 10/16 배포 기록이며 V0 이후의 현행 마이그레이션 번호가 아니다.
 
 ### 4-5. 10/16 마무리 에픽 — 앱 인계 항목
+
+이 절의 V125·V126·V129 표기는 10/16 당시 배포 기록이다. V0 이후 DB의 `flyway_schema_history`에는 이 번호의 행이 없다.
 
 서버가 먼저 나가고 앱이 따라온다. 앱이 규칙대로 읽기 전까지 아래 값은 서버만 준비된 상태다.
 
@@ -195,24 +194,28 @@ SELECT u.id
 | 2316 | 비공개 섬장도 홍보할 수 있다(서버 409 없음). `SERVER_MAX_STICKERS` 10→5 — 기존 6~10장 칸을 고치면 400 `PROMOTION_LAYOUT_INVALID`. 잡지 칸·편집부 랭킹·새 섬의 `privateIsland` | 비공개 섬장의 홍보 버튼 해제. 스티커는 5장까지, 6~10장 칸은 고치기 전에 줄이게 한다. `privateIsland` 는 **키가 없으면 false**. true 면 망원경 동그라미를 숨기고 「초대로만」 안내를 보인다(잡지→망원경 핀은 404) |
 | 2317 | `GET /me/telescope` 항목 `buildingCount`. 목록은 1시간 스냅샷(V125 `telescope_buckets`), 핀 만료는 정시+1h | `buildingCount` 는 **키가 없으면 0**. 단계는 앱 `islandStage(memberCount, buildingCount)`. 목록은 1시간 고정이고 빠진 섬은 채우지 않으므로 새 섬 칸 0 은 빈 상태. 핀 수명은 정시까지이고, 가까운 섬을 핀하면 그 시간 라벨을 보이지 않는다 |
 | 2287 | V129 부분 인덱스 2개 — `group_members (group_id, user_id) WHERE is_left=false`(망원경 후보·핀 가시성의 섬별 주민 수), `island_guestbook_entries (island_id, created_at DESC, id DESC) WHERE deleted_at IS NULL`(방명록 최근 30개·정리). 07:00 평균 스냅샷은 섬 id 를 5000개씩 끊어 주민 수를 센다(바인드 상한 32767) | 응답 계약 변화 없음. 롤백은 새 마이그레이션의 `DROP INDEX`(일반 `CREATE INDEX` 라 적용 중 `group_members` 쓰기가 잠시 막힌다 — 활성 주민 10만 행 규모에서 수십 ms) |
-| 2090·2091 | 알림 `gromo://magazine?issue={issueId}` · `data.type=MAGAZINE_PUBLISHED`. `issue` 는 호 id(UUID). 만료는 호 날짜 다음 날 07:00 KST. 만료된 호도 최근 7호 안이면 200 에 `current=false` 이고, 404 는 7호 밖 호 id 일 때만이다 | 만료 호를 탭하면 열되 «현재 호» 표시는 하지 않고, 7호 밖 호 id 를 탭하면 「없는 호」로 처리한다. FCM 수신 전까지는 서버 발송만 준비된 상태다 |
+| 2090·2091 | 알림 `gromo://magazine?issue={issueId}` · `data.type=MAGAZINE_PUBLISHED`. `issue` 는 호 id(UUID). 만료는 호 날짜 다음 날 07:00 KST. 만료된 호도 최근 7호 안이면 200 에 `current=false` 이고, 404 는 7호 밖 호 id 일 때만이다 | 만료 호를 탭하면 열되 «현재 호» 표시는 하지 않고, 7호 밖 호 id 를 탭하면 「없는 호」로 처리한다. 실수신은 배포 빌드·FCM 자격과 발송 상태를 확인한다 |
 
 ### 4-6. 10/16 마무리 에픽 롤백 순서
+
+아래는 10/16 배포 당시의 롤백 기록이다. 현재 배포의 실행 절차로 사용하기 전에 V0 스키마와 실제 이미지 버전을 다시 확인한다.
 
 **되돌릴 신호**
 
 - `GET /me/telescope` 의 5xx·지연이 정시 직후에 튄다(2306 — 읽기-쓰기 트랜잭션 + 사용자 행 공유 잠금 + 버킷 INSERT).
-- `OUTBOX` 일 때 알림 서버가 422 `TEMPLATE_ARGUMENT_MISSING`/`UNKNOWN_NOTIFICATION_KIND` 를 내고 DLT 로 간다(2307 — 카탈로그와 params 짝).
-- data-api 에 `수동 확인 필요` error 나 `일시 실패` warn 이 연속으로 뜬다(2307 — FCM/선점). 1차 대응은 4-4 의 수동 대상 쿼리이고, 그걸로 설명되지 않는 연속 실패만 롤백한다.
+- 알림 서버가 422 `TEMPLATE_ARGUMENT_MISSING`/`UNKNOWN_NOTIFICATION_KIND`를 내고 DLT로 간다(2307 — 카탈로그와 params 짝).
+- data-api에 `고양이 잡지 알림 펼치기 실패` warn이 연속으로 뜬다(2307 — 펼치기 예외). 4-4의 호 상태와 알림 서버 `deliveries`·DLT를 먼저 확인한다.
 - 비공개 섬 핀 404 는 앱 2316 전의 알려진 창이라 롤백 신호가 아니다.
 
 1. **되돌리는 순서**: data-api → outbox 의 `MAGAZINE_PUBLISHED` 비우기 → 알림 서버. 알림 서버를 먼저 되돌리면 V8 이 없어 422 로 DLT 에 간다.
-2. **Flyway**: data-api V125·V126 **과 알림 서버 V8 모두** 옛 jar 에 없으면 기본 설정에서 기동을 거부한다. `flyway_schema_history` 행을 제거하거나 `spring.flyway.ignore-migration-patterns=*:missing` 을 임시로 허용한다.
+2. **Flyway(당시)**: data-api V125·V126과 알림 서버 V8을 기준으로 한 조치였다. V0 이후 DB의 `flyway_schema_history`에는 data-api V125·V126 행이 없으므로 현재 DB에 그대로 적용하지 않는다.
 3. **2306**: `telescope_buckets` 행이 남아, 재배포하면 같은 1시간 안의 낡은 스냅샷이 정본처럼 재사용된다(영향 작음). 당겨진 핀 `expires_at` 은 복구할 수 없다.
 4. **2305**: 롤백 사이 비공개 섬이 낸 홍보는 돈이 빠졌는데 잡지에 실리지 않는 상태다. `groups.is_private` 는 현재 값이므로, 현재 비공개인 섬의 홍보 중 롤백 기간에 신청된 것(`island_promotions.applied_at` 범위, 조인 `island_promotions.island_id = groups.id`)을 센다. 환불 판단의 후보 목록일 뿐이다.
-5. **2307**: 재배포 뒤 `notified_at` 이 NULL 인 오늘 호는 첫 틱에 다시 펼쳐지지만, 선점 행이 중복을 막는다.
+5. **2307**: 재배포 뒤 `notified_at`이 NULL인 오늘 호는 첫 틱에 다시 펼쳐진다. 이미 적힌 사용자별 사건은 결정적 사건 키가 중복을 접는다.
 
 ### 4-7. 10/16 마무리 에픽 — 배포 직후 확인
+
+아래 V125·V126 조회는 당시 배포 확인 기록이다. V0 이후 DB에서는 0행이므로 현재 배포 성공 판정에 사용하지 않는다.
 
 ```sql
 -- ① data-api: V125·V126 이 success=true

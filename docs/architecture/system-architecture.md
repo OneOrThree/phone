@@ -214,15 +214,15 @@ server/.github/workflows/
 소비자의 실패 토픽 resolver는 배포된 `notification-events.DLT`와 같은 이름을 명시한다(A22 ㋱). Spring Kafka 4의 `-dlt` 기본값과 자동 토픽 생성에 의존하지 않는다.
 
 
-### Target-1 이관 검증 산출물
+### 기기 등록·발송 게이트 운영 규칙
 
-Data CLI는 export마다 고유한 `manifest.snapshot`을 생성하고 모든 `*.import-####.json` 청크와 `*.verify.json`에 같은 값을 넣는다. 빈 전체 집합도 하나의 빈 import 파일을 만든다. 초기·최종 파일을 섞지 않고 최종 집합의 검증을 통과한 뒤 최초 발송 게이트를 연다(A22 ㋼).
+Data 알림 export·Notification import/verify 검증 경로는 #1247(티켓 2421)에서 제거했다. 발송 게이트의 개방·차단은 [Notification 운영 절차](../../server/notification/README.md#dev-발송-게이트)를 따른다.
 
-GROMO-1659의 Data export는 settings·device·delivery·user·participation 다섯 자원의 건수·체크섬을 같은 RR 스냅샷에서 생성한다. 실제 Noti bootJar의 정규화·키 유도 함수와 Data export 직렬화를 CI에서 함께 실행한다(A22 ㋳·㋶). ~~Link 이관에는 필드별 표시 version과 LEGACY 귀속을 포함하며,~~(→ A23: 링크 이관 없음) 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/fishcat/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
+서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/fishcat/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
 
 
 기기 등록 롤아웃은 두 설정을 따로 전환한다(A22 ㋲). `NOTIFICATION_GENERATION_REQUIRED`는 구 AT 수명 대기 뒤
-켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 소유권 프로토콜 미지원 구 앱 지원 종료 뒤 끈다.
+켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 구 앱 지원 종료만으로 끄지 않는다. 2.0 앱도 서명된 sid 창에 기대므로 끄는 조건과 영향은 [`device-token` 계약](../contracts/business-satellite-api.yaml)을 확인한다.
 둘은 Notification 전용 env로 주입한다. 구 앱도 새 AT의 gen·sid를 사용할 수 있으므로 gen 존재로 앱 전환을 추정하지 않는다.
 
 앱 업그레이드 호환 정리는 소유권 기록이 없는 기기의 SDK 토큰 조회에도 의존한다(A22 ㋲). SDK 조회까지 실패한 세션 미연결 구 토큰의 정리는 보장하지 않으며, 사용자 전체 삭제로 다른 기기를 비활성화하지 않는다. RT 폐기는 계속 수행한다.
