@@ -192,7 +192,9 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
             ...(look?.catColor && colors.includes(look.catColor as Color)
               ? { color: look.catColor as Color }
               : {}),
-            ...(look?.appearance
+            ...(look?.appearance &&
+            (member.outfitVersion === undefined ||
+              (look.appearance.version ?? -1) >= member.outfitVersion)
               ? { outfit: look.appearance, outfitVersion: look.appearance.version ?? undefined }
               : {}),
           },
@@ -237,6 +239,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       if (!member) return;
       keepNewerOutfit(member, members.get(member.userId));
       members.set(member.userId, member);
+      const appearance = parseLook((p.member as Record<string, unknown>)?.appearance);
+      if (appearance) memberLooks.accept(member.userId, appearance);
       void ensureMemberLooks([member.userId]);
       emit();
     } else if (ev.type === 'sea.member.appearance.updated') {
@@ -285,6 +289,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
         // 스냅숏이 정본이지만 외양은 먼저 온 더 새 갱신(version)을 되돌리지 않는다
         keepNewerOutfit(member, before.get(member.userId));
         members.set(member.userId, member);
+        const appearance = parseLook((raw as Record<string, unknown>)?.appearance);
+        if (appearance) memberLooks.accept(member.userId, appearance);
       }
       void ensureMemberLooks([...members.keys()], restoreLooks);
       restoreLooks = false;

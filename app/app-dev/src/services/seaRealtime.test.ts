@@ -552,3 +552,37 @@ test('외양 전용 사건은 앱 캐시를 갱신하고 이후 방 스냅샷이
   request.mockRestore();
   memberLooks.clear();
 });
+
+test('더 최신인 바다 스냅샷과 갱신은 오래된 공용 캐시를 교체하고 추가 조회하지 않는다', async () => {
+  const userId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  memberLooks.clear();
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'old', neck: null, version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { room, spy } = open();
+  joinRoom([
+    member(userId, { appearance: { head: 'snapshot', neck: null, shoes: 'boots', version: 4 } }),
+  ]);
+  expect(spy.members[0].outfit.head).toBe('snapshot');
+  expect(memberLooks.get(userId)?.appearance).toMatchObject({
+    head: 'snapshot',
+    shoes: 'boots',
+    version: 4,
+  });
+  roomEvent('sea.member.updated', {
+    member: member(userId, { appearance: { head: null, neck: 'scarf', version: 5 } }),
+  });
+  expect(spy.members[0].outfit).toMatchObject({ head: null, neck: 'scarf' });
+  expect(memberLooks.get(userId)?.appearance?.version).toBe(5);
+  personal('sea.room.snapshot', {
+    roomId: 'room-1',
+    members: [member(userId, { appearance: { head: 'stale', version: 2 } })],
+  });
+  expect(spy.members[0].outfit).toMatchObject({ head: null, neck: 'scarf' });
+  expect(request).toHaveBeenCalledTimes(1);
+  room.close();
+  request.mockRestore();
+  memberLooks.clear();
+});
