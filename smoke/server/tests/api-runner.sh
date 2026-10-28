@@ -49,8 +49,8 @@ run_case() {
     [[ $(awk -F '\t' '$2=="PASS"{n++}END{print n}' "$TMP/$name.tsv") == 11 ]] || { cat "$TMP/$name.tsv"; return 1; }
   elif [[ "$name" == statistics-created ]];then
     if ! awk -F '\t' '$1=="SMOKE-SERVER-014" && $2=="FAIL"{core=1} $1=="SMOKE-SERVER-015" && $2=="PASS"{statistics=1} END{exit !(core&&statistics)}' "$TMP/$name.tsv" ||
-      [[ $(rg -c '^POST /islands$' "$TMP/$name.requests") != 3 ]] ||
-      [[ $(rg -c '^DELETE /islands/33333333-3333-4333-8333-333333333333/memberships/me$' "$TMP/$name.requests") != 4 ]]; then
+      [[ $(awk '$0=="POST /islands"{n++}END{print n+0}' "$TMP/$name.requests") != 3 ]] ||
+      [[ $(awk '$0=="DELETE /islands/33333333-3333-4333-8333-333333333333/memberships/me"{n++}END{print n+0}' "$TMP/$name.requests") != 4 ]]; then
       cat "$TMP/$name.log" "$TMP/$name.tsv" "$TMP/$name.requests"
       return 1
     fi
@@ -62,7 +62,7 @@ run_case() {
   elif [[ "$name" == ownership* ]];then
     awk -F '\t' '$1=="SMOKE-SERVER-009" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
   elif [[ "$name" == main-* ]];then
-    [[ $(rg -c '^POST /islands$' "$TMP/$name.requests") == 1 ]] || { cat "$TMP/$name.log" "$TMP/$name.requests"; return 1; }
+    [[ $(awk '$0=="POST /islands"{n++}END{print n+0}' "$TMP/$name.requests") == 1 ]] || { cat "$TMP/$name.log" "$TMP/$name.requests"; return 1; }
     local leaves=1
     [[ "$name" != main-id-unrelated ]] || leaves=0
     [[ $(awk '$1=="DELETE" && $2=="/islands/33333333-3333-4333-8333-333333333333/memberships/me"{n++}END{print n+0}' "$TMP/$name.requests") == "$leaves" ]] || { cat "$TMP/$name.log" "$TMP/$name.requests"; return 1; }
@@ -88,7 +88,7 @@ run_case() {
     awk -F '\t' '$1=="SMOKE-SERVER-015" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
   fi
   if [[ "$name" == success ]]; then
-    [[ $(rg -c '^DELETE /islands/33333333-3333-4333-8333-333333333333/memberships/me$' "$TMP/$name.requests") == 2 ]]
+    [[ $(awk '$0=="DELETE /islands/33333333-3333-4333-8333-333333333333/memberships/me"{n++}END{print n+0}' "$TMP/$name.requests") == 2 ]]
   fi
   python3 - "$TMP/$name.log" "$TMP/$name.tsv" "$TMP/argv.log" <<'PY'
 from pathlib import Path
@@ -130,13 +130,13 @@ run_child_failure() {
   actual=$?
   set -e
   [[ "$actual" == 1 ]] || { cat "$TMP/$name.log"; return 1; }
-  [[ $(rg -c '^POST /islands$' "$TMP/$name.requests") == 1 ]] || { cat "$TMP/$name.requests"; return 1; }
+  [[ $(awk '$0=="POST /islands"{n++}END{print n+0}' "$TMP/$name.requests") == 1 ]] || { cat "$TMP/$name.requests"; return 1; }
   [[ $(awk '$1=="DELETE" && $2=="/islands/33333333-3333-4333-8333-333333333333/memberships/me"{n++}END{print n+0}' "$TMP/$name.requests") == "$leaves" ]] || { cat "$TMP/$name.log" "$TMP/$name.requests"; return 1; }
   [[ ! -f "$TMP/$name-context.json" ]]
   if [[ "$name" == core-* ]]; then
     awk -F '\t' '$1=="SMOKE-SERVER-014" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
   fi
-  if [[ "$leaves" == 0 ]]; then rg -q '수동 확인 필요' "$TMP/$name.log" || { cat "$TMP/$name.log"; return 1; }; fi
+  if [[ "$leaves" == 0 ]]; then awk '/수동 확인 필요/{found=1}END{exit !found}' "$TMP/$name.log" || { cat "$TMP/$name.log"; return 1; }; fi
   kill "$PID"; wait "$PID" 2>/dev/null || true; PID='';rm "$TMP/port"
   printf '%s PASS\n' "$name"
 }
