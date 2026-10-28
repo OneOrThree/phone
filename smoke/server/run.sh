@@ -27,6 +27,7 @@ if [[ -n "${SMOKE_AUTH_DIAGNOSTICS_FILE:-}" ]]; then
   : > "$SMOKE_AUTH_DIAGNOSTICS_FILE"
 fi
 smoke_init
+SMOKE_RESULT_START=$(wc -l < "$RESULTS_FILE")
 TOKEN='' USER_ID='' ISLAND_ID='' MAIN_CREATED_ISLAND_ID='' SESSION_ID='' PEER_TOKEN='' PEER_ID='' PEER_JOINED=0 FRIEND_CREATED=0 FRIEND_REQUEST_ID='' WS_PID=''
 CORE_CREATED_CONTEXT='' STATISTICS_CREATED_CONTEXT=''
 record() {
@@ -39,7 +40,7 @@ record() {
 cleanup_fail() {
   local id=$1 reason=$2
   # 정리 실패가 앞선 PASS를 덮어 TC마다 최종 판정 한 줄만 남긴다.
-  awk -F '\t' -v id="SMOKE-SERVER-$id" 'NR==1 || $1!=id' "$RESULTS_FILE" > "$SMOKE_TMP_DIR/results-updated.tsv" &&
+  awk -F '\t' -v id="SMOKE-SERVER-$id" -v start="$SMOKE_RESULT_START" 'NR<=start || $1!=id' "$RESULTS_FILE" > "$SMOKE_TMP_DIR/results-updated.tsv" &&
     mv "$SMOKE_TMP_DIR/results-updated.tsv" "$RESULTS_FILE"
   record "$id" FAIL "$reason"
 }

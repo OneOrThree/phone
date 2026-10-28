@@ -22,6 +22,9 @@ export PATH="$TMP/bin:$PATH"
 trap '[[ -z "$PID" ]] || kill "$PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 run_case() {
   local name=$1 health=$2 no_event=$3 bad_screen=$4 expected=$5 basic=${6:-0} ownership=${7-66666666-6666-4666-8666-666666666666} core_enabled=${8:-0}
+  if [[ "$name" == main-cleanup-append ]]; then
+    printf 'id\tstatus\thttp_code\tms\treason\nSMOKE-SERVER-004\tPASS\t200\t1\t이전 실행\n' > "$TMP/$name.tsv"
+  fi
   MOCK_REQUEST_LOG="$TMP/$name.requests" MOCK_GUEST_FAILURES="${MOCK_GUEST_FAILURES:-0}" MOCK_OWNERSHIP_TOKEN="$ownership" MOCK_HEALTH_FAIL="$health" MOCK_NO_EVENT="$no_event" MOCK_BAD_SCREEN="$bad_screen" node "$HERE/tests/mock-api.mjs" "$TMP/port" & PID=$!
   for ((i=0;i<100;i++));do [[ -s "$TMP/port" ]] && break; sleep .02;done
   local port;port=$(cat "$TMP/port")
@@ -63,9 +66,14 @@ run_case() {
     local leaves=1
     [[ "$name" != main-id-unrelated ]] || leaves=0
     [[ $(awk '$1=="DELETE" && $2=="/islands/33333333-3333-4333-8333-333333333333/memberships/me"{n++}END{print n+0}' "$TMP/$name.requests") == "$leaves" ]] || { cat "$TMP/$name.log" "$TMP/$name.requests"; return 1; }
-    if [[ "$name" == main-cleanup-fails ]]; then
+    if [[ "$name" == main-cleanup-fails || "$name" == main-cleanup-append ]]; then
       awk -F '\t' '$1=="SMOKE-SERVER-004" && $2=="FAIL" && $5~/정리 실패/{ok=1} END{exit !ok}' "$TMP/$name.tsv"
-      [[ $(awk -F '\t' '$1=="SMOKE-SERVER-004"{n++}END{print n}' "$TMP/$name.tsv") == 1 ]] || { cat "$TMP/$name.tsv"; return 1; }
+      local expected_rows=1
+      [[ "$name" != main-cleanup-append ]] || expected_rows=2
+      [[ $(awk -F '\t' '$1=="SMOKE-SERVER-004"{n++}END{print n}' "$TMP/$name.tsv") == "$expected_rows" ]] || { cat "$TMP/$name.tsv"; return 1; }
+      if [[ "$name" == main-cleanup-append ]]; then
+        awk -F '\t' '$1=="SMOKE-SERVER-004" && $2=="PASS" && $5=="이전 실행"{ok=1} END{exit !ok}' "$TMP/$name.tsv" || { cat "$TMP/$name.tsv"; return 1; }
+      fi
     elif [[ "$name" == main-intermediate-fails ]]; then
       awk -F '\t' '$1=="SMOKE-SERVER-005" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
     elif [[ "$name" == main-id-* ]]; then
@@ -105,6 +113,7 @@ run_case ownership-short '' '' '' 1 1 1-1-1-1-1
 MOCK_GUEST_FAILURES=1 run_case guest-retry '' '' '' 0 1
 MOCK_NO_ISLAND=1 run_case main-created '' '' '' 0 1
 MOCK_NO_ISLAND=1 MOCK_LEAVE_FAIL=1 run_case main-cleanup-fails '' '' '' 1 1
+MOCK_NO_ISLAND=1 MOCK_LEAVE_FAIL=1 SMOKE_APPEND_RESULTS=1 run_case main-cleanup-append '' '' '' 1 1
 MOCK_NO_ISLAND=1 MOCK_FAIL_AFTER_ISLAND=1 run_case main-intermediate-fails '' '' '' 1 1
 MOCK_NO_ISLAND=1 MOCK_CREATE_ID_MISSING=1 run_case main-id-missing '' '' '' 1 1
 MOCK_NO_ISLAND=1 MOCK_CREATE_ID_MISSING=1 MOCK_RECOVERY_UNRELATED=1 run_case main-id-unrelated '' '' '' 1 1
