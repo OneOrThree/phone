@@ -210,6 +210,8 @@ public class InboundEventService {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
             seaRooms.applyMemberUpdated(envelope);
+        } else if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)) {
+            deliverAppearance(eventId, envelope);
         } else if (AUTH_SESSION_REVOKED.equals(type)) {
             closeRevokedSession(eventId, envelope);
         } else {
@@ -425,6 +427,34 @@ public class InboundEventService {
         }
         if (failed) {
             throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
+        }
+    }
+
+    /** 외양은 Redis 상태에 복제하지 않고 검증한 변경분만 기존 전달 채널로 보낸다. */
+    private void deliverAppearance(String eventId, JsonNode envelope) {
+        RealtimeEventEnvelope event;
+        try {
+            JsonNode subject = envelope.get("subjectId");
+            UUID islandId = subject == null || subject.isNull() ? null : UUID.fromString(subject.stringValue());
+            ObjectNode payload = JsonNodeFactory.instance.objectNode();
+            JsonNode params = envelope.path("params");
+            for (String key : List.of("userId", "appearance", "version")) {
+                if (params.has(key)) {
+                    payload.set(key, params.get(key));
+                }
+            }
+            event = new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"),
+                    RealtimeEventType.MEMBER_APPEARANCE_UPDATED, islandId, longValue(envelope, "version"),
+                    Instant.parse(requiredText(envelope, "occurredAt")), payload);
+        } catch (RuntimeException e) {
+            log.error("외양 사건 변환 실패 — 전달하지 않는다. eventId={} reason={}",
+                    eventId, e.getClass().getSimpleName());
+            return;
+        }
+        if (event.islandId() == null) {
+            seaRooms.publishAppearance(UUID.fromString(event.payload().path("userId").stringValue()), event.payload());
+        } else {
+            eventRouter.route(event, new RealtimeAudience.IslandAudience(event.islandId()));
         }
     }
 

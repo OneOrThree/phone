@@ -113,9 +113,8 @@ class AppearanceServiceIntegrationTest {
 
         assertThat(applied.data().clothes()).isEqualTo("scarf");
         assertThat(applied.data().version()).isEqualTo(1);
-        // 변경이 있었으므로 member.appearance.updated 가 표시 대상 섬 수만큼 적혔다.
-        // 이 유저는 섬이 없으므로 events 는 비어 있다 — 팬아웃은 별도 테스트가 잠근다.
-        assertThat(applied.events()).isEmpty();
+        // 소속 섬이 없어도 바다 전달용 사용자 축 사건 한 건은 남긴다.
+        assertThat(applied.events()).hasSize(1);
 
         // 미제출 필드 유지 + 명시 null 해제 — decor 는 적은 적이 없어 no-op 아닌 유지다.
         AppearanceCommandView<PersonalAppearanceView> kept = service.patchMine(userId,
@@ -363,15 +362,17 @@ class AppearanceServiceIntegrationTest {
         seedProduct("scarf", "clothes", "user", null);
         grant("scarf", memberId, null);
 
+        long before = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM event_outbox WHERE type = 'member.appearance.updated'", Long.class);
         AppearanceCommandView<PersonalAppearanceView> applied = service.patchMine(memberId,
                 UUID.randomUUID(), List.of("clothes"), Map.of("clothes", "scarf"));
 
-        assertThat(applied.events()).hasSize(2);
+        assertThat(applied.events()).hasSize(3);
         List<String> eventIds = applied.events().stream()
                 .map(e -> (String) e.get("eventId")).toList();
         assertThat(eventIds).doesNotHaveDuplicates();
         List<String> islandIds = applied.events().stream()
-                .map(e -> (String) e.get("subjectId")).sorted().toList();
+                .map(e -> (String) e.get("subjectId")).filter(java.util.Objects::nonNull).sorted().toList();
         assertThat(islandIds).isEqualTo(
                 List.of(f.islandId.toString(), other.islandId.toString()).stream()
                         .sorted().toList());
@@ -385,7 +386,7 @@ class AppearanceServiceIntegrationTest {
         Long rows = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM event_outbox WHERE type = 'member.appearance.updated'",
                 Long.class);
-        assertThat(rows).isEqualTo(2);
+        assertThat(rows).isEqualTo(before + 3);
     }
 
     // ---------------------------------------------------------------- GET /islands/{id}/inventory

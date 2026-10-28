@@ -39,6 +39,21 @@ public class DataAppearanceClient {
         this.http = http;
     }
 
+    /** 표시 캐시의 묶음 복구 — 조회 대상과 위임 주체를 분리한다. */
+    public MemberAppearances fetchMemberAppearances(UUID viewerId, List<UUID> userIds, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, "/internal/users/" + viewerId + "/member-appearances")
+                        .onBehalfOf(viewerId)
+                        .query("userIds", userIds.stream().map(UUID::toString)
+                                .collect(java.util.stream.Collectors.joining(",")))
+                        .build(), deadline, new ParameterizedTypeReference<MemberAppearances>() { });
+    }
+
+    public record MemberAppearances(List<MemberAppearance> members, List<UUID> hiddenUserIds) { }
+
+    public record MemberAppearance(UUID userId, String catColor,
+            com.oneorthree.business.upstream.data.dto.PersonalAppearanceState appearance) { }
+
     /**
      * 개인 인벤토리 (GROMO-1783). 멱등 GET 이라 재시도한다 — 목록과 equipped 는 Data 가 한
      * 스냅샷으로 돌려준다.

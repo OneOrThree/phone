@@ -68,6 +68,11 @@ public class AppearanceEvents {
         params.put("version", appearance.getVersion());
 
         List<EventEnvelope> envelopes = new ArrayList<>();
+        // 바다 전달은 사용자 축 한 건으로 분리한다. 소속 섬 수만큼 같은 외양을 재전송하지 않는다.
+        envelopes.add(outbox.append(new OutboxAppendCommand(UUID.randomUUID().toString(), SCHEMA_VERSION,
+                EVENT_MEMBER_APPEARANCE, userId, null, null,
+                new AggregateRef(AGGREGATE_USER_APPEARANCE, userId.toString()), null, params,
+                List.of(OutboxDeliveryRequest.toRealtime(EVENT_MEMBER_APPEARANCE, null))), appearance.getVersion()));
         for (UUID islandId : islandIds) {
             envelopes.add(append(EVENT_MEMBER_APPEARANCE, userId, islandId,
                     new AggregateRef(AGGREGATE_USER_APPEARANCE, userId + ":" + islandId),

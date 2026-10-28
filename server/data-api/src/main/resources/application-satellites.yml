@@ -194,6 +194,7 @@ internal:
           - 'DELETE /internal/users/*'
           # GROMO-1783 보유품·외양 4종 — 조회와 적용은 메서드로만 갈리므로 합치지 않는다.
           - 'GET /internal/users/*/inventory'
+          - 'GET /internal/users/*/member-appearances'
           # GROMO-2331 꾸미기 카탈로그(이미지 메타) — 사용자 축이 아니라 전역 목록이다.
           - 'GET /internal/customization/catalog'
           - 'PATCH /internal/users/*/appearance'

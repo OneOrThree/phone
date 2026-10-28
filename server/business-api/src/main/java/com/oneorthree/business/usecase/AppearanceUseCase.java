@@ -52,6 +52,34 @@ public class AppearanceUseCase {
 
     private final DataAppearanceClient data;
 
+    /** 차단·탈퇴 판정은 Data 정본에서 하고 공개 외양만 앱의 사용자별 캐시로 전달한다. */
+    public MemberAppearancesView memberAppearances(AccessTokenClaims claims,
+            List<UUID> userIds, Deadline deadline) {
+        if (userIds == null || userIds.isEmpty() || userIds.size() > 50
+                || userIds.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "userIds");
+        }
+        var result = relay(() -> data.fetchMemberAppearances(claims.userId(), userIds, deadline), claims, null);
+        if (result == null || result.members() == null || result.hiddenUserIds() == null) {
+            throw new UpstreamContractMismatchException("주민 외양 응답이 없습니다");
+        }
+        return new MemberAppearancesView(result.members().stream()
+                .map(member -> new CachedMemberAppearanceView(member.userId(), member.catColor(),
+                        PersonalAppearanceView.from(member.appearance())))
+                .toList(), result.hiddenUserIds());
+    }
+
+    public record MemberAppearancesView(
+            @JsonProperty(required = true) List<CachedMemberAppearanceView> members,
+            @JsonProperty(required = true) List<UUID> hiddenUserIds) {
+    }
+
+    public record CachedMemberAppearanceView(
+            @JsonProperty(required = true) UUID userId,
+            @JsonProperty(required = true) String catColor,
+            @JsonProperty(required = true) PersonalAppearanceView appearance) {
+    }
+
     /** 개인 인벤토리 (LLD §3 GET /me/inventory). */
     public PersonalInventoryView myInventory(AccessTokenClaims claims, Deadline deadline) {
         PersonalInventory inventory = relay(
