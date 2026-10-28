@@ -239,9 +239,11 @@ class AdminApiTest {
         }
         int oneOver = fitsWithTag + 1;
         assertThat(fits(oneOver, null)).as("전제: 태그 없이 재면 이 본문은 한도 안이다").isTrue();
-        // 16자 eventId 는 통과하지만 실제 허용 길이인 200자를 예약하면 넘는다.
+        // 짧은 eventId 와 200자 ASCII 는 통과하지만, 허용된 200자 제어 문자는 JSON 이스케이프로 넘는다.
         FcmPayload.requireFits(new RenderedPush("결과", "a".repeat(oneOver), Map.of(), false)
                 .withDeliveryTag(tag), true, "template-preview");
+        FcmPayload.requireFits(new RenderedPush("결과", "a".repeat(oneOver), Map.of(), false)
+                .withDeliveryTag(tag), true, "e".repeat(Envelope.EVENT_ID_MAX_LENGTH));
 
         MvcResult rejected = put("/internal/admin/templates/FRIEND_REQUEST.ko", "tagged-template",
                 template("a".repeat(oneOver)));
@@ -369,7 +371,7 @@ class AdminApiTest {
         RenderedPush push = new RenderedPush("결과", "a".repeat(bodyLength), Map.of(), false);
         try {
             FcmPayload.requireFits(tag == null ? push : push.withDeliveryTag(tag), true,
-                    "e".repeat(Envelope.EVENT_ID_MAX_LENGTH));
+                    "\0".repeat(Envelope.EVENT_ID_MAX_LENGTH));
             return true;
         } catch (NotificationFailure tooLarge) {
             return false;

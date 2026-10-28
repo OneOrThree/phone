@@ -20,6 +20,8 @@ class AdminCatalog {
     private static final Set<String> LOCALES = Set.of("ko", "en", "ja", "zh-Hant");
     /** deliveryTag 자리표시. 실제 태그는 UUID 문자열(DeviceService)이라 항상 36자 — 같은 UUID 문자열로 길이를 맞춘다. */
     private static final String TAG_PLACEHOLDER = new UUID(0L, 0L).toString();
+    /** 허용된 eventId 한 글자는 JSON 에서 제어 문자 이스케이프로 최대 6바이트가 된다. */
+    private static final String EVENT_ID_PLACEHOLDER = "\0".repeat(Envelope.EVENT_ID_MAX_LENGTH);
     private final Store store;
     private final AdminAudit audit;
     private final Renderer renderer;
@@ -259,8 +261,7 @@ class AdminCatalog {
             // 가까운 템플릿이 저장은 되고, 발송 때 태그 있는 기기는 크기 초과로 건너뛰어 그 알림을 받지 못한다(받을
             // 기기가 하나도 없으면 FAILED) — 그래서 태그 길이만큼 자리를 예약해 잰다. 미리보기 화면에는 태그를 보이지
             // 않으니 반환은 원래 push.
-            FcmPayload.requireFits(push.withDeliveryTag(TAG_PLACEHOLDER), true,
-                    "e".repeat(Envelope.EVENT_ID_MAX_LENGTH));
+            FcmPayload.requireFits(push.withDeliveryTag(TAG_PLACEHOLDER), true, EVENT_ID_PLACEHOLDER);
             return push;
         } catch (IllegalArgumentException invalid) {
             throw new NotificationFailure(400, "INVALID_TEMPLATE_SYNTAX");

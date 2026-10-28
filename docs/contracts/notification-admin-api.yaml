@@ -184,7 +184,7 @@ paths:
           저장될 때마다 `version` 이 1 오른다.
         - `deeplinks`: `id` 는 `kinds` 에 있어야 하고, `dataTemplate` 의 값과 `urlTemplate` 도 같은 렌더 검증을 거친다.
           `deliveryTag` 와 `eventId` 는 서버가 쓰는 `data` 키라 `dataTemplate` 에 넣을 수 없다.
-        템플릿 크기는 실제 최대 `eventId` 200자와 기기별 `deliveryTag` 를 포함해 검사한다.
+        템플릿 크기는 JSON 이스케이프가 필요한 문자까지 고려한 최대 `eventId` 200자와 기기별 `deliveryTag` 를 포함해 검사한다.
       parameters:
         - { name: resource, in: path, required: true, schema: { type: string, enum: [jobs, templates, deeplinks] } }
         - { name: id, in: path, required: true, schema: { type: string, maxLength: 200 } }
