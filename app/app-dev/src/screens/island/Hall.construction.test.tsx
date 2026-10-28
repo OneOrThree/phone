@@ -25,6 +25,7 @@ import { componentTokens } from '@/design-system/tokens';
 jest.mock('@/screens/island/useConstruction', () => ({ useConstruction: jest.fn() }));
 jest.mock('@/screens/interiors/useIslandManagement', () => ({ useIslandManagement: jest.fn() }));
 jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
   sessionGeneration: () => 0,
   getSession: jest.fn(),
 }));

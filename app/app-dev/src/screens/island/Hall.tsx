@@ -181,7 +181,7 @@ function Icon({ d, size }: { d: string; size: number }) {
 }
 // 고양이 색 미선택(null)·모름 — 남의 칸을 내 색으로 칠하지 않고 빈 자리표시자 원으로 둔다(2-16 H21)
 const NO_CAT_COLOR = '';
-function Avatar({ color, outfit, n, size }: any) {
+function Avatar({ color, outfit, userId, n, size }: any) {
   return (
     <View
       style={{
@@ -195,6 +195,7 @@ function Avatar({ color, outfit, n, size }: any) {
       }}
     >
       <CatAvatar
+        userId={userId}
         color={color}
         outfit={outfit}
         size={size - 2.6}
@@ -2133,7 +2134,13 @@ export function Hall({ e }: any) {
       ]}
     >
       <View pointerEvents="none">
-        <Avatar color={m.color} outfit={m.outfit} n={n} size={opts.av ?? (land ? 31 : 38)} />
+        <Avatar
+          userId={m.id}
+          color={m.color}
+          outfit={m.outfit}
+          n={n}
+          size={opts.av ?? (land ? 31 : 38)}
+        />
         {/* 방장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
             Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
         {opts.crown && (

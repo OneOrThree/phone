@@ -457,6 +457,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
                 style={({ pressed }) => [styles.resident, pressed && styles.pressed]}
               >
                 <CatAvatar
+                  userId={m.id}
                   color={m.color}
                   outfit={'outfit' in m ? m.outfit : undefined}
                   still="idle"
@@ -474,6 +475,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       <>
         <View style={styles.profile}>
           <CatAvatar
+            userId={resident.id}
             color={resident.color}
             outfit={'outfit' in resident ? resident.outfit : undefined}
             still="idle"

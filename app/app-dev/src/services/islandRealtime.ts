@@ -1,3 +1,4 @@
+import { memberLooks, ensureMemberLooks } from './memberLooks';
 /**
  * 섬 주민 집중/휴식과 공용 재생 실시간 동기화 (GROMO-2010, GROMO-1845).
  *
@@ -1031,6 +1032,12 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       hadData = true;
       if (source !== 'event-gap') snapshotVersion = ++nextSnapshotVersion;
       publish('ready', null, source !== 'event-gap' ? transitions : []);
+      if (source === 'reconnect') {
+        void ensureMemberLooks(
+          [...projection.focus(), ...projection.rest()].map((member) => member.userId),
+          true,
+        );
+      }
       if (source !== 'event-gap') {
         for (const transition of transitions) deps.onTransition?.(transition);
       }
@@ -1099,7 +1106,10 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       }
       if ((raw as RealtimeEnvelope | null)?.type === 'member.appearance.updated') {
         const changed = parseAppearanceEvent(raw, islandId);
-        if (changed) deps.onMemberAppearance?.(changed.userId, changed.look);
+        if (changed) {
+          memberLooks.accept(changed.userId, changed.look);
+          deps.onMemberAppearance?.(changed.userId, changed.look);
+        }
         return;
       }
       const golden = parseGoldenFishEvent(raw, islandId);

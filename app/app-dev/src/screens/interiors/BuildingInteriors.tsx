@@ -5449,6 +5449,7 @@ export function Board({
                     >
                       <View accessible accessibilityLabel={`${name} 고양이 프로필`}>
                         <CatAvatar
+                          userId={id}
                           color={color ?? 'gray'}
                           outfit={color ? outfit : undefined}
                           size={42}
@@ -7733,7 +7734,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 차단 판정이 true로 바뀌는 순간 한 번만 상세를 닫는다.
   }, [serverMail, route, mail.detailBlocked]);
 
-  const catAvatar = (color: string | null, size = 34, outfit?: Outfit) => (
+  const catAvatar = (color: string | null, size = 34, outfit?: Outfit, userId?: string | null) => (
     <View
       style={{
         width: size,
@@ -7748,7 +7749,12 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         boxShadow: '0 2px 0 #b58f6b',
       }}
     >
-      <CatAvatar color={color ?? 'gray'} outfit={color ? outfit : undefined} size={size} />
+      <CatAvatar
+        userId={userId}
+        color={color ?? 'gray'}
+        outfit={color ? outfit : undefined}
+        size={size}
+      />
     </View>
   );
 
@@ -8203,7 +8209,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         ]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
-          {catAvatar(openedLetter.color, 40, openedLetter.outfit)}
+          {catAvatar(openedLetter.color, 40, openedLetter.outfit, openedLetter.friendId)}
           <View style={{ flex: 1 }}>
             <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
             <Text
@@ -8340,7 +8346,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 transform: chosen === friend ? [{ translateX: 3 }] : undefined,
               }}
             >
-              {catAvatar(friend.color, 38, friend.outfit)}
+              {catAvatar(friend.color, 38, friend.outfit, friend.id)}
               <View style={{ flex: 1 }}>
                 <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
                 <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>
