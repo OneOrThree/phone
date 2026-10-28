@@ -1,0 +1,229 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.6'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	//API 문서화
+	id "org.springdoc.openapi-gradle-plugin" version "1.9.0"
+
+	// CI: 코드 스타일 + 정적 분석 + 커버리지 + 보안 스캔
+	id 'checkstyle'
+	id 'com.github.spotbugs' version '6.0.18'
+	id 'jacoco'
+	id 'org.owasp.dependencycheck' version '10.0.4'
+}
+
+group = 'com.oneorthree'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+// 기본 데이터 정본은 한 파일이다. 매 migrate 후 같은 SQL로 누락만 복구하며 V0 이력은 유지한다.
+tasks.named('processResources') {
+	from('src/main/resources/db/seed') {
+		include 'insert.sql'
+		into 'db/v0'
+		rename 'insert.sql', 'afterMigrate__defaults.sql'
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// API 문서화 (Swagger UI - /swagger-ui/index.html 에서 확인)
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+
+	// JPA / Hibernate (ORM, 엔티티 ↔ DB 매핑)
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+	// DB 쿼리 실행 시간 측정
+	implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
+
+	// 관측 (GROMO-546) — Actuator 헬스·메트릭 엔드포인트 + micrometer Prometheus 레지스트리(/actuator/prometheus)
+	// HTTP 트래픽(http.server.requests)·HikariCP 풀 등 자동 계측. dev 는 내부 관리 포트(9091)로 격리 노출
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+
+	// Spring Web (REST API 기본, 내장 Tomcat 포함)
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+
+	// Spring MVC (REST 컨트롤러, DispatcherServlet)
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+	// WebSocket + STOMP (실시간 장착 브로드캐스트)
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+	// BCrypt 비밀번호 해시 (spring-boot-starter-security 없이 crypto만)
+	implementation 'org.springframework.security:spring-security-crypto'
+
+	// JJWT (JWT 발급/검증)
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+	// PostgreSQL JDBC 드라이버 (런타임에만 필요)
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// Flyway (GROMO-670) — Spring Boot 4.0 은 오토컨피그를 기술별 모듈로 분리해서, flyway-core 만으로는
+	// Flyway 오토컨피그가 안 붙는다. spring-boot-flyway(오토컨피그) + flyway-core(엔진) + PostgreSQL 지원
+	// 모듈(Flyway 10+ 부터 DB별 분리, 없으면 PostgreSQL 미인식)까지 3개가 필요하다.
+	implementation 'org.springframework.boot:spring-boot-flyway'
+	implementation 'org.flywaydb:flyway-core'
+	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+
+	// Redis (GROMO-292) — 집중 프레즌스 리스(presence:focus:*)를 채팅 서버가 읽는다.
+	// 이 서비스에서 Redis 는 «부가»다: 쓰기는 전부 best-effort 라 Redis 가 죽어도 집중은 그대로 돌아간다.
+	// 그래서 헬스 인디케이터도 끈다(management.health.redis.enabled=false) — 켜 두면 부가 의존성의
+	// 장애가 컨테이너를 unhealthy 로 만들어 배포를 실패시킨다.
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+	// UUID v7 생성 (시간 정렬, B-tree 인덱스 지역성 최적화)
+	implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
+
+	// ShedLock (GROMO-1283) — 섬 정산·집중 보상 크론의 멀티 인스턴스 중복 실행 차단.
+	// 저장소는 기존 PostgreSQL(shedlock 테이블, V45) — jdbc-template provider 표준 구성.
+	implementation 'net.javacrumbs.shedlock:shedlock-spring:5.16.0'
+	implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.16.0'
+
+	// Kafka (GROMO-1659·1660 공통 기반) — outbox relay 가 notification-events 로 발행한다(A12·A21).
+	// 이 서비스에서 Kafka 는 «relay 를 켰을 때만» 쓴다: OutboxRelayConfig 가 outbox.relay.enabled=true
+	// 에서만 로드되므로, 의존성이 클래스패스에 있어도 꺼진 기동은 브로커에 붙지 않는다.
+	// spring-kafka 는 KafkaTemplate·KafkaAdmin 오토컨피그를 함께 가져오는데, NewTopic 빈이 없으면
+	// KafkaAdmin 은 아무것도 하지 않는다(그 빈도 relay 설정 안에만 있다).
+	// ⚠️ Spring Boot 4 는 오토컨피그를 기술별 모듈로 분리했다(위 Flyway 주석과 같은 함정) —
+	// spring-kafka 만으로는 KafkaProperties·KafkaAdmin 이 붙지 않아 spring.kafka.* 바인딩도,
+	// NewTopic 빈의 자동 생성도 동작하지 않는다. spring-boot-kafka(오토컨피그) + spring-kafka(엔진).
+	implementation 'org.springframework.boot:spring-boot-kafka'
+	implementation 'org.springframework.kafka:spring-kafka'
+
+	// BIZEVENT 구조화 JSON 로그 인코더 (GROMO-384)
+	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+	// FCM HTTP v1 서비스 계정 OAuth2 토큰 발급 (firebase-admin 미도입 — 스펙 근거 참조)
+   implementation 'com.google.auth:google-auth-library-oauth2-http:1.48.0'  // 구현 시점 최신 재확인 (OWASP CVSS9 게이트)
+
+	// Lombok (boilerplate 제거 - @Getter, @Builder, @RequiredArgsConstructor 등)
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// 테스트
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'	//Testcontainers
+	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
+	testImplementation 'org.testcontainers:postgresql:1.20.1'
+	// outbox relay 통합 테스트는 «진짜 브로커»에 붙는다 — 발행·재전달·파티션 계약을 목으로 세우면
+	// 검증되는 것이 목의 기대치뿐이다(계약 §8).
+	testImplementation 'org.testcontainers:kafka:1.20.1'
+	testImplementation 'org.springframework.kafka:spring-kafka-test'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+
+	// 아키텍처 규칙 검증 (GROMO-1724) — 도메인 레이어 역행·순환을 빌드 실패로 잡는다.
+	// core 만 쓴다: DomainLayerRulesTest 는 @AnalyzeClasses/@ArchTest 확장 없이
+	// 평범한 @Test + ClassFileImporter 로 쓰여 있어 archunit-junit5 러너가 필요 없다.
+	testImplementation 'com.tngtech.archunit:archunit:1.3.0'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+openApi {
+	// 게시 대상은 현재 내부 API 계약인 internal 그룹 하나다.
+	apiDocsUrl.set("http://localhost:8080/v0/api-docs/internal") // 앱 구동 후 호출할 URL
+	outputDir.set(file("$buildDir/docs/api/"))                 // 생성된 spec 저장 위치
+	outputFileName.set("data-api.openapi.json")
+	// 앱 구동 대기 시간. 30초로는 CI 러너에서 부족해 2026-08-10 이후 모든 브랜치가 실패했다
+	// (GROMO-1515). 실패 런 로그 기준 21초에 겨우 DataSource 를 열고 Hibernate SessionFactory
+	// 구축 중에 창이 닫혔다 — 앱이 죽은 게 아니라 아직 부팅 중이었다.
+	// 러너 스펙업(4 vCPU/8 GB) 후 재측정해도 30초로는 부족하다 — 한 VM 에 러너 프로세스가
+	// 3개라 경합이 평시 상태다. 단독 실행 16.065초 vs 러너 3개 경합 40.008초(실측).
+	// 개발 머신은 3.5초. 경합 폭을 감당하도록 여유를 크게 잡는다.
+	// ⚠️ 대가: 앱이 진짜로 못 뜨면 실패 판정이 그만큼 늦어진다. 다만 그 경우에도 job 로그에
+	//    앱 스택트레이스가 남아 원인은 바로 보인다(GROMO-1260 스키마 불일치를 그렇게 찾았다).
+	waitTimeInSeconds.set(180)
+	customBootRun {
+		jvmArgs = ["-Dspringdoc.api-docs.path=/v0/api-docs"]  // ← fork된 JVM에 직접 주입
+	}
+}
+
+// javadoc 경고 출력 상한. 기본값 100 은 "출력만" 자르므로, 실제 부채가 1833건일 때도
+// 화면엔 100건만 보인다 — 남은 양을 알 수 없어 줄었는지 늘었는지 판단이 불가능하다 (GROMO-1654).
+tasks.withType(Javadoc).configureEach {
+    options.addStringOption('Xmaxwarns', '10000')
+}
+
+tasks.named('test') {
+	// 전체 통합 테스트의 Spring/Kafka 컨텍스트가 기본 512MiB 테스트 힙을 넘는다. 운영 JVM과 무관하다.
+	maxHeapSize = '2g'
+	// 스프링 테스트 컨텍스트 캐시 한도는 기본값(32)을 쓴다. 한도를 넘으면 LRU 축출이 컨텍스트를 닫지만,
+	// 컨텍스트마다 자기 스키마(TestPostgres)·자기 database(OutboxTestPostgres)를 가지므로 닫히는 컨텍스트의
+	// create-drop 이 살아 있는 이웃의 테이블을 지우지 않는다 (GROMO-1792 — 1757 의 maxSize=64 임시 조치 해제).
+	useJUnitPlatform()
+	// ArchUnit freeze store 가 바뀌면 테스트를 다시 돌린다 — 입력으로 선언하지 않으면 store 만 고친 뒤 UP-TO-DATE 로 건너뛴다 (GROMO-2198).
+	inputs.dir('archunit_store').withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+	// 테스트 완료 후 JaCoCo 리포트 자동 생성
+	finalizedBy jacocoTestReport
+}
+
+// ── Checkstyle ────────────────────────────────────────────────────────────
+checkstyle {
+	toolVersion = '10.21.4'
+	configFile = file("config/checkstyle/checkstyle.xml")
+	// 기존 코드에 위반이 많을 경우 아래를 true로 바꿔 경고로만 처리 후 점진적으로 수정
+	ignoreFailures = false
+}
+
+checkstyleTest.enabled = false
+
+// ── SpotBugs ─────────────────────────────────────────────────────────────
+spotbugs {
+	toolVersion = '4.8.6'
+	effort = 'max'
+	// HIGH 이상만 빌드 실패 (MEDIUM은 리포트에는 포함되지만 빌드는 통과)
+	reportLevel = 'high'
+	excludeFilter = file("config/spotbugs/exclude.xml")
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		xml.required = true   // pr-report 파싱용
+		html.required = true  // 로컬 열람용
+	}
+}
+
+spotbugsTest.enabled = false
+
+// ── JaCoCo ───────────────────────────────────────────────────────────────
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+	reports {
+		xml.required = true   // CI에서 커버리지 파싱용
+		html.required = true  // 로컬 열람용
+	}
+}
+
+// ── OWASP Dependency Check ───────────────────────────────────────────────
+dependencyCheck {
+	// JSON 포맷: pr-report 파싱용. HTML은 로컬 열람용으로 동시 생성
+	formats = ['JSON', 'HTML']
+	// CVSS 9.0+(Critical)만 빌드 실패. HIGH/MEDIUM은 pr-report에서 경고로 표시
+	failBuildOnCVSS = 9
+	// NVD DB 저장 경로: CI에서 actions/cache로 ~/.gradle/dependency-check-data 캐시
+	data {
+		directory = "${System.getProperty('user.home')}/.gradle/dependency-check-data"
+	}
+	nvd {
+		// NVD API 키 있으면 속도 향상 (없어도 동작)
+		// apiKey = System.getenv('NVD_API_KEY') ?: ''
+	}
+}

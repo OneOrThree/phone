@@ -1,0 +1,115 @@
+[
+  {
+    "id": "auth",
+    "source_method": "POST",
+    "source_path": "/v1/auth/sessions",
+    "method": "POST",
+    "path": "/auth/sessions",
+    "request_example": {
+      "provider": "apple",
+      "authorizationCode": "provider-code",
+      "termsVersion": "2026-09"
+    },
+    "response_example": {
+      "data": {
+        "accessToken": "access-token",
+        "refreshToken": "refresh-token",
+        "userId": "me",
+        "onboardingComplete": false
+      }
+    }
+  },
+  {
+    "id": "me",
+    "source_method": "GET",
+    "source_path": "/v1/me",
+    "method": "GET",
+    "path": "/me",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "id": "me",
+        "name": "수빈",
+        "catColor": "black",
+        "linkedProviders": [
+          "apple"
+        ],
+        "onboardingComplete": true
+      }
+    }
+  },
+  {
+    "id": "profile",
+    "source_method": "PATCH",
+    "source_path": "/v1/me",
+    "method": "PATCH",
+    "path": "/me",
+    "request_example": {
+      "name": "수빈",
+      "catColor": "calico"
+    },
+    "response_example": {
+      "data": {
+        "id": "me",
+        "name": "수빈",
+        "catColor": "calico"
+      }
+    }
+  },
+  {
+    "id": "logout",
+    "source_method": "DELETE",
+    "source_path": "/v1/auth/sessions/current",
+    "method": "DELETE",
+    "path": "/auth/sessions/current",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "revoked": true
+      }
+    }
+  },
+  {
+    "id": "delete",
+    "source_method": "DELETE",
+    "source_path": "/v1/me",
+    "method": "DELETE",
+    "path": "/me",
+    "request_example": {
+      "confirmation": "DELETE"
+    },
+    "response_example": {
+      "data": {
+        "deleted": true
+      }
+    }
+  },
+  {
+    "id": "settings",
+    "source_method": "GET",
+    "source_path": "/v1/me/settings",
+    "method": "GET",
+    "path": "/me/settings",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "notifications": true
+      }
+    }
+  },
+  {
+    "id": "settings-save",
+    "source_method": "PATCH",
+    "source_path": "/v1/me/settings",
+    "method": "PATCH",
+    "path": "/me/settings",
+    "request_example": {
+      "notifications": false
+    },
+    "response_example": {
+      "data": {
+        "notifications": false
+      }
+    }
+  }
+]

@@ -1,0 +1,362 @@
+package com.oneorthree.phone.internal.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
+import com.oneorthree.phone.appearance.service.AppearanceService;
+import com.oneorthree.phone.common.support.BannedWords;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
+import com.oneorthree.phone.group.repository.UserIslandContextRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
+import com.oneorthree.phone.group.repository.domain.UserIslandContext;
+import com.oneorthree.phone.group.service.GroupMemberService;
+import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
+import com.oneorthree.phone.group.service.IslandMembershipEvents;
+import com.oneorthree.phone.group.service.IslandStateEvents;
+import com.oneorthree.phone.internal.dto.IslandJoinRequestsPageView;
+import com.oneorthree.phone.internal.dto.IslandLeftView;
+import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
+import com.oneorthree.phone.internal.dto.IslandManageView;
+import com.oneorthree.phone.internal.dto.IslandMemberRemovedView;
+import com.oneorthree.phone.internal.dto.IslandMembersPageView;
+import com.oneorthree.phone.internal.dto.NextLocationView;
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
+import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
+import com.oneorthree.phone.outbox.dto.PublicCommandResult;
+import com.oneorthree.phone.outbox.repository.AggregateVersionRepository;
+import com.oneorthree.phone.outbox.repository.domain.AggregateVersion;
+import com.oneorthree.phone.outbox.repository.domain.AggregateVersionId;
+import com.oneorthree.phone.outbox.service.PublicCommandService;
+import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * 섬 관리·주민 잔여 계약 (GROMO-1802, 섬 관리 LLD §3.1~§3.3·§3.6·§3.7) — 정보 수정·주민 목록·신청자 목록·
+ * 강퇴·나가기. 승인/거절(§3.4)은 가입 전이를 공유하므로 {@link IslandJoinService#answer} 에 있다.
+ *
+ * <h2>권한은 DB 의 현재 역할로만</h2>
+ * Business 의 사전 판정·캐시를 믿지 않는다. 쓰기는 {@code users → islands → memberships} 잠금 아래에서
+ * 역할을 다시 읽고, 위임 커밋 뒤 이전 방장의 첫 요청은 403 이다(권한 행렬 «동시성 판정»).
+ */
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class IslandManagementService {
+
+    private static final int MAX_LIMIT = 100;
+    /** 첫 페이지 경계 — 어떤 행보다도 이르다. 실제 행의 {@code (createdAt, id)} 는 이 값이 될 수 없다. */
+    private static final Instant FIRST_AT = Instant.EPOCH;
+    private static final UUID FIRST_ID = new UUID(0L, 0L);
+
+    private final UserQueryService userQueryService;
+    private final GroupQueryService groupQueryService;
+    private final GroupMembershipMutationLocks membershipLocks;
+    private final GroupMemberRepository groupMemberRepository;
+    private final IslandJoinRequestRepository joinRequestRepository;
+    private final AggregateVersionRepository aggregateVersions;
+    private final GroupMemberService membershipCommands;
+    private final IslandStateEvents islandStateEvents;
+    private final IslandMovementGuards movementGuards;
+    private final PublicCommandService publicCommands;
+    private final AppearanceService appearances;
+    private final BannedWords bannedWords;
+    private final UserIslandContextRepository userIslandContexts;
+    private final InternalLetterService letters;
+
+    // ---------------------------------------------------------------- §3.1 manage
+
+    /**
+     * 섬 정보 수정 — 방장만. 누락 필드는 보존하고 실제로 바뀐 것이 없으면 사건·버전을 만들지 않는다(LLD §2).
+     *
+     * <p>이름이 실제로 바뀔 때만 같은 트랜잭션에 링크 표시정보 {@code group.renamed} 를 남긴다 — 기존
+     * 섬 이름 변경은 멤버십 세대를 바꾸지 않는다.
+     * 가입 방식 전환은 이미 열린 요청을 자동 승인·거절하지 않는다.
+     *
+     * <p><b>정원</b>(GROMO-1993) — 정책 「정원은 마을회관에서 방장이 수정할 수 있다. 현재 주민 수보다
+     * 작게 줄일 수는 없다」. 범위(1~15)는 본문 파서가, 현원 하한은 여기가 본다: 현원은 DB 상태라
+     * 그룹 잠금 아래에서만 정확하다. 하한 위반은 400 {@code MAX_MEMBERS_TOO_SMALL} 이다.
+     */
+    @Transactional
+    public IslandManageView manage(UUID userId, UUID islandId, IslandManageCommandRequest body, UUID key) {
+        if (body.name() != null && body.name().isBlank()) {
+            throw new GroupException(GroupErrorCode.ISLAND_NAME_BLANK);
+        }
+        Map<String, Object> fingerprint = new LinkedHashMap<>();
+        if (body.name() != null) {
+            fingerprint.put("name", body.name());
+        }
+        if (body.intro() != null) {
+            fingerprint.put("intro", body.intro());
+        }
+        if (body.approvalRequired() != null) {
+            fingerprint.put("approvalRequired", body.approvalRequired());
+        }
+        if (body.maxMembers() != null) {
+            fingerprint.put("maxMembers", body.maxMembers());
+        }
+        if (body.greeting() != null) {
+            fingerprint.put("greeting", body.greeting());
+        }
+        PublicCommandRequest command = new PublicCommandRequest(userId, "PATCH:/islands/" + islandId, key,
+                InternalJson.tree(fingerprint));
+        JsonNode data = publicCommands.run(command,
+                () -> userQueryService.getCallerForShare(userId),
+                ignored -> requireHostNow(userId, islandId),
+                () -> {
+                    // 금칙어는 «신규 명령 안» 이다 (GROMO-1986). 앞에 두면 두 가지가 깨진다: ① 이미 성공한
+                    // 키를 다른 본문으로 재사용한 요청이 409 멱등 키 충돌 대신 400 으로 나가고 ② 배포 사이에
+                    // 목록이 늘면 «같은 본문의 성공 재시도» 가 원 결과 대신 400 이 된다 — 섬 관리 LLD §2 의
+                    // 「같은 키 재생은 같은 결과」를 깬다. 생략(null)은 「안 보냄」이라 건너뛴다.
+                    // 인사말(GROMO-2262)도 같은 입구다 — 빈 값(기본 문구로 복귀)은 정규화하면 비어 판정에 걸리지 않는다.
+                    bannedWords.requireClean(body.name(), body.intro(), body.greeting());
+                    Group island = lockIslandAsHost(userQueryService.getCallerForShare(userId), islandId);
+                    boolean renamed = body.name() != null && !body.name().equals(island.getName());
+                    boolean introChanged = body.intro() != null && !body.intro().equals(intro(island));
+                    // 빈 문자열·공백 = 기본 문구로 복귀(null 저장) — 인사말 비교도 저장값(null 가능) 기준이다.
+                    String newGreeting = body.greeting() == null ? island.getGreeting()
+                            : (body.greeting().isBlank() ? null : body.greeting().strip());
+                    boolean greetingChanged = body.greeting() != null
+                            && !Objects.equals(newGreeting, island.getGreeting());
+                    boolean approvalChanged = body.approvalRequired() != null
+                            && body.approvalRequired() != island.isApprovalRequired();
+                    if (renamed) {
+                        island.updateName(body.name());
+                    }
+                    if (introChanged) {
+                        island.updateDescription(body.intro());
+                    }
+                    if (greetingChanged) {
+                        island.updateGreeting(newGreeting);
+                    }
+                    if (approvalChanged) {
+                        island.updateApprovalRequired(body.approvalRequired());
+                    }
+                    boolean capacityChanged = body.maxMembers() != null
+                            && body.maxMembers() != island.getMaxMembers();
+                    if (capacityChanged) {
+                        // 「현재 주민 수보다 작게 줄일 수는 없다」 — 현원은 본문이 아니라 DB 상태라
+                        // 그룹 잠금 «아래»에서 센다. 앞에서 세면 그 사이 가입이 하한을 넘겨 버린다.
+                        // 이탈자는 세지 않는다(GROMO-1220) — 유령 자리 때문에 축소가 막히지 않게.
+                        if (body.maxMembers() < activeMemberCount(islandId)) {
+                            throw new GroupException(GroupErrorCode.MAX_MEMBERS_TOO_SMALL);
+                        }
+                        island.updateMaxMembers(body.maxMembers());
+                    }
+                    List<EventEnvelope> events = renamed || introChanged || greetingChanged || approvalChanged
+                            || capacityChanged
+                            ? List.of(islandStateEvents.changed(islandId, userId, "UPDATED"))
+                            : List.of();
+                    long version = events.isEmpty()
+                            ? aggregateVersion(IslandStateEvents.AGGREGATE_TYPE, islandId)
+                            : events.get(0).version();
+                    return new PublicCommandResult(200, InternalJson.tree(new IslandManageView(island.getId(),
+                            island.getName(), intro(island), island.isApprovalRequired(),
+                            island.getMaxMembers(), version)),
+                            InternalJson.tree(events));
+                }).value().data();
+        return InternalJson.decode(data, IslandManageView.class);
+    }
+
+    // ---------------------------------------------------------------- §3.2 members
+
+    /**
+     * 주민 목록 — 살아 있는 섬이면 활성 계정 누구나 읽는다: 방문자(가입 대기자·이탈자 포함)도 된다(2026-09-19 결정
+     * V-읽기, GROMO-1904). 항목은 닉네임·고양이 외형(착용 외양)·방장 여부뿐이고, 탈퇴 계정은 목록에서 뺀다.
+     *
+     * <p>{@code REPEATABLE_READ} 인 이유: 목록 {@code version} 은 응답 행들과 <b>같은 스냅샷</b>에서 읽어야 한다
+     * (LLD §3.2). 기본 READ COMMITTED 는 문장마다 스냅샷이 달라, 행을 읽은 뒤 커밋된 가입이 version 에만
+     * 반영되면 클라이언트는 새 주민이 빠진 목록을 최신 버전으로 믿는다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public IslandMembersPageView members(UUID userId, UUID islandId, Instant afterJoinedAt, UUID afterMembershipId,
+                                         int limit) {
+        requirePage(afterJoinedAt, afterMembershipId, limit);
+        userQueryService.getCaller(userId);
+        Group island = groupQueryService.getGroup(islandId);
+        IslandMovementGuards.requireAlive(island);
+        List<GroupMember> rows = groupMemberRepository.findActivePageByGroupId(islandId,
+                afterJoinedAt == null ? FIRST_AT : afterJoinedAt,
+                afterMembershipId == null ? FIRST_ID : afterMembershipId,
+                PageRequest.of(0, limit + 1));
+        boolean more = rows.size() > limit;
+        List<GroupMember> page = more ? rows.subList(0, limit) : rows;
+        GroupMember last = more ? page.get(page.size() - 1) : null;
+        Map<UUID, PersonalAppearanceView> looks = appearances.equippedOf(
+                page.stream().map(member -> member.getUser().getId()).toList());
+        return new IslandMembersPageView(page.stream()
+                .map(member -> new IslandMembersPageView.Item(member.getUser().getId(),
+                        member.getUser().getNickname(), member.getUser().getCatColor(),
+                        member.getRole() == GroupMemberRole.OWNER ? "host" : "member",
+                        looks.get(member.getUser().getId())))
+                .toList(),
+                last == null ? null : last.getCreatedAt(), last == null ? null : last.getId(),
+                aggregateVersion(IslandMembershipEvents.AGGREGATE_TYPE, islandId));
+    }
+
+    // ---------------------------------------------------------------- §3.3 requests
+
+    /** 신청자 목록 — 현재 방장만(주민 403), pending 만. 신청자 프로필은 공개 닉네임뿐이다. */
+    public IslandJoinRequestsPageView joinRequests(UUID userId, UUID islandId, Instant afterCreatedAt,
+                                                   UUID afterRequestId, int limit) {
+        requirePage(afterCreatedAt, afterRequestId, limit);
+        User caller = userQueryService.getCaller(userId);
+        Group island = groupQueryService.getGroup(islandId);
+        IslandMovementGuards.requireAlive(island);
+        requireHost(caller, island);
+        List<IslandJoinRequest> rows = joinRequestRepository.findPageByIslandIdAndStatus(islandId,
+                IslandJoinRequestStatus.PENDING,
+                afterCreatedAt == null ? FIRST_AT : afterCreatedAt,
+                afterRequestId == null ? FIRST_ID : afterRequestId,
+                PageRequest.of(0, limit + 1));
+        boolean more = rows.size() > limit;
+        List<IslandJoinRequest> page = more ? rows.subList(0, limit) : rows;
+        IslandJoinRequest last = more ? page.get(page.size() - 1) : null;
+        return new IslandJoinRequestsPageView(page.stream()
+                .map(request -> new IslandJoinRequestsPageView.Item(request.getId(),
+                        request.getApplicant().getId(), request.getApplicant().getNickname(),
+                        request.getApplicant().getCatColor(),
+                        request.getStatus().wireName(),
+                        request.getVersion() == null ? 0L : request.getVersion()))
+                .toList(),
+                last == null ? null : last.getCreatedAt(), last == null ? null : last.getId());
+    }
+
+    // ---------------------------------------------------------------- §3.6 kick
+
+    /**
+     * 강퇴 — 판정·잠금·이탈 마킹·초대 폐기·주민 사건은 멤버십 서비스에서 함께 처리한다.
+     * 대상의 진행 중 집중 강제 종료(FR-D03)와 미수령 퀘스트 보상은 이 명령이 다루지 않는다 —
+     * 전자는 참고 티켓 1924, 후자는 정책 대기다(LLD §5).
+     *
+     * <p>대상에게 강퇴 편지(KICK)를 같은 TX 에서 남긴다(GROMO-2260). 응답에는 대상의 다음 위치를 싣지 않는다 —
+     * 받는 사람이 방장이라 대상이 속한 다른 섬이 샌다.
+     */
+    @Transactional
+    public IslandMemberRemovedView kick(UUID userId, UUID islandId, UUID targetUserId, UUID key) {
+        PublicCommandRequest command = new PublicCommandRequest(userId,
+                "DELETE:/islands/" + islandId + "/members/" + targetUserId, key, InternalJson.tree(Map.of()));
+        JsonNode data = publicCommands.run(command,
+                () -> userQueryService.getCallerForShare(userId),
+                ignored -> requireHostNow(userId, islandId),
+                () -> {
+                    EventEnvelope event = membershipCommands.kickMemberAndRecord(islandId, targetUserId, userId);
+                    // 강퇴 안내 편지(GROMO-2260) — 강퇴와 같은 TX 라 receipt 재생은 편지를 다시 만들지 않는다.
+                    letters.sendSystem(userQueryService.getTargetForShare(targetUserId), LetterKind.KICK, islandId,
+                            groupQueryService.getGroup(islandId).getName() + "섬에서 더 이상 함께할 수 없게 되었어요");
+                    return new PublicCommandResult(200, InternalJson.tree(new IslandMemberRemovedView(true)),
+                            InternalJson.tree(List.of(event)));
+                }).value().data();
+        return InternalJson.decode(data, IslandMemberRemovedView.class);
+    }
+
+    // ---------------------------------------------------------------- §3.7 leave
+
+    /**
+     * 나가기 — 진행 중(active/paused) 집중이 있으면 409다. 다인 섬의 방장은 먼저 위임해야 한다.
+     * 마지막 주민이 나가면 같은 트랜잭션에서 섬을 종료하고 대기 중 가입 신청을 취소한다.
+     *
+     * <p>집중 가드는 사용자 공유 잠금 아래에서 본다 — 집중 시작은 같은 users 행을 배타로 잡으므로 둘 중
+     * 하나만 먼저 커밋된다. 현재 섬 복구는 {@code UserIslandContextRecovery} 가 같은 TX 에서 하고, 응답의
+     * {@code nextLocation} 은 그 결과를 그대로 읽는다(GROMO-2260). 같은 키 재생은 원 응답을 돌려준다.
+     */
+    @Transactional
+    public IslandLeftView leave(UUID userId, UUID islandId, UUID key) {
+        PublicCommandRequest command = new PublicCommandRequest(userId,
+                "DELETE:/islands/" + islandId + "/memberships/me:" + userId, key, InternalJson.tree(Map.of()));
+        JsonNode data = publicCommands.run(command,
+                () -> userQueryService.getCallerForShare(userId),
+                ignored -> userQueryService.getCallerForShare(userId),
+                () -> {
+                    movementGuards.requireNoLiveFocusSession(userQueryService.getCallerForShare(userId));
+                    EventEnvelope event = membershipCommands.withdrawGroupAndRecord(islandId, userId);
+                    return new PublicCommandResult(200,
+                            InternalJson.tree(new IslandLeftView(true, nextLocationOf(userId))),
+                            InternalJson.tree(List.of(event)));
+                }).value().data();
+        return InternalJson.decode(data, IslandLeftView.class);
+    }
+
+    // ---------------------------------------------------------------- 내부
+
+    /**
+     * 나가기 «뒤» 본인의 현재 섬 — {@code UserIslandContextRecovery} 가 같은 TX 에서 이미 옮겼거나
+     * 비웠으므로 응답과 컨텍스트가 어긋나지 않는다(GROMO-2260). 잃은 섬이 현재 섬이 아니었으면 그대로다.
+     * 강퇴 응답에는 쓰지 않는다 — 그 응답은 방장이 받는다({@code IslandMemberRemovedView}).
+     */
+    private NextLocationView nextLocationOf(UUID userId) {
+        return new NextLocationView(userIslandContexts.findById(userId)
+                .map(UserIslandContext::getCurrentIslandId).orElse(null));
+    }
+
+    /**
+     * 살아 있는 주민 수 — 정원 축소 하한이다 (GROMO-1993). 정원 판정과 같은 모수를 쓴다
+     * ({@code IslandJoinService.requireCapacity}): 이탈·강퇴 행은 세지 않는다.
+     */
+    private int activeMemberCount(UUID islandId) {
+        return (int) groupMemberRepository.countByGroupIdIn(List.of(islandId)).stream()
+                .mapToLong(row -> row.getMemberCount())
+                .sum();
+    }
+
+    /** 그룹 행을 잠근 뒤 생존과 현재 방장 역할을 다시 본다 — 위임과 직렬화된다. */
+    private Group lockIslandAsHost(User caller, UUID islandId) {
+        membershipLocks.lockGroup(islandId);
+        Group island = groupQueryService.getGroup(islandId);
+        IslandMovementGuards.requireAlive(island);
+        requireHost(caller, island);
+        return island;
+    }
+
+    /**
+     * 재생 인가 — 방장 전용 명령의 같은 키 재생도 <b>지금</b> 방장이어야 결과를 돌려준다(#808 외양 재생과 같은 규칙).
+     * 위임·강등 뒤의 이전 방장은 새 요청과 같은 403 이다. 나가기만 LLD §4 의 제한 재생 특례라 여기 오지 않는다.
+     */
+    private void requireHostNow(UUID userId, UUID islandId) {
+        requireHost(userQueryService.getCallerForShare(userId), groupQueryService.getGroup(islandId));
+    }
+
+    private void requireHost(User caller, Group island) {
+        groupQueryService.findMembership(caller, island)
+                .filter(member -> member.getRole() == GroupMemberRole.OWNER)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
+    }
+
+    /** keyset 경계는 둘이 짝이다 — 하나만 오면 커서 위조·배선 사고라 400 이다. limit 기본값은 Business 몫이다. */
+    private static void requirePage(Instant after, UUID afterId, int limit) {
+        if ((after == null) != (afterId == null) || limit < 1 || limit > MAX_LIMIT) {
+            throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
+        }
+    }
+
+    /** 기존 소개가 null 이어도 공개 계약은 빈 문자열이다(LLD §3.1) — DB 값은 바꾸지 않는다. */
+    private static String intro(Group island) {
+        return island.getDescription() == null ? "" : island.getDescription();
+    }
+
+    /** aggregate_versions 의 마지막 발급값 — 행이 없으면 0(아직 사건이 없는 축). 건설 조회와 같은 읽기다. */
+    private long aggregateVersion(String type, UUID islandId) {
+        return aggregateVersions.findById(new AggregateVersionId(type, islandId.toString()))
+                .map(AggregateVersion::getLastVersion)
+                .orElse(0L);
+    }
+}

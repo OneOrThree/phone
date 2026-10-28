@@ -1,0 +1,16 @@
+{
+  "id": "gramophone",
+  "name": "축음기",
+  "status": "final",
+  "source_id": "gramophone",
+  "source": "../../island-final-6/enhanced/buildings/day/gramophone.png",
+  "canvas": [632, 910],
+  "files": {
+    "day": "day.png",
+    "night": "night.png"
+  },
+  "alpha_bounds": [12, 12, 620, 898],
+  "island_box": [330, 391, 73, 89],
+  "day_night_alpha_equal": true,
+  "npc": null
+}

@@ -1,5 +1,5 @@
 ---
-description: Jira 티켓을 읽어 /back-skeleton 입력용 스펙 md를 생성한다 — 코드베이스 패턴 조사 + 모호점 질의 후 back/docs/skeleton/ 에 작성
+description: Jira 티켓을 읽어 /back-skeleton 입력용 스펙 md를 생성한다 — 코드베이스 패턴 조사 + 모호점 질의 후 server/data-api/docs/skeleton/ 에 작성
 argument-hint: "<티켓번호, e.g. GROMO-297 또는 297>"
 allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__getJiraIssue, mcp__atlassian__getAccessibleAtlassianResources
 ---
@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 
 이 커맨드는 **코드를 구현하지 않는다**. Jira 티켓 + 코드베이스 패턴을 종합해
 `/back-skeleton` 이 그대로 소비할 수 있는 **스펙 md** 한 장을 만들어
-`back/docs/skeleton/<type>-<slug>.md` 에 저장하는 게 전부다.
+`server/data-api/docs/skeleton/<type>-<slug>.md` 에 저장하는 게 전부다.
 
 파이프라인: `/jira-impl GROMO-297` → 스펙 md → `/back-skeleton <type>-<slug>` → 골격 → 사용자가 구현.
 
@@ -27,19 +27,19 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - `fields`: `["summary","description","status","issuetype","labels","parent"]`,
   `responseContentFormat: "markdown"`.
 - 요약·설명·부모 에픽을 파악한다. 설명에 `PRD N-N` 참조가 있으면
-  팀 공유 `docs/prd/<기능>/` 또는 개인 스크래치 `.docs/superpowers/specs/` 의
+  팀 공유 `docs/prd/<기능>/` 또는 개인 스크래치 `doc/superpowers/specs/` 의
   관련 PRD/설계 문서도 찾아 읽는다.
 
 조회 실패(권한/404) 시 중단하고 사용자에게 알린다. **추측으로 진행하지 않는다.**
 
 ### 3. 코드베이스 패턴 조사
-티켓이 건드릴 도메인을 추정해 `back/src/main/java/com/oneorthree/phone/<domain>/` 아래
+티켓이 건드릴 도메인을 추정해 `server/data-api/src/main/java/com/oneorthree/phone/<domain>/` 아래
 기존 `api/`·`service/`·`domain/`·`repository/`·`dto/`·`exception/` 를 읽는다.
 - 비슷한 엔드포인트/엔티티/DTO/에러코드를 찾아 **따라야 할 패턴**을 확정한다
   (메서드 시그니처, `@Transactional` 위치, 예외 처리 방식, DTO 클래스/record 스타일 등).
-- `back/docs/db/schema.dbml` 을 확인해 **필요한 컬럼·테이블이 이미 있는지** 본다
+- `server/data-api/docs/db/schema.dbml` 을 확인해 **필요한 컬럼·테이블이 이미 있는지** 본다
   → 있으면 migration 불필요, 없으면 Flyway `V<N+1>__<desc>.sql` 항목을 스펙에 포함
-  (`back/src/main/resources/db/migration/`, 버전은 기존 파일의 숫자 max+1).
+  (`server/data-api/src/main/resources/db/migration/`, 버전은 기존 파일의 숫자 max+1).
 - Serena 심볼 도구가 있으면 호출 경로 추적에 활용한다.
 
 ### 4. 모호점 질의 (중요)
@@ -55,7 +55,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 에러, 스코프 제외, DB 변경 여부). **사용자 승인 전에는 파일을 쓰지 않는다.**
 
 ### 6. 스펙 md 작성
-승인되면 `back/docs/skeleton/<type>-<slug>.md` 에 아래 형식으로 저장한다.
+승인되면 `server/data-api/docs/skeleton/<type>-<slug>.md` 에 아래 형식으로 저장한다.
 - `<type>`: 백엔드 작업이므로 b- prefix 규칙(`bfeat`/`bfix`/`brefactor`/`bchore`)에서 티켓 성격에 맞게.
 - `<slug>`: 기능을 나타내는 케밥케이스 (예: `device-token`).
 
@@ -81,7 +81,7 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - `<domain>/service/FooService.java` — <추가할 메서드, 예외 처리>
 
 ### migration
-- 불필요 (컬럼 이미 존재) — 또는 `back/src/main/resources/db/migration/V<N+1>__<desc>.sql` — <변경 내용>
+- 불필요 (컬럼 이미 존재) — 또는 `server/data-api/src/main/resources/db/migration/V<N+1>__<desc>.sql` — <변경 내용>
 
 ### 에러
 - 400/401/404 ... — <조건 / 에러코드>
@@ -90,12 +90,12 @@ allowed-tools: Bash, Read, Grep, Glob, Write, AskUserQuestion, mcp__atlassian__g
 - <이번 티켓에서 안 하는 것 + 어느 티켓 범위인지>
 ```
 
-기존 `back/docs/skeleton/*.md` 가 있으면 그 형식·톤을 우선해 맞춘다.
+기존 `server/data-api/docs/skeleton/*.md` 가 있으면 그 형식·톤을 우선해 맞춘다.
 
 ### 7. 다음 단계 안내
 작성한 파일 경로를 출력하고, 이어서 실행할 명령을 안내한다:
 ```
-✅ 스펙 작성: back/docs/skeleton/<type>-<slug>.md
+✅ 스펙 작성: server/data-api/docs/skeleton/<type>-<slug>.md
 다음: /back-skeleton <type>-<slug>  (골격 생성) 또는 직접 구현
 ```
 

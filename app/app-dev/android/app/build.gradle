@@ -1,0 +1,317 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+apply from: new File(rootDir, "../airbridge.gradle")
+
+def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+react {
+    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
+    reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+    hermesCommand = new File(["node", "--print", "require.resolve('hermes-compiler/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/hermesc/%OS-BIN%/hermesc"
+    codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+
+    enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
+    // Use Expo CLI to bundle the app, this ensures the Metro config
+    // works correctly with Expo projects.
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
+    bundleCommand = "export:embed"
+
+    /* Folders */
+     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
+    // root = file("../../")
+    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
+    // reactNativeDir = file("../../node_modules/react-native")
+    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
+    // codegenDir = file("../../node_modules/@react-native/codegen")
+
+    /* Variants */
+    //   The list of variants to that are debuggable. For those we're going to
+    //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
+    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
+    // debuggableVariants = ["liteDebug", "prodDebug"]
+
+    /* Bundling */
+    //   A list containing the node command and its flags. Default is just 'node'.
+    // nodeExecutableAndArgs = ["node"]
+
+    //
+    //   The path to the CLI configuration file. Default is empty.
+    // bundleConfig = file(../rn-cli.config.js)
+    //
+    //   The name of the generated asset file containing your JS bundle
+    // bundleAssetName = "MyApplication.android.bundle"
+    //
+    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
+    // entryFile = file("../js/MyApplication.android.js")
+    //
+    //   A list of extra flags to pass to the 'bundle' commands.
+    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
+    // extraPackagerArgs = []
+
+    /* Hermes Commands */
+    //   The hermes compiler command to run. By default it is 'hermesc'
+    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
+    //
+    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
+    // hermesFlags = ["-O", "-output-source-map"]
+
+    /* Autolinking */
+    autolinkLibrariesWithApp()
+}
+
+/**
+ * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
+ */
+def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ *
+ * For example, to use the international variant, you can use:
+ * `def jscFlavor = 'org.webkit:android-jsc-intl:+'`
+ *
+ * The international variant includes ICU i18n library and necessary data
+ * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
+ * give correct results when using with locales other than en-US. Note that
+ * this variant is about 6MiB larger per architecture than default.
+ */
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+def releaseCredentialsDir = new File(rootProject.projectDir, "credentials/prod")
+def releaseKeystorePropertiesFile = new File(releaseCredentialsDir, "keystore.properties")
+def releaseKeystoreProperties = new Properties()
+
+if (releaseKeystorePropertiesFile.exists()) {
+    releaseKeystorePropertiesFile.withInputStream { releaseKeystoreProperties.load(it) }
+}
+
+// Inspect the resolved task graph so aggregate tasks such as `build` and
+// `assemble` also gate actual release artifacts. Variant checks such as
+// `check` may include release lint/unit-test tasks without producing an update.
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseArtifactTasks = ["assemblerelease", "bundlerelease", "packagerelease"]
+    def includesReleaseArtifactTask = taskGraph.allTasks.any { task ->
+        task.project == project && releaseArtifactTasks.contains(task.name.toLowerCase(Locale.ROOT))
+    }
+    // dev 청중(GROMO_ANDROID_AUDIENCE=dev) = Play 내부 테스트용 팀 dev 서버 빌드 (GROMO-2223).
+    // 운영 세션 안 이어받음 → legacy 세션 가드는 운영만. 값은 CI(.github/workflows/app-android-ci.yml)만 줌. 비면 prod.
+    def androidAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
+    if (includesReleaseArtifactTask && !(androidAudience in ["prod", "dev"])) {
+        throw new GradleException(
+            "Android release 차단: GROMO_ANDROID_AUDIENCE 는 prod 또는 dev 만 허용합니다 (현재: ${androidAudience})."
+        )
+    }
+    def devAudience = androidAudience == "dev"
+    if (includesReleaseArtifactTask && !devAudience && System.getenv("GROMO_LEGACY_SESSION_MIGRATION_READY") != "1") {
+        throw new GradleException(
+            "Android release 차단: legacy Android 세션의 refresh 토큰은 현재 안전한 재시도 계약이 없어 앱 업데이트 시 로그인 세션을 잃을 수 있습니다. 서버의 멱등 승격 계약이 준비되고 검증된 뒤에만 GROMO_LEGACY_SESSION_MIGRATION_READY=1 을 설정해 release 작업을 실행하세요."
+        )
+    }
+    def termsVersion = System.getenv("EXPO_PUBLIC_TERMS_VERSION")
+    if (includesReleaseArtifactTask && (termsVersion == null || termsVersion.trim().isEmpty())) {
+        throw new GradleException(
+            "Android release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요."
+        )
+    }
+    // 서버는 앞뒤 공백이 있는 약관 버전을 400으로 거절한다. 값 그대로가 정본이어야 한다.
+    if (includesReleaseArtifactTask && termsVersion != termsVersion.trim()) {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요."
+        )
+    }
+    def apiUrl = System.getenv("EXPO_PUBLIC_API_URL")
+    if (includesReleaseArtifactTask && !devAudience && apiUrl != "https://catus-api.oneorthree.world") {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요."
+        )
+    }
+    // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
+    if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree.dev.mooo.com") {
+        throw new GradleException(
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
+        )
+    }
+    // GROMO-2226 — JS 의 Google 클라이언트 행은 EXPO_PUBLIC_ENV 로 고른다. 청중과 어긋나면 빈 prod 행(dev 청중) 또는 dev 행(운영)이 실린다.
+    // release 는 이 값을 셸에 명시해야 한다 — .env* 파일은 Expo 가 .env.local·.env.production 을 우선해 가드가 번들과 같은 값을 보장할 수 없다.
+    def publicEnv = System.getenv("EXPO_PUBLIC_ENV")
+    if (includesReleaseArtifactTask && (publicEnv == null || publicEnv.trim().isEmpty())) {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_ENV 를 dev 또는 prod 로 명시하세요(Google 클라이언트 행 선택 — .env 파일에 기대지 않습니다)."
+        )
+    }
+    if (includesReleaseArtifactTask && devAudience && publicEnv != "dev") {
+        throw new GradleException(
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_ENV=dev 로 번들해야 합니다(Google 클라이언트 행 선택)."
+        )
+    }
+    if (includesReleaseArtifactTask && !devAudience && publicEnv == "dev") {
+        throw new GradleException(
+            "Android release 차단: 운영 청중인데 EXPO_PUBLIC_ENV=dev 입니다 — dev Google 클라이언트가 운영 번들에 실립니다."
+        )
+    }
+    // GROMO-2226 — 운영 Google 클라이언트 id(prod.web)가 비어 있으면 운영 앱의 유일한 소셜 로그인(Google)이
+    // CLIENT_PROVIDER_UNAVAILABLE 로 거절된다. iOS testflight.sh·ota-update.sh 와 같은 가드. dev 청중은 dev 행을 쓰므로 통과.
+    if (includesReleaseArtifactTask && !devAudience) {
+        def googleIds = new groovy.json.JsonSlurper().parse(new File(rootDir, "../src/config/googleClientIds.json"))
+        if (!googleIds.prod?.web?.trim()) {
+            throw new GradleException(
+                "Android release 차단: 운영 Google 클라이언트 id 미발급 — src/config/googleClientIds.json prod 칸을 채운 뒤 다시 실행하세요."
+            )
+        }
+    }
+    if (includesReleaseArtifactTask && !releaseKeystorePropertiesFile.exists()) {
+        throw new GradleException(
+            "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
+        )
+    }
+}
+
+// FCM 공개 클라이언트 설정은 해당 빌드 환경에서만 읽는다. 다른 환경 파일로 폴백하지 않는다.
+def focusFirebaseAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
+def focusFirebaseFile = new File(rootProject.projectDir, "credentials/${focusFirebaseAudience}/google-services.json")
+def focusFirebase = focusFirebaseFile.exists() ? new groovy.json.JsonSlurper().parse(focusFirebaseFile) : null
+def focusFirebaseClient = focusFirebase?.client?.find { it.client_info.android_client_info.package_name == 'com.oneorthree.gromo' }
+if (focusFirebase != null && focusFirebaseClient == null) {
+    throw new GradleException("Firebase 클라이언트 설정의 Android 패키지가 앱과 다릅니다.")
+}
+
+// 인증이 없는 팀원/PR 빌드는 유지하고, 인증된 빌드는 업로드 실패를 숨기지 않는다.
+def posthogLocalDotenv = new File(rootDir, "../.env.posthog")
+def posthogDefaultDotenv = posthogLocalDotenv.exists() ? posthogLocalDotenv :
+    new File(System.getProperty("user.home"), ".config/posthog/catus.env")
+def posthogDotenv = System.getenv("POSTHOG_CLI_DOTENV_FILE") ?: posthogDefaultDotenv.absolutePath
+def posthogUploadEnabled = System.getenv("EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN") != "" &&
+    (System.getenv("POSTHOG_CLI_API_KEY") || new File(posthogDotenv).exists())
+if (posthogUploadEnabled) {
+    extensions.extraProperties.set("posthog.dotenvFile", posthogDotenv)
+    apply plugin: "com.posthog.android"
+    posthog {
+        uploadNativeSymbols.set(true)
+    }
+    apply from: new File(projectRoot, "node_modules/posthog-react-native/tooling/posthog.gradle")
+} else {
+    logger.lifecycle("PostHog: 업로드 인증 없음/수집 꺼짐 — 소스맵·네이티브 심볼 업로드 생략")
+}
+
+android {
+  compileOptions { coreLibraryDesugaringEnabled true }
+    ndkVersion rootProject.ext.ndkVersion
+
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace 'com.oneorthree.gromo'
+    defaultConfig {
+        applicationId 'com.oneorthree.gromo'
+        if (focusFirebaseClient != null) {
+            resValue "string", "google_app_id", focusFirebaseClient.client_info.mobilesdk_app_id
+            resValue "string", "gcm_defaultSenderId", focusFirebase.project_info.project_number
+            resValue "string", "google_api_key", focusFirebaseClient.api_key[0].current_key
+            resValue "string", "project_id", focusFirebase.project_info.project_id
+        }
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 20
+        versionName "2.0.0"
+        // dev 청중(Play 내부 테스트용 팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
+        // 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다. iOS dev 빌드는 Fastfile beta_dev 가 같은 일을 한다.
+        manifestPlaceholders += [expoUpdatesEnabled: System.getenv("GROMO_ANDROID_AUDIENCE") == "dev" ? "false" : "true"]
+
+        buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+    }
+    signingConfigs {
+        if (releaseKeystorePropertiesFile.exists()) {
+            release {
+                storeFile new File(
+                    releaseCredentialsDir,
+                    releaseKeystoreProperties.getProperty("storeFile", "release.keystore")
+                )
+                storePassword releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword releaseKeystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (releaseKeystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
+            shrinkResources enableShrinkResources.toBoolean()
+            minifyEnabled enableMinifyInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
+            crunchPngs enablePngCrunchInRelease.toBoolean()
+        }
+    }
+    packagingOptions {
+        jniLibs {
+            def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
+            useLegacyPackaging enableLegacyPackaging.toBoolean()
+        }
+    }
+    androidResources {
+        ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// Apply static values from `gradle.properties` to the `android.packagingOptions`
+// Accepts values in comma delimited lists, example:
+// android.packagingOptions.pickFirsts=/LICENSE,**/picasa.ini
+["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
+    // Split option: 'foo,bar' -> ['foo', 'bar']
+    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",");
+    // Trim all elements in place.
+    for (i in 0..<options.size()) options[i] = options[i].trim();
+    // `[] - ""` is essentially `[""].filter(Boolean)` removing all empty strings.
+    options -= ""
+
+    if (options.length > 0) {
+        println "android.packagingOptions.$prop += $options ($options.length)"
+        // Ex: android.packagingOptions.pickFirsts += '**/SCCS/**'
+        options.each {
+            android.packagingOptions[prop] += it
+        }
+    }
+}
+
+apply from: new File(rootDir, "../meta.gradle")
+
+dependencies {
+  coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+    // 앱 설치·실행 이벤트 측정용 공식 Meta SDK 모듈
+    implementation("com.facebook.android:facebook-core:19.0.0")
+
+    def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
+    def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
+    def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";
+
+    if (isGifEnabled) {
+        // For animated gif support
+        implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
+    }
+
+    if (isWebpEnabled) {
+        // For webp support
+        implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
+        if (isWebpAnimatedEnabled) {
+            // Animated webp support
+            implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
+        }
+    }
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}

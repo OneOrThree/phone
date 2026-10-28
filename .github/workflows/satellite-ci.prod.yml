@@ -1,0 +1,58 @@
+# 위성(business-api · notification) release PR 검사. release push 발행은 prod-ci.yml로 통일한다.
+# 검사는 satellite-check.yml 공용. GROMO-2224 에서 satellite-ci.yml 을 dev·prod 로 분리.
+name: Satellite CI (prod)
+
+on:
+  pull_request:
+    branches: [release]
+    paths:
+      - 'server/business-api/**'
+      - 'server/notification/**'
+      # 위성 계약은 auth·user·group·internal 등 Data 경계 전반과 테스트에 의존한다.
+      - 'server/data-api/**'
+      # data-api 의 문서 변경은 위성 계약을 바꾸지 않는다 (GROMO-1925).
+      - '!server/data-api/docs/**'
+      - '!server/data-api/**/*.md'
+      - 'docs/architecture/**'
+      - 'server/scripts/docker-compose.satellites*.yml'
+      # 설정 계약 테스트(test_config_contract)가 모든 compose 의 environment 를 봄 (GROMO-2224)
+      - 'server/scripts/docker-compose.dev.yml'
+      - 'server/scripts/docker-compose.realtime.yml'
+      - 'server/scripts/docker-compose.business.yml'
+      - 'server/scripts/docker-compose.kafka.yml'
+      - 'server/scripts/prepare-satellite-deploy.py'
+      - 'server/scripts/nginx-satellites*.example'
+      - 'server/scripts/nginx-dev-2.0-routes.conf.example'
+      - 'server/scripts/provision-notification-db.*'
+      # 외부 이미지 버전 고정 검사(test_image_versions)가 모든 compose·Dockerfile 을 봄 — PR 에서만 (GROMO-2224)
+      - 'server/scripts/docker-compose*.yml'
+      - 'server/realtime/Dockerfile'
+      - '.github/scripts/**'
+      - '.github/release-protection.json'
+      - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
+      - '.github/workflows/satellite-ci.*.yml'
+      - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/be-gradle.yml'
+      - '.github/workflows/satellite-cd.dev.yml'
+      - 'docs/contracts/**'
+
+concurrency:
+  group: satellite-ci-prod-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: 검사
+    uses: ./.github/workflows/satellite-check.yml
+    with:
+      build-services: false
+    permissions:
+      contents: read
+      actions: read
+
+  # release의 arm64 이미지 검증·발행은 prod-ci가 맡는다.
+  # 여기서는 위성 경계 계약만 검사하고 JAR·이미지를 중복 생성하지 않는다.

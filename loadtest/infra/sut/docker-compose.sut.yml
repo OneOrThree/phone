@@ -1,4 +1,4 @@
-# SUT — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드한 이미지를 loadtest 프로파일로 기동.
+# SUT — prod 와 같은 server/data-api/Dockerfile 을 핀 SHA 로 빌드한 이미지를 loadtest 프로파일로 기동.
 # 실행(관측 VM 아님, SUT VM 에서 — make up 이 수행):
 #   IMAGE=<region>-docker.pkg.dev/<project>/loadtest/gromo-back:<sha> ./fetch-env.sh sut
 #   docker compose -f docker-compose.sut.yml up -d
@@ -42,6 +42,20 @@ services:
       - /:/host:ro,rslave
     ports:
       - "9100:9100" # 크로스 VM 스크레이프 — dev(동일 네트워크)와 달리 호스트 공개 필요
+    restart: unless-stopped
+
+  # 컨테이너별 CPU·메모리·throttling. 실험 VPC 내부에서만 수집한다.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    privileged: true
+    devices: [/dev/kmsg]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports: ["9200:8080"]
     restart: unless-stopped
 
 volumes:

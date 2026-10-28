@@ -1,0 +1,110 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram id="ratelimit" name="레이트리밋과 배치 페이싱">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="bad" value="나쁜 방식: 08:00에 전원 동시 발사" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="50" width="500" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="bad1" value="사용자 10,000명 → 동시에 10,000 요청" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bad2" value="분당 요청/토큰 상한 초과&#10;→ 429 Too Many Requests 폭탄&#10;→ 즉시 재시도하면 더 악화" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="320" y="85" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ebad" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="bad1" target="bad2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="good" value="우리 방식: 페이싱 + 지수 백오프" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="1060" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="g1" value="대기열&#10;(사용자 10,000명)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="290" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="g2" value="동시 5개만 진행&#10;(세마포어)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="270" y="290" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="g3" value="LLM API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="290" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="g4" value="429 받으면: retry-after 우선,&#10;없으면 1초 → 2초 → 4초 + jitter&#10;(SDK 자체 재시도와 중복 주의)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="285" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g5" value="소요 시간 감각:&#10;10,000명 × 3초 ÷ 동시 5 ≈ 100분 → 08:00 시작이면 오전 중 완료 (추정치 — 마감 보장은 캐치업이 담당).&#10;배치라 실시간성이 없으니 밀려도 사용자 경험에 안 닿는다 (= &quot;미리 만들어 저장&quot; 구조의 덤)." style="text;html=1;align=left;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="60" y="390" width="980" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="eg1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="g1" target="g2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eg2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="g2" target="g3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3" value="429" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=11;" edge="1" parent="1" source="g3" target="g4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="eg4" value="대기 후 다시 대기열로" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=11;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="g4" target="g2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="760" y="265" />
+              <mxPoint x="345" y="265" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="cost-monitor" name="비용 구조와 모니터링">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="cost" value="호출 1건의 비용 구조" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="50" width="520" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="입력 ~800 토큰&#10;= system 프롬프트(~400)&#10;+ 집계 JSON(~400)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="출력 ~250 토큰&#10;(max_tokens 600 상한)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="310" y="90" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="1건 ≈ $0.006 (약 8원)&#10;1,000명 → 주 8천 원, 월 3.5만 원 수준&#10;(단가는 구현 시점 공식 가격표로 재확인)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="470" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="싼 이유 = 설계: 원본 로그 대신 집계만 전송 · 게이트로 미발행자 제외 · 출력 상한" style="text;html=1;align=left;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="60" y="250" width="470" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="guard" value="지갑 안전장치" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="50" width="480" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="gu1" value="usage 응답을 매 호출 저장 + 호출 전 &quot;시도&quot; 기록&#10;→ 월말 공급자 청구 내역과 대사 (응답 유실분 오차 잡기)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="90" width="440" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="gu2" value="주간 예산 상한을 코드에 박는다&#10;초과 시: 남은 사용자는 폴백 템플릿 발행 + 알람&#10;(버그로 무한 호출이 나도 지갑이 안 뚫린다)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="160" width="440" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="gu3" value="dev / prod API 키 분리 — dev 폭주가 prod 예산을 못 건드림" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="245" width="440" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="mon" value="모니터링 — &quot;죽지 않고 나빠지는&quot; 걸 잡는 지표" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="1060" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="m1" value="발행 성공률&#10;(알람 &lt; 99%)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="400" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="m2" value="★ 폴백률 (&gt; 5% 알람)&#10;검증 그물 덕에 나쁜 응답이 사용자에게&#10;안 가는 대신, 나빠진 사실은 여기에만 보인다" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="270" y="400" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="m3" value="게이트 미발행률&#10;(급변 = 수집 장애 신호)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="590" y="400" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="m4" value="p95 호출 지연 · 주간 비용&#10;(예산 80% 알람)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="830" y="400" width="250" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="m5" value="프롬프트도 코드다: 저장소에서 PR 리뷰 · weekly_review.prompt_version 기록 · 변경 전 지난주 실데이터로 dry-run 리허설.&#10;폴백률이 튀면 prompt_version으로 어느 변경부터인지 즉시 추적. 의미 품질(엉뚱함·비난조)은 지표로 못 잡음 — 고정 평가셋 + 주간 표본 검수." style="text;html=1;align=left;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="60" y="500" width="1020" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

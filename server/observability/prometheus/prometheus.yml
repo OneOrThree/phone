@@ -1,0 +1,67 @@
+# GROMO-546 dev 관측 — Prometheus 스크레이프 설정
+# dev 실시간성 위해 5초 그레인. app 은 내부 관리 포트 9091(GROMO-588)로 스크레이프.
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Spring Boot (micrometer) — 트래픽 RED + HikariCP(쿼리 부하 L1)
+  - job_name: gromo-back
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['data-api:9091']
+        labels: {service: data-api}
+
+  # 서비스별 관리 포트는 Docker 내부 네트워크에서만 수집한다.
+  - job_name: business-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['business-api:9091']
+        labels: {service: business-api}
+  - job_name: notification
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['notification:9091']
+        labels: {service: notification}
+  - job_name: realtime
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['realtime:9091']
+        labels: {service: realtime}
+  - job_name: business-redis
+    static_configs:
+      - targets: ['business-redis-exporter:9121']
+
+  # PostgreSQL (쿼리 부하 L2) — tps·캐시히트·커넥션·락
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: kafka
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
+  - job_name: kafka-jmx
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['kafka-jmx-exporter:9404']
+
+  # 호스트 리소스 — CPU·메모리·디스크
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # 컨테이너 리소스 (per-container CPU·mem)
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # Prometheus 자체
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

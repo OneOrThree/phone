@@ -1,0 +1,107 @@
+# GROMO-2285 검증 기록
+
+2026-10-13, GCP `oneorthree2` / `asia-northeast3-a` / `gromo-dev-app`에서 실행했다. 공개 진입점은 `https://oneorthree.dev.mooo.com`이며 Node v24.19.0을 사용했다. 로컬 앱·DB를 띄워 얻은 결과가 아니다. 공유 서비스의 재배포·재기동 및 전역 카탈로그 수정은 하지 않았다.
+
+## 최신 공유 dev 전체 실행
+
+게스트 구매 거절 계약으로 변경한 최종 코드에서 **15 PASS / 0 FAIL / 0 SKIP**, 같은 조건의 연속 2회 실행에서 내부·API 실행기 모두 exit 0을 확인했다.
+
+| TC | 결과(두 실행 모두) | 1회 ms | 2회 ms |
+|---|---|---|---|
+| 001 | PASS | 115 | 71 |
+| 002 | PASS | 301 | 112 |
+| 003 | PASS | 262 | 95 |
+| 004 | PASS | 188 | 185 |
+| 005 | PASS | 512 | 256 |
+| 006 | PASS | 161 | 168 |
+| 007 | PASS | 165 | 87 |
+| 008 | PASS | 196 | 352 |
+| 009 | PASS | 493 | 360 |
+| 010 | PASS | 228 | 157 |
+| 014 | PASS | 73000 | 73000 |
+| 015 | PASS | 199 | 159 |
+| 016 | PASS | 215 | 173 |
+| 017 | PASS | 674 | 1227 |
+| 018 | PASS | 2873 | 2562 |
+
+014: 실제 집중 62초, `B0=10000 → B1=10001 → B2=10000 → B3=10000`. 회관 비용은 현재 공유 dev 정책의 1을 사용했다. 구매는 `403 SOCIAL_LOGIN_REQUIRED`이며 지갑 version·개인 주문·인벤토리가 요청 전후 동일했다. 빈 카탈로그의 `smoke-guest-denied` ID로 회원 gate 우선 적용을 확인했다.
+
+별도의 GCP 격리 검증에서도 014가 exit 0이었다. `B0=10000 → B1=10001 → B2=9941 → B3=9941`이며 격리 DB의 회관 비용 60을 조회해 사용했다. 배포 이미지 ID는 Data `sha256:113056559fb0c356d620bcf824bc368f8259b23ef021ac01ee835ffd1ec69dc3`, Business `sha256:3b228e7aa10cb306b87c59b410753c7fdcccb8ff0b6f5c8e73a47260ccfa1dfa`였다. 격리 Business의 10초 read timeout·20초 deadline·curl 25초는 cold start 기능 검증용이므로 공유 dev의 시간 조건과 구분한다. 모든 격리 컨테이너·임시 DB·자격 파일이 정리되었고 공유 5개 서비스는 healthy였다.
+
+
+## 수정 전 공유 dev 실행 기록
+
+계약 수정 후 첫 전체 실행은 **14 PASS / 1 FAIL**이었다. 실패한 014는 DB 초기 준비에서 중단되어 적립·건설·구매·장착을 통과한 것으로 처리하지 않는다.
+
+| TC | 판정 | 검증 내용 |
+|---|---|---|
+| 001 | PASS | 공개 health 200·시간 제한 |
+| 002 | PASS | 게스트 발급 201·응답 계약 |
+| 003 | PASS | 계정 ID 동일 |
+| 004 | PASS | 섬 생성·조회 |
+| 005 | PASS | 홈 필수 조각·주민 목록 |
+| 006 | PASS | 집중 시작·current·종료·current null |
+| 007 | PASS | STOMP 연결·구독 후 집중 시작 |
+| 008 | PASS | 5개 컨테이너 running·healthy |
+| 009 | PASS | 가짜 기기 토큰 등록·기존 자격 갱신 |
+| 010 | PASS | 사용자·세션이 일치하는 active 집중 이벤트 |
+| 014 | FAIL | `구매 가능한 활성 개인 상품 없음`; 공유 DB 활성 개인 상품 수 0 |
+| 015 | PASS | 독립 도서관 fixture·UTC 스크린타임 7분 저장·통계 동일 |
+| 016 | PASS | 전용 주민·친구 관계 준비·실제 집중 상태 조회·관계와 소속 정리 |
+| 017 | PASS | 공유 Redis 임시 키 SET·GET·TTL·DEL |
+| 018 | PASS | business Redis 기존 ACL에서 SET·GET·실제 만료·재저장·DEL |
+
+그다음 재실행은 **12 PASS / 3 FAIL**이었다. 001~010·017·018은 모두 통과했고, Origin을 보내는 WebSocket Upgrade 101 검사도 통과했다. 같은 IP에서 테스트 계정을 반복 생성한 결과 016·014의 게스트 발급이 `429 RATE_LIMITED`로 거절되었고, 015의 독립 계정 준비도 실패했다. 레이트리밋을 해제하거나 Redis 제한 키를 삭제하지 않았다. 이 실패를 이전 PASS로 덮어쓰거나 최신 실행의 전체 통과로 보고하지 않는다.
+
+이후 사용자 선택에 따라 014는 게스트 구매 `403 SOCIAL_LOGIN_REQUIRED`·지갑/주문/소유 무변경을 기대값으로 변경했다. 회원 구매·장착 성공은 제외하며 회원 fixture 준비 코드는 제거했다. 빈 카탈로그에서는 문법상 유효한 fixture 상품 ID로 회원 gate를 검증하므로 활성 상품 요구도 제거했다. 중간 실행에서 게스트 발급 429로 선행 실패가 발생하는 경로도 확인했다. 선행 실패 시 선택한 TC를 누락하지 않고 SKIP로 기록하도록 보완했다. 위 실패는 변경 전의 역사적 결과이며 최종 전체 통과와 구분한다.
+
+## 실행기 회귀 검사
+
+- HTTP·Node native WebSocket mock 5개 시나리오 통과: 전체 성공, health 실패, 집중 이벤트 타임아웃 후 세션 정리, 통계 불일치, BASE_URL 기본 모드 9개 TC.
+- 내부 health·Redis 회귀 6개 통과: 실패 판정·임시 키 정리·자격 비노출.
+- 격리 환경 정리 회귀 3개 통과: opt-in 없으면 Docker 접근 금지, 컨테이너 생성 응답 실패 시 소유 자원 정리, 다른 소유자의 자원 보존.
+- Actions 결과 보고 6개·main 주기/배지/실제 무배포 Bash 판정 4개·배포 대기 9개 회귀 검사 통과. 변경 파일 경로 제외·누락 CI·실패·원본 CI attempt와 다른 배포 상태를 passing으로 판정하지 않음을 확인했다. 실제 main 자동 실행·위성 배포 상태 API 기록은 아직 실행하지 않았다.
+- SQL 준비 guard 검사 통과: 비정상 UUID·fixture 이름·모드·친구 준비 대상은 DB 접속 전에 거절.
+- Bash 구문 검사, ShellCheck error 단계, `git diff --check` 통과. 전체 스타일 경고가 없다는 의미는 아니다.
+- 현재 코드의 Data·Business·Realtime·Notification `bootJar` 빌드 통과. 이 로컬 빌드는 GCP에 배포하지 않았다.
+
+## 자동 실행 검증 범위
+
+사용자 변경 요청에 따라 매일 schedule·서비스별 CD 호출·부분 검사 옵션을 제거했다. main push당 한 번 필요한 CI·dev 배포를 기다린 뒤 전체 15개를 실행하고 README의 main 자동 결과 배지로 판정한다. 이 브랜치의 실제 main 자동 실행은 아직 하지 않았다. GCP 수동 연속 2회·실행기 회귀 검증과 별개이며 후속 요청으로 PR의 draft를 해제하고 리뷰를 진행한다.
+
+최신 Actionlint v1.7.12에서 새 main 주기·배포 완료 상태 기록·잠금 문법이 통과했다. 구버전 문법 정의가 아직 지원하지 않는 기존 concurrency.queue와 self-hosted dev 라벨 진단만 제외했다. 나머지 문법은 검사했다. 변경 전 146f5333 커밋의 GitHub PR CI 17개도 통과했다(Data API 전체 테스트 13분 30초 포함).
+
+
+## PR 리뷰 반영 검증
+
+Codex 첫 리뷰의 4개 항목을 반영했다. 공개 게스트 발급을 유지하면서 Actions 실행 사이에 마지막 생성 요청부터 3,601초를 대기한다. 타임스탬프를 자식 실행기까지 공유하며 서버 카운터·기기 ID를 변경하지 않는다. 로컬 직접 실행이나 별도 사용자 트래픽은 이 예산 관리 대상이 아니다.
+
+배포 대기는 자체 경로 필터 재현을 제거하고 실제 main push run을 등록 관찰 후 기다리며, 180분 제한을 적용한다. 기기 등록 ownershipToken은 정규 UUID를 요구한다. 자동 실행은 배포 대기가 skipped이면 통과하지 않으며, 자격 파일은 runner.temp에서 관리한다.
+
+- Python 회귀 37개 PASS: 보고 7·워크플로 4·배포 대기 12·생성 제한 창 5·내부 6·격리 정리 3.
+- HTTP/native WebSocket mock 8개: 기존 5개와 잘못된 UUID·빈 값·축약 UUID 거절 3개.
+- 시간은 테스트 시계로 진행했다. 실제 1시간을 기다리거나 GCP에 새 앱 이미지를 배포한 검증은 아니다. 기존 공유 GCP 전체 15개 연속 통과 기록은 위와 같다.
+
+## Catus prod 추가 실행 — 2026-10-14
+
+사용자의 운영 스모크 요청으로 `https://catus-api.oneorthree.world`에서 공개 기본 검사 9개와 내부 검사 3개를 수행해 **12 PASS / 0 FAIL**을 확인했다. 전용 신규 게스트를 사용했고 진행 중 집중은 종료했다. 테스트 게스트·섬·기기 등록은 남아 있으며 DB 초기화 범위를 별도로 확인 중이다. 실제 FCM 발송·Link 기능·DB fixture가 필요한 014/015/016은 이번 실행에 포함하지 않았다.
+
+- 공개: 001 health, 002 게스트 발급, 003 계정 동일성, 004 섬 확보, 005 홈 조각, 006 집중 저장·종료, 007 STOMP 연결/구독, 009 가짜 기기 토큰 등록, 010 집중 이벤트 사용자·세션 일치 — 모두 PASS.
+- 내부: 008 서비스 5개 running/healthy, 017 공유 Redis SET/GET/TTL/DEL, 018 Business Redis SET/GET/만료/DEL — 모두 PASS. prod Data ACL에 맞춰 별도 실행 사본의 임시 키를 `presence:smoke:<UUID>`로 지정했으며 실제 ACL을 변경하거나 Redis를 FLUSH하지 않았다.
+- 최초 공개 health는 HTTP 200이지만 2244ms로 기존 2000ms 기준을 초과했다. 동일 기준 재실행의 최종 health는 1174ms로 PASS이며 시간 기준을 완화하지 않았다.
+- 최초 curl WebSocket Upgrade는 Cloudflare의 HTTP/2 협상에서 400이었다. HTTP/1.1 요청의 101 응답을 비교 확인하고 실행기에 `--http1.1`을 추가했다. 수정 후 실제 STOMP 연결과 집중 이벤트가 통과했다. 실행기 성공·실패·정리·비밀 비노출 회귀 검사 8개도 통과했다. Java 변경은 없다.
+- 추가 배포/롤백은 같은 앱 digest·스키마 지문·Secret 버전의 별도 검증용 릴리스를 SSM `deploy`로 등록한 뒤 원래 릴리스로 SSM `rollback`했다. 원래 release ID·이미지·Infra SHA·schema fingerprint·Secret 버전 복구와 health 200을 확인했다. 이미지가 동일해 앱 재기동은 없으며 다른 버전 간의 동작 복구나 자동 실패 복구까지 검증한 것은 아니다. GitHub OIDC·승인 CD는 PR 반영과 release 승격 후 별도 검증한다.
+
+
+## 로그인 재시도 로컬 검증 — 2026-10-28
+
+[작업 티켓](https://romance.atlassian.net/browse/GROMO-2543) · [AS IS / TO BE](login-retry.md) · [실행·판정](README.md#로그인이-늦을-때)
+
+- 변경 전 실제 `run.sh` + localhost mock에서 첫 `UPSTREAM_TIMEOUT`에 TC002 FAIL·후속 SKIP를 재현했다.
+- 변경 후 같은 mock에서 매번 5초 대기하는 로그인 재시도로 기본 공개 9개 TC가 통과했다. TC002의 `attempts=2`, `retries=1`도 확인했다.
+- Python 회귀 75개 PASS: `smoke/server/tests` 29개, `.github/scripts/test_*smoke*.py` 46개. 가상 시계·실제 curl timeout/응답 유실·같은 기기 유지·부모/자식 요청 예산·미시작 로그인 몫·SIGTERM·결과 보고를 포함한다.
+- PR 리뷰 후 실제 curl에서 429 헤더 뒤 본문 지연이 발생해도 재시도하지 않음을 확인했다. 요청 횟수 기록은 별도 잠금과 원자적 교체로 저장하며, 쓰기 중단 시 기존 횟수를 보존하고 이미 비어 있는 기록은 거부한다.
+- HTTP/native WebSocket mock 9개 시나리오 및 friendship·seed 사전 접속 guard가 통과했다.
+- 모든 smoke 셸의 `bash -n`, 변경 Python·YAML 파싱, 수정 문서의 상대 링크와 `git diff --check`가 통과했다.
+
+위 결과는 로컬 mock·회귀 검사다. 같은 기기 요청의 실서버 userId 복구 계약을 새로 검증한 결과나 실제 dev 전체 15개 PASS, GitHub Actions 성공으로 취급하지 않는다. dev/prod API·DB·배포 설정은 변경하거나 호출하지 않았다. 커밋·PR·실제 환경 적용은 이 기록과 별개다.

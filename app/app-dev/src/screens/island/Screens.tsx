@@ -1,0 +1,4740 @@
+import * as Application from 'expo-application';
+import appManifest from '../../../package.json';
+import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
+import { GuideBox } from '@/screens/island/NpcGuide';
+import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
+import { HomeChatLog, type HomeChatLine } from '@/screens/island/HomeChatLog';
+import { magazineUnread } from '@/screens/magazine/useMagazineToday';
+import { ServerVisit } from '@/screens/island/ServerVisit';
+import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
+import { islandErrorMessage } from '@/services/islandErrors';
+import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
+import { LoginScreen } from '@/screens/LoginScreen';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import {
+  beginWithdrawal,
+  confirmWithdrawal,
+  finishWithdrawalCleanup,
+  type WithdrawalIntent,
+} from '@/services/withdrawalIntent';
+import { clearStudyWidget } from '@/services/studyWidget';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  AppState,
+  View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Platform,
+  Animated,
+  Easing,
+  Keyboard,
+  BackHandler,
+  Linking,
+} from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  State,
+  Friend,
+  Color,
+  displayIsland as currentIsland,
+  mainIsland,
+  serverHome,
+  isHost,
+  canBuy,
+  products,
+  costs,
+  colors,
+  colorName,
+  residentCount,
+  capacityOf,
+  isFull,
+  islandWeeklyAverage,
+  hoursMinutes,
+  CAPACITY_MIN,
+  CAPACITY_MAX,
+  findIslandByInviteCode,
+  balance,
+  kstMonthDay,
+  kstHourMinute,
+  trackNames,
+} from '@/services/model';
+import { useAppLayout } from '@/utils/layout';
+import { semanticTokens } from '@/design-system/tokens';
+import { ApiError, uuid } from '@/services/api/client';
+import {
+  applyLocalePref,
+  errorText,
+  getLocale,
+  isDeviceLocaleSupported,
+  LOCALE_KEY,
+  LOCALE_NAMES,
+  resolveLocale,
+  t,
+  type LocalePref,
+} from '@/i18n';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
+import { stripNicknameWhitespace } from '@/utils/nickname';
+import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
+import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
+import type { RequestStatusEntry } from '@/services/model';
+import { FinalIsland } from '@/screens/island/WorldMap';
+import { assets, cat } from '@/constants/assets';
+import { seaLoaf, telescopeSea } from '@/screens/sea/seaAssets';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
+import {
+  appearanceOutfit,
+  CatOutfitLayers,
+  OutfitItemArt,
+  outfitOf,
+  type Outfit,
+} from '@/components/CatOutfitLayers';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
+import { markOutfitSeen, useUnseenOutfits } from '@/services/unseenOutfits';
+import { useScreenInsets } from '@/design-system/primitives';
+import { screenTime } from '@/services/screenTime';
+import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
+import { componentTokens } from '@/design-system/tokens';
+import {
+  C,
+  k,
+  Txt,
+  Pic,
+  Btn,
+  Group,
+  Row,
+  Chips,
+  Field,
+  Toggle,
+  Badge,
+  Strip,
+  Page,
+  Wheel,
+  EmptyState,
+  NavBtn,
+} from '@/design-system/patterns';
+import {
+  IslandSheet,
+  st,
+  sheetInput,
+  SheetRow,
+  SheetGroup,
+  SheetChev,
+  RowIcon,
+  Avatar,
+  Preview,
+  IslandThumb,
+  Cta,
+  SearchField,
+} from '@/screens/island/IslandSheet';
+import { useIslandRankings } from '@/screens/island/useIslandRankings';
+import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
+import { useTelescopePin } from '@/screens/island/useTelescopePin';
+import { useShop } from '@/screens/island/useShop';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import {
+  acceptFriendRequest,
+  cancelFriendRequest,
+  deleteFriend,
+  friendErrorKind,
+  rejectFriendRequest,
+  sendFriendRequest,
+} from '@/services/api/friends';
+import { openFeedbackMail, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { PolicyLinks } from '@/components/PolicyLink';
+import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
+// 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
+const shopUiKind = (kind: string) =>
+  kind === 'island_theme'
+    ? 'island'
+    : kind === 'building_theme'
+      ? 'building'
+      : kind === 'audio'
+        ? 'audio'
+        : 'clothes';
+const shopCard = (p: any) => ({
+  ...p,
+  kind: shopUiKind(p.kind),
+  building: p.targetBuilding ?? p.building,
+});
+// 서버가 준 구매 불가 사유 → 화면 문구. 모르는 코드는 일반 문구로 접는다.
+const shopBlockReason = (p: { blockedReason?: string | null; reason?: string | null }) => {
+  const reason = p.blockedReason ?? p.reason;
+  if (reason === 'INSUFFICIENT_FUNDS') return '섬 물고기가 모자라요.';
+  if (reason === 'STATE_CONFLICT') return '아직 판매 준비 중이에요.';
+  if (reason === 'FACILITY_LOCKED') return '필요한 건물이 아직 없어요.';
+  if (reason === 'MEMBER_ONLY' || reason === 'FORBIDDEN') return '섬 주민만 살 수 있어요.';
+  return '지금은 구매할 수 없어요.';
+};
+const buildingArt: Record<string, string> = {
+  library: 'library',
+  gram: 'gramophone',
+  hall: 'hall',
+  board: 'notice-board',
+  tower: 'observatory',
+  mail: 'mailbox',
+  shop: 'shop',
+};
+// 전망대 순위 행의 «소속됨» 배지 — Badge 는 기본이 왼쪽 위 정렬(DESIGN §7.5)이라 행 안 세로 가운데에 둔다
+const rankJoinedBadge = { alignSelf: 'center' } as const;
+// 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
+const md = kstMonthDay;
+const hm = kstHourMinute;
+function Thumb({ h = 220, warm = false }: any) {
+  return (
+    <View style={[k.preview, { height: h }]}>
+      <Pic id={warm ? 'island/whole/warm' : 'island/whole'} w="100%" h="100%" cover />
+    </View>
+  );
+}
+function IslandCircle({ size }: { size: number }) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 2,
+        borderColor: C.brown,
+        overflow: 'hidden',
+        backgroundColor: C.sky,
+      }}
+    >
+      <Pic id="island/whole" w="100%" h="100%" cover />
+    </View>
+  );
+}
+function MainIslandRadio({ selected }: { selected: boolean }) {
+  return (
+    <View
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: C.brown,
+        backgroundColor: C.paper,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {selected && (
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.pink }} />
+      )}
+    </View>
+  );
+}
+function Boat({ state, h = 260 }: any) {
+  return (
+    <View style={[k.preview, { height: h }]}>
+      <Pic id="boat/raft" w={h * 0.86} />
+      <Pic
+        id={'cat/' + state.color}
+        w={h * 0.42}
+        style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
+      />
+      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림(idle.png)과 같은 상자 */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: h * 0.36,
+          top: h * 0.12,
+          width: h * 0.42,
+          height: h * 0.42,
+        }}
+      >
+        <CatOutfitLayers
+          outfit={outfitOf(state)}
+          pose={{ color: state.color, still: 'idle', size: h * 0.42 }}
+        />
+      </View>
+    </View>
+  );
+}
+/**
+ * 뗏목 합성 그림(440×317)을 미리보기 안쪽 상자(폭·높이)의 92%×86% 에 contain 으로 넣었을 때의 실제 그림 크기 — 넓은 폰에서는
+ * 높이가 먼저 차서 그림 폭이 92% 보다 좁다. 꾸미기 오버레이도 이 상자에 맞춘다(GROMO-2382).
+ */
+export const raftArtSize = (width: number, height: number) => {
+  const w = Math.min(width * 0.92, (height * 0.86 * 440) / 317);
+  return { width: w, height: (w * 317) / 440 };
+};
+/** 검정 고양이 뗏목 합성 그림과 그 위 꾸미기를 실제 그림 상자 하나에 겹친다 — 부모(Preview) 안쪽을 재서 맞춘다. */
+function BlackRaftCat({ id, outfit }: { id: string; outfit: Outfit }) {
+  const [art, setArt] = useState<{ width: number; height: number } | null>(null);
+  return (
+    <View
+      testID="raft-cat-frame"
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}
+      onLayout={(e) => setArt(raftArtSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height))}
+    >
+      {art && (
+        <View testID="raft-cat-art" style={art}>
+          <Pic id={id} w="100%" h="100%" />
+          {/* 합성 그림 안 고양이(idle) 상자 = 왼쪽 25.0%·위 9.1%·폭 43.0% — 그림 실측(GROMO-2382) */}
+          <View
+            style={{
+              position: 'absolute',
+              left: '25.0%',
+              top: '9.1%',
+              width: '43.0%',
+              aspectRatio: 1,
+            }}
+          >
+            <CatOutfitLayers outfit={outfit} pose={{ color: 'black', still: 'idle' }} />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+// mini = 내 정보의 한 줄 3칸 정사각(그림이 칸을 채우고 이름 글자는 읽는 이름으로만, GROMO-2473), six = 가로 온보딩의 6칸 한 줄.
+// v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
+function AvatarGrid({ value, onChange, mini = false, six = false, disabled = false }: any) {
+  const per = six ? 6 : 3,
+    gap = mini ? 12 : six ? 8 : 10,
+    size = six ? 12 : 13,
+    [width, setWidth] = useState(0);
+  // 가로 6칸은 칸이 좁아지면(작은 가로 폰) 그림을 칸 안쪽 폭(여백 2·테두리 2)에 맞춰 줄이고, 3칸 정사각은 칸 폭(테두리 2) 그대로다
+  const avatarSize = mini
+    ? width
+      ? (width - gap * 2) / 3 - 4
+      : 96
+    : six
+      ? width
+        ? Math.min(54, (width - gap * 5) / 6 - 8)
+        : 54
+      : 64;
+  return (
+    <View
+      style={{ gap }}
+      onLayout={mini || six ? (ev) => setWidth(ev.nativeEvent.layout.width) : undefined}
+    >
+      {[colors.slice(0, per), colors.slice(per)]
+        .filter((line) => line.length)
+        .map((line, r) => (
+          <View key={r} style={{ flexDirection: 'row', gap }}>
+            {line.map((c) => {
+              const on = c === value;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={colorName(colors.indexOf(c))}
+                  accessibilityState={{ selected: on }}
+                  disabled={disabled}
+                  key={c}
+                  onPress={() => onChange(c)}
+                  style={{
+                    flex: 1,
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingTop: mini ? 0 : six ? 6 : 10,
+                    paddingBottom: mini ? 0 : six ? 6 : 8,
+                    paddingHorizontal: mini ? 0 : six ? 2 : 6,
+                    borderRadius: 18,
+                    borderWidth: 2,
+                    borderColor: on ? C.brown : 'transparent',
+                    backgroundColor: on ? C.soft : C.paper,
+                    boxShadow: on ? '0px 3px 0px ' + C.brown : 'none',
+                  }}
+                >
+                  <Pic
+                    id={'avatar/' + c}
+                    w={avatarSize}
+                    style={{ borderRadius: 16, backgroundColor: C.sky }}
+                  />
+                  {!mini && (
+                    <Txt
+                      style={{
+                        fontSize: size,
+                        lineHeight: size * 1.45,
+                        fontWeight: on ? '700' : '600',
+                        color: on ? C.ink : C.muted,
+                      }}
+                    >
+                      {colorName(colors.indexOf(c))}
+                    </Txt>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+    </View>
+  );
+}
+// v2 온보딩 글자 단계(시안 .h22 · .h17 · .meta · .sec · .row .rs · .inp). 글자 간격 -0.15px는 Txt 기본 스타일에 있다(입력칸만 따로)
+const H22 = { fontSize: 22, lineHeight: 28.6, fontWeight: '800', letterSpacing: -0.44 } as const;
+const H17 = { fontSize: 17, lineHeight: 22.95, fontWeight: '700' } as const;
+const META = { lineHeight: 18.2 } as const;
+const RS = { lineHeight: 17.55 } as const;
+const SEC = {
+  fontSize: 13,
+  lineHeight: 18.85,
+  fontWeight: '700',
+  color: C.muted,
+  letterSpacing: 0.26,
+} as const;
+// 한 줄 입력칸 줄 높이는 웹에서만(iOS 한 줄 TextInput은 lineHeight를 주면 글자가 아래로 밀린다). 여러 줄은 모든 플랫폼
+const INP: any = { letterSpacing: -0.15, ...(Platform.OS === 'web' ? { lineHeight: 23.2 } : null) };
+const INP_TA = { lineHeight: 23.2, letterSpacing: -0.15 } as const;
+// CSS 그라데이션: 웹은 background-image, 네이티브는 experimental_backgroundImage
+const gradient = (css: string): any =>
+  Platform.OS === 'web' ? { backgroundImage: css } : { experimental_backgroundImage: css };
+// 드럼 위아래 흐림(시안 .wheel:before/:after). 드럼을 감싼 칸 안에 겹친다
+function WheelFade({ h }: { h: number }) {
+  return (
+    <>
+      {[0, 1].map((n) => (
+        <View
+          key={n}
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              left: 2,
+              right: 2,
+              height: h,
+              borderRadius: 12,
+              ...(n ? { bottom: 2 } : { top: 2 }),
+            },
+            gradient(`linear-gradient(${n ? '#FFFDFA00,#FFFDFA' : '#FFFDFA,#FFFDFA00'})`),
+          ]}
+        />
+      ))}
+    </>
+  );
+}
+// 가입 신청 대기 표시(시안 .spinner). 움직임 줄이기면 멈춘다
+function Spinner({ reduce }: { reduce: boolean }) {
+  const turn = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reduce) return;
+    const loop = Animated.loop(
+      Animated.timing(turn, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [reduce, turn]);
+  return (
+    <Animated.View
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: 3,
+        borderColor: '#EADFD2',
+        borderTopColor: C.brown,
+        transform: [
+          { rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+        ],
+      }}
+    />
+  );
+}
+// v2 온보딩 페이지: 헤더(.hdr) · 스크롤(.scroll) · 아래 고정 CTA(.ctabar, 그라데이션으로 스크롤 위에 겹침).
+// 가로 폰은 왼쪽 330px 그림 칸(.lsplit .lleft) + 오른쪽 페이지(다이내믹 아일랜드 자리 56px 비움).
+// 작은 가로 폰(667 폭 등)은 그림 칸을 폭의 38%로 줄이고 오른쪽 여백은 20px(안전 영역이 더 크면 그만큼)
+function Onboard({
+  title,
+  back,
+  left,
+  leftBg = C.sky,
+  cta,
+  hideCtaOnKeyboard = false,
+  children,
+}: any) {
+  const layout = useAppLayout(),
+    ins = useScreenInsets(),
+    land = layout.compact,
+    gutter = land ? 22 : 20,
+    [ctaHeight, setCtaHeight] = useState(0),
+    [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    if (!hideCtaOnKeyboard) return;
+    // 키보드 애니메이션이 끝나기 전에 CTA를 제거해 첫 포커스 탭과 입력 칸을 가리지 않는다.
+    const show = Keyboard.addListener('keyboardWillShow', () => setKeyboardVisible(true));
+    const didShow =
+      Platform.OS === 'ios'
+        ? undefined
+        : Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      didShow?.remove();
+      hide.remove();
+    };
+  }, [hideCtaOnKeyboard]);
+  const page = (
+    <View
+      style={{
+        flex: 1,
+        marginRight: land ? Math.max(ins.right + 4, layout.width >= 800 ? 56 : 20) : 0,
+        width: land ? undefined : layout.contentWidth,
+        alignSelf: land ? 'stretch' : 'center',
+      }}
+    >
+      <View
+        style={{
+          marginTop: land ? 0 : ins.top,
+          height: land ? 48 : 52,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          paddingLeft: 8,
+          paddingRight: 12,
+        }}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('onboarding.back')}
+          onPress={back}
+          style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Svg width={22} height={22} viewBox="0 0 24 24">
+            <Path
+              d="M15 5l-7 7 7 7"
+              stroke={C.ink}
+              strokeWidth={2.4}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </Pressable>
+        <Txt
+          numberOfLines={1}
+          style={{ flex: 1, fontSize: 20, lineHeight: 29, fontWeight: '800', letterSpacing: -0.4 }}
+        >
+          {title}
+        </Txt>
+      </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={hideCtaOnKeyboard}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: gutter,
+          paddingTop: land ? 6 : 16,
+          paddingBottom:
+            cta && !(hideCtaOnKeyboard && keyboardVisible)
+              ? Math.max(land ? 92 : 120, ctaHeight)
+              : land
+                ? 28
+                : 48,
+          gap: land ? 12 : 14,
+        }}
+      >
+        {children}
+      </ScrollView>
+      {cta && !(hideCtaOnKeyboard && keyboardVisible) && (
+        <View
+          onLayout={(ev) => setCtaHeight(ev.nativeEvent.layout.height)}
+          style={[
+            {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              paddingHorizontal: gutter,
+              paddingTop: land ? 8 : 14,
+              paddingBottom: land ? Math.max(22, ins.bottom + 1) : ins.bottom + 12,
+              gap: 8,
+            },
+            gradient('linear-gradient(#FFF7EB00,#FFF7EB 32%)'),
+          ]}
+        >
+          {cta}
+        </View>
+      )}
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, flexDirection: land ? 'row' : 'column', backgroundColor: C.cream }}>
+      {land && (
+        <View
+          style={{
+            width: Math.min(330, layout.width * 0.38),
+            borderRightWidth: 2,
+            borderColor: C.brown,
+            backgroundColor: leftBg,
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          {left}
+        </View>
+      )}
+      {page}
+    </View>
+  );
+}
+// v2 목업(build-redesign-gallery.py ICON)의 선 아이콘. 연필·보내기·체크는 24칸, 나머지는 32칸
+const ICON: Record<string, string> = {
+  hammer: 'M6 3L17 3L22 8L18 12L15 9L4 24L8 28L19 14L23 18L29 12L23 6',
+  clock: 'M16 3a13 13 0 1 0 0 26a13 13 0 1 0 0-26ZM16 8V16L22 20',
+  crown: 'M3 9L10 16L16 4L22 16L29 9L25 27H7Z',
+  medal: 'M8 2L16 11L24 2M16 10a10 10 0 1 0 0 20a10 10 0 1 0 0-20Z',
+  person: 'M16 16a6 6 0 1 0 0-12a6 6 0 1 0 0 12ZM5 29Q5 20 16 20Q27 20 27 29',
+  group:
+    'M12 15a5 5 0 1 0 0-10a5 5 0 1 0 0 10ZM3 28Q3 19 12 19Q21 19 21 28M23 5a5 5 0 0 1 0 10M24 20Q30 21 30 28',
+  phone: 'M9 3h14v26H9zM13 25h6',
+  pencil: 'M4 20h4l10-10-4-4L4 16zM13 7l4 4',
+  send: 'M5 12h13M12 5l7 7-7 7',
+  check: 'M5 12l5 5 9-10',
+};
+function Icon({ name, size = 22, color = C.ink, stroke = 2.2, fill = 'none' }: any) {
+  const box = ['pencil', 'send', 'check'].includes(name) ? 24 : 32;
+  return (
+    <Svg width={size} height={size} viewBox={`0 0 ${box} ${box}`}>
+      <Path
+        d={ICON[name]}
+        stroke={color}
+        strokeWidth={stroke}
+        fill={fill}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+// 재생·일시정지(채운 도형)
+function PlayIcon({ pause = false, size = 18 }: any) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d={pause ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z'} fill={C.ink} />
+    </Svg>
+  );
+}
+// 분홍 원 체크(퀘스트 달성·선택한 카드·착용 중)
+function CheckDot({ size = 22 }: any) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 2,
+        borderColor: C.brown,
+        backgroundColor: C.pink,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Icon name="check" size={size * 0.55} stroke={3} />
+    </View>
+  );
+}
+// 폴더형 아이콘 타일 탭(ftabs). items = [[글자, 아이콘], ...]
+function FTabs({ items, value, onChange }: any) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 10 }}>
+      {items.map(([label, icon]: string[]) => {
+        const on = label === value;
+        return (
+          <Pressable
+            key={label}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: on }}
+            onPress={() => onChange(label)}
+            style={{
+              flex: 1,
+              height: 54,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 16,
+              backgroundColor: on ? C.pink : C.paper,
+              boxShadow: on ? '0px 4px 0px ' + C.brown : 'none',
+            }}
+          >
+            <Icon name={icon} color={on ? C.ink : C.muted} />
+            <Txt
+              style={{
+                fontSize: 15,
+                fontWeight: on ? '800' : '700',
+                color: on ? C.ink : C.muted,
+              }}
+            >
+              {label}
+            </Txt>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+// 겹친 아바타(avstack): 34px, 8px씩 겹침
+function AvStack({ list }: { list: string[] }) {
+  return (
+    <View style={{ flexDirection: 'row' }}>
+      {list.map((c, i) => (
+        <Pic
+          key={i}
+          id={'avatar/' + c}
+          w={34}
+          style={{
+            marginLeft: i ? -8 : 0,
+            borderRadius: 10,
+            borderWidth: 1.5,
+            borderColor: C.brown,
+            backgroundColor: C.sky,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+// 언어 화면 pick() 의 겹침 탭 가드 — route 분기 안이라 useRef 를 못 써(조건부 훅 금지) 모듈 플래그로 둔다.
+let pickingLocale = false;
+export function RedesignScreens({ e }: any) {
+  const layout = useAppLayout();
+  const state: State = e.state,
+    island = currentIsland(state),
+    route: string = e.route,
+    ins = useScreenInsets();
+  const {
+    dispatch,
+    go,
+    replace,
+    reset,
+    home,
+    back,
+    notify,
+    confirm,
+    build,
+    text,
+    setText,
+    body,
+    setBody,
+    tab,
+    setTab,
+    detail,
+    now,
+    terms,
+    setTerms,
+    approval,
+    setApproval,
+    visited,
+    setVisited,
+    guideStep,
+    setGuideStep,
+    player,
+    previewAudio,
+    setPreviewAudio,
+    walkTo,
+  } = e;
+  const [search, setSearch] = useState(''),
+    // 새 섬 만들기 정원 선택값. 숫자로 두고 휠 라벨은 렌더 시점에 로케일대로 만든다
+    [capacityPick, setCapacityPick] = useState(15),
+    [profileName, setProfileName] = useState(state.name),
+    [profileNameError, setProfileNameError] = useState(''),
+    [profileColor, setProfileColor] = useState<Color>(state.color),
+    [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
+    // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
+    [hallGuideOpen, setHallGuideOpen] = useState(false),
+    // 홈 펠리컨 잡지 안내창이 떠 있는 동안 — 왼쪽 아래 채팅 줄이 비킨다(GROMO-2501)
+    [magazinePrompt, setMagazinePrompt] = useState(false),
+    [discoveryIndex] = useState(() => Math.floor(Math.random() * 10)),
+    // 섬 찾기에서 ‹ ›·가입 신청으로 고른 섬 id
+    [discoveryPick, setDiscoveryPick] = useState<string | null>(null),
+    // ── 서버 온보딩(GROMO-2006). e.islands 가 있으면 실제 API 모드다 ──
+    [serverBusy, setServerBusy] = useState(false),
+    [serverError, setServerError] = useState(''),
+    [soundDialog, setSoundDialog] = useState<{
+      kind: 'confirm' | 'success' | 'error';
+      productId: string;
+      product: any;
+    } | null>(null),
+    // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
+    [serverDone, setServerDone] = useState(''),
+    [safetyTarget, setSafetyTarget] = useState<{
+      id: string;
+      name: string;
+      onDelete?: () => void;
+    } | null>(null),
+    // 서버 탈퇴(또는 로컬 탈퇴)는 끝났는데 기기의 로컬 데이터 소유자 정리를 확정하지 못한 상태.
+    // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
+    [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
+  const profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    profileErrorScope = useRef<object>({}),
+    serverWriting = useRef(false),
+    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
+    routeNowRef = useRef(route),
+    // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 요청 전에 기기에도 남겨(beginWithdrawal)
+    // 앱이 종료돼도 부팅이 로컬 정리를 이어 간다. 세션이 먼저 정리돼도 정리 대상 계정을 잃지 않는다.
+    withdrawIntent = useRef<WithdrawalIntent | null>(null);
+  routeNowRef.current = route;
+  const currentMainIslandId = mainIsland(state)?.id ?? '';
+  useEffect(() => {
+    setSearch('');
+    setCapacityPick(15);
+    setHallGuideOpen(false);
+    setDiscoveryPick(null);
+    setServerError('');
+    setSoundDialog(null);
+    setServerDone('');
+    setSafetyTarget(null);
+  }, [route]);
+  // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
+  // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
+  const server = e.islands;
+  const serverErrorText = (thrown: unknown) => {
+    if (!(thrown instanceof ApiError) || getLocale() !== 'ko') return errorText(thrown);
+    const code = thrown.code;
+    if (
+      [
+        'SESSION_IN_PROGRESS',
+        'OBSERVATORY_LOCKED',
+        'FACILITY_LOCKED',
+        'MEMBER_ONLY',
+        'GROUP_NOT_FOUND',
+        'GROUP_FULL',
+        'GROUP_LIMIT_EXCEEDED',
+      ].includes(code)
+    )
+      return islandErrorMessage(thrown, 'tower');
+    return errorText(thrown);
+  };
+  const run = (fn: () => Promise<unknown>, fail: (m: string) => void = setServerError) => {
+    if (serverWriting.current) return;
+    serverWriting.current = true;
+    setServerBusy(true);
+    fail('');
+    Promise.resolve()
+      .then(fn)
+      .catch((thrown) => {
+        const m = serverErrorText(thrown);
+        if (m) fail(m);
+      })
+      .finally(() => {
+        serverWriting.current = false;
+        setServerBusy(false);
+      });
+  };
+  /**
+   * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
+   * 탈퇴 완료(로그인 화면)로 넘어간다. 확정하지 못하면 이전 사용자의 데이터가 다음 로그인에 남으므로
+   * 화면에 머물러 재시도 버튼을 띄운다 — 서버 계정은 이미 삭제됐으니 탈퇴 API 는 다시 부르지 않는다.
+   * 1.x(Android 같은 패키지)가 남긴 이 계정의 로컬 버킷·누끼 파일도 같은 규칙으로 먼저 지운다.
+   * 세션은 아래 signOut 전까지 남아 있으므로 재시도에서도 같은 userId 를 읽는다.
+   */
+  const finishWithdrawal = async () => {
+    try {
+      await finishWithdrawalCleanup(withdrawIntent.current?.userId || getSession()?.userId || null);
+    } catch {
+      setWithdrawCleanupPending(true);
+      notify('기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.');
+      return;
+    }
+    setWithdrawCleanupPending(false);
+    withdrawIntent.current = null;
+    // 안드로이드 홈 위젯을 비운다 — 탈퇴한 계정의 공부시간이 런처에 남지 않게. signOut 도 비우지만
+    // 그 준비가 실패하면(false) 거기까지 가지 않고, 서버 없는 모드는 signOut 을 부르지 않는다.
+    // best-effort 라 기다리지 않는다(실패는 래퍼가 삼킨다).
+    void clearStudyWidget();
+    await screenTime.resetScreenTimeData().catch(() => {});
+    // signOut 의 false(로그아웃 tombstone 기록 실패)는 의도적으로 무시한다. 서버 계정은 이미 삭제됐고
+    // 로컬 데이터 소유자도 위에서 지웠으므로 화면은 탈퇴 완료로 넘긴다. 이 경우 토큰이 기기에 남지만
+    // 삭제된 계정의 세션이라, 다음 요청·다음 부팅의 checkSession 이 401/USER_NOT_FOUND 를 받아
+    // clearRejectedSession 으로 정리한다(auth.checkSession·client 401 처리).
+    if (server) await e.signOut();
+    act('DELETE_ACCOUNT');
+    reset('login');
+  };
+  // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
+  const snap = state.serverIslands;
+  // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
+  const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
+  // 전망대에서 섬을 망원경에 넣는 확인창·요청(GROMO-2269) — 랭킹 행이 쓴다. 섬 이름 검색(explore)은 자기 인스턴스를 쓴다.
+  const telescopePin = useTelescopePin(e);
+  // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
+  // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
+  const shopApi = useShop({
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
+    islandId: snap?.currentIslandId ?? null,
+    route,
+    category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
+    orderScope: tab === '섬 공동 구매' ? 'shared' : 'personal',
+    productId: route === 'product' ? detail : null,
+    dispatch,
+  });
+  // 서버 상품은 owned 가 응답에 실린다 — 목업 경로만 로컬 보유 목록을 본다.
+  const owned = (p: any) =>
+    server && p.owned !== undefined
+      ? !!p.owned
+      : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
+  const catalog = useCustomizationCatalog();
+  // 결과창에서 처음 받은 꾸미기 — 옷장 칸에 NEW!, 한 번 누르면 사라진다(GROMO-2382)
+  const unseenOutfits = useUnseenOutfits();
+  const productTitle = (id: string) =>
+    server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
+  // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
+  const friendsScreen = e.friendsScreen as FriendsScreenState;
+  // 친구 명령의 공통 실패 처리 — 게이트는 회원 전환 시트로, 이미 처리·중복은 재조회로 닫는다
+  const friendFail = (thrown: unknown) => {
+    if (e.conversion?.offer(thrown)) return;
+    const kind = friendErrorKind(thrown);
+    if (kind === 'duplicate') notify('이미 친구이거나 보낸 요청이 있어요.');
+    else if (kind === 'already-handled') notify('이미 처리된 요청이에요. 목록을 새로고침했어요.');
+    else if (kind === 'privacy') notify('이 작업을 할 수 있는 상대가 아니에요.');
+    else if (kind === 'network') notify('네트워크를 확인한 뒤 다시 시도해 주세요.');
+    else
+      notify(thrown instanceof ApiError && thrown.message ? thrown.message : '다시 시도해 주세요.');
+    if (kind === 'duplicate' || kind === 'already-handled') friendsScreen.refresh();
+  };
+  // 성공(2xx) 확인 뒤에만 목록이 바뀐다 — optimistic 성공 없이 command 가 재조회를 건다
+  const friendCmd = (fn: () => Promise<unknown>) => {
+    friendsScreen.command(fn).catch(friendFail);
+  };
+  // 신청 목록에 단건 상태 조회 결과를 얹은 유효 목록 — requestStatus가 최신 상태다.
+  // 단건 결과엔 표시 필드가 없으므로 목록에 없는 신청은 상태만 안다.
+  const reqList = [
+    ...(snap?.joinRequests ?? []),
+    ...(snap?.requestStatus ?? []).filter(
+      (r) => !(snap?.joinRequests ?? []).some((x) => x.id === r.id),
+    ),
+  ].map((r): RequestStatusEntry & { islandName?: string | null } => ({
+    ...r,
+    status: snap?.requestStatus?.find((x) => x.id === r.id)?.status ?? r.status,
+  }));
+  // approval 경로에서 기다릴 pending 신청 — detail이 있으면 그 섬의 pending만(다른 섬의
+  // 신청이 이 화면을 가로채지 않는다), detail이 없을 때만 첫 pending
+  const pendingReq = () =>
+    detail
+      ? reqList.find((r) => r.status === 'pending' && r.islandId === detail)
+      : reqList.find((r) => r.status === 'pending');
+  // 승인은 소속만 만든다. 입장 버튼을 눌렀을 때 별도 현재 섬 변경을 확정한다.
+  const enterHome = (islandId = snap?.currentIslandId) =>
+    islandId ? (
+      <Btn
+        id="enter-home"
+        title={t('onboarding.enterHome')}
+        style={{ marginTop: 6 }}
+        disabled={serverBusy}
+        onPress={() =>
+          run(async () => {
+            const gen = sessionGeneration();
+            if (islandId !== snap?.currentIslandId) await server.switchCurrent(islandId);
+            if (routeNowRef.current !== route || gen !== sessionGeneration()) return;
+            reset(
+              state.tutorialEnrollment === 'awaiting-first-island' ||
+                (state.tutorial && state.tutorial.step <= 3)
+                ? 'guide'
+                : 'home',
+            );
+          })
+        }
+      />
+    ) : null;
+  // 서버 소속 확인 카드 — 최초 소속은 몽돌 안내, 기존 소속은 홈으로 들어간다.
+  const doneCard = (title: string, sub: string, islandId = snap?.currentIslandId) => (
+    <View
+      style={{
+        gap: 4,
+        borderWidth: 1.5,
+        borderColor: C.brown,
+        borderRadius: 14,
+        backgroundColor: C.butter,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+      }}
+    >
+      <Txt style={H17}>{title}</Txt>
+      <Txt kind="meta" style={META}>
+        {sub}
+      </Txt>
+      {enterHome(islandId)}
+    </View>
+  );
+  // 섬 찾기·승인 대기 진입 시 첫 페이지와 pending 목록을 서버에서 가져온다(재실행 복구 포함).
+  // 다른 route를 거쳐 같은 route로 돌아오면 다시 가져온다 — 나갔다 재진입이 dead-end가 되지 않게.
+  const serverTried = useRef('');
+  useEffect(() => {
+    if (!server || (route !== 'joinIsland' && route !== 'approval')) {
+      serverTried.current = '';
+      return;
+    }
+    if (serverTried.current === route) return;
+    serverTried.current = route;
+    run(() => server.explore());
+  }, [route, server]);
+  // 승인 상태는 즉시·4초 주기·포그라운드 복귀 때 확인한다. 느린 요청은 겹치지 않는다.
+  const pendingId = pendingReq()?.id;
+  useEffect(() => {
+    if (!server || route !== 'approval' || !pendingId) return;
+    let live = true,
+      polling = false;
+    const poll = async () => {
+      if (!live || polling || AppState.currentState === 'background' || serverWriting.current)
+        return;
+      polling = true;
+      try {
+        await server.status(pendingId);
+        if (live) setServerError('');
+      } catch (thrown) {
+        if (live) setServerError(serverErrorText(thrown));
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => {
+      void poll();
+    }, 4000);
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void poll();
+    });
+    return () => {
+      live = false;
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, [server, route, pendingId]);
+  useEffect(() => {
+    if (!soundDialog) return;
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSoundDialog(null);
+      return true;
+    });
+    return () => backSub.remove();
+  }, [soundDialog]);
+  useEffect(() => {
+    profileErrorScope.current = {};
+    if (route !== 'profile') return;
+    setProfileName(state.name);
+    setProfileColor(state.color);
+    setProfileNameError('');
+    return () => {
+      profileErrorScope.current = {};
+    };
+  }, [route, state.name, state.color]);
+  useEffect(() => {
+    if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
+  }, [route, currentMainIslandId]);
+  // 20b: 첫 집중 후 홈에 오면 바로 done으로 기록하고 창만 띄운다. 알겠어를 안 누르고 홈을 떠나도 다시 뜨지 않는다
+  useEffect(() => {
+    if (route !== 'home' || state.hallGuide !== 'pending') return;
+    if (!island.buildings.includes('hall')) setHallGuideOpen(true);
+    dispatch({ type: 'HALL_GUIDE_DONE' });
+  }, [route, state.hallGuide]);
+  const act = (type: string, p: any = {}) => dispatch({ type, ...p });
+  const host = !island.members.some((m) => m.role === 'host');
+  // 이름으로 지금 방장인지(공지 작성자·공동 구매자 표시)
+  const isHostName = (name: string) =>
+    name === state.name ? host : island.members.some((m) => m.name === name && m.role === 'host');
+  const backgroundHome = (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden={true}
+      style={{ flex: 1 }}
+    >
+      <FinalIsland
+        state={state}
+        go={go}
+        build={build}
+        libraryState={e.buildingIndicators?.libraryState}
+        showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+        showActions={false}
+        boardStatus={e.boardStatus}
+      />
+    </View>
+  );
+  const join = (i: any) => {
+    if (i.kicked) {
+      notify(t('onboarding.kickedCannotRejoin'));
+      return;
+    }
+    if (!i.joined && isFull(i)) {
+      notify(t('onboarding.islandFull'));
+      return;
+    }
+    setVisited(i.id);
+    act('JOIN', { id: i.id });
+    // 승인 필요 섬은 섬 찾기 화면에 가입 신청 대기 상태로 남는다(이미 주민이면 바로 도착)
+    if (i.approval && !i.joined) {
+      if (route === 'joinIsland' || route === 'approval') setDiscoveryPick(i.id);
+      else go('approval', i.id);
+    } else go('arrival');
+  };
+  // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
+  const [sheetToast, setSheetToast] = useState(''),
+    // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
+    [sheetToastSeq, setSheetToastSeq] = useState(0);
+  useEffect(() => {
+    if (!sheetToast) return;
+    const timer = setTimeout(() => setSheetToast(''), 2400);
+    return () => clearTimeout(timer);
+  }, [sheetToast, sheetToastSeq]);
+  useEffect(() => setSheetToast(''), [route]);
+  // 비동기 결과가 도착했을 때 사용자가 아직 그 상품 화면에 있는지 확인하는 용도
+  const productViewRef = useRef('');
+  productViewRef.current = `${route}|${detail}`;
+  // 나만 미리듣기가 곡 끝까지 재생되면 버튼을 다시 재생 모양으로
+  useEffect(() => {
+    if (!previewAudio) return;
+    const sub = player.addListener?.('playbackStatusUpdate', (status: any) => {
+      if (status?.didJustFinish) setPreviewAudio(false);
+    });
+    return () => sub?.remove();
+  }, [previewAudio]);
+  if (route === 'login' && e.loginProviders) {
+    return (
+      <LoginScreen
+        providers={e.loginProviders}
+        termsVersion={e.termsVersion}
+        termsAccepted={terms}
+        onTermsAcceptedChange={setTerms}
+        onProviderPress={e.startSocial ? (provider) => void e.startSocial(provider) : undefined}
+        providerBusy={e.socialBusy}
+        providerError={e.socialError}
+        onGuestPress={
+          e.startGuest
+            ? () => void e.startGuest()
+            : () => {
+                act('LOGIN');
+                state.onboarded ? home() : go('character');
+              }
+        }
+        guestBusy={e.guestBusy}
+        guestError={e.guestError}
+      />
+    );
+  }
+  if (route === 'login') {
+    const agreeCheck = (
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: terms }}
+        onPress={() => setTerms(!terms)}
+        style={[
+          k.row,
+          { minHeight: semanticTokens.size.tapMin },
+          layout.compact && { paddingVertical: semanticTokens.spacing.control },
+        ]}
+      >
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            borderWidth: 2,
+            borderColor: C.brown,
+            borderRadius: 7,
+            backgroundColor: terms ? C.pink : C.paper,
+          }}
+        >
+          {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
+        </View>
+        <Txt kind="meta">{t('login.fallbackTermsAgree')}</Txt>
+      </Pressable>
+    );
+    const agree = (
+      <View>
+        {agreeCheck}
+        <PolicyLinks textStyle={{ fontSize: 13, color: C.ink }} />
+      </View>
+    );
+    const start = (
+      <View style={{ gap: 8 }}>
+        {!!e.guestError && (
+          <Txt kind="meta" accessibilityLiveRegion="polite" style={{ color: C.ink }}>
+            {e.guestError}
+          </Txt>
+        )}
+        <Btn
+          title={
+            e.guestBusy
+              ? t('login.guestOpening')
+              : e.startGuest
+                ? t('login.guestStart')
+                : t('login.fallbackStart')
+          }
+          disabled={!terms || !!e.guestBusy}
+          onPress={() => {
+            if (e.startGuest) {
+              void e.startGuest();
+              return;
+            }
+            act('LOGIN');
+            state.onboarded ? home() : go('character');
+          }}
+        />
+      </View>
+    );
+    // v2 로고: 흰 글자 + 아래로 떨어지는 그림자
+    const shade = {
+      color: C.paper,
+      textShadowColor: '#49433955',
+      textShadowOffset: { width: 0, height: 2 },
+      textShadowRadius: 0,
+    };
+    const logo = (
+      <>
+        <Txt
+          style={[
+            shade,
+            {
+              fontSize: 42,
+              lineHeight: 42,
+              fontWeight: '900',
+              letterSpacing: 1,
+            },
+          ]}
+        >
+          {t('onboardingStory.brand')}
+        </Txt>
+        <Txt style={[shade, { fontSize: 15, lineHeight: 21.75, fontWeight: '700' }]}>
+          {t('login.tagline')}
+        </Txt>
+      </>
+    );
+    if (layout.compact)
+      // 가로 폰: 그림을 넓게 깔고 오른쪽 크림 패널(380)에 문구·약관·시작
+      return (
+        <View style={{ flex: 1, backgroundColor: C.sky }}>
+          <Pic
+            id="L/welcome"
+            w="100%"
+            h="100%"
+            cover
+            style={{ position: 'absolute', left: 0, top: 0 }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              left: Math.max(56, ins.left + 4),
+              top: ins.top + 22,
+            }}
+          >
+            {logo}
+          </View>
+          <Pic
+            id="cat/black/sitting"
+            w={150}
+            style={{
+              position: 'absolute',
+              left: Math.max(230, ins.left + 178),
+              bottom: 0,
+            }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              bottom: 0,
+              // v2 welcome-panel: 폭 380 · 안쪽 여백 32 56 26 28(오른쪽 56은 다이내믹 아일랜드 자리)
+              width: 380,
+              gap: 10,
+              paddingTop: ins.top + 32,
+              paddingLeft: 28,
+              paddingRight: Math.max(56, ins.right + 4),
+              paddingBottom: Math.max(26, ins.bottom + 5),
+              backgroundColor: C.cream,
+              borderLeftWidth: 2,
+              borderColor: C.brown,
+              boxShadow: '-5px 0px 0px #8B695640',
+            }}
+          >
+            <Txt kind="h" style={{ fontSize: 24, lineHeight: 31.2, letterSpacing: -0.48 }}>
+              {t('login.heroTitle')}
+            </Txt>
+            <Txt style={{ color: C.muted }}>{t('login.heroSubtitle')}</Txt>
+            {!!e.startGuest && <Txt kind="meta">{t('login.guestHint')}</Txt>}
+            {agree}
+            <View style={{ flex: 1 }} />
+            {start}
+          </View>
+        </View>
+      );
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: C.cream,
+          flexDirection: layout.landscape ? 'row' : 'column',
+        }}
+      >
+        <View
+          style={{
+            // v2 welcome-top: 402×874에서 높이 490
+            height: layout.landscape ? '100%' : layout.tablet ? '48%' : (layout.height * 490) / 874,
+            width: layout.landscape ? '48%' : '100%',
+            overflow: 'hidden',
+            borderBottomLeftRadius: layout.landscape ? 0 : 44,
+            borderBottomRightRadius: layout.landscape ? 0 : 44,
+          }}
+        >
+          <Pic id="welcome" w="100%" h="100%" cover />
+          <View
+            style={{
+              position: 'absolute',
+              left: ins.left + 26,
+              top: ins.top + 12,
+            }}
+          >
+            {logo}
+          </View>
+          <Pic
+            id="cat/black/sitting"
+            w={150}
+            style={{ position: 'absolute', right: 14, bottom: -8 }}
+          />
+        </View>
+        <View
+          style={{
+            flex: 1,
+            paddingTop: layout.landscape ? ins.top + 16 : 0,
+            paddingRight: ins.right,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <ScrollView
+            style={{ width: '100%', maxWidth: 580, flex: 1 }}
+            contentContainerStyle={{
+              padding: 24,
+              paddingTop: 22,
+              gap: 12,
+              flexGrow: 1,
+              justifyContent: layout.tablet ? 'center' : 'flex-start',
+            }}
+          >
+            <Txt kind="h" style={{ fontSize: 26, lineHeight: 33.8, letterSpacing: -0.52 }}>
+              {t('login.heroTitle')}
+            </Txt>
+            <Txt style={{ color: C.muted }}>{t('login.heroSubtitle')}</Txt>
+            {!!e.startGuest && <Txt kind="meta">{t('login.guestHint')}</Txt>}
+            {agree}
+          </ScrollView>
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 580,
+              paddingHorizontal: 20,
+              paddingBottom: ins.bottom + 12,
+            }}
+          >
+            {start}
+          </View>
+        </View>
+      </View>
+    );
+  }
+  if (route === 'character' && !state.onboarded)
+    return <OnboardingFlow key={getSession()?.userId ?? 'preview'} e={e} />;
+  if (route === 'character')
+    return (
+      <Onboard
+        title={t('character.title')}
+        back={back}
+        hideCtaOnKeyboard
+        leftBg={C.soft}
+        left={
+          <View style={{ alignItems: 'center', gap: 6 }}>
+            <Pic id="cat/black/sitting" w={170} />
+            <Txt style={H17}>{t('character.greeting')}</Txt>
+            <Txt kind="meta" style={META}>
+              {t('character.furColorLaterCompact')}
+            </Txt>
+          </View>
+        }
+        cta={
+          <Btn
+            title={t('character.startWithCat')}
+            disabled={!state.name || serverBusy}
+            onPress={() => {
+              if (!server) {
+                // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
+                go('sea');
+                return;
+              }
+              // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
+              // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
+              // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
+              const name = state.name;
+              const signature = JSON.stringify([name, state.color]);
+              if (characterSaveIntent.current?.signature !== signature)
+                characterSaveIntent.current = { signature, key: uuid() };
+              const intent = characterSaveIntent.current;
+              run(() =>
+                updateProfile({ name, catColor: state.color }, intent.key).then((saved) => {
+                  if (characterSaveIntent.current?.key === intent.key)
+                    characterSaveIntent.current = null;
+                  act('PROFILE', {
+                    name: saved.name ?? name,
+                    color: saved.catColor ?? state.color,
+                  });
+                  // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
+                  if (routeNowRef.current === 'character') go('sea');
+                }),
+              );
+            }}
+          />
+        }
+      >
+        {!layout.compact && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
+            <Pic id="cat/black/sitting" w={84} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Txt style={H22}>{t('character.greeting')}</Txt>
+              <Txt kind="meta" style={META}>
+                {t('character.furColorLaterFull')}
+              </Txt>
+            </View>
+          </View>
+        )}
+        {serverError ? (
+          <Txt kind="meta" style={[META, { color: C.danger }]}>
+            {serverError}
+          </Txt>
+        ) : null}
+        <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>{t('character.whichCat')}</Txt>
+        <AvatarGrid
+          six={layout.compact}
+          value={state.color}
+          disabled={serverBusy}
+          // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
+          onChange={(color: Color) => {
+            if (!serverBusy) act('PROFILE', { color });
+          }}
+        />
+        <Field
+          label={t('account.profile.nickname')}
+          placeholder={t('account.profile.nicknamePlaceholder')}
+          value={state.name}
+          disabled={serverBusy}
+          onChange={(name: string) => {
+            if (!serverBusy) act('PROFILE', { name: stripNicknameWhitespace(name) });
+          }}
+          inputStyle={INP}
+        />
+      </Onboard>
+    );
+  if (server && route === 'visit') return <ServerVisit key={detail} e={e} />;
+  if (server && (route === 'mainIsland' || route === 'currentIsland'))
+    return (
+      <ServerIslandPicker
+        key={route}
+        mode={route === 'mainIsland' ? 'main' : 'current'}
+        state={state}
+        islands={server}
+        back={back}
+        home={home}
+        reset={reset}
+      />
+    );
+  if (route === 'createIsland') {
+    // 라벨은 렌더 시점에 현재 로케일로 만든다 — 선택값은 숫자(capacityPick)로만 든다
+    const capacityItems = Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
+      t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
+    );
+    const capacityWheel = (
+      <View style={{ gap: 6 }}>
+        <Txt kind="meta" style={{ fontWeight: '600' }}>
+          {t('onboarding.createIsland.capacityLabel', { max: CAPACITY_MAX })}
+        </Txt>
+        {/* v2 드럼: 빈 라벨 칸의 아래 여백 4px(세로) · 위아래 흐림 */}
+        <View style={[k.row, { marginTop: layout.compact ? 0 : 4 }]}>
+          <Wheel
+            a11yLabel={t('onboarding.createIsland.capacityA11y')}
+            row={layout.compact ? 24 : 44}
+            items={capacityItems}
+            value={capacityItems[capacityPick - CAPACITY_MIN]}
+            onChange={(v: string) => setCapacityPick(capacityItems.indexOf(v) + CAPACITY_MIN)}
+          />
+          <WheelFade h={layout.compact ? 14 : 30} />
+        </View>
+      </View>
+    );
+    const approvalRow = (
+      <Group flat>
+        <Row
+          title={t('onboarding.createIsland.approvalAfterJoin')}
+          sub={
+            <Txt kind="meta" style={RS}>
+              {t('onboarding.createIsland.approvalAfterJoinSub')}
+            </Txt>
+          }
+          tail={
+            <Toggle
+              label={t('onboarding.createIsland.approvalAfterJoin')}
+              value={approval}
+              onChange={setApproval}
+            />
+          }
+        />
+      </Group>
+    );
+    return (
+      <Onboard
+        title={t('onboarding.createIsland.title')}
+        back={back}
+        left={<Pic id="L/home/00-start/nocat" w="100%" h="100%" cover />}
+        cta={
+          serverDone ? undefined : (
+            <Btn
+              title={t('onboarding.createIsland.submit')}
+              disabled={!text.trim() || serverBusy}
+              onPress={() => {
+                // 서버 모드: 응답만으로 성공 처리하지 않고 App 이 /me/islands 재조회로 확정한다
+                if (server) {
+                  run(async () => {
+                    await server.create({
+                      name: text.trim(),
+                      intro: body.trim() || undefined,
+                      approvalRequired: approval,
+                      maxMembers: capacityPick,
+                    });
+                    setServerDone(text.trim());
+                  });
+                  return;
+                }
+                act('CREATE_ISLAND', {
+                  name: text,
+                  intro: body,
+                  approval,
+                  capacity: capacityPick,
+                });
+                go('arrival');
+              }}
+            />
+          )
+        }
+      >
+        {serverDone ? (
+          // 서버 current 확인 상태 — arrival 연출 없이 홈(서버 스냅샷)으로 들어간다
+          <View style={{ gap: 6 }}>
+            <Txt style={H22}>{t('onboarding.createIsland.doneTitle')}</Txt>
+            <Txt kind="meta" style={META}>
+              {t('onboarding.createIsland.doneSub', { island: serverDone })}
+            </Txt>
+            {enterHome()}
+          </View>
+        ) : null}
+        {serverError ? (
+          <Txt kind="meta" style={[META, { color: C.danger }]}>
+            {serverError}
+          </Txt>
+        ) : null}
+        {!serverDone && (
+          <>
+            <Field
+              label={t('onboarding.createIsland.nameLabel')}
+              maxLength={ISLAND_NAME_MAX}
+              value={text}
+              onChange={setText}
+              inputStyle={INP}
+            />
+            <Field
+              label={t('onboarding.createIsland.introLabel')}
+              value={body}
+              onChange={setBody}
+              maxLength={ISLAND_INTRO_MAX}
+              multiline={!layout.compact}
+              inputStyle={layout.compact ? INP : INP_TA}
+            />
+            {layout.compact ? (
+              // 가로: 정원 드럼과 승인 토글을 한 줄에(1 : 1.5)
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end' }}>
+                <View style={{ flex: 1 }}>{capacityWheel}</View>
+                <View style={{ flex: 1.5 }}>{approvalRow}</View>
+              </View>
+            ) : (
+              <>
+                {capacityWheel}
+                {approvalRow}
+              </>
+            )}
+          </>
+        )}
+      </Onboard>
+    );
+  }
+  if ((route === 'joinIsland' || route === 'approval') && server) {
+    // ── 서버 모드: 공개 DTO 만 그린다 — members·평균·건물·퀘스트는 합성하지 않는다 ──
+    const candidates = snap?.candidates ?? [],
+      req = pendingReq(),
+      // approval 경로에서 방금 종결된 신청 — rejected/cancelled/approved 안내를 띄운다.
+      // joinIsland(detail='')에서 무관한 옛 종결을 집어 참여 CTA를 숨기지 않게 route로 한정하고,
+      // 현재 pending이 있으면 종결 카드보다 신청이 우선한다(취소 CTA 보존). 종결 이력이 여러 개면
+      // requestStatus가 최신을 끝에 붙이므로 역순으로 최신 것을 고른다.
+      closed =
+        route === 'approval' && !req
+          ? [...reqList]
+              .reverse()
+              .find((r) => r.status !== 'pending' && (!detail || r.islandId === detail))
+          : undefined;
+    const idx = candidates.findIndex((c) => c.id === discoveryPick),
+      i = candidates[idx >= 0 ? idx : 0],
+      iReq = i && reqList.find((r) => r.islandId === i.id && r.status === 'pending'),
+      joined = !!i && snap?.currentIslandId === i.id;
+    const move = (n: number) => {
+      if (!candidates.length) return;
+      // 마지막 후보에서 › 는 다음 페이지를 서버에서 가져온다. 커서가 죽었으면 첫 페이지부터 다시.
+      if (n > 0 && idx >= candidates.length - 1 && snap?.nextCursor)
+        return run(async () => {
+          try {
+            await server.discover(snap.nextCursor!);
+          } catch (thrown) {
+            if (
+              thrown instanceof ApiError &&
+              (thrown.code === 'INVALID_CURSOR' || thrown.code === 'CURSOR_EXPIRED')
+            )
+              await server.explore();
+            else throw thrown;
+          }
+        });
+      setDiscoveryPick(
+        candidates[(Math.max(0, idx) + n + candidates.length) % candidates.length].id,
+      );
+    };
+    const pendingCard = (r: RequestStatusEntry & { islandName?: string | null }) => (
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          backgroundColor: '#FFF3CF',
+          borderWidth: 1.5,
+          borderColor: '#E7CF9A',
+          borderRadius: 14,
+          paddingVertical: 10,
+          paddingHorizontal: 14,
+        }}
+      >
+        <View style={{ gap: 2, flex: 1 }}>
+          <Txt style={{ fontSize: 15, lineHeight: 21.75, fontWeight: '700' }}>
+            {t('onboarding.joinIsland.pendingWaitTitle')}
+          </Txt>
+          <Txt kind="meta" style={{ lineHeight: 18.85 }}>
+            {r.islandName
+              ? t('onboarding.joinIsland.pendingWaitSubNamed', { island: r.islandName })
+              : t('onboarding.joinIsland.pendingWaitSubGeneric')}
+          </Txt>
+        </View>
+        <Spinner reduce={state.settings.reduceMotion} />
+      </View>
+    );
+    const joinedCard = (name: string, id?: string) =>
+      doneCard(
+        t('onboarding.joinedCard.title'),
+        t('onboarding.joinedCard.sub', { island: name }),
+        id,
+      );
+    return (
+      <Onboard
+        title={
+          route === 'approval' ? t('onboarding.joinRequest') : t('onboarding.joinIsland.title')
+        }
+        back={back}
+        left={
+          <Pic
+            id={i?.id === 'strawberry' ? 'island/whole/warm' : 'island/whole'}
+            w="100%"
+            h="100%"
+            cover
+          />
+        }
+        cta={
+          serverDone || joined || closed?.status === 'approved' ? undefined : req &&
+            route === 'approval' ? (
+            <>
+              <Btn
+                kind="sec"
+                title={t('onboarding.joinIsland.cancelRequest')}
+                disabled={serverBusy}
+                onPress={() => run(() => server.cancel(req.id))}
+              />
+              <Btn
+                kind="ghost"
+                title={t('onboarding.joinIsland.viewOtherIslands')}
+                onPress={() => go('joinIsland')}
+              />
+            </>
+          ) : closed && route === 'approval' ? (
+            <Btn
+              title={t('onboarding.joinIsland.findAnotherIsland')}
+              onPress={() => go('joinIsland')}
+            />
+          ) : iReq ? (
+            <>
+              <Btn
+                kind="sec"
+                title={t('onboarding.joinIsland.cancelRequest')}
+                disabled={serverBusy}
+                onPress={() => run(() => server.cancel(iReq.id))}
+              />
+              <Btn
+                kind="ghost"
+                title={t('onboarding.joinIsland.viewOtherIslands')}
+                disabled={candidates.length < 2 && !snap?.nextCursor}
+                onPress={() => move(1)}
+              />
+            </>
+          ) : (
+            <>
+              <Btn
+                title={
+                  !i
+                    ? t('onboarding.joinIsland.joinAction')
+                    : i.approvalRequired
+                      ? t('onboarding.joinRequest')
+                      : t('onboarding.joinIsland.joinNamed', { island: i.name })
+                }
+                disabled={!i || serverBusy}
+                onPress={() =>
+                  i &&
+                  run(async () => {
+                    const r = await server.join(i.id);
+                    if (r.status === 'active') setServerDone(i.name);
+                  })
+                }
+              />
+              <Btn
+                kind="ghost"
+                title={t('onboarding.joinIsland.createNewIfNotFound')}
+                onPress={() => go('createIsland')}
+              />
+            </>
+          )
+        }
+      >
+        {/* 승인 대기 복구 카드 — 재실행 뒤에도 pending 신청이 먼저 보인다 */}
+        {route === 'approval' && req && pendingCard(req)}
+        {route === 'approval' &&
+          !req &&
+          closed &&
+          (closed.status === 'approved' ? (
+            joinedCard(
+              closed.islandName ??
+                snap?.memberships.find((m) => m.id === closed.islandId)?.name ??
+                t('onboarding.joinIsland.thatIslandFallback'),
+              closed.islandId,
+            )
+          ) : (
+            <View style={{ gap: 4 }}>
+              <Txt style={H17}>
+                {closed.status === 'rejected'
+                  ? t('onboarding.joinIsland.requestRejected')
+                  : t('onboarding.joinIsland.requestCancelled')}
+              </Txt>
+              <Txt kind="meta" style={META}>
+                {t('onboarding.joinIsland.tryAnotherIsland')}
+              </Txt>
+            </View>
+          ))}
+        {/* join()은 active 확정 전에 syncIslands()로 snap을 이미 맞춘다 — serverDone과 joined가
+            같은 가입을 동시에 가리키면 카드를 두 번 그리지 않고 joined(정본 스냅숏)만 남긴다. */}
+        {serverDone && !joined && joinedCard(serverDone)}
+        {joined && i && joinedCard(i.name)}
+        {serverError ? (
+          <View style={{ gap: 8 }}>
+            <Txt kind="meta" style={[META, { color: C.danger }]}>
+              {serverError}
+            </Txt>
+            <Btn
+              kind="ghost"
+              title={t('onboarding.joinIsland.reload')}
+              disabled={serverBusy}
+              onPress={() => run(() => server.explore())}
+            />
+          </View>
+        ) : null}
+        {route === 'joinIsland' &&
+          (i ? (
+            <>
+              {!layout.compact && <Thumb h={210} />}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 50 }}>
+                <Pressable
+                  style={{ flex: 1, gap: 2 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('onboarding.joinIsland.viewIslandInfoA11y', {
+                    island: i.name,
+                  })}
+                  // 카드를 누르면 방문 화면 DTO 로 공개 정보를 더 보여준다
+                  onPress={() => run(() => server.visit(i.id))}
+                >
+                  <Txt style={H22}>{i.name}</Txt>
+                  <Txt kind="meta" style={META}>
+                    {i.intro}
+                  </Txt>
+                </Pressable>
+                {['‹', '›'].map((v, n) => (
+                  <Pressable
+                    key={v}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      n
+                        ? t('onboarding.joinIsland.nextIsland')
+                        : t('onboarding.joinIsland.previousIsland')
+                    }
+                    accessibilityState={{ disabled: serverBusy }}
+                    disabled={serverBusy}
+                    onPress={() => move(n ? 1 : -1)}
+                    style={{
+                      opacity: serverBusy ? 0.45 : 1,
+                      width: 44,
+                      height: 44,
+                      marginTop: 6,
+                      borderRadius: 22,
+                      borderWidth: 2,
+                      borderColor: C.brown,
+                      backgroundColor: C.paper,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Txt
+                      style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '700', color: C.muted }}
+                    >
+                      {v}
+                    </Txt>
+                  </Pressable>
+                ))}
+              </View>
+              <Txt kind="meta" style={META}>
+                {t('onboarding.residents', { count: i.memberCount, max: i.maxMembers })}
+              </Txt>
+              <Badge soft>
+                {i.approvalRequired
+                  ? t('onboarding.approvalBadge')
+                  : t('onboarding.instantJoinBadge')}
+              </Badge>
+              {/* 방문 화면 DTO — 공개 주민 목록만, 집중 평균·건물은 서버가 주지 않는다 */}
+              {snap?.visit && snap.visit.island.id === i.id && (
+                <View
+                  style={{
+                    gap: 4,
+                    borderWidth: 1.5,
+                    borderColor: '#E7CF9A',
+                    borderRadius: 14,
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                  }}
+                >
+                  <Txt style={H17}>{snap.visit.island.name}</Txt>
+                  {snap.visit.members.items.length ? (
+                    <Txt kind="meta" style={META}>
+                      {t('onboarding.visitResidents', {
+                        names: snap.visit.members.items
+                          .map((m) => m.name ?? t('onboarding.residentFallbackName'))
+                          .join(', '),
+                      })}
+                    </Txt>
+                  ) : null}
+                </View>
+              )}
+              {iReq && pendingCard(iReq)}
+            </>
+          ) : serverBusy ? (
+            <Txt kind="meta" style={META}>
+              {t('onboarding.joinIsland.searchingPublicIslands')}
+            </Txt>
+          ) : (
+            !serverError && (
+              <EmptyState
+                scene
+                testID="join-island-empty"
+                art={telescopeSea.source}
+                title={t('onboarding.joinIsland.noPublicIslands')}
+              />
+            )
+          ))}
+      </Onboard>
+    );
+  }
+  if (route === 'joinIsland' || route === 'approval') {
+    // 망원경으로 찾은 공개 섬: 주민이 있고 정원이 남은 섬(신청 중인 섬은 가득 차도 남긴다)
+    const pendings = state.pendingIslands ?? [];
+    const candidates = state.islands.filter(
+      (i) =>
+        !i.closed &&
+        !i.kicked &&
+        !i.joined &&
+        // 초대 코드로 신청한 비공개 섬은 공개 조건과 상관없이 대기 화면에 남긴다
+        ((i.visibility !== 'private' && i.members.length > 0 && !isFull(i)) ||
+          pendings.includes(i.id) ||
+          (route === 'approval' && i.id === (detail || state.pendingIsland))),
+    );
+    // 처음 보여줄 섬: ‹ ›로 고른 섬 → 경로로 받은 섬 → 신청 중인 섬(다시 켜도 먼저) → 무작위
+    const pickId = discoveryPick ?? (detail || state.pendingIsland);
+    const picked = candidates.findIndex((c) => c.id === pickId);
+    const index = picked >= 0 ? picked : discoveryIndex % Math.max(1, candidates.length),
+      i = candidates[index];
+    const pending = !!i && pendings.includes(i.id);
+    const move = (n: number) =>
+      setDiscoveryPick(candidates[(index + n + candidates.length) % candidates.length].id);
+    const average = i ? hoursMinutes(islandWeeklyAverage(state, i, now)).replace(/ 0분$/, '') : '';
+    return (
+      <Onboard
+        title={t('onboarding.joinIsland.title')}
+        back={back}
+        left={
+          <Pic
+            id={i?.id === 'strawberry' ? 'island/whole/warm' : 'island/whole'}
+            w="100%"
+            h="100%"
+            cover
+          />
+        }
+        cta={
+          pending ? (
+            <>
+              <Btn
+                kind="sec"
+                title={t('onboarding.joinIsland.cancelRequest')}
+                onPress={() => act('CANCEL_JOIN', { id: i.id })}
+              />
+              <Btn
+                kind="ghost"
+                title={t('onboarding.joinIsland.viewOtherIslands')}
+                disabled={candidates.length < 2}
+                onPress={() => move(1)}
+              />
+            </>
+          ) : (
+            <>
+              <Btn
+                title={
+                  !i
+                    ? t('onboarding.joinIsland.joinAction')
+                    : i.approval
+                      ? t('onboarding.joinRequest')
+                      : t('onboarding.joinIsland.joinNamed', { island: i.name })
+                }
+                disabled={!i}
+                onPress={() => i && join(i)}
+              />
+              <Btn
+                kind="ghost"
+                title={t('onboarding.joinIsland.createNewIfNotFound')}
+                onPress={() => go('createIsland')}
+              />
+            </>
+          )
+        }
+      >
+        {i ? (
+          <>
+            {!layout.compact && <Thumb warm={i.id === 'strawberry'} h={210} />}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 50 }}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt style={H22}>{i.name}</Txt>
+                <Txt kind="meta" style={META}>
+                  {i.intro}
+                </Txt>
+              </View>
+              {['‹', '›'].map((v, n) => (
+                <Pressable
+                  key={v}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    n
+                      ? t('onboarding.joinIsland.nextIsland')
+                      : t('onboarding.joinIsland.previousIsland')
+                  }
+                  accessibilityState={{ disabled: candidates.length < 2 }}
+                  disabled={candidates.length < 2}
+                  onPress={() => move(n ? 1 : -1)}
+                  style={{
+                    opacity: candidates.length < 2 ? 0.45 : 1,
+                    width: 44,
+                    height: 44,
+                    marginTop: 6,
+                    borderRadius: 22,
+                    borderWidth: 2,
+                    borderColor: C.brown,
+                    backgroundColor: C.paper,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Txt
+                    style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '700', color: C.muted }}
+                  >
+                    {v}
+                  </Txt>
+                </Pressable>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <AvStack list={i.members.slice(0, 3).map((m) => m.color)} />
+              <Txt kind="meta" style={[META, { flex: 1 }]}>
+                {t('onboarding.residentsWithAverage', {
+                  count: residentCount(i),
+                  max: capacityOf(i),
+                  average,
+                })}
+              </Txt>
+            </View>
+            {/* 합류 방식 배지: 바로 참여 / 승인 필요(버튼이 가입 신청) */}
+            <View
+              style={{
+                alignSelf: 'flex-start',
+                height: 28,
+                paddingHorizontal: 12,
+                justifyContent: 'center',
+                borderRadius: 999,
+                borderWidth: 1.5,
+                borderColor: i.approval ? '#D9C6B8' : C.brown,
+                backgroundColor: i.approval ? C.paper : C.butter,
+              }}
+            >
+              <Txt
+                style={{
+                  fontSize: 13,
+                  lineHeight: 18.85,
+                  fontWeight: i.approval ? '600' : '700',
+                  color: i.approval ? C.muted : C.ink,
+                }}
+              >
+                {i.approval ? t('onboarding.approvalBadge') : t('onboarding.instantJoinBadge')}
+              </Txt>
+            </View>
+            {pending && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  backgroundColor: '#FFF3CF',
+                  borderWidth: 1.5,
+                  borderColor: '#E7CF9A',
+                  borderRadius: 14,
+                  paddingVertical: 10,
+                  paddingHorizontal: 14,
+                }}
+              >
+                <View style={{ gap: 2 }}>
+                  <Txt style={{ fontSize: 15, lineHeight: 21.75, fontWeight: '700' }}>
+                    {t('onboarding.joinIsland.pendingWaitTitle')}
+                  </Txt>
+                  <Txt kind="meta" style={{ lineHeight: 18.85 }}>
+                    {t('onboarding.joinIsland.pendingWaitSubGeneric')}
+                  </Txt>
+                </View>
+                <Spinner reduce={state.settings.reduceMotion} />
+              </View>
+            )}
+          </>
+        ) : (
+          <EmptyState
+            scene
+            testID="join-island-empty"
+            art={telescopeSea.source}
+            title={t('onboarding.joinIsland.noPublicIslands')}
+          />
+        )}
+      </Onboard>
+    );
+  }
+  if (route === 'guide') {
+    const lines = [
+      t('onboarding.guide.line1'),
+      t('onboarding.guide.line2'),
+      t('onboarding.guide.line3'),
+      t('onboarding.guide.line4'),
+    ];
+    const step = Math.min(guideStep, lines.length - 1),
+      last = step === lines.length - 1,
+      w = layout.compact ? Math.min(layout.floatingWidth, 414) : layout.floatingWidth;
+    return (
+      <View style={{ flex: 1 }}>
+        {backgroundHome}
+        <GuideBox
+          text={lines[step]}
+          style={{
+            left: (layout.width - w) / 2,
+            width: w,
+            // v2 가로 guidebox는 아래 18px
+            bottom: layout.compact ? 18 : ins.bottom + 12,
+          }}
+          onSkip={() => {
+            setGuideStep(99);
+            home();
+          }}
+          skipTitle={t('onboarding.guide.skip')}
+        >
+          <Btn
+            title={last ? t('onboarding.guide.last') : t('onboarding.guide.next')}
+            small
+            style={{ minWidth: 96 }}
+            onPress={() => {
+              if (last) {
+                setGuideStep(4);
+                home();
+              } else setGuideStep(step + 1);
+            }}
+          />
+        </GuideBox>
+      </View>
+    );
+  }
+  // 서버 모드 홈은 스냅샷이 올 때까지 로컬 목업 섬 대신 로딩·재시도를 보여 준다(GROMO-2138)
+  if (route === 'home' && server && !serverHome(state))
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: semanticTokens.spacing.control,
+          padding: semanticTokens.spacing.page,
+        }}
+      >
+        {e.homeError ? (
+          <>
+            <Txt style={H17}>{t('home.error.loadFailed')}</Txt>
+            <Btn kind="ghost" id="home-retry" title={t('common.retry')} onPress={e.retryHome} />
+          </>
+        ) : (
+          <Spinner reduce={state.settings.reduceMotion} />
+        )}
+      </View>
+    );
+  if (route === 'home') {
+    // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
+    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
+      w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
+    // 최근 채팅 줄(GROMO-2501) — 서버는 섬 채팅 훅, 목업은 로컬 섬 글(최신 것부터라 뒤집는다).
+    // 안내창(회관·펠리컨·튜토리얼)·집중·구경·화면 전환 중에는 비킨다
+    const chatLines: HomeChatLine[] = server
+      ? (e.islandChat?.messages ?? []).map((m: any) => ({
+          id: m.id,
+          name: m.name ?? t('islandChat.unknown'),
+          text: m.text,
+          at: Date.parse(m.createdAt),
+        }))
+      : [...island.messages].reverse().map((m) => ({
+          id: m.id,
+          name: m.name,
+          text: m.text,
+          at: m.at,
+        }));
+    const chatBlocked =
+      hallGuide ||
+      magazinePrompt ||
+      guideStep === 4 ||
+      !!state.session ||
+      !!state.visitingIslandId ||
+      !!e.routeTransitionShielded;
+    return (
+      <View style={{ flex: 1 }}>
+        <FinalIsland
+          state={state}
+          go={go}
+          build={build}
+          request={e.walkRequest}
+          notify={notify}
+          dispatch={dispatch}
+          focusTutorial={
+            guideStep === 4
+              ? {
+                  text: t('home.tutorial.focusStart'),
+                  onPress: () =>
+                    setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
+                  onSkip: () => setGuideStep(99),
+                }
+              : undefined
+          }
+          friendRequestCount={
+            server
+              ? friendsScreen?.status === 'ready'
+                ? (friendsScreen.data?.friendRequests.length ?? 0)
+                : 0
+              : undefined
+          }
+          boardStatus={e.boardStatus}
+          libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+          showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+          showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
+          onServerBuilt={e.islands ? e.retryHome : undefined}
+          homeChat={
+            chatBlocked ? undefined : (
+              <HomeChatLog
+                lines={chatLines}
+                pending={server && !!e.islandChat?.loading}
+                onOpen={() => go('chat')}
+              />
+            )
+          }
+        />
+        <MagazineHomeLayer
+          today={e.magazineToday ?? null}
+          hasMailbox={island.buildings.includes('mail')}
+          blocked={
+            hallGuide ||
+            guideStep === 4 ||
+            !!state.session ||
+            !!state.visitingIslandId ||
+            !!e.routeTransitionShielded
+          }
+          go={go}
+          onPromptChange={setMagazinePrompt}
+        />
+        {hallGuide && (
+          <GuideBox
+            text={t('home.tutorial.hallGuide', { count: costs.hall })}
+            style={{
+              left: (layout.width - w) / 2,
+              width: w,
+              // 건설 카드·집중 시작 버튼 위
+              bottom: layout.compact ? 110 : ins.bottom + 118,
+            }}
+          >
+            <Btn
+              title={t('home.tutorial.ok')}
+              small
+              style={{ minWidth: 96 }}
+              onPress={() => setHallGuideOpen(false)}
+            />
+          </GuideBox>
+        )}
+      </View>
+    );
+  }
+  if (route === 'sound') {
+    const gramophone = componentTokens.gramophone;
+    const audioProducts: any[] = server
+      ? shopApi.items
+      : products.filter((p) => p.kind === 'audio');
+    const localAudioIds = new Set<string>(BUNDLED_AUDIO_TRACK_IDS);
+    const serverAudioLoaded = !!shopApi.shared;
+    const ownedTrackIds = (serverAudioLoaded ? shopApi.shared!.audio : island.sharedOwned).filter(
+      hasBundledAudio,
+    );
+    const trackLabel = (id: string) => trackNames[id] ?? shopApi.titles[id] ?? id;
+    const trackIds = [
+      ...ownedTrackIds,
+      ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
+    ];
+    const largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
+    const dialogProduct = soundDialog?.product;
+    const selectTrack = (id: string) => {
+      if (ownedTrackIds.includes(id)) return;
+      const product = audioProducts.find((item) => item.id === id);
+      if (
+        !localAudioIds.has(id) ||
+        (server && (product?.available === false || product?.price == null))
+      )
+        return;
+      if (product) setSoundDialog({ kind: 'confirm', productId: id, product });
+    };
+    const buyTrack = async () => {
+      if (!dialogProduct) return;
+      if (server) {
+        try {
+          await shopApi.buy(dialogProduct);
+          setSoundDialog({ kind: 'success', productId: dialogProduct.id, product: dialogProduct });
+        } catch (thrown) {
+          if (e.conversion?.offer(thrown)) setSoundDialog(null);
+          else if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS')
+            setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
+          else {
+            setSoundDialog(null);
+            notify(
+              thrown instanceof ApiError && thrown.message
+                ? thrown.message
+                : '구매하지 못했어요. 다시 시도해 주세요.',
+            );
+          }
+        }
+        return;
+      }
+      if (canBuy(state, dialogProduct)) {
+        setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
+        return;
+      }
+      act('BUY', { id: dialogProduct.id });
+      setSoundDialog({ kind: 'success', productId: dialogProduct.id, product: dialogProduct });
+    };
+    const bottomWidth = Math.min(gramophone.panelWidth, layout.width - ins.left - ins.right - 36);
+    const panelWidth = layout.compact
+      ? Math.min(gramophone.compactPanelWidth, layout.width - ins.left - ins.right - 36)
+      : bottomWidth;
+    const panelHeight = layout.compact ? gramophone.compactPanelHeight : gramophone.panelHeight;
+    const contentHeight = layout.compact
+      ? gramophone.compactContentHeight
+      : gramophone.contentHeight;
+    return (
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
+        <View
+          testID="sound-background-content"
+          style={StyleSheet.absoluteFill}
+          pointerEvents={soundDialog ? 'none' : 'auto'}
+          accessibilityElementsHidden={!!soundDialog}
+          importantForAccessibility={soundDialog ? 'no-hide-descendants' : 'auto'}
+        >
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            aria-hidden={true}
+            style={StyleSheet.absoluteFill}
+          >
+            <Pic id="interior/gram" w="100%" h="100%" cover />
+          </View>
+          <NavBtn
+            label="섬으로 돌아가기"
+            onPress={back}
+            style={{ position: 'absolute', left: 20 + ins.left, top: 16 + ins.top }}
+          />
+          <View
+            style={[
+              gradient(
+                `linear-gradient(90deg, ${gramophone.signStart}, ${gramophone.signCenter} 50%, ${gramophone.signEnd})`,
+              ),
+              {
+                position: 'absolute',
+                top: 20 + ins.top,
+                alignSelf: 'center',
+                minWidth: 124,
+                height: 40,
+                borderWidth: 1.5,
+                borderColor: gramophone.woodBorder,
+                borderRadius: 8,
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: gramophone.signShadow,
+              },
+            ]}
+          >
+            <Txt
+              tabletScale={1}
+              style={{ color: gramophone.signForeground, fontSize: 17, lineHeight: 24 }}
+            >
+              축음기
+            </Txt>
+          </View>
+          <View
+            style={{
+              position: 'absolute',
+              left: (layout.width - panelWidth) / 2,
+              bottom: Math.max(18, ins.bottom + 8),
+              width: panelWidth,
+              height: panelHeight,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              padding: 16,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 14,
+              backgroundColor: gramophone.panelBackground,
+              boxShadow: gramophone.panelShadow,
+            }}
+          >
+            {island.buildings.includes('gram') ? (
+              <>
+                <View
+                  style={{
+                    width: 128,
+                    height: contentHeight,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View
+                    accessibilityLabel="축음기 레코드판"
+                    style={{
+                      width: gramophone.recordSize,
+                      height: gramophone.recordSize,
+                      borderRadius: gramophone.recordSize / 2,
+                      borderWidth: 6,
+                      borderColor: gramophone.recordGroove,
+                      backgroundColor: gramophone.recordBackground,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {[88, 68, 48].map((size) => (
+                      <View
+                        key={size}
+                        style={{
+                          position: 'absolute',
+                          width: size,
+                          height: size,
+                          borderRadius: size / 2,
+                          borderWidth: 4,
+                          borderColor: gramophone.recordGroove,
+                        }}
+                      />
+                    ))}
+                    <View
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 15,
+                        backgroundColor: C.pink,
+                        borderWidth: 2,
+                        borderColor: gramophone.recordGroove,
+                      }}
+                    />
+                  </View>
+                  <Txt
+                    tabletScale={1}
+                    style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
+                  >
+                    섬에서 들을 곡을 구매해요
+                  </Txt>
+                </View>
+                <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
+                  <View
+                    testID="sound-current-track"
+                    style={{ minHeight: gramophone.currentTrackMinHeight, flexShrink: 0 }}
+                  >
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foreground, ...gramophone.titleText }}
+                    >
+                      음원 구매
+                    </Txt>
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
+                    >
+                      재생과 곡 변경은 집중섬 축음기에서 할 수 있어요
+                    </Txt>
+                  </View>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ gap: 4, paddingRight: 4 }}
+                    showsVerticalScrollIndicator
+                  >
+                    {trackIds.map((id) => {
+                      const owned = ownedTrackIds.includes(id);
+                      const product = audioProducts.find((item) => item.id === id);
+                      const unavailable =
+                        !owned &&
+                        (!localAudioIds.has(id) ||
+                          (server && (product?.available === false || product?.price == null)));
+                      const status = owned
+                        ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                          ? '무료'
+                          : '보유'
+                        : !localAudioIds.has(id)
+                          ? '앱 업데이트가 필요해요'
+                          : unavailable
+                            ? shopBlockReason(product ?? {})
+                            : `${product?.price}마리 · 구매`;
+                      return (
+                        <Pressable
+                          key={id}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            owned
+                              ? `${trackLabel(id)}, ${status}`
+                              : unavailable
+                                ? `${trackLabel(id)}, ${status}`
+                                : `${trackLabel(id)}, ${product?.price}마리로 구매`
+                          }
+                          accessibilityState={{ disabled: owned || unavailable }}
+                          disabled={owned || unavailable}
+                          onPress={() => selectTrack(id)}
+                          style={{
+                            minHeight: gramophone.rowMinHeight,
+                            paddingHorizontal: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderWidth: 1.25,
+                            borderColor: C.brown,
+                            borderRadius: 7,
+                            backgroundColor: owned ? C.paper : C.butter,
+                            opacity: owned || unavailable ? 0.72 : 1,
+                          }}
+                        >
+                          <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                            <Txt
+                              testID={`sound-track-title-${id}`}
+                              tabletScale={1}
+                              style={{ ...gramophone.rowTitleText, flexShrink: 1 }}
+                            >
+                              {trackLabel(id)}
+                            </Txt>
+                          </View>
+                          <Txt
+                            testID={`sound-track-status-${id}`}
+                            tabletScale={1}
+                            style={{
+                              maxWidth: '45%',
+                              flexShrink: 1,
+                              textAlign: 'right',
+                              color: gramophone.rowForeground,
+                              ...gramophone.rowStatusText,
+                            }}
+                          >
+                            {status}
+                          </Txt>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </>
+            ) : (
+              <View style={{ flex: 1, alignItems: 'center', gap: 12 }}>
+                <Txt style={{ color: gramophone.foreground }}>축음기를 먼저 지어 주세요.</Txt>
+                <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+              </View>
+            )}
+          </View>
+        </View>
+        {soundDialog && dialogProduct && (
+          <View
+            accessibilityViewIsModal
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: componentTokens.overlay.background,
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 24,
+              },
+            ]}
+          >
+            <View
+              testID="sound-dialog-card"
+              style={{
+                width: Math.min(354, layout.width - 48),
+                maxHeight: layout.height - ins.top - ins.bottom - 32,
+                borderWidth: 2,
+                borderColor: C.brown,
+                borderRadius: 22,
+                backgroundColor: C.paper,
+                boxShadow: '0px 6px 0px ' + C.brown,
+              }}
+            >
+              <ScrollView
+                testID="sound-dialog-scroll"
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={{ padding: 20, gap: 16 }}
+              >
+                {soundDialog.kind === 'error' && (
+                  <View
+                    style={{
+                      width: 50,
+                      height: 50,
+                      borderRadius: 25,
+                      alignSelf: 'center',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: C.butter,
+                    }}
+                  >
+                    <Txt tabletScale={1} style={{ fontSize: 27, lineHeight: 32 }}>
+                      !
+                    </Txt>
+                  </View>
+                )}
+                <Txt
+                  style={{ fontSize: 20, lineHeight: 28, fontWeight: '700', textAlign: 'center' }}
+                >
+                  {soundDialog.kind === 'confirm'
+                    ? `${dialogProduct.title}를 구매할까요?`
+                    : soundDialog.kind === 'success'
+                      ? '구매했어요'
+                      : '물고기가 부족해요'}
+                </Txt>
+                {soundDialog.kind === 'confirm' && (
+                  <Txt kind="meta" style={{ textAlign: 'center', lineHeight: 20 }}>
+                    구매한 곡은 같은 섬 주민 모두가 함께 들을 수 있어요.
+                  </Txt>
+                )}
+                {soundDialog.kind === 'confirm' ? (
+                  <View
+                    testID="sound-dialog-actions"
+                    style={{ flexDirection: largeText ? 'column' : 'row', gap: 8 }}
+                  >
+                    <Btn
+                      title="취소"
+                      kind="glass"
+                      dynamicHeight={largeText}
+                      onPress={() => setSoundDialog(null)}
+                      style={largeText ? undefined : { flex: 1 }}
+                    />
+                    <Btn
+                      title={`${dialogProduct.price}마리로 구매`}
+                      dynamicHeight={largeText}
+                      disabled={server && shopApi.writing}
+                      onPress={buyTrack}
+                      style={largeText ? undefined : { flex: 1 }}
+                    />
+                  </View>
+                ) : (
+                  <Btn
+                    title="확인"
+                    dynamicHeight={largeText}
+                    disabled={server && shopApi.writing}
+                    onPress={() => setSoundDialog(null)}
+                  />
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  }
+  if (route === 'tower') {
+    // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
+    if (server) {
+      // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)·myRank(전체 모집단 기준)는
+      // 서버 값 그대로고, 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
+      const rk = islandRankings,
+        myIslandId = snap?.currentIslandId,
+        // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
+        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
+        // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
+        largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
+      return (
+        <IslandSheet
+          bg="tower"
+          sign="bld/observatory"
+          title="전망대"
+          tight
+          action="섬 찾기"
+          actionPress={() => go('explore')}
+          onClose={home}
+        >
+          <Txt kind="meta" style={st.meta}>
+            주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
+          </Txt>
+          {rk.status === 'loading' && (
+            <Txt
+              kind="meta"
+              testID="rankings-loading"
+              style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}
+            >
+              순위를 불러오는 중이에요
+            </Txt>
+          )}
+          {rk.status === 'error' && (
+            <View style={{ alignItems: 'center', paddingVertical: 20, gap: 10 }}>
+              <Txt kind="meta" style={[st.meta, { textAlign: 'center' }]}>
+                {rk.error?.message ?? '순위를 불러오지 못했어요.'}
+              </Txt>
+              <Btn small kind="sec" testID="rankings-retry" title="다시 시도" onPress={rk.retry} />
+            </View>
+          )}
+          {rk.status === 'ready' && rk.data && !rk.data.items.length && (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              아직 순위에 오른 섬이 없어요
+            </Txt>
+          )}
+          {rk.status === 'ready' && rk.data && rk.data.items.length > 0 && (
+            <>
+              <SheetGroup>
+                {rk.data.items.map((item) => {
+                  const joined = joinedIds.has(item.islandId);
+                  const label = `${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`;
+                  const joinedBadge = joined && (
+                    <Badge soft style={largeText ? undefined : rankJoinedBadge}>
+                      {t('observatory.joined')}
+                    </Badge>
+                  );
+                  return (
+                    <SheetRow
+                      key={item.islandId}
+                      title={item.name}
+                      sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                      label={joined ? `${label}, ${t('observatory.joined')}` : label}
+                      tone={item.islandId === myIslandId ? 'butter' : undefined}
+                      lead={
+                        <Txt
+                          style={{
+                            width: 26,
+                            fontSize: 18,
+                            lineHeight: 26.1,
+                            fontWeight: '800',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {item.rank}
+                        </Txt>
+                      }
+                      below={largeText ? joinedBadge : undefined}
+                      tail={
+                        <>
+                          {!largeText && joinedBadge}
+                          <IslandThumb />
+                        </>
+                      }
+                      chevron={!joined}
+                      disabled={telescopePin.busy}
+                      // 소속이 아닌 섬은 확인창 → 망원경에 넣기(방문 화면으로 보내지 않는다)
+                      onPress={
+                        joined
+                          ? undefined
+                          : () => telescopePin.ask({ id: item.islandId, name: item.name })
+                      }
+                    />
+                  );
+                })}
+              </SheetGroup>
+              {rk.data.myRank !== null && (
+                <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingTop: 10 }]}>
+                  우리 섬 이번 주 {rk.data.myRank}위
+                </Txt>
+              )}
+            </>
+          )}
+        </IslandSheet>
+      );
+    }
+    const islands = state.islands
+      // 주민 2명 이상인 섬만 순위에 올린다(혼자 섬은 평균이 의미 없어서)
+      .filter(
+        (i) =>
+          !i.closed &&
+          !i.kicked &&
+          (i.joined || i.visibility !== 'private') &&
+          residentCount(i) >= 2,
+      )
+      .map((i) => ({ i, avg: islandWeeklyAverage(state, i, now) }))
+      .sort((a, b) => b.avg - a.avg);
+    return (
+      <IslandSheet
+        bg="tower"
+        sign="bld/observatory"
+        title="전망대"
+        tight
+        action="섬 찾기"
+        actionPress={() => go('explore')}
+        onClose={home}
+      >
+        <Txt kind="meta" style={st.meta}>
+          주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
+        </Txt>
+        {!islands.length && (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            아직 순위에 오른 섬이 없어요
+          </Txt>
+        )}
+        <SheetGroup>
+          {islands.map(({ i, avg }, n) => (
+            <SheetRow
+              key={i.id}
+              title={i.name}
+              sub={`평균 ${hoursMinutes(avg)} · 주민 ${residentCount(i)}`}
+              label={`${n + 1}위 ${i.name}, 평균 ${hoursMinutes(avg)}, 주민 ${residentCount(i)}명`}
+              tone={n === 0 ? 'butter' : undefined}
+              lead={
+                <Txt
+                  style={{
+                    width: 26,
+                    fontSize: 18,
+                    lineHeight: 26.1,
+                    fontWeight: '800',
+                    textAlign: 'center',
+                  }}
+                >
+                  {n + 1}
+                </Txt>
+              }
+              tail={<IslandThumb warm={i.id === 'strawberry'} />}
+              chevron={i.id !== island.id}
+              onPress={
+                i.id === island.id
+                  ? undefined
+                  : () => {
+                      setVisited(i.id);
+                      go('visit', i.id);
+                    }
+              }
+            />
+          ))}
+        </SheetGroup>
+      </IslandSheet>
+    );
+  }
+  if (route === 'explore') {
+    // 서버 모드는 섬 이름을 서버에서 검색하고 고른 섬을 망원경에 넣는다(GROMO-2269) — 아래 로컬 필터는 서버 없는 모드의 목업이다
+    if (server) return <ObservatorySearch e={e} />;
+    const query = search.trim();
+    const codeTarget = findIslandByInviteCode(state.islands, query)?.id;
+    // 이름 검색 결과에서 정원이 찬 섬(내가 가입하지 않은)은 뺀다. 초대 코드로 찾은 섬은 보여 주고 가입할 때 막는다
+    const results = state.islands.filter(
+      (i) =>
+        (!i.closed &&
+          !i.kicked &&
+          i.visibility !== 'private' &&
+          (!query || i.name.includes(query)) &&
+          (i.joined || !isFull(i))) ||
+        (!i.closed && !i.kicked && i.id === codeTarget),
+    );
+    return (
+      <IslandSheet
+        bg="tower"
+        sign="bld/observatory"
+        title="섬 찾기"
+        tall
+        onBack={back}
+        onClose={home}
+      >
+        <SearchField value={search} onChange={setSearch} placeholder="섬 이름이나 초대 코드" />
+        {results.length ? (
+          <SheetGroup>
+            {results.map((i) => (
+              <SheetRow
+                key={i.id}
+                title={i.name}
+                sub={`${i.intro} · 주민 ${residentCount(i)}`}
+                chevron={!i.joined}
+                tail={
+                  <>
+                    {i.joined && <Badge soft>소속됨</Badge>}
+                    <IslandThumb warm={i.id === 'strawberry'} />
+                  </>
+                }
+                onPress={() => {
+                  setVisited(i.id);
+                  i.id === island.id ? home() : go('visit', i.id);
+                }}
+              />
+            ))}
+          </SheetGroup>
+        ) : (
+          <Txt kind="meta" style={st.meta}>
+            찾는 섬이 없어요. 이름이나 초대 코드를 확인해 주세요.
+          </Txt>
+        )}
+      </IslandSheet>
+    );
+  }
+  if (route === 'visit' || route === 'approval') {
+    const i =
+        state.islands.find((i) => i.id === (detail || visited || state.pendingIsland)) ||
+        state.islands[1],
+      pending = (state.pendingIslands ?? []).includes(i.id) || state.pendingIsland === i.id;
+    const sail = () => {
+      if (state.session) return notify('집중을 마친 뒤 이동해 주세요.');
+      act('TRAVEL_FROM', { name: island.name });
+      setVisited(i.id);
+      go('travel', i.id);
+    };
+    // 승인 필요 섬은 신청만 하고 같은 시트에 토스트 한 줄(승인 대기 화면 없음). 방장이 확인하면 알림
+    const apply = () => {
+      if (state.session) return notify('집중을 마친 뒤 가입해 주세요.');
+      if (i.kicked) return notify('강퇴된 섬에는 다시 가입할 수 없어요.');
+      if (isFull(i)) return notify('정원이 가득 찬 섬이에요');
+      act('JOIN', { id: i.id });
+      if (i.approval) setSheetToast('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+      else {
+        act('TRAVEL_FROM', { name: island.name });
+        setVisited(i.id);
+        go(state.onboarded ? 'travel' : 'arrival', i.id);
+      }
+    };
+    return (
+      <IslandSheet
+        bg="tower"
+        sign="bld/observatory"
+        title="바다 건너 섬"
+        tall
+        onBack={back}
+        onClose={state.onboarded ? home : () => replace('sea')}
+        toast={sheetToast}
+        footer={
+          state.onboarded ? (
+            // 소속 섬은 이동하고, 미가입 섬은 읽기 전용 관전 경로로 이동한다.
+            <Cta
+              note={pending ? '참여 신청을 보냈어요. 방장이 확인하면 알려드릴게요.' : undefined}
+              title={i.joined ? '이 섬으로 가기' : '섬 둘러보기'}
+              onPress={sail}
+            />
+          ) : (
+            // 첫 섬 고르기: 아직 내 섬이 없어 구경할 수 없으므로 여기서 가입한다
+            <Cta
+              title="배 타고 이동"
+              onPress={sail}
+              ghost={
+                i.joined
+                  ? '소속된 섬'
+                  : pending
+                    ? '참여 신청됨 · 취소'
+                    : i.approval
+                      ? '가입 신청'
+                      : '이 섬에 가입'
+              }
+              onGhost={
+                i.joined
+                  ? () => notify('이미 소속된 섬이에요.')
+                  : pending
+                    ? () => act('CANCEL_JOIN', { id: i.id })
+                    : apply
+              }
+            />
+          )
+        }
+      >
+        {/* 가로 패널: 그림과 정보를 나란히 */}
+        <View style={layout.compact ? { flexDirection: 'row', gap: 14 } : { gap: 14 }}>
+          <Preview h={220} w={layout.compact ? 220 : undefined}>
+            <Pic id="island/whole" w="100%" h="100%" cover />
+          </Preview>
+          <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 14 }}>
+            <Txt style={st.h22}>{i.name}</Txt>
+            <Txt style={st.body}>{i.intro}</Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <AvStack list={i.members.slice(0, 3).map((m) => m.color)} />
+              <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+                {`주민 ${residentCount(i)}명 · 평균 ${hoursMinutes(islandWeeklyAverage(state, i, now))}`}
+              </Txt>
+            </View>
+            <Badge soft>{i.approval ? '승인 필요' : '바로 참여'}</Badge>
+          </View>
+        </View>
+      </IslandSheet>
+    );
+  }
+  // 뗏목 위 고양이 그림. 합성 그림은 검정 고양이만 있어서 다른 털색은 뗏목 + 고양이를 겹쳐 그린다
+  const raftCat = (h: number) =>
+    state.color === 'black' ? (
+      <Preview h={h}>
+        <BlackRaftCat id="boat/raft/cat" outfit={outfitOf(state)} />
+      </Preview>
+    ) : (
+      <Boat state={state} h={layout.compact ? 150 : h} />
+    );
+  // island(currentIsland(state))는 로컬 목업 섬(state.islandId, 기본값 소다 섬)을 가리켜
+  // 서버 모드에서도 항상 「소다 섬」으로 보였다. 서버 모드는 snap.memberships 의 현재 섬 이름이 정본이다.
+  const fishStripIslandName = server
+    ? (snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ?? island.name)
+    : island.name;
+  const fishStrip = (
+    <Strip
+      label={fishStripIslandName + ' 물고기'}
+      value={
+        server
+          ? shopApi.wallets
+            ? shopApi.wallets.villagePoints.toLocaleString() + '마리'
+            : '…'
+          : balance(island).toLocaleString() + '마리'
+      }
+    />
+  );
+  if (route === 'shop') {
+    // 탭 2개: 내 꾸미기(옷·장신구) · 우리 섬 꾸미기(섬·건물 테마). 음원은 축음기에서 산다
+    // 서버 모드는 탭이 곧 category 이고 목록은 서버 응답 그대로다(GROMO-2017).
+    const mine = tab !== '우리 섬 꾸미기',
+      cols = layout.compact ? 4 : 2,
+      items = server
+        ? shopApi.items.map(shopCard)
+        : products.filter((p) =>
+            mine ? p.kind === 'clothes' : p.kind === 'island' || p.kind === 'building',
+          );
+    const card = (p: any) => (
+      <Pressable
+        key={p.id}
+        accessibilityRole="button"
+        accessibilityLabel={`${p.title}, ${p.price == null ? '준비 중' : `${p.price}마리`}${owned(p) ? ', 보유 중' : ''}`}
+        onPress={() => go('product', p.id)}
+        style={{
+          flex: 1,
+          padding: 10,
+          gap: 6,
+          borderWidth: 1.5,
+          borderColor: C.brown,
+          borderRadius: 18,
+          backgroundColor: C.paper,
+        }}
+      >
+        <View
+          style={{
+            height: layout.compact ? 84 : 112,
+            borderRadius: 12,
+            backgroundColor: mine ? '#FFF0F3' : '#E3F4FC',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          {p.kind === 'island' ? (
+            <Pic id="island/whole" w="100%" h="100%" cover />
+          ) : (
+            <Pic
+              id={p.kind === 'building' ? 'bld/' + buildingArt[p.building || 'hall'] : 'scarf-cat'}
+              w="92%"
+              h="92%"
+            />
+          )}
+        </View>
+        {owned(p) && (
+          <View
+            style={{
+              position: 'absolute',
+              left: 16,
+              top: 16,
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderWidth: 1.5,
+              borderColor: C.brown,
+              borderRadius: 999,
+              backgroundColor: C.butter,
+            }}
+          >
+            <Txt style={{ fontSize: 11, lineHeight: 15.95, fontWeight: '700' }}>보유 중</Txt>
+          </View>
+        )}
+        <Txt
+          style={{
+            fontSize: layout.compact ? 13 : 14,
+            lineHeight: layout.compact ? 18.85 : 20.3,
+            fontWeight: '700',
+          }}
+        >
+          {p.title}
+        </Txt>
+        <Txt kind="meta" style={{ lineHeight: 18.85 }}>
+          {p.price == null ? '준비 중' : `${p.price}마리`}
+        </Txt>
+      </Pressable>
+    );
+    return (
+      <>
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="강아지 상점"
+          tall
+          action="구매 내역"
+          actionPress={() => go('orders')}
+          onClose={home}
+        >
+          {fishStrip}
+          <Chips
+            items={['내 꾸미기', '우리 섬 꾸미기']}
+            value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
+            onChange={setTab}
+          />
+          {mine && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Pic id="dog" w={56} />
+              <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+                어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
+              </Txt>
+            </View>
+          )}
+          {server && shopApi.error ? (
+            <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+              <Txt kind="meta" style={st.meta}>
+                {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+              </Txt>
+              <Btn title="다시 시도" onPress={shopApi.retry} />
+            </View>
+          ) : server && shopApi.loading ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중…
+            </Txt>
+          ) : null}
+          {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
+          {!items.length &&
+            (!server ||
+              (shopApi.itemsCategory === (mine ? 'personal' : 'island') &&
+                !shopApi.loading &&
+                !shopApi.error)) && (
+              <EmptyState
+                testID="shop-empty"
+                art={cat(state.color, 'side')}
+                title={t('emptyState.shop')}
+              />
+            )}
+          {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
+          <View style={{ gap: layout.compact ? 10 : 12 }}>
+            {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
+              <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
+                {Array.from({ length: cols }, (_, c) => {
+                  const p = items[r * cols + c];
+                  // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
+                  return (
+                    <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                      {p && card(p)}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </IslandSheet>
+      </>
+    );
+  }
+  if (route === 'product') {
+    // 서버 모드는 상품 상세 계약이 정본이다(GROMO-2017) — 가격·owned·available·버전 모두
+    // 서버 응답을 쓰고 목업 products/canBuy 는 건드리지 않는다.
+    const sp = server
+      ? ((shopApi.detail && shopApi.detail.id === detail ? shopApi.detail : null) ??
+        shopApi.items.find((i) => i.id === detail) ??
+        null)
+      : null;
+    if (server && !sp) {
+      return (
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="상품 상세"
+          fit
+          onBack={back}
+          onClose={home}
+        >
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            {shopApi.detailLoading
+              ? '불러오는 중…'
+              : serverErrorText(shopApi.detailError) || '상품을 불러오지 못했어요.'}
+          </Txt>
+        </IslandSheet>
+      );
+    }
+    const p = sp
+        ? shopCard({ ...sp, description: '' })
+        : products.find((p) => p.id === detail) || products[0],
+      audio = p.kind === 'audio',
+      clothes = p.kind === 'clothes',
+      has = server ? !!sp?.owned : owned(p),
+      // 살 수 없는 이유 — 서버 모드는 available/blockedReason 응답이 정본이다
+      error = has
+        ? null
+        : server
+          ? sp!.available
+            ? null
+            : shopBlockReason(sp!)
+          : canBuy(state, p),
+      remaining = Math.max(
+        0,
+        (server ? (shopApi.wallets?.villagePoints ?? 0) : balance(island)) - (p.price ?? 0),
+      ),
+      applied =
+        p.kind === 'island'
+          ? (server ? shopApi.shared?.appearance.islandThemeId : island.theme) === p.id
+          : p.kind === 'building'
+            ? (server
+                ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
+                : island.buildingThemes?.[p.building || 'hall']) === p.id
+            : false;
+    // 적용은 서버 PATCH 가 정본 — 실패하면 성공 토스트를 띄우지 않는다(false 반환).
+    const apply = (value: string): Promise<boolean> => {
+      if (server)
+        return shopApi
+          .applyTheme(
+            p.kind === 'island'
+              ? { islandThemeId: value }
+              : { buildingThemes: { [p.building || 'hall']: value } },
+          )
+          .then(() => true)
+          .catch((thrown) => {
+            const m = serverErrorText(thrown);
+            if (m) notify(m);
+            return false;
+          });
+      act('THEME', { kind: p.kind, building: p.building || 'hall', value });
+      return Promise.resolve(true);
+    };
+    const buy = () =>
+      confirm(
+        p.title + '를 살까요?',
+        `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리` +
+          (clothes ? '\n산 사람의 보유품이라 섬을 떠나도 남아요.' : ''),
+        () => {
+          if (server) {
+            // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
+            const startedView = productViewRef.current;
+            shopApi
+              .buy({ id: p.id, productVersion: sp!.productVersion })
+              .then(() => setSheetToast('구매했어요.'))
+              .catch((thrown) => {
+                if (e.conversion?.offer(thrown)) return;
+                const m = serverErrorText(thrown);
+                if (!m) return;
+                // 전역 알림(notify)은 이 상품 상세 시트 위에서 가려질 수 있어, 아직 같은 상품
+                // 화면에 있으면 시트 안 토스트로 알린다(스크린리더도 한 채널만 읽는다). 그 사이
+                // 다른 화면으로 옮겼다면 시트 토스트를 남의 화면에 띄우지 않고 전역 알림으로 알린다.
+                if (productViewRef.current === startedView) {
+                  setSheetToast(m);
+                  setSheetToastSeq((n) => n + 1);
+                } else {
+                  notify(m);
+                }
+              });
+            return;
+          }
+          act('BUY', { id: p.id });
+          setSheetToast('구매했어요.');
+        },
+        { ok: '구매' },
+      );
+    const cta = !has ? (
+      <Cta
+        note={
+          error ??
+          (audio
+            ? `구매 후 ${remaining.toLocaleString()}마리`
+            : `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리`)
+        }
+        title={audio ? `섬 물고기 ${p.price}마리로 구매` : `${p.price}마리로 구매`}
+        onPress={buy}
+        disabled={!!error || (server && shopApi.writing)}
+      />
+    ) : clothes ? (
+      <Cta title="내 뗏목에서 갈아입기" onPress={() => walkTo('wardrobe')} />
+    ) : audio ? (
+      <Cta title="축음기에서 듣기" onPress={() => go('sound')} />
+    ) : (
+      <Cta
+        title={applied ? '우리 섬에 적용됨' : '우리 섬에 적용'}
+        // 적용됨은 시안 모양 그대로 두고 누름만 막는다(Btn이 비활성으로 읽음)
+        onPress={
+          applied
+            ? undefined
+            : () =>
+                void apply(p.id).then((ok) => {
+                  if (ok) setSheetToast('우리 섬에 적용했어요.');
+                })
+        }
+        ghost="기본 외양으로 해제"
+        onGhost={() => {
+          const current =
+            p.kind === 'island'
+              ? server
+                ? shopApi.shared?.appearance.islandThemeId
+                : island.theme
+              : server
+                ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
+                : island.buildingThemes?.[p.building || 'hall'];
+          if (!current || current === 'default') {
+            setSheetToast('이미 기본 외양이에요');
+            return;
+          }
+          void apply('default').then((ok) => {
+            if (ok) setSheetToast('기본 외양으로 되돌렸어요.');
+          });
+        }}
+      />
+    );
+    return (
+      <IslandSheet
+        bg={audio ? 'gram' : 'shop'}
+        sign={audio ? 'bld/gramophone' : 'dog'}
+        signKind={audio ? '' : 'npc'}
+        title={audio ? '음원 사기' : '상품 상세'}
+        fit
+        onBack={back}
+        onClose={home}
+        footer={cta}
+        toast={sheetToast}
+      >
+        {clothes ? (
+          raftCat(260)
+        ) : audio ? (
+          <Preview h={220} bg={C.soft}>
+            <Pic id="bld/gramophone" w={170} />
+            <View style={{ position: 'absolute', left: 16, bottom: 22 }}>
+              <Badge soft>나만 미리듣기</Badge>
+            </View>
+            {/* 미리듣기는 내 기기에서만. 섬 재생에는 영향 없음 */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '나만 미리듣기'}
+              disabled={!player.playbackAllowed}
+              accessibilityState={{ disabled: !player.playbackAllowed }}
+              onPress={() => {
+                try {
+                  if (!player.playbackAllowed) return;
+                  if (previewAudio) {
+                    player.pause();
+                    setPreviewAudio(false);
+                  } else {
+                    player.replace(assets['audio/' + p.id + '.wav']);
+                    // 미리듣기는 한 번만(끝나면 재생 종료 이벤트로 버튼을 되돌린다)
+                    player.loop = false;
+                    setPreviewAudio(player.play());
+                  }
+                } catch {
+                  notify('음원을 불러오지 못했어요.');
+                }
+              }}
+              style={{
+                position: 'absolute',
+                right: 16,
+                bottom: 16,
+                width: 52,
+                height: 52,
+                borderRadius: 26,
+                borderWidth: 2,
+                borderColor: C.brown,
+                backgroundColor: C.pink,
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0px 3px 0px ' + C.brown,
+              }}
+            >
+              <PlayIcon pause={previewAudio} />
+            </Pressable>
+          </Preview>
+        ) : p.kind === 'island' ? (
+          <Preview h={220}>
+            <Pic id="island/whole" w="100%" h="100%" cover />
+          </Preview>
+        ) : (
+          <Preview h={220}>
+            <Pic id={'bld/' + buildingArt[p.building || 'hall']} w={180} />
+          </Preview>
+        )}
+        <Txt style={st.h22}>{p.title}</Txt>
+        {has && !audio && <Badge>보유 중{applied ? ' · 적용됨' : ''}</Badge>}
+        <Txt style={st.body}>
+          {p.description}
+          {p.kind === 'island' && applied ? ' 지금 우리 섬에 적용돼 있어요.' : ''}
+        </Txt>
+        {clothes && (
+          <Txt kind="meta" style={st.meta}>
+            산 사람의 보유품이라 섬을 떠나도 남아요.
+          </Txt>
+        )}
+        {audio && (
+          <Txt kind="meta" style={st.meta}>
+            주민 누구나 살 수 있어요. 사면 섬 전체가 함께 들어요.
+          </Txt>
+        )}
+      </IslandSheet>
+    );
+  }
+  if (route === 'orders') {
+    // 내 구매 = 옷·장신구(날짜·시각), 섬 공동 구매 = 이 섬 테마·음원(날짜·구매자, 방장이면 "방장")
+    // 서버 모드는 scope=personal|shared 응답이 정본 — 내역 가격은 당시 확정가 스냅숏이다(GROMO-2017).
+    const shared = tab === '섬 공동 구매';
+    const list: State['orders'] = server
+      ? shopApi.orders.map((o) => ({
+          id: o.id,
+          product: o.productId,
+          islandId: island.id,
+          currency: 'village_points',
+          price: o.price,
+          at: Date.parse(o.createdAt),
+        }))
+      : state.orders.filter((o) => {
+          const kind = products.find((p) => p.id === o.product)?.kind;
+          return shared ? kind !== 'clothes' && o.islandId === island.id : kind === 'clothes';
+        });
+    return (
+      <IslandSheet
+        bg="shop"
+        sign="dog"
+        signKind="npc"
+        title="구매 내역"
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        <FTabs
+          items={[
+            ['내 구매', 'person'],
+            ['섬 공동 구매', 'group'],
+          ]}
+          value={shared ? '섬 공동 구매' : '내 구매'}
+          onChange={setTab}
+        />
+        {server && shopApi.ordersLoading ? (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            불러오는 중…
+          </Txt>
+        ) : server && shopApi.ordersError ? (
+          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+            <Txt kind="meta" style={st.meta}>
+              {serverErrorText(shopApi.ordersError) || '구매 내역을 불러오지 못했어요.'}
+            </Txt>
+            <Btn title="다시 시도" onPress={shopApi.retry} />
+          </View>
+        ) : list.length ? (
+          <SheetGroup>
+            {list.map((o) => (
+              <SheetRow
+                key={o.id}
+                title={productTitle(o.product)}
+                sub={
+                  shared
+                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '방장' : o.buyer)]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : `${md(o.at)} · ${hm(o.at)}`
+                }
+                right={`${o.price}마리`}
+                chevron
+                onPress={() => go('product', o.product)}
+              />
+            ))}
+          </SheetGroup>
+        ) : (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            아직 구매한 물건이 없어요.
+          </Txt>
+        )}
+      </IslandSheet>
+    );
+  }
+  const friends = state.friends ?? [];
+  if (route === 'boat') {
+    const received = server
+        ? friendsScreen.status === 'ready'
+          ? (friendsScreen.data?.friendRequests.length ?? 0)
+          : 0
+        : friends.filter((f) => f.status === 'received').length,
+      joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
+      primaryIsland = mainIsland(state) ?? island,
+      // mainIsland(state)/island 은 로컬 목업 섬(state.islands, 기본값 소다 섬)만 찾아 서버
+      // 모드에서도(특히 게스트→멤버 전환처럼 목업 섬을 하나도 가입하지 않은 상태에서) 항상 「소다
+      // 섬」으로 보였다. 서버 모드는 snap.memberships 에서 mainIslandId(/me 정본, 없으면
+      // currentIslandId)로 찾은 이름이 정본이다(상점 잔액 라벨과 같은 패턴).
+      // mainIslandId 가 멤버십에 없으면(재검증 중·탈퇴 직후) currentIslandId 쪽 이름도 찾고, 그래도 없으면
+      // 목업 섬 이름으로 떨어지지 않고 이름 없는 문구를 쓴다.
+      primaryIslandName = server
+        ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+          snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+          t('account.boat.myIslandFallback'))
+        : primaryIsland.name,
+      canChangeMainIsland = (server ? (snap?.memberships.length ?? 0) : joinedIslands.length) > 1;
+    const mainIslandCard = (
+      <>
+        <IslandCircle size={112} />
+        <View style={{ flex: 1, height: 128, marginLeft: 20, paddingTop: 1, paddingRight: 22 }}>
+          <Txt
+            kind="meta"
+            style={{ fontSize: 13, lineHeight: 19, fontWeight: '600', color: C.muted }}
+          >
+            {t('account.boat.currentMain')}
+          </Txt>
+          <Txt numberOfLines={1} ellipsizeMode="tail" style={[st.h22, { marginTop: 1 }]}>
+            {primaryIslandName}
+          </Txt>
+          <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
+            {t('account.boat.visibleInProfile')}
+          </Txt>
+          {canChangeMainIsland && (
+            <Txt
+              style={{
+                position: 'absolute',
+                left: 0,
+                bottom: 1,
+                fontSize: 13,
+                lineHeight: 19,
+                fontWeight: '600',
+                // 위험 행동이 아니라 Danger 색을 쓰지 않는다(DESIGN §7.2)
+                color: semanticTokens.color.text,
+              }}
+            >
+              {t('account.boat.changeMain')}
+            </Txt>
+          )}
+          {canChangeMainIsland && (
+            <View style={{ position: 'absolute', right: 0, top: 51 }}>
+              <SheetChev />
+            </View>
+          )}
+        </View>
+      </>
+    );
+    return (
+      <IslandSheet bg="dock" sign="boat/raft" title={t('account.boat.title')} tight onClose={home}>
+        {canChangeMainIsland ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('account.boat.currentMainA11y', { name: primaryIslandName })}
+            onPress={() => go('mainIsland')}
+            style={({ pressed }) => ({
+              height: 164,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              backgroundColor: C.paper,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 20,
+              boxShadow: '0px 4px 0px #8B695657',
+              opacity: pressed ? 0.78 : 1,
+            })}
+          >
+            {mainIslandCard}
+          </Pressable>
+        ) : (
+          <View
+            accessible
+            accessibilityLabel={t('account.boat.currentMainOnlyA11y', { name: primaryIslandName })}
+            style={{
+              height: 164,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              backgroundColor: C.paper,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 20,
+              boxShadow: '0px 4px 0px #8B695657',
+            }}
+          >
+            {mainIslandCard}
+          </View>
+        )}
+        <SheetGroup>
+          {server && (
+            <SheetRow
+              title={t('islandPicker.currentTitle')}
+              sub={
+                island.name
+                  ? t('islandPicker.currentIslandName', { name: island.name })
+                  : t('islandPicker.chooseJoined')
+              }
+              chevron
+              onPress={() => go('currentIsland')}
+            />
+          )}
+          <SheetRow
+            title={t('account.boat.wardrobeTitle')}
+            sub={t('account.boat.wardrobeSub')}
+            lead={<Pic id="scarf-cat" w={28} />}
+            chevron
+            onPress={() => go('wardrobe')}
+          />
+          <SheetRow
+            title={t('account.boat.friendsTitle')}
+            sub={t('account.boat.friendsSub')}
+            lead={<RowIcon name="group" />}
+            right={
+              received ? (
+                <Txt
+                  style={{
+                    fontSize: 15,
+                    lineHeight: 21.75,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {t('account.boat.friendRequestCount', { count: received })}
+                </Txt>
+              ) : undefined
+            }
+            chevron
+            onPress={() => go('friends')}
+          />
+          <SheetRow
+            title={t('account.profile.title')}
+            sub={t('account.profile.sub')}
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
+            chevron
+            onPress={() => go('profile')}
+          />
+          <SheetRow
+            title={t('account.boat.settingsTitle')}
+            sub={t('account.boat.settingsSub')}
+            lead={<RowIcon name="gear" />}
+            chevron
+            onPress={() => go('settings')}
+          />
+        </SheetGroup>
+      </IslandSheet>
+    );
+  }
+  if (route === 'mainIsland') {
+    const joinedIslands = state.islands.filter(
+        (candidate) => candidate.joined && !candidate.closed,
+      ),
+      primaryIsland = mainIsland(state),
+      selectedIsland =
+        joinedIslands.find((candidate) => candidate.id === mainIslandPick) ?? primaryIsland,
+      unchanged = !selectedIsland || selectedIsland.id === primaryIsland?.id;
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="island/whole"
+        title="내 메인 섬 변경하기"
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        <View style={{ gap: 5 }}>
+          <Txt style={{ fontSize: 18, lineHeight: 25, fontWeight: '700' }}>
+            대표로 보여줄 섬을 골라 주세요
+          </Txt>
+          <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+            {t('islandPicker.mainDescription')}
+          </Txt>
+        </View>
+        <View
+          style={{
+            backgroundColor: C.paper,
+            borderWidth: 2,
+            borderColor: C.brown,
+            borderRadius: 18,
+            overflow: 'hidden',
+            boxShadow: '0px 4px 0px #8B695657',
+          }}
+        >
+          {joinedIslands.map((candidate, index) => {
+            const selected = candidate.id === selectedIsland?.id,
+              current = candidate.id === primaryIsland?.id;
+            return (
+              <Pressable
+                key={candidate.id}
+                accessibilityRole="radio"
+                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 방장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
+                accessibilityState={{ selected }}
+                onPress={() => setMainIslandPick(candidate.id)}
+                style={({ pressed }) => ({
+                  height: 84,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 14,
+                  backgroundColor: selected ? C.soft : C.paper,
+                  borderBottomWidth: index < joinedIslands.length - 1 ? 1 : 0,
+                  borderBottomColor: '#8B695633',
+                  opacity: pressed ? 0.76 : 1,
+                })}
+              >
+                <IslandCircle size={56} />
+                <View style={{ flex: 1, minWidth: 0, marginLeft: 14, gap: 3 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Txt style={{ fontSize: 16, lineHeight: 22, fontWeight: '700' }}>
+                      {candidate.name}
+                    </Txt>
+                    {current ? (
+                      <View
+                        style={{
+                          height: 22,
+                          paddingHorizontal: 10,
+                          borderRadius: 11,
+                          backgroundColor: C.sky,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Txt style={{ fontSize: 10, lineHeight: 14, fontWeight: '600' }}>
+                          현재 메인 섬
+                        </Txt>
+                      </View>
+                    ) : (
+                      selected && (
+                        <Txt
+                          style={{
+                            fontSize: 11,
+                            lineHeight: 16,
+                            fontWeight: '600',
+                            color: '#9A4C3E',
+                          }}
+                        >
+                          선택됨
+                        </Txt>
+                      )
+                    )}
+                  </View>
+                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 방장' : '멤버'}
+                  </Txt>
+                </View>
+                <MainIslandRadio selected={selected} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <Txt
+          kind="meta"
+          style={{ width: '100%', fontSize: 11, lineHeight: 17, textAlign: 'center' }}
+        >
+          메인 섬을 바꿔도 현재 접속한 섬은 그대로예요.
+        </Txt>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            selectedIsland ? `${selectedIsland.name}으로 변경하기` : '메인 섬 변경하기'
+          }
+          accessibilityState={{ disabled: unchanged }}
+          disabled={unchanged}
+          onPress={() => {
+            if (!selectedIsland) return;
+            act('MAIN_ISLAND', { id: selectedIsland.id });
+            back();
+          }}
+          style={({ pressed }) => ({
+            width: '100%',
+            height: 52,
+            borderRadius: 26,
+            borderWidth: 2,
+            borderColor: C.brown,
+            backgroundColor: C.pink,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: unchanged ? 0.42 : pressed ? 0.76 : 1,
+          })}
+        >
+          <Txt style={{ fontSize: 15, lineHeight: 22, fontWeight: '800' }}>
+            {selectedIsland ? `${selectedIsland.name}으로 변경하기` : '메인 섬 변경하기'}
+          </Txt>
+        </Pressable>
+      </IslandSheet>
+    );
+  }
+  if (route === 'wardrobe') {
+    // 가진 장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
+    type WardrobeSlot = 'decor' | 'head' | 'neck' | 'shoes';
+    const slotWorn = (slot: WardrobeSlot): string | null => {
+      const v = state.equipped[slot];
+      return v == null || v === 'default' || v === 'none' ? null : v;
+    };
+    const thumb = (
+      slot: WardrobeSlot,
+      value: string | null,
+      label: string,
+      picture: React.ReactNode,
+      a11yLabel: string = label,
+    ) => {
+      const on = slotWorn(slot) === value;
+      const fresh = value != null && unseenOutfits.has(value);
+      return (
+        <Pressable
+          key={`${slot}:${value}`}
+          accessibilityRole="button"
+          accessibilityLabel={fresh ? `${a11yLabel} ${t('common.newBadge')}` : a11yLabel}
+          accessibilityState={{ selected: on }}
+          onPress={() => {
+            if (fresh) markOutfitSeen(value);
+            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다. null 은 해제.
+            if (server) {
+              shopApi.equip({ [slot]: value }).catch((thrown) => {
+                const m = serverErrorText(thrown);
+                if (m) notify(m);
+              });
+            }
+          }}
+          style={{ width: 76, gap: 5, alignItems: 'center' }}
+        >
+          <View
+            style={{
+              width: 76,
+              height: 76,
+              borderWidth: 2,
+              borderColor: on ? C.brown : '#D9C6B8',
+              borderRadius: 16,
+              backgroundColor: on ? C.soft : C.paper,
+              boxShadow: on ? '0px 3px 0px ' + C.brown : 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {picture}
+            {on && (
+              <View style={{ position: 'absolute', top: -6, right: -6 }}>
+                <CheckDot />
+              </View>
+            )}
+            {fresh && (
+              <Badge small style={{ position: 'absolute', top: -8, left: -6 }}>
+                {t('common.newBadge')}
+              </Badge>
+            )}
+          </View>
+          <Txt
+            style={{
+              fontSize: 12,
+              lineHeight: 17.4,
+              fontWeight: on ? '700' : '600',
+              color: on ? C.ink : C.muted,
+            }}
+          >
+            {label}
+          </Txt>
+        </Pressable>
+      );
+    };
+    const slotIds = (slot: WardrobeSlot): string[] =>
+      server ? ((shopApi.my?.[slot] as string[] | undefined) ?? []) : [];
+
+    const picture = (slot: WardrobeSlot, id: string) => {
+      const entry = catalog[id];
+      // 집중 보상 목은 원본 전체가 아니라 앞 장식만 잘라 보인다(GROMO-2382)
+      if (entry) return <OutfitItemArt entry={entry} size={60} testID={`wardrobe-art-${id}`} />;
+      return slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
+    };
+    // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
+    const shelf = (slot: WardrobeSlot) =>
+      slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === slotWorn(slot));
+    const slots = (['decor', 'head', 'neck', 'shoes'] as const).filter(
+      (slot) => shelf(slot).length > 0 || slotWorn(slot),
+    );
+    // 옷장에 칸을 그리지 않는 옷(clothes)도 가졌거나 입고 있으면 «없음»이 아니다.
+    // hulls 는 보유가 아니라 모두에게 같은 상수(["raft"])라 세지 않는다
+    const hasClothes =
+      !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title={t('wardrobe.title')}
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        {raftCat(260)}
+        {/* 서버는 보유품을 받은 뒤에만 «없음»을 말한다 */}
+        {!slots.length && !hasClothes && (!server || shopApi.my) && (
+          <EmptyState
+            testID="wardrobe-empty"
+            art={seaLoaf[state.color]}
+            title={t('emptyState.wardrobe')}
+          />
+        )}
+        {slots.map((slot) => {
+          const ids = shelf(slot);
+          return (
+            <View key={slot} style={{ gap: 10 }}>
+              <Txt kind="section" style={st.sec}>
+                {t(`wardrobe.section.${slot}`)}
+              </Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {thumb(
+                  slot,
+                  null,
+                  t('wardrobe.default'),
+                  null,
+                  // 슬롯마다 같은 「기본」이 네 번 읽히지 않게 슬롯 이름을 붙인다
+                  t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
+                )}
+                {ids.map((id) =>
+                  thumb(
+                    slot,
+                    id,
+                    server
+                      ? (catalog[id]?.title ?? productTitle(id))
+                      : products.find((p) => p.id === id)?.title || id,
+                    picture(slot, id),
+                  ),
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </IslandSheet>
+    );
+  }
+  if (route === 'friends' || route === 'friendSearch') {
+    const serverMode = !!server;
+    const data = serverMode ? friendsScreen.data : null;
+    const received = serverMode
+      ? (data?.friendRequests ?? [])
+      : friends.filter((friend) => friend.status === 'received');
+    const sent = serverMode
+      ? (data?.sentFriendRequests ?? [])
+      : friends.filter((friend) => friend.status === 'sent');
+    const accepted = serverMode
+      ? (data?.friends ?? [])
+      : friends.filter((friend) => friend.status === 'friend');
+    const queryValue = serverMode ? friendsScreen.query : search;
+    const query = queryValue.trim().toLowerCase();
+    const localResults = query
+      ? friendDirectory.filter((friend) => friend.name.toLowerCase() === query)
+      : [];
+    const sectionTitle = (title: string, count?: number) => (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        <Txt kind="section" style={[st.sec, { marginTop: 0 }]}>
+          {title}
+        </Txt>
+        {count !== undefined && <Badge small>{count}</Badge>}
+      </View>
+    );
+    const friendMenu = (id: string, name: string, onDelete?: () => void) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${name} 더보기`}
+        hitSlop={6}
+        onPress={() => setSafetyTarget({ id, name, onDelete })}
+        style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Txt
+          style={{
+            fontSize: 20,
+            lineHeight: 29,
+            fontWeight: '800',
+            letterSpacing: 1,
+            color: C.brown,
+          }}
+        >
+          ···
+        </Txt>
+      </Pressable>
+    );
+    // 줄 끝 버튼과 ··· — 큰 글자에서는 이름 칸이 줄지 않게 세로로 쌓는다(받은·보낸 요청·검색 결과 공통)
+    const rowActions = (
+      actions: React.ReactNode,
+      safetyMenu?: React.ReactNode,
+      testID?: string,
+    ) => {
+      const stacked =
+        !!safetyMenu && layout.fontScale >= semanticTokens.typography.largeTextThreshold;
+      return (
+        <View
+          testID={safetyMenu ? testID : undefined}
+          style={{
+            flexDirection: stacked ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          {actions}
+          {safetyMenu}
+        </View>
+      );
+    };
+    const requestActions = (
+      onAccept: () => void,
+      onReject: () => void,
+      safetyMenu?: React.ReactNode,
+    ) =>
+      rowActions(
+        <>
+          <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+          <Btn
+            small
+            kind="sec"
+            title="거절"
+            disabled={serverMode && friendsScreen.busy}
+            onPress={onReject}
+          />
+        </>,
+        safetyMenu,
+        'friend-request-actions-with-safety',
+      );
+    const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
+      <SheetRow
+        key={friend.id}
+        title={friend.name}
+        sub={
+          friend.island +
+          (friend.status === 'sent'
+            ? ' · 수락 기다리는 중'
+            : searchResult && friend.status === 'received'
+              ? ' · 받은 요청'
+              : '')
+        }
+        tone={friend.status === 'received' ? 'butter' : undefined}
+        lead={<Avatar color={friend.color} />}
+        tail={
+          friend.status === 'received' ? (
+            requestActions(
+              () => act('FRIEND_ACCEPT', { id: friend.id }),
+              () => act('FRIEND_REJECT', { id: friend.id }),
+            )
+          ) : friend.status === 'sent' ? (
+            <Btn
+              small
+              kind="sec"
+              title="요청 취소"
+              onPress={() => act('FRIEND_CANCEL', { id: friend.id })}
+            />
+          ) : friend.status === 'friend' ? (
+            searchResult ? (
+              <Badge soft>친구</Badge>
+            ) : (
+              <Btn
+                small
+                kind="sec"
+                title="친구 삭제"
+                onPress={() =>
+                  confirm(
+                    '친구를 삭제할까요?',
+                    `${friend.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                    () => act('FRIEND_DELETE', { id: friend.id }),
+                    { ok: '삭제', destructive: true },
+                  )
+                }
+              />
+            )
+          ) : (
+            <Btn
+              small
+              title="친구 요청"
+              onPress={() => act('FRIEND_REQUEST', { id: friend.id, friend })}
+            />
+          )
+        }
+      />
+    );
+    const serverReceivedRows = (data?.friendRequests ?? []).map((friend) => {
+      const name = friend.nickname ?? '탈퇴한 사용자';
+      return (
+        <SheetRow
+          key={friend.requestId}
+          title={name}
+          tone="butter"
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
+          tail={requestActions(
+            () => friendCmd(() => acceptFriendRequest(friend.requestId)),
+            () => friendCmd(() => rejectFriendRequest(friend.requestId)),
+            friendMenu(friend.userId, name),
+          )}
+        />
+      );
+    });
+    const serverSentRows = (data?.sentFriendRequests ?? []).map((friend) => {
+      const name = friend.nickname ?? '탈퇴한 사용자';
+      return (
+        <SheetRow
+          key={friend.requestId}
+          title={name}
+          sub="수락 기다리는 중"
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
+          tail={rowActions(
+            <Btn
+              small
+              kind="sec"
+              title="요청 취소"
+              disabled={friendsScreen.busy}
+              onPress={() => friendCmd(() => cancelFriendRequest(friend.requestId))}
+            />,
+            friendMenu(friend.userId, name),
+          )}
+        />
+      );
+    });
+    const serverFriendRows = (data?.friends ?? []).map((friend) => {
+      const name = friend.nickname ?? '탈퇴한 사용자';
+      return (
+        <SheetRow
+          key={friend.userId}
+          title={name}
+          sub={friend.mainIslandName ?? undefined}
+          lead={
+            <Avatar
+              color={friend.catColor ?? 'white'}
+              outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+            />
+          }
+          tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
+        />
+      );
+    });
+    const receivedRows = serverMode
+      ? serverReceivedRows
+      : (received as Friend[]).map((friend) => localFriendRow(friend));
+    const sentRows = serverMode
+      ? serverSentRows
+      : (sent as Friend[]).map((friend) => localFriendRow(friend));
+    const friendRows = serverMode
+      ? serverFriendRows
+      : (accepted as Friend[]).map((friend) => localFriendRow(friend));
+    const empty = (message = '아직 없어요.') => (
+      <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+        {message}
+      </Txt>
+    );
+    const searchRows = serverMode
+      ? friendsScreen.searchItems.map((friend) => (
+          <SheetRow
+            key={friend.userId}
+            title={friend.nickname}
+            sub={friend.relation === 'FRIEND' ? '친구' : undefined}
+            lead={
+              <Avatar
+                color={friend.catColor ?? 'white'}
+                outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
+              />
+            }
+            tail={rowActions(
+              friend.relation === 'NONE' ? (
+                <Btn
+                  small
+                  title="친구 요청"
+                  disabled={friendsScreen.busy}
+                  onPress={() => friendCmd(() => sendFriendRequest(friend.userId))}
+                />
+              ) : (
+                <Btn
+                  small
+                  kind="sec"
+                  disabled
+                  title={friend.relation === 'PENDING' ? '요청 중' : '친구'}
+                />
+              ),
+              friendMenu(friend.userId, friend.nickname),
+            )}
+          />
+        ))
+      : localResults.map((candidate) => {
+          const existing = friends.find((friend) => friend.id === candidate.id);
+          return localFriendRow(existing ?? { ...candidate, status: 'none', messages: [] }, true);
+        });
+    const searchContent =
+      serverMode && friendsScreen.searchStatus === 'error' ? (
+        <SheetGroup>
+          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 18 }}>
+            <Txt kind="meta">{friendsScreen.searchError?.message ?? '검색하지 못했어요'}</Txt>
+            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+          </View>
+        </SheetGroup>
+      ) : serverMode && friendsScreen.searchStatus !== 'ready' ? (
+        <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+          찾는 중이에요…
+        </Txt>
+      ) : searchRows.length ? (
+        <SheetGroup>{searchRows}</SheetGroup>
+      ) : (
+        <SheetGroup>
+          <View style={{ paddingVertical: 24, paddingHorizontal: 18, alignItems: 'center' }}>
+            <Txt style={{ fontSize: 16, lineHeight: 23, fontWeight: '700' }}>
+              검색 결과가 없어요
+            </Txt>
+          </View>
+        </SheetGroup>
+      );
+    const leftColumn = query ? (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
+        {sectionTitle('검색 결과')}
+        {searchContent}
+      </View>
+    ) : (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 16 }}>
+        <View style={{ gap: 7 }}>
+          {sectionTitle('받은 요청', receivedRows.length)}
+          {receivedRows.length ? <SheetGroup>{receivedRows}</SheetGroup> : empty()}
+        </View>
+        <View style={{ gap: 7 }}>
+          {sectionTitle('보낸 요청')}
+          {sentRows.length ? <SheetGroup>{sentRows}</SheetGroup> : empty()}
+        </View>
+      </View>
+    );
+    const friendColumn = (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
+        {sectionTitle('친구')}
+        {serverMode && friendsScreen.status === 'loading' ? (
+          <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+            불러오는 중이에요
+          </Txt>
+        ) : serverMode && friendsScreen.status === 'error' ? (
+          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 12 }}>
+            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
+            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+          </View>
+        ) : friendRows.length ? (
+          <SheetGroup>{friendRows}</SheetGroup>
+        ) : (
+          empty('아직 친구가 없어요.')
+        )}
+      </View>
+    );
+    return (
+      <>
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+          <SearchField
+            value={queryValue}
+            onChange={serverMode ? friendsScreen.setQuery : setSearch}
+            placeholder="닉네임으로 친구 찾기"
+          />
+          {serverMode && !query && friendsScreen.status === 'loading' ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중이에요
+            </Txt>
+          ) : serverMode && !query && friendsScreen.status === 'error' ? (
+            <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
+              <Txt kind="meta">
+                {friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}
+              </Txt>
+              {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
+                <Btn
+                  small
+                  title="소셜 로그인하기"
+                  onPress={() => e.conversion.offer(friendsScreen.error)}
+                />
+              ) : (
+                <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+              )}
+            </View>
+          ) : !query && !receivedRows.length && !sentRows.length && !friendRows.length ? (
+            // 받은·보낸 요청과 친구가 모두 없으면 빈 칸 셋 대신 빈 안내 하나
+            <EmptyState
+              testID="friends-empty"
+              art={assets['characters/pelican/npc/idle.png']}
+              title={t('emptyState.friends')}
+            />
+          ) : (
+            <View
+              style={
+                layout.compact
+                  ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
+                  : { gap: 16 }
+              }
+            >
+              {leftColumn}
+              {friendColumn}
+            </View>
+          )}
+        </IslandSheet>
+        {serverMode && safetyTarget ? (
+          <UserSafetySheet
+            visible
+            targetUserId={safetyTarget.id}
+            targetName={safetyTarget.name}
+            onClose={() => setSafetyTarget(null)}
+            onChanged={() => {
+              // 차단 성공 뒤에만 불린다. 그 상대에게 보낸 대기 요청이 있으면 취소한다(GROMO-2467) —
+              // 보낸 요청 목록은 방금 차단으로 이미 걸러졌을 수 있어 거르기 전 목록에서 찾는다.
+              // 취소 실패는 알리지 않는다: 요청 줄은 차단 필터로 이미 숨겨져 있다.
+              const pending = friendsScreen.unfilteredSentFriendRequests.find(
+                (request) => request.userId === safetyTarget.id,
+              );
+              if (!pending) friendsScreen.refresh();
+              else
+                cancelFriendRequest(pending.requestId)
+                  .catch(() => {})
+                  .finally(friendsScreen.refresh);
+            }}
+            onMessage={notify}
+            extraAction={
+              safetyTarget.onDelete
+                ? {
+                    title: '친구 삭제',
+                    onPress: () =>
+                      confirm(
+                        '친구를 삭제할까요?',
+                        `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                        safetyTarget.onDelete!,
+                        { ok: '삭제', destructive: true },
+                      ),
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </>
+    );
+  }
+  if (route === 'profile') {
+    const providerLabels: Record<string, string> = {
+      google: t('account.profile.providers.google'),
+      kakao: t('account.profile.providers.kakao'),
+      line: t('account.profile.providers.line'),
+      apple: t('account.profile.providers.apple'),
+    };
+    const linkedProviderText = (state.linkedProviders ?? [])
+      .map((provider: string) => providerLabels[provider] ?? provider)
+      .filter(Boolean)
+      .join(' · ');
+    const mustTransferHost = state.islands.some(
+      (candidate) => isHost(candidate) && candidate.members.length > 0,
+    );
+    // 「저장」은 시트 머리 글자가 아니라 아래 버튼 줄의 가득 폭 Btn 이다(GROMO-2473). 처리 중에는 입력과 같이 막는다.
+    const saveProfile = () => {
+      const name = profileName;
+      setProfileNameError('');
+      if (!name) {
+        notify(t('account.profile.nicknameRequired'));
+        return;
+      }
+      if (!server) {
+        act('PROFILE', { name, color: profileColor });
+        notify(t('account.profile.saved'));
+        back();
+        return;
+      }
+      const signature = JSON.stringify([name, profileColor]);
+      if (profileSaveIntent.current?.signature !== signature) {
+        profileSaveIntent.current = { signature, key: uuid() };
+      }
+      const intent = profileSaveIntent.current;
+      const errorScope = profileErrorScope.current;
+      const gen = sessionGeneration();
+      run(
+        () =>
+          updateProfile({ name, catColor: profileColor }, intent.key)
+            .then((saved) => {
+              if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
+              act('PROFILE', {
+                name: saved.name ?? name,
+                color: saved.catColor ?? profileColor,
+              });
+              notify(t('account.profile.saved'));
+              back();
+            })
+            .catch((thrown) => {
+              if (thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID') {
+                if (
+                  profileErrorScope.current === errorScope &&
+                  routeNowRef.current === 'profile' &&
+                  sessionGeneration() === gen
+                )
+                  setProfileNameError(thrown.message);
+                return;
+              }
+              throw thrown;
+            }),
+        notify,
+      );
+    };
+    return (
+      <IslandSheet
+        bg="dock"
+        sign={'avatar/' + profileColor}
+        signKind="av"
+        title={t('account.profile.title')}
+        tall
+        onBack={back}
+        onClose={home}
+        footer={<Btn title={t('common.save')} onPress={saveProfile} disabled={serverBusy} />}
+      >
+        <View style={{ alignItems: 'center' }}>
+          <Avatar color={profileColor} size={96} />
+        </View>
+        <AvatarGrid
+          mini
+          value={profileColor}
+          onChange={serverBusy ? () => {} : setProfileColor}
+          disabled={serverBusy}
+        />
+        <Field
+          label={t('account.profile.nickname')}
+          placeholder={t('account.profile.nicknamePlaceholder')}
+          value={profileName}
+          onChange={(value: string) => {
+            if (serverBusy) return;
+            setProfileName(stripNicknameWhitespace(value));
+            setProfileNameError('');
+          }}
+          disabled={serverBusy}
+          inputStyle={sheetInput}
+        />
+        {!!profileNameError && (
+          <Txt kind="meta" accessibilityRole="alert" style={{ color: semanticTokens.color.danger }}>
+            {profileNameError}
+          </Txt>
+        )}
+        <SheetGroup>
+          <SheetRow
+            title={t('account.profile.linkedAccount')}
+            sub={t('account.profile.accountSummary', {
+              name: state.name,
+              providers: linkedProviderText || t('account.profile.noLinkedAccount'),
+            })}
+          />
+          <SheetRow
+            title={t('account.profile.logout')}
+            chevron
+            onPress={() =>
+              confirm(
+                t('account.profile.logoutConfirmTitle'),
+                t('account.profile.logoutConfirmBody'),
+                async () => {
+                  // 기기에 로그아웃을 기록하지 못했으면 세션이 남아 있으니 로그인 화면으로 가지 않는다.
+                  if ((await e.signOut()) === false) return;
+                  act('LOGOUT');
+                  reset('login');
+                },
+              )
+            }
+          />
+        </SheetGroup>
+        {withdrawCleanupPending ? (
+          <Btn
+            title={t('account.profile.retryDeviceCleanup')}
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            // 계정은 이미 삭제됐다 — 탈퇴 API 없이 로컬 정리만 다시 한다.
+            onPress={() => run(finishWithdrawal, notify)}
+          />
+        ) : (
+          <Btn
+            title={t('account.profile.withdraw')}
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            onPress={() =>
+              mustTransferHost
+                ? notify(t('account.profile.mustTransferHost'))
+                : confirm(
+                    t('account.profile.withdrawConfirmTitle'),
+                    t('account.profile.withdrawConfirmBody'),
+                    () => {
+                      if (!server) {
+                        run(finishWithdrawal, notify);
+                        return;
+                      }
+                      run(async () => {
+                        // 호출 전에 대상 계정과 멱등 키를 기기에 남긴다(기록 실패면 요청하지 않는다).
+                        // 같은 계정의 재시도면 저장된 키를 재사용해 서버가 첫 결과를 재생한다.
+                        const userId = getSession()?.userId ?? null;
+                        // Apple 로그인 계정은 탈퇴 직전에 재인증해 일회용 코드를 받는다(App Store 5.1.1(v) —
+                        // 서버가 탈퇴 뒤 Apple 토큰을 폐기). 코드는 한 번만 쓰이고 수명이 짧아 시도마다 새로
+                        // 받는다. 의도 기록 전에 받으므로 취소·실패해도 기기엔 아무것도 남지 않는다.
+                        let appleCode: string | undefined;
+                        if (Platform.OS === 'ios' && getSession()?.provider === 'apple') {
+                          try {
+                            appleCode = await appleAuthorizationCode();
+                          } catch (thrown) {
+                            // 시트를 닫은 것은 조용히 중단한다. 그 밖의 실패는 run 의 일반 오류 문구로 간다.
+                            if (isSocialLoginCancellation(thrown)) return;
+                            throw thrown;
+                          }
+                        }
+                        withdrawIntent.current = userId
+                          ? await beginWithdrawal(userId)
+                          : { userId: '', key: uuid() };
+                        try {
+                          await withdrawAccount(withdrawIntent.current.key, appleCode);
+                        } catch (thrown) {
+                          // 서버가 DELETE /me 를 커밋했는데 응답만 잃었으면 재시도는 404
+                          // USER_NOT_FOUND 다 — 계정은 이미 없으니 탈퇴 완료로 보고 로컬 정리를 이어 간다.
+                          // 공용 클라이언트도 이 404 를 세션 거절로 처리해 세션을 비우고 로그인으로
+                          // 보낼 수 있다. 두 경로가 겹쳐도 계정이 없다는 같은 전제라 정리는 그대로 맞다.
+                          if (!(
+                            thrown instanceof ApiError &&
+                            thrown.status === 404 &&
+                            thrown.code === 'USER_NOT_FOUND'
+                          ))
+                            throw thrown;
+                        }
+                        // 서버 탈퇴가 확정됐다 — 이후 정리가 실패하고 세션이 먼저 폐기돼도 다음 부팅이
+                        // 세션 없이 정리를 재개하도록 기기에 남긴다.
+                        await confirmWithdrawal(withdrawIntent.current);
+                        await finishWithdrawal();
+                      }, notify);
+                    },
+                    { ok: t('account.profile.withdrawConfirmOk'), destructive: true },
+                  )
+            }
+          />
+        )}
+      </IslandSheet>
+    );
+  }
+  if (route === 'settings') {
+    const primaryIslandName = server
+      ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+        snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+        t('account.boat.myIslandFallback'))
+      : (mainIsland(state)?.name ?? island.name);
+    const islandCount = server
+      ? (snap?.memberships.length ?? 0)
+      : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length;
+    const canChangeMainIsland = islandCount > 1;
+    const toggle = (label: string, key: string, sub?: string) => (
+      <SheetRow
+        title={label}
+        sub={sub}
+        tail={
+          <Toggle
+            label={label}
+            value={(state.settings as any)[key]}
+            onChange={(value: boolean) => act('SETTING', { key, value })}
+          />
+        }
+      />
+    );
+    const sec = (name: string) => (
+      <Txt kind="section" style={st.sec}>
+        {name}
+      </Txt>
+    );
+    const pref: LocalePref = e.localePref;
+    // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title={t('account.boat.settingsTitle')}
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        <SheetGroup>
+          <SheetRow
+            title={t('account.profile.title')}
+            sub={t('account.profile.sub')}
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
+            chevron
+            onPress={() => go('profile')}
+          />
+          {/* 소속 섬이 없으면(바다 표류에서 연 설정, GROMO-2404) 메인 섬 줄을 두지 않는다 */}
+          {islandCount > 0 && (
+            <SheetRow
+              title={t(
+                canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain',
+              )}
+              sub={primaryIslandName}
+              chevron={canChangeMainIsland}
+              onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
+            />
+          )}
+        </SheetGroup>
+        {sec(t('settings.generalSection'))}
+        <SheetGroup flat>
+          <NotificationToggle e={e} />
+          {toggle(t('settings.sound'), 'sound')}
+          {toggle(t('settings.haptics'), 'haptics')}
+          {toggle(t('settings.reduceMotion'), 'reduceMotion')}
+          <SheetRow
+            title={t('settings.language.title')}
+            sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
+            chevron
+            onPress={() => go('language', 'settings')}
+          />
+          <SheetRow
+            title={t('settings.permissionManage')}
+            chevron
+            onPress={() => go('permission', 'settings')}
+          />
+        </SheetGroup>
+        {sec(t('settings.safetySection'))}
+        <SheetGroup flat>
+          {/* 차단한 사용자 관리는 친구 관리 머리가 아니라 여기(안전 첫 줄)다(GROMO-2473). 목업에는 차단 API 가 없다 */}
+          {server && (
+            <SheetRow
+              title={t('account.blocked.title')}
+              sub={t('settings.blockedUsersSub')}
+              chevron
+              onPress={() => go('blockedUsers')}
+            />
+          )}
+          <SheetRow
+            title={t('settings.report.title')}
+            sub={t('settings.report.sub')}
+            chevron
+            onPress={() => {
+              openReportCenter().catch(() =>
+                confirm(
+                  t('settings.report.title'),
+                  t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
+              );
+            }}
+          />
+          <SheetRow
+            title={t('settings.feedback.title')}
+            sub={t('settings.feedback.sub')}
+            chevron
+            onPress={() => {
+              openFeedbackMail(Application.nativeApplicationVersion ?? appManifest.version).catch(
+                () =>
+                  confirm(
+                    t('settings.feedback.title'),
+                    t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                    () => {},
+                  ),
+              );
+            }}
+          />
+        </SheetGroup>
+        {sec(t('settings.privacySection'))}
+        <SheetGroup flat>
+          <ScreenTimeSharingSettings e={e} />
+          <SheetRow
+            title={t('login.policy.terms')}
+            chevron
+            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.terms') })}
+            onPress={() => openPolicy(TERMS_URL)}
+          />
+          <SheetRow
+            title={t('login.policy.privacy')}
+            chevron
+            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.privacy') })}
+            onPress={() => openPolicy(PRIVACY_URL)}
+          />
+        </SheetGroup>
+        <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
+          {t('onboardingStory.brand')} {Application.nativeApplicationVersion ?? appManifest.version}
+        </Txt>
+      </IslandSheet>
+    );
+  }
+  if (route === 'language') {
+    const pref: LocalePref = e.localePref;
+    // 탭 즉시 저장·적용 — 저장 버튼은 없다
+    const pick = async (next: LocalePref) => {
+      if (next === pref) return; // 같은 값이면 저장·재렌더·토스트 전부 생략
+      if (pickingLocale) return; // 겹침 탭 — 앞선 저장이 끝날 때까지 무시
+      pickingLocale = true;
+      try {
+        await AsyncStorage.setItem(LOCALE_KEY, next);
+      } catch {
+        notify(t('settings.language.saveFailed')); // 저장 못 하면 적용도 안 한다
+        return;
+      } finally {
+        pickingLocale = false;
+      }
+      const before = getLocale();
+      e.setLocalePref(applyLocalePref(next));
+      if (getLocale() !== before) notify(t('settings.language.changed')); // 실제로 언어가 바뀔 때만
+    };
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title={t('settings.language.title')}
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        <SheetGroup flat>
+          <SheetRow
+            title={t('settings.language.system')}
+            sub={t(
+              isDeviceLocaleSupported()
+                ? 'settings.language.systemNow'
+                : 'settings.language.systemNowFallback',
+              { name: LOCALE_NAMES[resolveLocale()] },
+            )}
+            selected={pref === 'system'}
+            onPress={() => {
+              pick('system');
+            }}
+          />
+          <SheetRow
+            title={LOCALE_NAMES.ko}
+            selected={pref === 'ko'}
+            onPress={() => {
+              pick('ko');
+            }}
+            divider
+          />
+          <SheetRow
+            title={LOCALE_NAMES.en}
+            selected={pref === 'en'}
+            onPress={() => {
+              pick('en');
+            }}
+            divider
+          />
+        </SheetGroup>
+      </IslandSheet>
+    );
+  }
+  return (
+    <Page title={t('onboardingStory.brand')} back={home}>
+      <Btn title="섬으로 돌아가기" onPress={home} />
+    </Page>
+  );
+}
+// 설정 「알림」 토글(GROMO-2526). «실제로 받는지»를 보인다 — 시스템 권한이 허용일 때만 켜진 것으로 그리고, 아직 안 물음·거부는
+// 앱 설정이 켜져 있어도(기본값이 켜짐이다) 꺼진 것으로 그린다. 켜진 채로 두면 첫 누름이 앱 설정만 끄고 팝업·시스템 설정은 두 번째
+// 누름에야 간다. 시트가 열릴 때와 앱이 활성으로 돌아올 때(시스템 설정에서 돌아온 때) 권한을 다시 읽는다. 푸시 브리지가 없는
+// 바이너리(Android·옛 iOS·웹)는 'unavailable' 이라 앱 설정 그대로다. 읽지 못한 경우('error')도 앱 설정(사용자의 뜻)을 그대로
+// 보이되 「확인하지 못했어요」 를 붙여 확인된 것처럼 보이지 않게 한다 — 꺼진 것으로 그리면 앱에서 끌 수 없다.
+function NotificationToggle({ e }: any) {
+  // null = 아직 안 읽음
+  const [permission, setPermission] = useState<PushPermission | null>(null);
+  // 권한 읽기·요청마다 번호를 매긴다(시작할 때 올린다) — 더 새 것이 시작된 뒤 늦게 끝난 옛 결과가 표시를 덮지 못하게, 가장 새 것의
+  // 결과만 표시를 정한다.
+  const readSeq = useRef(0);
+  useEffect(() => {
+    let active = true;
+    const read = () => {
+      const seq = ++readSeq.current;
+      void pushPermissionStatus().then((next) => {
+        if (active && seq === readSeq.current) setPermission(next);
+      });
+    };
+    read();
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') read();
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+  const change = async (value: boolean) => {
+    // 아직 안 물음·거부 때문에 꺼져 보이던 토글을 누르면 앱 설정은 이미 그 값이다 — 다시 쓰지 않는다.
+    if (value !== e.state.settings.notifications)
+      e.dispatch({ type: 'SETTING', key: 'notifications', value });
+    if (!value) return;
+    // 켤 때 시스템 권한도 맞춘다 — 아직 안 물음이면 시스템 팝업, 거부면 시스템 설정(앱에서는 다시 켤 수 없다).
+    const readStart = ++readSeq.current;
+    const current = await pushPermissionStatus();
+    // 다시 읽은 값을 바로 보인다 — 읽지 못했던('error') 권한이 읽히는 경우.
+    if (readStart === readSeq.current) setPermission(current);
+    if (current === 'undetermined') {
+      const requestStart = ++readSeq.current;
+      const answered = await requestPushPermission();
+      if (requestStart === readSeq.current) setPermission(answered);
+    } else if (current === 'denied')
+      await Linking.openSettings().catch(() =>
+        e.notify(t('settings.permissions.errors.settingsOpen')),
+      );
+  };
+  // 읽기 전에는 iOS 만 꺼진 것으로 그린다(푸시 브리지가 iOS 에만 있어 허용인지 아직 모른다) — 켜진 것으로 그렸다 꺼지는 깜빡임이 없다.
+  // 읽은 뒤에는 허용·브리지 없음('unavailable')·확인 못 함('error')이 앱 설정을 따른다. 아직 안 물음·거부는 꺼진 것으로 그린다.
+  const receiving =
+    permission === null
+      ? Platform.OS !== 'ios'
+      : permission === 'granted' || permission === 'unavailable' || permission === 'error';
+  // 꺼진 채 보이는 까닭이 권한이면 누르는 일이 스위치를 넘기는 것만이 아니다 — 팝업이 뜨거나 설정 앱이 열린다(힌트). 확인 못 함(error)의
+  // 「확인하지 못했어요」 는 스위치와 따로 읽히는 sub 라서, 스위치 이름에도 붙여 상태가 스위치에 닿게 한다.
+  const hint =
+    permission === 'undetermined'
+      ? t('settings.permissions.notifications.hint.ask')
+      : permission === 'denied'
+        ? t('settings.permissions.notifications.hint.openSettings')
+        : undefined;
+  const unconfirmed =
+    permission === 'error' ? t('settings.permissions.notifications.error') : undefined;
+  const label = unconfirmed
+    ? `${t('settings.notifications')}, ${unconfirmed}`
+    : t('settings.notifications');
+  return (
+    <SheetRow
+      title={t('settings.notifications')}
+      sub={unconfirmed}
+      tail={
+        <Toggle
+          label={label}
+          accessibilityHint={hint}
+          value={!!e.state.settings.notifications && receiving}
+          onChange={change}
+        />
+      }
+    />
+  );
+}
+// 친구 찾기 목업 사용자. 닉네임이 같은 사람이 여럿일 수 있다(시안 보리 2명)
+const friendDirectory: Omit<Friend, 'status' | 'messages'>[] = [
+  { id: 'saebom', name: '새봄', color: 'white', island: '딸기 섬' },
+  { id: 'minji', name: '민지', color: 'ginger', island: '소다 섬' },
+  { id: 'haneul', name: '하늘', color: 'calico', island: '구름 섬' },
+  { id: 'bori-strawberry', name: '보리', color: 'gray', island: '딸기 섬' },
+  { id: 'bori', name: '보리', color: 'cream', island: '구름 섬' },
+];

@@ -1,0 +1,551 @@
+{
+  "collected_at": "2026-09-13T07:51:25.344196+00:00",
+  "implementation_revision": "1313bce1c6b4765cdb00fd64db5ba850c7fc3987",
+  "base_revision": "ebdaa4074dbee938b2ce76801a9f5f76cdafdff6",
+  "environment": {
+    "host": "macOS arm64",
+    "docker_cpus": 8,
+    "docker_memory_bytes": 8217145344,
+    "java": "Corretto 17.0.10 (Business: Docker Temurin 17)"
+  },
+  "validation": [
+    {
+      "name": "python",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        ".github/scripts",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789284879.8050828,
+      "duration_seconds": 46.689,
+      "exit_code": 0,
+      "log": "logs/ci-1800/python.log"
+    },
+    {
+      "name": "notification-norm",
+      "command": [
+        "bash",
+        "server/notification/norm.sh"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789284926.49456,
+      "duration_seconds": 72.396,
+      "exit_code": 0,
+      "log": "logs/ci-1800/notification-norm.log"
+    },
+    {
+      "name": "business-api-norm",
+      "command": [
+        "bash",
+        "server/business-api/norm.sh"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789284998.89131,
+      "duration_seconds": 133.895,
+      "exit_code": 0,
+      "log": "logs/ci-1800/business-api-norm.log"
+    },
+    {
+      "name": "data-api-norm",
+      "command": [
+        "bash",
+        "server/data-api/norm.sh"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789285132.786869,
+      "duration_seconds": 300.325,
+      "exit_code": 0,
+      "log": "logs/ci-1800/data-api-norm.log"
+    },
+    {
+      "name": "data-api-bootJar",
+      "command": [
+        "./gradlew",
+        "bootJar",
+        "--no-daemon"
+      ],
+      "cwd": "server/data-api",
+      "started_at_epoch": 1789285433.112791,
+      "duration_seconds": 5.83,
+      "exit_code": 0,
+      "log": "logs/ci-1800/data-api-bootJar.log"
+    },
+    {
+      "name": "realtime-norm",
+      "command": [
+        "bash",
+        "server/realtime/norm.sh"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789285438.943101,
+      "duration_seconds": 66.47,
+      "exit_code": 0,
+      "log": "logs/ci-1800/realtime-norm.log"
+    },
+    {
+      "name": "contracts",
+      "command": [
+        "python3",
+        ".github/scripts/check-satellite-contracts.py"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789285505.4135418,
+      "duration_seconds": 0.06,
+      "exit_code": 0,
+      "log": "logs/ci-1800/contracts.log"
+    },
+    {
+      "name": "checksum",
+      "command": [
+        "python3",
+        ".github/scripts/check-migration-checksum.py"
+      ],
+      "cwd": ".",
+      "started_at_epoch": 1789285505.473444,
+      "duration_seconds": 0.927,
+      "exit_code": 0,
+      "log": "logs/ci-1800/checksum.log"
+    }
+  ],
+  "images": [
+    {
+      "name": "image-notification-prebuilt",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=prebuilt",
+        "-t",
+        "ci1800-notification:prebuilt",
+        "server/notification"
+      ],
+      "duration_seconds": 3.768,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-notification-prebuilt.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:d0060ad545e6fd451f677fae07c597800811abbbec5013f9d95b4d7758f6288a",
+      "architecture": "amd64",
+      "os": "linux",
+      "jar_sha256": "31e05ef1ff48fbb160dea8ba009a3a9228811966caaf21bfffbf18dcf550c054",
+      "gradle_steps_executed": 0
+    },
+    {
+      "name": "image-notification-builder",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=builder",
+        "-t",
+        "ci1800-notification:builder",
+        "server/notification"
+      ],
+      "duration_seconds": 117.47,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-notification-builder.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:49154629606ba7f03ff39bfb127bdbdba18701b7082cf9577502f1b43e040a9e",
+      "architecture": "amd64",
+      "os": "linux"
+    },
+    {
+      "name": "image-business-api-prebuilt",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=prebuilt",
+        "-t",
+        "ci1800-business-api:prebuilt",
+        "server/business-api"
+      ],
+      "duration_seconds": 2.396,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-business-api-prebuilt.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:a797f07597fd3a8b5f4d96025029b92ec459390aa8537ffaf336766730615f9a",
+      "architecture": "amd64",
+      "os": "linux",
+      "jar_sha256": "49c1eb89223df7076d1239842b50f807be6f3c09c2116f30f1632408c3d83fd4",
+      "gradle_steps_executed": 0
+    },
+    {
+      "name": "image-business-api-builder",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=builder",
+        "-t",
+        "ci1800-business-api:builder",
+        "server/business-api"
+      ],
+      "duration_seconds": 131.982,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-business-api-builder.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:a797f07597fd3a8b5f4d96025029b92ec459390aa8537ffaf336766730615f9a",
+      "architecture": "amd64",
+      "os": "linux"
+    },
+    {
+      "name": "image-data-api-prebuilt",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=prebuilt",
+        "-t",
+        "ci1800-data-api:prebuilt",
+        "server/data-api"
+      ],
+      "duration_seconds": 4.101,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-data-api-prebuilt.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:61c85816a13c50b9892b553c5c605017b13125bf8b34e387b850189ded92f08b",
+      "architecture": "amd64",
+      "os": "linux",
+      "jar_sha256": "edec3c9393f4f6ffb8e4073e721bb235cce58a292c1900db3605bb704a18f6e2",
+      "gradle_steps_executed": 0
+    },
+    {
+      "name": "image-data-api-builder",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=builder",
+        "-t",
+        "ci1800-data-api:builder",
+        "server/data-api"
+      ],
+      "duration_seconds": 119.727,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-data-api-builder.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:466c5ab4da48baa19641ff5d012c9091dbc12c98b4bb92e29628c14f39c94273",
+      "architecture": "amd64",
+      "os": "linux"
+    },
+    {
+      "name": "image-realtime-prebuilt",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=prebuilt",
+        "-t",
+        "ci1800-realtime:prebuilt",
+        "server/realtime"
+      ],
+      "duration_seconds": 2.821,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-realtime-prebuilt.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:52404e6a8daf3940956b18df17b1d0c0ae90d177b2017d84ca829fdce0cb9bfe",
+      "architecture": "amd64",
+      "os": "linux",
+      "jar_sha256": "70ae5430d9dcb8325cf6d51f38ee58e471ea4d022cbccc0d8eb5cab3bfbfc53c",
+      "gradle_steps_executed": 0
+    },
+    {
+      "name": "image-realtime-builder",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/amd64",
+        "--provenance=false",
+        "--progress=plain",
+        "--build-arg",
+        "JAR_SOURCE=builder",
+        "-t",
+        "ci1800-realtime:builder",
+        "server/realtime"
+      ],
+      "duration_seconds": 54.88,
+      "exit_code": 0,
+      "log": "logs/ci-1800/image-realtime-builder.log",
+      "cache": "existing local BuildKit cache; not a controlled cold comparison",
+      "image_id": "sha256:d6c833d5d5bb037d6e18b69cd9d96d81f86a5f4a053a9aeb28f704302f2f2ad8",
+      "architecture": "amd64",
+      "os": "linux"
+    }
+  ],
+  "arm64": [
+    {
+      "service": "notification",
+      "platform": "linux/arm64",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/arm64",
+        "--build-arg",
+        "JAR_SOURCE=prebuilt",
+        "--provenance=false",
+        "--progress=plain",
+        "-t",
+        "ci1800-notification:prebuilt-arm64",
+        "server/notification"
+      ],
+      "duration_seconds": 11.174,
+      "exit_code": 0,
+      "jar_sha256": "31e05ef1ff48fbb160dea8ba009a3a9228811966caaf21bfffbf18dcf550c054"
+    },
+    {
+      "service": "business-api",
+      "platform": "linux/arm64",
+      "command": [
+        "docker",
+        "build",
+        "--platform",
+        "linux/arm64",
+        "--build-arg",
+        "JAR_SOURCE=prebuilt",
+        "--provenance=false",
+        "--progress=plain",
+        "-t",
+        "ci1800-business-api:prebuilt-arm64",
+        "server/business-api"
+      ],
+      "duration_seconds": 22.656,
+      "exit_code": 0,
+      "jar_sha256": "49c1eb89223df7076d1239842b50f807be6f3c09c2116f30f1632408c3d83fd4"
+    }
+  ],
+  "runtime_config": {
+    "data-api": {
+      "matched_fields": [
+        "User",
+        "Env",
+        "Entrypoint",
+        "Cmd",
+        "WorkingDir",
+        "ExposedPorts",
+        "Labels"
+      ],
+      "result": "PASS"
+    },
+    "business-api": {
+      "matched_fields": [
+        "User",
+        "Env",
+        "Entrypoint",
+        "Cmd",
+        "WorkingDir",
+        "ExposedPorts",
+        "Labels"
+      ],
+      "result": "PASS"
+    },
+    "notification": {
+      "matched_fields": [
+        "User",
+        "Env",
+        "Entrypoint",
+        "Cmd",
+        "WorkingDir",
+        "ExposedPorts",
+        "Labels"
+      ],
+      "result": "PASS"
+    },
+    "realtime": {
+      "matched_fields": [
+        "User",
+        "Env",
+        "Entrypoint",
+        "Cmd",
+        "WorkingDir",
+        "ExposedPorts",
+        "Labels"
+      ],
+      "result": "PASS"
+    }
+  },
+  "junit": {
+    "data-api": {
+      "tests": 2631,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 8
+    },
+    "business-api": {
+      "tests": 760,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "notification": {
+      "tests": 257,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "realtime": {
+      "tests": 141,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "python_tests": 77,
+  "logs": [
+    {
+      "path": "logs/ci-1800/actionlint.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "logs/ci-1800/business-api-norm.log",
+      "bytes": 17542,
+      "sha256": "dcd2d1c77f63320841399d09fce6420f57ab649432d33a7d25716f7be246e4c2"
+    },
+    {
+      "path": "logs/ci-1800/business-runtime.log",
+      "bytes": 85,
+      "sha256": "816fe983a2918e1327e17b99e50e7bb93f0d95951414a2ad3747365dd5b4d744"
+    },
+    {
+      "path": "logs/ci-1800/checksum.log",
+      "bytes": 79,
+      "sha256": "d0e796b85aca128052207713ca4d1c4d18a9f5d3c3a55742af2b2dccd289ee30"
+    },
+    {
+      "path": "logs/ci-1800/ci-regression.log",
+      "bytes": 1688,
+      "sha256": "8c3c2a18a20d87549db23abd1a7432c5e06b586acb203b05c44a4d9fd3a2125f"
+    },
+    {
+      "path": "logs/ci-1800/contracts.log",
+      "bytes": 66,
+      "sha256": "6e57337319a123f259b7a80a19b52ce1a728733c7544227458f54ef526df2bfb"
+    },
+    {
+      "path": "logs/ci-1800/data-api-bootJar.log",
+      "bytes": 1190,
+      "sha256": "80fad5d0b3d81b086656c83640d548e22ad2ae0f258106aa285cfc1517b67bc0"
+    },
+    {
+      "path": "logs/ci-1800/data-api-norm.log",
+      "bytes": 16980,
+      "sha256": "c106da5052f273d921682781148e8d91d9f3a25cd042538c3589ddd9f0a30d32"
+    },
+    {
+      "path": "logs/ci-1800/data-runtime.log",
+      "bytes": 97,
+      "sha256": "4f4951d9a8e397c88ed250159b3a7f52d6b7769a8943a84a24da51297b7582a4"
+    },
+    {
+      "path": "logs/ci-1800/image-business-api-arm64.log",
+      "bytes": 15838,
+      "sha256": "505f6d7d208bffd5406fdae4e7750a42e0a195c9ac9527b12037337453f77c56"
+    },
+    {
+      "path": "logs/ci-1800/image-business-api-builder.log",
+      "bytes": 162934,
+      "sha256": "69006f2b12a72fbf1173484a42f1a68f68818d7112135cdfaa4afe62e5655bb3"
+    },
+    {
+      "path": "logs/ci-1800/image-business-api-prebuilt.log",
+      "bytes": 1582,
+      "sha256": "e0ac0a2df5125577384a5d660067d876d3fc0df7f3c4554233e15d70c3d89ade"
+    },
+    {
+      "path": "logs/ci-1800/image-data-api-builder.log",
+      "bytes": 212636,
+      "sha256": "ccf5e67b7fd8a34f923e29af3da5eb8ff7c3378a823c1b36ac0f18025c2ce883"
+    },
+    {
+      "path": "logs/ci-1800/image-data-api-prebuilt.log",
+      "bytes": 1754,
+      "sha256": "f227a57dddaa0a0df73de33f1d72bd776c00dc117e56dba5612daa3a0f6aeea1"
+    },
+    {
+      "path": "logs/ci-1800/image-notification-arm64.log",
+      "bytes": 3704,
+      "sha256": "c735ae99b204ac8d5d7e6ac251020da9339a9756a81671dab91aef63081eab14"
+    },
+    {
+      "path": "logs/ci-1800/image-notification-builder.log",
+      "bytes": 192688,
+      "sha256": "8c307a4c15ad301aff1d0153c8336452761012471b2df546e2672fbeaf00219c"
+    },
+    {
+      "path": "logs/ci-1800/image-notification-prebuilt.log",
+      "bytes": 1503,
+      "sha256": "3560fbef5083481b5bd08de90b88bd928b0eca2d479d3d06c07fd5dae7579a09"
+    },
+    {
+      "path": "logs/ci-1800/image-realtime-builder.log",
+      "bytes": 194406,
+      "sha256": "5acd961406b445a64d8235ac459c888f9eb39c246294e4976366cba522cfc8d1"
+    },
+    {
+      "path": "logs/ci-1800/image-realtime-prebuilt.log",
+      "bytes": 1499,
+      "sha256": "e20eabd67cde81c44d97710b5a531f70992af0d4d0f8adbb9380edcf5fb766af"
+    },
+    {
+      "path": "logs/ci-1800/notification-norm.log",
+      "bytes": 7231,
+      "sha256": "cb742bbb2badca6a0f3c38906fff717f22f87601fd683c046d52641db3029d40"
+    },
+    {
+      "path": "logs/ci-1800/python-final.log",
+      "bytes": 14880,
+      "sha256": "4b1628a368efeb7fe029036921283051b78251ea2ae9047eecd8d2952adb3156"
+    },
+    {
+      "path": "logs/ci-1800/python.log",
+      "bytes": 14562,
+      "sha256": "b8e136f3cc0ce8ebd093bce99cda0d8efe8440079725511fd9367db062d6cbbd"
+    },
+    {
+      "path": "logs/ci-1800/realtime-norm.log",
+      "bytes": 6163,
+      "sha256": "2f2c2d555118e3a28976ea713627866acd5d1b26901cf66455cf2323a55f47b8"
+    }
+  ],
+  "limits": [
+    "Local timings are not comparable with shared GCE runner timings.",
+    "Image routes used existing local BuildKit caches and ran alongside other checks; these are validation timings, not controlled performance benchmarks."
+  ]
+}

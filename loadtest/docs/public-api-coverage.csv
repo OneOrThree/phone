@@ -1,0 +1,129 @@
+method,path,operationId,status,cases,reason
+PUT,/me/screen-time/{date},putScreenTime,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PUT,/me/current-island,switchCurrentIsland,있음,island_switch,
+PUT,/islands/{islandId}/construction-target,target,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PUT,/focus-sessions/{sessionId}/live-activity,registerLiveActivity,제외,,Live Activity — APNs 의존
+GET,/api/v1/users/me/notification-settings,getNotificationSettings,있음,notification_settings_legacy,
+PUT,/api/v1/users/me/notification-settings,updateNotificationSettings,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PUT,/api/v1/users/me/device-token,registerDeviceToken,제외,,기기 토큰 — 실제 FCM 기기·자격 의존
+DELETE,/api/v1/users/me/device-token,clearDeviceToken,제외,,기기 토큰 — 실제 FCM 기기·자격 의존
+POST,/me/telescope/pins,pinTelescope,있음,telescope_pin,
+GET,/letters,letters,있음,"letter_exchange,letters",
+POST,/letters,send,있음,letter_exchange,
+POST,/l/match,match,제외,,링크 매칭 — 외부 MMP·링크 제공자 의존
+GET,/islands,islands,있음,island_list,
+POST,/islands,create,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/tutorial-reward,claimTutorialExperience,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId}/shop/orders,orders,있음,orders,
+POST,/islands/{islandId}/shop/orders,purchase,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/quests,create_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/quests/{questId}/claims,claim,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/promotions,promote,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId}/notices,list,있음,notices,
+POST,/islands/{islandId}/notices,create_2,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/notices/{noticeId}/comments,comment,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId}/messages,list_1,있음,mailbox,
+POST,/islands/{islandId}/messages,send_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/memberships,join,있음,join_approval,
+POST,/islands/{islandId}/invitations,issueInvitation,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/host-transfer,transfer,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId}/guestbook,list_2,있음,guestbook,
+POST,/islands/{islandId}/guestbook,write,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/constructions,build,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/islands/{islandId}/arrivals,arrive,있음,island_switch,
+POST,/invitations/resolve,resolveInvitation,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/friends/requests,friendRequests,있음,friend_requests,
+POST,/friends/requests,createRequest,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/friends/requests/{requestId}/reject,reject,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/friends/requests/{requestId}/cancel,cancel,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/friends/requests/{requestId}/accept,accept,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/focus-sessions,start,있음,focus_lifecycle,
+POST,/focus-sessions/{sessionId}/tutorial-reward,claimTutorialReward,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/focus-sessions/{sessionId}/resume,resume,있음,focus_lifecycle,
+POST,/focus-sessions/{sessionId}/pause,pause,있음,focus_lifecycle,
+POST,/focus-sessions/{sessionId}/finish,finish,있음,focus_lifecycle,
+POST,/focus-sessions/{sessionId}/acknowledge,acknowledge,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/blocks,blocks,있음,blocks,
+POST,/blocks,block,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/auth/sessions,login,제외,,소셜 로그인 — 외부 IdP(Apple·Google 등) 의존
+POST,/auth/sessions/guest,start_1,없음,,인증/세션·탈퇴 상태 전이 — 별도 수명주기 fixture 필요
+POST,/auth/sessions/current/refresh,refresh,없음,,인증/세션·탈퇴 상태 전이 — 별도 수명주기 fixture 필요
+POST,/api/v1/me/challenge-results/{sessionId}/claim,claimDisplay,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/api/v1/me/challenge-results/{sessionId}/ack,acknowledge_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+POST,/link-previews,create_3,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
+POST,/api/v1/link-previews,create_4,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
+POST,/api/v1/invite-links/claim,claim_1,제외,,초대 링크 — 외부 링크 제공자 의존(구 /api/v1 표면)
+POST,/api/v1/groups/{groupId}/invite-link,issueInviteLink,제외,,초대 링크 — 외부 링크 제공자 의존(구 /api/v1 표면)
+GET,/me,me,있음,account,
+DELETE,/me,withdraw,없음,,인증/세션·탈퇴 상태 전이 — 별도 수명주기 fixture 필요
+PATCH,/me,patch,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/me/settings,read,있음,settings,
+PATCH,/me/settings,patch_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PATCH,/me/appearance,patchMine,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId},island,있음,island,
+PATCH,/islands/{islandId},manage,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PATCH,/islands/{islandId}/quests/{questId},update,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId}/playback,get,있음,playback,
+PATCH,/islands/{islandId}/playback,patch_2,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/islands/{islandId}/notices/{noticeId},detail,있음,notice_detail,
+DELETE,/islands/{islandId}/notices/{noticeId},delete,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PATCH,/islands/{islandId}/notices/{noticeId},update_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+PATCH,/islands/{islandId}/join-requests/{requestId},answer,있음,join_approval,
+PATCH,/islands/{islandId}/appearance,patchIsland,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+GET,/screens/visit/{islandId},visit,있음,screen_visit,
+GET,/screens/town-hall,townHall,있음,screen_town_hall,
+GET,/screens/shop,shop,있음,screen_shop,
+GET,/screens/raft,raft,있음,screen_raft,
+GET,/screens/playback,playback,있음,screen_playback,
+GET,/screens/mailbox,mailbox,있음,"app_home_new_user,app_home_visit,screen_mailbox",
+GET,/screens/library,library,있음,"app_home_new_user,app_home_visit,screen_library",
+GET,/screens/launch,launch,있음,screen_launch,
+GET,/screens/home,home,있음,"app_home_new_user,app_home_visit,screen_home",
+GET,/screens/friends,friends,있음,screen_friends,
+GET,/screens/focus,focus,있음,screen_focus,
+GET,/screens/explore,explore,있음,screen_explore,
+GET,/screens/board,board,있음,"app_home_visit,screen_board",
+GET,/screens/account,account,있음,screen_account,
+GET,/rankings/islands,islands_1,있음,rankings,
+GET,/me/telescope,telescope,있음,"telescope,telescope_pin",
+GET,/me/join-requests,myJoinRequests,있음,join_requests,
+GET,/me/join-requests/{requestId},joinRequest,없음,,조회 fixture(상품·퀘스트·공지·원장 등) 또는 ID 의존 상세 필요
+DELETE,/me/join-requests/{requestId},cancelJoinRequest,있음,join_approval,
+GET,/me/islands,myIslands,있음,my_islands,
+GET,/me/inventory,myInventory,있음,inventory,
+GET,/me/focus-summary,summary,있음,focus_summary,
+GET,/letters/{letterId},letter,있음,"letter_detail,letter_exchange",
+DELETE,/letters/{letterId},close,있음,letter_exchange,
+GET,/islands/{islandId}/statistics/screen-time,screenTime,있음,"stats_screen_time_island,stats_screen_time_me",
+GET,/islands/{islandId}/statistics/focus,focus_1,있음,"stats_focus_history,stats_focus_island,stats_focus_me",
+GET,/islands/{islandId}/statistics/fish-earnings,fishEarnings,있음,fish_earnings,
+GET,/islands/{islandId}/shop/wallets,wallets,있음,wallets,
+GET,/islands/{islandId}/shop/products,products,있음,products,
+GET,/islands/{islandId}/shop/products/{productId},product,없음,,조회 fixture(상품·퀘스트·공지·원장 등) 또는 ID 의존 상세 필요
+GET,/islands/{islandId}/rest-members,restMembers,있음,"app_home_new_user,app_home_visit,rest_members",
+GET,/islands/{islandId}/resources/ledger,ledger,있음,resource_ledger,
+GET,/islands/{islandId}/quests/{questId}/progress,progress,없음,,조회 fixture(상품·퀘스트·공지·원장 등) 또는 ID 의존 상세 필요
+GET,/islands/{islandId}/quests/current,current,있음,quests,
+GET,/islands/{islandId}/news,news,있음,island_news,
+GET,/islands/{islandId}/members,members,있음,members,
+GET,/islands/{islandId}/join-requests,joinRequests,있음,"island_join_requests,join_approval",
+GET,/islands/{islandId}/inventory,islandInventory,있음,island_inventory,
+GET,/islands/{islandId}/focus-members,focusMembers,있음,"app_home_new_user,app_home_visit,focus_members",
+GET,/islands/{islandId}/construction-options,options,있음,construction,
+GET,/islands/discover,discover,있음,discover,
+GET,/friends,friends_1,있음,friends,
+GET,/friends/search,search,있음,friend_search,
+GET,/focus-sessions/pending-result,pendingResult,있음,focus_pending,
+GET,/focus-sessions/current,current_1,있음,focus_current,
+GET,/link-previews/{id}/thumbnail,thumbnail,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
+GET,/api/v1/link-previews/{id}/thumbnail,thumbnail_1,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
+GET,/api/v1/link-previews/{id},get_1,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
+GET,/link-previews/{id},get_2,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
+DELETE,/me/telescope/pins/{islandId},unpinTelescope,있음,telescope_pin,
+DELETE,/islands/{islandId}/notices/{noticeId}/comments/{commentId},deleteComment,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+DELETE,/islands/{islandId}/memberships/me,leave,있음,join_approval,
+DELETE,/islands/{islandId}/members/{userId},kick,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+DELETE,/islands/{islandId}/guestbook/{entryId},delete_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+DELETE,/friends/{friendUserId},deleteFriend,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+DELETE,/blocks/{blockedUserId},unblock,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
+DELETE,/auth/sessions/current,logout,없음,,인증/세션·탈퇴 상태 전이 — 별도 수명주기 fixture 필요

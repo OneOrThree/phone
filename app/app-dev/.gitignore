@@ -1,0 +1,104 @@
+# 같이숲 v2 앱의 로컬 의존성·빌드·검증 산출물
+
+node_modules/
+# 디렉터리 패턴(node_modules/)은 심링크를 무시하지 않는다 — 워크트리에서 심링크로 공유할 때 add 되는 것을 막는다.
+node_modules
+.expo/
+.omc/
+.env*
+!.env.example
+dist/
+dist-all/
+releases/
+build/
+web-build/
+web-preview.log
+coverage/
+*.ipa
+*.dSYM.zip
+npm-debug.*
+*.log
+*.tsbuildinfo
+*.orig.*
+.docs
+expo-env.d.ts
+
+# 글꼴 없이 폴백 생성한 언어별 이미지 미리보기(scripts/gen-localized-stamp.py --allow-fallback-font) — 커밋 대상 아님
+src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.en.fallback-preview.png
+
+# Expo·hot-updater·supabase 로컬 산출물
+.hot-updater/output
+.hot-updater/log
+supabase/.temp/
+
+# Maestro E2E 실행 리포트
+.maestro/report/
+
+# 로컬 모듈 안드로이드 빌드 캐시
+modules/*/android/.gradle/
+
+# 서명·인증 자격 (루트에도 전역 규칙이 있다 — 여기서도 막는다)
+*.jks
+*.keystore
+*.p8
+AuthKey_*.p8
+*.p12
+*.key
+*.mobileprovision
+android/credentials/
+ios/credentials/
+GoogleService-Info.plist
+GoogleService-Info-*.plist
+google-services.json
+google-services-*.json
+sentry.properties
+
+# ── iOS (옛 ios/.gitignore) ──
+ios/Pods/
+ios/*.pbxuser
+!ios/default.pbxuser
+ios/*.mode1v3
+!ios/default.mode1v3
+ios/*.mode2v3
+!ios/default.mode2v3
+ios/*.perspectivev3
+!ios/default.perspectivev3
+ios/xcuserdata
+ios/*.xccheckout
+ios/*.moved-aside
+ios/DerivedData
+ios/*.hmap
+ios/*.ipa
+ios/*.xcuserstate
+ios/project.xcworkspace
+ios/.xcode.env.local
+ios/*.jsbundle
+ios/*.dSYM.zip
+ios/fastlane/report.xml
+ios/fastlane/README.md
+ios/fastlane/Preview.html
+ios/fastlane/screenshots
+ios/fastlane/test_output
+ios/vendor/bundle
+ios/.bundle/
+
+# ── Android (옛 android/.gitignore) ──
+android/.idea
+android/.gradle
+android/.cxx/
+android/local.properties
+android/*.iml
+android/*.hprof
+android/*.jsbundle
+android/app/src/main/java/inline/
+# hot-updater
+.env.hotupdater
+
+# Kotlin 컴파일 세션 캐시
+android/.kotlin/
+
+# Airbridge SDK 의 gradle 스크립트가 빌드마다 src 트리에 떨구는 산출물 (GROMO-2395)
+android/app/src/main/assets/airbridge.json
+android/app/src/main/assets/libraryInfo.json
+
+# Airbridge SDK 빌드 산출물

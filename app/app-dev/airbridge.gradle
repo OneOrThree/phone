@@ -1,0 +1,32 @@
+// 직접 Gradle 빌드에서도 Expo의 .env 우선순위를 사용한다. 토큰은 빌드 산출물에만 넣는다.
+def airbridgeProcessBuilder = new ProcessBuilder("node", "scripts/airbridge-build-config.cjs")
+    .directory(rootProject.projectDir.parentFile)
+// 데몬을 시작한 이전 빌드가 아니라 이번 Gradle 호출의 환경을 자식 프로세스에 전달한다.
+airbridgeProcessBuilder.environment().clear()
+airbridgeProcessBuilder.environment().putAll(System.getenv())
+def airbridgeProcess = airbridgeProcessBuilder.start()
+def airbridgeOutput = airbridgeProcess.inputStream.text
+def airbridgeError = airbridgeProcess.errorStream.text
+if (airbridgeProcess.waitFor() != 0) {
+    throw new GradleException("Airbridge 빌드 설정을 읽지 못했습니다 (exit=${airbridgeProcess.exitValue()}): " +
+        airbridgeError.replaceAll(/[a-fA-F0-9]{32}/, "[REDACTED]"))
+}
+def airbridgeConfig = new groovy.json.JsonSlurper().parseText(airbridgeOutput)
+def airbridgeToken = airbridgeConfig.appToken
+
+android.defaultConfig {
+    buildConfigField "String", "AIRBRIDGE_APP_NAME", '"catus"'
+    buildConfigField "String", "AIRBRIDGE_APP_TOKEN", groovy.json.JsonOutput.toJson(airbridgeToken)
+}
+
+// R8이 빈 상수 분기의 initializeSDK를 제거한 릴리스가 배포되지 않도록 산출물 생성 전에 막는다.
+gradle.taskGraph.whenReady { graph ->
+    def publishesRelease = graph.allTasks.any { task ->
+        task.project == project && task.name.toLowerCase(Locale.ROOT) in [
+            "assemblerelease", "bundlerelease", "packagerelease"
+        ]
+    }
+    if (publishesRelease && (!airbridgeToken || airbridgeToken == "YOUR_APP_TOKEN")) {
+        throw new GradleException("Android release 차단: catus의 AIRBRIDGE_APP_TOKEN을 설정하세요.")
+    }
+}

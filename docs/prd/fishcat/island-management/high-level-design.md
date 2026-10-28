@@ -1,0 +1,62 @@
+# 섬 관리·주민 — 구성 설계
+
+> GROMO-1761 · 검토 초안. [PRD](./prd.md) · [권한 행렬](./permissions.md) · [LLD](./low-level-design.md)
+
+## 1. 명령 책임
+
+```mermaid
+flowchart LR
+    A[앱 확인] --> B[Business: 인증·DTO]
+    B --> D[Data: 최신 역할·자원·멱등 검증]
+    D --> TX[원자 전이]
+    TX --> G[(그룹·membership·요청·현재context)]
+    TX --> O[(outbox·명령결과)]
+    O --> R[Realtime: 주민·요청자·방장 통지]
+    O --> L[링크 폐기·표시 갱신 relay]
+```
+
+현재 방장은 group_members.role의 OWNER다. UI가 보내는 role/canManage/isHost를 받지 않는다. 사용자·그룹·대상 요청의 식별자는 Data에서 상호 관계를 확인하고, 섬이 다른 requestId를 넣으면 관리 권한이 있어도 처리하지 않는다.
+
+조회는 읽기 전용 projection, 변경은 유스케이스 단위 Data 명령이다. Business에서 target승격→이전host강등을 별도 HTTP로 나누거나 가입승인→membership삽입을 나누지 않는다.
+
+## 2. 위임·탈퇴
+
+```mermaid
+sequenceDiagram
+    participant A as 이전 방장
+    participant D as Data
+    participant R as Realtime
+    A->>D: host-transfer(targetUserId) 경유 요청
+    D->>D: 두 사용자·섬·membership 직렬화
+    D->>D: 현재OWNER 확인, 대상 활성·동일섬 확인
+    D->>D: 이전 MEMBER + 대상 OWNER + outbox COMMIT
+    D-->>A: 새 hostUserId
+    D-->>R: 주민 version·권한 변경 제어
+    A->>D: memberships/me 이탈 요청
+    D->>D: 본인 이제MEMBER, 진행세션 없음 검증
+    D->>D: 이탈·현재context·링크폐기·기존내기정리 COMMIT
+```
+
+위임과 나가기는 각각 확인하는 별도 행동이며 두 명령이다. 위임 성공 후 이탈이 실패해도 이미 위임한 권한을 되돌리지 않는다. 같은 키로 위임을 재시도한다고 OWNER/MEMBER가 다시 뒤집혀서는 안 된다.
+
+다인 방장 이탈은 위임 필요409, 마지막1인의 이탈은 섬 종료다. 마지막 주민 판정과 동시 가입/승인이 같은 그룹 직렬화 경계를 공유해야 한다. 혼자라고 읽은 직후 가입이 끼어 살아 있는 주민의 섬을 닫지 않아야 한다. 종료 TX는 island.members.updated 외에 island.updated와 링크 group.closed를 기록하고, 모든 pending을 cancelled(내부 원인 island_closed)로 종결하여 신청자 개인 이벤트를 남긴다. 그룹 종료를 조회404로만 감춰 승인 대기를 남기지 않는다.
+
+## 3. 강퇴·개인 데이터·보상
+
+강퇴는 membership 권한을 제거하는 명령이며 사용자 계정 삭제가 아니다. 개인 프로필·보유품·완료 집중 기록을 강퇴만으로 삭제하지 않는다. **개인 물고기 지갑은 없으므로**(2026-09-21 재화-단일) 강퇴가 건드릴 개인 재화 자체가 없다 — 공유 소유품과 섬 물고기는 섬 소유로 남는다. 이미 확정된 주문/원장/정산을 되돌리는 기능도 아니다.
+
+**진행 세션 종료는 2026-09-18 재영님 결정으로 정해졌다 — FR-D03 = B1 「강제 종료, 미정산」.** Data 가 강퇴와 동시에 진행 세션을 서버 시각으로 원자 종료하고, 그 시점까지의 물고기는 정산하지 않는다. ~~개인 확정 보상을 보존하는 방안 추천~~ 은 채택되지 않았다 — 산식이 필요 없어 구현이 가장 단순하다. 종결 사유는 `ABANDONED` 와 구분되는 값으로 남겨 원인 추적이 되게 한다. **미수령 퀘스트 공동 보상은 여전히 결정 대기**이며 퀘스트 정본이 회차 자격 기준·분모·중도 이탈을 확정한다. 구현은 GROMO-1924 에서 집중 담당의 원자 명령과 연결한다.
+
+현재 섬이 사라진 경우 다른 소속으로 자동 이동하지 않고 null로 비우고 이유별 복구 근거로 이동하는 방안은 [소속 IM-D06](../island-membership/prd.md#im-d06-추천-복구-전이승인-전-비활성)의 미승인 제안이다. null을 첫 소속으로 취급하면 전망대 우회, 출발 시설을 무조건 요구하면 영구 대기가 되므로 추천 전이와 미승인 활성화 금지를 함께 따른다. 결정 전에도 권한 없는 섬을 계속 현재 context로 서비스하거나 클라이언트가 보낸 임의 대체 섬을 신뢰해서는 안 된다.
+
+## 4. 권한 상실 전파
+
+Data 상태 전이와 membership epoch/outbox를 함께 커밋한다. 관리에서 실제 이름이 바뀌면 island.updated를 같은 TX에 기록한다. ~~링크 대상 group.renamed를 같은 TX에 기록하여 기존 초대 랜딩의 이름 스냅샷을 갱신한다.~~ → A23(2026-09-13): 랜딩이 그룹명을 조회하므로(현행) 링크용 스냅샷 갱신 이벤트는 없다([링크 정본](../link-attribution/high-level-design.md) §2). 표시 변경은 membership epoch를 증가시키지 않는다. 초대 pending에는 서버 전용 증거 참조를 보존하고 승인 TX에서 서명/발급자 활성/epoch/만료를 다시 검사한다. 초대 가입의 link.joined와 실제 pending claim의 link.claimConfirmed도 membership TX의 outbox이며 Business의 사후 호출로 대체하지 않는다. ~~링크 자격 폐기는 링크 서버에 HTTP로 내구 재전달하며~~ → A23: 링크 폐기는 멤버십 전이와 같은 DB 트랜잭션이며(링크 정본 HLD §2) Realtime은 현재 역할·멤버십을 서버에서 다시 검사한다. 공개 `island.members.updated`에는 섬ID/목록version만 보내고, 이탈 대상·사유·권한 철회 제어자료는 내부 데이터로 분리한다.
+
+`join.request.updated`는 신청자 본인과 전달 시점 현재 방장에게만 간다. 이전 방장의 개인큐에 이미 적재된 신청정보도 전달 직전 인가에서 차단한다. 소속 상실자는 앱 UNSUBSCRIBE 없이도 새 보호 프레임을 받지 않아야 한다. 전체소켓 종료 방식이면 앱은 새 허용 채널을 다시 구독한다.
+
+## 5. 단계와 책임
+
+기존 운영 정책 및 성공 와이어 보존 → 공통 잠금/내부 멱등 기반 합류 → 7개 Data 원자명령·projection → Business 외부 DTO → 이벤트/철회/경합 테스트 순서다. 참고 티켓 1659/1750/1754에 있는 기반을 복제하지 않는다.
+
+정책 미답 행은 permissions.md의 TBD로 유지한다. 문서 리뷰 통과나 골격 구현이 공용 권한 확정·강퇴 보상 정책 확정을 뜻하지 않는다. 코드·스키마 변경과 빌드는 이 설계 초안 작업에 포함하지 않는다.

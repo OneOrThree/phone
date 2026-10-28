@@ -18,7 +18,8 @@
   },
   "paginate": null,
   "gaps": [
-    "body.sessionId"
+    "body.sessionId",
+    "contract:시드·상태 전이 검증 필요"
   ],
   "runnable": false
 }

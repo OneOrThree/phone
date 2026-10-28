@@ -1,0 +1,220 @@
+/**
+ * 집중 세션 도메인 모듈(GROMO-2009). 공개 business-api 의 무접두 경로만 부른다 —
+ * `/internal/**`·`/api/v1/**`·data-api 직접 호출은 범위 밖이다.
+ *
+ * 계약(`docs/prd/fishcat/focus-rest-session/low-level-design.md` §2):
+ *  - `POST /focus-sessions`                       시작. `Idempotency-Key`(UUID36) 필수,
+ *                                               body `{islandId, subject, targetMinutes?, seat?}`.
+ *  - `GET  /focus-sessions/current`              진행 세션. 없으면 `data:null`(404 아님).
+ *  - `POST /focus-sessions/{id}/pause|resume`    body `{expectedVersion}` 한 필드 + 키 필수.
+ *  - `POST /focus-sessions/{id}/finish`          body `{expectedVersion}` + 키 필수 → 정산 뷰.
+ *  - `GET  /focus-sessions/pending-result`       서버 자동 종료의 미확인 결과. 없으면 data:null.
+ *  - `POST /focus-sessions/{id}/acknowledge`     결과 확인. 본문·키 없음 — 서버 조건부 UPDATE 가 멱등.
+ *
+ * 쓰기 의도마다 `Idempotency-Key` 는 호출부가 의도당 한 번 만든다 — 응답 유실·재시도는
+ * **같은 키와 같은 body** 로 보낸다(어댑터가 키를 만들면 유실 재호출 때 멱등이 깨진다).
+ */
+import { request } from './client';
+
+export type TutorialExperienceRewardView = {
+  islandId: string;
+  status: 'granted' | 'unavailable';
+};
+
+/** 세션을 만들지 않는 체험 보상. 계정당 1회, 같은 섬 재시도는 같은 영수증을 반환한다. */
+export function claimTutorialExperienceReward(
+  islandId: string,
+): Promise<TutorialExperienceRewardView> {
+  return request<TutorialExperienceRewardView>(
+    `/islands/${encodeURIComponent(islandId)}/tutorial-reward`,
+    { method: 'POST' },
+  );
+}
+
+export type TutorialRewardView = {
+  sessionId: string;
+  status: 'pending' | 'granted' | 'unavailable';
+};
+
+/** 계정당 한 번인 서버 영수증으로 재시도에도 중복 지급하지 않는다. */
+export function claimTutorialReward(sessionId: string): Promise<TutorialRewardView> {
+  return request<TutorialRewardView>(
+    `/focus-sessions/${encodeURIComponent(sessionId)}/tutorial-reward`,
+    { method: 'POST' },
+  );
+}
+
+/** 진행 세션 뷰 — 시각 필드는 UTC ISO-8601 문자열이다. */
+export type FocusSessionView = {
+  id: string;
+  islandId: string;
+  subject: string;
+  targetMinutes: number | null;
+  status: 'active' | 'paused';
+  /** serverNow 시점의 순수 집중 초 — 휴식은 들어가지 않는다. */
+  activeSeconds: number;
+  serverNow: string;
+  startedAt: string;
+  restStartedAt: string | null;
+  /** pause/resume/finish 의 expectedVersion. 전이마다 +1. */
+  version: number;
+  /**
+   * ACTIVE 구간 목록(GROMO-2131) — 없으면 구버전 서버라 undefined 로 둔다(퀘스트 집계는
+   * 기존처럼 seconds 로 뭉뚱그린다). 마지막 구간이 열려 있어도 서버가 serverNow 로 닫아 보낸다.
+   */
+  activeIntervals?: { startedAt: string; endedAt: string }[];
+  /** 세션 종류(GROMO-2310) — 서버가 NON_NULL 로 싣는다. 없으면 구버전 서버라 섬 집중으로 본다. */
+  kind?: 'island' | 'sea';
+  /** SEA 만 — 목적지 섬 이름(T1). 구버전 서버·섬 행이 없으면 없다. */
+  destinationIslandName?: string | null;
+};
+
+/** finish·pending-result 공용 정산 뷰 — earnedFish·allocation 은 서버 확정값이다. */
+export type FocusFinishView = {
+  /** 완료 기록 id(= sessionId) — acknowledge 경로에 이 값을 쓴다. */
+  recordId: string;
+  islandId: string;
+  subject: string;
+  targetMinutes: number | null;
+  activeSeconds: number;
+  goalAchieved: boolean;
+  earnedFish: number;
+  allocation: { personalFishAdded: number; constructionFishAdded: number };
+  completedAt: string;
+  questProgress: { id: string; myRate: number }[];
+  /** ACTIVE 구간 목록(GROMO-2131) — 전부 닫힌 구간. 없으면 구버전 서버. */
+  activeIntervals?: { startedAt: string; endedAt: string }[];
+  /** 바다 항해 정산(GROMO-2310 타입만 — 결과창은 GROMO-2311). */
+  kind?: 'island' | 'sea';
+  arrived?: boolean;
+  seaReward?: {
+    grantedProductIds: string[];
+    minutesToNextTier: number | null;
+    /** grantedProductIds 중 처음 받은 것(GROMO-2382 NEW!). 구버전 서버는 없다. */
+    newProductIds?: string[] | null;
+  } | null;
+};
+
+/** 집중섬 자리(GROMO-2477) — 지도 % 좌표(앱 `focusSpot` 그대로, 반올림 금지). */
+export type FocusSeat = { x: number; y: number };
+
+/** 두 좌표가 숫자이고 0~100 이면 자리, 아니면 null(NaN·문자열·키 없음 포함). */
+export const focusSeat = (v: unknown): FocusSeat | null => {
+  const p = v as { x?: unknown; y?: unknown } | null | undefined;
+  return p &&
+    typeof p.x === 'number' &&
+    typeof p.y === 'number' &&
+    p.x >= 0 &&
+    p.x <= 100 &&
+    p.y >= 0 &&
+    p.y <= 100
+    ? { x: p.x, y: p.y }
+    : null;
+};
+
+export type FocusSessionStartInput = {
+  islandId: string;
+  subject: string;
+  /** 선택 — 없으면 키 자체를 생략한다(명시적 null 금지). */
+  targetMinutes?: number;
+  /** 선택(GROMO-2477) — 고른 자리가 없으면 키 자체를 생략한다(명시적 null 금지, 옛 서버는 4필드를 400). */
+  seat?: FocusSeat;
+};
+
+/** 진행 세션이 없으면 null 이 정상값이다(`data:null`). */
+export function currentFocusSession(): Promise<FocusSessionView | null> {
+  return request<FocusSessionView | null>('/focus-sessions/current');
+}
+
+/** 자동 종료된 미확인 결과 — 없으면 null 이 정상값이다. */
+export function pendingFocusResult(): Promise<FocusFinishView | null> {
+  return request<FocusFinishView | null>('/focus-sessions/pending-result');
+}
+
+export function startFocusSession(
+  input: FocusSessionStartInput,
+  idempotencyKey: string,
+): Promise<FocusSessionView> {
+  return request<FocusSessionView>('/focus-sessions', {
+    method: 'POST',
+    idempotencyKey,
+    body: input,
+  });
+}
+
+/**
+ * 바다 항해 집중 시작(GROMO-2310) — `POST /focus-sessions/sea`. 본문은 정확히 한 필드
+ * `{destinationIslandId}`(그 밖 필드가 있으면 서버가 INVALID_REQUEST). 목적지가 망원경 목록에 없으면
+ * 409 `SEA_DESTINATION_UNAVAILABLE` — 재시도 판단은 sessionCommands.startSea 가 한다.
+ * 응답의 `islandId` = 목적지, `targetMinutes` = 항해 분, `subject` = `""`.
+ */
+export function startSeaFocusSession(
+  destinationIslandId: string,
+  idempotencyKey: string,
+): Promise<FocusSessionView> {
+  return request<FocusSessionView>('/focus-sessions/sea', {
+    method: 'POST',
+    idempotencyKey,
+    body: { destinationIslandId },
+  });
+}
+
+export type SeaRemarkView = { remark: string | null; changedAt: string; lockedUntil: string };
+
+/**
+ * 바다 한마디(GROMO-2310) — `PUT /me/sea-remark {remark}`. 서버가 strip 뒤 코드포인트 20자 초과면 400,
+ * `""` 은 지움, 고친 뒤 5분 안이면 409 `SEA_REMARK_LOCKED`, 게스트는 403 `SOCIAL_LOGIN_REQUIRED`.
+ * 재시도 없는 단발이다(멱등 키 없음 — 같은 값을 다시 보내면 잠금에 걸릴 뿐 상태가 겹치지 않는다).
+ */
+export function updateSeaRemark(remark: string): Promise<SeaRemarkView> {
+  return request<SeaRemarkView>('/me/sea-remark', { method: 'PUT', body: { remark } });
+}
+
+const versioned = (expectedVersion: number, idempotencyKey: string) => ({
+  method: 'POST' as const,
+  idempotencyKey,
+  body: { expectedVersion },
+});
+
+export function pauseFocusSession(
+  sessionId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<FocusSessionView> {
+  return request<FocusSessionView>(
+    `/focus-sessions/${encodeURIComponent(sessionId)}/pause`,
+    versioned(expectedVersion, idempotencyKey),
+  );
+}
+
+export function resumeFocusSession(
+  sessionId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<FocusSessionView> {
+  return request<FocusSessionView>(
+    `/focus-sessions/${encodeURIComponent(sessionId)}/resume`,
+    versioned(expectedVersion, idempotencyKey),
+  );
+}
+
+export function finishFocusSession(
+  sessionId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<FocusFinishView> {
+  return request<FocusFinishView>(
+    `/focus-sessions/${encodeURIComponent(sessionId)}/finish`,
+    versioned(expectedVersion, idempotencyKey),
+  );
+}
+
+/**
+ * 결과 1회 표시의 확인 — 본문·멱등 키 없음(서버 `acknowledged_at IS NULL` 조건부 UPDATE 가
+ * 최초 1회만 세팅해 재시도가 무해하다).
+ */
+export function acknowledgeFocusResult(sessionId: string): Promise<null> {
+  return request<null>(`/focus-sessions/${encodeURIComponent(sessionId)}/acknowledge`, {
+    method: 'POST',
+  });
+}

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans KR, Apple SD Gothic Neo, sans-serif" viewBox="0 0 1000 440" role="img" aria-label="oneorthree/server 레포에서 바뀐 서비스 이미지만 빌드되어 EC2 compose 의 해당 컨테이너만 교체된다">
+  <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1B2430"/></marker></defs>
+  <g stroke="#1B2430" stroke-width="1.75" fill="none" stroke-linejoin="miter" stroke-linecap="square">
+    <path d="M340,120 H400" marker-end="url(#b)"/>
+    <path d="M580,120 H640" marker-end="url(#b)"/>
+    <path d="M340,300 H610 V380 H640" marker-end="url(#b)"/>
+  </g>
+  <g stroke="#1B2430" stroke-width="1.75" fill="#FFFFFF">
+    <rect x="40" y="40" width="300" height="320"/>
+    <rect x="400" y="90" width="180" height="60"/>
+    <rect x="640" y="40" width="320" height="380"/>
+  </g>
+  <g fill="#EEF0EA" stroke="#1B2430" stroke-width="1">
+    <rect x="660" y="80" width="280" height="34"/>
+    <rect x="660" y="122" width="280" height="34"/>
+    <rect x="660" y="164" width="280" height="34"/>
+    <rect x="660" y="206" width="280" height="34" fill="#E3EFF3" stroke="#1F6F8B" stroke-width="1.75"/>
+    <rect x="660" y="248" width="280" height="34"/>
+    <rect x="660" y="290" width="280" height="34"/>
+  </g>
+  <g font-size="15" font-weight="600" fill="#1B2430">
+    <text x="60" y="68">oneorthree/server</text>
+    <text x="490" y="115" text-anchor="middle">이미지 저장소</text>
+    <text x="660" y="66">EC2 · Docker Compose</text>
+  </g>
+  <g font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#1B2430">
+    <text x="60" y="100">services/</text>
+    <text x="76" y="122">data-api/</text>
+    <text x="76" y="142">business-api/</text>
+    <text x="76" y="162" fill="#1F6F8B" font-weight="700">notification/  ← 이번 커밋</text>
+    <text x="76" y="182">chat/</text>
+    <text x="76" y="202">file-upload/</text>
+    <text x="60" y="234">deploy/   compose · nginx · dev.yml</text>
+    <text x="60" y="256">docs/     architecture · prd</text>
+    <text x="60" y="278" fill="#5E6670">.github/  services/&lt;name&gt;/** 필터</text>
+    <text x="60" y="340" fill="#5E6670">CLAUDE.md  루트 = JVM 공통 규약만</text>
+    <text x="660" y="103">nginx</text>
+    <text x="660" y="145">business-api   3c1f0e2</text>
+    <text x="660" y="187">data-api       8505adb</text>
+    <text x="660" y="229" fill="#1F6F8B" font-weight="700">notification   9f2a7d1  ← 교체</text>
+    <text x="660" y="271">kafka</text>
+    <text x="660" y="313">datadog-agent</text>
+    <text x="660" y="352" fill="#5E6670">deploy/dev.yml 매니페스트가</text>
+    <text x="660" y="370" fill="#5E6670">이 표를 커밋으로 기억</text>
+  </g>
+  <g font-size="12" fill="#5E6670">
+    <text x="346" y="108">① 바뀐 것만 빌드</text>
+    <text x="586" y="108">② push</text>
+    <text x="490" y="140" text-anchor="middle">dev GAR · prod ECR</text>
+    <text x="350" y="292">③ workflow_dispatch · service · digest · env</text>
+    <text x="612" y="404">④ 그 컨테이너만 pull + up</text>
+  </g>
+</svg>

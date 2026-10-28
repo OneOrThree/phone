@@ -1,0 +1,385 @@
+/**
+ * 먼바다 방 실시간 클라이언트(GROMO-2310). 서버 계약 정본은 `server/realtime/CLAUDE.md` 「API surface」의 바다 행과
+ * 「바다 앱 프레임 순서(강제)」·「바다 앱 계약 보충」이다.
+ *
+ * 프레임 순서(서버가 강제): `SUB /user/queue/sea` → `SEND /app/sea/enter {}` → `sea.room.assigned{roomId}` →
+ * `SUB /topic/sea/rooms/{roomId}` → `SEND /app/sea/sync {}` → `sea.room.snapshot{roomId, members[]}`.
+ * 방을 구독한 «뒤»에 스냅샷을 받으므로 그 사이 입퇴장을 놓치지 않는다. 소속 전 방 SUB 는 ERROR + 소켓 종료다.
+ *
+ * - (재)연결하면 구독이 모두 사라졌으므로 **항상 `enter` 부터** 다시 한다(방이 남아 있으면 같은 방의 assigned 가 온다).
+ * - 45초마다 `sync`(방이 없으면 `enter`) — Redis 장애·flush 뒤 서버가 먼저 알릴 수 없는 조용한 구간의 상한(서버 결정 N39).
+ *   `NOT_IN_SEA_ROOM`(오류 큐)이면 다시 `enter` 한다.
+ * - `sea.room.left` 는 그 사용자의 모든 세션에 오고 중복될 수 있다 — `eventId` 로 한 번만 처리한다(멱등).
+ *   `adrift`(서버의 10분 표류 정리)면 주기 틱으로는 다시 들어가지 않고, 사용자 행동(`sendEmote`·`reconnect`)이나
+ *   재연결·화면 재진입 때만 다시 `enter` 한다(GROMO-2484 — 예전에는 재연결 전까지 영구히 방이 없었다).
+ * - 서버 스위치 `FOCUS_SEA_REALTIME_EVENTS_ENABLED` 가 꺼진 환경(dev 기본)에서는 남의 출항·종료·한마디 변경이 다음
+ *   enter/sync 스냅샷 전까지 보이지 않는다. 내 항해 화면은 HTTP 응답(세션·한마디)으로 직접 그리므로 영향이 없다.
+ */
+import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
+import { t } from '@/i18n';
+import { colors, type Color } from '@/services/model';
+import {
+  attachCloseHandling,
+  EMOTE_TRY_MS,
+  EMOTE_TYPES,
+  friendlyRealtimeErrorMessage,
+  realtimeClientOptions,
+} from './islandRealtime';
+import type { SeaEmote, SeaParticipant } from '@/screens/sea/seaModel';
+import { parseLook } from './memberAppearance';
+
+/** 주기 sync 간격 — 서버 권장 30~60초의 가운데. */
+export const SEA_SYNC_MS = 45_000;
+const ENTER_TRY_MS = 1_000;
+/** 연속 ERROR 프레임(연결 종료) 상한 — 닿으면 stompjs 의 5초 재접속을 멈추고 아래 백오프로만 다시 붙는다. 스냅샷을 받으면 0 으로. */
+const STOMP_ERROR_LIMIT = 3;
+/** 상한에 닿은 뒤 다시 붙어 볼 간격 — 일시 장애(UPSTREAM_UNAVAILABLE 등)가 풀리면 화면을 다시 열지 않아도 돌아온다. */
+const SEA_RECONNECT_BACKOFF_MS = [30_000, 60_000, 120_000];
+
+/** 표시 모델 + 기준 시각(받은 시각, 기기 시계 ms). 집중 중이면 여기서부터 경과를 더해 그린다. */
+export type SeaLiveMember = SeaParticipant & {
+  anchorMs: number;
+  /** 서버 `member.session.sessionId` — 내 항해가 로컬 세션과 같은지 가른다(2303 표시 모델에는 넣지 않는다). */
+  sessionId?: string;
+  /** 서버 `member.appearance.version` — 늦게 온 옛 외양이 새 외양을 덮지 않게 단조 병합한다(GROMO-2390). */
+  outfitVersion?: number;
+};
+
+const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+
+/**
+ * 서버 `member` → 표시 모델. `name`·`catColor` 는 서버가 싣지만(2330) 보강 전 기록된 옛 해시엔 null 이라 `'???'`·`'gray'` 로 폴백한다.
+ * `appearance{head, neck, version}`(GROMO-2389)은 남의 뗏목 고양이에 입힌다 — 키 없음은 옛 서버라 outfit 을 비운다.
+ * `activeSeconds` 는 서버 발행 시각 기준값이라 받은 시각을 기준점으로 삼는다(기기·서버 시계 차이를 타지 않는다).
+ */
+export function seaMemberFromWire(raw: unknown, receivedAt: number): SeaLiveMember | null {
+  const m = raw as Record<string, unknown> | null;
+  const userId = str(m?.userId);
+  if (!m || !userId) return null;
+  const session = m.session as Record<string, unknown> | null | undefined;
+  const color = colors.includes(m.catColor as Color) ? (m.catColor as Color) : 'gray';
+  const remark = str(m.remark);
+  const sessionId = str(session?.sessionId);
+  const look = parseLook(m.appearance);
+  return {
+    userId,
+    name: str(m.name) ?? '???',
+    color,
+    focusing: m.state === 'focusing',
+    activeSeconds: Math.max(0, num(session?.activeSeconds) ?? 0),
+    anchorMs: receivedAt,
+    ...(sessionId ? { sessionId } : {}),
+    ...(remark ? { message: remark } : {}),
+    ...(look
+      ? {
+          outfit: { head: look.head, neck: look.neck },
+          ...(look.version !== null ? { outfitVersion: look.version } : {}),
+        }
+      : {}),
+  };
+}
+
+/**
+ * 외양은 version 이 더 큰 쪽만 — 순서가 뒤바뀐 갱신·스냅숏이 새 옷을 되돌리지 않는다.
+ * appearance 가 없는 갱신(옛 서버·다른 사유)은 갖고 있던 외양을 지우지 않는다. 다른 필드는 건드리지 않는다.
+ */
+function keepNewerOutfit(member: SeaLiveMember, prev: SeaLiveMember | undefined) {
+  if (!prev) return;
+  const stale =
+    prev.outfitVersion !== undefined &&
+    member.outfitVersion !== undefined &&
+    member.outfitVersion <= prev.outfitVersion;
+  if (stale || (member.outfit === undefined && prev.outfit)) {
+    member.outfit = prev.outfit;
+    if (prev.outfitVersion !== undefined) member.outfitVersion = prev.outfitVersion;
+  }
+}
+
+/** 지금 시각의 참가자 목록 — 집중 중이면 받은 뒤 흐른 초를 더한다(표류 중이면 서버가 멈춘 값 그대로). */
+export function seaParticipantsAt(members: readonly SeaLiveMember[], now: number) {
+  return members.map(
+    ({ anchorMs, sessionId: _sessionId, outfitVersion: _v, ...m }): SeaParticipant =>
+      m.focusing
+        ? {
+            ...m,
+            activeSeconds: m.activeSeconds + Math.max(0, Math.floor((now - anchorMs) / 1000)),
+          }
+        : m,
+  );
+}
+
+export type SeaRoomOpts = {
+  /** 방 구성원이 바뀔 때마다 전체 목록(나 포함)을 준다. */
+  onMembers: (members: SeaLiveMember[]) => void;
+  /** 방 이모트 — 내 것도 온다(그것이 발신 성공 ack). */
+  onEmote: (userId: string, type: SeaEmote) => void;
+  onError: (message: string) => void;
+  /** 내가 방에서 빠졌다(`sea.room.left`). `adrift`(10분 정리)면 주기 틱으로는 다시 들어가지 않는다(사용자 행동 때 다시). */
+  onLeft?: (reason: string) => void;
+  /** 끊겼다가 다시 연결됐다(첫 연결은 제외) — 그동안 놓친 세션 변화를 호출부가 HTTP 정본으로 맞춘다. */
+  onReconnect?: () => void;
+  now?: () => number;
+};
+
+/**
+ * `sendEmote` 결과(GROMO-2484) — 화면이 이유별로 안내한다. 서버 ack 가 아니다(publish 성공이 `sent`, 거절은 오류 큐로 나중에 온다).
+ * `no-room`(방 배정 전·표류 정리 뒤)과 `disconnected` 는 그 자리에서 다시 들어가기를 시작한다.
+ */
+export type SeaEmoteResult = 'sent' | 'no-room' | 'disconnected' | 'throttled' | 'closed';
+
+export type SeaRoom = {
+  /** `SEND /app/sea/rooms/{roomId}/emotes {type}`. 닫힘·모르는 타입이면 `closed`. */
+  sendEmote(type: SeaEmote): SeaEmoteResult;
+  /**
+   * 사용자 행동·포그라운드 복귀 — 방이 없으면(표류 정리 뒤 포함) 다시 `enter` 하고, 오류 상한으로 쉬고 있으면 기다리지 않고
+   * 바로 다시 붙는다. 방에 있고 연결 중이면 아무 일도 없다.
+   */
+  reconnect(): void;
+  /** `SEND /app/sea/leave` 뒤 소켓을 닫고 재접속 타이머도 멈춘다. */
+  close(): void;
+};
+
+type Envelope = { eventId?: unknown; type?: unknown; roomId?: unknown; payload?: unknown };
+
+export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
+  const now = opts.now ?? Date.now;
+  let roomId: string | null = null;
+  let roomSub: { unsubscribe(): void } | null = null;
+  let members = new Map<string, SeaLiveMember>();
+  let parked = false;
+  let lastEnter = -Infinity;
+  let lastEmote = -Infinity;
+  let stompErrors = 0;
+  let connectedBefore = false;
+  // 오류 상한으로 쉬는 중 — 백오프 타이머가 다시 붙인다. 안내는 쉬기 시작할 때 한 번만(스냅샷을 받으면 다시 켠다)
+  let suspended = false;
+  let backoffStep = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let limitNotified = false;
+  // UPSTREAM_UNAVAILABLE 안내는 한 번만 — 상류가 계속 죽어 있으면 45초 틱의 enter 마다 거절된다. 스냅샷·사용자 재시도면 다시 켠다
+  let upstreamNotified = false;
+  let closed = false;
+  let revoked = false; // 세션 폐기 close — 백오프 재활성도 하지 않는다
+  const resume = () => {
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    if (closed || revoked || !suspended) return;
+    suspended = false;
+    // stompErrors 는 그대로 둔다 — 다시 붙자마자 또 거절되면 바로 다음(더 긴) 백오프로 쉰다.
+    // stompjs 는 DEACTIVATING 중의 activate 를 종료 뒤로 예약하므로, 종료가 끝난 뒤 폐기·닫힘을 다시 보고 되살린다
+    void client.deactivate().then(() => {
+      if (!closed && !revoked) client.activate();
+    });
+  };
+  // 사용자 행동·복귀 — 표류 정리로 멈춘 입장(parked)을 풀고 방이 없으면 다시 들어간다. 주기 틱은 부르지 않는다(정리 반복 방지)
+  const rejoin = () => {
+    parked = false;
+    upstreamNotified = false;
+    if (!roomId) enter();
+    resume();
+  };
+  const seenLeft = new Set<string>();
+  const emit = () => opts.onMembers([...members.values()]);
+  const send = (destination: string, body: unknown = {}) => {
+    if (!client.connected) return false;
+    client.publish({ destination, body: JSON.stringify(body) });
+    return true;
+  };
+  const enter = () => {
+    // close() 뒤에는 다시 들어가지 않는다 — 내 leave 의 left 가 DISCONNECT 처리보다 먼저 돌아오면 enter 가 나갈 수 있다
+    if (closed || parked || now() - lastEnter < ENTER_TRY_MS) return;
+    if (send('/app/sea/enter')) lastEnter = now();
+  };
+  const dropRoom = () => {
+    roomId = null;
+    roomSub = null;
+    members = new Map();
+    emit();
+  };
+  const parse = (msg: IMessage): Envelope | null => {
+    try {
+      const body = JSON.parse(msg.body) as Envelope;
+      return body && typeof body === 'object' ? body : null;
+    } catch {
+      return null; // 깨진 프레임은 버린다
+    }
+  };
+  const onRoomEvent = (msg: IMessage) => {
+    if (closed) return;
+    const ev = parse(msg);
+    if (!ev || ev.roomId !== roomId) return; // 옛 방의 늦은 사건
+    const p = (ev.payload ?? {}) as Record<string, unknown>;
+    if (ev.type === 'sea.member.joined' || ev.type === 'sea.member.updated') {
+      const member = seaMemberFromWire(p.member, now());
+      if (!member) return;
+      keepNewerOutfit(member, members.get(member.userId));
+      members.set(member.userId, member);
+      emit();
+    } else if (ev.type === 'sea.member.left') {
+      // 없는 사람 제거는 멱등이다(joined 뒤 보정 left 와 겹칠 수 있다)
+      if (typeof p.userId === 'string' && members.delete(p.userId)) emit();
+    } else if (ev.type === 'sea.emote') {
+      if (typeof p.userId === 'string' && EMOTE_TYPES.has(p.type as string))
+        opts.onEmote(p.userId, p.type as SeaEmote);
+    }
+  };
+  const onPersonal = (msg: IMessage) => {
+    if (closed) return;
+    const ev = parse(msg);
+    if (!ev) return;
+    const p = (ev.payload ?? {}) as Record<string, unknown>;
+    if (ev.type === 'sea.room.assigned') {
+      const next = str(p.roomId);
+      if (!next) return;
+      // 같은 방 재확인(구독이 살아 있음)이면 다시 구독하지 않는다 — 구독은 방마다 하나뿐이다
+      if (next !== roomId || !roomSub) {
+        // 다른 방으로 배정됐거나 구독이 없다 — 옛 방 구독을 풀고(서버에는 이미 없는 방이라 무해) 새 방을 구독한 «뒤» sync
+        roomSub?.unsubscribe();
+        roomId = next;
+        members = new Map();
+        roomSub = client.subscribe(`/topic/sea/rooms/${next}`, onRoomEvent);
+      }
+      send('/app/sea/sync');
+    } else if (ev.type === 'sea.room.snapshot') {
+      if (str(p.roomId) !== roomId || !Array.isArray(p.members)) return;
+      const at = now();
+      const before = members;
+      members = new Map();
+      for (const raw of p.members) {
+        const member = seaMemberFromWire(raw, at);
+        if (!member) continue;
+        // 스냅숏이 정본이지만 외양은 먼저 온 더 새 갱신(version)을 되돌리지 않는다
+        keepNewerOutfit(member, before.get(member.userId));
+        members.set(member.userId, member);
+      }
+      stompErrors = 0;
+      backoffStep = 0;
+      limitNotified = false;
+      upstreamNotified = false;
+      emit();
+    } else if (ev.type === 'sea.room.left') {
+      const id = str(ev.eventId);
+      if (id) {
+        if (seenLeft.has(id)) return;
+        seenLeft.add(id);
+      }
+      if (str(p.roomId) !== roomId) return; // 이미 처리했거나 옛 방 — 멱등
+      const reason = str(p.reason) ?? 'left';
+      // 서버는 소속만 지운다 — 구독은 우리가 푼다. 남겨 두면 같은 방에 재배정될 때 이중 구독이 돼
+      // 서버 세션 레지스트리가 INVALID_REQUEST + 연결 종료를 낸다
+      roomSub?.unsubscribe();
+      dropRoom();
+      opts.onLeft?.(reason);
+      // 10분 표류 정리는 서버의 결정이라 주기 틱으로는 다시 들어가지 않는다 — 사용자 행동(rejoin) 때만. 다른 기기의 퇴장
+      // (left·disconnected)은 이 화면이 아직 있으니 바로 다시 들어간다
+      if (reason === 'adrift') parked = true;
+      else enter();
+    }
+  };
+  const onErrors = (msg: IMessage) => {
+    if (closed) return;
+    let code = '';
+    let message = '';
+    try {
+      const b = JSON.parse(msg.body) as { code?: unknown; message?: unknown };
+      code = str(b?.code) ?? '';
+      message = str(b?.message) ?? '';
+    } catch {
+      // 기본 문구로 둔다
+    }
+    if (code === 'NOT_IN_SEA_ROOM') {
+      // 방이 사라졌다(Redis 장애·flush·정리) — 다시 배정받는다
+      if (roomId) {
+        roomSub?.unsubscribe();
+        dropRoom();
+      }
+      enter();
+      return;
+    }
+    // Data 상태 조회 실패(상류 미배선·5xx·타임아웃) — 안내하고, 다음 주기 틱·사용자 행동이 enter 를 다시 보낸다
+    if (code === 'UPSTREAM_UNAVAILABLE') {
+      if (!upstreamNotified) opts.onError(t('openSea.upstreamUnavailable'));
+      upstreamNotified = true;
+      return;
+    }
+    if (code === 'EMOTE_TOO_FREQUENT') return opts.onError(t('openSea.emoteTooFrequent'));
+    const text = friendlyRealtimeErrorMessage(code || message);
+    if (text) opts.onError(text);
+  };
+  const client = new Client({
+    ...realtimeClientOptions(),
+    onConnect: () => {
+      // 재연결 — 구독이 모두 사라졌고 마지막 세션이었다면 서버는 이미 left{disconnected} 로 내보냈다. 항상 enter 부터
+      roomId = null;
+      roomSub = null;
+      parked = false;
+      lastEnter = -Infinity;
+      client.subscribe('/user/queue/sea', onPersonal);
+      client.subscribe('/user/queue/errors', onErrors);
+      enter();
+      if (connectedBefore) opts.onReconnect?.();
+      connectedBefore = true;
+    },
+    onStompError: (frame: IFrame) => {
+      // 서버가 ERROR 뒤 소켓을 닫는다 — stompjs 가 5초 뒤 재접속해 onConnect 가 enter 부터 다시 한다
+      const code = str(frame.headers.message) ?? '';
+      // 사람 문장("Session closed." 등)은 Spring 전송 계층 ERROR — close 가 따라오고 stompjs 재접속이 처리한다. 3회 카운트에 넣지 않는다
+      // (close 없이 오는 Spring ERROR 는 조용히 무시된다 — islandRealtime 의 같은 가드 주석 참고)
+      if (!/^[A-Z][A-Z0-9_]*$/.test(code)) return;
+      // 이모트 연타 거절은 방 연결의 이상이 아니다 — 백오프 카운트에 넣지 않는다(연타 3번에 방이 30초 쉬지 않게)
+      if (code === 'EMOTE_TOO_FREQUENT') return opts.onError(t('openSea.emoteTooFrequent'));
+      stompErrors += 1;
+      if (stompErrors >= STOMP_ERROR_LIMIT && !suspended && !closed) {
+        // 무한 거절 루프를 끊되 영구히 멈추지는 않는다 — 30초 → 60초 → 120초(상한) 뒤 다시 붙는다
+        suspended = true;
+        void client.deactivate();
+        const delay =
+          SEA_RECONNECT_BACKOFF_MS[Math.min(backoffStep, SEA_RECONNECT_BACKOFF_MS.length - 1)];
+        backoffStep += 1;
+        retryTimer = setTimeout(resume, delay);
+        if (!limitNotified) {
+          limitNotified = true;
+          const text = friendlyRealtimeErrorMessage(code);
+          if (text) opts.onError(text);
+        }
+      }
+    },
+  });
+  attachCloseHandling(client, () => {
+    revoked = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    opts.onError(t('realtime.sessionRevoked'));
+  });
+  const timer = setInterval(() => {
+    if (!client.connected) return;
+    if (roomId) send('/app/sea/sync');
+    else enter();
+  }, SEA_SYNC_MS);
+  client.activate();
+  return {
+    sendEmote: (type) => {
+      if (closed || !EMOTE_TYPES.has(type)) return 'closed';
+      // 끊김·방 없음이면 이 탭이 재시도다 — 다시 들어가기(쉬는 중이면 바로 재접속)를 시작하고 이유를 돌려준다
+      const blocked = !client.connected ? 'disconnected' : !roomId ? 'no-room' : null;
+      if (blocked) {
+        rejoin();
+        return blocked;
+      }
+      if (now() - lastEmote < EMOTE_TRY_MS) return 'throttled';
+      send(`/app/sea/rooms/${roomId}/emotes`, { type });
+      lastEmote = now();
+      return 'sent';
+    },
+    reconnect: rejoin,
+    close: () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+      clearInterval(timer);
+      send('/app/sea/leave');
+      void client.deactivate();
+    },
+  };
+}

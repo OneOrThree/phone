@@ -1,0 +1,18 @@
+# 기존 dev/prod compose 뒤에 선택적으로 적용한다. !override를 지원하는 Compose가 필요하다.
+# 기존 prod env_file 전체 주입과 dev environment의 관리자 DB 자격을 모두 교체한다.
+# 프로젝트명은 기존 배포와 같은 -p로 명시한다. 이 파일은 Data(app)를 재생성한다.
+services:
+  app:
+    image: ${APP_IMAGE:?Data 이미지 digest 필요}
+    env_file: !override
+      - ${DATA_API_ENV_FILE:?Data 전용 env 파일 필요}
+    environment: !override
+      SPRING_PROFILES_ACTIVE: ${DATA_API_PROFILES:?Data 프로파일 필요}
+      JAVA_OPTS: ${DATA_API_JAVA_OPTS:--Djava.security.egd=file:/dev/./urandom}
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: ${DEPLOY_ENV:?환경 필요}
+      DD_SERVICE: gromo-data-${DEPLOY_ENV}
+      DD_VERSION: ${APP_IMAGE}
+      DD_TRACE_SAMPLE_RATE: "0.2"
+      DD_LOGS_INJECTION: "true"
+      DD_RUNTIME_METRICS_ENABLED: "true"

@@ -1,0 +1,170 @@
+# 인프라 소유 server 블록용 예시. 실제 호스트와 시크릿은 인프라가 주입한다.
+# Cloudflare CIDR만 set_real_ip_from으로 신뢰하고 CF 외 origin 접근을 차단해
+# $remote_addr를 검증된 방문자 IP로 만든 뒤 적용한다. 임의 CF-Connecting-IP를 믿지 않는다.
+# __BUSINESS_UPSTREAM__, __NOTIFICATION_UPSTREAM__, __REALTIME_UPSTREAM__은 사설 host:port다.
+# 게스트 로그인에 쓰이는 신뢰 프록시 비밀은 공통 헤더 파일에 주입한다.
+# 공통 헤더는 nginx-satellites-proxy-headers.conf.example에서 별도 파일로 생성한다.
+# 기존 정규식 /api 라우팅보다 이 include가 먼저 평가돼야 한다.
+
+# 시스템 §2.1의 유일한 Notification 공개 표면. 서비스가 콘솔 Bearer·actor를 검증한다.
+location ^~ /internal/admin/ {
+    proxy_pass http://__NOTIFICATION_UPSTREAM__;
+    proxy_set_header Host $host;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 120s;
+    proxy_next_upstream off;
+}
+location ^~ /internal/ { return 404; }
+location = /internal { return 404; }
+location ^~ /actuator/ { return 404; }
+location = /actuator { return 404; }
+# management(9091)는 사설망에서만 접근한다.
+
+# 2.0 앱 실시간(STOMP) — dev 예시(nginx-dev-2.0-routes.conf.example)와 같은 값이다. 인증은 STOMP CONNECT 가 검사한다.
+# 유휴 연결 유지(GROMO-2341): 서버·앱이 heartbeat 10s/10s 를 주고받아 살아 있는 연결은 10초마다 양방향 바이트가 흐른다.
+# ⚠️ Cloudflare 프록시는 바이트 없는 WebSocket 을 약 100초 뒤 끊는다 — heartbeat 10s 가 그 아래라 유지된다. heartbeat 를
+#    늘리거나 끄면 Cloudflare 가 먼저 끊는다. 아래 3600s 는 nginx 자신의 상한일 뿐이다.
+location = /ws/realtime {
+    proxy_pass http://__REALTIME_UPSTREAM__;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_next_upstream off;
+}
+
+# 신규 앱 API: 정확한 루트와 / 하위만 연결한다. URI·쿼리·본문을 재작성하지 않는다.
+# /auth/sessions의 선택 AT/RT 등 인증 예외는 Business의 개별 계약이 결정한다.
+# POST /islands/{islandId}/host-transfer도 아래 islands 분기가 전달한다.
+# 집중 세션 수명주기(GROMO-1764)도 마찬가지로 아래 두 분기가 그대로 전달한다 — 새 location 이
+# 필요하지 않다. focus-sessions 분기: POST /focus-sessions · GET /focus-sessions/current ·
+# POST /focus-sessions/{sessionId}/pause · .../resume · .../finish. me 분기: GET /me/focus-summary.
+# 휴식 1시간 자동 종료의 결과 1회 제공(GROMO-1998)도 같은 focus-sessions 분기다 —
+# GET /focus-sessions/pending-result · POST /focus-sessions/{sessionId}/acknowledge.
+# 최초 낚시 보상(GROMO-1981)도 같은 focus-sessions 분기다 —
+# POST /focus-sessions/{sessionId}/tutorial-reward.
+# Live Activity 등록도 같은 분기가 전달한다 — PUT /focus-sessions/{sessionId}/live-activity.
+# 섬 소속·탐색(GROMO-1759)도 같다 — 새 location 이 필요하지 않다. islands 분기: POST /islands ·
+# GET /islands · GET /islands/discover · GET /islands/{islandId}. me 분기: GET /me/islands ·
+# PUT /me/current-island.
+# 라우팅과 기능 활성화는 별개다. Data의 위임 gate는 Realtime 준비 전까지 기본 503이다.
+# legacy 링크 IP 증명용 시크릿은 필요 없다. 앱 JWT를 검증한 Business만 내부 위임을 만든다.
+# 우체통 편지방(GROMO-1775)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/messages · POST /islands/{islandId}/messages. 저장은 Business 가
+# realtime 내부 어댑터(/internal/…)로 넘기므로 nginx 는 realtime 을 공개로 열지 않는다.
+# 섬 건설(GROMO-1767)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/construction-options · PUT /islands/{islandId}/construction-target ·
+# POST /islands/{islandId}/constructions.
+# 섬 게시판(GROMO-1771)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET·POST /islands/{islandId}/notices · GET·PATCH·DELETE /islands/{islandId}/notices/{noticeId} ·
+# POST /islands/{islandId}/notices/{noticeId}/comments. 네 쓰기는 Data 의 게이트가 BQ02·BQ03 전까지 503 이다.
+# 같이 낚시 초기 스냅샷(GROMO-1765)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/focus-members · GET /islands/{islandId}/rest-members.
+# 친구(GROMO-1894)도 아래 friends 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. friends 분기:
+# GET /friends · GET /friends/requests · POST /friends/requests · POST /friends/requests/{requestId}/accept ·
+# .../reject · .../cancel · DELETE /friends/{friendUserId} · GET /friends/search (GROMO-1996 —
+# 이 분기는 처음부터 전달하고 있었는데 Business 쪽 매핑이 없어 404 였다. 1996 이 그 매핑을 채웠다).
+# 사용자 차단(GROMO-1975)도 같은 분기가 전달한다 — GET·POST /blocks · DELETE /blocks/{blockedUserId}.
+# 편지(GROMO-1933·2002)도 같은 분기가 전달한다 — letters 분기: POST /letters · GET /letters ·
+# GET /letters/{letterId} · DELETE /letters/{letterId}(닫기, GROMO-2002).
+# 꾸미기(GROMO-1783)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/inventory · PATCH /me/appearance · GET /islands/{islandId}/inventory ·
+# PATCH /islands/{islandId}/appearance.
+# 공용 음악(GROMO-1779)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/playback · PATCH /islands/{islandId}/playback.
+# 섬 가입 신청·초대(GROMO-1760)도 기존 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# islands 분기: POST /islands/{islandId}/memberships · POST /islands/{islandId}/invitations.
+# me 분기: GET·DELETE /me/join-requests/{requestId}. invitations 분기: POST /invitations/resolve.
+# 계정(GROMO-1801)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. me 분기: GET /me ·
+# PATCH /me · DELETE /me.
+# 섬 관리·주민(GROMO-1802)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# PATCH /islands/{islandId} · GET /islands/{islandId}/members · GET /islands/{islandId}/join-requests ·
+# PATCH /islands/{islandId}/join-requests/{requestId} · DELETE /islands/{islandId}/members/{userId} ·
+# DELETE /islands/{islandId}/memberships/me. 명령 4종은 Data 의 관리 gate 가 기본 503 이다.
+# 화면 조회 1차(GROMO-1896)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /screens/launch · /screens/raft · /screens/account · /screens/explore · /screens/visit/{islandId}.
+# 화면 조회 2차(GROMO-1897)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /screens/home · GET /screens/focus · GET /screens/town-hall.
+# 화면 조회 3차(GROMO-1898)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /screens/board · GET /screens/library · GET /screens/shop · GET /screens/playback.
+# 화면 조회 4차(GROMO-1899)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /screens/mailbox · GET /screens/friends.
+# 섬 퀘스트(GROMO-1773)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/quests/current · GET /islands/{islandId}/quests/{questId}/progress ·
+# POST /islands/{islandId}/quests · PATCH /islands/{islandId}/quests/{questId} ·
+# POST /islands/{islandId}/quests/{questId}/claims.
+# 섬 상점(GROMO-1781)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/shop/wallets · GET /islands/{islandId}/shop/products ·
+# GET /islands/{islandId}/shop/products/{productId} · POST·GET /islands/{islandId}/shop/orders.
+# 회관 기록(GROMO-1769)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/statistics/focus · GET /islands/{islandId}/statistics/screen-time ·
+# PUT /me/screen-time/{date}.
+# 회관 공동 가계부(GROMO-1786)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/resources/ledger.
+# 도서관 물고기 장(GROMO-2046)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/statistics/fish-earnings.
+# 내 가입 신청 목록(GROMO-2047)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
+# 섬 오가기 도착(GROMO-2260)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /islands/{islandId}/arrivals. 나가기·강퇴의 ?include=nextLocation, 편지의 ?kind=system 은 기존 경로의 쿼리다.
+# 섬장 인사말·방명록(GROMO-2262)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET·POST /islands/{islandId}/guestbook · DELETE /islands/{islandId}/guestbook/{entryId}. 인사말은 기존 PATCH /islands/{islandId} 의 필드다.
+# 망원경 목록(GROMO-2265)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/telescope.
+# 망원경 핀(GROMO-2268)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /me/telescope/pins · DELETE /me/telescope/pins/{islandId}.
+# 잡지 홍보비·섬 소식(GROMO-2267)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /islands/{islandId}/promotions · GET /islands/{islandId}/news.
+# 고양이 잡지 홍보 칸·꾸미기 재료(GROMO-2289)도 islands·me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# PUT /islands/{islandId}/promotions/{promotionId} · GET /islands/{islandId}/promotions/editor · GET /me/magazine/assets.
+# 잡지 읽기·받음(GROMO-2289)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/magazine/today · GET /me/magazine/issues · GET /me/magazine/issues/{issueId} ·
+# PUT /me/magazine/issues/{issueId}/receipt.
+# 고양이 잡지 홍보 칸 신고(GROMO-2289)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /islands/{islandId}/promotions/{promotionId}/reports · GET /islands/{islandId}/promotions/records.
+# 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
+# 바다 집중(GROMO-2299)도 focus-sessions·me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /focus-sessions/sea · PUT /me/sea-remark. 한마디(sea-remark)는 게스트 403·20자·5분 잠금을 Data 가 판정한다.
+# 꾸미기 카탈로그(GROMO-2331) — GET /customization/catalog 는 새 접두어 customization 으로 Business 에 간다.
+location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks|customization)(?:/|$) {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_set_header X-User-Id "";
+    proxy_set_header X-Caller "";
+    proxy_set_header X-Caller-Id "";
+    proxy_set_header X-Internal-Caller "";
+    proxy_set_header X-Service-Caller "";
+    proxy_set_header X-Link-Client-IP "";
+    proxy_set_header X-Link-Proxy-Secret "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Real-IP "";
+    proxy_set_header CF-Connecting-IP "";
+    # Authorization·Idempotency-Key는 원문 그대로 전달한다(중복 키도 서비스가 검사).
+    proxy_connect_timeout 2s;
+    # 상위 설정이 non_idempotent 재시도를 허용해도 쓰기를 다른 upstream에서 재실행하지 않는다.
+    proxy_next_upstream off;
+}
+
+# 기존 Business 파일 미리보기. 인증·SSRF·본문 상한은 해당 서비스에서 검사한다.
+location = /api/v1/link-previews {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+}
+location ^~ /api/v1/link-previews/ {
+    # 카드 조회 및 thumbnail
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+}
+
+location = /api/v1/users/me/device-token {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+    include /etc/nginx/snippets/gromo-satellites-proxy-headers.conf;
+}
+location = /api/v1/users/me/notification-settings {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+    include /etc/nginx/snippets/gromo-satellites-proxy-headers.conf;
+}

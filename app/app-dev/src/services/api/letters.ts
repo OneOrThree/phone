@@ -1,0 +1,146 @@
+/**
+ * 우체통 화면·친구 편지·섬 우체통 낙서 공개 API (GROMO-2016).
+ * 공개 근거 — friend-letter LLD §1.12~1.16, island-mailbox LLD §1.8~1.12,
+ * business-api ScreenController/LetterController/IslandController.
+ *
+ * 계약 요지:
+ * - GET /screens/mailbox — 현재 섬 + 우체통 낙서(오름차순) + 받은 편지 + 친구 한 묶음.
+ * - GET /letters — 받은·보낸 편지 최신순 cursor 슬라이스. 보낸 편지의 열람 여부는
+ *   정보라 안 싣는다.
+ * - GET /letters?kind=system — 섬 시스템 편지(강퇴·가입 승인)만. 발신자가 없어
+ *   counterpartUserId·senderId 가 null 이다(GROMO-2275). kind 없는 응답은 그대로다.
+ * - GET /letters/{id} — 읽기. 수신자 최초 읽기가 readAt 을 찍지만 편지를 닫지 않는다.
+ * - POST /letters — 친구에게만 발송. Idempotency-Key 계약이 없다 — 응답 유실 뒤
+ *   재시도하면 중복이 생길 수 있으므로 호출자는 실패를 숨기거나 자동 재시도하지 않는다.
+ * - DELETE /letters/{id} — 닫기. 수신자만 호출, 204 성공·이미 닫힌 편지는 404.
+ *   서버가 양쪽 목록에서 지운다 — 앱은 성공 뒤 목록을 재조회한다.
+ * - /islands/{islandId}/messages — 섬 우체통 낙서. 보내기는 {clientMessageId, text},
+ *   같은 키 재시도는 서버가 원본을 재생한다(중복 글 없음).
+ */
+import { request } from './client';
+
+export type LetterItem = {
+  id: string;
+  /** 시스템 편지(강퇴·가입 승인)는 발신자가 없어 null. */
+  counterpartUserId: string | null;
+  counterpartNickname: string | null;
+  /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
+  catColor?: string | null;
+  appearance?: unknown;
+  content: string;
+  isRead: boolean;
+  createdAt: string;
+  /** 시스템 편지에만 온다 — KICK | JOIN_APPROVED. 친구 편지엔 키 자체가 없다. */
+  kind?: string;
+  islandId?: string;
+  readAt?: string | null;
+};
+
+export type LetterSlice = {
+  content: LetterItem[];
+  size: number;
+  hasNext: boolean;
+  nextCursor: string | null;
+};
+
+export type LetterView = {
+  id: string;
+  /** 시스템 편지는 null. */
+  senderId: string | null;
+  senderNickname: string | null;
+  /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
+  catColor?: string | null;
+  appearance?: unknown;
+  receiverId: string;
+  content: string;
+  createdAt: string;
+  readAt: string | null;
+  /** 시스템 편지에만 온다. */
+  kind?: string;
+};
+
+/**
+ * 시스템 편지(강퇴·가입 승인) 판별 — 목록 항목. 새 서버는 시스템 편지에만 kind 를 싣고, 발신자
+ * 없는(counterpartUserId == null) 항목도 시스템 편지다. 둘 중 하나면 시스템 편지로 본다 —
+ * 서버가 시스템 편지에 발신자 id 를 채워 보내도 닉네임·답장·차단이 붙지 않게 판별을 여기 한 곳에 둔다.
+ * 옛 서버가 kind 를 무시하고 돌려준 친구 항목(kind 없음·발신자 있음)은 시스템 편지가 아니다.
+ */
+export const isSystemLetter = (l: Pick<LetterItem, 'kind' | 'counterpartUserId'>) =>
+  l.kind != null || l.counterpartUserId == null;
+
+/** 시스템 편지 판별 — 상세. 기준은 {@link isSystemLetter} 와 같다(senderId 가 발신자 자리). */
+export const isSystemLetterView = (l: Pick<LetterView, 'kind' | 'senderId'>) =>
+  l.kind != null || l.senderId == null;
+
+export type MailboxMessage = {
+  id: string;
+  clientMessageId: string;
+  userId: string;
+  name: string | null;
+  /** 작성자 털색·착용(GROMO-2389) — 탈퇴·옛 서버는 null/없음. */
+  catColor?: string | null;
+  appearance?: unknown;
+  text: string;
+  createdAt: string;
+};
+
+export type MailboxFriend = {
+  userId: string;
+  nickname: string | null;
+  mainIslandName: string | null;
+  myFavorite: boolean;
+  theirFavorite: boolean;
+  /** 상대 털색·착용 — 서버가 아직 안 싣는 목록이라 선택 필드(없으면 앱이 중립색). */
+  catColor?: string | null;
+  appearance?: unknown;
+};
+
+export type MailboxScreen = {
+  island: {
+    id: string;
+    name: string;
+    intro: string;
+    visibility: string;
+    approvalRequired: boolean;
+    memberCount: number;
+    maxMembers: number;
+    membershipStatus: string;
+    growthStage: string | null;
+    themeId: string | null;
+    role: string;
+    version: number;
+  };
+  messages: { items: MailboxMessage[]; nextCursor: string | null };
+  letters: LetterSlice;
+  friends: MailboxFriend[];
+};
+
+export type MessagePage = { items: MailboxMessage[]; nextCursor: string | null };
+
+export const getMailboxScreen = () => request<MailboxScreen>('/screens/mailbox');
+
+export const listLetters = (type: 'received' | 'sent', cursor?: string | null) =>
+  request<LetterSlice>(
+    `/letters?type=${type}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
+/** 섬 시스템 편지(첫 20통, 페이지네이션 없음) — 친구 편지 목록·안 읽음 수와 섞지 않는다. */
+export const listSystemLetters = () => request<LetterSlice>('/letters?kind=system');
+
+export const getLetter = (letterId: string) => request<LetterView>(`/letters/${letterId}`);
+
+export const sendLetter = (body: { receiverId: string; content: string }) =>
+  request<LetterView>('/letters', { method: 'POST', body });
+
+export const closeLetter = (letterId: string) =>
+  request<void>(`/letters/${letterId}`, { method: 'DELETE' });
+
+export const listIslandMessages = (islandId: string, cursor?: string | null) =>
+  request<MessagePage>(
+    `/islands/${islandId}/messages${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
+export const sendIslandMessage = (
+  islandId: string,
+  body: { clientMessageId: string; text: string },
+) => request<MailboxMessage>(`/islands/${islandId}/messages`, { method: 'POST', body });

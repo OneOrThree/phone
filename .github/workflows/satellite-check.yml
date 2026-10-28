@@ -1,0 +1,120 @@
+# 위성(business-api · notification) 공용 검사. GROMO-2224 에서 dev·prod CI 로 나누며 분리.
+# satellite-ci.dev.yml · satellite-ci.prod.yml 이 호출. 변경 판정 결과(services)를 이미지 잡에 넘김.
+name: Satellite Checks
+
+on:
+  workflow_call:
+    inputs:
+      build-services:
+        description: 서비스 전체 검사·JAR 생성. release PR에서는 prod-ci가 담당한다.
+        type: boolean
+        default: true
+    outputs:
+      services:
+        description: 서비스별 전체 검사·이미지 대상 여부 JSON
+        value: ${{ jobs.changes.outputs.services }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  changes:
+    name: 위성 변경 입력 판정
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      services: ${{ steps.plan.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/satellite-ci-plan.py
+      - name: dev 배포 대상 기록
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SERVICES: ${{ steps.plan.outputs.services }}
+        run: printf '%s\n' "$SERVICES" > satellite-deploy-plan.json
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: satellite-deploy-plan
+          path: satellite-deploy-plan.json
+          retention-days: 30
+
+  runtime-contracts:
+    name: 서비스별 시크릿 · DB 격리
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # test_config_contract 가 compose yml 을 읽음 (GROMO-2224)
+      - name: 테스트 의존성
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+      - name: 합성 SecretString의 compose 전달과 실제 Postgres 권한 확인
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: A22 위성 경계 · producer와 template 계약 검사
+        run: python3 .github/scripts/check-satellite-contracts.py
+
+  public-command-contracts:
+    name: 공개 명령 원자성 · 계약
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server/data-api
+    env:
+      SPRING_PROFILES_ACTIVE: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 실제 Postgres 멱등 · rollback · 재생 · 계층 검증
+        run: >-
+          ./gradlew --no-daemon test
+          --tests '*PublicCommandIntegrationTest'
+          --tests '*PublicCommandFingerprintTest'
+          --tests '*OutboxCommandIntegrationTest'
+          --tests '*NotificationSettingsCommandIntegrationTest'
+          --tests '*UserServiceTest'
+          --tests '*SatelliteCommandConcurrencyTest'
+          --tests '*NotificationSettingsSerializationConcurrencyTest'
+          --tests '*InternalSurfaceIntegrationTest'
+          --tests '*SatelliteCoreContractIntegrationTest'
+          --tests '*ErrorContractTest'
+          --tests '*DomainLayerRulesTest'
+          checkstyleMain spotbugsMain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-command-contract-results
+          path: |
+            server/data-api/build/test-results/
+            server/data-api/build/reports/
+          retention-days: 7
+
+  build:
+    name: ${{ matrix.service }} 검증
+    needs: changes
+    if: inputs.build-services
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [business-api, notification]
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: ${{ matrix.service }}
+      enabled: ${{ fromJSON(needs.changes.outputs.services)[matrix.service] }}
+      business-pdf: ${{ matrix.service == 'business-api' }}
+      publish-jar: true
+      artifact-name: ${{ matrix.service }}-test-results
+      artifact-path: build/reports/

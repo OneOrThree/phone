@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <queries>
+    <intent><action android:name="android.settings.SETTINGS" /></intent>
+    <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.HOME" /></intent>
+    <intent><action android:name="android.intent.action.SHOW_ALARMS" /></intent>
+    <intent><action android:name="android.intent.action.DIAL" /><data android:scheme="tel" /></intent>
+  </queries>
+  <application>
+    <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+  </application>
+</manifest>

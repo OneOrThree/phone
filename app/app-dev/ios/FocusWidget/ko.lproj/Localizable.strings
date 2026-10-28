@@ -1,0 +1,15 @@
+"focus.status" = "집중 중";
+"focus.short" = "집중";
+"focus.count" = "%d명이 집중 중";
+"rest.status" = "휴식 중";
+"rest.short" = "휴식";
+"rest.title" = "쉬는 시간";
+"rest.count" = "%d명이 휴식 중";
+"rest.expired.status" = "휴식 시간 만료";
+"rest.expired.short" = "휴식 끝";
+"rest.expired.title" = "앱에서 결과를 확인해요";
+
+"widget.today" = "오늘의 총 집중시간";
+"widget.duration" = "%d시간 %d분";
+"widget.name" = "고양이와 집중시간";
+"widget.description" = "고양이와 함께 오늘 쌓은 집중시간을 확인해요.";

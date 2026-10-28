@@ -1,0 +1,228 @@
+import { useCallback, useRef } from 'react';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { T } from '@/constants/theme';
+import { t } from '@/i18n';
+import { TIERS, tierByLevel } from '@/constants/tiers';
+import type { V2RootStackParamList } from '@/navigation/types';
+import { fmtMinutes } from './format';
+import { useLeagueMeta } from './useLeagueMeta';
+import { useLeagueRanking } from './useLeagueRanking';
+import { TierBadge } from './components/TierBadge';
+import { TabGuideOverlay, type GuideStep } from '@/components/TabGuideOverlay';
+import { STORAGE_KEYS } from '@/types/storage';
+import { logTierGuideViewed } from '@/services/analyticsEvents';
+
+// 티어 단계 안내 (root stack) — 시안 "티어 · 5단계 뱃지".
+// 현재 티어 히어로 카드(진행바) + 5단계 카드 리스트(N단계) + 정산 안내.
+// 티어·이번 주 집중분은 리그 탭과 동일 원천(useLeagueMeta → GET /league/me/tier, useLeagueRanking).
+// 미배정/게스트/실패 시 tierLevel null → 1단계 기본(리그 화면과 같은 규칙), 집중분 0.
+// 히어로·리스트 뱃지 모두 시안의 별 사각형 대신 tier 일러스트(tiers.ts image) 사용.
+
+export default function TierGuideScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<V2RootStackParamList>>();
+
+  // 화면 진입 계측 (GROMO-782) — 포커스마다 1회(리그 화면과 동일 패턴).
+  useFocusEffect(
+    useCallback(() => {
+      logTierGuideViewed();
+    }, []),
+  );
+
+  const { tier } = useLeagueMeta();
+  const level = tier.tierLevel ?? 1;
+  const cur = tierByLevel(level);
+  const { myMinutes: minutes } = useLeagueRanking();
+
+  // 다음 단계 기준(분)과 남은 시간 — 시안 진행바는 다음 기준 대비 누적 비율(14h20m/22h ≈ 64%)
+  const nextAt = cur.maxHours != null ? cur.maxHours * 60 : null;
+  const remain = nextAt != null ? Math.max(nextAt - minutes, 0) : null;
+  const progress = nextAt != null ? Math.min(minutes / nextAt, 1) : 1;
+
+  // 첫 진입 사용법 안내(GROMO-652) — 리그 가이드의 '내 티어' 유도에서 이어지는 설명
+  const heroRef = useRef<View | null>(null);
+  const listRef = useRef<View | null>(null);
+  const noticeRef = useRef<View | null>(null);
+  const guideSteps: GuideStep[] = [
+    {
+      text: t('league.tierGuide.guide1'),
+      character: require('@/assets/character_hi.png'),
+      anchor: heroRef,
+    },
+    {
+      text: t('league.tierGuide.guide2'),
+      character: require('@/assets/character_study.png'),
+      anchor: listRef,
+    },
+    {
+      text: t('league.tierGuide.guide3'),
+      character: require('@/assets/character_happy.png'),
+      anchor: noticeRef,
+    },
+  ];
+
+  return (
+    <SafeAreaView style={s.root} edges={['top']}>
+      {/* ── 헤더 ── */}
+      <View style={s.header}>
+        <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <Ionicons name="chevron-back" size={18} color={T.inkSub} />
+        </TouchableOpacity>
+        <Text style={s.headerTitle}>{t('league.tierGuide.title')}</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        {/* ── 현재 티어 히어로 ── */}
+        <View ref={heroRef} collapsable={false}>
+          <LinearGradient colors={[T.accentBg, T.sand]} style={s.hero}>
+            <Image source={cur.image} style={s.heroImg} />
+            <Text style={s.heroName}>{cur.name}</Text>
+            <Text style={s.heroSub}>
+              {t('league.tierGuide.heroThisWeek', { time: fmtMinutes(minutes) })}
+              {remain != null
+                ? t('league.tierGuide.heroNext', { time: fmtMinutes(remain) })
+                : t('league.tierGuide.heroMax')}
+            </Text>
+            <View style={s.heroTrack}>
+              <LinearGradient
+                colors={[T.accentLight, T.accent]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[s.heroFill, { width: `${progress * 100}%` }]}
+              />
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* ── 5단계 카드 리스트 ── */}
+        <View style={s.tierList} ref={listRef} collapsable={false}>
+          {TIERS.map((row) => {
+            const isCur = row.level === level;
+            return (
+              <View key={row.level} style={[s.tierRow, isCur ? s.tierRowCur : null]}>
+                <TierBadge level={row.level} size={40} />
+                <View style={s.tierNameCol}>
+                  <View style={s.tierNameRow}>
+                    <Text style={s.tierName}>{row.name}</Text>
+                    {isCur && (
+                      <View style={s.curBadge}>
+                        <Text style={s.curBadgeText}>{t('league.tierGuide.current')}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={s.tierRange}>{row.rangeLabel}</Text>
+                </View>
+                <Text style={[s.tierLevel, isCur ? s.tierLevelCur : null]}>
+                  {t('league.tierGuide.levelN', { level: row.level })}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* ── 정산 안내 ── */}
+        <View style={s.notice} ref={noticeRef} collapsable={false}>
+          <Text style={s.noticeText}>
+            {t('league.tierGuide.settlePrefix')}
+            <Text style={s.noticeStrong}>{t('league.tierGuide.settleStrong')}</Text>
+            {t('league.tierGuide.settleSuffix')}
+          </Text>
+        </View>
+      </ScrollView>
+
+      {/* 첫 진입 사용법 안내(GROMO-652) */}
+      <TabGuideOverlay storageKey={STORAGE_KEYS.guideTier} steps={guideSteps} />
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: T.paperLight },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.md,
+    paddingHorizontal: T.space.xl,
+    paddingTop: T.space.sm,
+    paddingBottom: T.space.sm,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { ...T.text.heading, fontWeight: '800', color: T.ink },
+
+  scroll: { paddingHorizontal: T.space.xl, paddingBottom: 40 },
+
+  hero: {
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: T.sand,
+    borderRadius: 18,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.lg,
+    marginTop: T.space.xs,
+  },
+  heroImg: { width: 84, height: 84, resizeMode: 'contain' },
+  heroName: { ...T.text.subtitle, fontWeight: '800', color: T.ink, marginTop: T.space.sm },
+  heroSub: { ...T.text.caption, fontWeight: '500', color: T.inkSub, marginTop: 3 },
+  heroTrack: {
+    alignSelf: 'stretch',
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: T.track,
+    marginTop: T.space.md,
+    overflow: 'hidden',
+  },
+  heroFill: { height: '100%', borderRadius: 4 },
+
+  tierList: { gap: T.space.sm, marginTop: T.space.md },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: T.space.lg,
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    borderRadius: 14,
+    paddingHorizontal: T.space.md,
+    paddingVertical: T.space.sm,
+  },
+  tierRowCur: { backgroundColor: T.accentBg, borderWidth: 2, borderColor: T.accent },
+  tierNameCol: { flex: 1 },
+  tierNameRow: { flexDirection: 'row', alignItems: 'center', gap: T.space.xs },
+  tierName: { ...T.text.label, fontWeight: '700', color: T.ink },
+  tierRange: { ...T.text.caption, fontWeight: '500', color: T.inkSub, marginTop: 2 },
+  curBadge: {
+    backgroundColor: T.accent,
+    borderRadius: 999,
+    paddingHorizontal: T.space.sm,
+    paddingVertical: 2,
+  },
+  curBadgeText: { ...T.text.caption, fontWeight: '700', color: T.white },
+  tierLevel: { ...T.text.caption, fontWeight: '700', color: T.inkFaint },
+  tierLevelCur: { color: T.accent },
+
+  notice: {
+    backgroundColor: T.white,
+    borderWidth: 1,
+    borderColor: T.paperAlt,
+    borderRadius: 14,
+    paddingHorizontal: T.space.lg,
+    paddingVertical: T.space.md,
+    marginTop: T.space.md,
+  },
+  noticeText: { ...T.text.caption, fontWeight: '500', color: T.link, lineHeight: 20 },
+  noticeStrong: { fontWeight: '700', color: T.inkSub },
+});

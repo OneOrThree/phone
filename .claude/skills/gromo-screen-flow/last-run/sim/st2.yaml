@@ -1,0 +1,5 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn: "계속"
+- waitForAnimationToEnd:
+    timeout: 8000

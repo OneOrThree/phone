@@ -1,0 +1,163 @@
+[
+ {
+  "id": "focusTravel",
+  "status": "ok",
+  "note": "항해 1.9초 중 0.9초 지점 프레임."
+ },
+ {
+  "id": "fishingArrival",
+  "status": "ok",
+  "note": "글자 버튼이 없는 화면(지도·뗏목을 직접 누름). 내 이름표 \"나\"가 뗏목 그림에 반쯤 가려 보임."
+ },
+ {
+  "id": "focusSetup",
+  "status": "ok",
+  "note": "할 일에 \"수학 문제 풀기\"를 입력해 둔 상태. 자리는 연못가 기본 자리."
+ },
+ {
+  "id": "focusSetup.visitorBlocked",
+  "status": "ok",
+  "note": "홈에서 딸기 섬 구경(VISIT) 상태로 만든 뒤 focusSetup 으로 진입."
+ },
+ {
+  "id": "focus",
+  "status": "ok",
+  "note": "타이머 00:20:30, 같은 섬 주민 2명 낚시 중."
+ },
+ {
+  "id": "focus.emoteFan",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "focus.emoteBubble",
+  "status": "ok",
+  "note": "\"응원\"을 누른 직후(말풍선 3초 중 0.5초 지점)."
+ },
+ {
+  "id": "focus.musicModal",
+  "status": "ok",
+  "note": "낚시섬 축음기를 눌러 연 상태. 보유곡 3개."
+ },
+ {
+  "id": "focus.endConfirm",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "focus.goldenFishCutscene",
+  "status": "ok",
+  "note": "실서버 이벤트 대신 검수용 주소(?review=1&demo&golden-test)로 재생시킨 영상의 1.5초 지점 프레임. 영상 위아래 여백에 집중 화면이 어둡게 비치는 것은 앱 동작 그대로. 다른 시점 프레임은 shots/focus/golden/."
+ },
+ {
+  "id": "rest.sailingToRest",
+  "status": "ok",
+  "note": "집중 화면에서 \"휴식하기\"를 눌러 고양이가 뗏목까지 걸어간 뒤의 항해 중간 프레임."
+ },
+ {
+  "id": "rest",
+  "status": "ok",
+  "note": "내 휴식 4분째, 같은 모닥불에 주민 1명(수아)."
+ },
+ {
+  "id": "rest.endConfirm",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "rest.sailingToSpot",
+  "status": "ok",
+  "note": "모닥불에서 \"집중 이어가기\"를 누른 뒤 항해 중간 프레임."
+ },
+ {
+  "id": "focusResult",
+  "status": "ok",
+  "note": "집중 화면에서 실제로 \"집중 종료 → 집중 종료\"를 눌러 나온 결과. 달성 퀘스트는 목업 기록(오늘 30분) 합산 기준."
+ },
+ {
+  "id": "focusResult.fromRest",
+  "status": "ok",
+  "note": "모닥불에서 \"휴식 종료하기 → 집중 종료\"를 눌러 나온 결과. 배경 왼쪽 위에 \"휴식 중...\" 배지가 그대로 남아 있음(앱 동작)."
+ },
+ {
+  "id": "focusResult.reward",
+  "status": "ok",
+  "note": "결과에서 \"배 타고 우리 섬으로\"를 누른 뒤 뜬 개인 보상(퀘스트 달성!/보상받기). 전원 달성 보너스(\"모두 해냈어요!\") 변형은 찍지 않음."
+ },
+ {
+  "id": "returnTravel",
+  "status": "ok",
+  "note": "항해 1.9초 중 0.9초 지점 프레임."
+ },
+ {
+  "id": "sound",
+  "status": "ok",
+  "note": "재생 중 상태. 판매곡 행(30마리 · 구매)이 목록 아래쪽이라 곡 목록만 끝까지 내린 상태로 찍음."
+ },
+ {
+  "id": "sound.empty",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "sound.buyConfirm",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "sound.buySuccess",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "sound.buyError",
+  "status": "ok",
+  "note": "섬 물고기를 3마리로 낮춘 뒤 구매 시도."
+ },
+ {
+  "id": "screenTimeApps",
+  "status": "ok",
+  "note": "아이폰 시뮬레이터(iPhone 17, 최신 코드 연습용 모드)에서 찍은 실제 화면",
+  "via": "simulator",
+  "date": "2026-10-05"
+ },
+ {
+  "id": "screenTimeApps.boardFirst",
+  "status": "ok",
+  "note": "시스템 앱 선택 화면이 자동으로 뜨기 전(진입 후 0.45초 이내) 프레임 — 자동 열림 타이머를 늦춰서 잡음. 웹에는 스크린타임 네이티브 모듈이 없어, 브라우저 안에서만 모듈 응답을 흉내 냄(capture-focus.cjs 의 st 옵션). 화면을 그리는 앱 코드는 그대로."
+ },
+ {
+  "id": "screenTimeApps.systemPicker",
+  "status": "ok",
+  "note": "아이폰 시뮬레이터(iPhone 17, 최신 코드 연습용 모드)에서 찍은 실제 화면",
+  "via": "simulator",
+  "date": "2026-10-05"
+ },
+ {
+  "id": "permission",
+  "status": "ok",
+  "note": "게시판 우선 안내로 들어온 변형(\"나중에 하고 게시판 열기\" 버튼 포함). 일기장에서 들어오면 이 버튼이 없음. 웹에는 스크린타임 네이티브 모듈이 없어, 브라우저 안에서만 모듈 응답을 흉내 냄(capture-focus.cjs 의 st 옵션). 화면을 그리는 앱 코드는 그대로."
+ },
+ {
+  "id": "permission.denied",
+  "status": "ok",
+  "note": "일반 진입 변형(버튼 \"나중에\"). 웹에는 스크린타임 네이티브 모듈이 없어, 브라우저 안에서만 모듈 응답을 흉내 냄(capture-focus.cjs 의 st 옵션). 화면을 그리는 앱 코드는 그대로."
+ },
+ {
+  "id": "permission.approved",
+  "status": "ok",
+  "note": "일반 진입 변형(버튼 \"완료\"). 웹에는 스크린타임 네이티브 모듈이 없어, 브라우저 안에서만 모듈 응답을 흉내 냄(capture-focus.cjs 의 st 옵션). 화면을 그리는 앱 코드는 그대로."
+ },
+ {
+  "id": "permission.unavailable",
+  "status": "ok",
+  "note": "웹 빌드의 기본 상태(네이티브 모듈 없음) 그대로. 일반 진입 변형(버튼 \"확인\")."
+ },
+ {
+  "id": "permission.appManager",
+  "status": "ok",
+  "note": "아이폰 시뮬레이터(iPhone 17, 최신 코드 연습용 모드)에서 찍은 실제 화면",
+  "via": "simulator",
+  "date": "2026-10-05"
+ }
+]

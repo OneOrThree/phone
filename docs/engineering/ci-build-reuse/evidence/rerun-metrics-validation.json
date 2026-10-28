@@ -1,0 +1,24 @@
+{
+  "command": "python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v",
+  "tests": 78,
+  "seconds": 42.3,
+  "exit_code": 0,
+  "log_sha256": "54951889b48de2c72343924bd24d4df330f9b28e0a1529487773d67480e84919",
+  "unchanged_from": "d0686e452eb607f7fb583912ea983554d933f04e",
+  "unchanged_trees": {
+    "server/data-api": "c68fa9ac8fe701eb7957d13be91a1dc627987c95",
+    "server/business-api": "defaf1c9268e135d54fe50c56b0dc78145866aac",
+    "server/notification": "c13929b8ede394fe0aab3249f833a91e7b29a1a7",
+    "server/realtime": "59e5dbee442dea96ca94ce9af3e6d629410e2ec9",
+    ".github/workflows": "1c9f630e3c6a69ef13a8e764cbff54c826b6e161",
+    ".github/actions/ci-jar": "c4c430ee1af52d2189b0b68e588f87c16b30ee6a"
+  },
+  "cancelled_placeholder_followup": {
+    "tests": 79,
+    "seconds": 41.531,
+    "exit_code": 0,
+    "log_sha256": "ab6c1a02b812a2f2eae570fd657e9e5ffe03519f0a2db999d5ecc4aee0d8b4bb",
+    "captured_cancelled_job": 103701679765,
+    "expected_reused_from_previous_attempt": false
+  }
+}

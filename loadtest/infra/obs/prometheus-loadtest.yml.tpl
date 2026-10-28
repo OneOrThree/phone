@@ -14,11 +14,16 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ['${SUT_HOST}:9091']
+        labels: {service: data-api}
 
   # 시스템 층 — SUT 호스트
   - job_name: node
     static_configs:
       - targets: ['${SUT_HOST}:9100']
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['${SUT_HOST}:9200']
 
   # 부하기 가드 — 부하 VM CPU>80% 면 run 무효(INVALID). run 중이 아닐 땐 DOWN 이 정상.
   # GROMO-763: loadgen-0..N 다중 타겟 — sync.sh 가 LOADGEN_TARGETS 를 6대(상한) targets 줄로 렌더.

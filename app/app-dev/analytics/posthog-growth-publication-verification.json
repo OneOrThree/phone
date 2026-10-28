@@ -1,0 +1,257 @@
+{
+  "project_id": 669473,
+  "organization": "Catus",
+  "validated_at": "2026-10-21",
+  "instrumentation_status": "not_implemented",
+  "catalog_status": "no_matching_governed_definition",
+  "verification_scope": "HogQL 컴파일·실행, 저장된 인사이트 실행, 대시보드 강제 재실행, 원격 ID·쿼리·레이아웃 재조회. 모두 빈 결과이며 실제 수신 표본/원장 대조 검증은 미완료. 합성 CTE 표본으로 중복 제거·취소·갱신 지연·미완료 NULL·잔액 0·미분류 거래·장소 시간 합계 오류 제외도 확인했습니다. 합성 표본은 실제 이벤트로 수집하지 않았습니다.",
+  "project_test_account_filters_preserved": true,
+  "existing_cards": [
+    {
+      "id": 13905384,
+      "preserved": true
+    },
+    {
+      "id": 13740150,
+      "preserved": true
+    },
+    {
+      "id": 13740151,
+      "preserved": true
+    },
+    {
+      "id": 13740152,
+      "preserved": true
+    },
+    {
+      "id": 13740153,
+      "preserved": true
+    },
+    {
+      "id": 13739015,
+      "preserved": true
+    },
+    {
+      "id": 13739016,
+      "preserved": true
+    },
+    {
+      "id": 13739024,
+      "preserved": true
+    }
+  ],
+  "changes": [
+    "한국 시간 날짜 경계의 Date→String→DateTime 변환으로 런타임 오류 수정",
+    "nullable timestamp의 toDate 변환 전 문자열 변환으로 런타임 오류 수정",
+    "미지원 quantileExactIf를 quantileExact(if(..., value, NULL))로 변경해 미완료 표본 제외",
+    "건설 관측의 시간 합계 검증 추가 및 timestamp 하한 적용",
+    "새 카드 제목·설명과 안내 카드에 미계측 표시"
+  ],
+  "limits": [
+    "필수 이벤트 4종이 최근 30일 수집 목록과 이벤트 조회에 없음",
+    "서버 사건에 프로젝트 제외 필터가 실제로 어떻게 적용되는지는 수신 표본이 없어 미검증",
+    "중복 전달·상태 변경·일일 전수 스냅샷·원장 일치·완료 기록 대응 검증은 계측 구현 및 배포 후 필요",
+    "SQL을 실행했을 때 {filters}가 보존되며 저장된 인사이트의 filterTestAccounts=true를 유지함"
+  ],
+  "cards": [
+    {
+      "key": "construction-progress",
+      "title": "건물별 건설 진행 상황 · 미계측",
+      "insight_id": 13089484,
+      "short_id": "WxbQXwL2",
+      "dashboard_id": 2236458,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), construction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.attempt_id) AS attempt_id,\n  toString(properties.building_id) AS building_id,\n  toString(properties.stage) AS stage,\n  toFloatOrNull(toString(properties.observation_version)) AS observation_version,\n  toFloatOrNull(toString(properties.selected_at_ms)) AS selected_at_ms,\n  toFloatOrNull(toString(properties.saving_seconds)) AS saving_seconds,\n  toFloatOrNull(toString(properties.ready_wait_seconds)) AS ready_wait_seconds,\n  toFloatOrNull(toString(properties.build_seconds)) AS build_seconds,\n  toFloatOrNull(toString(properties.elapsed_seconds)) AS elapsed_seconds\n FROM filtered_events\n WHERE event = 'island_construction_observed' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp >= toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul') AND timestamp <= now()\n  AND toFloatOrNull(toString(properties.selected_at_ms)) >= toUnixTimestamp(toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul')) * 1000\n  AND toFloatOrNull(toString(properties.selected_at_ms)) <= toUnixTimestamp(now()) * 1000\n), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT building_id AS \"건물\", uniqExact(island_id) AS \"섬 수\", count() AS \"선택한 목표\",\n countIf(stage IN ('waiting_balance', 'waiting_contribution', 'ready')) AS \"착수 전\",\n countIf(stage = 'building') AS \"공사 중\", countIf(stage = 'completed') AS \"완공\",\n countIf(stage = 'cancelled') AS \"취소·변경\",\n countIf(stage NOT IN ('completed', 'cancelled') AND observed_at < now() - INTERVAL 1 DAY) AS \"상태 갱신 지연\"\nFROM attempts GROUP BY building_id ORDER BY building_id",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "construction-speed",
+      "title": "건물을 짓는 데 걸린 시간 · 미계측",
+      "insight_id": 13089486,
+      "short_id": "Gn3vgBR9",
+      "dashboard_id": 2236458,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), construction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.attempt_id) AS attempt_id,\n  toString(properties.building_id) AS building_id,\n  toString(properties.stage) AS stage,\n  toFloatOrNull(toString(properties.observation_version)) AS observation_version,\n  toFloatOrNull(toString(properties.selected_at_ms)) AS selected_at_ms,\n  toFloatOrNull(toString(properties.saving_seconds)) AS saving_seconds,\n  toFloatOrNull(toString(properties.ready_wait_seconds)) AS ready_wait_seconds,\n  toFloatOrNull(toString(properties.build_seconds)) AS build_seconds,\n  toFloatOrNull(toString(properties.elapsed_seconds)) AS elapsed_seconds\n FROM filtered_events\n WHERE event = 'island_construction_observed' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp >= toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul') AND timestamp <= now()\n  AND toFloatOrNull(toString(properties.selected_at_ms)) >= toUnixTimestamp(toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul')) * 1000\n  AND toFloatOrNull(toString(properties.selected_at_ms)) <= toUnixTimestamp(now()) * 1000\n), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT building_id AS \"건물\", countIf(stage = 'completed') AS \"완공 표본\",\n countIf(stage NOT IN ('completed', 'cancelled')) AS \"아직 진행 중\", countIf(stage = 'cancelled') AS \"취소·변경\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', saving_seconds / 3600.0, NULL))) AS \"준비 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', ready_wait_seconds / 3600.0, NULL))) AS \"착수 대기 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', build_seconds / 3600.0, NULL))) AS \"공사 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', elapsed_seconds / 3600.0, NULL))) AS \"전체 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.9)(if(stage = 'completed', elapsed_seconds / 3600.0, NULL))) AS \"전체 90백분위 시간\"\nFROM attempts GROUP BY building_id ORDER BY building_id",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "construction-bottlenecks",
+      "title": "건설이 어디서 기다리고 있을까 · 미계측",
+      "insight_id": 13089487,
+      "short_id": "It4XLMvR",
+      "dashboard_id": 2236458,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), construction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.attempt_id) AS attempt_id,\n  toString(properties.building_id) AS building_id,\n  toString(properties.stage) AS stage,\n  toFloatOrNull(toString(properties.observation_version)) AS observation_version,\n  toFloatOrNull(toString(properties.selected_at_ms)) AS selected_at_ms,\n  toFloatOrNull(toString(properties.saving_seconds)) AS saving_seconds,\n  toFloatOrNull(toString(properties.ready_wait_seconds)) AS ready_wait_seconds,\n  toFloatOrNull(toString(properties.build_seconds)) AS build_seconds,\n  toFloatOrNull(toString(properties.elapsed_seconds)) AS elapsed_seconds\n FROM filtered_events\n WHERE event = 'island_construction_observed' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp >= toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul') AND timestamp <= now()\n  AND toFloatOrNull(toString(properties.selected_at_ms)) >= toUnixTimestamp(toDateTime(toString(toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY), 'Asia/Seoul')) * 1000\n  AND toFloatOrNull(toString(properties.selected_at_ms)) <= toUnixTimestamp(now()) * 1000\n), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT multiIf(stage = 'waiting_balance', '섬 잔액 부족', stage = 'waiting_contribution', '주민 몫 부족', stage = 'ready', '조건 충족·착수 대기', '공사 중') AS \"현재 상태\",\n uniqExact(island_id) AS \"섬 수\", count() AS \"목표 수\",\n round(quantileExact(0.5)(elapsed_seconds / 3600.0), 2) AS \"선택 후 경과 중앙값 시간\",\n round(max(elapsed_seconds) / 3600.0, 2) AS \"선택 후 최장 경과 시간\"\nFROM attempts WHERE stage NOT IN ('completed', 'cancelled') AND observed_at >= now() - INTERVAL 1 DAY\nGROUP BY stage ORDER BY \"섬 수\" DESC",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "currency-flow",
+      "title": "매일 들어오고 나간 물고기 · 미계측",
+      "insight_id": 13089488,
+      "short_id": "guhhfn89",
+      "dashboard_id": 2236458,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), transaction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.transaction_id) AS transaction_id,\n  toString(properties.reason) AS reason, toFloatOrNull(toString(properties.amount_delta)) AS amount_delta\n FROM filtered_events\n WHERE event = 'island_currency_transaction' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), transaction_latest AS (\n SELECT island_id, transaction_id, argMax(tuple(timestamp, reason, amount_delta), timestamp) AS entry\n FROM transaction_raw WHERE island_id != '' AND transaction_id != ''\n GROUP BY island_id, transaction_id\n), transactions AS (\n SELECT island_id, transaction_id, entry.1 AS occurred_at, entry.2 AS reason, entry.3 AS amount_delta\n FROM transaction_latest WHERE entry.3 IS NOT NULL AND entry.3 != 0\n)\nSELECT toDate(toString(toTimeZone(occurred_at, 'Asia/Seoul'))) AS \"날짜\",\n sumIf(amount_delta, amount_delta > 0) AS \"들어온 물고기\",\n -sumIf(amount_delta, amount_delta < 0) AS \"나간 물고기\",\n sum(amount_delta) AS \"순증감\"\nFROM transactions GROUP BY \"날짜\" ORDER BY \"날짜\"",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "currency-reasons",
+      "title": "물고기는 어디서 벌고 어디에 쓸까 · 미계측",
+      "insight_id": 13089489,
+      "short_id": "5EZuLd6G",
+      "dashboard_id": 2236458,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), transaction_raw AS (\n SELECT timestamp, toString(properties.island_id) AS island_id,\n  toString(properties.transaction_id) AS transaction_id,\n  toString(properties.reason) AS reason, toFloatOrNull(toString(properties.amount_delta)) AS amount_delta\n FROM filtered_events\n WHERE event = 'island_currency_transaction' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), transaction_latest AS (\n SELECT island_id, transaction_id, argMax(tuple(timestamp, reason, amount_delta), timestamp) AS entry\n FROM transaction_raw WHERE island_id != '' AND transaction_id != ''\n GROUP BY island_id, transaction_id\n), transactions AS (\n SELECT island_id, transaction_id, entry.1 AS occurred_at, entry.2 AS reason, entry.3 AS amount_delta\n FROM transaction_latest WHERE entry.3 IS NOT NULL AND entry.3 != 0\n)\nSELECT if(amount_delta > 0, '입금', '출금') AS \"방향\",\n multiIf(reason = 'focus', '집중', reason = 'quest', '퀘스트', reason = 'construction', '건설', reason = 'shop', '상점', reason = 'refund', '환불', reason = 'adjustment', '운영 조정', '기타·원인 미분류') AS \"원인\",\n sum(abs(amount_delta)) AS \"물고기 수\", count() AS \"거래 수\", uniqExact(island_id) AS \"거래한 섬 수\"\nFROM transactions GROUP BY \"방향\", \"원인\" ORDER BY \"방향\", \"물고기 수\" DESC",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "wallet-distribution",
+      "title": "섬 통장에는 얼마나 남아 있을까 · 미계측",
+      "insight_id": 13089491,
+      "short_id": "SrxHJcTI",
+      "dashboard_id": 2236458,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), wallet_latest AS (\n SELECT toString(properties.island_id) AS island_id,\n  argMax(tuple(toFloatOrNull(toString(properties.balance)), timestamp), tuple(toFloatOrNull(toString(properties.wallet_version)), timestamp)) AS latest\n FROM filtered_events\n WHERE event = 'island_wallet_snapshot' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1\n  AND properties.analytics_excluded = 0\n  AND timestamp <= now()\n  AND timestamp >= now() - INTERVAL 1 DAY\n  AND toString(properties.island_id) != '' AND toFloatOrNull(toString(properties.wallet_version)) >= 0\n GROUP BY island_id\n), wallets AS (\n SELECT island_id, latest.1 AS balance FROM wallet_latest WHERE latest.1 >= 0\n)\nSELECT count() AS \"확인한 섬 수\", countIf(balance = 0) AS \"잔액 0인 섬\",\n round(100.0 * countIf(balance = 0) / nullIf(count(), 0), 2) AS \"잔액 0 비율 퍼센트\",\n round(avg(balance), 2) AS \"평균 잔액\", quantileExact(0.5)(balance) AS \"중앙값 잔액\",\n quantileExact(0.9)(balance) AS \"상위 10퍼센트 경계 잔액\", sum(balance) AS \"관측 섬 잔액 합계\"\nFROM wallets HAVING count() > 0",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "focus-location-share",
+      "title": "섬과 바다 중 어디서 집중할까 · 미계측",
+      "insight_id": 13089492,
+      "short_id": "O08XQ14T",
+      "dashboard_id": 2220995,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), focus_raw AS (\n SELECT timestamp, person_id, toString(properties.record_id) AS record_id,\n  toFloatOrNull(toString(properties.duration_seconds)) AS duration_seconds,\n  toFloatOrNull(toString(properties.island_seconds)) AS island_seconds, toFloatOrNull(toString(properties.sea_seconds)) AS sea_seconds,\n  toFloatOrNull(toString(properties.unknown_seconds)) AS unknown_seconds\n FROM filtered_events\n WHERE event = 'focus_location_summary' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1 AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), focus_latest AS (\n SELECT record_id, argMax(tuple(person_id, timestamp, duration_seconds, island_seconds, sea_seconds, unknown_seconds), timestamp) AS latest\n FROM focus_raw WHERE record_id != '' GROUP BY record_id\n), sessions AS (\n SELECT record_id, latest.1 AS person_id, toDate(toString(toTimeZone(latest.2, 'Asia/Seoul'))) AS focus_day,\n  latest.3 AS duration_seconds, latest.4 AS island_seconds, latest.5 AS sea_seconds, latest.6 AS unknown_seconds\n FROM focus_latest\n WHERE latest.3 > 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 - latest.4 - latest.5 - latest.6) < 0.001\n), location_rows AS (\n SELECT person_id, focus_day, record_id, '섬' AS location, island_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '바다' AS location, sea_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '미확인' AS location, unknown_seconds AS seconds FROM sessions\n)\nSELECT location AS \"장소\", uniqExactIf(person_id, seconds > 0) AS \"집중한 사람\",\n uniqExactIf(record_id, seconds > 0) AS \"해당 장소 포함 세션\", round(sum(seconds) / 60.0, 2) AS \"총 집중분\",\n round(100.0 * sum(seconds) / nullIf((SELECT sum(duration_seconds) FROM sessions), 0), 2) AS \"집중시간 비중 퍼센트\"\nFROM location_rows GROUP BY location ORDER BY \"총 집중분\" DESC",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    },
+    {
+      "key": "focus-location-duration",
+      "title": "장소별 하루 집중시간 · 미계측",
+      "insight_id": 13089493,
+      "short_id": "IQg0DnO3",
+      "dashboard_id": 2220995,
+      "sql": "WITH filtered_events AS (SELECT * FROM events WHERE {filters}), focus_raw AS (\n SELECT timestamp, person_id, toString(properties.record_id) AS record_id,\n  toFloatOrNull(toString(properties.duration_seconds)) AS duration_seconds,\n  toFloatOrNull(toString(properties.island_seconds)) AS island_seconds, toFloatOrNull(toString(properties.sea_seconds)) AS sea_seconds,\n  toFloatOrNull(toString(properties.unknown_seconds)) AS unknown_seconds\n FROM filtered_events\n WHERE event = 'focus_location_summary' AND properties.analytics_environment = 'production'\n  AND properties.metrics_schema_version = 1 AND timestamp <= now() AND toDate(toString(toTimeZone(timestamp, 'Asia/Seoul'))) >= toDate(toTimeZone(now(), 'Asia/Seoul')) - INTERVAL 27 DAY\n), focus_latest AS (\n SELECT record_id, argMax(tuple(person_id, timestamp, duration_seconds, island_seconds, sea_seconds, unknown_seconds), timestamp) AS latest\n FROM focus_raw WHERE record_id != '' GROUP BY record_id\n), sessions AS (\n SELECT record_id, latest.1 AS person_id, toDate(toString(toTimeZone(latest.2, 'Asia/Seoul'))) AS focus_day,\n  latest.3 AS duration_seconds, latest.4 AS island_seconds, latest.5 AS sea_seconds, latest.6 AS unknown_seconds\n FROM focus_latest\n WHERE latest.3 > 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 - latest.4 - latest.5 - latest.6) < 0.001\n), location_rows AS (\n SELECT person_id, focus_day, record_id, '섬' AS location, island_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '바다' AS location, sea_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '미확인' AS location, unknown_seconds AS seconds FROM sessions\n), per_user_day AS (\n SELECT person_id, focus_day, location, sum(seconds) / 60.0 AS minutes\n FROM location_rows WHERE seconds > 0 GROUP BY person_id, focus_day, location\n)\nSELECT location AS \"장소\", uniqExact(person_id) AS \"집중한 사람\", count() AS \"사람·날짜 표본\",\n round(avg(minutes), 2) AS \"하루 평균 집중분\", round(quantileExact(0.5)(minutes), 2) AS \"하루 중앙값 집중분\"\nFROM per_user_day GROUP BY location ORDER BY location",
+      "query_validation": true,
+      "saved_query_validation": true,
+      "result": "empty"
+    }
+  ],
+  "synthetic_fixtures": [
+    {
+      "key": "construction-progress",
+      "sql": "WITH construction_raw AS (SELECT now() AS timestamp, 'i1' AS island_id, 'a1' AS attempt_id, 'hall' AS building_id, 'waiting_balance' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 3600 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 3600 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 'a1' AS attempt_id, 'hall' AS building_id, 'completed' AS stage, 2 AS observation_version, 0 AS selected_at_ms, 3600 AS saving_seconds, 1800 AS ready_wait_seconds, 1800 AS build_seconds, 7200 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 'a2' AS attempt_id, 'hall' AS building_id, 'ready' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 0 AS saving_seconds, 3600 AS ready_wait_seconds, 0 AS build_seconds, 3600 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i2' AS island_id, 'b1' AS attempt_id, 'board' AS building_id, 'cancelled' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 7200 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 7200 AS elapsed_seconds\nUNION ALL\nSELECT now() - INTERVAL 2 DAY AS timestamp, 'i3' AS island_id, 'c1' AS attempt_id, 'library' AS building_id, 'waiting_balance' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 86400 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 86400 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i4' AS island_id, 'd1' AS attempt_id, 'gram' AS building_id, 'completed' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 10 AS saving_seconds, 20 AS ready_wait_seconds, 30 AS build_seconds, 100 AS elapsed_seconds), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT building_id AS \"건물\", uniqExact(island_id) AS \"섬 수\", count() AS \"선택한 목표\",\n countIf(stage IN ('waiting_balance', 'waiting_contribution', 'ready')) AS \"착수 전\",\n countIf(stage = 'building') AS \"공사 중\", countIf(stage = 'completed') AS \"완공\",\n countIf(stage = 'cancelled') AS \"취소·변경\",\n countIf(stage NOT IN ('completed', 'cancelled') AND observed_at < now() - INTERVAL 1 DAY) AS \"상태 갱신 지연\"\nFROM attempts GROUP BY building_id ORDER BY building_id",
+      "result": [
+        {
+          "type": "text",
+          "text": "건물|섬 수|선택한 목표|착수 전|공사 중|완공|취소·변경|상태 갱신 지연\nboard|1|1|0|0|0|1|0\nhall|1|2|1|0|1|0|0\nlibrary|1|1|1|0|0|0|1"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "construction-speed",
+      "sql": "WITH construction_raw AS (SELECT now() AS timestamp, 'i1' AS island_id, 'a1' AS attempt_id, 'hall' AS building_id, 'waiting_balance' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 3600 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 3600 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 'a1' AS attempt_id, 'hall' AS building_id, 'completed' AS stage, 2 AS observation_version, 0 AS selected_at_ms, 3600 AS saving_seconds, 1800 AS ready_wait_seconds, 1800 AS build_seconds, 7200 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 'a2' AS attempt_id, 'hall' AS building_id, 'ready' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 0 AS saving_seconds, 3600 AS ready_wait_seconds, 0 AS build_seconds, 3600 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i2' AS island_id, 'b1' AS attempt_id, 'board' AS building_id, 'cancelled' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 7200 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 7200 AS elapsed_seconds\nUNION ALL\nSELECT now() - INTERVAL 2 DAY AS timestamp, 'i3' AS island_id, 'c1' AS attempt_id, 'library' AS building_id, 'waiting_balance' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 86400 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 86400 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i4' AS island_id, 'd1' AS attempt_id, 'gram' AS building_id, 'completed' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 10 AS saving_seconds, 20 AS ready_wait_seconds, 30 AS build_seconds, 100 AS elapsed_seconds), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT building_id AS \"건물\", countIf(stage = 'completed') AS \"완공 표본\",\n countIf(stage NOT IN ('completed', 'cancelled')) AS \"아직 진행 중\", countIf(stage = 'cancelled') AS \"취소·변경\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', saving_seconds / 3600.0, NULL))) AS \"준비 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', ready_wait_seconds / 3600.0, NULL))) AS \"착수 대기 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', build_seconds / 3600.0, NULL))) AS \"공사 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.5)(if(stage = 'completed', elapsed_seconds / 3600.0, NULL))) AS \"전체 중앙값 시간\",\n if(countIf(stage = 'completed') = 0, NULL, quantileExact(0.9)(if(stage = 'completed', elapsed_seconds / 3600.0, NULL))) AS \"전체 90백분위 시간\"\nFROM attempts GROUP BY building_id ORDER BY building_id",
+      "result": [
+        {
+          "type": "text",
+          "text": "건물|완공 표본|아직 진행 중|취소·변경|준비 중앙값 시간|착수 대기 중앙값 시간|공사 중앙값 시간|전체 중앙값 시간|전체 90백분위 시간\nboard|0|0|1|(null)|(null)|(null)|(null)|(null)\nhall|1|1|0|1.0|0.5|0.5|2.0|2.0\nlibrary|0|1|0|(null)|(null)|(null)|(null)|(null)"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "construction-bottlenecks",
+      "sql": "WITH construction_raw AS (SELECT now() AS timestamp, 'i1' AS island_id, 'a1' AS attempt_id, 'hall' AS building_id, 'waiting_balance' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 3600 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 3600 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 'a1' AS attempt_id, 'hall' AS building_id, 'completed' AS stage, 2 AS observation_version, 0 AS selected_at_ms, 3600 AS saving_seconds, 1800 AS ready_wait_seconds, 1800 AS build_seconds, 7200 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 'a2' AS attempt_id, 'hall' AS building_id, 'ready' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 0 AS saving_seconds, 3600 AS ready_wait_seconds, 0 AS build_seconds, 3600 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i2' AS island_id, 'b1' AS attempt_id, 'board' AS building_id, 'cancelled' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 7200 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 7200 AS elapsed_seconds\nUNION ALL\nSELECT now() - INTERVAL 2 DAY AS timestamp, 'i3' AS island_id, 'c1' AS attempt_id, 'library' AS building_id, 'waiting_balance' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 86400 AS saving_seconds, 0 AS ready_wait_seconds, 0 AS build_seconds, 86400 AS elapsed_seconds\nUNION ALL\nSELECT now() AS timestamp, 'i4' AS island_id, 'd1' AS attempt_id, 'gram' AS building_id, 'completed' AS stage, 1 AS observation_version, 0 AS selected_at_ms, 10 AS saving_seconds, 20 AS ready_wait_seconds, 30 AS build_seconds, 100 AS elapsed_seconds), construction_latest AS (\n SELECT island_id, attempt_id,\n  argMax(tuple(building_id, stage, saving_seconds, ready_wait_seconds, build_seconds, elapsed_seconds, timestamp), observation_version) AS latest\n FROM construction_raw\n WHERE island_id != '' AND attempt_id != '' AND observation_version >= 1\n GROUP BY island_id, attempt_id\n), attempts AS (\n SELECT island_id, attempt_id, latest.1 AS building_id, latest.2 AS stage,\n  latest.3 AS saving_seconds, latest.4 AS ready_wait_seconds,\n  latest.5 AS build_seconds, latest.6 AS elapsed_seconds, latest.7 AS observed_at\n FROM construction_latest\n WHERE latest.1 IN ('hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop')\n  AND latest.2 IN ('waiting_balance', 'waiting_contribution', 'ready', 'building', 'completed', 'cancelled')\n  AND latest.3 >= 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 + latest.4 + latest.5 - latest.6) < 0.001\n)\nSELECT multiIf(stage = 'waiting_balance', '섬 잔액 부족', stage = 'waiting_contribution', '주민 몫 부족', stage = 'ready', '조건 충족·착수 대기', '공사 중') AS \"현재 상태\",\n uniqExact(island_id) AS \"섬 수\", count() AS \"목표 수\",\n round(quantileExact(0.5)(elapsed_seconds / 3600.0), 2) AS \"선택 후 경과 중앙값 시간\",\n round(max(elapsed_seconds) / 3600.0, 2) AS \"선택 후 최장 경과 시간\"\nFROM attempts WHERE stage NOT IN ('completed', 'cancelled') AND observed_at >= now() - INTERVAL 1 DAY\nGROUP BY stage ORDER BY \"섬 수\" DESC",
+      "result": [
+        {
+          "type": "text",
+          "text": "현재 상태|섬 수|목표 수|선택 후 경과 중앙값 시간|선택 후 최장 경과 시간\n조건 충족·착수 대기|1|1|1.0|1.0"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "currency-flow",
+      "sql": "WITH transaction_raw AS (SELECT now() AS timestamp, 'i1' AS island_id, 't1' AS transaction_id, 'focus' AS reason, 100 AS amount_delta\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 't1' AS transaction_id, 'focus' AS reason, 100 AS amount_delta\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 't2' AS transaction_id, 'shop' AS reason, -40 AS amount_delta\nUNION ALL\nSELECT now() AS timestamp, 'i2' AS island_id, 't3' AS transaction_id, 'new_reason' AS reason, 5 AS amount_delta), transaction_latest AS (\n SELECT island_id, transaction_id, argMax(tuple(timestamp, reason, amount_delta), timestamp) AS entry\n FROM transaction_raw WHERE island_id != '' AND transaction_id != ''\n GROUP BY island_id, transaction_id\n), transactions AS (\n SELECT island_id, transaction_id, entry.1 AS occurred_at, entry.2 AS reason, entry.3 AS amount_delta\n FROM transaction_latest WHERE entry.3 IS NOT NULL AND entry.3 != 0\n)\nSELECT toDate(toString(toTimeZone(occurred_at, 'Asia/Seoul'))) AS \"날짜\",\n sumIf(amount_delta, amount_delta > 0) AS \"들어온 물고기\",\n -sumIf(amount_delta, amount_delta < 0) AS \"나간 물고기\",\n sum(amount_delta) AS \"순증감\"\nFROM transactions GROUP BY \"날짜\" ORDER BY \"날짜\"",
+      "result": [
+        {
+          "type": "text",
+          "text": "날짜|들어온 물고기|나간 물고기|순증감\n2026-10-21|105|40|65"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "currency-reasons",
+      "sql": "WITH transaction_raw AS (SELECT now() AS timestamp, 'i1' AS island_id, 't1' AS transaction_id, 'focus' AS reason, 100 AS amount_delta\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 't1' AS transaction_id, 'focus' AS reason, 100 AS amount_delta\nUNION ALL\nSELECT now() AS timestamp, 'i1' AS island_id, 't2' AS transaction_id, 'shop' AS reason, -40 AS amount_delta\nUNION ALL\nSELECT now() AS timestamp, 'i2' AS island_id, 't3' AS transaction_id, 'new_reason' AS reason, 5 AS amount_delta), transaction_latest AS (\n SELECT island_id, transaction_id, argMax(tuple(timestamp, reason, amount_delta), timestamp) AS entry\n FROM transaction_raw WHERE island_id != '' AND transaction_id != ''\n GROUP BY island_id, transaction_id\n), transactions AS (\n SELECT island_id, transaction_id, entry.1 AS occurred_at, entry.2 AS reason, entry.3 AS amount_delta\n FROM transaction_latest WHERE entry.3 IS NOT NULL AND entry.3 != 0\n)\nSELECT if(amount_delta > 0, '입금', '출금') AS \"방향\",\n multiIf(reason = 'focus', '집중', reason = 'quest', '퀘스트', reason = 'construction', '건설', reason = 'shop', '상점', reason = 'refund', '환불', reason = 'adjustment', '운영 조정', '기타·원인 미분류') AS \"원인\",\n sum(abs(amount_delta)) AS \"물고기 수\", count() AS \"거래 수\", uniqExact(island_id) AS \"거래한 섬 수\"\nFROM transactions GROUP BY \"방향\", \"원인\" ORDER BY \"방향\", \"물고기 수\" DESC",
+      "result": [
+        {
+          "type": "text",
+          "text": "방향|원인|물고기 수|거래 수|거래한 섬 수\n입금|집중|100|1|1\n입금|기타·원인 미분류|5|1|1\n출금|상점|40|1|1"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "wallet-distribution",
+      "sql": "WITH fixture_wallets AS (SELECT 'i1' AS island_id, 1 AS wallet_version, 100 AS balance, now() AS observed_at\nUNION ALL\nSELECT 'i1' AS island_id, 2 AS wallet_version, 0 AS balance, now() AS observed_at\nUNION ALL\nSELECT 'i2' AS island_id, 1 AS wallet_version, 200 AS balance, now() AS observed_at), wallet_latest AS (SELECT island_id, argMax(tuple(balance, observed_at),tuple(wallet_version,observed_at)) AS latest FROM fixture_wallets GROUP BY island_id), wallets AS (\n SELECT island_id, latest.1 AS balance FROM wallet_latest WHERE latest.1 >= 0\n)\nSELECT count() AS \"확인한 섬 수\", countIf(balance = 0) AS \"잔액 0인 섬\",\n round(100.0 * countIf(balance = 0) / nullIf(count(), 0), 2) AS \"잔액 0 비율 퍼센트\",\n round(avg(balance), 2) AS \"평균 잔액\", quantileExact(0.5)(balance) AS \"중앙값 잔액\",\n quantileExact(0.9)(balance) AS \"상위 10퍼센트 경계 잔액\", sum(balance) AS \"관측 섬 잔액 합계\"\nFROM wallets HAVING count() > 0",
+      "result": [
+        {
+          "type": "text",
+          "text": "확인한 섬 수|잔액 0인 섬|잔액 0 비율 퍼센트|평균 잔액|중앙값 잔액|상위 10퍼센트 경계 잔액|관측 섬 잔액 합계\n2|1|50.0|100.0|200|200|200"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "focus-location-share",
+      "sql": "WITH focus_raw AS (SELECT now() AS timestamp, 'p1' AS person_id, 'r1' AS record_id, 600 AS duration_seconds, 300 AS island_seconds, 240 AS sea_seconds, 60 AS unknown_seconds\nUNION ALL\nSELECT now() AS timestamp, 'p1' AS person_id, 'r1' AS record_id, 600 AS duration_seconds, 300 AS island_seconds, 240 AS sea_seconds, 60 AS unknown_seconds\nUNION ALL\nSELECT now() AS timestamp, 'p1' AS person_id, 'r2' AS record_id, 600 AS duration_seconds, 600 AS island_seconds, 0 AS sea_seconds, 0 AS unknown_seconds\nUNION ALL\nSELECT now() AS timestamp, 'p1' AS person_id, 'bad' AS record_id, 100 AS duration_seconds, 30 AS island_seconds, 30 AS sea_seconds, 30 AS unknown_seconds), focus_latest AS (\n SELECT record_id, argMax(tuple(person_id, timestamp, duration_seconds, island_seconds, sea_seconds, unknown_seconds), timestamp) AS latest\n FROM focus_raw WHERE record_id != '' GROUP BY record_id\n), sessions AS (\n SELECT record_id, latest.1 AS person_id, toDate(toString(toTimeZone(latest.2, 'Asia/Seoul'))) AS focus_day,\n  latest.3 AS duration_seconds, latest.4 AS island_seconds, latest.5 AS sea_seconds, latest.6 AS unknown_seconds\n FROM focus_latest\n WHERE latest.3 > 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 - latest.4 - latest.5 - latest.6) < 0.001\n), location_rows AS (\n SELECT person_id, focus_day, record_id, '섬' AS location, island_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '바다' AS location, sea_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '미확인' AS location, unknown_seconds AS seconds FROM sessions\n)\nSELECT location AS \"장소\", uniqExactIf(person_id, seconds > 0) AS \"집중한 사람\",\n uniqExactIf(record_id, seconds > 0) AS \"해당 장소 포함 세션\", round(sum(seconds) / 60.0, 2) AS \"총 집중분\",\n round(100.0 * sum(seconds) / nullIf((SELECT sum(duration_seconds) FROM sessions), 0), 2) AS \"집중시간 비중 퍼센트\"\nFROM location_rows GROUP BY location ORDER BY \"총 집중분\" DESC",
+      "result": [
+        {
+          "type": "text",
+          "text": "장소|집중한 사람|해당 장소 포함 세션|총 집중분|집중시간 비중 퍼센트\n섬|1|2|15.0|75.0\n바다|1|1|4.0|20.0\n미확인|1|1|1.0|5.0"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "key": "focus-location-duration",
+      "sql": "WITH focus_raw AS (SELECT now() AS timestamp, 'p1' AS person_id, 'r1' AS record_id, 600 AS duration_seconds, 300 AS island_seconds, 240 AS sea_seconds, 60 AS unknown_seconds\nUNION ALL\nSELECT now() AS timestamp, 'p1' AS person_id, 'r1' AS record_id, 600 AS duration_seconds, 300 AS island_seconds, 240 AS sea_seconds, 60 AS unknown_seconds\nUNION ALL\nSELECT now() AS timestamp, 'p1' AS person_id, 'r2' AS record_id, 600 AS duration_seconds, 600 AS island_seconds, 0 AS sea_seconds, 0 AS unknown_seconds\nUNION ALL\nSELECT now() AS timestamp, 'p1' AS person_id, 'bad' AS record_id, 100 AS duration_seconds, 30 AS island_seconds, 30 AS sea_seconds, 30 AS unknown_seconds), focus_latest AS (\n SELECT record_id, argMax(tuple(person_id, timestamp, duration_seconds, island_seconds, sea_seconds, unknown_seconds), timestamp) AS latest\n FROM focus_raw WHERE record_id != '' GROUP BY record_id\n), sessions AS (\n SELECT record_id, latest.1 AS person_id, toDate(toString(toTimeZone(latest.2, 'Asia/Seoul'))) AS focus_day,\n  latest.3 AS duration_seconds, latest.4 AS island_seconds, latest.5 AS sea_seconds, latest.6 AS unknown_seconds\n FROM focus_latest\n WHERE latest.3 > 0 AND latest.4 >= 0 AND latest.5 >= 0 AND latest.6 >= 0\n  AND abs(latest.3 - latest.4 - latest.5 - latest.6) < 0.001\n), location_rows AS (\n SELECT person_id, focus_day, record_id, '섬' AS location, island_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '바다' AS location, sea_seconds AS seconds FROM sessions\n UNION ALL SELECT person_id, focus_day, record_id, '미확인' AS location, unknown_seconds AS seconds FROM sessions\n), per_user_day AS (\n SELECT person_id, focus_day, location, sum(seconds) / 60.0 AS minutes\n FROM location_rows WHERE seconds > 0 GROUP BY person_id, focus_day, location\n)\nSELECT location AS \"장소\", uniqExact(person_id) AS \"집중한 사람\", count() AS \"사람·날짜 표본\",\n round(avg(minutes), 2) AS \"하루 평균 집중분\", round(quantileExact(0.5)(minutes), 2) AS \"하루 중앙값 집중분\"\nFROM per_user_day GROUP BY location ORDER BY location",
+      "result": [
+        {
+          "type": "text",
+          "text": "장소|집중한 사람|사람·날짜 표본|하루 평균 집중분|하루 중앙값 집중분\n미확인|1|1|1.0|1.0\n바다|1|1|4.0|4.0\n섬|1|1|15.0|15.0"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "description_visibility_verified": true,
+  "dashboard_results": [
+    {
+      "dashboard_id": 2236458,
+      "result": [
+        {
+          "type": "text",
+          "text": "results[6]:\n  - id: 13935947\n    insight:\n      id: 13089484\n      short_id: WxbQXwL2\n      name: 건물별 건설 진행 상황 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 1\n    last_refresh: null\n    is_cached: false\n  - id: 13935949\n    insight:\n      id: 13089486\n      short_id: Gn3vgBR9\n      name: 건물을 짓는 데 걸린 시간 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 2\n    last_refresh: null\n    is_cached: false\n  - id: 13935950\n    insight:\n      id: 13089487\n      short_id: It4XLMvR\n      name: 건설이 어디서 기다리고 있을까 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 3\n    last_refresh: null\n    is_cached: false\n  - id: 13935951\n    insight:\n      id: 13089488\n      short_id: guhhfn89\n      name: 매일 들어오고 나간 물고기 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 4\n    last_refresh: null\n    is_cached: false\n  - id: 13935952\n    insight:\n      id: 13089489\n      short_id: 5EZuLd6G\n      name: 물고기는 어디서 벌고 어디에 쓸까 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 5\n    last_refresh: null\n    is_cached: false\n  - id: 13935954\n    insight:\n      id: 13089491\n      short_id: SrxHJcTI\n      name: 섬 통장에는 얼마나 남아 있을까 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 6\n    last_refresh: null\n    is_cached: false\n_posthogUrl: \"https://us.posthog.com/project/669473/dashboard/2236458\""
+        }
+      ]
+    },
+    {
+      "dashboard_id": 2220995,
+      "result": [
+        {
+          "type": "text",
+          "text": "results[2]:\n  - id: 13935955\n    insight:\n      id: 13089492\n      short_id: O08XQ14T\n      name: 섬과 바다 중 어디서 집중할까 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 9\n    last_refresh: null\n    is_cached: false\n  - id: 13935956\n    insight:\n      id: 13089493\n      short_id: IQg0DnO3\n      name: 장소별 하루 집중시간 · 미계측\n      derived_name: null\n      result: \"[]\"\n      warnings: null\n    order: 10\n    last_refresh: null\n    is_cached: false\n_posthogUrl: \"https://us.posthog.com/project/669473/dashboard/2220995\""
+        }
+      ]
+    }
+  ]
+}

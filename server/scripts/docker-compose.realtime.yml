@@ -1,0 +1,171 @@
+# 채팅 서비스 오버레이 (GROMO-292).
+#
+# 왜 dev/prod 파일에 직접 넣지 않았나 — 그 파일들은 «지금 도는 구성»이고, 여기 chat 서비스를 넣는
+# 순간 배포가 아직 GAR 에 없는 이미지를 받으러 가서 실패한다. 채팅 이미지가 올라간 뒤에
+# 이 오버레이를 함께 읽어 띄우고, 안정되면 dev 파일로 접는다.
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.realtime.yml up -d
+#
+# 데이터베이스(gromo_chat)는 아래 realtime-db-init 잡이 «있으면 두고 없으면 만든다» — 따로 손으로 만들
+# 필요가 없고, 여러 번 돌려도 안전하다.
+#
+# ⚠️ 이 오버레이는 redis 를 정의하지 않는다 — docker-compose.dev.yml 이 이미 정의한다.
+#    단독으로 쓰면 depends_on 이 없는 서비스를 가리켜 파싱이 깨진다.
+#
+# ⚠️ **dev 전용이다.** prod 는 DB 가 RDS 라 compose 에 db 서비스가 없고 redis 도 아직 없다 —
+#    이 파일을 prod 에 그대로 얹으면 depends_on 이 없는 서비스를 가리킨다. prod 배선은 채팅이
+#    dev 에서 안정된 뒤 docker-compose.prod.yml 에 직접 넣는다(그때 Redis ACL 도 함께 건다).
+
+name: phone
+
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-app-logging: &app-logging
+  driver: json-file
+  options: {max-size: "50m", max-file: "4"}
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+services:
+  # 채팅 데이터베이스를 «있으면 두고 없으면 만든다». 한 번 돌고 끝나는 잡이다.
+  #
+  # 왜 필요한가 — dev 의 postgres 는 ${POSTGRES_DB} 하나만 초기 생성한다. Flyway 는 «스키마»를 만들지
+  # «데이터베이스»를 만들지 않으므로, 이 잡이 없으면 문서에 적은 실행 한 줄이 곧바로
+  # `database "gromo_chat" does not exist` 로 죽는다.
+  #
+  # 왜 docker-entrypoint-initdb.d 스크립트가 아닌가 — 그건 «빈 볼륨의 첫 기동»에만 돈다. dev 에는 이미
+  # 데이터가 있는 볼륨이 있어서 그 경로로는 영영 만들어지지 않는다. 이 잡은 볼륨 상태와 무관하게 돈다.
+  #
+  # CREATE DATABASE 는 IF NOT EXISTS 가 없다 — 그래서 존재 여부를 먼저 보고 없을 때만 만든다.
+  # 여러 번 돌려도 안전하다(이미 있으면 아무 일도 하지 않는다).
+  realtime-db-init:
+    logging: *infra-logging
+    image: postgres:16.14-alpine
+    container_name: phone-realtime-db-init
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      CHAT_DB: ${CHAT_POSTGRES_DB:-gromo_chat}
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc
+        "SELECT 1 FROM pg_database WHERE datname='$$CHAT_DB'" | grep -q 1
+        || psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "CREATE DATABASE \"$$CHAT_DB\""
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: "no"
+
+  realtime:
+    logging: *app-logging
+    # Data CI가 같은 main SHA의 두 이미지를 만들고 공동 CD가 digest로 함께 교체한다.
+    # 기본값 없음 — 예전 기본값(ci-cache/realtime:latest)은 올리는 곳과 다른 옛 저장소라 비면 옛 이미지로 조용히 떴음.
+    # 운영 재실행은 Ops Dev Redeploy를 사용한다. Data와 다른 SHA를 독립 배포하지 않는다.
+    image: ${REALTIME_IMAGE:?Realtime 이미지 필요 — REALTIME_IMAGE=…/realtime/realtime:<sha> 또는 @digest}
+    container_name: phone-realtime
+    ports:
+      # 8081 — data-api(8080)와 같은 호스트에 뜨므로 겹치지 않게 잡았다.
+      # 관리 포트 9091 은 절대 여기 올리지 않는다(포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단).
+      - "127.0.0.1:8081:8081"
+    environment:
+      JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: dev
+      DD_SERVICE: gromo-realtime-dev
+      DD_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
+      DD_LOGS_INJECTION: "true"
+      DD_RUNTIME_METRICS_ENABLED: "true"
+      DD_PROFILING_ENABLED: "true"
+      DD_DATA_STREAMS_ENABLED: "true"
+      DD_TRACE_ANALYTICS_ENABLED: "true"
+      DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"
+      DD_GIT_REPOSITORY_URL: github.com/OneOrThree/phone
+      DD_GIT_COMMIT_SHA: ${IMAGE_REVISION:-unknown}
+      SPRING_PROFILES_ACTIVE: dev
+      # 채팅은 자기 데이터베이스를 갖는다 — 같은 인스턴스 안의 별도 database(A10 의 알림 서버와 같은 모양).
+      # 이 database 는 미리 만들어져 있어야 한다(Flyway 는 스키마를 만들지 database 를 만들지 않는다).
+      CHAT_DB_URL: jdbc:postgresql://db:5432/${CHAT_POSTGRES_DB:-gromo_chat}
+      CHAT_DB_USERNAME: ${POSTGRES_USER}
+      CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      # 4GB dev VM에서 여러 JVM을 함께 시작하면 Redis 초기 handshake가 기본 2초를 넘겨 앱이 종료된다.
+      SPRING_DATA_REDIS_CONNECT_TIMEOUT: 5s
+      SPRING_DATA_REDIS_TIMEOUT: 10s
+      # Data API 와 «같은 값»이어야 한다. 채팅은 이 키로 서명을 검증만 한다 — 발급하지 않는다.
+      JWT_SECRET: ${JWT_SECRET}
+      # 멤버십 조회 상류. 컨테이너 이름으로 부른다(호스트 포트를 거치지 않는다).
+      DATA_API_BASE_URL: http://app:8080
+      # 핸드셰이크 허용 Origin(쉼표 구분, 패턴 허용). ⚠️ 「네이티브 앱은 Origin 을 안 보낸다」는 틀렸다 — React Native
+      # WebSocket(iOS SocketRocket · Android WebSocketModule)은 WS 접속 URL 로 `Origin: https://<WS 호스트>` 를
+      # 만들어 보낸다(비표준 포트면 포트까지, 지금은 API 도메인과 같은 호스트). 그래서 비워 두면(same-origin 만 허용 →
+      # 프록시 뒤라 사실상 전부 거절) 앱 접속까지 403 이다(GROMO-2175, 2026-10-01 KST dev 실측: API 도메인 Origin 403 ·
+      # Origin 없음 101). dev 는 SM `gromo/dev/env` 의 CHAT_WS_ALLOWED_ORIGINS 에 API 도메인
+      # (https://oneorthree.dev.mooo.com)을 넣어 허용한다 — dev.env 로 옮겨지는 키다(write-compose-env.py).
+      # 기본값은 «일부러» 빈 값(사실상 거절)이다. 환경마다 도메인이 달라 여기 박을 수 없고, `*` 는 임의의 웹페이지에
+      # 소켓을 열어 준다 — 값이 빠지면 조용히 열리는 대신 403 으로 드러나는 편이 낫다.
+      CHAT_WS_ALLOWED_ORIGINS: ${CHAT_WS_ALLOWED_ORIGINS:-}
+      # Data relay 의 사건 수신 자격(POST /internal/events, GROMO-1954). 비면 그 경로만 401 이라 Data 의 REALTIME
+      # 전달이 멈춘다 — Data 의 SVC_TOKEN_DATA_TO_REALTIME 과 «같은 값», Business 토큰과는 «다른 값»(A22 ㊀).
+      SVC_TOKEN_DATA_TO_REALTIME: ${SVC_TOKEN_DATA_TO_REALTIME:-}
+      # Business 우체통 내부 어댑터(/internal/*, GROMO-1775) 자격. 비면 그 경로만 401 — Business 의
+      # SVC_TOKEN_BIZ_TO_REALTIME 과 «같은 값», Data 토큰과는 «다른 값»(A22 ㊀).
+      SVC_TOKEN_BIZ_TO_REALTIME: ${SVC_TOKEN_BIZ_TO_REALTIME:-}
+      # Realtime → Data의 섬 목록·멤버십·차단 조회는 내부 API 서비스 자격을 사용한다.
+      # Data는 realtime-authorization 프로필과 같은 SVC_TOKEN_REALTIME_TO_DATA가 필요하다.
+      # dev는 SM gromo/dev/env → dev-env.sh → write-compose-env.py(임시 dev.env) 경로로 온다.
+      REALTIME_AUTHORIZATION_DATA_URL: ${REALTIME_AUTHORIZATION_DATA_URL:-}
+      SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:?Realtime에서 Data 내부 API를 호출할 서비스 토큰 필요}
+      # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.
+      REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
+      # 채팅 이력 인가 예산(GROMO-2342). ON 모드 동시 16 초과 시 유한 대기·허용 결정 캐시 TTL(0=끔), OFF 모드 GroupClient 동시 상한.
+      # 기본값은 yml 과 같다 — 빈 값이 들어가면 Duration/int 파싱이 깨지므로 compose 기본값으로 막는다.
+      REALTIME_AUTHORIZATION_WAIT_TIMEOUT: ${REALTIME_AUTHORIZATION_WAIT_TIMEOUT:-200ms}
+      REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS: ${REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS:-30}
+      CHAT_DATA_API_MAX_CONCURRENCY: ${CHAT_DATA_API_MAX_CONCURRENCY:-32}
+      # STOMP heartbeat(GROMO-2341) — 서버 송신·클라이언트 기대 주기(ms). 앱 10s/10s·Cloudflare 유휴 100s 와 맞물린다.
+      CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS: ${CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS:-10000}
+      CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS: ${CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS:-10000}
+      # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
+      REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
+      # 섬 이동 다중 인스턴스(GROMO-2339). 기본 켜짐 — 1대여도 Redis 리스·채널 경로를 탄다. 끄려면 false(단일 인스턴스 전용).
+      REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED: ${REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED:-true}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # 데이터베이스가 «만들어진 뒤에» 뜬다. 안 그러면 Flyway 가 없는 database 에 붙으려다 죽는다.
+      realtime-db-init:
+        condition: service_completed_successfully
+    networks:
+      - app-network
+    restart: unless-stopped
+    labels:
+      com.datadoghq.tags.env: dev
+      com.datadoghq.tags.service: gromo-realtime-dev
+      com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
+      com.datadoghq.ad.logs: >-
+        [{"source":"java","service":"gromo-realtime-dev"}]
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_realtime","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
+    healthcheck:
+      # 관리 포트는 컨테이너 안에서만 보인다 — 헬스체크는 컨테이너 안에서 돌므로 닿는다.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # dev 앱 공통 정책(10초 간격·6회 실패 허용)에서 시작 유예는 서비스별 실측에 맞춘다 — Realtime 180초(아래), 위성 240초(GROMO-2452, write-compose-env.py).
+      # Realtime 은 dev 실측 21회가 p50 125s·p95 170s·max 188s 라(GROMO-2286) 120초면 unhealthy 판정(≈170s)이 p95 를 못 넘어
+      # 정상 기동 중 일부(170초 초과)도 unhealthy 로 표시된다.
+      # 180초면 판정 ≈230s. 유예 중에도 readiness가 성공하면 즉시 healthy가 되므로 정상 기동은 느려지지 않는다.
+      start_period: 180s
+
+networks:
+  app-network:
+    driver: bridge
