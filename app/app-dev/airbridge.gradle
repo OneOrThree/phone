@@ -1,10 +1,11 @@
 // 직접 Gradle 빌드에서도 Expo의 .env 우선순위를 사용한다. 토큰은 빌드 산출물에만 넣는다.
 def airbridgeProcess = new ProcessBuilder("node", "scripts/airbridge-build-config.cjs")
-    .directory(rootProject.projectDir.parentFile)
-    .redirectError(ProcessBuilder.Redirect.INHERIT).start()
+    .directory(rootProject.projectDir.parentFile).start()
 def airbridgeOutput = airbridgeProcess.inputStream.text
+def airbridgeError = airbridgeProcess.errorStream.text
 if (airbridgeProcess.waitFor() != 0) {
-    throw new GradleException("Airbridge 빌드 설정을 읽지 못했습니다.")
+    throw new GradleException("Airbridge 빌드 설정을 읽지 못했습니다 (exit=${airbridgeProcess.exitValue()}): " +
+        airbridgeError.replaceAll(/[a-fA-F0-9]{32}/, "[REDACTED]"))
 }
 def airbridgeConfig = new groovy.json.JsonSlurper().parseText(airbridgeOutput)
 def airbridgeToken = airbridgeConfig.appToken
