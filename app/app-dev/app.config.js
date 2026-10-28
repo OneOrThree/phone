@@ -4,6 +4,7 @@ const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
 // iOS 스토어 버전(1.0.2)은 아래 version(2.0.0, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
+const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
 // 여기서는 expo prebuild 가 Info.plist 에 심을 URL 스킴만 dev.ios 에서 만든다(이 레포는 체크인된 ios/ 를 쓴다).
 // 체크인된 Info.plist 에는 dev·prod 스킴을 둘 다 등록한다(규칙은 src/config/googleClientIds.md).
@@ -49,9 +50,9 @@ module.exports = {
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
-      // GROMO-2523 푸시 네이티브(expo-notifications·FirebaseMessaging)가 든 바이너리만 새 JS OTA 를 받게 iOS 런타임을 분리한다.
+      // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push',
+      runtimeVersion: '2.0.0-push-meta',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
@@ -81,6 +82,7 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
+      [withIosMeta],
       // 현재 음원은 앱 안에서만 재생하므로 미디어 포그라운드 서비스를 추가하지 않는다.
       [
         'expo-audio',

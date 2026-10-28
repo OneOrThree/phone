@@ -6,6 +6,7 @@ import ReactAppDependencyProvider
 import AirbridgeReactNative
 import AppTrackingTransparency
 import FirebaseCore
+import FBSDKCoreKit
 
 @main
 class AppDelegate: ExpoAppDelegate {
@@ -49,6 +50,9 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    // 이전 실행의 SDK 설정도 끈 채 시작한다. 운영·목업 판정 뒤 JS만 수집을 켠다(GROMO-2544).
+    Settings.shared.isAutoLogAppEventsEnabled = false
+    Settings.shared.isAdvertiserIDCollectionEnabled = false
     // 콜드 스타트에서는 이전 차단부터 정리하고, 서버 세션을 확인한 JS가 유효한 집중에 재적용한다.
     ScreenTimeModule().stopFocusShield({ _ in }, rejecter: { _, _, _ in })
     // Airbridge 는 앱 시작 시점의 설치·세션 이벤트를 잡아야 하므로 React Native 가 뜨기 전에 초기화한다.

@@ -1,4 +1,5 @@
 {
   "CFBundleDisplayName": "집중할고양",
-  "CFBundleName": "집중할고양"
+  "CFBundleName": "집중할고양",
+  "NSUserTrackingUsageDescription": "광고를 통해 앱을 설치한 경로와 광고 효과를 측정하는 데 사용해요."
 }

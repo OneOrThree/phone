@@ -160,6 +160,7 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
+import { startMetaTracking } from '@/services/metaSdk';
 import {
   refreshPush,
   requestPushPermission,
@@ -1629,11 +1630,13 @@ function Gromo() {
       else resetPostHogUser();
     });
     const stopSocialAnalytics = startSocialAnalytics();
+    const stopMetaTracking = startMetaTracking();
     // 푸시 등록·수신·탭(GROMO-2525) — iOS 이고 FCM 브리지가 든 바이너리에서만 돈다.
     const stopPushSync = startPushSync(() => stateRef.current.settings.notifications !== false);
     return () => {
       stopPushSync();
       stopSocialAnalytics();
+      stopMetaTracking();
       unsubscribe();
     };
   }, [loaded]);

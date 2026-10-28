@@ -69,9 +69,27 @@
 				<string>line3rdp.com.oneorthree.focuscat</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fb1092876403132413</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>9</string>
+	<key>FacebookAppID</key>
+	<string>1092876403132413</string>
+	<key>FacebookClientToken</key>
+	<string>50e64f9a226f67663ddcfd3ea0e03cb4</string>
+	<key>FacebookDisplayName</key>
+	<string>cattus</string>
+	<key>FacebookAutoInitEnabled</key>
+	<false/>
+	<key>FacebookAutoLogAppEventsEnabled</key>
+	<false/>
+	<key>FacebookAdvertiserIDCollectionEnabled</key>
+	<false/>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -84,6 +102,10 @@
 		<string>kakaolink</string>
 		<string>kakaoplus</string>
 		<string>lineauth2</string>
+		<string>fbapi</string>
+		<string>fb-messenger-api</string>
+		<string>fbauth2</string>
+		<string>fbshareextension</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
@@ -94,10 +116,21 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>광고를 통해 앱을 설치한 경로와 광고 효과를 측정하는 데 사용해요.</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>v9wttpbfk9.skadnetwork</string>
+		</dict>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>n38lu8286q.skadnetwork</string>
+		</dict>
+	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>광고를 통해 앱을 설치했는지 확인하고 광고 성과를 측정하는 데 기기 식별자를 사용합니다.</string>
 	<key>RCTMetroPort</key>
 	<string>$(RCT_METRO_PORT)</string>
 	<key>RCTNewArchEnabled</key>
