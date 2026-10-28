@@ -7,6 +7,7 @@ import java.util.UUID;
 /** 전송 형식과 상태 순서 버전을 별도로 검사한다. 추가 필드는 무시한다. */
 record Envelope(String eventId, String type, UUID userId, long version, String subjectId,
         String locale, Instant occurredAt, Instant scheduledAt, Map<String, Object> params) {
+    static final int EVENT_ID_MAX_LENGTH = 200;
 
     static Envelope read(Map<String, Object> body) {
         if (Json.number(body, "schemaVersion") != 1) {
@@ -16,7 +17,7 @@ record Envelope(String eventId, String type, UUID userId, long version, String s
         String type = Json.text(body, "type");
         String subject = Json.nullableText(body, "subjectId");
         long version = Json.number(body, "version");
-        if (id.length() > 200 || type.length() > 100 || version == 0
+        if (id.length() > EVENT_ID_MAX_LENGTH || type.length() > 100 || version == 0
                 || (subject != null && subject.length() > 200) || !(body.get("params") instanceof Map<?, ?>)) {
             throw new NotificationFailure(422, "INVALID_EVENT_ENVELOPE");
         }

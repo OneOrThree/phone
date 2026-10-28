@@ -232,6 +232,9 @@ class AdminCatalog {
         Map<String, Object> data = object(body, "dataTemplate");
         Map<String, Object> sample = object(body, "sampleParams");
         for (Map.Entry<String, Object> entry : data.entrySet()) {
+            if (Set.of("deliveryTag", "eventId").contains(entry.getKey())) {
+                throw new NotificationFailure(400, "RESERVED_DATA_KEY");
+            }
             if (!(entry.getValue() instanceof String)) {
                 throw new NotificationFailure(400, "INVALID_dataTemplate");
             }
@@ -256,7 +259,8 @@ class AdminCatalog {
             // 가까운 템플릿이 저장은 되고, 발송 때 태그 있는 기기는 크기 초과로 건너뛰어 그 알림을 받지 못한다(받을
             // 기기가 하나도 없으면 FAILED) — 그래서 태그 길이만큼 자리를 예약해 잰다. 미리보기 화면에는 태그를 보이지
             // 않으니 반환은 원래 push.
-            FcmPayload.requireFits(push.withDeliveryTag(TAG_PLACEHOLDER), true, "template-preview");
+            FcmPayload.requireFits(push.withDeliveryTag(TAG_PLACEHOLDER), true,
+                    "e".repeat(Envelope.EVENT_ID_MAX_LENGTH));
             return push;
         } catch (IllegalArgumentException invalid) {
             throw new NotificationFailure(400, "INVALID_TEMPLATE_SYNTAX");
