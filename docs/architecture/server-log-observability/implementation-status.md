@@ -1,7 +1,7 @@
 # 로그 통합 티켓과 구현 현황
 
-작성: 2026-10-29. 구현 기준: `main`의 `81ef2140ab87f3c0f2bfb741bc3c6ae09f3c9932`.
-작업 브랜치: `bfeat/GROMO-2553-request-log-context`.
+작성: 2026-10-29. 구현 기준: 피처 브랜치 `feat/GROMO-2562-log-observability`(origin/main 을 `700d06419` 에서 병합).
+작업 브랜치: 티켓별 `b*/GROMO-####-*` 를 피처에 병합했고, 에픽 PR #1407 이 리뷰 중이다.
 
 기존 작업 폴더의 변경과 분리한 worktree에서 작업한다. 아래 **로컬 구현·검증**은 배포·S3 적재·Datadog 실측 완료를 뜻하지 않는다. 2553의 구현은 `epic-batch` 인계 커밋으로 보존한다. 티켓별 PR 생성·리뷰와 나머지 구현은 에픽 배치에서 이어간다.
 
@@ -31,7 +31,7 @@
 | [2573](https://romance.atlassian.net/browse/GROMO-2573) | Kafka 브로커·Exporter 로그 링크 분리 | 피처 병합 #1399 `dc802f084`(main 미반영, 대시보드 Datadog 반영 미수행) — 문서 `kafka-log-links.md` |
 | [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 피처 병합 #1402 `f818ed27d`(main 미반영, Business compose 수정 서버 미적용) — 문서 `kafka-profiler-errors-2026-10-29.md` |
 
-후속 4건의 «피처 병합»도 main 반영·배포가 아니다. 에픽 PR(피처 → main)은 사용자 지시로 이번에 열거나 병합하지 않고 준비 상태만 보고한다.
+후속 4건의 «피처 병합»도 main 반영·배포가 아니다. 에픽 PR #1407(피처 → main)은 리뷰 중이며 머지는 사람이 한다.
 
 **피처 병합 ≠ main 반영 ≠ 배포.** 위 «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. main 에는 에픽 PR 하나로 들어가며, dev·prod 배포는 그 뒤다.
 
@@ -44,7 +44,7 @@ Jira에도 위 방향의 `Blocks` 링크를 등록했다. 2554는 실제 환경 
 1. Business `RequestEnvelopeFilter`가 생성한 ID를 `RequestLogContext`로 MDC `request_id`에 설치한다. 응답의 `X-Request-Id`와 같으며, 외부 동명 헤더를 채택하지 않는다.
 2. `ScreenComposer`가 원래 사용하는 `UpstreamRequestContext.within`에 같은 scope를 적용한다. MDC 전체를 복사하지 않고 명시적인 context의 ID만 사용한다.
 3. `InternalHttpClient`의 두 번째 worker도 `context.within` 안에서 실행한다. 같은 ID는 HTTP `X-Request-Id`로 전달된다. 기존 Future·queue·cancel/remove 구조를 유지한다.
-4. Data `TraceIdFilter`는 `X-Request-Id`를 별도로 검증해 `request_id`에 넣는다. `X-Trace-Id → X-Request-Id → 생성` 순서의 기존 `trace_id` 호환 계약은 유지한다. ID는 `[A-Za-z0-9_-]{1,128}`로 제한한다.
+4. Data `TraceIdFilter`는 `X-Request-Id`를 별도로 검증해 `request_id`에 넣는다. `X-Trace-Id → X-Request-Id → 생성` 순서의 기존 `trace_id` 호환 계약은 유지한다. ID는 `[A-Za-z0-9_-]{1,128}`로 제한한다(들어오는 쪽 `TraceIdFilter`·`RequestLogContext`). 내보내고 전파하는 쪽(Outbox carrier·Notification `InboundTrace`·Realtime `LogContext`·4개 `ObservationJsonProvider`·Data `LogScope`)은 `.`·`:`까지 허용하는 `[A-Za-z0-9_.:-]{1,128}` 이다. 나가는 쪽이 더 넓어 한쪽이 낸 값을 다른 쪽이 버리지 않는다(의도된 관계).
 5. Data는 본인이 소유한 `trace_id`·`request_id`·`user_id`의 이전 값만 복원한다. Business도 자신의 `request_id`만 복원한다. `MDC.clear()`로 tracer·다른 필터의 키를 삭제하지 않으며, `dd.*`를 부모 스레드에서 복사하지 않는다.
 6. Business의 Boot Logback level 패턴과 Data의 기존 APP 콘솔/파일 패턴에 `[request_id=...]`를 넣는다. 원본 텍스트에서 이 값으로 두 서비스 로그를 모아 볼 수 있다.
 

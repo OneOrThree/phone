@@ -188,7 +188,7 @@ Realtime 기동 로그는 dev VM에서 `docker logs --timestamps phone-realtime`
 
 ## 8. 위성 배포 준비
 
-[`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, Business Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다.
+[`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, Business Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다. 렌더된 Compose 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION` 검사가 필수이므로 로컬·수동 실행자는 `IMAGE_REVISION`(배포 커밋 SHA, `unknown` 불가)을 환경변수로 줘야 하고, `deploy-core-dev.py` 도 같은 검사를 합니다. `docker-compose.business.yml` 의 `OBS_ENV: ${DEPLOY_ENV:-dev}` 는 위성 CD 경로에서 쓰이지 않는 단독 진입점이라 검사 대상이 아니지만, `DEPLOY_ENV` 를 dev 밖으로 주면 위성 검사와 값이 어긋납니다.
 
 ```bash
 python3 server/scripts/prepare-satellite-deploy.py --help
