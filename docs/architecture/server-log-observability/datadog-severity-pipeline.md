@@ -106,13 +106,13 @@ PostgreSQL 의 syslog 대응표는 ERROR→WARNING, FATAL→ERR, PANIC→CRIT �
 
 ```bash
 cd server/observability/datadog/pipelines
-export DD_SITE=us5.datadoghq.com   # DD_API_KEY·DD_APP_KEY 는 별도로 export
+export DD_SITE=us5.datadoghq.com   # 공식 사이트 목록(datadoghq.com·us3/us5/ap1/ap2/uk1.datadoghq.com·datadoghq.eu·ddog-gov.com·us2.ddog-gov.com)만 허용. DD_API_KEY·DD_APP_KEY 는 별도로 export
 # 1) 백업 (읽기)
 python3 manage.py backup --out /안전한/경로/dd-pipelines-backup-$(date +%Y%m%dT%H%M%S).json
 # 2) 계획 (읽기, 네트워크 없음)
 python3 manage.py plan --backup-file <백업>
 # 3) 리뷰: 동작이 create 2건인지, 겹침이 '없음'인지, 정의 diff·이 문서 §4 표를 확인
-# 4) 적용 (쓰기 — 이중 확인)
+# 4) 적용 (쓰기 — 이중 확인). GROMO_DD_PIPELINE_APPLY=yes 는 export 하지 말고 이 명령 앞에 한 번만 붙인다
 GROMO_DD_PIPELINE_APPLY=yes python3 manage.py apply --execute --record-out /안전한/경로/dd-apply-record.json
 ```
 
@@ -123,7 +123,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py apply --execute --record-out /안�
    - 실제 `E`/`F`·`ERROR`/`FATAL`/`PANIC` 이 info 이하로 내려가지 않았다.
    - 속성이 없는 줄은 수집 status 를 유지했다.
 
-`plan` 은 현재 정의와 로컬 정의를 필드 단위로 비교한다. 서버가 기본값을 채워 돌려주면 내용이 같아도 `update` 로 표시될 수 있다. 이때 PUT 은 같은 정의로 교체하므로 결과는 같다.
+`plan` 은 현재 정의와 로컬 정의를 필드 단위로 비교한다. 서버가 기본값을 채워 돌려주면 내용이 같아도 `update` 로 표시될 수 있다. 이때 PUT 은 같은 정의로 교체하므로 결과는 같다. `DD_SITE` 허용 목록은 Datadog 사이트 문서(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인)의 Site Parameter 이며, 새 사이트가 생기면 `manage.py` 의 `SITES` 에 추가한다.
 
 ## 9. 롤백
 
@@ -135,16 +135,19 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 
 - 순서 복원은 다음과 같이 계산한다. 기록의 `order_before` 순서를 기준으로 지금 남아 있는 ID 만 배치하고, 백업 이후 생긴 ID 는 뒤에 붙인다. 현재 순서와 다를 때만 `PUT pipeline-order` 를 보낸다. 이 API 는 전체 순서를 교체한다(§12 근거 4).
 - dry-run 으로 만든 기록(`"dry_run": true`)으로는 `--execute` 를 할 수 없다.
-- **부분 적용**: `apply --execute` 는 쓰기(생성·갱신·순서 조회) 하나가 성공할 때마다 `--record-out` 파일을 임시 파일 후 rename 으로 갱신한다. 중간에 실패하면 지금까지의 기록(`steps` 의 ok/failed/not-run, 생성된 ID, 갱신 전 원본, `order_before`)을 남기고 0 이 아닌 코드로 끝나며 «부분 적용 — `rollback --record <파일>`» 을 출력한다. 자동으로 되돌리지 않는다. 사람이 상태를 확인한 뒤 같은 기록으로 `rollback` 하면 성공한 단계만 되돌린다. `order-after` 조회만 실패했다면 생성·갱신은 이미 반영된 상태이므로 롤백 여부를 §8 판정 기준으로 정한다.
+- **부분 적용**: `apply --execute` 는 쓰기(생성·갱신·순서 조회) 하나가 성공할 때마다 `--record-out` 파일을 임시 파일 후 rename 으로 갱신한다. 중간에 실패하면 지금까지의 기록(`steps` 의 ok/failed/not-run, 생성된 ID, 갱신 전 원본, `order_before`)을 남기고 0 이 아닌 코드로 끝나며 «부분 적용 — `rollback --record <파일>`» 을 출력한다. 자동으로 되돌리지 않는다. 사람이 상태를 확인한 뒤 같은 기록으로 `rollback` 하면 성공한 단계만 되돌린다.
+- **실패 종류별 안내**: 아무것도 바뀌지 않은 실패(`created`·`updated` 비어 있음)는 «변경 없음 — 롤백 불필요», 일부가 반영된 실패만 «부분 적용 — rollback». 쓰기 요청이 응답 없이 끝나면(타임아웃·연결 끊김) 단계를 `unknown` 으로 기록하고 «서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인»하라고 안내한다. 이미 만들어졌더라도 `created` 에는 ID 가 없다. 같은 이름이 있으면 같은 `apply` 를 다시 실행해도 `plan_actions` 가 이름으로 찾아 `update` 로 처리하므로 중복 생성되지 않는다. 같은 이름이 없으면 그대로 다시 실행한다.
+- **롤백 안전장치**: `--execute` 는 각 ID 를 먼저 GET 해 이름이 기록과 같은지 확인한다. 다르면 그 항목은 건드리지 않고 순서 복원 없이 비정상 종료한다(나머지 항목은 계속 진행). 404 는 «이미 없음»으로 건너뛴다. 항목마다 끝난 결과를 같은 기록 파일의 `rollback` 필드에 저장하므로, 중간에 실패해도 같은 명령을 다시 실행하면 끝난 항목은 건너뛰고 이어간다. dry-run 도 이 GET 확인을 계획으로 출력한다. `order-after` 조회만 실패했다면 생성·갱신은 이미 반영된 상태이므로 롤백 여부를 §8 판정 기준으로 정한다.
 
 ## 10. 검증 범위
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 18 tests(부분 적용 기록 2건 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 26 tests(부분 적용 기록·응답 없음 `unknown`·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |
+| 가정 의존 단언 | `default_lookup` 생략 시 target 미생성, source 속성 부재 시 remapper 무동작은 문서에 명시 문장이 없는 가정이다. 이에 기대는 테스트(이름에 «assumption_dependent» 표기)의 통과는 Datadog 동작의 증거가 아니다 |
 | Datadog Grok 실행(UI 샘플 미리보기 포함) | **미수행** |
 | Datadog 원격 validation | **미수행.** MCP SDK 카탈로그의 `LogsPipelinesApi` 에는 get·list·order 조회만 있다(증거 `sdk-grok-validation-result.json`). v2 `ObservabilityPipelinesApi.validatePipeline` 은 다른 제품이라 대체로 쓰지 않았다 |
 | apply | **미수행(미적용)** |

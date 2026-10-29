@@ -15,6 +15,7 @@ import os
 import re
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -41,6 +42,7 @@ CAST = {"integer": int, "number": float}
 DATE = {"yyyy": r"\d{4}", "MM": r"\d{2}", "dd": r"\d{2}", "HH": r"\d{2}", "mm": r"\d{2}", "ss": r"\d{2}"}
 
 
+# 경고: regex("…") 안에 `\d` 등 이스케이프를 쓰면 이 변환기(\\·\" 만 풂)와 Datadog 해석이 갈릴 수 있다 — 그때는 UI 샘플로 확인한다.
 def _string_args(args):
     """regex("…")·date("…") 인자. 문자열 리터럴의 \\\\·\\" 만 푼다(문서 예 `regex("\\\\w")` → 정규식 \\w)."""
     return [re.sub(r'\\(.)', lambda m: m.group(1) if m.group(1) in '\\"' else m.group(0), s)
@@ -149,7 +151,7 @@ def remap_status(value):
 
 
 def simulate(pipeline, message, initial_status):
-    """한 파이프라인을 근사 실행한다. 가정(문서 명시 문장 없음, 원격 미검증):
+    """한 파이프라인을 근사 실행한다. 이 함수에 기대는 단언은 «가정 의존(default_lookup 생략·remapper source 부재)». 가정(문서 명시 문장 없음, 원격 미검증):
     lookup 은 source 속성이 없거나 표에 없고 default_lookup 이 없으면 target 을 만들지 않고,
     status remapper 는 sources 속성이 하나도 없으면 status 를 바꾸지 않는다."""
     attrs, status, remapped = {"message": message}, initial_status, False
@@ -226,6 +228,7 @@ class PipelineDefinitionTest(unittest.TestCase):
         self.assertEqual(manage.sources_in(definition("postgres.json")["filter"]["query"]), {"postgres", "postgresql"})
 
     def test_lookup_tables_are_explicit_without_default(self):
+        """가정 의존(default_lookup 생략): 생략하면 미인식 값에 target 이 생기지 않는다는 가정 위에서 의미가 있다."""
         want = {
             "kafka-exporter.json": {"I": "info", "W": "warning", "E": "error", "F": "critical"},
             "postgres.json": {**{f"DEBUG{i}": "debug" for i in range(1, 6)}, "LOG": "info", "INFO": "info",
@@ -291,7 +294,8 @@ class ApproxFixtureTest(unittest.TestCase):
                     self.assertLessEqual(RANK[status], RANK["error"])
         self.assertEqual(seen, 7)  # 실제 E 2·F 2 + 합성 ERROR·FATAL·PANIC
 
-    def test_approx_unmapped_lines_keep_collected_status(self):
+    def test_approx_unmapped_lines_keep_collected_status_assumption_dependent(self):
+        """가정 의존(default_lookup 생략·remapper source 부재): DETAIL·연속 줄이 error 로 남는다는 단언은 두 가정이 참일 때만 성립한다. Datadog 동작의 증거가 아니다."""
         stderr_kept = 0
         for d, f, status, attrs in self.run_all():
             target = next(p["target"] for p in d["processors"] if p["type"] == "lookup-processor")
@@ -373,6 +377,16 @@ class FakeApi:
         return {"pipeline_ids": ["K", "NEW1", "NEW2"]} if method == "GET" else None
 
 
+class UnknownApi(FakeApi):
+    """n 번째 POST 가 응답 없이 끝난다(서버 반영 여부 불명)."""
+
+    def call(self, method, path, body=None):
+        if self.fail_on == (method, self.counts.get(method, 0) + 1):
+            self.counts[method] = self.counts.get(method, 0) + 1
+            raise manage.ApiError(f"{method} {path} → 응답 없음(TimeoutError)", unknown=True)
+        return super().call(method, path, body)
+
+
 class PartialApplyTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -381,12 +395,12 @@ class PartialApplyTest(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def execute(self, fail_on):
-        with mock.patch.object(manage, "Api", lambda: FakeApi(fail_on)), contextlib.redirect_stdout(io.StringIO()):
+    def execute(self, fail_on, expect="부분 적용", api=FakeApi):
+        with mock.patch.object(manage, "Api", lambda: api(fail_on)), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(SystemExit) as cm:
                 manage.main(["apply", "--execute", "--record-out", str(self.record)])
         self.assertNotEqual(cm.exception.code, 0)
-        self.assertIn("부분 적용", str(cm.exception.code))
+        self.assertIn(expect, str(cm.exception.code))
         return json.loads(self.record.read_text())
 
     def rollback_dry_run(self):
@@ -414,6 +428,115 @@ class PartialApplyTest(unittest.TestCase):
         self.assertEqual([c["id"] for c in rec["created"]], ["NEW1", "NEW2"])
         self.assertEqual(rec["steps"][-1]["result"], "failed")
         self.assertEqual(self.rollback_dry_run().count("DELETE"), 2)
+
+    def test_first_create_fails_says_no_change_and_no_rollback_needed(self):
+        rec = self.execute(("POST", 1), expect="변경 없음 — 롤백 불필요")
+        self.assertFalse(rec["partial"])
+        self.assertEqual(rec["created"], [])
+
+    def test_write_without_response_is_recorded_unknown_with_check_guidance(self):
+        rec = self.execute(("POST", 2), expect="서버 상태를 직접 조회", api=UnknownApi)
+        self.assertEqual([s["result"] for s in rec["steps"]], ["ok", "unknown", "not-run"])
+        self.assertEqual([c["id"] for c in rec["created"]], ["NEW1"])
+
+    def test_api_call_turns_urlerror_and_timeout_into_unknown_for_writes_only(self):
+        with mock.patch.dict(os.environ, {"DD_API_KEY": "k", "DD_APP_KEY": "a"}):
+            api = manage.Api()
+        for exc in (urllib.error.URLError("down"), TimeoutError("t")):
+            with mock.patch("urllib.request.urlopen", side_effect=exc):
+                with self.assertRaises(manage.ApiError) as w:
+                    api.call("POST", manage.PIPELINES, {})
+                self.assertTrue(w.exception.unknown)
+                with self.assertRaises(manage.ApiError) as r:
+                    api.call("GET", manage.PIPELINES)
+                self.assertFalse(r.exception.unknown)
+
+    def test_rerun_after_unknown_create_is_update_not_duplicate(self):
+        defs = manage.load_definitions()
+        state = {"pipelines": [{"id": "X", "name": defs[0]["name"]}], "order": ["X"], "origin": "t"}
+        kinds = {d["name"]: k for k, d, _ in manage.plan_actions(defs, state)}
+        self.assertEqual(kinds[defs[0]["name"]], "update")
+
+    def test_dd_site_outside_official_list_is_rejected(self):
+        env = {"DD_API_KEY": "k", "DD_APP_KEY": "a"}
+        for site in ("evil.example.com", "datadoghq.com.evil.io", "api.datadoghq.com/x"):
+            with mock.patch.dict(os.environ, {**env, "DD_SITE": site}):
+                with self.assertRaises(SystemExit):
+                    manage.Api()
+        for site in ("datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ddog-gov.com"):
+            with mock.patch.dict(os.environ, {**env, "DD_SITE": site}):
+                self.assertEqual(manage.Api().site, site)
+
+
+class RollbackExecuteApi:
+    """서버 상태를 가진 가짜. pipelines={id: name}. fail_delete 이면 그 id 의 DELETE 가 한 번 응답 없이 끝난다."""
+
+    def __init__(self, pipelines, fail_delete=None):
+        self.pipelines, self.fail_delete, self.calls = dict(pipelines), fail_delete, []
+        self.order = list(pipelines)
+
+    def state(self):
+        return {"pipelines": [], "order": self.order, "origin": "fake"}
+
+    def call(self, method, path, body=None):
+        self.calls.append((method, path))
+        if path == manage.ORDER:
+            return {"pipeline_ids": self.order}
+        pid = path.rsplit("/", 1)[1]
+        if pid not in self.pipelines:
+            raise manage.ApiError(f"{method} {path} → HTTP 404", status=404)
+        if method == "GET":
+            return {"id": pid, "name": self.pipelines[pid]}
+        if method == "DELETE":
+            if self.fail_delete == pid:
+                self.fail_delete = None
+                raise manage.ApiError(f"DELETE {path} → HTTP 503", status=503)
+            del self.pipelines[pid]
+            self.order.remove(pid)
+        return None
+
+
+class RollbackExecuteTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.record = self.tmp / "rec.json"
+        self.record.write_text(json.dumps({
+            "dry_run": False, "partial": False, "order_before": ["K"], "updated": [],
+            "created": [{"name": "A", "id": "N1"}, {"name": "B", "id": "N2"}],
+        }))
+        env = mock.patch.dict(os.environ, {manage.CONFIRM_ENV: "yes"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def run_rollback(self, api, *extra):
+        with mock.patch.object(manage, "Api", lambda: api), contextlib.redirect_stdout(io.StringIO()) as buf:
+            manage.main(["rollback", "--record", str(self.record), "--execute", *extra])
+        return buf.getvalue()
+
+    def test_rerun_after_second_delete_failed_skips_already_deleted_first(self):
+        api = RollbackExecuteApi({"K": "k", "N1": "A", "N2": "B"}, fail_delete="N2")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_rollback(api)
+        self.assertEqual(json.loads(self.record.read_text())["rollback"], {"N1": "deleted"})
+        out = self.run_rollback(api)
+        self.assertIn("건너뜀", out)
+        self.assertEqual(api.pipelines, {"K": "k"})
+        self.assertEqual(api.calls.count(("DELETE", f"{manage.PIPELINES}/N1")), 1)
+
+    def test_404_is_treated_as_already_gone(self):
+        api = RollbackExecuteApi({"K": "k", "N2": "B"})  # N1 은 이미 없음
+        out = self.run_rollback(api)
+        self.assertIn("이미 없음", out)
+        self.assertEqual(json.loads(self.record.read_text())["rollback"]["N1"], "already-gone")
+        self.assertEqual(api.pipelines, {"K": "k"})
+
+    def test_name_mismatch_stops_that_item_and_never_deletes_it(self):
+        api = RollbackExecuteApi({"K": "k", "N1": "다른 파이프라인", "N2": "B"})
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_rollback(api)
+        self.assertIn("N1", api.pipelines)
+        self.assertNotIn(("DELETE", f"{manage.PIPELINES}/N1"), api.calls)
+        self.assertNotIn("N2", api.pipelines)  # 나머지 항목은 계속 진행
 
 
 if __name__ == "__main__":

@@ -34,6 +34,27 @@ PIPELINES = "/api/v1/logs/config/pipelines"
 ORDER = "/api/v1/logs/config/pipeline-order"
 # 갱신 비교·PUT 본문에 쓰는 필드. id·type·is_read_only 는 서버가 정한다.
 BODY_KEYS = ("name", "is_enabled", "filter", "description", "processors")
+# Datadog 공식 사이트 목록의 Site Parameter(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인).
+# 이 밖의 값이면 키가 엉뚱한 호스트로 나가므로 거절한다. 새 사이트가 생기면 여기에 추가한다.
+SITES = frozenset({
+    "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu",
+    "ap1.datadoghq.com", "ap2.datadoghq.com", "uk1.datadoghq.com", "ddog-gov.com", "us2.ddog-gov.com",
+})
+
+
+class ApiError(SystemExit):
+    """API 호출 실패. status 는 HTTP 코드(없으면 None). unknown 이면 쓰기 요청이 응답 없이 끝나 서버 반영 여부를 모른다."""
+
+    def __init__(self, msg, status=None, unknown=False):
+        super().__init__(msg)
+        self.status, self.unknown = status, unknown
+
+
+def save_json(path, obj):
+    """임시 파일 후 rename — 중간에 죽어도 파일이 깨지지 않는다."""
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load_definitions():
@@ -89,6 +110,8 @@ def load_state(backup_file, order_file=None):
 class Api:
     def __init__(self):
         self.site = os.environ.get("DD_SITE", "us5.datadoghq.com")
+        if self.site not in SITES:
+            sys.exit(f"DD_SITE 허용 목록에 없음: {self.site!r} (허용: {', '.join(sorted(SITES))})")
         missing = [k for k in ("DD_API_KEY", "DD_APP_KEY") if not os.environ.get(k)]
         if missing:
             sys.exit(f"환경변수 없음: {', '.join(missing)}")
@@ -105,8 +128,10 @@ class Api:
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read()
-        except urllib.error.HTTPError as e:
-            sys.exit(f"{method} {path} → HTTP {e.code}: {e.read()[:500].decode(errors='replace')}")
+        except urllib.error.HTTPError as e:  # URLError·OSError 의 하위 클래스라 먼저 잡는다
+            raise ApiError(f"{method} {path} → HTTP {e.code}: {e.read()[:500].decode(errors='replace')}", status=e.code)
+        except OSError as e:  # URLError·타임아웃·연결 끊김. 쓰기면 서버가 이미 처리했을 수 있다
+            raise ApiError(f"{method} {path} → 응답 없음({type(e).__name__}: {e})", unknown=method != "GET")
         return json.loads(raw) if raw.strip() else None
 
     def state(self):
@@ -222,28 +247,37 @@ def cmd_apply(args):
         "created": [],
         "updated": [],
         "order_after": None,
-        # 단계별 결과: ok / failed / not-run. created·updated 에는 성공한 것만 들어가므로 rollback 은 그것만 되돌린다.
+        # 단계별 결과: ok / failed / unknown(쓰기 응답 없음, 반영 여부 불명) / not-run. created·updated 에는 성공한 것만 들어가므로 rollback 은 그것만 되돌린다.
         "steps": [{"step": f"{k}:{d['name']}", "result": "not-run"} for k, d, _ in actions if k != "noop"]
         + [{"step": "order-after", "result": "not-run"}],
     }
     steps = iter(record["steps"])
 
     def save():
-        if args.record_out:  # 임시 파일 후 rename — 중간에 죽어도 기록이 깨지지 않는다
-            tmp = Path(args.record_out + ".tmp")
-            tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            os.replace(tmp, args.record_out)
+        if args.record_out:
+            save_json(args.record_out, record)
 
     def write(step, method, path, payload):
         """쓰기 하나. 실패하면 기록에 남기고 부분 적용 안내 후 비정상 종료한다(자동 되돌리기 없음)."""
         try:
             return api.call(method, path, payload) if args.execute else None
         except SystemExit as e:
-            step["result"] = "failed"
+            unknown = getattr(e, "unknown", False)
+            step["result"] = "unknown" if unknown else "failed"
             step["error"] = str(e.code)
-            record["partial"] = bool(record["created"] or record["updated"])
+            changed = bool(record["created"] or record["updated"])
+            record["partial"] = changed
             save()
-            sys.exit(f"{e.code}\n부분 적용 — 되돌리려면 `rollback --record {args.record_out}` (성공한 단계만 되돌린다). 기록: {args.record_out}")
+            if unknown:
+                msg = ("결과 불명 — 요청이 서버에 반영됐는지 모른다. 서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인한다. "
+                       "있으면 같은 명령을 다시 실행해도 된다(plan_actions 가 이름으로 찾아 update 로 처리한다, 중복 생성 없음).")
+                if changed:
+                    msg += f" 이미 성공한 단계는 `rollback --record {args.record_out}` 로 되돌릴 수 있다."
+            elif changed:
+                msg = f"부분 적용 — 되돌리려면 `rollback --record {args.record_out}` (성공한 단계만 되돌린다)."
+            else:
+                msg = "변경 없음 — 롤백 불필요."
+            sys.exit(f"{e.code}\n{msg} 기록: {args.record_out}")
 
     save()
     print("요청" + (" (실행)" if args.execute else " (dry-run, 보내지 않음)") + ":")
@@ -278,6 +312,17 @@ def restored_order(order_before, current, removed):
     return [i for i in order_before if i in alive] + [i for i in alive if i not in order_before]
 
 
+def _verify(api, pid, name):
+    """롤백 전 확인: 서버의 pid 가 기록의 이름과 같은지. 'ok' | 'gone'(404) | 'mismatch'."""
+    try:
+        cur = api.call("GET", f"{PIPELINES}/{pid}")
+    except ApiError as e:
+        if e.status == 404:
+            return "gone", None
+        raise
+    return ("ok" if cur.get("name") == name else "mismatch"), cur
+
+
 def cmd_rollback(args):
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     if record.get("dry_run") and args.execute:
@@ -286,31 +331,74 @@ def cmd_rollback(args):
     print(f"상태 출처: {st['origin']}")
     if record.get("partial"):
         print("부분 적용 기록 — 성공한 단계만 되돌린다: " + ", ".join(f"{s['step']}={s['result']}" for s in record.get("steps", [])))
+    done = record.setdefault("rollback", {})  # id(또는 'order') → 결과. 중단 뒤 재실행하면 끝난 항목은 건너뛴다
     print("요청" + (" (실행)" if args.execute else " (dry-run, 보내지 않음)") + ":")
-    removed = set()
-    for c in record["created"]:
-        if args.disable_only:
-            print(f"  PUT    {PIPELINES}/{c['id']}  is_enabled=false  ('{c['name']}')")
-            if args.execute:
-                cur = api.call("GET", f"{PIPELINES}/{c['id']}")
-                api.call("PUT", f"{PIPELINES}/{c['id']}", {**body(cur), "is_enabled": False})
+    removed, problems = set(), []
+
+    def mark(key, result):
+        done[key] = result
+        if args.execute:
+            save_json(args.record, record)
+
+    def items():
+        for c in record["created"]:
+            yield c, "disable" if args.disable_only else "delete"
+        for u in record["updated"]:
+            yield u, "restore"
+
+    try:
+        for it, act in items():
+            pid, name = it["id"], it["name"]
+            if pid in done:
+                print(f"  (건너뜀) '{name}' {pid} — 이전 롤백에서 {done[pid]}")
+                if act == "delete":
+                    removed.add(pid)
+                continue
+            print(f"  GET    {PIPELINES}/{pid}  이름이 '{name}' 인지 확인 (404 면 이미 없음으로 건너뜀, 다르면 이 항목 중단)")
+            verdict, cur = _verify(api, pid, name) if args.execute else ("ok", None)
+            if verdict == "mismatch":
+                print(f"  중단   {pid}: 서버 이름 {cur.get('name')!r} != 기록 {name!r} — 건드리지 않음")
+                problems.append(pid)
+                continue
+            if act == "delete":
+                removed.add(pid)
+            if verdict == "gone":
+                print(f"  이미 없음 {pid} ('{name}')")
+                mark(pid, "already-gone")
+                continue
+            if act == "disable":
+                print(f"  PUT    {PIPELINES}/{pid}  is_enabled=false  ('{name}')")
+                if args.execute:
+                    api.call("PUT", f"{PIPELINES}/{pid}", {**body(cur), "is_enabled": False})
+                mark(pid, "disabled")
+            elif act == "delete":
+                print(f"  DELETE {PIPELINES}/{pid}  ('{name}')")
+                if args.execute:
+                    api.call("DELETE", f"{PIPELINES}/{pid}")
+                mark(pid, "deleted")
+            else:
+                print(f"  PUT    {PIPELINES}/{pid}  이전 정의로 복원  ('{name}')")
+                if args.execute:
+                    api.call("PUT", f"{PIPELINES}/{pid}", it["previous"])
+                mark(pid, "restored")
+        if problems:
+            sys.exit(f"이름이 기록과 다른 항목 {problems} — 순서 복원 없이 중단. 사람이 확인한 뒤 기록을 고치거나 직접 처리한다.")
+        if "order" in done:
+            print("  (건너뜀) 순서 — 이전 롤백에서 끝남")
+            return
+        current = api.call("GET", ORDER)["pipeline_ids"] if args.execute else st["order"]
+        want = restored_order(record["order_before"], current, removed)
+        if want == [i for i in current if i not in removed]:
+            print("  순서: 백업과 같음 — PUT 없음")
         else:
-            print(f"  DELETE {PIPELINES}/{c['id']}  ('{c['name']}')")
+            print(f"  PUT    {ORDER}  {want}")
             if args.execute:
-                api.call("DELETE", f"{PIPELINES}/{c['id']}")
-            removed.add(c["id"])
-    for u in record["updated"]:
-        print(f"  PUT    {PIPELINES}/{u['id']}  이전 정의로 복원  ('{u['name']}')")
-        if args.execute:
-            api.call("PUT", f"{PIPELINES}/{u['id']}", u["previous"])
-    current = api.call("GET", ORDER)["pipeline_ids"] if args.execute else st["order"]
-    want = restored_order(record["order_before"], current, removed)
-    if want == [i for i in current if i not in removed]:
-        print("  순서: 백업과 같음 — PUT 없음")
-    else:
-        print(f"  PUT    {ORDER}  {want}")
-        if args.execute:
-            api.call("PUT", ORDER, {"pipeline_ids": want})
+                api.call("PUT", ORDER, {"pipeline_ids": want})
+        mark("order", "ok")
+    except SystemExit as e:
+        if args.execute and e.code:
+            print(f"롤백 중단: {e.code}\n같은 기록으로 다시 실행하면 끝난 항목은 건너뛰고 이어서 진행한다.", file=sys.stderr)
+        raise
 
 
 def main(argv=None):
