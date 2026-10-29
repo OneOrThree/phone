@@ -53,7 +53,7 @@ docker run -d --name gen_r --label com.docker.compose.project=obs2562-collector 
   --log-driver json-file --log-opt max-size=64k --log-opt max-file=3 --network none \
   -v "$PWD/gen.py:/gen.py:ro" --entrypoint sh python:3.12-alpine -c 'sleep 7; exec python -u /gen.py r 600 40' >/dev/null
 # gen.py 의 i%100==7 줄은 exception 40 KiB 라 Docker 가 16 KiB 3조각으로 쪼갠다. 조각이 회전 경계에 걸리면 수집기가 그 줄을 잃는다(실측:
-# 6줄 중 경계에 걸린 4줄 107·207·407·507 이 유실, 같은 입력을 회전 없는 max-size 로 돌리면 600/600 — 원인은 조각 이어 붙이기가 파일 단위라는 점).
+# 6줄 중 경계에 걸린 4줄 107·207·407·507 이 유실, 같은 입력을 회전 없는 max-size 로 돌리면 600/600 — 원인은 조각 이어 붙이기가 파일 단위라는 추정이며 수집기 소스는 확인하지 못했다).
 # 그래서 단언은 둘로 나눈다: 보통 줄(594)은 한 줄도 잃거나 겹치지 않는다 / 유실은 40 KiB 줄에만 있어야 하고 그 수를 출력한다.
 python3 - "$WAIT" <<'PY' || fail "(r) 회전 중 누락·중복"
 import sys, time, uuid, collections
@@ -74,6 +74,9 @@ seen = {ids[k] for k in got}; missing = set(range(600)) - seen
 dup = sum(n - 1 for n in got.values())
 print(f"run=r expected=600 received={len(seen)} missing={len(missing)} (보통 줄 {len(missing - big)}, 40 KiB 줄 {len(missing & big)}/{len(big)} {sorted(missing & big)}) duplicates={dup}")
 assert not (missing - big), f"보통 줄 누락 {sorted(missing - big)}"
+# 40 KiB 줄 유실은 연속 3회 모두 같은 4개(107·207·407·507)였다 — 늘어나면 회귀로 본다.
+# 수집기 결함이 고쳐져 유실이 0이 되면 이 상한을 `missing & big == set()` 로 바꾼다.
+assert len(missing & big) <= 4, f"40 KiB 줄 유실이 늘었다 {sorted(missing & big)}"
 assert dup == 0, f"중복 {dup}"
 PY
 RID=$(docker inspect -f '{{.Id}}' gen_r)
