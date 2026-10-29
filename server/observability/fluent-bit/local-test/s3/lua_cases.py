@@ -20,6 +20,37 @@ rows = [
     E('2026/10/29 10:00:00 [error] 1#1: *5 connect() failed (111: Connection refused) while connecting to upstream, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p"?code=UPSECRET1 x", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *6 open() "/var/www/a"?k=OPENSECRET2 failed (2: No such file or directory), client: 203.0.113.9, server: x, request: "GET / HTTP/1.1", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *7 open() "/var/www/html/index.html" failed (2: No such file or directory), client: 203.0.113.9, server: x, request: "GET /notification-preferences HTTP/1.1", host: "h"'),
+    # ⑥ 퍼센트 인코딩된 query·fragment(소문자 %3f 포함) — request·open() 경로·upstream·access
+    E('2026/10/29 10:00:00 [error] 1#1: *8 open() failed, client: 203.0.113.9, server: x, request: "GET /api/x%3Finvite=ENCQ111 HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *9 open() failed, client: 203.0.113.9, server: x, request: "GET /api/x%3finvite=ENCQ222 HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *10 open() failed, client: 203.0.113.9, server: x, request: "GET /api/x%23frag=ENCF333 HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *11 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p%3Fcode=ENCU444", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *12 open() "/var/www/a%3Fk=ENCO555" failed (2: No such file or directory), client: 203.0.113.9, server: x, request: "GET / HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *13 open() failed, client: 203.0.113.9, server: x, request: "GET /api/x"%3Finvite=ENCQ666 HTTP/1.1", host: "h"'),
+    A('203.0.113.48 - - [29/Oct/2026:10:00:00 +0900] "GET /a%3Ftoken=ENCA777 HTTP/0.9x" 400 0 "-" "ua'),
+    # ⑦ 정상 경로(인코딩된 다른 문자)는 그대로
+    E('2026/10/29 10:00:00 [error] 1#1: *14 open() failed, client: 203.0.113.9, server: x, request: "GET /a%20b/c%2Fd%253F HTTP/1.1", host: "h"'),
+    # ⑧ upstream URL userinfo
+    E('2026/10/29 10:00:00 [error] 1#1: *15 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS666@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *16 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS777@10.0.0.1:8080/p?q=1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *17 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS888@10.0.0.1:8080/p'),
+    E('2026/10/29 10:00:00 [error] 1#1: *18 no live upstreams while connecting to upstream, client: 203.0.113.9, server: x, request: "GET /a"x HTTP/1.1", upstream: "http://svcuser:UPPASS999@backend/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *20 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS111@backend.internal:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *21 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "https://svcuser:UPPASS222@api.svc.cluster.local:443/p?q=1", host: "h"'),
+    # ⑧ 비밀번호에 raw '/'·'?'·'#' 가 든 경우, 경로에 '@' 가 든 정상 URL(과잉 가림 한계), 호스트의 %3F
+    E('2026/10/29 10:00:00 [error] 1#1: *30 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP/PASS1@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *31 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS2@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *32 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP#PASS3@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *33 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/users/@me", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *34 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080%3Fcode=HOSTQ1/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *35 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p?email=a@b.com&code=QSECRET1", host: "h"'),
+    # ⑧ 밑줄·IPv6 호스트, 비밀번호의 '/' + query 안 '@', 새 한계 고정(비밀번호 '?' + query 안 '@' + host 꼴 아님)
+    E('2026/10/29 10:00:00 [error] 1#1: *36 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS4@my_backend:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *37 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS5@[::1]:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *38 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP/PASS6@10.0.0.1:8080/x?e=a@b.com", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *39 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS7@10.0.0.1:8080/x?e=a@b.com&code=Q", host: "h"'),
+    # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
+    E('2026/10/29 10:00:00 [error] 1#1: *19 client sent invalid header NOSLASHTOKEN1234567890abcdef, client: 203.0.113.9, server: x, host: "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal"'),
 ]
 d = tempfile.mkdtemp()
 shutil.copy(LUA, f"{d}/logs.lua")
@@ -33,7 +64,7 @@ out = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{d}:
 got = [json.loads(l) for l in out.splitlines() if l.startswith("{")]
 blob = json.dumps(got)
 checks = [
-    ("14줄 모두 출력", len(got) == 14),
+    (f"{len(rows)}줄 모두 출력", len(got) == len(rows)),
     ("① client IP 잔존 없음", "203.0.113.4" not in blob),
     ("① user·referer·UA·query 잔존 없음", not any(x in blob for x in ("alice", "REFSECRET", "UA-SECRET", "TOK123", "TOK456"))),
     ("② HTTP/0.9 request 의 invite 잔존 없음", "INVITE123" not in blob and 'request: "GET /reset"' in got[3]["message"]),
@@ -44,6 +75,32 @@ checks = [
     ("⑤ upstream URL 안 따옴표 + query 잔존 없음", "UPSECRET1" not in json.dumps(got[11]) and "http://10.0.0.1:8080/p" in got[11]["message"]),
     ("⑤ open() 경로 안 따옴표 + query 잔존 없음", "OPENSECRET2" not in json.dumps(got[12]) and "(2: No such file or directory)" in got[12]["message"]),
     ("⑤ 정상 error 줄 구조 유지", '"/var/www/html/index.html" failed (2: No such file or directory)' in got[13]["message"] and "/notification-preferences" in got[13]["message"]),
+    ("⑥ %3F/%3f/%23 인코딩 query·fragment 잔존 없음(request·open()·upstream·따옴표 안 URI·access fallback)",
+     not any(x in json.dumps(got[i]) for i in range(14, 21) for x in ("ENCQ", "ENCF", "ENCU", "ENCO", "ENCA")) and 'request: "GET /api/x HTTP' in got[14]["message"]
+     and 'request: "GET /api/x HTTP' in got[16]["message"] and "http://10.0.0.1:8080/p" in got[17]["message"] and '"/var/www/a" failed' in got[18]["message"]),
+    ("⑦ 정상 인코딩 경로(%20·%2F·%253F) 유지", 'request: "GET /a%20b/c%2Fd%253F HTTP/1.1"' in got[21]["message"]),
+    ("⑧ upstream userinfo(user:pass@) 잔존 없음, 호스트·경로 유지(닫힘·query·잘림·따옴표 안 URI 4형)",
+     not any(x in json.dumps(got[i]) for i in range(22, 26) for x in ("svcuser", "UPPASS")) and "http://10.0.0.1:8080/p" in got[22]["message"]
+     and "http://backend/p" in got[25]["message"]),
+    ("⑧ 도메인 호스트(여러 단계)는 userinfo 만 지우고 호스트 원문 보존(이메일 규칙과 충돌 없음)",
+     not any(x in json.dumps(got[i]) for i in (26, 27) for x in ("svcuser", "UPPASS", "@")) and 'upstream: "http://backend.internal:8080/p"' in got[26]["message"]
+     and 'upstream: "https://api.svc.cluster.local:443/p"' in got[27]["message"]),
+    ("⑧ 비밀번호에 raw '/'·'?'·'#' 가 든 userinfo 도 잔존 없음(마지막 '@' 까지 지움), 호스트·경로 유지",
+     not any(x in json.dumps(got[i]) for i in (28, 29, 30) for x in ("svcuser", "UP", "PASS")) and all('upstream: "http://10.0.0.1:8080/p"' in got[i]["message"] for i in (28, 29, 30))),
+    ("⑧ 한계 고정 — 경로에 '@' 가 든 정상 URL 은 마지막 '@' 앞(호스트·앞 경로)이 지워진다(과잉 가림, 비밀 누출보다 안전)",
+     'upstream: "http://me"' in got[31]["message"]),
+    ("⑧ 호스트 쪽 %3F 도 query 로 보고 잘린다(sanitize_url 이 query_pos 와 같은 규칙)",
+     "HOSTQ1" not in json.dumps(got[32]) and 'upstream: "http://10.0.0.1:8080"' in got[32]["message"]),
+    ("⑧ query 안의 '@'(이메일)는 userinfo 로 오인하지 않는다 — query 전체가 지워지고 호스트·경로 유지",
+     "QSECRET1" not in json.dumps(got[33]) and 'upstream: "http://10.0.0.1:8080/p"' in got[33]["message"]),
+    ("⑧ 호스트에 '_'·IPv6 [::1] 가 있고 비밀번호에 '?' 가 있어도 userinfo 잔존 0",
+     not any(x in json.dumps(got[i]) for i in (34, 35) for x in ("svcuser", "UP", "PASS")) and 'upstream: "http://my_backend:8080/p"' in got[34]["message"] and 'upstream: "http://[::1]:8080/p"' in got[35]["message"]),
+    ("⑧ 비밀번호의 '/' + 같은 URL query 안 '@' 도 userinfo 잔존 0(첫 query 표식 앞의 마지막 '@' 까지)",
+     not any(x in json.dumps(got[36]) for x in ("svcuser", "UP", "PASS6", "a@b")) and 'upstream: "http://10.0.0.1:8080/x"' in got[36]["message"]),
+    ("⑧ 한계 고정 — 비밀번호의 '?' + query 안 '@' + 호스트 꼴이 아닌 query 는 «user:pass 앞부분»이 남는다(PASS7 은 지워짐)",
+     'upstream: "http://svcuser:UP"' in got[37]["message"] and "PASS7" not in json.dumps(got[37])),
+    ("⑨ '/' 없는 토큰은 한계 유지(비밀 꼴 토큰이 남는다) — 호스트 이름은 가려지지 않는다",
+     "NOSLASHTOKEN1234567890abcdef" in got[38]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[38]["message"]),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]
