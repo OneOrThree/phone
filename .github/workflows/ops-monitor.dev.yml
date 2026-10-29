@@ -55,6 +55,11 @@ jobs:
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
             -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml)
           read -r -a services <<< "$OBS_SERVICES"
+          # Promtail → Fluent Bit 전환(GROMO-2555): 서비스 목록에서 빠진 기존 Promtail 은 orphan 으로 남아
+          # 같은 로그를 중복 수집한다. 그 이름 하나만 지운다(없으면 no-op, compose orphan 옵션은 앱까지 지우므로 쓰지 않는다).
+          if docker ps -a --format '{{.Names}}' | grep -qx gromo-promtail; then
+            docker rm -f gromo-promtail
+          fi
           case "${{ inputs.action }}" in
             up)
               # 관측 서비스만 기동/갱신 — app/db 는 named 대상이 아니라 그대로 유지된다.
