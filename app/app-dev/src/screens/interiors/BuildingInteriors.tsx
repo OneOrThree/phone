@@ -1,3 +1,4 @@
+import { useAssetPack } from '@/hooks/useAssetPack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { isMockMode } from '@/services/demoMode';
 import {
@@ -527,7 +528,10 @@ export const textShadow = (x: number, y: number, color: string): any =>
     ? { textShadow: `${x}px ${y}px ${color}` }
     : { textShadowColor: color, textShadowOffset: { width: x, height: y }, textShadowRadius: 0 };
 // 웹에서 원본 CSS와 같은 방식으로 그림을 깔 때 쓰는 주소
-export const assetUri = (source: ImageSourcePropType) => Asset.fromModule(source as number).uri;
+export const assetUri = (source: ImageSourcePropType) =>
+  typeof source === 'object' && !Array.isArray(source) && source.uri
+    ? source.uri
+    : Asset.fromModule(source as number).uri;
 // 원본 크롬은 줄 높이를 1/64px 단위로 내려 잡는다. 같은 높이로 맞춰야 회전한 요소 가장자리가 어긋나지 않는다
 export const lh = (px: number) => Math.floor(px * 64) / 64;
 
@@ -790,6 +794,11 @@ export function InteriorScreen({
           ],
         };
   const isHall = building.id === 'hall';
+  const hallPack = useAssetPack(isHall ? 'interior-hall' : null);
+  const sceneBackground =
+    isHall && hallPack.lease?.assets.background
+      ? { uri: hallPack.lease.assets.background.uri }
+      : building.background;
   // 핫스폿은 시안 구경용이라 앱 화면에서는 끈다
   const hotspot = e || building.id === 'board' ? undefined : hotspotAt[concept.kind];
   const Artifact = artifacts[concept.kind];
@@ -849,7 +858,7 @@ export function InteriorScreen({
             ? showBoardReviewBackground
               ? `${screenGradient},url("${assetUri(interiorArt.boardBackground)}")`
               : screenGradient
-            : `${screenGradient},url("${assetUri(building.background)}")`,
+            : `${screenGradient},url("${assetUri(sceneBackground)}")`,
           ...(fullBoardScene ? { backgroundRepeat: 'no-repeat' } : null),
           // 키보드로 높이가 줄면 창 높이로 계산한 위치에 그대로 둔다
           backgroundSize:
@@ -874,7 +883,8 @@ export function InteriorScreen({
         <>
           <Image
             testID="interior-background-image"
-            source={showBoardReviewBackground ? interiorArt.boardBackground : building.background}
+            source={showBoardReviewBackground ? interiorArt.boardBackground : sceneBackground}
+            onError={isHall ? hallPack.onError : undefined}
             resizeMode="stretch"
             style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset }}
           />
