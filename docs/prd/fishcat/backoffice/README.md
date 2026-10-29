@@ -5,7 +5,7 @@
 ## 구현
 
 - 독립 React 웹과 Node 서버. 운영자별 로그인, 서버 전용 서비스 자격, CSRF, 영구 초안·수정본·승인·감사 이력.
-- 운영 이력 화면은 실제 Data·Notification DB를 읽는 페이지 조회다. 기존 알림 원장, 개발자 공지, 자동·승인 발행 잡지 호를 백오피스 초안과 분리해 표시하며 SQLite에 복제하지 않는다. 잡지 수신·열람 기록은 기존 정리 정책에 따라 최근 7호만 남는다.
+- 운영 이력 화면은 실제 Data·Notification DB를 읽는 커서 페이지 조회다. 기존 알림 원장, 개발자 공지, 자동·승인 발행 잡지 호를 백오피스 초안과 분리해 표시하며 SQLite에 복제하지 않는다. 탈퇴로 삭제된 알림 원장은 복원하지 않으며, 잡지 수신·열람 기록은 기존 정리 정책에 따라 최근 7호만 남는다. 잡지 알림 가능 기간이 지났고 발송 시각이 없는 호는 `NOTIFICATION_EXPIRED`로 표시한다.
 - dev·prod 별도 인스턴스와 SQLite 볼륨을 쓰고, 시작 및 내부 조회·발행 전 Data·Notification이 실제 연결한 DB의 환경 표식과 Notification의 FCM 프로젝트를 확인해 교차 연결을 거부한다. Notification 워커도 대기 중인 알림을 FCM으로 보내기 직전에 같은 검증을 한다. 로컬 `test` 계정은 연결 모드에서 거부한다.
 - 수정하면 승인 취소. 게시 중·완료·결과 불확실 상태에서는 편집을 막는다. 응답 유실 후 같은 발행 UUID로만 재시도하며, 나중의 인증 거부가 최초 발송 결과를 바꾸지 않는다.
 - FCM은 서비스 공지(`ADMIN_ANNOUNCEMENT`) 전용이며 승인한 문구를 알림 원장에 고정한다. 명시적 UUID 1~100명에게 서비스 공지를 요청하며 수신 설정·탈퇴·조용한 시간·발송 게이트를 준수한다. PENDING은 요청 접수다.
@@ -16,7 +16,7 @@
 
 ## 배포 순서
 
-1. Data V4, Notification V14와 서버 API를 적용한다. 기존 V0 baseline은 수정하지 않았다.
+1. Data V4, Notification V14·V15와 서버 API를 적용한다. 기존 V0 baseline은 수정하지 않았다.
 2. 백오피스 운영자별 Data/Notification 자격, HTTPS, 단일 인스턴스 영구 볼륨을 설정한다. 잡지 자동 발행 전환 전에 매일 게시 담당자를 준비한다.
    dev·prod는 서로 다른 URL·볼륨·서비스 자격을 사용하고 각 인스턴스의 `BACKOFFICE_ENV`·`BACKOFFICE_FCM_PROJECT_ID`를 맞춘다. Data·Notification의 각 DB에 환경 표식을, Notification DB에는 그 환경의 FCM 프로젝트 ID를 DB 소유자가 설정한 뒤 연결한다.
 3. 앱 공지 읽기 화면을 배포한다. 서버와 앱 변경은 별도 브랜치다.

@@ -2,6 +2,7 @@ package com.oneorthree.phone.content.service;
 
 import com.oneorthree.phone.content.exception.ContentErrorCode;
 import com.oneorthree.phone.content.exception.ContentException;
+import com.oneorthree.phone.magazine.support.MagazineCalendar;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -10,10 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /** 운영 DB의 게시 이력을 읽는다. 백오피스 초안 저장소로 복제하지 않는다. */
 @Service
@@ -23,15 +26,16 @@ public class ContentHistoryService {
     private final Clock clock;
 
     @Transactional(readOnly = true)
-    public Page notices(Integer offset, Integer limit) {
-        int start = offset(offset);
+    public Page notices(String cursor, Integer limit) {
         int size = limit(limit);
         Instant now = clock.instant();
+        NoticeCursor before = noticeCursor(cursor);
         Long total = jdbc.queryForObject("SELECT count(*) FROM developer_notices", Long.class);
         List<Map<String, Object>> items = jdbc.query("SELECT n.publication_id,n.title,n.body,n.starts_at,"
                 + "n.ends_at,n.published_at,p.actor FROM developer_notices n"
                 + " LEFT JOIN content_publications p ON p.publication_id=n.publication_id"
-                + " ORDER BY n.published_at DESC,n.publication_id DESC LIMIT ? OFFSET ?", (rs, row) -> {
+                + " WHERE (n.published_at,n.publication_id)<(?::timestamptz,?::uuid)"
+                + " ORDER BY n.published_at DESC,n.publication_id DESC LIMIT ?", (rs, row) -> {
                 Map<String, Object> item = new LinkedHashMap<>();
                 Instant startsAt = rs.getTimestamp("starts_at").toInstant();
                 Timestamp end = rs.getTimestamp("ends_at");
@@ -47,14 +51,19 @@ public class ContentHistoryService {
                 item.put("status", now.isBefore(startsAt) ? "SCHEDULED"
                         : endsAt != null && !now.isBefore(endsAt) ? "EXPIRED" : "LIVE");
                 return item;
-            }, size, start);
-        return page(items, start, size, total);
+            }, Timestamp.from(before.publishedAt()), before.id(), size + 1);
+        boolean more = items.size() > size;
+        List<Map<String, Object>> visible = more ? items.subList(0, size) : items;
+        Map<String, Object> last = visible.isEmpty() ? null : visible.get(visible.size() - 1);
+        return new Page(new ArrayList<>(visible), total == null ? 0 : total,
+                more ? last.get("publishedAt") + "|" + last.get("id") : null);
     }
 
     @Transactional(readOnly = true)
-    public Page magazines(Integer offset, Integer limit) {
-        int start = offset(offset);
+    public Page magazines(String cursor, Integer limit) {
         int size = limit(limit);
+        int before = magazineCursor(cursor);
+        Instant now = clock.instant();
         Long total = jdbc.queryForObject("SELECT count(*) FROM magazine_issues", Long.class);
         List<Map<String, Object>> items = jdbc.query("SELECT i.id,i.issue_date,i.issue_no,i.published_at,"
                 + "i.notified_at,i.promotion_count,i.editorial::text AS editorial,"
@@ -63,7 +72,7 @@ public class ContentHistoryService {
                 + "(SELECT count(*) FROM magazine_receipts r WHERE r.issue_id=i.id) AS receipt_count,"
                 + "(SELECT count(*) FROM magazine_receipts r WHERE r.issue_id=i.id AND r.opened_at IS NOT NULL)"
                 + " AS opened_count FROM magazine_issues i"
-                + " ORDER BY i.issue_no DESC LIMIT ? OFFSET ?", (rs, row) -> {
+                + " WHERE i.issue_no<? ORDER BY i.issue_no DESC LIMIT ?", (rs, row) -> {
                 Map<String, Object> item = new LinkedHashMap<>();
                 Timestamp notifiedAt = rs.getTimestamp("notified_at");
                 item.put("id", rs.getObject("id").toString());
@@ -78,25 +87,48 @@ public class ContentHistoryService {
                 item.put("openedCount", rs.getLong("opened_count"));
                 item.put("editorial", rs.getString("editorial"));
                 item.put("actor", rs.getString("actor"));
-                item.put("status", notifiedAt == null ? "NOTIFICATION_PENDING" : "PUBLISHED");
+                var issueDate = rs.getDate("issue_date").toLocalDate();
+                item.put("status", notifiedAt != null ? "PUBLISHED"
+                        : !now.isBefore(MagazineCalendar.currentUntil(issueDate)) ? "NOTIFICATION_EXPIRED"
+                        : "NOTIFICATION_PENDING");
                 return item;
-            }, size, start);
-        return page(items, start, size, total);
+            }, before, size + 1);
+        boolean more = items.size() > size;
+        List<Map<String, Object>> visible = more ? items.subList(0, size) : items;
+        Map<String, Object> last = visible.isEmpty() ? null : visible.get(visible.size() - 1);
+        return new Page(new ArrayList<>(visible), total == null ? 0 : total,
+                more ? String.valueOf(last.get("issueNo")) : null);
     }
 
-    private static Page page(List<Map<String, Object>> items, int start, int size, Long total) {
-        long count = total == null ? 0 : total;
-        return new Page(new ArrayList<>(items), count, start + items.size() < count ? start + size : null);
-    }
-
-    private static int offset(Integer value) {
-        if (value == null) {
-            return 0;
+    private static NoticeCursor noticeCursor(String value) {
+        if (value == null || value.isBlank()) {
+            return new NoticeCursor(Timestamp.valueOf(LocalDateTime.of(9999, 12, 31, 23, 59, 59)).toInstant(),
+                    UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"));
         }
-        if (value < 0 || value > 1_000_000) {
+        try {
+            String[] parts = value.split("\\|", -1);
+            if (parts.length != 2 || value.length() > 100) {
+                throw new IllegalArgumentException();
+            }
+            return new NoticeCursor(Instant.parse(parts[0]), UUID.fromString(parts[1]));
+        } catch (RuntimeException invalid) {
             throw new ContentException(ContentErrorCode.INVALID_REQUEST);
         }
-        return value;
+    }
+
+    private static int magazineCursor(String value) {
+        if (value == null || value.isBlank()) {
+            return Integer.MAX_VALUE;
+        }
+        try {
+            int issueNo = Integer.parseInt(value);
+            if (issueNo <= 0) {
+                throw new IllegalArgumentException();
+            }
+            return issueNo;
+        } catch (RuntimeException invalid) {
+            throw new ContentException(ContentErrorCode.INVALID_REQUEST);
+        }
     }
 
     private static int limit(Integer value) {
@@ -109,5 +141,7 @@ public class ContentHistoryService {
         return value;
     }
 
-    public record Page(List<Map<String, Object>> items, long total, Integer nextOffset) { }
+    private record NoticeCursor(Instant publishedAt, UUID id) { }
+
+    public record Page(List<Map<String, Object>> items, long total, String nextCursor) { }
 }

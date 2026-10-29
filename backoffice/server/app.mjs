@@ -218,7 +218,7 @@ export function createApp({
       const historyKind = path.match(/^\/api\/history\/(fcm|notice|magazine)$/);
       if (historyKind && req.method === "GET") {
         const cursor = url.searchParams.get("cursor") ?? "";
-        requireValue(cursor.length <= 200 && (historyKind[1] === "fcm" || /^\d*$/.test(cursor)),
+        requireValue(cursor.length <= 200,
           "이력 페이지 번호가 올바르지 않습니다.");
         send(200, await upstream.history(historyKind[1], cursor, auth.actor, operator));
         return;

@@ -87,7 +87,7 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
     setLoading(true); setError('');
     try {
       const page = await request<HistoryPage>(`/api/history/${kind}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
-      setItems(previous => cursor ? [...previous, ...page.items] : page.items);
+      setItems(previous => cursor ? [...previous, ...page.items.filter(item => !previous.some(loaded => loaded.id === item.id))] : page.items);
       setNextCursor(page.nextCursor ?? null);
       setTotal(page.total);
     } catch (cause) {

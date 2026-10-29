@@ -58,17 +58,17 @@ public class InternalContentAdminController {
     }
 
     @GetMapping("/history/notices")
-    public ContentHistoryService.Page noticeHistory(@RequestParam(required = false) Integer offset,
+    public ContentHistoryService.Page noticeHistory(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit, HttpServletRequest request) {
         requireEnvironment(request);
-        return history.notices(offset, limit);
+        return history.notices(cursor, limit);
     }
 
     @GetMapping("/history/magazines")
-    public ContentHistoryService.Page magazineHistory(@RequestParam(required = false) Integer offset,
+    public ContentHistoryService.Page magazineHistory(@RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit, HttpServletRequest request) {
         requireEnvironment(request);
-        return history.magazines(offset, limit);
+        return history.magazines(cursor, limit);
     }
 
     @PutMapping("/notices/{publicationId}")

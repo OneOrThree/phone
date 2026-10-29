@@ -140,13 +140,13 @@ export class Upstream {
     const resource = kind === "notice" ? "notices" : "magazines";
     const page = await this.request(
       this.dataUrl,
-      `/internal/admin/content/history/${resource}?limit=50&offset=${cursor || "0"}`,
+      `/internal/admin/content/history/${resource}?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
       actor,
       operator.dataToken,
       undefined,
       "GET",
     );
-    return { ...page, nextCursor: page.nextOffset == null ? null : String(page.nextOffset) };
+    return page;
   }
   async publish(item, actor, operator) {
     if (this.mode === "local")

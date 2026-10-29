@@ -31,7 +31,7 @@ class ContentEnvironmentTest {
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class), history,
                 mock(MagazineReviewService.class), environment, jdbc);
 
-        assertThatThrownBy(() -> controller.noticeHistory(0, 50, request))
+        assertThatThrownBy(() -> controller.noticeHistory(null, 50, request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
         verifyNoInteractions(history);
     }

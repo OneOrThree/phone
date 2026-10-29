@@ -213,17 +213,17 @@ test("운영 이력은 환경을 확인한 뒤 원장과 게시 DB에서 읽는�
         return new Response(JSON.stringify({ environment: "prod", fcmProjectId: "gromo-prod" }));
       if (url.pathname.endsWith("/publications/history"))
         return new Response(JSON.stringify({ items: [{ id: "delivery", kind: "FRIEND_ACCEPTED", status: "SENT" }], nextCursor: null }));
-      return new Response(JSON.stringify({ items: [{ id: "notice" }], total: 1, nextOffset: null }));
+      return new Response(JSON.stringify({ items: [{ id: "notice" }], total: 1, nextCursor: null }));
     },
   });
   const operator = { dataToken: "data-token", notificationToken: "notification-token" };
   const fcm = await upstream.history("fcm", "", "member-1", operator);
-  const notice = await upstream.history("notice", "0", "member-1", operator);
+  const notice = await upstream.history("notice", "", "member-1", operator);
   assert.equal(fcm.items[0].notificationKind, "FRIEND_ACCEPTED");
   assert.equal(fcm.items[0].kind, "fcm");
   assert.equal(notice.total, 1);
   assert.ok(paths.includes("GET /internal/admin/publications/history?limit=50"));
-  assert.ok(paths.includes("GET /internal/admin/content/history/notices?limit=50&offset=0"));
+  assert.ok(paths.includes("GET /internal/admin/content/history/notices?limit=50"));
   assert.equal(paths.filter(path => path.endsWith("/environment")).length, 4);
   assert.deepEqual(await new Upstream({ mode: "local" }).history("magazine", "", "test", {}),
     { items: [], total: 0, nextCursor: null });
