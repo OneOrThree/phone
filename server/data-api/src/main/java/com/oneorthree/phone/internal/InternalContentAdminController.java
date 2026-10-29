@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
+import com.oneorthree.phone.content.service.ContentHistoryService;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.UUID;
 import java.util.Map;
@@ -24,6 +26,7 @@ import java.util.Arrays;
 @RequestMapping("/internal/admin/content")
 public class InternalContentAdminController {
     private final DeveloperNoticeService notices;
+    private final ContentHistoryService history;
     private final MagazineReviewService magazine;
     private final Environment environment;
     private final JdbcTemplate jdbc;
@@ -52,6 +55,20 @@ public class InternalContentAdminController {
     public DeveloperNoticeService.Page notices(HttpServletRequest request) {
         requireEnvironment(request);
         return notices.list(true);
+    }
+
+    @GetMapping("/history/notices")
+    public ContentHistoryService.Page noticeHistory(@RequestParam(required = false) Integer offset,
+            @RequestParam(required = false) Integer limit, HttpServletRequest request) {
+        requireEnvironment(request);
+        return history.notices(offset, limit);
+    }
+
+    @GetMapping("/history/magazines")
+    public ContentHistoryService.Page magazineHistory(@RequestParam(required = false) Integer offset,
+            @RequestParam(required = false) Integer limit, HttpServletRequest request) {
+        requireEnvironment(request);
+        return history.magazines(offset, limit);
     }
 
     @PutMapping("/notices/{publicationId}")
