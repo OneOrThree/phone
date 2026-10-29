@@ -13,3 +13,9 @@ test("정책에 미저장 변경이 있으면 메뉴 이동을 취소할 수 있
 test("저장된 화면 이동에는 확인 창을 띄우지 않는다", () => {
   assert.equal(confirmEditorLeave(false, false, () => { throw new Error("확인 창을 띄우면 안 됩니다"); }), true);
 });
+
+test("건설 정책을 포함한 콘텐츠 편집 중 Focus 메뉴 이동도 미저장 변경을 지킨다", () => {
+  assert.equal(confirmEditorLeave(true, false, () => false), false);
+  assert.equal(confirmEditorLeave(true, true, () => false), false);
+  assert.equal(confirmEditorLeave(true, false, () => true), true);
+});

@@ -234,3 +234,12 @@ code { overflow-wrap: anywhere; }
 .policy-card .audit-list li { display: block; font-size: var(--text-xs); color: var(--color-muted); padding: var(--space-xs) 0; }
 @media (max-width: 800px) { .policy-grid { grid-template-columns: 1fr; } }
 @media (max-width: 650px) { .policy-card { padding: var(--space-lg); } .policy-values { grid-template-columns: 1fr; } }
+
+/* 건설 정책은 숫자 입력과 변경 전후 값을 같은 행에서 비교한다. */
+.policy-table-wrap { overflow-x: auto; }
+.policy-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.policy-table th, .policy-table td { padding: 12px 8px; border-bottom: 1px solid var(--border, #ddd); vertical-align: top; }
+.policy-table input { min-width: 85px; width: 100%; }
+.policy-table small { display: block; margin-top: 5px; color: var(--text-muted, #666); font-weight: normal; }
+.policy-changed { background: #f0f6ef; }
+.construction-editor { margin: 16px 0; }

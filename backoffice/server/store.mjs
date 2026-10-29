@@ -1,3 +1,4 @@
+import { initialLocalPolicy, validPolicyItems, policyRequest } from "./construction.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID, createHash } from "node:crypto";
 export class Failure extends Error {
@@ -23,6 +24,7 @@ export class Store {
     this.db.exec(
       "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY, document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY, document TEXT NOT NULL);",
     );
+    this.db.exec("CREATE TABLE IF NOT EXISTS construction_policy_state(id INTEGER PRIMARY KEY CHECK(id=1), document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS construction_policy_receipts(id TEXT PRIMARY KEY, digest TEXT NOT NULL, result TEXT NOT NULL);");
     // 전송 도중 재시작되면 성공 여부를 추측하지 않고 같은 멱등 키로만 재시도한다.
     for (const item of this.list())
       if (item.status === "publishing") {
@@ -75,7 +77,7 @@ export class Store {
   }
   validate(item, complete = false) {
     requireValue(
-      ["fcm", "notice", "magazine"].includes(item.kind),
+      ["fcm", "notice", "magazine", "construction"].includes(item.kind),
       "지원하지 않는 채널입니다.",
     );
     requireValue(
@@ -102,6 +104,14 @@ export class Store {
         item.targets.length,
       "중복된 발송 대상을 제거하세요.",
     );
+    if (item.kind === "construction" && (complete || item.data.construction)) {
+      const policy = item.data.construction;
+      requireValue(policy?.base && Number.isInteger(policy.base.costPolicyVersion)
+        && policy.base.costPolicyVersion >= 0 && policy.base.costPolicyVersion < 2147483647
+        && validPolicyItems(policy.base.items, undefined, 0), "현재 건설 정책을 먼저 불러오세요.");
+      requireValue(validPolicyItems(policy.items, policy.base.items.map(row => row.buildingId)),
+        "모든 건물의 비용(1 이상)과 공사 시간(0 이상)을 32비트 정수로 입력하세요.");
+    }
     if (!complete) return;
     requireValue(item.title.trim(), "제목을 입력하세요.");
     if (item.kind === "fcm") {
@@ -200,7 +210,58 @@ export class Store {
       );
       fields.data = { ...fields.data, snapshot: stored.value };
     }
+    if (fields.data?.construction) {
+      const proposal = fields.data.construction;
+      const row = this.db.prepare("SELECT document FROM snapshots WHERE id=?").get(proposal.snapshotId);
+      requireValue(row, "현재 건설 정책을 다시 불러오세요.", 409);
+      const stored = JSON.parse(row.document);
+      requireValue(stored.input.kind === "construction" && stored.value.digest === proposal.digest,
+        "검토 기준 건설 정책이 다릅니다. 다시 불러오세요.", 409);
+      fields.data = { ...fields.data, construction: { snapshotId: proposal.snapshotId,
+        digest: proposal.digest, base: stored.value, items: proposal.items } };
+    }
     return fields;
+  }
+  constructionSnapshot(value) {
+    requireValue(Number.isInteger(value.costPolicyVersion) && value.costPolicyVersion >= 0
+      && validPolicyItems(value.items, undefined, 0), "서버 건설 정책을 확인할 수 없습니다.", 502);
+    const snapshot = { ...value, snapshotId: randomUUID(),
+      digest: createHash("sha256").update(JSON.stringify(value)).digest("hex") };
+    return this.snapshot(snapshot, { kind: "construction" });
+  }
+  localConstructionPolicy() {
+    const row = this.db.prepare("SELECT document FROM construction_policy_state WHERE id=1").get();
+    if (row) return JSON.parse(row.document);
+    const initial = initialLocalPolicy();
+    this.db.prepare("INSERT INTO construction_policy_state VALUES(1,?)").run(JSON.stringify(initial));
+    return initial;
+  }
+  applyLocalConstructionPolicy(item, actor) {
+    return this.transaction(() => {
+      const input = policyRequest(item);
+      const digest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+      const previous = this.db.prepare("SELECT digest,result FROM construction_policy_receipts WHERE id=?")
+        .get(item.publicationId);
+      if (previous) {
+        requireValue(previous.digest === digest, "이미 다른 내용으로 적용한 요청입니다.", 409);
+        return JSON.parse(previous.result);
+      }
+      const before = this.localConstructionPolicy();
+      requireValue(before.costPolicyVersion === input.expectedCostPolicyVersion,
+        "건설 정책이 변경됐습니다. 현재 정책을 다시 불러와 검토하세요.", 409);
+      requireValue(validPolicyItems(input.items, before.items.map(row => row.buildingId)),
+        "건설 정책 값을 확인하세요.");
+      const publishedAt = now();
+      const items = before.items.map(row => ({ ...row,
+        ...input.items.find(value => value.buildingId === row.buildingId) }));
+      const result = { publicationId: item.publicationId, previousRevision: before.costPolicyVersion,
+        costPolicyVersion: before.costPolicyVersion + 1, publishedAt, actor, before: before.items, items, local: true };
+      this.db.prepare("UPDATE construction_policy_state SET document=? WHERE id=1")
+        .run(JSON.stringify({ costPolicyVersion: result.costPolicyVersion, publishedAt, items, local: true }));
+      this.db.prepare("INSERT INTO construction_policy_receipts VALUES(?,?,?)")
+        .run(item.publicationId, digest, JSON.stringify(result));
+      return result;
+    });
   }
   event(item, actor, action) {
     item.updatedAt = now();
