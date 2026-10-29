@@ -11,14 +11,16 @@
 
 | 티켓 | 검증 가능한 작업 단위 | 선행 | 초기 예상 | 현황 |
 | --- | --- | --- | --- | --- |
-| [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 진행 중, 아래 로컬 구현 |
-| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
-| [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 스프린트 대기 |
-| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 스프린트 대기 |
-| [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 스프린트 대기 |
-| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 스프린트 대기 |
-| [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 스프린트 대기 |
-| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 스프린트 대기 |
+| [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 피처 병합 #1380 `aa106c6d5`(main 미반영·배포 미실행) |
+| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 피처 병합 #1382 `6e6b6260d`(main 미반영). dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
+| [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 피처 병합 #1383 `35d7446c3`(main 미반영·dev 배포 미실행) |
+| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | PR #1390 리뷰 중(피처 미병합) → [수집 런북](ingestion-runbook.md) |
+| [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 피처 병합 #1384 `08ad13781`(main 미반영·배포 미실행) |
+| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 피처 병합 #1385 `bb6c3c119`(main 미반영·배포 미실행) |
+| [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 피처 병합 #1386 `151b0c35f`(main 미반영·배포 미실행) |
+| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 구현 중(A단계 조회 대시보드·Athena, B단계 검증·전환 문서) → [아래](#2560에서-구현한-경로) |
+
+**피처 병합 ≠ main 반영 ≠ 배포.** 위 «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. main 에는 에픽 PR 하나로 들어가며, dev·prod 배포는 그 뒤다.
 
 Jira에도 위 방향의 `Blocks` 링크를 등록했다. 2554는 실제 환경 접근·인프라 확인이 필요한 작업이고, 나머지는 로컬 구현·검증을 진행할 수 있다. 수집기 운영 활성화는 2554 결과를 먼저 확인한다.
 
@@ -39,6 +41,8 @@ Data에 `X-Request-Id`가 없으면 검증된 레거시 상관 ID를 fallback으
 
 ## 검증 기록
 
+(V01–V23 항목별 상태와 로컬 측정은 [검증 결과](verification-results.md). 아래는 2553 시점의 기록이다.) Realtime 최신(피처 병합 트리) `cleanTest build` 는 829개, 실패 0 이다(로컬 실행, 배포 검증 아님).
+
 - 실제 loopback HTTP 서버를 통한 요청 필터 → 조합 pool → HTTP pool 테스트: 서버 수신 헤더·응답 DTO·세 스레드의 로그 MDC가 같은 요청 ID인지 검증한다. 같은 pool을 두 요청이 재사용해도 새 ID가 적용된다.
 - 중첩 scope·예외·재사용 thread: 이전 request ID와 context 복원, 다른 MDC 변경 보존, tracer/개인 키의 부모→worker 복사 없음.
 - Data 필터: request ID와 레거시 trace ID가 다를 때 분리, 잘못된 문자·길이의 입력 거부, 사용자 없는 요청에서 상위 user_id 누출 방지, 예외 후 tracer·상위 문맥 보존.
@@ -58,7 +62,7 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 
 - provider는 로그 이벤트의 MDC 스냅샷만 읽고 정해진 키(`request_id`, `origin_*`, `user_id`, `event_id`, `delivery_id`, `attempt`, `operation_id`, `event_name`, `message_id`, `edge_request_id`)만 내보낸다. Data의 레거시 `trace_id`는 `legacy_trace_id`로 낸다.
 - `dd.trace_id`·`dd.span_id` 원문은 `dd` 객체에 두고, 32자리 hex trace와 10진 span만 canonical `trace_id`(32 hex)·`span_id`(16 hex)로 바꾼다. 10진 trace는 상위 64비트를 잃었을 수 있어 canonical을 만들지 않는다. dd-trace 1.64.0은 128-bit 생성·로그가 기본 켜짐이라 이 서비스가 시작한 trace는 32 hex로 나온다(2557 조사). compose에 `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true`를 명시했다.
-- message·exception은 Data `MaskingConverter`의 4규칙으로 마스킹한 뒤 16 KiB·32 KiB(UTF-8 문자 경계)로 자르고, 잘리면 `truncated`·`original_size_bytes`를 붙인다. 원본이 한도의 2배를 넘으면 마스킹 전에 2배로 먼저 자른다(이때 `original_size_bytes`는 원본 크기). 이메일 정규식은 로컬 파트 시작 위치를 묶고 possessive 로 받아 선형 시간이다(`@` 없는 영숫자 16,000자: 옛 정규식 1.5초 → 0ms, 로컬 측정). Data `%mask` 변환기도 같은 정규식을 쓴다.
+- message·exception은 Data `MaskingConverter`의 4규칙으로 마스킹한 뒤 16 KiB·32 KiB(UTF-8 문자 경계)로 자르고, 잘리면 `truncated`·`original_size_bytes`를 붙인다. 원본이 한도의 2배를 넘으면 마스킹 전에 2배로 먼저 자른다(이때 `original_size_bytes`는 원본 크기). 출력 `original_size_bytes`는 사전 자르기가 일어났으면 원본 바이트 수이고, 사전 자르기 없이 마스킹 뒤에만 잘렸으면 **마스킹 후** 바이트 수다. 이메일 정규식은 로컬 파트 시작 위치를 묶고 possessive 로 받아 선형 시간이다(`@` 없는 영숫자 16,000자: 옛 정규식 1.5초 → 0ms, 로컬 측정). Data `%mask` 변환기도 같은 정규식을 쓴다.
 - Business 완료 로그는 `log_kind=access`와 `http_method`·`http_route`(경로 템플릿)·`status_code`·`duration_ms`·`outcome`을 구조화해 낸다. 예외가 필터 밖으로 나가 상태가 미확정이면 `status_code`를 빼고 `outcome=unhandled_exception`으로 낸다. query string·본문·헤더는 싣지 않는다.
 
 **실행 메타데이터.** compose `environment:`에서 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`(`DEPLOY_ENV`)·`OBS_VERSION`(`IMAGE_REVISION`)을 넣는다. 비밀이 아니므로 Secrets Manager 경로를 쓰지 않는다. 배포 전 `deploy-core-dev.py`·`prepare-satellite-deploy.py`가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비었으면 배포를 멈춘다. `OBS_VERSION`은 기존 `DD_VERSION`처럼 배포 커밋을 가리키므로 위성 한쪽만 바뀐 배포에서는 다른 쪽의 실제 이미지와 다를 수 있다. Catus prod 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못했다.
@@ -179,6 +183,12 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 
 미실행: 실제 S3 업로드·IAM·버킷 정책·lifecycle 적용 확인, dev→S3 자격, dev 호스트 `nginx.conf` 변경과 새 파일의 logrotate 회전, prod Nginx 설정(Infra), 기존 업로더(590·2288)와의 중복 확인, 10 MiB 크기 트리거, 5분 `upload_timeout` 실측.
 
+## 2560에서 구현한 경로
+
+**A단계(조회).** Grafana 대시보드 `log-investigation`(원인 키 4종·operation 결과·상한 안내)과 Athena 테이블·질의 템플릿(`create-table.sql`, `by-request.sql`, `by-operation.sql`, `by-window.sql`, `render.py`)을 만들었다. 요약과 사용 순서는 [조회 안내](query-guide.md)에 있고, 로컬 하네스(`server/observability/log-query/local-test/`)는 Loki·Grafana·Trino 로 검증한다. 실제 Athena·dev Grafana 는 실행하지 않았다.
+
+**B단계(검증·전환).** V01–V23 상태와 로컬 전후 측정(앱 인코딩 비용, 수집기 CPU·메모리·버퍼·도착 지연)은 [검증 결과](verification-results.md), dev 검증 → prod 전환 → 롤백과 판정 지표는 [전환·롤백 절차](rollout.md)에 있다. 측정 스크립트는 `server/observability/log-query/perf/`, 앱 측정 테스트는 `LoggingEncodingPerfTest`(환경변수 `LOGGING_PERF=1` 일 때만 실행)다. 요청 p95/p99 전후 비교는 미실행이다.
+
 ## 아직 구현하지 않은 경계
 
 - 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Preview worker 는 각 티켓 범위다.
@@ -194,7 +204,7 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 
 - 에픽 통합 브랜치: `feat/GROMO-2562-log-observability`, 기준 `origin/main`.
 - 기존 2553 브랜치를 첫 하위 PR로 재사용한다. 이후 파일 충돌 경계별 체인에서 티켓별 PR을 쌓는다.
-- 기본 모드로 실행하며 `--merge-sub`는 지정하지 않았다. 사용자 머지 뒤 통합 PR을 main에 준비한다.
+- 현재 운영: 사용자 승인에 따라 하위 PR 은 4조건(미답변 스레드 0·최신 리뷰어 판정·CI 전부 통과·`mergeStateStatus` CLEAN)이 같은 커밋에서 충족되면 피처 브랜치에 merge commit 으로 들어간다. 에픽 PR 은 하위가 전부 피처에 들어간 뒤 main 으로 간다. 초기 기본 모드(사용자가 하위 PR 을 머지)에서 바뀐 것이다.
 - 조정자는 계약·브리프·검증·git·PR·리뷰를 맡고, 구현은 Claude 하위 에이전트에 배분한다.
 - 운영 환경 조사·자격 접근 불가 항목은 증거와 함께 미검증으로 남긴다. 실제 서비스 재시작·배포·Terraform apply는 이번 실행에 포함하지 않는다.
 - 설계·진행·검증은 이 `docs/architecture/server-log-observability/`에 계속 남긴다. 개인 작업 브리프·세션 기록만 gitignored `doc/`를 쓴다.

@@ -7,6 +7,8 @@
 
 - [티켓 목록·의존 관계·현재 구현·검증 결과](implementation-status.md)
 - [구현 계획·완료 조건·검증 시나리오](implementation-plan.md)
+- [V01–V23 검증 결과와 로컬 전후 측정](verification-results.md)
+- [dev 검증 → prod 전환 → 롤백 절차](rollout.md)
 - [Logback 설정·스레드 문맥 전파·로그 JOIN 상세](implementation-details.md)
 - [공식 문서 조사와 설계 검토 근거](research.md)
 - [재검토에서 발견한 공백·수정·잔여 검증](review-2026-10-29.md)
