@@ -50,13 +50,14 @@
 
 ### 확정(직접 증거) — 복원 실패 원인
 
-- 복원 실패 원인(1차): nginx 중지가 시간 초과로 `failed`가 됐고 스크립트가 `ActiveState != inactive`로 판정해 중단했다. `except` 경로의 `stop()` 재시도도 같은 이유로 실패했고, 스크립트는 `restore()`로 가지 않는다. 같은 날 11:38~12:03 KST 의 사건(티켓 2561)과는 «유사 사건»이다(원인 동일성은 미확인).
+- 복원 실패 원인(1차): nginx 중지가 시간 초과로 `failed`가 됐고 스크립트가 `ActiveState != inactive`로 판정해 중단했다. `except` 경로의 `stop()` 재시도도 같은 이유로 실패했고, 스크립트는 `restore()`로 가지 않는다.
+- 참고: 같은 날 11:38~12:03 KST 에 티켓 2561 의 유사 사건(dev 공동 배포 중 nginx 중지 시간 초과)이 있었다. 원인 동일성은 미확인이다.
 
 ### 미확정과 추가 확인 방법(번호가 짝)
 
 | # | 미확정 | 확인 방법 | 지금까지 확인한 것 |
 | --- | --- | --- | --- |
-| 1 | nginx 중지 시간 초과의 근본 원인 | nginx access/error 로그의 09:43Z 전후, 열린 연결·웹소켓 접속 여부 | 읽기 조회함: `systemctl show nginx -p TimeoutStopUSec` = `5s`. unit 에 `TimeoutStopSec=5`, `ExecStop=start-stop-daemon --retry QUIT/5` 가 있어 정상 종료 대기 5초 + 종료 제한 5초다. 5초 만의 실패는 짧은 설정 탓이며 연결이 많았는지는 확인 못 했다 |
+| 1 | nginx 중지 시간 초과의 근본 원인 | nginx access/error 로그의 09:43Z 전후, 열린 연결·웹소켓 접속 여부 | 읽기 조회함: `systemctl show nginx -p TimeoutStopUSec` = `5s`. unit 에 `TimeoutStopSec=5`, `ExecStop=start-stop-daemon --retry QUIT/5` 가 있어 종료 제한 시간은 5초다(`ExecStop` 의 `--retry QUIT/5` 가 이 5초 안에 소진됐을 수 있다). 5초 만의 실패는 짧은 설정 탓이며 연결이 많았는지는 확인 못 했다 |
 | 2 | `docker stop` 호출자 | (a) 러너 `/opt/actions-runner/_diag/Worker_*.log` 의 job 123372233174 시간대 기록, (b) `auditd` 가 켜져 있으면 호출자 조회, (c) dev 운영 담당자에게 09:43Z 수동 조작 여부 질의, (d) job 전체 로그(`gh api repos/OneOrThree/phone/actions/jobs/123372233174/logs`, 단계 7 은 stdout 이 거의 없음) | 호출자 직접 기록 없음(docker 데몬은 호출자를 기록하지 않는다). 시각·대상 집합·코드 일치의 강한 정황이다. `last -F` 에 09:00~09:45Z 사람 SSH 세션 없음(최근 세션 07:05~07:25Z 운영자 계정), sshd 로그에는 스캔 시도(preauth 실패)만 있음(`last -F` 발췌는 부록 A) |
 | 3 | 의도 여부 | 2-(c) 와 같다 | 배포 자체는 의도된 main 머지의 결과이며 수집 중단을 의도한 증거는 없다 |
 | 4 | postgres-exporter ExitCode=2 의 이유 | 종료 시각 전후 dockerd·컨테이너 로그 | 읽기 조회함: `FinishedAt=09:43:16.190Z`, `docker logs` 마지막 줄은 03:56:17Z 의 정상 줄이고 종료·오류 줄이 없다(부록 A). 신호 처리인지 별개 오류인지 **여전히 미확정** |
@@ -82,8 +83,8 @@
 3. 선행 상태 확인: `systemctl show -p ActiveState nginx`, `docker ps -a`, `free -m`, `uptime`, `df -h /var/lib/docker`로 VM 용량·부하를 확인한다. dev VM 은 과부하(swap·kafka/monitor 상주) 전력이 있다(10-23~ 스모크 timeout, 10-29 12:48 무응답 → reset). 여유가 없으면 재개하지 않는다.
 4. 공동 배포 job이 같은 시각에 돌고 있지 않은지 `gh run list`로 확인한다(경합 방지).
 5. 복구 경로를 고른다(아래 비교). 이 문서는 `server/scripts/README.md` 와 GROMO-2561(nginx 중지 시간 초과 수정)의 절차를 대체하지 않는다.
-6. nginx 가 `failed` 인 점: 스크립트의 nginx 시작은 `sudo -n <NGINX_SYSTEMCTL> start nginx` 뒤 `systemctl is-active` 만 확인한다(`.github/scripts/deploy-core-dev.py` `deploy()`). systemd 는 `failed` 유닛을 `start` 로 다시 시작할 수 있어 `reset-failed` 는 상태 표시 정리용이며 보통 필수가 아니다. 다만 시작 횟수 제한(`StartLimitBurst`)에 걸려 있으면 `reset-failed` 가 필요하다. 이는 코드와 systemd 일반 동작에 근거한 판단이고 이 VM 에서 실행해 확인하지 않았다(미검증). 러너 sudoers 허용 범위가 `reset-failed` 를 포함하는지도 확인 전이다.
-7. 재개 명령은 저장소 경로만 쓴다: workflow `Dev Datadog (APM + Observability)`(`.github/workflows/ops-datadog.dev.yml`)의 입력 `action: up` 또는 `restart`. 앱·nginx 복구는 workflow `Data·Realtime Dev CD`(`.github/workflows/data-api-cd.dev.yml`)를 `workflow_dispatch` 로 실행하며 입력은 `image_digest`(Data), `realtime_image_digest`(Realtime), `image_revision`(main 40자 SHA, 미완료 current DB 복구 전용)이다. 이 경로는 `--recovery-only` 로 돈다(`data-api-cd.dev.yml:125-127`). `ops-redeploy.dev.yml` 은 SM 시크릿 재적용용이라 이 복구와 다르다. 이번 조사에서는 실행하지 않았다.
+6. nginx 가 `failed` 인 점: 스크립트의 nginx 시작은 `sudo -n <NGINX_SYSTEMCTL> start nginx` 뒤 `systemctl is-active` 만 확인한다(`.github/scripts/deploy-core-dev.py` `deploy()`). systemd 는 `failed` 유닛을 `start` 로 다시 시작할 수 있어 `reset-failed` 는 상태 표시 정리용이며 보통 필수가 아니다. 다만 시작 횟수 제한(`StartLimitBurst`)에 걸려 있으면 `reset-failed` 가 필요하다. 이는 코드와 systemd 일반 동작에 근거한 판단이고 이 VM 에서 실행해 확인하지 않았다(미검증). 러너 sudoers 허용 범위가 `reset-failed` 를 포함하는지도 확인 전이다. 복구 경로(`--recovery-only`)는 별개다: `deploy-core-dev.py:197-198` 이 nginx `ActiveState` 가 `inactive` 가 아니면 «새 이미지로 재개하려면 nginx가 완전히 중지되어 있어야 합니다.» 로 중단한다. 지금 nginx 는 `failed` 라 복구 경로는 시작 전에 막힌다. `systemctl reset-failed nginx` 등으로 `inactive` 로 만든 뒤 실행해야 하며, 러너 sudoers 허용 여부는 확인 전이고 이 VM 에서 미검증이다. 티켓 2561 수정이 이 문제를 다루는지는 저장소에서 확인하지 못했다(2561 수정 범위 미확인).
+7. 재개 명령은 저장소 경로만 쓴다: workflow `Dev Datadog (APM + Observability)`(`.github/workflows/ops-datadog.dev.yml`)의 입력 `action: up` 또는 `restart`. 앱·nginx 복구는 workflow `Data·Realtime Dev CD`(`.github/workflows/data-api-cd.dev.yml`)를 `workflow_dispatch` 로 실행하며 입력은 `image_digest`(Data), `realtime_image_digest`(Realtime), `image_revision`(main 40자 SHA, 미완료 current DB 복구 전용)이다. 이 경로는 `--recovery-only` 로 돈다(`data-api-cd.dev.yml:125-127`). `ops-redeploy.dev.yml` 은 SM 시크릿 재적용용이라 이 복구와 다르다. 이번 조사에서는 실행하지 않았다. 선행 조건: 위 6번대로 nginx 가 `inactive` 여야 이 복구 경로가 시작된다.
 
 #### 복구 경로 비교
 
@@ -92,7 +93,6 @@
 | 수동 `docker start <컨테이너>` 직접 실행 | 기존 `Exited` 컨테이너를 그대로 시작한다. 컨테이너 ID 가 같다. 스크립트·nginx·DB 확인을 거치지 않는다 | `json-file` 로그가 보존된다 | docker 일반 동작. 이 VM 에서 실행해 확인하지 않았다(미검증) |
 | 스크립트 복구 경로(`Data·Realtime Dev CD` 수동 실행 = `--recovery-only`) | 실패 시 `except` 가 `stop()` 재시도 후 `save('failed')`(`deploy-core-dev.py:334-341`)하고 원래 실행 중이던 목록을 `state['running']` 에 남긴다(저장 함수 `:145`, 호출 `:340`). `--recovery-only` 는 미완료 상태·writer 전부 중지·nginx `inactive`·current DB·다른 DB 연결 0 을 요구한다(`:184-198`, `:247-249`). 통과하면 `deploy()`(`:311`)가 다시 `database`→`apply`(`:317-318`)→Data·Realtime `--force-recreate`(`:321`)→`restore()`(`:278`)를 진행한다 | Data·Realtime 은 교체돼 이전 로그가 사라지고, `restore()` 가 `CORE` 를 건너뛰고 `docker start` 하는 위성·관측만 보존된다 | `deploy-core-dev.py:278-291,311-341`. `failed` 상태에서 `runner('apply')` 를 다시 호출하는 것은 코드상 확인했다. **그 apply 가 current DB 에서 변경 없는 no-op 인지는 DB runner(`deploy-v0.py`)를 읽지 않아 미확인** |
 | 재배포(`--force-recreate`) | 컨테이너를 새로 만든다. 새 ID | 이전 컨테이너의 로그는 사라진다 | `deploy()` 의 `up -d --no-deps --force-recreate data-api realtime`(`:321`), `ops-datadog.dev.yml:119-120` `restart` 분기의 `--force-recreate datadog-agent`/`data-api` |
-| 재배포(`--force-recreate`) | 컨테이너를 새로 만든다. 새 ID | 이전 컨테이너의 로그는 사라진다 | `deploy()` 의 `up -d --no-deps --force-recreate data-api realtime`, `ops-datadog.dev.yml` `restart` 분기의 `--force-recreate datadog-agent`/`data-api` |
 
 `deploy-core-dev.py` 는 Data·Realtime 을 항상 `--force-recreate` 로 교체하고 위성·관측만 `docker start` 한다. «Data·Realtime 을 건너뛰고 나머지만 `docker start`» 하는 동작은 `restore()` 안에서 `deploy()` 의 교체 뒤에만 일어나며 스크립트 단독 경로가 아니다. 따라서 이 스크립트 경로로는 Data·Realtime 의 중단 구간 원본이 사라지고 나머지는 보존된다. 어느 쪽이든 5.1a 사본이 먼저다.
 
@@ -154,7 +154,7 @@ json-file 로테이션(위 표)에 밀려난 구간은 어느 경우에도 복�
 
 ### 유휴 서비스 — 빈 결과는 수집 실패가 아니다
 
-복구 뒤 10분 이상 로그가 없는 서비스는 `docker logs --since 10m` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`.github/workflows/ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:119` 가 TODO 로 남아 있음).
+복구 뒤 1시간 이상 로그가 없는 서비스는 `docker logs --since 1h` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`.github/workflows/ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:119` 가 TODO 로 남아 있음).
 
 - 원본 결과가 비어 있으면 그 서비스는 **판정 불가**로 기록한다. 통과도 실패도 아니다. `--since` 를 늘려(예: 1h) 마지막 줄이 있으면 그 시각으로 비교하고, 없으면 판정 불가 그대로 둔다.
 - 검증용 로그를 만들어야 할 때의 절차(**이번에 실행하지 않는다**, 재개 승인 뒤에만):
@@ -225,8 +225,8 @@ TimeoutStopUSec=5s  Result=timeout  ActiveState=failed  SubState=failed
 AGENT EXITED WITH CODE 0, SIGNAL 0, KILLING CONTAINER
 
 # last -F 발췌 (개인 계정, 09:00~09:45Z 세션 없음)
-개인 계정 pts/2  35.235.242.81  Thu Oct 29 07:05:17 2026 - Thu Oct 29 07:13:44 2026
-개인 계정 pts/0  35.235.248.66  Thu Oct 29 06:59:47 2026 - Thu Oct 29 07:25:16 2026
+개인 계정 pts/2  <IP>  Thu Oct 29 07:05:17 2026 - Thu Oct 29 07:13:44 2026
+개인 계정 pts/0  <IP>  Thu Oct 29 06:59:47 2026 - Thu Oct 29 07:25:16 2026
 reboot   system boot  6.8.0-1070-gcp  Thu Oct 29 03:53:36 2026   still running
 
 # Datadog 읽기 조회(host:gromo-dev*, 06:00~09:43:20Z) 서비스별 건수
