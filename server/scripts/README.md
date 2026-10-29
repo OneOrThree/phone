@@ -268,6 +268,13 @@ aws --profile gromo s3api put-bucket-lifecycle-configuration --bucket gromo-prod
 aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056
 ```
 
+### `system_log/v2/` (GROMO-2556)
+
+Fluent Bit 이 올리는 새 접두입니다. 키는 `system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOSTNAME>-<8자>.json.gz`(gzip JSONL)이고
+`system_log/` 규칙의 90일·미완료 multipart 1일 범위에 들어갑니다 — **규칙 파일은 바꾸지 않았고, 실제 버킷의 적용 여부는 미확인**(2554)입니다.
+날짜·시간은 객체 첫 레코드의 event time(UTC)이라 정확한 발생·수집 시간 파티션이 아닙니다. 켜는 스위치·순서·기존 업로더(590 타이머·2288)와의 중복 확인·롤백은
+[ingestion-runbook.md](../../docs/architecture/server-log-observability/ingestion-runbook.md). dev 에는 S3 자격이 없어 dev overlay 에서는 꺼져 있습니다(`OBS_LOG_S3` 기본 off).
+
 ## 11. 실행 전후 확인
 
 - GitHub Actions의 `Dev Stack` 수동 워크플로는 main SHA의 Data API·Business/Notification·Realtime

@@ -97,8 +97,8 @@ Fluent Bit 일반 output success 지표만 보고 S3 업로드가 성공했다�
 | V07 | 예외 중첩·줄바꿈·Docker 분할·큰 JSON·파싱 실패 | 이벤트 경계와 stack trace 보존, 정책상 잘림/격리 명시, 조용한 skip 없음 |
 | V08 | 토큰·비밀번호·이메일·전화번호 합성 입력 | message·exception·MDC·구조화 값·Nginx access/error의 query/referrer에 민감값 원문 없음. 원본 archive도 동일 정책 |
 | V09 | Fluent Bit 강제 종료·컨테이너 재생성·source 회전 | 예산 내 실험의 expected `log_id`와 sink unique ID 대조. 유실 0 목표, 중복 수와 재수집 범위 보고 |
-| V10 | Loki만 중단 / S3만 거부 / 네트워크 차단 후 복구 | 정상 sink의 지연 목표 유지, 실패 sink 복구 후 예산 내 backlog 전송. sink 간 독립성이 안 되면 배포 중단 |
-| V11 | buffer 상한·디스크 부족·재시도 상한 | 폐기/정지 지점이 문서와 일치, 경보 확인. 무유실 통과 기준을 적용하지 않고 손실 범위를 정량화 |
+| V10 | Loki만 중단 / S3만 거부 / 네트워크 차단 후 복구 | 정상 sink의 지연 목표 유지, 실패 sink 복구 후 예산 내 backlog 전송. sink 간 독립성이 안 되면 배포 중단. **2556 로컬(MinIO) 계수: 런북 §7** — 한쪽 정지가 다른 쪽에 영향 없음, `Retry_Limit` 설정에 따라 S3 유실 구간이 달라짐 |
+| V11 | buffer 상한·디스크 부족·재시도 상한 | 폐기/정지 지점이 문서와 일치, 경보 확인. 무유실 통과 기준을 적용하지 않고 손실 범위를 정량화. **2556 로컬 계수: 런북 §7**(Loki·S3 한도 도달 시 오래된 청크 폐기와 S3 중복 수량) |
 | V12 | S3 객체·retention·Athena·권한 | 압축 JSON 정상, unique key·파티션·스키마 조회, 타 환경 쓰기 차단, 90일 규칙 적용 범위·multipart 정리 확인 |
 | V13 | APM 샘플 제외·전송 실패·보존 만료 | trace 부재를 표시하고 일반 로그 조회는 계속 가능. agent sampling=1도 backend 보존 완료와 같다고 하지 않음 |
 | V14 | 대표 부하에서 전후 비교 | 동일 이미지/부하 조건의 반복 측정. p95 악화 5% 이하를 초기 목표로 검토하고 RSS·I/O·저장비 예산 충족 여부 보고 |
@@ -106,9 +106,9 @@ Fluent Bit 일반 output success 지표만 보고 S3 업로드가 성공했다�
 | V16 | 서로 다른 원요청의 사건 2개를 한 푸시로 병합·다중 기기 전송 | 각 원요청→연결 로그→공통 operation 결과에 도달. 기기별 외부 호출과 DB 반영 결과 구분, 임의 대표 origin 없음 |
 | V17 | Realtime 두 인스턴스·Redis Pub/Sub·구버전 wire·단절 | event/message ID로 A→Redis→B→outbound 추적. 자기 메아리 중복 없음, carrier 부재/손상에도 업무 처리는 기존 계약 유지 |
 | V18 | T1→T2→T3 후속 이벤트·비동기→내부 HTTP·HTTP Outbox·멱등 재요청·agent 미활성 | HTTP/Kafka/저장 경계에서 최초 origin 유지, origin_request_id로 탐색 가능, 재요청이 기존 행의 원인 덮어쓰지 않음 |
-| V19 | dev host Nginx·prod container Nginx·upstream 미접속 | 실제 source의 ingress 4xx/5xx access 수집·edge ID 조회, 앱 미진입과 구분. error는 connection/시간의 보조 연계 한계 명시 |
+| V19 | dev host Nginx·prod container Nginx·upstream 미접속 | 실제 source의 ingress 4xx/5xx access 수집·edge ID 조회, 앱 미진입과 구분. error는 connection/시간의 보조 연계 한계 명시. **2556 로컬: 두 경로 도착·정제 확인, 실제 dev/prod 설정은 미실행** |
 | V20 | 컨테이너 env 합성·실기동 JSON·APM 링크 | 네 서비스의 OBS_SERVICE/ENV/VERSION이 실제 container env와 로그에 존재, unknown/다른 서비스 fallback 없음 |
-| V21 | 30분 backlog·수용창 초과·시계 오차·기존 정상 stream | 예산 내 replay 수용, 창 밖 거절을 계측하고 S3 도착 확인. timestamp 변경으로 은폐하지 않음 |
+| V21 | 30분 backlog·수용창 초과·시계 오차·기존 정상 stream | 예산 내 replay 수용, 창 밖 거절을 계측하고 S3 도착 확인. timestamp 변경으로 은폐하지 않음. **2556 로컬: 수용창 59분 수용·61분 거절 실측, 30분 backlog는 3분으로 축소** |
 | V22 | 한 timestamp에 조회 상한 이상 로그·live tail 단절 | UI 결과 일부임을 인지하고 source/시간 분할 또는 archive 조회로 전체 수량 대조 |
 | V23 | 외부 trace spoof·인증 거절·error/async dispatch | ingress에서 새 신뢰 문맥, 내부 전파 유지. 완료 로그 중복 없음, 미확정 오류를 200 성공으로 기록하지 않음 |
 

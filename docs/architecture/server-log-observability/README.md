@@ -126,7 +126,7 @@ flowchart LR
 
 | 필드 | 규칙 |
 | --- | --- |
-| `schema_version`, `log_kind` | 초기 버전 `1`. 앱 JSON의 `log_kind`는 `application` / `access`, 수집기가 JSON이 아닌 줄에 붙이는 값은 `raw`(`parse_error=true`). `infrastructure`는 인프라 컨테이너가 아직 수집 대상이 아니어서 쓰지 않는다. user-activity 계약은 별도 유지 |
+| `schema_version`, `log_kind` | 초기 버전 `1`. 앱 JSON의 `log_kind`는 `application` / `access`, 수집기가 JSON이 아닌 줄에 붙이는 값은 `raw`(`parse_error=true`). `infrastructure`는 2556의 Nginx error 로그에만 쓴다(Kafka·DB·Redis 등 다른 인프라 컨테이너는 아직 수집 대상이 아니다). Nginx access는 `access`다. user-activity 계약은 별도 유지 |
 | `log_id` | 로그 **한 건**의 식별자. JVM에서는 encoder가 출력 전에 부여하고 수집·재전송 동안 보존. 도메인 event ID와 다름 |
 | `timestamp`, `observed_at` | 발생 시각(밀리초)과 수집 시각, UTC RFC3339. `observed_at`은 Fluent Bit 필터가 줄을 **처음 처리한 시각**이며 초 단위다. 필터 뒤 chunk가 디스크에 저장되므로 Fluent Bit 재시도에서는 보존된다. tail DB가 사라지거나 처음부터 다시 읽으면 새 값이 붙는다 |
 | `service`, `env`, `instance_id`, `version` | 서비스·환경·실행 인스턴스·배포 revision. 검증된 실행 메타데이터로 보강 |
@@ -142,7 +142,7 @@ flowchart LR
 
 `trace_id`는 일반 로그의 필수값이 아니다. 기동·스케줄러·인프라 로그에는 없을 수 있다. agent가 꺼져 있으면 `request_id`로 연결하고 trace가 없다고 표시한다. 임의 UUID를 실제 APM trace처럼 넣지 않는다.
 
-Loki label은 `env`, `service`, `log_kind`처럼 값의 종류가 제한된 필드로 시작한다. 여러 호스트가 같은 stream에 쓰는 경우 고정 호스트/서비스 슬롯을 나타내는 bounded `source` label을 추가해 독립 source의 지연·재전송을 구분한다(dev는 단일 호스트라 아직 적용하지 않았다). 요청별 ID나 매 배포 바뀌는 컨테이너 ID를 source label로 쓰지 않는다. `trace_id`, `request_id`, `user_id`, `log_id`, `event_id`, `operation_id`, `message_id`, `instance_id`, `version`은 JSON 필드 또는 structured metadata로 둔다. 상세 근거는 [조사 기록](research.md)을 따른다.
+Loki label은 `env`, `service`, `log_kind`처럼 값의 종류가 제한된 필드로 시작한다(2556: `service` 값에는 앱 4종 외에 `nginx`와 합성 `canary`가 더해진다). 여러 호스트가 같은 stream에 쓰는 경우 고정 호스트/서비스 슬롯을 나타내는 bounded `source` label을 추가해 독립 source의 지연·재전송을 구분한다(dev는 단일 호스트라 아직 적용하지 않았다). 요청별 ID나 매 배포 바뀌는 컨테이너 ID를 source label로 쓰지 않는다. `trace_id`, `request_id`, `user_id`, `log_id`, `event_id`, `operation_id`, `message_id`, `instance_id`, `version`은 JSON 필드 또는 structured metadata로 둔다. 상세 근거는 [조사 기록](research.md)을 따른다.
 
 ### HTTP 요청 흐름
 
@@ -249,9 +249,9 @@ flowchart TD
 - APP 수집 원천은 stdout/stderr 한 경로로 정한다. 같은 메시지의 `app.log`도 tail하지 않는다. user-activity는 콘솔에 없는 환경이 있으므로 기존 별도 수집을 유지한다.
 - 수집기가 `parse_error`로 보관하는 raw 줄의 마스킹은 일반 단어 키(`token`·`refresh`·`authorization`)도 가린다. 앱이 마스킹하지 못한 줄이라 Java 규칙보다 넓게 잡았고, 그래서 `refresh: 30s` 같은 일반 값도 가려진다(앱 JSON에는 적용하지 않는다).
 - Java 예외는 JSON 문자열 안에 둔다. Docker 분할 메시지 재조립과 실제 multiline 처리를 구분해 검증한다. 비정상 JSON은 버리지 않고 `parse_error`로 구분하되, 원문 무조건 우회 보관으로 마스킹을 깨지 않는다.
-- 인프라 로그의 `log_id`는 원천의 안정적인 커서가 제공되면 컨테이너 ID·파일 세대·offset 등으로 만든다. 불가능하면 수집 시 부여하되 재수집 dedup 한계를 기록한다. **현재 구현(2555)은 raw 줄에 `log_id`를 부여하지 않는다.** 앱 JSON의 `log_id`만 보존하고, raw 줄은 Loki의 «같은 시각·같은 줄» 중복 제거에 기대므로 재읽기 때 중복이 생길 수 있다. 메시지 내용만 해시하면 정상적으로 반복된 로그까지 지울 수 있다.
+- 인프라 로그의 `log_id`는 원천의 안정적인 커서가 제공되면 컨테이너 ID·파일 세대·offset 등으로 만든다. 불가능하면 수집 시 부여하되 재수집 dedup 한계를 기록한다. **현재 구현(2555)은 raw 줄에 `log_id`를 부여하지 않는다.** Nginx 줄(2556)만 수집기가 무작위 UUID를 부여하며, 같은 파일을 처음부터 다시 읽으면 새 id가 붙어 중복이 된다. 앱 JSON의 `log_id`만 보존하고, raw 줄은 Loki의 «같은 시각·같은 줄» 중복 제거에 기대므로 재읽기 때 중복이 생길 수 있다. 메시지 내용만 해시하면 정상적으로 반복된 로그까지 지울 수 있다.
 - 실제 컨테이너가 출력한 JSON의 service/env/version 확인과 `parse_error` 건수 알림은 아직 없다(2556·2560 범위).
-- 두 출력은 독립적이며 원자적으로 commit되지 않는다. Loki 성공·S3 실패 및 그 반대 모두 가능하다. 디스크·source 회전 한계를 넘으면 유실될 수 있으므로 **무유실·exactly-once를 약속하지 않는다**. 같은 `log_id` 재전송 중복과 서로 다른 재시도 로그를 구분한다.
+- 두 출력은 독립적이며 원자적으로 commit되지 않는다(2556: S3 출력은 `rewrite_tag` 복제본을 받아 청크·재시도·한도가 Loki와 따로이고, 로컬 시험에서 한쪽 정지가 다른 쪽 도착에 영향을 주지 않았다. S3 출력은 `Retry_Limit`을 양수로 둬야 짧은 S3 정지에서 원본이 유실되지 않는다 — [런북](ingestion-runbook.md)). Loki 성공·S3 실패 및 그 반대 모두 가능하다. 디스크·source 회전 한계를 넘으면 유실될 수 있으므로 **무유실·exactly-once를 약속하지 않는다**. 같은 `log_id` 재전송 중복과 서로 다른 재시도 로그를 구분한다.
 - tail DB는 읽은 위치이지 모든 sink에 영구 저장됐다는 증명이 아니다. engine disk buffer와 S3 buffer의 crash 복구 범위도 따로 검증한다.
 - Loki의 재전송 수용 시간창과 source 시계 오차를 별도 검증한다. `reject_old_samples: false`만으로 stream의 out-of-order 제한이 사라지지 않는다. 보관 예산 안의 재전송은 통과해야 하며, 창 밖에서 영구 거절되는 로그는 원본 시각을 바꿔 억지로 넣지 않고 S3 적재 확인·경보·archive 조사로 처리한다. [Loki 시간창 설명](https://grafana.com/blog/new-feature-in-loki-2-4-no-more-ordering-constraint/)
 - APP JSON의 최대 UTF-8 크기, Docker escape·분할 재조립 후 크기, Fluent Bit line/chunk 한도, Loki line/metadata 한도를 하나의 표로 맞춘다. stack/message만 안전하게 자르고 `truncated=true`와 원래 크기를 남기며 ID 필드와 JSON 문법은 유지한다. 하나의 큰 로그가 해당 파일의 후속 로그 수집까지 중단시키지 않는지 시험한다.
@@ -262,7 +262,7 @@ S3 키 제안:
 system_log/v2/env=prod/service=data-api/date=2026-10-29/hour=14/<unique-id>.json.gz
 ```
 
-날짜·시간은 **파일 첫 레코드의 Fluent Bit event time, UTC**다. APP parser는 로그의 `timestamp`를 event time으로 읽도록 하고 최초 수집 시각은 별도 `observed_at`에 둔다. S3 출력의 시간 치환은 첫 레코드를 기준으로 하므로 한 객체에 다른 시간대·지연 도착 로그가 섞일 수 있다. 이 접두를 정확한 발생 시간 또는 수집 시간 파티션이라고 취급하지 않는다. 서비스 값은 allowlist로 제한한다. 업로드 객체 키는 고유해야 하며 파일/객체 단위에 여러 요청 로그를 묶는다. 초기 크기·시간 후보는 10 MiB 또는 5분, 정확한 옵션 단위와 timeout 의미는 고정한 Fluent Bit 버전으로 검증한다.
+날짜·시간은 **파일 첫 레코드의 Fluent Bit event time, UTC**다. APP parser는 로그의 `timestamp`를 event time으로 읽도록 하고 최초 수집 시각은 별도 `observed_at`에 둔다(2556 구현은 Loki 시각을 바꾸지 않으려 `Time_Key`를 주지 않아 event time이 Docker가 줄에 찍은 시각이다 — 앱 `timestamp`와 밀리초~초 차). S3 출력의 시간 치환은 첫 레코드를 기준으로 하므로 한 객체에 다른 시간대·지연 도착 로그가 섞일 수 있다. 이 접두를 정확한 발생 시간 또는 수집 시간 파티션이라고 취급하지 않는다. 서비스 값은 allowlist로 제한한다. 업로드 객체 키는 고유해야 하며 파일/객체 단위에 여러 요청 로그를 묶는다. 초기 크기·시간 후보는 10 MiB 또는 5분, 정확한 옵션 단위와 timeout 의미는 고정한 Fluent Bit 버전으로 검증한다.
 
 `system_log/`는 기존 90일 lifecycle 범위 안이다. dev를 별도 버킷으로 만들면 같은 정책을 별도로 정의한다. S3 업로드 시각 기준 만료는 발생 시각 기준 90일 삭제와 같지 않으며, 오래된 자료 재적재는 보존 만료를 연장할 수 있다. 버전 관리·미완료 multipart 정리·Terraform 정본 동기화를 P0/P2에서 확인한다.
 
