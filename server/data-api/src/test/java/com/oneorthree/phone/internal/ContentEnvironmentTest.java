@@ -1,7 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
-import com.oneorthree.phone.content.service.ContentHistoryService;
+import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;

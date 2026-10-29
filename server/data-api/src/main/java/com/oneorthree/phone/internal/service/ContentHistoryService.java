@@ -1,7 +1,8 @@
-package com.oneorthree.phone.content.service;
+package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.content.exception.ContentErrorCode;
 import com.oneorthree.phone.content.exception.ContentException;
+import com.oneorthree.phone.internal.dto.ContentHistoryPage;
 import com.oneorthree.phone.magazine.support.MagazineCalendar;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** 운영 DB의 게시 이력을 읽는다. 백오피스 초안 저장소로 복제하지 않는다. */
+/** 공지 원장과 잡지 규칙을 조합해 운영 게시 이력을 읽는다. 백오피스 초안 저장소로 복제하지 않는다. */
 @Service
 @RequiredArgsConstructor
 public class ContentHistoryService {
@@ -26,7 +27,7 @@ public class ContentHistoryService {
     private final Clock clock;
 
     @Transactional(readOnly = true)
-    public Page notices(String cursor, Integer limit) {
+    public ContentHistoryPage notices(String cursor, Integer limit) {
         int size = limit(limit);
         Instant now = clock.instant();
         NoticeCursor before = noticeCursor(cursor);
@@ -55,12 +56,12 @@ public class ContentHistoryService {
         boolean more = items.size() > size;
         List<Map<String, Object>> visible = more ? items.subList(0, size) : items;
         Map<String, Object> last = visible.isEmpty() ? null : visible.get(visible.size() - 1);
-        return new Page(new ArrayList<>(visible), total == null ? 0 : total,
+        return new ContentHistoryPage(new ArrayList<>(visible), total == null ? 0 : total,
                 more ? last.get("publishedAt") + "|" + last.get("id") : null);
     }
 
     @Transactional(readOnly = true)
-    public Page magazines(String cursor, Integer limit) {
+    public ContentHistoryPage magazines(String cursor, Integer limit) {
         int size = limit(limit);
         int before = magazineCursor(cursor);
         Instant now = clock.instant();
@@ -96,7 +97,7 @@ public class ContentHistoryService {
         boolean more = items.size() > size;
         List<Map<String, Object>> visible = more ? items.subList(0, size) : items;
         Map<String, Object> last = visible.isEmpty() ? null : visible.get(visible.size() - 1);
-        return new Page(new ArrayList<>(visible), total == null ? 0 : total,
+        return new ContentHistoryPage(new ArrayList<>(visible), total == null ? 0 : total,
                 more ? String.valueOf(last.get("issueNo")) : null);
     }
 
@@ -143,5 +144,4 @@ public class ContentHistoryService {
 
     private record NoticeCursor(Instant publishedAt, UUID id) { }
 
-    public record Page(List<Map<String, Object>> items, long total, String nextCursor) { }
 }

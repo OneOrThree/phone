@@ -3,7 +3,7 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.content.exception.ContentException;
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
-import com.oneorthree.phone.content.service.ContentHistoryService;
+import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.internal.service.MagazineReviewService;

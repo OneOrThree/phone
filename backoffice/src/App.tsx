@@ -236,6 +236,7 @@ export default function App() {
   }
   function createDraft() {
     if (!mayLeave()) return;
+    setView('workflow');
     const next = emptyDraft(channel); setSelected(null); setDraft(next); setBaseline(JSON.stringify(next)); setError('');
   }
   function updateDraft(field: keyof Draft, value: string) {
