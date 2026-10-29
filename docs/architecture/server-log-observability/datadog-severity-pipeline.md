@@ -111,7 +111,7 @@ export DD_SITE=us5.datadoghq.com   # 공식 사이트 목록(datadoghq.com·us3/
 python3 manage.py backup --out /안전한/경로/dd-pipelines-backup-$(date +%Y%m%dT%H%M%S).json
 # 2) 계획 (읽기, 네트워크 없음)
 python3 manage.py plan --backup-file <백업>
-# 3) 리뷰: 동작이 create 2건인지, 겹침이 '없음'인지, 정의 diff·이 문서 §4 표를 확인
+# 3) 리뷰: 동작이 create 2건인지, 겹침이 '없음'인지, 정의 diff·이 문서 §4 표를 확인. 첫 --execute 전 plan 이 update 로 낸 항목은 실제 응답과 로컬 정의의 차이 키를 확인해, 목록 밖 기본값이면 SERVER_DEFAULTS 에 더한다
 # 4) 적용 (쓰기 — 이중 확인). GROMO_DD_PIPELINE_APPLY=yes 는 export 하지 말고 이 명령 앞에 한 번만 붙인다
 GROMO_DD_PIPELINE_APPLY=yes python3 manage.py apply --execute --record-out /안전한/경로/dd-apply-record.json
 ```
@@ -123,7 +123,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py apply --execute --record-out /안�
    - 실제 `E`/`F`·`ERROR`/`FATAL`/`PANIC` 이 info 이하로 내려가지 않았다.
    - 속성이 없는 줄은 수집 status 를 유지했다.
 
-`plan` 은 현재 정의와 로컬 정의를 필드 단위로 비교한다. 서버가 기본값을 채워 돌려주면 내용이 같아도 `update` 로 표시될 수 있다. 이때 PUT 은 같은 정의로 교체하므로 결과는 같다. `DD_SITE` 허용 목록은 Datadog 사이트 문서(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인)의 Site Parameter 이며, 새 사이트가 생기면 `manage.py` 의 `SITES` 에 추가한다.
+`plan` 은 현재 정의와 로컬 정의를 필드 단위로 비교하되, `manage.py` 의 `SERVER_DEFAULTS`(`description`="" · `samples`=[] · `support_rules`="" · `default_lookup`=null, API 문서 기준이고 실제 응답 캡처로 확인한 값은 아님)에 적힌 필드의 그 값(`default_lookup` 의 null 포함)만 «없음»으로 보고, 목록 밖 필드의 null 이나 `is_enabled` 같은 값은 무시하지 않는다(GROMO-2586, 테스트 `ServerDefaultsComparisonTest`). 목록에 없는 기본값을 서버가 채우면 내용이 같아도 `update` 로 표시될 수 있고, 그때 PUT 은 같은 정의로 교체하므로 결과는 같다. `DD_SITE` 허용 목록은 Datadog 사이트 문서(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인)의 Site Parameter 이며, 새 사이트가 생기면 `manage.py` 의 `SITES` 에 추가한다.
 
 ## 9. 롤백
 
@@ -139,6 +139,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 - **실패 종류별 안내**: 아무것도 바뀌지 않은 실패(`created`·`updated` 비어 있음)는 «변경 없음 — 롤백 불필요», 일부가 반영된 실패만 «부분 적용 — rollback». 쓰기 요청이 응답 없이 끝나면(타임아웃·연결 끊김) 단계를 `unknown` 으로 기록하고 «서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인»하라고 안내한다. `apply` 는 POST **전에** `created` 에 `{name, id: null, pending: true}` 를 저장한다. 성공하면 id 를 채우고 pending 을 지우며, 확실한 실패(HTTP 4xx)면 항목을 뺀다. 쓰기의 5xx(502·503·504 등)는 게이트웨이가 서버 처리 뒤에도 낼 수 있어 결과 불명으로 취급한다. 결과 불명이면 pending 이 남는다. `rollback` 은 id 없는 pending 항목을 목록 GET 으로 **같은 이름**을 찾아 회수한다. 정확히 1개이고 read-only 가 아니며 정의가 로컬과 같을 때만 삭제(서버 기본값 채움 등으로 정의가 달라 중단되면 직접 삭제한다)(`--disable-only` 면 비활성)한다. 0개면 «생성 안 됨 — 건너뜀», 2개 이상이거나 정의가 다르면 그 항목을 중단·보고한다. dry-run 도 회수 계획을 출력한다. 같은 이름이 있으면 같은 `apply` 를 다시 실행해도 `plan_actions` 가 `update`(정의가 같으면 `noop`)로 처리하므로 중복 생성되지 않는다. 이때 `--previous-record <이전 기록>` 을 주면 «이전 기록의 결과 불명 생성 — 그 기록으로 rollback 가능» 을 안내하고 새 기록에 경로를 남긴다. noop 이어도 첫 파이프라인은 그 이전 기록으로 롤백해야 회수된다.
 - **갱신 결과 불명**: `apply` 는 PUT **전에** `updated` 에 `{id, name, previous}` 를 기록하고 저장한다. PUT 이 서버에 반영된 뒤 응답만 유실돼도(`unknown`) 항목이 남아 롤백이 이전 정의로 복원한다. 확실한 실패(HTTP 4xx)면 서버가 그대로이므로 항목을 뺀다. `rollback --execute` 는 updated 항목을 GET 해 이미 `previous` 와 같으면 건너뛰고(`already-previous`, 재실행 멱등) 다르면 `previous` 로 PUT 한다. GET 이 404 면 «복원 대상 없음» 경고를 출력한다.
 - **동명 중복**: 로컬 정의와 같은 이름의 서버 파이프라인이 2개 이상이면 어느 쪽을 갱신할지 알 수 없다. `plan` 은 «동명 중복 — 중단» 을 출력하고 비정상 종료하며, `apply` 는 쓰기 전에 중단하고 `--record-out` 에 `aborted` 사유만 남긴다. 필터 겹침 경고는 이번에 갱신할 그 ID 하나만 빼고 같은 이름의 다른 파이프라인도 보여 준다.
+- **중단 기록**: `aborted` 가 있는 기록(쓰기 전 중단)으로 `rollback` 하면 «중단 기록 — 되돌릴 것 없음» 을 출력하고 종료 코드 0 으로 끝난다. 서버 조회도 하지 않는다(GROMO-2586, 테스트 `AbortedRecordRollbackTest`).
 - 롤백 모드(삭제/비활성)를 바꾸려면 기록 파일을 복사해서 쓴다(`rollback` 필드의 완료 표시가 id 기준이라 같은 기록으로 모드를 바꾸면 건너뛴다).
 - 순서 복원 PUT 은 직전에 조회한 순서를 기준으로 전체를 덮어쓴다. 그 사이 다른 사람이 순서를 바꿨다면 덮어쓴다.
 - **롤백 안전장치**: `--execute` 는 각 ID 를 먼저 GET 해 이름이 기록과 같은지 확인한다. 다르면 그 항목은 건드리지 않고 순서 복원 없이 비정상 종료한다(나머지 항목은 계속 진행). 404 는 «이미 없음»으로 건너뛴다. 항목마다 끝난 결과를 같은 기록 파일의 `rollback` 필드에 저장하므로, 중간에 실패해도 같은 명령을 다시 실행하면 끝난 항목은 건너뛰고 이어간다. dry-run 도 이 GET 확인을 계획으로 출력한다. `order-after` 조회만 실패했다면 생성·갱신은 이미 반영된 상태이므로 롤백 여부를 §8 판정 기준으로 정한다.
@@ -147,7 +148,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 37 tests(동명 중복 중단·겹침 경고 쓰기 5xx 결과 불명·부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 46 tests(중단 기록 rollback·aborted 경계·서버 기본값 비교 포함, 동명 중복 중단·겹침 경고 쓰기 5xx 결과 불명·부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |

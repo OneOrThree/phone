@@ -18,7 +18,7 @@
 
 문법 근거는 Datadog 공식 문서 Log Search Syntax(https://docs.datadoghq.com/logs/explorer/search_syntax/)의 불리언 연산자·`key:value` 규칙이다. 실제 Datadog 화면에서 열어 본 확인은 하지 않았다.
 
-`gromo-kafka-jmx-exporter` 는 이번 범위가 아니며 두 링크 어디에도 잡히지 않는다(컨테이너·source 조건 불일치). 로그 링크가 필요하면 별도 조건을 추가한다.
+`gromo-kafka-jmx-exporter` 는 두 링크 어디에도 잡히지 않아 GROMO-2586 에서 별도 링크 「Kafka JMX Exporter 로그」(`env:dev service:gromo-kafka-dev (container_name:gromo-kafka-jmx-exporter OR source:jmx-exporter)`)를 추가했다. source 값은 Datadog 읽기 조회로 확인했다(2026-10-29, 최근 7일 `container_name:gromo-kafka-jmx-exporter` 26건이 모두 `source:jmx-exporter`, service 는 브로커와 같은 `gromo-kafka-dev`). 세 링크의 컨테이너·source 가 겹치지 않음은 `dashboards/test_log_links.py` 가 단언하고, 이 테스트는 위젯을 순번이 아니라 「상세 조사」 머리글로 찾는다.
 
 ## 바꾼 링크 (`gromo-dev-architecture.json` 위젯 18 「상세 조사」)
 
