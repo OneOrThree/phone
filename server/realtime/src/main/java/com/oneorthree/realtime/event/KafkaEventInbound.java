@@ -97,6 +97,9 @@ class KafkaEventInbound {
      * producer 스레드 — 에서 돈다. 새 future 는 원래 future 가 끝날 때 그 문맥 안에서 완료되므로 콜백도 그 안에서 돌고, 끝나면 그 스레드
      * 값으로 되돌린다. 이미 끝난 future 면 소비자 스레드의 레코드 scope 안에서 바로 돈다. 값·예외는 그대로 넘긴다(DLT 판정·
      * {@code failIfSendResultIsError} 대기 같음). 발행기를 하위 클래스로 만들지 않는 이유: 로거 이름이 {@code getClass()} 라 바뀐다.
+     * spring-kafka 4.0.5 의 {@code verifySendResult} 는 {@code get(timeout)} 만 하고 future 에 {@code cancel} 을 부르지 않으므로
+     * (타임아웃도 예외로만 넘긴다) 취소 전파는 두지 않는다. 트랜잭션 템플릿의 {@code executeInTransaction} 콜백으로 넘어가는 원본
+     * 템플릿은 프록시를 거치지 않는다 — 지금 realtime 은 트랜잭션 설정이 없어 해당 없음, 켜면 이 경로 문맥이 빠진다.
      */
     private static KafkaOperations<?, ?> completingInContext(KafkaOperations<?, ?> template) {
         ProxyFactory proxy = new ProxyFactory(template);
