@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GROMO-2556 로컬 S3(MinIO) 하네스 — 장애 시나리오별 누락·중복·도착 지연을 계수한다. 프로젝트 obs2562-s3, 끝나면 down -v.
 # 실행: server/observability/fluent-bit/local-test/s3/run-s3.sh [시나리오 이름...]   (인자 없으면 전부)
-# 시나리오: a b1 b2 c d d2 d3 e e2 g2 f1 f2 h i k   — 기대 log_id 집합은 생성기가 정하고, 수신 집합은 watch.py 가 Loki·S3 에서 따로 센다.
+# 시나리오: a b1 b2 c d d2 d3 d4 e e2 g2 f1 f2 h i k   — 기대 log_id 집합은 생성기가 정하고, 수신 집합은 watch.py 가 Loki·S3 에서 따로 센다.
 # AWS 에는 요청하지 않는다(S3 = 로컬 MinIO). 실패(누락/중복) 시나리오가 있으면 종료 코드 1.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; LT="$(dirname "$HERE")"; FB="$(dirname "$LT")"
@@ -57,7 +57,7 @@ d=json.load(sys.stdin)
 for k,v in d['output'].items(): print('METRICS','$1',k,{x:v.get(x) for x in ('proc_records','retried_records','dropped_records','errors','retries_failed')})" || echo "METRICS $1 unavailable"; }
 sleep_ok() { sleep "$1"; }
 
-SCENARIOS=("$@"); [ ${#SCENARIOS[@]} -eq 0 ] && SCENARIOS=(a b1 b2 c d d2 d3 e e2 g2 f1 f2 h i k)
+SCENARIOS=("$@"); [ ${#SCENARIOS[@]} -eq 0 ] && SCENARIOS=(a b1 b2 c d d2 d3 d4 e e2 g2 f1 f2 h i k)
 want() { for s in "${SCENARIOS[@]}"; do [ "$s" = "$1" ] && return 0; done; return 1; }
 
 prepare_modules
@@ -86,6 +86,9 @@ fi
 if want d2; then echo "== (d2) S3 권한 거부(403, 잘못된 비밀키로 재생성) 60초 후 올바른 키로 복구"
   start_watch d2 d2; savelogs before-d2; HARNESS_S3_SECRET=wrong-secret-xxxxxxxxxxxx dc up -d --force-recreate fluent-bit >/dev/null; sleep 5
   gen d2 1200 50; sleep 62; savelogs d2-wrongkey; dc up -d --force-recreate fluent-bit >/dev/null; finish d2 180 d2:1200
+fi
+if want d4; then echo "== (d4) MinIO 정지 5분(Retry_Limit 60 으로 견디는지) 뒤 복구"
+  start_watch d4 d4; gen d4 4800 100; sleep 20; dc stop minio >/dev/null; sleep 300; dc start minio >/dev/null; finish d4 240 d4:4800
 fi
 if want e; then echo "== (e)+(g) Loki 단독 실패 3분 — S3 정상, 복구 후 3분 backlog 재전송"
   start_watch e e; gen e 2400 100; sleep 15; dc stop loki >/dev/null; sleep 180; dc start loki >/dev/null
