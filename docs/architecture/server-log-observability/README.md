@@ -11,6 +11,7 @@
 - [dev 검증 → prod 전환 → 롤백 절차](rollout.md)
 - [로그 이중 적재·dev S3 자격 방식 결정 문서(제안 — 재영님 확정 전)](decisions-ingest-and-s3-credentials.md)
 - [Logback 설정·스레드 문맥 전파·로그 JOIN 상세](implementation-details.md)
+- [마스킹 꼬리 처리·네 서비스 공통 입력표·깊은 스택 비용](masking-trace-hardening.md)
 - [공식 문서 조사와 설계 검토 근거](research.md)
 - [재검토에서 발견한 공백·수정·잔여 검증](review-2026-10-29.md)
 - 기존 정본: [시스템 아키텍처](../system-architecture.md), [서비스 아키텍처](../service-architecture.md), [보존 정책](../../prd/fishcat/account/policy.md#로그분석-보존-기간)

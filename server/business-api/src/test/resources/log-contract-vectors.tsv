@@ -1,0 +1,57 @@
+# GROMO-2584 네 서비스 공통 로그 계약 입력표. data-api·business-api·notification·realtime 의 src/test/resources 에 같은 바이트로 둔다.
+# 바꾸면 네 복사본과 각 서비스 LogContractVectorsTest 의 VECTORS_SHA256 을 함께 바꾼다. logs.lua 는 cut 줄만 읽는다(fluent-bit/local-test/mask_cases.py).
+# 열: 종류 TAB 입력 TAB 기대값. raw·trace·span 의 빈 기대값은 null(필드 생략)이다.
+# 종류: mask = 마스킹 4규칙, cut = 사전 자르기('|' 가 자르는 지점, 앞부분만 남는다) 뒤 마스킹 + 끝 토큰(마스킹이 넣은 * 포함) 버림(최대 254자),
+#       raw = TraceIds.raw(dd 원문 보존), trace = TraceIds.traceId, span = TraceIds.spanId
+mask	login password=secret123 ok	login password=**** ok
+mask	유저 volume.test@gmail.com	유저 vol****@****.***
+mask	phone 010-1234-5678	phone 010-****-5678
+mask	01012345678	010-****-5678
+mask	ssn 123456-1234567	ssn 123456-1******
+mask	email=volume.test@gmail.com	email=****
+mask	{"accessToken":"abc.def","ok":1}	{"accessToken":"****","ok":1}
+mask	Secret: s3cr3t,next	Secret: ****,next
+mask	CVV=123&x=1	CVV=****&x=1
+mask	mobile:010.9876.5432	mobile:****
+mask	-abc@x.com	-ab****@****.***
+mask	a@x.com,b@y.org	a****@****.***,b****@****.***
+mask	a@b.com1foo@x.com	a****@****.***1fo****@****.***
+mask	duration_seconds=1500 goal_minutes=25	duration_seconds=1500 goal_minutes=25
+mask	user_id=019700e8-1c2a-7def-8000-abc123456789	user_id=019700e8-1c2a-7def-8000-abc123456789
+cut	to:<user@exam|ple.com>	to:<
+cut	to:user@example.c|om	to:
+cut	from:verylongname|@example.com	from:
+cut	tel:010-1234-56|78	tel:
+cut	tel:0101234|5678	tel:
+cut	rrn(900101-123|4567)	rrn(
+cut	password=hun|ter2 ok	password=
+cut	a@b.com,010-1234-5678,x|yz	a****@****.***,010-****-5678,
+cut	사용자 이메일:홍길동user@ex|ample.com	사용자 이메일:홍길동
+cut	done;|next	done;
+cut	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|x	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+cut	tel:01012345678aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|aaaa	tel:010-****-
+cut	k:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|x	k:
+cut	k:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|x	k:a
+cut	PassWord=hun|ter2 ok	PassWord=
+cut	mail a.b@example.com,x@y.co|m	mail a.b****@****.***,
+cut	nameİuser@exam|ple.com	nameİ
+cut	to:johnsmith01012345678@nav|er.com	to:
+raw	68F1A2B3000000001234ABCD5678EF90	68F1A2B3000000001234ABCD5678EF90
+raw	1234567890123456789	1234567890123456789
+raw	abc	abc
+raw	0	
+raw	00000000000000000000000000000000	
+raw		
+raw	xyz	
+raw	123456789012345678901234567890123	
+trace	68F1A2B3000000001234ABCD5678EF90	68f1a2b3000000001234abcd5678ef90
+trace	1234567890123456789	
+trace	00000000000000000000000000000000	
+trace	68f1a2b3000000001234abcd5678ef9	
+span	1234567890123456789	112210f47de98115
+span	18446744073709551615	ffffffffffffffff
+span	18446744073709551616	
+span	42	000000000000002a
+span	0	
+span	abc	
+span	-1	

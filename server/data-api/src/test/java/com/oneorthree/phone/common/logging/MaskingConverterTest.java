@@ -97,4 +97,22 @@ class MaskingConverterTest {
             assertThat(MaskingConverter.mask(longLocal)).isEqualTo("aaa****@****.***");
         });
     }
+
+    @Test
+    void preCheckDoesNotAllocatePerCharacterOnLengthChangingLowercase() {
+        // «İ» 는 toLowerCase 하면 두 글자가 돼 16384자에 약 800 MB 를 할당했다. ASCII 선형 스캔은 새 문자열을 만들지 않는다.
+        var threads = java.lang.management.ManagementFactory.getThreadMXBean();
+        org.junit.jupiter.api.Assumptions.assumeTrue(threads instanceof com.sun.management.ThreadMXBean);
+        var bean = (com.sun.management.ThreadMXBean) threads;
+        String input = "İ".repeat(16384);
+        long id = Thread.currentThread().getId();
+        MaskingConverter.mask(input); // 클래스 로딩·워밍업
+        long before = bean.getThreadAllocatedBytes(id);
+        String out = MaskingConverter.mask(input);
+        long allocated = bean.getThreadAllocatedBytes(id) - before;
+
+        assertThat(out).isEqualTo(input);
+        assertThat(allocated).isLessThan(8L * 1024 * 1024);
+        assertThat(MaskingConverter.mask("PassWord=abc")).isEqualTo("PassWord=****");
+    }
 }
