@@ -51,6 +51,8 @@ services:
       DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"
       DD_PROFILING_ENABLED: "true"
+      # 프로파일러 .so 추출·로드와 JFR 임시 파일 자리. 기본값 /tmp 는 noexec 라 .so 로드가 실패한다(GROMO-2574).
+      DD_PROFILING_TEMPDIR: /ddprof
       DD_DATA_STREAMS_ENABLED: "true"
       DD_TRACE_ANALYTICS_ENABLED: "true"
       DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"
@@ -68,7 +70,9 @@ services:
     cpus: 2
     pids_limit: 128
     read_only: true
-    tmpfs: ['/tmp:size=64m,mode=1777']
+    # /tmp 는 외부 PDF 임시 파일 자리라 Docker 기본값(noexec)을 유지한다. 실행 권한은 프로파일러 전용
+    # /ddprof 에만 준다 — 쓰기·실행이 함께 되는 자리가 하나 생기는 보안 절충이다(GROMO-2574 문서).
+    tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=64m,mode=1777,exec']
     volumes: [business-logs:/app/logs]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
