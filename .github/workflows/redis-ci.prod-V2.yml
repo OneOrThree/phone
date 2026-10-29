@@ -8,6 +8,7 @@ name: Catus redis CI V2
     - server/scripts/runtime-V2/redis*
     - .github/scripts/catus-runtime-V2.py
     - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/test_redis_runtime_V2.py
     - .github/workflows/redis-ci.prod-V2.yml
   push:
     branches:
@@ -16,6 +17,7 @@ name: Catus redis CI V2
     - server/scripts/runtime-V2/redis*
     - .github/scripts/catus-runtime-V2.py
     - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/test_redis_runtime_V2.py
     - .github/workflows/redis-ci.prod-V2.yml
   workflow_dispatch: {}
 permissions:
@@ -37,6 +39,7 @@ jobs:
       with:
         python-version: '3.12'
     - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
+    - run: python3 -m unittest discover -s .github/scripts -p 'test_redis_runtime_V2.py' -v
     - run: python3 .github/scripts/catus-runtime-V2.py plan --role redis
   publish:
     needs:

@@ -25,8 +25,11 @@ services:
       test:
       - CMD
       - redis-cli
+      - -e
       - --user
       - health
+      - --pass
+      - ''
       - ping
       interval: 5s
       timeout: 3s
@@ -45,9 +48,9 @@ services:
     - --maxmemory
     - 128mb
     - --maxmemory-policy
-    - allkeys-lru
+    - noeviction
     - --appendonly
-    - 'no'
+    - 'yes'
     - --save
     - ''
     ports:
@@ -61,8 +64,11 @@ services:
       test:
       - CMD
       - redis-cli
+      - -e
       - --user
       - health
+      - --pass
+      - ''
       - ping
       interval: 5s
       timeout: 3s
