@@ -156,10 +156,12 @@ local function valid_id(value, max)
   return nil
 end
 
-local function raw_record(line, stream)
+-- pre_cut_in·original_in: 호출자가 이미 사전 자르기를 한 줄이면(Nginx 폴백) 그 사실과 원래 길이를 넘긴다.
+local function raw_record(line, stream, pre_cut_in, original_in)
   line = tostring(line or ""):gsub("[\r\n]+$", "")
-  local original = #line
+  local original = original_in or #line
   local head, pre_cut = truncate(line, MESSAGE_LIMIT * 2)
+  pre_cut = pre_cut or pre_cut_in
   local masked = mask(head)
   if pre_cut then masked = drop_cut_token(masked) end
   local message, cut = truncate(masked, MESSAGE_LIMIT)
@@ -335,7 +337,20 @@ end
 local NGINX_ERROR = "^(%d%d%d%d)/(%d%d)/(%d%d) (%d%d):(%d%d):(%d%d) %[(%a+)%] (%d+)#(%d+): (.*)$"
 local ERROR_LEVELS = { emerg = "ERROR", alert = "ERROR", crit = "ERROR", error = "ERROR", warn = "WARN", notice = "INFO", info = "INFO", debug = "DEBUG" }
 
-local function nginx_error(line, stream)
+-- 사전 자르기로 끝이 잘린 줄의 마지막 토큰이 `스킴://` 뒤 authority 만 있고 '/' 가 없으면(userinfo 중간에서 잘렸을 수 있음:
+-- `upstream: "http://user:pa`) authority 를 버린다. '@' 가 없어 redact_userinfo 도, 20자 미만이라 경로 토큰 규칙도 못 잡는 조각이다.
+local function drop_cut_url(text)
+  return (text:gsub("(%S*://)[^/%s]*$", "%1"))
+end
+
+local function drop_cut_url_if(text, pre_cut)
+  if pre_cut then return drop_cut_url(text) end
+  return text
+end
+
+-- pre_cut·original: nginx_finalize 가 이미 32K 사전 자르기를 했는지와 자르기 전 줄 길이.
+local function nginx_error(line, stream, pre_cut, original)
+  pre_cut = pre_cut or false
   local y, mo, d, h, mi, s, level, pid, _, rest = line:match(NGINX_ERROR)
   if not y then return nil end
   local connection
@@ -363,7 +378,15 @@ local function nginx_error(line, stream)
     rest = before .. tail
   end
   rest = backstop(rest)  -- 최종 단계: 위 필드별 규칙이 따옴표 모호성으로 놓친 query·fragment·토큰
-  local message, cut = truncate(mask((truncate(rest, MESSAGE_LIMIT * 2))), MESSAGE_LIMIT)
+  -- 순서는 앱·raw 경로와 같다: 정제(위) → 사전 자르기 → 마스킹 → (사전 자르기를 했을 때만) 끝 토큰 버림 → 최종 자르기.
+  -- 사전 자르기는 nginx_finalize 에서 이미 한 번 했고, 정제가 줄을 늘려 32K 를 다시 넘으면 여기서 또 한다.
+  local rest_cut, cut2 = truncate(rest, MESSAGE_LIMIT * 2)
+  local pre = pre_cut or cut2
+  if cut2 then original = #rest end
+  if pre then rest_cut = drop_cut_url(rest_cut) end
+  local masked = mask(rest_cut)
+  if pre then masked = drop_cut_token(masked) end
+  local message, cut = truncate(masked, MESSAGE_LIMIT)
   local out = {
     schema_version = 1, log_id = uuid4(), log_kind = "infrastructure",
     -- ponytail: error.log 시각은 서버 로컬 시간이다. UTC 로 간주한다(dev VM 시간대는 미확인 — runbook).
@@ -371,7 +394,8 @@ local function nginx_error(line, stream)
     level = ERROR_LEVELS[level] or "INFO", logger = "nginx.error", message = message,
     env = DEFAULT_ENV, stream = stream, nginx_pid = tonumber(pid), connection = connection,
   }
-  if cut then out["truncated"] = true end
+  if cut or pre then out["truncated"] = true end
+  if pre then out["original_size_bytes"] = original end
   return out
 end
 
@@ -380,15 +404,17 @@ local function nginx_finalize(record, ts)
   if not src then src = (record["stream"] == "stderr") and "error" or "access" end
   record["_src"] = nil
   local line = tostring(record["log"] or ""):gsub("[\r\n]+$", "")
-  local head = truncate(line, MESSAGE_LIMIT * 2)  -- 패턴 매칭·마스킹 전에 먼저 자른다(긴 줄 O(n²) 방지)
+  local head, pre_cut = truncate(line, MESSAGE_LIMIT * 2)  -- 패턴 매칭·마스킹 전에 먼저 자른다(긴 줄 O(n²) 방지)
   local out
-  if src == "access" then out = nginx_access(record, head, record["stream"], ts) else out = nginx_error(head, record["stream"]) end
+  if src == "access" then out = nginx_access(record, head, record["stream"], ts) else out = nginx_error(head, record["stream"], pre_cut, #line) end
   if not out and src == "access" and record["status"] == nil then
-    out = raw_record(access_fallback(head), record["stream"])
+    out = raw_record(access_fallback(head), record["stream"], pre_cut, #line)
     out["logger"] = "nginx.access"
     if type(ts) == "number" then out["timestamp"] = iso_ms(ts) end
   end
-  if not out then out = raw_record(line, record["stream"]) end
+  -- 폴백(날짜 형식이 안 맞는 error 줄 등)도 raw 의 mask 만으로는 userinfo·query 가 남으므로 backstop 을 먼저 적용한다.
+  -- 사전 자르기된 head 기준: 전체 line 에 선형 backstop 을 돌리지 않고, raw_record 가 같은 규칙으로 꼬리를 정리한다.
+  if not out then out = raw_record(drop_cut_url_if(backstop(head), pre_cut), record["stream"], pre_cut, #line) end
   if not ENVS[out["env"]] then out["env"] = "unknown" end
   out["service"] = "nginx"
   out["observed_at"] = os.date("!%Y-%m-%dT%H:%M:%SZ")

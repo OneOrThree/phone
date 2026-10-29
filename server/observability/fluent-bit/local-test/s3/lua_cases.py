@@ -52,12 +52,21 @@ rows = [
     # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
     E('2026/10/29 10:00:00 [error] 1#1: *19 client sent invalid header NOSLASHTOKEN1234567890abcdef, client: 203.0.113.9, server: x, host: "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal"'),
 ]
+# ⑩ 날짜 없는 error 줄(NGINX_ERROR 불일치 -> raw 폴백)에도 userinfo·query 정제, 사전 자르기 지점이 userinfo 중간인 줄
+_head = "2026/10/29 10:00:00 [error] 1#1: *40 "
+_tail = 'connect() failed, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP'
+_fill = 32768 - len(_head) - len(_tail) - 1
+_long = _head + ("f " * (_fill // 2 + 1))[:_fill] + " " + _tail + "CUTPASS@h/p"  # 32768 바이트째가 «UP» 직후
+rows += [
+    E('nginx: [emerg] bad upstream http://svcuser:BPASS1@backend/x?code=BSECRET1 end'),
+    E(_long),
+]
 d = tempfile.mkdtemp()
 shutil.copy(LUA, f"{d}/logs.lua")
 open(f"{d}/in.log", "w").write("".join(json.dumps(r) + "\n" for r in rows))
 open(f"{d}/p.conf", "w").write("[PARSER]\n    Name j\n    Format json\n")
 open(f"{d}/t.lua", "w").write('dofile("/t/logs.lua")\nfunction t(tag, ts, record) return finalize(tag, ts, record) end\n')
-open(f"{d}/c.conf", "w").write("[SERVICE]\n    Flush 1\n    Parsers_File /t/p.conf\n[INPUT]\n    Name tail\n    Path /t/in.log\n    Parser j\n    Read_From_Head On\n    Exit_On_Eof On\n"
+open(f"{d}/c.conf", "w").write("[SERVICE]\n    Flush 1\n    Parsers_File /t/p.conf\n[INPUT]\n    Name tail\n    Path /t/in.log\n    Parser j\n    Read_From_Head On\n    Exit_On_Eof On\n    Buffer_Chunk_Size 256k\n    Buffer_Max_Size 256k\n"
                                "[FILTER]\n    Name lua\n    Match *\n    script /t/t.lua\n    call t\n[OUTPUT]\n    Name stdout\n    Match *\n    Format json_lines\n")
 out = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{d}:/t:ro", "fluent/fluent-bit:4.2.8", "-c", "/t/c.conf"],
                      capture_output=True, text=True).stdout
@@ -101,6 +110,10 @@ checks = [
      'upstream: "http://svcuser:UP"' in got[37]["message"] and "PASS7" not in json.dumps(got[37])),
     ("⑨ '/' 없는 토큰은 한계 유지(비밀 꼴 토큰이 남는다) — 호스트 이름은 가려지지 않는다",
      "NOSLASHTOKEN1234567890abcdef" in got[38]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[38]["message"]),
+    ("⑩ 날짜 없는 error 줄(raw 폴백)의 userinfo·query 잔존 없음",
+     not any(x in json.dumps(got[39]) for x in ("svcuser", "BPASS1", "BSECRET1", "code=")) and got[39].get("log_kind") == "raw"),
+    ("⑩ 사전 자르기 지점이 userinfo 중간이어도 잔존 없음, truncated·original_size_bytes 기록",
+     not any(x in json.dumps(got[40]) for x in ("svcuser", "UPCUT", "CUTPASS")) and got[40].get("truncated") is True and got[40].get("original_size_bytes", 0) > 32768),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]

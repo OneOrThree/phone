@@ -23,7 +23,7 @@ provider 는 message·exception 원본이 한도(16 KiB·32 KiB)의 2배를 넘�
 - 254자를 넘는 덩어리의 앞부분은 남는다. 유효한 이메일이 될 수 없는 꼴이라 마스킹 대상 밖으로 둔다.
 - 휴대폰 가림은 11자를 13자로 늘린다. 254자에 가까운 잘린 이메일 조각 안에 구분자 없는 휴대폰이 들어 있으면, 마스킹 뒤 조각이 254자를 넘어 앞 몇 글자(휴대폰 하나당 최대 2자)가 남는다.
 
-**범위 밖**: `logs.lua` 의 Nginx 경로(`nginx_finalize` 의 사전 자르기, `nginx_error` 의 `truncate(mask(truncate(rest, MESSAGE_LIMIT * 2)), …)`)는 같은 꼬리 문제가 있지만 GROMO-2585 담당 함수라 고치지 않았다. 고칠 때는 `raw_record` 와 같은 순서(사전 자르기 → `mask` → `drop_cut_token` → 최종 자르기)로 적용한다.
+**Nginx 경로**: `logs.lua` 의 `nginx_finalize`·`nginx_error` 도 같은 순서를 따른다. 정제(`redact_userinfo`·`backstop`) → 사전 자르기 → `mask` → (사전 자르기를 했을 때만) 끝 토큰 버림 → 최종 자르기이고, 사전 자르기가 있었으면 `truncated`·`original_size_bytes`(자르기 전 줄 길이)를 남긴다. 사전 자르기 지점이 `upstream: "http://user:pa` 처럼 URL authority 중간이면 `@` 가 없어 userinfo 규칙이 못 잡으므로, 사전 자르기된 줄은 끝의 «`스킴://` + authority(`/` 없음)» 토큰의 authority 를 버린다(`drop_cut_url`). `NGINX_ERROR` 형식이 아닌 error 줄(`nginx: [emerg] …` 등)은 raw 로 폴백하되 먼저 `backstop` 을 적용한다(사전 자르기된 `head` 기준). 시험은 `local-test/s3/lua_cases.py` ⑩.
 
 ## 네 서비스 공통 입력표
 
