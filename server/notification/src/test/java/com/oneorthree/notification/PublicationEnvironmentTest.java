@@ -2,6 +2,7 @@ package com.oneorthree.notification;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -14,10 +15,25 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PublicationEnvironmentTest {
+    @Test
+    void DB_표식_조회_실패도_환경_오류로_분류한다() {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        var jdbc = mock(JdbcTemplate.class);
+        doThrow(new DataAccessResourceFailureException("DB unavailable"))
+                .when(jdbc).queryForList(anyString(), eq(String.class));
+        var guard = new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev");
+
+        assertThatThrownBy(guard::assertDispatchReady)
+                .isInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class)
+                .hasMessageContaining("환경 조회");
+    }
+
     @Test
     void 프로파일이_없으면_대기_알림도_발송하지_않는다() {
         var guard = new NotificationEnvironmentGuard(new MockEnvironment(), mock(JdbcTemplate.class), "gromo-dev");
