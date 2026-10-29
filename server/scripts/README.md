@@ -261,7 +261,7 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 `put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
 
-`<account-id>`는 운영 AWS 계정의 12자리 ID이며 공개 문서에 적지 않습니다. 실제 버킷 이름은 Infra 저장소(현행 `OneOrThree/Infra`, 이 버킷의 원본 기록은 구 `OneOrThree/terraform`의 `aws-prod-server/s3.tf`)나 `aws --profile gromo sts get-caller-identity`로 확인합니다.
+`<account-id>`는 운영 AWS 계정의 12자리 ID이며(dev 시크릿 `gromo/dev/env`가 있는 계정과 같은 계정) 공개 문서에 적지 않습니다. ID 자체는 접근 권한을 주지 않는 식별자지만 공격 표면 정보라 가립니다. 실제 버킷 이름은 Infra 저장소(현행 `OneOrThree/Infra`, 이 버킷의 원본 기록은 구 `OneOrThree/terraform`의 `aws-prod-server/s3.tf`)나 `aws --profile gromo sts get-caller-identity`로 확인합니다.
 
 ```bash
 aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-<account-id>
