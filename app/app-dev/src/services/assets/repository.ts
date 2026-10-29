@@ -554,7 +554,12 @@ export class AssetRepository {
   }
   async onForeground() {
     await this.initialize();
-    const retryDue = Object.values(this.state.failures).some((f) => this.now() >= f.nextRetry);
+    const retryDue = Object.entries(this.state.channel.manifest?.packs ?? {}).some(
+      ([packId, pack]) => {
+        const failure = this.state.failures[key(packId, pack.version)];
+        return failure !== undefined && this.now() >= failure.nextRetry;
+      },
+    );
     await this.refresh(retryDue);
     await this.collect();
   }

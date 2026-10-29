@@ -409,3 +409,25 @@ test('GC 삭제와 ensure가 경합해도 존재하는 완성 객체만 활성�
   expect(lease).not.toBeNull();
   expect(f.files.has(lease!.assets.background.uri)).toBe(true);
 });
+
+test('이전 버전 수신 실패는 새 버전 성공 후 복귀의 6시간 제한을 우회하지 않는다', async () => {
+  const f = fixture(),
+    r = f.create();
+  f.set({ fail: true });
+  expect((await r.ensurePack('interior-hall')).status).toBe('failed');
+  f.advance(60000);
+  f.set({ fail: false, generation: 2, release: 'release2', body: 'image-two' });
+  expect((await r.ensurePack('interior-hall')).status).toBe('ready');
+  const requests = f.counts().requests;
+  for (let n = 0; n < 3; n++) {
+    f.advance(60000);
+    await r.onForeground();
+  }
+  expect(f.counts().requests).toBe(requests);
+  const restarted = f.create();
+  await restarted.onForeground();
+  expect(f.counts().requests).toBe(requests);
+  f.advance(POLICY.channelAge);
+  await restarted.onForeground();
+  expect(f.counts().requests).toBe(requests + 1);
+});
