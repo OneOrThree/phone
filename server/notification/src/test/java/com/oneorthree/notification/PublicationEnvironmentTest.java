@@ -119,4 +119,31 @@ class PublicationEnvironmentTest {
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB/FCM 환경");
         verifyNoInteractions(publications);
     }
+
+    @Test
+    void 환경_응답은_FCM_식별값을_보존하고_지원_API_계약을_추가한다() throws Exception {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
+        when(jdbc.queryForList(argThat(sql -> sql.contains("gromo.fcm_project_id")), eq(String.class)))
+                .thenReturn(List.of("catus-prod"));
+        var guard = new NotificationEnvironmentGuard(environment, jdbc, "catus-prod");
+        var controller = new PublicationController(mock(PublicationService.class), guard, mock(AdminCatalog.class));
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/publications/environment"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.environment").value("prod"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.fcmProjectId").value("catus-prod"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.contractVersion").value("1"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.capabilities").value(org.hamcrest.Matchers.contains("notification.publication.v1",
+                                "notification.history.v1", "notification.templates.v1")));
+        assertThat(guard.identity()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("environment", "prod", "fcmProjectId", "catus-prod"));
+    }
 }

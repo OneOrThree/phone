@@ -1,3 +1,5 @@
+import contract from "../server/contract.json" with { type: "json" };
+const apiContract = { contractVersion: contract.contractVersion, capabilities: [...contract.data, ...contract.notification] };
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -104,7 +106,7 @@ test("연결 모드는 환경 검증 뒤 고정 경로와 기준 버전으로 �
     fetchImpl: async (url, options) => {
       calls.push({ url: url.toString(), ...options });
       return Response.json(url.pathname.endsWith("/environment")
-        ? { environment: "dev", fcmProjectId: "local-test" } : { costPolicyVersion: 2 });
+        ? { ...apiContract, environment: "dev", fcmProjectId: "local-test" } : { costPolicyVersion: 2 });
     } });
   await upstream.publish(item, "member-1", { dataToken: "test-data", notificationToken: "test-notification" });
   const call = calls.at(-1);

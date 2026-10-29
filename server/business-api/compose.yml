@@ -10,12 +10,13 @@ services:
     - --maxmemory
     - 128mb
     - --maxmemory-policy
-    - allkeys-lru
+    - noeviction
     - --save
     - ''
     - --appendonly
-    - 'no'
+    - 'yes'
     volumes:
+    - business-redis-data:/data
     - ${BUSINESS_REDIS_ACL_FILE:?Business Redis ACL 파일 필요}:/etc/redis/business.acl:ro
     networks:
     - business-cache
@@ -81,4 +82,5 @@ networks:
   app-network:
     driver: bridge
 volumes:
+  business-redis-data: {}
   business-logs: null

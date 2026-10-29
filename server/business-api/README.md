@@ -1,6 +1,7 @@
 # Business API
 
 > 앱 요청을 검증하고 여러 서비스의 결과를 모으며, 공유 파일의 미리보기를 만드는 서버입니다.
+> Redis 통합·기존 차단 정보 전환·HA 판단은 [공유 Redis 운영](../../docs/architecture/shared-redis.md)을 따릅니다.
 
 [서버 전체 보기](../README.md) · [Data API](../data-api/README.md) · [Notification](../notification/README.md) · [내부 API 계약](../../docs/contracts/business-satellite-api.yaml)
 
@@ -359,13 +360,13 @@ HTTP 응답 본문은 시도당 1MiB로 제한하고 초과는 계약 오류로 
 | 링크 `confirm`·`revoke`·`withdraw` 호출 | claim 확정 전달은 Data 의 락 아래 outbox + relay 가 한다(A22 ㋟). Business 가 응답을 받은 뒤 보내면 그때는 이미 락이 풀려 그 사이 revoke 가 끼어든다. 있으면 누가 그 경로를 쓴다 |
 | 범용 프록시 | 인바운드 헤더를 복사할 통로가 없다. `InternalCall` 이 `Authorization`·`X-User-Id` 를 거부하고, 경로는 각 클라이언트의 상수뿐이다 |
 
-> **⚠️ 「저장소가 없다」가 아니다.** 이 서비스에는 **미리보기 전용 Redis 가 있다** — A19 네임스페이스 표의
+> **⚠️ 「저장소가 없다」가 아니다.** 이 서비스에는 **공유 Redis에 Business 소유 키가 있다** — A19 네임스페이스 표의
 > `cache:business:*` 소유자다. 그것이 위 계약과 함께 성립하는 이유는 **사본이기 때문**이다: 정본이 없고,
 > 비워도 다음 요청이 다시 만들며, 어떤 도메인 판정도 거기에 의존하지 않는다(담기는 것은 미리보기
 > 메타데이터와 축소 PNG 뿐이다). 도메인 상태를 여기 얹는 순간 그 구분이 무너진다.
 >
 > A19 및 A22 ㋺에 따라 `business` ACL 사용자는 `cache:business:*`와 캐시 명령만 사용한다.
-> `default` 사용자는 비활성화되며, Redis는 내부 `business-cache` 네트워크에서만 접근한다.
+> `default` 사용자는 비활성화되며, 공유 Redis는 내부 네트워크에서 서비스별 ACL로 접근한다. `business-cache`는 이전 Redis 전환 연결과 단독 개발에만 사용한다.
 > `BUSINESS_REDIS_PASSWORD`는 Business 전용 env에, 해시된 ACL은 별도 파일에 주입한다.
 
 ## 보안 경계 — 필터 두 장
@@ -568,7 +569,7 @@ Docs·Sheets·Slides의 다중 계정 경로(`/u/0/d/...` 등)도 인식한다. 
 flowchart LR
   App[앱] -->|메시지 전송·원본 URL| Chat[채팅 서버]
   App -->|access JWT + URL| Business[Business API :8080]
-  Business --> Cache[(전용 Redis / TTL 캐시)]
+  Business --> Cache[(공유 Redis / 제한된 TTL 캐시)]
   Business --> Worker[작업 4개 + 대기 8개]
   Worker --> Guard[URL·DNS·리다이렉트 검증]
   Guard --> Drive[공개 Google Drive API]
@@ -648,10 +649,10 @@ sequenceDiagram
 
 ## 제한·캐시·복구
 
-- 사용자별 캐시: `cache:business:preview:{userId}:{urlHash}`. ID를 알아도 다른 계정의 URL·이미지는 볼 수 없다. 같은 공개 링크를 받은 사용자는 자기 계정으로 POST하면 된다. 중복 방지는 같은 사용자 내에서 적용된다.
+- 사용자별 논리 캐시를 64개 고정 슬롯 `cache:business:preview:slot:v1:{0..63}`에 저장한다. 슬롯의 사용자·URL 해시를 대조하며 직렬화된 항목은 최대 1MiB다. ID를 알아도 다른 계정의 URL·이미지는 볼 수 없다. 같은 공개 링크를 받은 사용자는 자기 계정으로 POST하면 된다. 중복 방지는 같은 사용자 내에서 적용된다.
 - PENDING 90초 / READY 300초 / FAILED 30초. SET NX로 선점하고 완료 시 원래 generation이 그대로 있을 때만 교체한다. 만료 후 재생성 중에 이전 작업이 끝나도 새 결과를 덮어쓰지 못한다.
-- 프로세스 종료·Redis 장애로 결과 저장이 실패하면 pending TTL 후 POST로 복구한다. GET만으로 작업을 생성하지 않는다. Redis eviction으로 일찍 사라질 수도 있다.
-- 전용 Redis는 128MiB·allkeys-lru·영속화 없음. 캐시 손실이 허용되며 기존 채팅/프레즌스 Redis와 분리한다. 메모리 압박 시 rate key도 eviction될 수 있어 이 제한은 남용 방어의 보조 수단이다. 폐기 세션 거부 목록(`cache:business:revoked-session:*`)은 캐시와 달리 잃으면 보안 영향이 있다. 그래도 축출로 키 단위, 재시작·페일오버로 목록 전체를 잃을 수 있다. 잃은 세션의 AT 는 남은 수명(운영 최대 1시간)만큼 다시 통과한다. 최악 노출 상한이 거부 목록이 없을 때와 같아 수용한 한계다(축출 불가 저장소 이전은 ticket 2225). 인터넷 경계의 인증/IP 요청 제한과 함께 운영한다.
+- 프로세스 종료·Redis 장애로 결과 저장이 실패하면 pending TTL 후 POST로 복구한다. GET만으로 작업을 생성하지 않는다. 완료된 미리보기는 64개 한도에서 최근 조회 순서로 교체될 수 있다. 전부 처리 중이면 새 요청은 `FAILED/BUSY`다.
+- 공유 Redis는 384MiB·noeviction·AOF everysec, 컨테이너 한도는 576MiB다. 미리보기 payload는 최대 64MiB이며 Redis 자체 관리 메모리는 별도다. 세션 차단·탈퇴 표지·레이트 키는 미리보기 축출 대상에서 제외한다. Redis 장애의 인증 fail-open과 AOF 미동기화 데이터 유실 가능성은 남는다.
 - 1분 240 비용: 배치 POST URL당 4, GET/썸네일당 1. 프로세스별 동시 작업 4·대기 8, 초과는 `BUSY`로 30초 캐시한다.
 - 파일 최대 10MiB, Google 메타데이터 64KiB. 이미지 최대 2천만 픽셀·출력 480px/512KiB. PNG가 바이트 한도를 넘으면 치수를 더 줄여 재인코딩한다. SVG/WebP/HTML은 렌더링하지 않는다.
 - HTTP(S) 기본 포트만 허용한다. 사설·루프백·링크 로컬·예약 IP 및 IPv6 전환 주소를 차단한다. DNS 결과 전체를 검사하고 실제 연결 주소로 고정한다. 최대 3회 리다이렉트마다 재검증하며 HTTPS→HTTP를 거절한다. 쿠키·자동 압축·자동 재시도는 끈다. Google 키는 메타데이터 API 첫 요청에만 전송하고 Google 메타데이터 리다이렉트는 거절한다.
@@ -666,7 +667,7 @@ sequenceDiagram
 | --- | --- |
 | `JWT_SECRET` | 필수. data-api와 같은 UTF-8 HMAC 키 원문, 최소 32바이트. 기본값 없음 |
 | `GOOGLE_DRIVE_API_KEY` | Drive API를 활성화한 프로젝트의 서버 API 키. API 제한은 Drive API로 설정하고 배포 egress IP 제한을 권장. 미설정 시 일반 파일은 동작하고 Drive만 `DRIVE_NOT_CONFIGURED` |
-| `BUSINESS_REDIS_HOST/PORT/USERNAME/PASSWORD` | Redis 접속, 기본 localhost:6379. Compose는 전용 Redis 주소 주입 |
+| `BUSINESS_REDIS_HOST/PORT/USERNAME/PASSWORD` | Redis 접속, 기본 localhost:6379. 통합 Compose는 공유 Redis 주소 주입 |
 | `BUSINESS_LOG_PATH` | 기본 `logs/business-api.log` |
 
 ```sh

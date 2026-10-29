@@ -63,6 +63,9 @@ class Fixture:
         self.base.write_text(
             "name: phone\n"
             "services:\n"
+            "  redis:\n"
+            "    image: redis:7.4.11-alpine\n"
+            "    networks: [app-network]\n"
             "  app:\n"
             "    image: ${APP_IMAGE:-registry.test/back:latest}\n"
             "    environment:\n"
@@ -269,6 +272,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 fixture.base.write_text((ROOT / "server/scripts" /
                                          f"docker-compose.{environment}.yml").read_text())
                 fixture.shared.write_text(
+                    "REDIS_DATA_PASSWORD=synthetic-data\nREDIS_REALTIME_PASSWORD=synthetic-realtime\n"
                     "POSTGRES_DB=gromo\nPOSTGRES_USER=legacy-admin\nPOSTGRES_PASSWORD=legacy-password\n"
                     "ECR_REPO=registry.test/legacy\nIMAGE_TAG=old\nAPP_IMAGE=registry.test/legacy:old\n"
                     "DD_API_KEY=old-dd-secret\nJWT_SECRET=old-jwt\nGOOGLE_CLIENT_ID=old-google\n"
@@ -337,6 +341,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 self.assertNotIn(value, compose_env, "compose 보간 파일로 비밀이 샜다")
             self.assertIn("DATA_API_ENV_FILE=", compose_env)
             self.assertIn("BUSINESS_API_IMAGE=", compose_env)
+            self.assertIn("SHARED_REDIS_ACL_FILE='/var/lib/gromo/runtime/shared-redis.acl'", compose_env)
 
     def test_표준출력과_절차_파일에_시크릿_값이_나오지_않는다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -508,10 +513,10 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
             self.assertFalse((fixture.output / "data-api.env").exists())
             plan = (fixture.output / "deploy-plan.txt").read_text(encoding="utf-8")
             self.assertNotIn(DATA_OVERLAY.name, plan)
-            self.assertIn("up -d business-api notification", plan)
-            # GROMO-1957 — ACL 은 기동 때만 읽히므로 위성보다 먼저 business-redis 를 재생성한다.
-            self.assertLess(plan.index("up -d --force-recreate business-redis"),
-                            plan.index("up -d business-api notification"))
+            self.assertIn("up -d --no-deps business-api notification", plan)
+            # 위성 배포 계획은 기존 Business Redis를 재생성하지 않는다.
+            self.assertNotIn("--force-recreate", plan)
+            self.assertIn("bridge", plan)
 
 
 class SatelliteRoutingExampleTest(unittest.TestCase):

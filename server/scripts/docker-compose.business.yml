@@ -9,40 +9,6 @@ x-infra-logging: &infra-logging
   options: {max-size: "10m", max-file: "3"}
 
 services:
-  business-redis:
-    logging: *infra-logging
-    image: redis:7.4.11-alpine
-    command:
-    - redis-server
-    - --aclfile
-    - /etc/redis/business.acl
-    - --maxmemory
-    - 128mb
-    - --maxmemory-policy
-    - allkeys-lru
-    - --save
-    - ''
-    - --appendonly
-    - 'no'
-    volumes:
-    - ${BUSINESS_REDIS_ACL_FILE:?Business Redis ACL 파일 필요}:/etc/redis/business.acl:ro
-    networks:
-    - business-cache
-    mem_limit: 192m
-    restart: unless-stopped
-    healthcheck:
-      test:
-      - CMD
-      - redis-cli
-      - --user
-      - health
-      - --pass
-      - ''
-      - --no-auth-warning
-      - ping
-      interval: 3s
-      timeout: 2s
-      retries: 10
   business-api:
     logging: *app-logging
     image: ${BUSINESS_API_IMAGE:?Business 이미지 digest 필요}
@@ -51,7 +17,7 @@ services:
     environment:
       SERVER_PORT: '8080'
       DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
-      BUSINESS_REDIS_HOST: business-redis
+      BUSINESS_REDIS_HOST: redis
       BUSINESS_REDIS_USERNAME: business
     expose:
     - '8080'
@@ -59,7 +25,7 @@ services:
     - app-network
     - business-cache
     depends_on:
-      business-redis:
+      redis:
         condition: service_healthy
     restart: unless-stopped
     mem_limit: 2g

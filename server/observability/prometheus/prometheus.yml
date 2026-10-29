@@ -29,11 +29,6 @@ scrape_configs:
     static_configs:
       - targets: ['realtime:9091']
         labels: {service: realtime}
-  - job_name: business-redis
-    static_configs:
-      - targets: ['business-redis-exporter:9121']
-
-  # PostgreSQL (쿼리 부하 L2) — tps·캐시히트·커넥션·락
   - job_name: postgres
     static_configs:
       - targets: ['postgres-exporter:9187']

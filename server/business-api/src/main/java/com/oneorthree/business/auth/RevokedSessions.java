@@ -1,6 +1,7 @@
 package com.oneorthree.business.auth;
 
 import lombok.extern.slf4j.Slf4j;
+import com.oneorthree.business.common.redis.BusinessRedisMarkers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,10 +19,10 @@ import java.util.UUID;
  * <p>sid 없는 구 AT 는 이 목록으로 막지 못한다(필터가 그대로 통과시킨다). legacy RT 로그아웃은 새 세션 행을 만들어
  * 그 id 를 등록하지만, 그 id 를 가진 AT 는 없으므로 헛 키 하나가 TTL 로 사라질 뿐이다.
  *
- * <p>best-effort 다. 운영 business Redis 는 128MiB·allkeys-lru·영속화 없음이라 메모리 압박이면 키가 TTL 전에
- * 축출되고, 재시작·페일오버면 목록 전체가 사라진다. 잃은 sid 의 AT 는 남은 수명(운영 최대 1시간)만큼 통과한다.
- * 최악 노출 상한은 이 목록이 없던 때와 같지만, {@link #isRevoked} 의 차단기와 달리 복구되지 않고 로그도 없다.
- * ponytail: 축출 불가 저장소로 옮기는 건 ticket 2225.
+ * <p>공유 Redis는 noeviction·AOF를 사용하고 미리보기 용량을 별도로 제한한다. 전환 중에는 이전
+ * Redis의 차단 표지도 조회한다. 여전히 best-effort다: 조회 장애의 fail-open과 AOF 미동기화 데이터
+ * 유실 가능성은 남는다. 축출 방지가 폐기 AT의 무조건적 거부를 보장하지는 않는다.
+
  */
 @Slf4j
 @Component
@@ -36,28 +37,34 @@ public class RevokedSessions {
     static final String KEY_PREFIX = "cache:business:revoked-session:";
     /** 서버 간 시계 차이 여유. TTL 은 폐기 시점부터, AT 수명은 발급 시점부터 세므로 원래도 남는 쪽이다. */
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
-    /** 조회가 실패하면 이 시간 동안 Redis 를 부르지 않는다 — 장애 중 요청마다 타임아웃(2s)을 물지 않게. */
+    /** 새 Redis 조회가 실패하면 이 시간 동안 재시도를 건너뛴다. 기존 Redis에는 별도 차단기가 있다. */
     static final Duration BREAKER_OPEN = Duration.ofSeconds(30);
 
-    private final StringRedisTemplate redis;
+    private final BusinessRedisMarkers markers;
     private final Duration ttl;
     private final Clock clock;
     private volatile Instant skipUntil = Instant.MIN;
 
     // 생성자가 둘(아래는 테스트용 시계 주입)이라 Spring 이 고를 쪽을 명시한다 — 없으면 기본 생성자를 찾다 기동이 실패한다.
     @Autowired
-    public RevokedSessions(StringRedisTemplate redis, @Value("${auth.revoked-session.ttl}") Duration ttl) {
+    public RevokedSessions(BusinessRedisMarkers markers, @Value("${auth.revoked-session.ttl}") Duration ttl) {
+        this.markers = markers;
+        this.ttl = ttl;
+        this.clock = Clock.systemUTC();
+    }
+
+    public RevokedSessions(StringRedisTemplate redis, Duration ttl) {
         this(redis, ttl, Clock.systemUTC());
     }
 
     RevokedSessions(StringRedisTemplate redis, Duration ttl, Clock clock) {
-        this.redis = redis;
+        this.markers = new BusinessRedisMarkers(redis);
         this.ttl = ttl;
         this.clock = clock;
     }
 
     public void revoke(UUID sessionId) {
-        redis.opsForValue().set(KEY_PREFIX + sessionId, "1", ttl.plus(CLOCK_SKEW));
+        markers.put(KEY_PREFIX + sessionId, ttl.plus(CLOCK_SKEW));
     }
 
     /**
@@ -73,7 +80,7 @@ public class RevokedSessions {
             return false;
         }
         try {
-            return redis.opsForValue().get(KEY_PREFIX + sessionId) != null;
+            return markers.containsRevocation(KEY_PREFIX + sessionId);
         } catch (RuntimeException e) {
             skipUntil = now.plus(BREAKER_OPEN);
             log.warn("폐기 세션 조회 실패 — {} 동안 조회를 건너뛰고 fail-open 으로 통과시킨다. sid={}",

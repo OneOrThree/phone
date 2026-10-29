@@ -31,6 +31,7 @@ COPY ci-artifact/app.jar /app/app.jar
 FROM ${JAR_SOURCE} AS artifact
 
 FROM eclipse-temurin:17.0.20.1_1-jre-jammy
+LABEL com.oneorthree.redis-layout="shared-v1"
 # curl — compose 헬스체크가 쓴다. 이 베이스에 지금은 들어 있지만 «보장»된 것이 아니다: 베이스 태그를
 #        올릴 때 베이스가 한 번 슬림해지는 것만으로 매 검사가 `curl: not found` 가 되어 앱이
 #        멀쩡한데도 컨테이너가 계속 unhealthy 로 판정된다. 그 의존을 이미지 안에 못 박는다.

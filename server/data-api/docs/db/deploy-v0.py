@@ -125,6 +125,9 @@ def validate_legacy_bundle(directory, manifest):
     expected_files = {item['script'] for item in manifest['source_history']}
     actual_files = {path.name for path in directory.glob('V*.sql')}
     added = actual_files - expected_files
+    if rebase.EXTENSION_SCRIPT in added:
+        rebase.extension_entry(directory)
+        added.remove(rebase.EXTENSION_SCRIPT)
     if not expected_files <= actual_files or any(
             (match := re.fullmatch(r'V(\d+(?:[._]\d+)*)__.+\.sql', name)) is None
             or version(match[1].replace('_', '.')) <= version(manifest['source_version'])
@@ -335,15 +338,19 @@ def inspect_database(database, manifest, current):
             raise ValueError('V0 구조 지문이 다릅니다')
         return {**info, 'state': 'current', 'source_version': history[-1]['version'],
                 'needs_backup': len(history) < len(current)}
+    manifest = rebase.profile_for_history(manifest, history)
     expected = manifest['source_history']
     if len(history) > len(expected):
         raise ValueError('지원하는 원본 V138보다 새로운 이력입니다')
     rebase.assert_history(history, expected[:len(history)])
-    if len(history) == len(expected):
+    # V138은 데이터 정리만 수행하므로 승인된 V137.1도 같은 구조 지문이어야 한다.
+    if len(history) == len(expected) or (manifest.get('profile') == 'backoffice-137.1'
+                                         and history[-1]['version'] == '137.1'):
         if database.fingerprint() not in manifest['source_schemas']:
             raise ValueError('V138 구조 지문이 다릅니다')
         rebase.check_bot_references(database, manifest)
-    return {**info, 'state': 'legacy', 'source_version': history[-1]['version'], 'needs_backup': True}
+    return {**info, 'state': 'legacy', 'source_version': history[-1]['version'], 'needs_backup': True,
+            'profile': manifest.get('profile', 'original')}
 
 
 def execute(args, journal, values, connection):
@@ -390,7 +397,15 @@ def execute(args, journal, values, connection):
         if ready['other_connections']:
             raise ValueError('V138 준비 후 다른 DB 연결이 있습니다')
         journal.save(phase='rebase-v0')
-        database.sql(rebase.apply_sql(manifest, manifest['v0_checksum']))
+        selected = rebase.extension_profile(manifest) if ready.get('profile') == 'backoffice-137.1' else manifest
+        actual_history = database.data("SELECT json_agg(row_to_json(h) ORDER BY h.installed_rank) FROM "
+            "(SELECT installed_rank,version,type,script,checksum,success FROM flyway_schema_history) h;")
+        evidence = rebase.transition_evidence(selected, actual_history, database.fingerprint())
+        plan_path = Path(journal.data['backup_paths'][-1] + '.rebase-plan.json')
+        rebase.write_plan(plan_path, {'environment': args.environment, 'database': ready['database'],
+                                     'data_image': args.data_image, **evidence})
+        journal.save(rebase_plan_path=str(plan_path))
+        database.sql(rebase.apply_sql(selected, manifest['v0_checksum']))
         journal.save(phase='v0-committed')
     migrate('current')
     after = inspect_database(database, manifest, current)
