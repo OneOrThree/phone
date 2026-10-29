@@ -1,8 +1,25 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Failure } from "./store.mjs";
 export class Upstream {
-  constructor({ mode, notificationUrl, dataUrl, fetchImpl = fetch }) {
-    Object.assign(this, { mode, notificationUrl, dataUrl, fetchImpl });
+  constructor({ mode, environment, notificationUrl, dataUrl, fetchImpl = fetch }) {
+    Object.assign(this, { mode, environment, notificationUrl, dataUrl, fetchImpl });
+  }
+  async verifyEnvironment(expected, actor, operator) {
+    try {
+      const [data, notification] = await Promise.all([
+        this.request(this.dataUrl, "/internal/admin/content/environment", actor,
+          operator.dataToken, undefined, "GET"),
+        this.request(this.notificationUrl, "/internal/admin/publications/environment", actor,
+          operator.notificationToken, undefined, "GET"),
+      ]);
+      if (data.environment !== expected || notification.environment !== expected) {
+        throw new Failure(503, "Data·Notification 환경이 백오피스 설정과 일치하지 않습니다.");
+      }
+    } catch (error) {
+      // 검증 단계에서 중단한 것이므로 발행 요청은 아직 전송되지 않았다.
+      error.definite = true;
+      throw error;
+    }
   }
   async request(base, path, actor, token, body, method = "POST", key) {
     if (!base || !token)
@@ -82,6 +99,7 @@ export class Upstream {
           .digest("hex"),
       };
     }
+    if (this.environment) await this.verifyEnvironment(this.environment, actor, operator);
     return this.request(
       this.dataUrl,
       "/internal/admin/content/magazine/previews",
@@ -92,6 +110,7 @@ export class Upstream {
   }
   async catalog(actor, operator) {
     if (this.mode === "local") return { items: [] };
+    if (this.environment) await this.verifyEnvironment(this.environment, actor, operator);
     return this.request(
       this.notificationUrl,
       "/internal/admin/templates",
@@ -111,6 +130,7 @@ export class Upstream {
         recipientCount: item.targets.length,
         message: "로컬 모의 처리입니다. 실제 발송·게시는 하지 않았습니다.",
       };
+    if (this.environment) await this.verifyEnvironment(this.environment, actor, operator);
     const id = item.publicationId;
     if (item.kind === "fcm") {
       const fcm = item.data.fcm;

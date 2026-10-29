@@ -21,6 +21,7 @@ Vite 개발 화면을 쓸 때에는 BFF의 `BACKOFFICE_ORIGIN=http://127.0.0.1:5
 | 설정 | 의미 |
 | --- | --- |
 | `BACKOFFICE_MODE=connected` | 내부 API 연결 활성화. 기본 local |
+| `BACKOFFICE_ENV=dev` 또는 `prod` | 연결 모드 필수. 검토 저장 파일과 Data·Notification 연결 환경을 고정 |
 | `BACKOFFICE_ORIGIN` | 실제 HTTPS 출처. 경로 없는 `https://운영주소` |
 | `BACKOFFICE_OPERATORS` | member-1~3별 `{passwordHash,notificationToken,dataToken}` JSON |
 | `NOTIFICATION_URL` | 비공개 notification HTTP(S) 주소 |
@@ -29,6 +30,8 @@ Vite 개발 화면을 쓸 때에는 BFF의 `BACKOFFICE_ORIGIN=http://127.0.0.1:5
 | `BACKOFFICE_HOST`, `PORT` | 기본 127.0.0.1:4310. 연결 모드 컨테이너는 0.0.0.0 |
 
 운영자별 notificationToken은 Notification의 member-1~3 admin token, dataToken은 Data의 `SVC_TOKEN_CONSOLE_MEMBER_1_TO_DATA`(2/3도 동일)와 맞춘다. member 번호와 토큰의 actor가 다르면 거부된다. 서비스 간 토큰을 공유하지 않는다. 비밀은 프로세스 환경/비밀 관리 시스템으로만 주입한다.
+
+dev와 prod는 **별도 백오피스 인스턴스·HTTPS 주소·영구 볼륨·운영자 자격·Data/Notification 서비스와 DB**를 사용한다. 각 인스턴스에 맞는 `BACKOFFICE_ENV`를 명시한다. 시작할 때 두 서비스의 인증된 환경 정보를 확인하며, 불일치하거나 확인할 수 없으면 서버가 시작되지 않는다. 검토 데이터는 각각 `dev.sqlite`, `prod.sqlite`에 저장되고, 미리보기·내부 조회·발행 요청 전에도 양쪽 환경을 다시 확인한다. 연결 대상 중 하나가 바뀌어도 다른 환경에 게시하지 않는다. 서비스는 이 백오피스의 환경 확인 API를 포함한 버전으로 먼저 교체해야 한다. 로컬 모드는 `local.sqlite`만 사용한다.
 
 HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷에 내부 `/internal/**` 경로를 개방하지 않는다. 백오피스 서버만 서비스망에 접속한다. SQLite 폴더는 전용 영구 볼륨으로 두고 일관된 SQLite 백업 방식으로 보존한다. 디스크·백업에는 검토 원문과 사용자 UUID가 있으므로 운영자만 접근할 수 있어야 한다. 로컬/연결 모드는 DB 파일이 분리되어 모의 게시를 운영 게시로 오해하지 않는다.
 

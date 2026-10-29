@@ -1,6 +1,6 @@
 export type ContentKind = 'fcm' | 'notice' | 'magazine';
 export type ContentStatus = 'draft' | 'review' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain';
-export interface Session { actor: string; csrfToken: string; mode: 'local' | 'connected' }
+export interface Session { actor: string; csrfToken: string; mode: 'local' | 'connected'; environment: 'local' | 'dev' | 'prod' }
 export interface MagazineCard {
   islandId: string; name: string; buildingCount: number; memberCount: number;
   maxMembers: number; averageFocusMinutesPerDay: number | null;

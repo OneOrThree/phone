@@ -115,10 +115,17 @@ test("test 계정은 로컬에서만 로그인할 수 있다", async (t) => {
 });
 test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용", async () => {
   let request;
+  const checked = [];
   const upstream = new Upstream({
     mode: "connected",
+    environment: "dev",
     notificationUrl: "http://internal:8082",
+    dataUrl: "http://data:8080",
     fetchImpl: async (url, options) => {
+      if (options.method === "GET") {
+        checked.push(url.pathname);
+        return new Response(JSON.stringify({ environment: "dev" }));
+      }
       request = { url, options };
       return new Response(JSON.stringify({ status: "PENDING" }), {
         status: 200,
@@ -138,7 +145,11 @@ test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용"
       payload: { route: "/home" },
     },
   };
-  await upstream.publish(item, "member-2", { notificationToken: "secret" });
+  await upstream.publish(item, "member-2", { notificationToken: "secret", dataToken: "data-secret" });
+  assert.deepEqual(checked, [
+    "/internal/admin/content/environment",
+    "/internal/admin/publications/environment",
+  ]);
   assert.equal(
     request.url.href,
     "http://internal:8082/internal/admin/publications/publication",
@@ -147,6 +158,29 @@ test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용"
   assert.equal(request.options.headers["Idempotency-Key"], "id:3");
   assert.equal(JSON.parse(request.options.body).body, "확정본문");
   assert.equal(request.options.redirect, "error");
+});
+test("dev·prod 연결이 어긋나면 발행 전에 멈춘다", async () => {
+  const requests = [];
+  const operator = { dataToken: "data-secret", notificationToken: "notification-secret" };
+  const upstream = new Upstream({
+    mode: "connected",
+    environment: "dev",
+    dataUrl: "http://data.internal",
+    notificationUrl: "http://notification.internal",
+    fetchImpl: async (url, options) => {
+      requests.push({ path: url.pathname, method: options.method });
+      return new Response(JSON.stringify({ environment: url.hostname === "data.internal" ? "prod" : "dev" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  });
+  const item = { id: "draft", revision: 1, publicationId: "publication", kind: "notice",
+    title: "공지", body: "본문", startsAt: "2026-10-29T00:00:00Z" };
+  await assert.rejects(upstream.publish(item, "member-1", operator), (error) =>
+    error.status === 503 && error.definite === true && /환경/.test(error.message));
+  await assert.rejects(upstream.preview({ issueDate: "2026-10-29" }, "member-1", operator), /환경/);
+  assert.deepEqual(requests.map((request) => request.method), ["GET", "GET", "GET", "GET"]);
+  assert.ok(requests.every((request) => request.path.endsWith("/environment")));
 });
 test("정적 루트 제공과 경로 이탈 거부", async (t) => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");

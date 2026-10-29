@@ -6,9 +6,14 @@ import { Store, requireValue } from "./store.mjs";
 import { Upstream } from "./upstream.mjs";
 import { createApp } from "./app.mjs";
 const mode = process.env.BACKOFFICE_MODE ?? "local";
+const environment = mode === "local" ? "local" : process.env.BACKOFFICE_ENV;
 requireValue(
   ["local", "connected"].includes(mode),
   "BACKOFFICE_MODE는 local 또는 connected입니다.",
+);
+requireValue(
+  mode === "local" || ["dev", "prod"].includes(environment),
+  "연결 모드에는 BACKOFFICE_ENV=dev 또는 prod가 필요합니다.",
 );
 const origin = process.env.BACKOFFICE_ORIGIN ?? "http://127.0.0.1:4310";
 const parsed = new URL(origin);
@@ -52,24 +57,30 @@ for (const [actor, operator] of Object.entries(operators)) {
     "연결 모드에는 운영자별 두 서비스 토큰이 필요합니다.",
   );
 }
+const upstream = new Upstream({
+  mode,
+  environment,
+  notificationUrl: process.env.NOTIFICATION_URL,
+  dataUrl: process.env.DATA_API_URL,
+});
+if (mode === "connected") {
+  const [actor, operator] = Object.entries(operators)[0];
+  await upstream.verifyEnvironment(environment, actor, operator);
+}
 const directory = resolve(process.env.BACKOFFICE_STATE_DIR ?? "var");
 process.umask(0o077);
 mkdirSync(directory, { recursive: true, mode: 0o700 });
 chmodSync(directory, 0o700);
 const store = new Store(
-  resolve(directory, mode === "local" ? "local.sqlite" : "content.sqlite"),
+  resolve(directory, `${environment}.sqlite`),
 );
-const upstream = new Upstream({
-  mode,
-  notificationUrl: process.env.NOTIFICATION_URL,
-  dataUrl: process.env.DATA_API_URL,
-});
 const app = createApp({
   store,
   upstream,
   operators,
   origin,
   mode,
+  environment,
   staticDir: fileURLToPath(new URL("../dist", import.meta.url)),
 });
 const host =

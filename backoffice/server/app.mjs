@@ -56,6 +56,7 @@ export function createApp({
   operators,
   origin,
   mode,
+  environment = mode === "local" ? "local" : undefined,
   staticDir,
   secureCookie = mode === "connected",
   clock = Date.now,
@@ -187,7 +188,7 @@ export function createApp({
         });
         send(
           200,
-          { actor, csrfToken, mode },
+          { actor, csrfToken, mode, environment },
           { "Set-Cookie": cookie(token, 8 * 3600) },
         );
         return;
@@ -202,7 +203,7 @@ export function createApp({
         );
       const operator = operators[auth.actor];
       if (path === "/api/session" && req.method === "GET") {
-        send(200, { actor: auth.actor, csrfToken: auth.csrfToken, mode });
+        send(200, { actor: auth.actor, csrfToken: auth.csrfToken, mode, environment });
         return;
       }
       if (path === "/api/logout" && req.method === "POST") {
