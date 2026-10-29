@@ -1286,5 +1286,14 @@
     "previewRestart": "처음부터 보기",
     "islandLabel": "{{name}} · {{minutes}}분",
     "back": "뒤로"
+  },
+  "developerNotices": {
+    "title": "개발자 공지",
+    "section": "소식",
+    "subtitle": "서비스 소식과 업데이트",
+    "loading": "공지를 불러오는 중…",
+    "empty": "게시된 공지가 없어요.",
+    "failed": "공지를 불러오지 못했어요. 다시 시도해 주세요.",
+    "missing": "게시가 종료되었거나 찾을 수 없는 공지예요."
   }
 }
