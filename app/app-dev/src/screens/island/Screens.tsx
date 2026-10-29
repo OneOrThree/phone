@@ -2059,8 +2059,9 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'guide') {
-    // 도착 섬에 다른 주민이 없으면(나뿐) 되살리기 서사, 있으면 환영 서사로 몽돌 인사를 가른다
-    const guideEmpty = (island.members?.length ?? 0) <= 1;
+    // 도착 섬에 다른 주민이 없으면(나뿐) 되살리기 서사, 있으면 환영 서사로 몽돌 인사를 가른다.
+    // members 는 서버 모드에서 항상 빈 배열이라(주민 수는 serverMemberCount) residentCount 로 전체 주민을 센다
+    const guideEmpty = residentCount(island) <= 1;
     const lines = guideEmpty
       ? [
           t('onboarding.guide.empty.line1'),
