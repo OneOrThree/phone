@@ -922,6 +922,7 @@ export function InteriorScreen({
       )}
       <NavBtn
         testID="scene-back"
+        boardPaper={fullBoardScene}
         ref={sceneBackRef as any}
         disabled={sceneBackBlocked}
         accessibilityElementsHidden={sceneBackBlocked}
@@ -4935,21 +4936,20 @@ export function Board({
   const formError = s.error !== '' && (
     <Text style={boardFont(13, 1.45, '400', '#a35952')}>{s.error}</Text>
   );
-  // 종이 안 한 단계 뒤로(‹ 동그라미). 원 왼쪽 끝을 종이 글자 줄에 맞추게 누르는 상자 여백(5)만큼 당긴다
-  const detailHead = (back: React.ReactNode) => (
+  // 종이 오른쪽 위 × 하나로 현재 단계를 닫고 이전 단계로 돌아간다.
+  const detailHead = (close: React.ReactNode) => (
     <View
       style={{
         minHeight: 44,
-        marginLeft: -5,
+        marginRight: -5,
         marginBottom: 8,
-        paddingRight: 30,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-end',
         gap: 8,
       }}
     >
-      {back}
+      {close}
     </View>
   );
 
@@ -5064,8 +5064,10 @@ export function Board({
         <View>
           {detailHead(
             <NavBtn
-              testID="board-notice-back"
-              label="공지 목록으로 돌아가기"
+              testID="board-notice-close"
+              close
+              boardPaper
+              label="공지 닫고 목록으로 돌아가기"
               onPress={nav.backToNotices}
             />,
           )}
@@ -5084,8 +5086,10 @@ export function Board({
         <View>
           {detailHead(
             <NavBtn
-              testID="board-notice-back"
-              label="공지 목록으로 돌아가기"
+              testID="board-notice-close"
+              close
+              boardPaper
+              label="공지 닫고 목록으로 돌아가기"
               onPress={nav.backToNotices}
             />,
           )}
@@ -5103,8 +5107,10 @@ export function Board({
       <View>
         {detailHead(
           <NavBtn
-            testID="board-notice-back"
-            label="공지 목록으로 돌아가기"
+            testID="board-notice-close"
+            close
+            boardPaper
+            label="공지 닫고 목록으로 돌아가기"
             onPress={nav.backToNotices}
           />,
         )}
@@ -5284,7 +5290,9 @@ export function Board({
         {detailHead(
           <NavBtn
             testID="board-notice-cancel"
-            label={s.editing ? '공지로 돌아가기' : '공지 목록으로 돌아가기'}
+            close
+            boardPaper
+            label={s.editing ? '수정 닫고 공지로 돌아가기' : '작성 닫고 공지 목록으로 돌아가기'}
             onPress={nav.cancelEditor}
           />,
         )}
@@ -5365,14 +5373,6 @@ export function Board({
     }
   };
 
-  const questBack = detailHead(
-    <NavBtn
-      testID="board-quest-back"
-      label={s.editing ? '퀘스트로 돌아가기' : '퀘스트 목록으로 돌아가기'}
-      onPress={nav.backToQuests}
-    />,
-  );
-
   // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
   const questBlockedText = (reason: string | null | undefined) =>
     reason === 'NOT_ACHIEVED'
@@ -5397,8 +5397,10 @@ export function Board({
         <>
           {detailHead(
             <NavBtn
-              testID="board-quest-back"
-              label="퀘스트 목록으로 돌아가기"
+              testID="board-quest-close"
+              close
+              boardPaper
+              label="퀘스트 닫고 목록으로 돌아가기"
               onPress={nav.backToQuests}
             />,
           )}
@@ -5520,7 +5522,6 @@ export function Board({
       const serverEdit = serverBoard && s.editing;
       return (
         <>
-          {questBack}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
             {s.editing ? '퀘스트 수정' : '퀘스트 만들기'}
           </Text>
@@ -6224,6 +6225,7 @@ export function Board({
   const dismissNoticeOverlay = () =>
     e ? e.back() : render({ view: noticeEditorOpen && s.editing ? 'detail' : 'list', error: '' });
   const questDetailOpen = s.panel === 'quest' && s.view === 'detail';
+  const questEditorOpen = s.panel === 'quest' && s.view === 'write';
   const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
   const paperSource =
     s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
@@ -6590,11 +6592,24 @@ export function Board({
               marginBottom: 8,
             }}
           >
-            <NavBtn close testID="board-panel-close" label="게시판 닫기" onPress={nav.closePanel} />
+            <NavBtn
+              boardPaper
+              close
+              testID="board-panel-close"
+              label={
+                questEditorOpen
+                  ? s.editing
+                    ? '수정 닫고 퀘스트로 돌아가기'
+                    : '작성 닫고 퀘스트 목록으로 돌아가기'
+                  : '게시판 닫기'
+              }
+              onPress={questEditorOpen ? nav.backToQuests : nav.closePanel}
+            />
           </View>
         )}
         {s.panel === 'blueprint' && (
           <NavBtn
+            boardPaper
             close
             testID="board-drawer-close"
             label="내용 닫기"

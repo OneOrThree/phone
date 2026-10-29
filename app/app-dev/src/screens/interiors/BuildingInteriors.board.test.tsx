@@ -1393,6 +1393,48 @@ test('게시판 패널은 전환 화살표 없이 44px 닫기 버튼을 유지�
   await screen.unmount();
 });
 
+test('공지의 ×는 작성에서 목록으로, 수정에서 상세로 한 단계 돌아간다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
+  await fireEvent.press(screen.getByTestId('board-notice-new'));
+  assert.equal(screen.queryByTestId('board-notice-back'), null);
+  await fireEvent.press(screen.getByTestId('board-notice-cancel'));
+  assert.equal(screen.queryByTestId('board-notice-overlay'), null);
+  assert.ok(screen.getByTestId('board-panel-close'));
+
+  await fireEvent.press(screen.getByTestId('board-notice-item-0'));
+  await fireEvent.press(screen.getByTestId('board-notice-edit'));
+  await fireEvent.press(screen.getByTestId('board-notice-cancel'));
+  assert.ok(screen.getByTestId('board-notice-overlay'));
+  assert.ok(screen.getByTestId('board-notice-edit'));
+  const close = screen.getByTestId('board-notice-close');
+  assert.match(close.props.accessibilityLabel, /닫고 목록으로/);
+  await fireEvent.press(close);
+  assert.equal(screen.queryByTestId('board-notice-overlay'), null);
+  await fireEvent.press(screen.getByTestId('board-panel-close'));
+  assert.equal(screen.queryByTestId('board-panel-navigation'), null);
+  await screen.unmount();
+});
+
+test('퀘스트 작성은 × 하나만 표시하고 수정 닫기는 상세를 유지한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'quest', boardView: 'list' }));
+  await fireEvent.press(screen.getByTestId('board-quest-new'));
+  assert.equal(screen.queryByTestId('board-quest-back'), null);
+  assert.equal(screen.queryAllByRole('button', { name: /닫/ }).length, 1);
+  await fireEvent.press(screen.getByTestId('board-panel-close'));
+  assert.ok(screen.getByTestId('board-quest-new'));
+  assert.equal(screen.queryByTestId('board-quest-title'), null);
+
+  await fireEvent.press(screen.getByTestId('board-quest-detail-0'));
+  await fireEvent.press(screen.getByTestId('board-quest-edit'));
+  await fireEvent.press(screen.getByTestId('board-panel-close'));
+  assert.ok(screen.getByTestId('board-quest-overlay'));
+  assert.ok(screen.getByTestId('board-quest-edit'));
+  await fireEvent.press(screen.getByTestId('board-quest-close'));
+  assert.equal(screen.queryByTestId('board-quest-overlay'), null);
+  assert.ok(screen.getByTestId('board-quest-new'));
+  await screen.unmount();
+});
+
 test('noartifact 비교 화면에서도 게시판 배경을 그라데이션 아래에 유지한다', async () => {
   const restore = webMockMode('?interiors=1&noartifact=1');
   try {
