@@ -115,6 +115,8 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 - 흐름: tail(`*-json.log`, Docker 분할 줄 병합) → Lua 로 서비스 식별·허용 목록 → JSON 파싱 → Lua 정규화 → Loki.
 - 상태: named volume `fluent_bit_state` 에 tail 위치 DB(`tail.db`)와 디스크 버퍼(`storage.total_limit_size 128M`). 컨테이너를 지웠다 만들어도 이어 읽는다.
   단 볼륨을 지우면 위치가 사라져 로그 파일이 남아 있는 컨테이너는 처음(새로 발견된 파일)부터 다시 읽을 수 있다 — 중복이 생길 수 있다.
+- 처음부터 읽기: tail 은 `Read_From_Head On` — DB 에 위치가 있는 파일은 그 offset 부터, 없는 새 파일은 처음부터 읽는다(수집기가 멈춘 동안 앱 컨테이너가 재생성돼도 시작·오류 로그를 건너뛰지 않는다).
+  대가로 첫 기동(DB 없음)에는 기존 현재 파일을 전부 다시 읽는다(앱 컨테이너당 최대 50 MB, Loki `reject_old_samples: false` 라 수용). 회전된 파일(`*-json.log.1` 등)은 패턴 밖이라 읽지 않는다.
 - 앱 JSON 줄은 필드를 그대로 두고 `observed_at` 만 더한다. JSON 이 아니거나 스키마(`schema_version`·`log_kind`)가 아닌 줄은 `parse_error=true`, `log_kind=raw` 로
   보관하며 `message` 를 마스킹(data-api `MaskingConverter` 4규칙의 Lua 근사 — 교대·대소문자 무시를 풀어 쓴 패턴이고 ASCII 기준)하고 16 KiB 로 자른다(`truncated`, `original_size_bytes`).
   JSON 이 아닌 스택 트레이스는 줄마다 따로 들어온다(멀티라인 병합은 Docker 분할 줄만).

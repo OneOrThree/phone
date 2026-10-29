@@ -17,20 +17,28 @@ echo "== (a) 정상 N=500 + 다른 프로젝트의 같은 서비스 이름 + 허
 docker run -d --name decoy-other-project --label com.docker.compose.project=other-project \
   --label com.docker.compose.service=data-api alpine sh -c 'for i in $(seq 50); do echo "{\"schema_version\":1,\"log_kind\":\"application\",\"log_id\":\"decoy-$i\"}"; done' >/dev/null
 gen a 500 5 extras; settle
-python3 check.py a:500
+python3 check.py a:500 || fail "누락·중복"
 
 echo "== (b) 전송 중 Fluent Bit docker restart"
 gen b 500 40
 sleep 6; docker restart "$($C ps -q fluent-bit)" >/dev/null
 settle 25
-python3 check.py a:500 b:500
+python3 check.py a:500 b:500 || fail "누락·중복"
 
 echo "== (c) 전송 중 컨테이너 삭제 후 재생성(볼륨 유지)"
 gen c 500 40
 sleep 5; $C stop fluent-bit >/dev/null; $C rm -f fluent-bit >/dev/null
 sleep 3; $C up -d fluent-bit >/dev/null
 settle 25
-python3 check.py a:500 b:500 c:500
+python3 check.py a:500 b:500 c:500 || fail "누락·중복"
+
+echo "== (f) 수집기 중단 중 앱 컨테이너 재생성(새 컨테이너·새 파일)"
+$C stop fluent-bit >/dev/null
+docker rm -f gen_f >/dev/null 2>&1
+gen f 300 2; sleep 5
+$C start fluent-bit >/dev/null
+settle 25
+python3 check.py a:500 b:500 c:500 f:300 || fail "(f) 누락·중복"
 
 echo "== (d) 라벨 집합"
 python3 - <<'PY'

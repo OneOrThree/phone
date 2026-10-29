@@ -15,6 +15,7 @@ def lines(selector):
     return out
 
 if __name__ == "__main__":
+    bad = False
     got = collections.Counter()
     records = lines('{env=~".+"}')
     for rec, _ in records:
@@ -25,3 +26,5 @@ if __name__ == "__main__":
         seen = {k for k in got if k in expected}
         dup = sum(got[k] - 1 for k in seen)
         print(f"run={run} expected={len(expected)} received={len(seen)} missing={len(expected - seen)} duplicates={dup}")
+        bad |= len(expected - seen) > 0 or dup > 0
+    sys.exit(1 if bad else 0)
