@@ -1,0 +1,26 @@
+# GROMO-2556 — Nginx JSON access 로그 형식. http 수준(= nginx.conf 의 http { } 안, 또는 conf.d/*.conf)에 둔다.
+# server/location 안에는 log_format 을 둘 수 없다 — 그래서 nginx-dev-2.0-routes.conf.example(location include)에 넣지 않았다.
+# 적용 절차·롤백은 docs/architecture/server-log-observability/ingestion-runbook.md.
+#
+# 필드 설계
+#   edge_request_id        Nginx 가 만든 $request_id(요청마다 새로 생성 — 클라이언트가 같은 이름 헤더를 보내도 쓰지 않는다)
+#   upstream_request_id    upstream 응답 헤더 X-Request-Id. Business 는 들어온 X-Request-Id 를 채택하지 않고 자기 UUID 를 응답 헤더로
+#                          주므로, 이 값이 앱 로그의 request_id 와 만난다. 502/504/413 처럼 upstream 에 닿지 않았으면 빈 문자열.
+#   connection / connection_requests   같은 TCP 연결의 번호와 그 연결의 n 번째 요청(error 로그의 *<번호> 와 보조 연계용)
+#   uri                    $request_uri 가 아니라 $uri — query string 이 없다. (경로 자체에 토큰이 들어가는 라우트는 수집기가
+#                          20자 이상 영숫자 세그먼트를 :redacted 로 바꾼다.)
+# 일부러 넣지 않은 것: client IP($remote_addr·$http_x_forwarded_for), $http_referer, $http_user_agent, $args, Authorization/Cookie.
+# escape=json 이 따옴표·제어문자를 이스케이프하므로 이 줄은 항상 유효한 JSON 한 줄이다.
+log_format gromo_json escape=json
+    '{"msec":"$msec","edge_request_id":"$request_id","upstream_request_id":"$upstream_http_x_request_id",'
+    '"method":"$request_method","uri":"$uri","status":$status,"bytes_sent":$body_bytes_sent,"request_time":$request_time,'
+    '"upstream_status":"$upstream_status","upstream_response_time":"$upstream_response_time",'
+    '"connection":$connection,"connection_requests":$connection_requests}';
+
+# --- 사용 예 ---------------------------------------------------------------------------------
+# dev 호스트 Nginx(기존 combined access.log 는 그대로 두고 JSON 을 옆 파일로 추가 — 수집기가 읽는 파일은 이쪽뿐이다):
+#   access_log /var/log/nginx/access.log;                         # 기존 줄 유지
+#   access_log /var/log/nginx/access.json.log gromo_json;         # server 블록(또는 http 수준)에 추가
+# prod 컨테이너 Nginx(공식 이미지: access.log → stdout, error.log → stderr 심볼릭 링크라 Docker 로그로 수집된다):
+#   access_log /dev/stdout gromo_json;
+#   error_log  /dev/stderr warn;

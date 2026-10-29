@@ -1,0 +1,68 @@
+# GROMO-2556 로컬 S3(MinIO) 하네스 — local-test/docker-compose.yml 위에 얹는다. 실행은 run-s3.sh (프로젝트 obs2562-s3).
+# AWS 에는 아무 요청도 보내지 않는다. 호스트 포트는 2555 하네스(13100·12020)와 겹치지 않게 2xxxx 를 쓴다.
+# 사용: docker compose -p obs2562-s3 -f docker-compose.yml -f s3/docker-compose.s3.yml ...   (compose 파일 경로는 첫 파일 기준)
+name: obs2562-s3
+
+services:
+  loki:
+    ports: !override ["127.0.0.1:23100:3100"]
+
+  minio:
+    # MinIO 공식 이미지는 Docker Hub/Quay 에서 받을 수 없어(2026-10-29 확인) Chainguard 빌드를 digest 로 고정한다(RELEASE.2026-10-23T20-06-51Z).
+    image: chainguard/minio@sha256:0dab2f9fee1c1139ae8753b5e35bb4461af2a276cfe0923a2504c75a6170bc64
+    user: "0"
+    entrypoint: ["sh", "-c", "mkdir -p /data/obs-logs && exec minio server /data --address :9000"]
+    environment:
+      MINIO_ROOT_USER: harness-access
+      MINIO_ROOT_PASSWORD: harness-secret-0123456789
+    ports: ["127.0.0.1:29000:9000"]
+
+  fluent-bit:
+    ports: !override ["127.0.0.1:22020:2020"]
+    depends_on: [loki, minio]
+    environment:
+      FLB_COMPOSE_PROJECT: obs2562-s3
+      FLB_ENV: dev
+      AWS_ACCESS_KEY_ID: ${HARNESS_S3_ACCESS:-harness-access}
+      AWS_SECRET_ACCESS_KEY: ${HARNESS_S3_SECRET:-harness-secret-0123456789}
+      FLB_S3_BUCKET: obs-logs
+      FLB_S3_REGION: us-east-1
+      FLB_S3_ENDPOINT: http://minio:9000
+      FLB_S3_TOTAL_FILE_SIZE: ${HARNESS_S3_TOTAL_FILE_SIZE:-10M}
+      FLB_S3_UPLOAD_TIMEOUT: ${HARNESS_S3_UPLOAD_TIMEOUT:-20s}
+      FLB_S3_STORE_LIMIT: ${HARNESS_S3_STORE_LIMIT:-64M}
+    volumes:
+      # 같은 대상 경로는 override 가 base 항목을 대체한다. 설정 디렉터리(기본 ..)·모듈 디렉터리는 run-s3.sh 가 만든 사본(HARNESS_TMP)이다.
+      - ${HARNESS_ETC:?run-s3.sh 가 채운다}:/fluent-bit/etc:ro
+      - ${HARNESS_TMP:?run-s3.sh 가 채운다}/s3-module:/fluent-bit/etc/modules/s3:ro
+      - ${HARNESS_TMP}/nginx-host-module:/fluent-bit/etc/modules/nginx-host:ro
+      - nginx_host_logs:/var/log/nginx:ro
+
+  data-api:
+    volumes: ["./s3/gen.py:/gen.py:ro"]
+
+  # prod 컨테이너 Nginx 흉내 — compose 서비스 이름이 «nginx» 라 Docker 입력의 allowlist 를 통과한다. 출력은 stdout/stderr.
+  nginx:
+    profiles: [nginx]
+    image: nginx:1.28-alpine
+    volumes:
+      - ../../../scripts/nginx-log-format.conf.example:/etc/nginx/conf.d/00-log-format.conf:ro
+      - ./s3/nginx-test.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./s3/access-stdout.conf:/etc/nginx/harness-access.conf:ro
+    command: ["sh", "-c", "sed -i 's#^error_log .*#error_log /dev/stderr info;#' /etc/nginx/nginx.conf && exec nginx -g 'daemon off;'"]
+    ports: ["127.0.0.1:28080:80"]
+
+  # dev 호스트 Nginx 흉내 — 파일로 쓰고(named volume), 수집기가 같은 볼륨을 읽기 전용으로 tail 한다. 서비스 이름이 allowlist 밖이라 Docker 입력에는 안 잡힌다.
+  nginx-host:
+    profiles: [nginx]
+    image: nginx:1.28-alpine
+    volumes:
+      - ../../../scripts/nginx-log-format.conf.example:/etc/nginx/conf.d/00-log-format.conf:ro
+      - ./s3/nginx-test.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./s3/access-file.conf:/etc/nginx/harness-access.conf:ro
+      - nginx_host_logs:/var/log/nginx
+    command: ["sh", "-c", "rm -f /var/log/nginx/*.log; sed -i 's#^error_log .*#error_log /var/log/nginx/error.log info;#' /etc/nginx/nginx.conf && exec nginx -g 'daemon off;'"]
+    ports: ["127.0.0.1:28081:80"]
+
+volumes:
+  nginx_host_logs:
