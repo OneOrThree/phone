@@ -52,7 +52,7 @@ module.exports = {
       bundleIdentifier: 'com.oneorthree.focuscat',
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push-meta',
+      runtimeVersion: '2.0.0-push-meta-assets-v1',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
@@ -66,7 +66,7 @@ module.exports = {
       package: 'com.oneorthree.gromo',
       versionCode: 20,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.0-no-special-use',
+      runtimeVersion: '2.0.0-no-special-use-assets-v1',
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
       blockedPermissions: [
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
