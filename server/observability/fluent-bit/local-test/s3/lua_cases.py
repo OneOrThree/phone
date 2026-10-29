@@ -37,6 +37,13 @@ rows = [
     E('2026/10/29 10:00:00 [error] 1#1: *18 no live upstreams while connecting to upstream, client: 203.0.113.9, server: x, request: "GET /a"x HTTP/1.1", upstream: "http://svcuser:UPPASS999@backend/p", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *20 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS111@backend.internal:8080/p", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *21 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "https://svcuser:UPPASS222@api.svc.cluster.local:443/p?q=1", host: "h"'),
+    # ⑧ 비밀번호에 raw '/'·'?'·'#' 가 든 경우, 경로에 '@' 가 든 정상 URL(과잉 가림 한계), 호스트의 %3F
+    E('2026/10/29 10:00:00 [error] 1#1: *30 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP/PASS1@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *31 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS2@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *32 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP#PASS3@10.0.0.1:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *33 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/users/@me", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *34 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080%3Fcode=HOSTQ1/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *35 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p?email=a@b.com&code=QSECRET1", host: "h"'),
     # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
     E('2026/10/29 10:00:00 [error] 1#1: *19 client sent invalid header NOSLASHTOKEN1234567890abcdef, client: 203.0.113.9, server: x, host: "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal"'),
 ]
@@ -73,8 +80,16 @@ checks = [
     ("⑧ 도메인 호스트(여러 단계)는 userinfo 만 지우고 호스트 원문 보존(이메일 규칙과 충돌 없음)",
      not any(x in json.dumps(got[i]) for i in (26, 27) for x in ("svcuser", "UPPASS", "@")) and 'upstream: "http://backend.internal:8080/p"' in got[26]["message"]
      and 'upstream: "https://api.svc.cluster.local:443/p"' in got[27]["message"]),
+    ("⑧ 비밀번호에 raw '/'·'?'·'#' 가 든 userinfo 도 잔존 없음(마지막 '@' 까지 지움), 호스트·경로 유지",
+     not any(x in json.dumps(got[i]) for i in (28, 29, 30) for x in ("svcuser", "UP", "PASS")) and all('upstream: "http://10.0.0.1:8080/p"' in got[i]["message"] for i in (28, 29, 30))),
+    ("⑧ 한계 고정 — 경로에 '@' 가 든 정상 URL 은 마지막 '@' 앞(호스트·앞 경로)이 지워진다(과잉 가림, 비밀 누출보다 안전)",
+     'upstream: "http://me"' in got[31]["message"]),
+    ("⑧ 호스트 쪽 %3F 도 query 로 보고 잘린다(sanitize_url 이 query_pos 와 같은 규칙)",
+     "HOSTQ1" not in json.dumps(got[32]) and 'upstream: "http://10.0.0.1:8080"' in got[32]["message"]),
+    ("⑧ query 안의 '@'(이메일)는 userinfo 로 오인하지 않는다 — query 전체가 지워지고 호스트·경로 유지",
+     "QSECRET1" not in json.dumps(got[33]) and 'upstream: "http://10.0.0.1:8080/p"' in got[33]["message"]),
     ("⑨ '/' 없는 토큰은 한계 유지(비밀 꼴 토큰이 남는다) — 호스트 이름은 가려지지 않는다",
-     "NOSLASHTOKEN1234567890abcdef" in got[28]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[28]["message"]),
+     "NOSLASHTOKEN1234567890abcdef" in got[34]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[34]["message"]),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]

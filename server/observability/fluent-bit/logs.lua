@@ -188,19 +188,37 @@ end
 
 -- 줄 전체 백스톱: Nginx 는 요청 줄·헤더를 이스케이프 없이 error 로그에 쓰므로 따옴표 경계가 모호하다(`request: "GET /a"?q=S HTTP/1.1"`).
 -- 따옴표와 무관하게 공백으로 나뉜 각 토큰에서 ?·# 뒤를 지우고(토큰 끝의 닫는 `"`·`,` 는 남긴다), '/' 가 든 토큰은 경로 토큰 규칙을 적용한다(스킴://호스트는 건드리지 않는다).
--- upstream URL 의 userinfo(`user:pass@`)는 '@' 째로 지운다. base 는 `스킴://권한부` 라 마지막 '@' 까지가 userinfo 다.
+-- upstream URL 의 userinfo(`user:pass@`)는 '@' 째로 지운다. query·path 를 자르기 «전에» URL 토큰(공백·따옴표 전까지)에서
+-- `스킴://` 뒤 «마지막 '@'» 까지를 지운다 — 비밀번호에 raw '/'·'?'·'#' 가 있어도 남지 않는다.
+-- 대가: 경로에 '@' 가 든 정상 URL(`/users/@me`)은 호스트·앞 경로까지 지워진다(과잉 가림이 누출보다 안전).
+-- 예외(query 안의 '@'): 마지막 '@' 앞에 query 표식이 있고 (그 앞에 '/' 가 있거나 '@' 뒤가 host[:port] 꼴이 아니면)
+-- `?email=a@b&code=S` 의 '@' 로 보고 권한부(첫 '/'·'?'·'#' 까지)에서만 찾는다 — 마지막 '@' 규칙은 query 표식을 같이 지워 `code=S` 가 남기 때문.
 -- '@' 를 남기면 뒤따르는 mask() 의 이메일 규칙이 도메인 호스트를 가리므로 표식 없이 지운다.
-local function redact_userinfo(base)
-  return (base:gsub("^(.-://).*@", "%1"))
+local function redact_userinfo(s)
+  local scheme, rest = s:match("^(.-://)(.*)$")
+  if not scheme then return s end
+  local tok = rest:match('^[^%s"]*')
+  local a = tok:match("^.*()@")
+  if not a then return s end
+  local q = query_pos(tok)
+  if q and q < a then
+    local host = tok:sub(a + 1):match("^[^/]*")
+    if tok:sub(1, q):find("/", 1, true) or not host:match("^[%w%.%-]+:?%d*$") then
+      local b = rest:match("^[^/?#]*"):match("^.*()@")  -- 권한부만
+      return b and scheme .. rest:sub(b + 1) or s
+    end
+  end
+  return scheme .. rest:sub(a + 1)
 end
 local function backstop(text)
   return (text:gsub("%S+", function(tok)
+    tok = redact_userinfo(tok)
     local pos = query_pos(tok)
     if pos then tok = tok:sub(1, pos - 1) .. tok:sub(pos):match("[\",]*$") end
     if tok:find("/", 1, true) then
       local head, path = tok:match("^(.-://[^/]*)(.*)$")
       if not head then head, path = "", tok end
-      tok = redact_userinfo(head) .. path:gsub(TOKEN_RUN, redact_run)
+      tok = head .. path:gsub(TOKEN_RUN, redact_run)
     end
     return tok
   end))
@@ -208,8 +226,13 @@ end
 
 -- URL: 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
 local function sanitize_url(u)
+  u = redact_userinfo(u)
   local base, path = u:match("^(%a[%w+.-]*://[^/?#]*)(.*)$")
-  if base then return redact_userinfo(base) .. sanitize_path(path) end
+  if base then
+    local cut = query_pos(base)  -- 호스트 쪽 %3F·%23 도 query 시작으로 본다
+    if cut then base, path = base:sub(1, cut - 1), base:sub(cut) .. path end
+    return base .. sanitize_path(path)
+  end
   return sanitize_path(u)
 end
 
