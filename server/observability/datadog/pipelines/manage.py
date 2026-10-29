@@ -34,6 +34,9 @@ PIPELINES = "/api/v1/logs/config/pipelines"
 ORDER = "/api/v1/logs/config/pipeline-order"
 # 갱신 비교·PUT 본문에 쓰는 필드. id·type·is_read_only 는 서버가 정한다.
 BODY_KEYS = ("name", "is_enabled", "filter", "description", "processors")
+# 서버가 비워 두거나 기본값으로 채워 돌려줄 수 있는 필드(Logs Pipelines API 문서의 선택 필드 기본값, 2026-10-29 문서 기준 — 실제 응답으로 확인한 값이 아님).
+# 같음 판정(`same`)에서만 이 값과 null 을 «없음»으로 본다. PUT 본문과 로컬 정의는 그대로 둔다. 새 기본값이 확인되면 여기에 추가한다.
+SERVER_DEFAULTS = {"description": "", "samples": [], "support_rules": "", "default_lookup": None}
 # Datadog 공식 사이트 목록의 Site Parameter(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인).
 # 이 밖의 값이면 키가 엉뚱한 호스트로 나가므로 거절한다. 새 사이트가 생기면 여기에 추가한다.
 SITES = frozenset({
@@ -146,6 +149,19 @@ def body(pipeline):
     return {k: pipeline[k] for k in BODY_KEYS if k in pipeline}
 
 
+def _strip_defaults(obj):
+    if isinstance(obj, dict):
+        return {k: _strip_defaults(v) for k, v in obj.items() if v is not None and not (k in SERVER_DEFAULTS and v == SERVER_DEFAULTS[k])}
+    if isinstance(obj, list):
+        return [_strip_defaults(v) for v in obj]
+    return obj
+
+
+def same(a, b):
+    """파이프라인 본문이 같은가. 서버가 채우는 기본값(SERVER_DEFAULTS)·null 은 없는 것과 같게 본다."""
+    return _strip_defaults(body(a)) == _strip_defaults(body(b))
+
+
 def duplicates(defs, state):
     """로컬 정의와 같은 이름의 서버 파이프라인이 2개 이상인 이름 → ID 목록. 어느 쪽을 갱신할지 알 수 없어 쓰기 전에 중단한다."""
     out = {}
@@ -168,7 +184,7 @@ def plan_actions(defs, state):
             actions.append(("create", d, None))
         elif cur.get("is_read_only"):
             sys.exit(f"'{d['name']}' 은 read-only 파이프라인이다 — 이름을 바꾸거나 수동 확인")
-        elif body(cur) == body(d):
+        elif same(cur, d):
             actions.append(("noop", d, cur))
         else:
             actions.append(("update", d, cur))
@@ -374,7 +390,7 @@ def find_pending(name, pipelines):
     if len(found) > 1:
         return None, f"같은 이름 {len(found)}개({[p['id'] for p in found]}) — 어느 쪽인지 알 수 없다"
     p, local = found[0], next((d for d in load_definitions() if d["name"] == name), None)
-    if p.get("is_read_only") or local is None or body(p) != body(local):
+    if p.get("is_read_only") or local is None or not same(p, local):
         return None, f"{p['id']} 가 로컬 정의와 다르거나 read-only 라 우리가 만든 것인지 확신할 수 없다"
     return p, None
 
@@ -383,6 +399,9 @@ def cmd_rollback(args):
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     if record.get("dry_run") and args.execute:
         sys.exit("dry-run 기록으로는 --execute 할 수 없다")
+    if record.get("aborted"):  # 쓰기 전에 중단된 기록 — order_before 등이 없고 서버는 바뀌지 않았다
+        print(f"중단 기록 — 되돌릴 것 없음: {record['aborted']}")
+        return
     api, st = _state(args, execute=args.execute)
     print(f"상태 출처: {st['origin']}")
     if record.get("partial"):
@@ -445,7 +464,7 @@ def cmd_rollback(args):
                 if args.execute:
                     api.call("DELETE", f"{PIPELINES}/{pid}")
                 mark(key, "deleted")
-            elif cur is not None and body(cur) == it["previous"]:
+            elif cur is not None and same(cur, it["previous"]):
                 print(f"  (건너뜀) '{name}' {pid} — 이미 이전 정의")
                 mark(key, "already-previous")
             else:

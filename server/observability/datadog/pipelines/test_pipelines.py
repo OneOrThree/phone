@@ -761,5 +761,60 @@ class CreateLostResponseTest(unittest.TestCase):
         self.assertEqual(json.loads(self.record.read_text())["created"], [])
 
 
+class AbortedRecordRollbackTest(unittest.TestCase):
+    """쓰기 전 중단된 기록(동명 중복 등)으로 rollback 해도 KeyError 없이 «되돌릴 것 없음»으로 끝난다."""
+
+    def test_rollback_of_aborted_record_exits_cleanly_without_api(self):
+        tmp = Path(tempfile.mkdtemp())
+        rec = tmp / "rec.json"
+        rec.write_text(json.dumps({"dry_run": True, "aborted": "동명 중복 파이프라인: {'A': ['1', '2']}", "created": [], "updated": [], "partial": False}))
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("네트워크 호출 금지")), \
+                mock.patch.object(manage, "Api", side_effect=AssertionError("Api 금지")), contextlib.redirect_stdout(io.StringIO()) as buf:
+            manage.main(["rollback", "--record", str(rec)])
+        self.assertIn("중단 기록 — 되돌릴 것 없음", buf.getvalue())
+
+
+class ServerDefaultsComparisonTest(unittest.TestCase):
+    """서버가 채우는 기본값(SERVER_DEFAULTS)은 같음 판정에서 무시하고, 실제 내용 차이는 update 로 잡는다.
+    서버 응답 모양은 Logs Pipelines API 문서의 선택 필드 기본값 기준의 합성 fixture 다(실제 응답 캡처 아님)."""
+
+    def served(self, d):
+        s = json.loads(json.dumps(d))
+        s.update(id="S1", type="pipeline", is_read_only=False)
+        for p in s["processors"]:
+            if p["type"] == "lookup-processor":
+                p["default_lookup"] = None
+            if p["type"] == "status-remapper":
+                p["samples"] = []
+        return s
+
+    def test_defaults_filled_by_server_are_noop(self):
+        d = manage.load_definitions()[0]
+        s = self.served(d)
+        st = {"pipelines": [s], "order": ["S1"], "origin": "t"}
+        self.assertEqual([a[0] for a in manage.plan_actions([d], st)], ["noop"])
+
+    def test_empty_description_and_support_rules_equal_absent(self):
+        d = json.loads(json.dumps(manage.load_definitions()[0]))
+        d["description"] = ""
+        d["processors"][0]["grok"]["support_rules"] = ""
+        s = self.served(d)
+        del s["description"]
+        del s["processors"][0]["grok"]["support_rules"]
+        self.assertTrue(manage.same(s, d))
+
+    def test_real_difference_is_still_update(self):
+        d = manage.load_definitions()[0]
+        s = self.served(d)
+        s["processors"][1]["source"] = "other.level"
+        s["is_enabled"] = False
+        self.assertFalse(manage.same(s, d))
+        st = {"pipelines": [s], "order": ["S1"], "origin": "t"}
+        self.assertEqual([a[0] for a in manage.plan_actions([d], st)], ["update"])
+
+    def test_false_is_enabled_is_not_ignored(self):
+        self.assertNotIn("is_enabled", manage.SERVER_DEFAULTS)
+
+
 if __name__ == "__main__":
     unittest.main()
