@@ -57,23 +57,31 @@ jobs:
           read -r -a services <<< "$OBS_SERVICES"
           # Promtail → Fluent Bit 전환(GROMO-2555): 서비스 목록에서 빠진 기존 Promtail 은 orphan 으로 남아
           # 같은 로그를 중복 수집한다. 그 이름 하나만 지운다(없으면 no-op, compose orphan 옵션은 앱까지 지우므로 쓰지 않는다).
-          if docker ps -a --format '{{.Names}}' | grep -qx gromo-promtail; then
-            docker rm -f gromo-promtail
-          fi
+          # up 은 Fluent Bit 을 띄운 «뒤», down 은 함께 지운다. restart 는 Fluent Bit 을 만들지 않으므로 지우지 않는다.
+          remove_promtail() {
+            if docker ps -a --format '{{.Names}}' | grep -qx gromo-promtail; then
+              docker rm -f gromo-promtail
+            fi
+          }
           case "${{ inputs.action }}" in
             up)
               # 관측 서비스만 기동/갱신 — app/db 는 named 대상이 아니라 그대로 유지된다.
               "${compose[@]}" up -d "${services[@]}"
+              remove_promtail
               # bind mount된 prometheus.yml만 바뀌면 Compose는 기존 컨테이너를 재생성하지 않는다.
               # 명시적으로 재시작해 신규 scrape target을 즉시 반영한다.
               "${compose[@]}" restart prometheus
               ;;
             restart)
+              if docker ps -a --format '{{.Names}}' | grep -qx gromo-promtail; then
+                echo "::warning::기존 Promtail 이 남아 있다 — 수집기 전환은 action=up 으로 한다(restart 는 Fluent Bit 을 만들지 않는다)"
+              fi
               "${compose[@]}" restart "${services[@]}"
               ;;
             down)
               # 관측 서비스만 중지·제거. (compose down 은 프로젝트 전체를 내려 app/db 까지 지우므로 쓰지 않는다)
               "${compose[@]}" rm -sf "${services[@]}"
+              remove_promtail
               ;;
           esac
 
