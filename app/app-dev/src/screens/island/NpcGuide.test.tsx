@@ -93,7 +93,7 @@ test('스포트라이트는 배경 접근성을 숨기고 허용된 동작만 �
   expect(screen.getByText('배경 버튼')).toBeTruthy();
 });
 
-test('둥근 버튼 대상에는 구멍 네 모서리를 반경만큼 가려 둥근 구멍을 만든다', async () => {
+test('둥근 버튼 대상에는 구멍 모서리 틈을 SVG 마스크로 가려 둥근 구멍을 만든다', async () => {
   const rounded = await render(
     <TutorialScene
       overlay={
@@ -107,7 +107,7 @@ test('둥근 버튼 대상에는 구멍 네 모서리를 반경만큼 가려 둥
       <Text>배경</Text>
     </TutorialScene>,
   );
-  expect(rounded.getAllByTestId('spotlight-hole-corner')).toHaveLength(4);
+  expect(rounded.getByTestId('spotlight-hole-mask')).toBeTruthy();
 
   const square = await render(
     <TutorialScene
@@ -121,7 +121,7 @@ test('둥근 버튼 대상에는 구멍 네 모서리를 반경만큼 가려 둥
       <Text>배경</Text>
     </TutorialScene>,
   );
-  expect(square.queryAllByTestId('spotlight-hole-corner')).toHaveLength(0);
+  expect(square.queryByTestId('spotlight-hole-mask')).toBeNull();
 });
 
 test('스크린리더 입력도 같은 값 변경과 입력 완료 핸들러를 사용한다', async () => {

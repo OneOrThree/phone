@@ -1,4 +1,5 @@
 import { BlurTargetView, BlurView } from 'expo-blur';
+import Svg, { Path } from 'react-native-svg';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -249,11 +250,24 @@ export function TutorialSpotlight({
     y,
     Math.min(area.height, (target?.y ?? 0) - area.y + (target?.height ?? 0) + pad),
   );
-  // 둥근 버튼이면 구멍 네 모서리를 반경만큼 딤으로 가려 둥근(원형) 구멍을 만든다.
-  // 블러뷰 borderRadius 클리핑이 Android에서 불안정해 plain View로 가린다(양 플랫폼 확실).
-  const holeRadius = radius
-    ? Math.min(radius, Math.max(0, (right - x) / 2), Math.max(0, (bottom - y) / 2))
-    : 0;
+  // 둥근 버튼이면 구멍 모서리의 "틈"(사각 구멍 − 둥근 버튼)만 딤으로 가려 둥근(원형) 구멍을 만든다.
+  // 오목한 틈이라 단일 View·borderRadius로는 못 만든다 → SVG evenodd 마스크(사각 − 둥근사각)로 틈만 채운다.
+  const holeW = Math.max(0, right - x);
+  const holeH = Math.max(0, bottom - y);
+  const holeRadius = radius ? Math.min(radius, holeW / 2, holeH / 2) : 0;
+  // 바깥 사각 subpath + 안쪽 둥근사각 subpath → evenodd 로 둘 사이(모서리 틈)만 칠한다
+  const holeMaskPath =
+    holeRadius > 0
+      ? `M0 0 H${holeW} V${holeH} H0 Z ` +
+        `M${holeRadius} 0 H${holeW - holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 ${holeW} ${holeRadius} ` +
+        `V${holeH - holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 ${holeW - holeRadius} ${holeH} ` +
+        `H${holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 0 ${holeH - holeRadius} ` +
+        `V${holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 ${holeRadius} 0 Z`
+      : '';
   const panes = target
     ? [
         { left: 0, top: 0, right: 0, height: y },
@@ -303,23 +317,17 @@ export function TutorialSpotlight({
           <View style={styles.dim} />
         </BlurView>
       ))}
-      {target &&
-        holeRadius > 0 &&
-        (
-          [
-            { left: x, top: y, borderBottomRightRadius: holeRadius },
-            { left: right - holeRadius, top: y, borderBottomLeftRadius: holeRadius },
-            { left: x, top: bottom - holeRadius, borderTopRightRadius: holeRadius },
-            { left: right - holeRadius, top: bottom - holeRadius, borderTopLeftRadius: holeRadius },
-          ] as const
-        ).map((corner, index) => (
-          <View
-            key={`corner-${index}`}
-            testID="spotlight-hole-corner"
-            pointerEvents="none"
-            style={[styles.holeCorner, { width: holeRadius, height: holeRadius, ...corner }]}
-          />
-        ))}
+      {target && holeRadius > 0 && (
+        <Svg
+          testID="spotlight-hole-mask"
+          pointerEvents="none"
+          style={{ position: 'absolute', left: x, top: y }}
+          width={holeW}
+          height={holeH}
+        >
+          <Path d={holeMaskPath} fill={semanticTokens.color.overlay} fillRule="evenodd" />
+        </Svg>
+      )}
       <ScrollView
         testID="tutorial-dialogue"
         keyboardShouldPersistTaps="handled"
@@ -581,5 +589,4 @@ const styles = StyleSheet.create({
   spotlight: { zIndex: 100 },
   blurPane: { position: 'absolute', overflow: 'hidden' },
   dim: { flex: 1, backgroundColor: semanticTokens.color.overlay },
-  holeCorner: { position: 'absolute', backgroundColor: semanticTokens.color.overlay },
 });
