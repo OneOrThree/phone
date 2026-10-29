@@ -1,0 +1,56 @@
+{
+  "name": "GROMO PostgreSQL severity",
+  "is_enabled": true,
+  "filter": {
+    "query": "source:(postgres OR postgresql)"
+  },
+  "description": "GROMO-2572. PostgreSQL 기본 log_line_prefix('%m [%p] ') 줄의 심각도를 명시 매핑해 status 로 쓴다. DETAIL/HINT/STATEMENT/CONTEXT/QUERY/LOCATION 과 접두 없는 연속 줄·미인식 줄은 매핑하지 않아 수집 시 status(stderr=error)를 유지한다. 정본: server/observability/datadog/pipelines/postgres.json",
+  "processors": [
+    {
+      "type": "grok-parser",
+      "name": "Parse PostgreSQL prefix: timestamp, timezone, pid, severity",
+      "is_enabled": true,
+      "source": "message",
+      "samples": [
+        "2026-10-29 08:56:03.094 UTC [26] LOG:  checkpoint complete: wrote 66 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=6.445 s, sync=0.007 s, total=6.465 s; sync files=33, longest=0.003 s, average=0.001 s; distance=627 kB, estimate=1122 kB; lsn=1/7AD2A0D8, redo lsn=1/7AD0E020",
+        "2026-10-29 10:00:00.000 UTC [123] ERROR:  relation \"synthetic_missing_table\" does not exist at character 15",
+        "2026-10-29 10:00:01.000 UTC [124] FATAL:  password authentication failed for user \"synthetic_user\"",
+        "2026-10-29 10:00:02.000 UTC [1] PANIC:  could not write to file \"pg_wal/xlogtemp.1\": No space left on device",
+        "2026-10-29 10:00:01.000 UTC [124] DETAIL:  Connection matched file \"/var/lib/postgresql/data/pg_hba.conf\" line 128: \"host all all all scram-sha-256\""
+      ],
+      "grok": {
+        "support_rules": "",
+        "match_rules": "postgres_line %{regex(\"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9][.][0-9]+\"):postgresql.log_time} %{notSpace:postgresql.timezone} \\[%{integer:postgresql.pid}\\] %{regex(\"[A-Z][A-Z0-9]*\"):postgresql.level}:\\s+%{data:postgresql.message}"
+      }
+    },
+    {
+      "type": "lookup-processor",
+      "name": "Map PostgreSQL severity to an explicit status word",
+      "is_enabled": true,
+      "source": "postgresql.level",
+      "target": "postgresql.severity",
+      "lookup_table": [
+        "DEBUG5,debug",
+        "DEBUG4,debug",
+        "DEBUG3,debug",
+        "DEBUG2,debug",
+        "DEBUG1,debug",
+        "LOG,info",
+        "INFO,info",
+        "NOTICE,notice",
+        "WARNING,warning",
+        "ERROR,error",
+        "FATAL,critical",
+        "PANIC,emergency"
+      ]
+    },
+    {
+      "type": "status-remapper",
+      "name": "Define postgresql.severity as the official status of the log",
+      "is_enabled": true,
+      "sources": [
+        "postgresql.severity"
+      ]
+    }
+  ]
+}
