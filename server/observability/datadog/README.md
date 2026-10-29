@@ -14,7 +14,8 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 | `server/data-api/Dockerfile` | `dd-java-agent.jar` 내장 + **OpenMetrics AD 라벨**(아래 참고) |
 | `server/data-api/src/main/resources/application-{dev,prod}.yml` | 관리 포트 9091 에 `/actuator/prometheus` 노출 |
 | `.github/workflows/ops-datadog.dev.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
-| `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 |
+| `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 (손으로 관리, 생성기 없음) |
+| `dashboards/test_log_links.py` | Kafka 로그 링크 분리 검증 (`python3 -m unittest discover -s server/observability/datadog/dashboards -p 'test_*.py'`) |
 
 ### OpenMetrics 브리지가 이미지 라벨에 있는 이유 (GROMO-1489)
 
@@ -70,6 +71,9 @@ GAR(`asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache`)을 사용한다.
 - **Logs**: 컨테이너 stdout tail. ⚠️ 아래 "로그↔트레이스 상관" 참고 — 자동 상관은 아직 미완.
 - **APM** > Services: `gromo-back-dev` / `gromo-back-prod` 서비스·트레이스·플레임그래프.
 - **Metrics Explorer**: `gromo.*`(OpenMetrics 브리지 — http RED, HikariCP, JVM). `env:dev`/`env:prod` 로 가른다.
+- **Kafka 로그**: `service:gromo-kafka-dev` 는 브로커(`phone-kafka`, source `kafka`)와 Exporter 류
+  (`gromo-kafka-exporter`, source `kafka-exporter`)가 함께 쓴다. 대시보드는 컨테이너·source 조건으로 링크를 둘로
+  나눈다(service 태그·메트릭은 그대로). 근거와 반영 절차는 `docs/architecture/server-log-observability/kafka-log-links.md`.
 - **Integrations > Kafka**: broker 처리량·지연·파티션과 JMX 상태. `kafka_cluster:gromo-dev`로 필터한다.
 - **Integrations > Kafka Consumer**: consumer offset·lag. `kafka_cluster:gromo-dev`로 필터한다.
 - **Integrations > Redis**: 공유 Redis와 Business Redis의 메모리·연결·hit/miss·eviction·slowlog.
