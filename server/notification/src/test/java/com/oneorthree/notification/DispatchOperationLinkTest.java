@@ -1,5 +1,9 @@
 package com.oneorthree.notification;
 
+import com.google.auth.oauth2.AccessToken;
+import com.google.auth.oauth2.GoogleCredentials;
+import com.sun.net.httpserver.HttpServer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -19,9 +23,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,11 +104,13 @@ class DispatchOperationLinkTest {
         Logger logger = (Logger) LoggerFactory.getLogger(DispatchService.class);
         logger.setLevel(Level.INFO);
         logger.addAppender(logs);
+        ((Logger) LoggerFactory.getLogger(FcmTransport.class)).addAppender(logs);
     }
 
     @AfterEach
     void release() {
         ((Logger) LoggerFactory.getLogger(DispatchService.class)).detachAppender(logs);
+        ((Logger) LoggerFactory.getLogger(FcmTransport.class)).detachAppender(logs);
         logs.stop();
     }
 
@@ -193,6 +203,41 @@ class DispatchOperationLinkTest {
                 .containsExactly("op-1");
         assertThat(mdc(named("operation.link").get(1))).doesNotContainKey("origin_trace_id");
         assertThat(MDC.get("origin_request_id")).isNull();
+    }
+
+    @Test
+    void fcmFailureLogInsideSendCarriesTheCallsOperationIdAndNothingLeaksAfter() throws IOException {
+        register("fcm-a", "boot-a", "reg-a");
+        HttpServer fcm = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        fcm.createContext("/", exchange -> {
+            byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(503, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        fcm.start();
+        try {
+            FcmTransport real = new FcmTransport("test-project", GoogleCredentials.create(
+                    new AccessToken("t", new Date(System.currentTimeMillis() + 3600000))),
+                    "http://127.0.0.1:" + fcm.getAddress().getPort(), new SimpleMeterRegistry());
+            // 실제 FcmTransport 의 실패 로그 경로를 태운다.
+            when(transport.send(anyString(), any(), anyBoolean(), anyString()))
+                    .thenAnswer(call -> real.send(call.getArgument(0), call.getArgument(1),
+                            call.getArgument(2), call.getArgument(3)));
+            dispatch.dispatch(enqueue("e1", "R1", null, null));
+        } finally {
+            fcm.stop(0);
+        }
+
+        String operation = operationsOf("R1").iterator().next();
+        List<ILoggingEvent> failures = logs.list.stream()
+                .filter(e -> e.getFormattedMessage().startsWith("FCM 발송 실패")).toList();
+        assertThat(failures).singleElement().satisfies(e -> assertThat(mdc(e))
+                .containsEntry("operation_id", operation).doesNotContainKey("event_name"));
+        assertThat(resultsOf(Set.of(operation))).singleElement()
+                .satisfies(e -> assertThat(e.getFormattedMessage()).contains("result=RETRY"));
+        assertThat(MDC.get("operation_id")).isNull();
     }
 
     @Test

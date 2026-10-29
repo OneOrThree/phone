@@ -1,6 +1,7 @@
 package com.oneorthree.notification;
 
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -194,14 +195,18 @@ class DispatchService {
                 // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
                 String operationId = UUID.randomUUID().toString();
                 logLink(operationId, attempt.deliveries(), plan.causes());
+                // operation_id 를 외부 호출과 결과 기록 전체에 씌운다 — FcmTransport 가 send 안에서 남기는 오류 로그도
+                // 같은 operation 으로 조회된다. 끝나면 이전 값으로 복원한다.
                 PushTransport.Result result;
-                try {
-                    result = transport.send(attempt.token(), attempt.push(), plan.sound(), plan.eventId());
-                } catch (RuntimeException sendFailure) {
-                    logTransportResult(operationId, "EXCEPTION");
-                    throw sendFailure;
+                try (InboundTrace.Scope operation = new InboundTrace.Scope().set("operation_id", operationId)) {
+                    try {
+                        result = transport.send(attempt.token(), attempt.push(), plan.sound(), plan.eventId());
+                    } catch (RuntimeException sendFailure) {
+                        logTransportResult("EXCEPTION");
+                        throw sendFailure;
+                    }
+                    logTransportResult(result.name());
                 }
-                logTransportResult(operationId, result.name());
                 Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
                 if (outcome == Outcome.LEASE_LOST) {
                     logSettleAs(plan.deliveries(), plan.causes(), "lease_lost");
@@ -729,10 +734,10 @@ class DispatchService {
     }
 
     /** 외부 호출 결과(SENT·UNREGISTERED·RETRY·EXCEPTION). DB 반영 결과는 {@link #logSettle} 가 따로 남긴다. */
-    private static void logTransportResult(String operationId, String result) {
+    private static void logTransportResult(String result) {
         try (InboundTrace.Scope scope = new InboundTrace.Scope()) {
-            scope.set("operation_id", operationId).set("event_name", "transport.result");
-            log.info("알림 전송 결과 operation={} result={}", operationId, result);
+            scope.set("event_name", "transport.result");
+            log.info("알림 전송 결과 operation={} result={}", MDC.get("operation_id"), result);
         } catch (RuntimeException ignored) {
             // 관측 실패는 업무를 막지 않는다.
         }
