@@ -3092,6 +3092,56 @@
         }
       }
     },
+    "/me/developer-notices": {
+      "get": {
+        "tags": [
+          "developer-notice-controller"
+        ],
+        "operationId": "list_3",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperNoticePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/developer-notices/{publicationId}": {
+      "get": {
+        "tags": [
+          "developer-notice-controller"
+        ],
+        "operationId": "get_1",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperNoticeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/letters/{letterId}": {
       "get": {
         "tags": [
@@ -3865,7 +3915,7 @@
         "tags": [
           "preview-controller"
         ],
-        "operationId": "get_1",
+        "operationId": "get_2",
         "parameters": [
           {
             "name": "id",
@@ -3895,7 +3945,7 @@
         "tags": [
           "preview-controller"
         ],
-        "operationId": "get_2",
+        "operationId": "get_3",
         "parameters": [
           {
             "name": "id",
@@ -6377,6 +6427,44 @@
           "serverNow",
           "totalSeconds"
         ]
+      },
+      "DeveloperNoticePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeveloperNoticeView"
+            }
+          }
+        }
+      },
+      "DeveloperNoticeView": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "LetterItemView": {
         "type": "object",

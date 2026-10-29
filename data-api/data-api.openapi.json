@@ -489,6 +489,129 @@
         }
       }
     },
+    "/internal/admin/policies/focus/publications/{publicationId}": {
+      "put": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "publish",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publication"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/notices/{publicationId}": {
+      "put": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "publishNotice",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Draft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/construction-policy/{publicationId}": {
+      "put": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "applyConstructionPolicy",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConstructionPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionPolicyApplied"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/telescope/pins": {
       "post": {
         "tags": [
@@ -3250,6 +3373,140 @@
         }
       }
     },
+    "/internal/admin/policies/focus/approvals/{approvalId}": {
+      "post": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "approve",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/internal/admin/content/magazine/publications/{publicationId}": {
+      "post": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "publishMagazine",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Published"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/magazine/previews": {
+      "post": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}": {
       "get": {
         "tags": [
@@ -5056,6 +5313,77 @@
         }
       }
     },
+    "/internal/users/{userId}/developer-notices": {
+      "get": {
+        "tags": [
+          "internal-developer-notice-controller"
+        ],
+        "operationId": "list_2",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/developer-notices/{publicationId}": {
+      "get": {
+        "tags": [
+          "internal-developer-notice-controller"
+        ],
+        "operationId": "get_1",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/activation": {
       "get": {
         "tags": [
@@ -6337,6 +6665,165 @@
         }
       }
     },
+    "/internal/admin/policies/focus": {
+      "get": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "current_2",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/notices": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "notices",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/history/notices": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "noticeHistory",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/history/magazines": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "magazineHistory",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/environment": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "environment",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/construction-policy": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "constructionPolicy",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionPolicyView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/telescope/pins/{islandId}": {
       "delete": {
         "tags": [
@@ -7010,6 +7497,204 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "Policy": {
+        "type": "object",
+        "properties": {
+          "secondsPerFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dailyCapFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "personalSharePercent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goldenFishReward": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goldenMaxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goldenChancePpm": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "PublishRequest": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "approvedDigest": {
+            "type": "string"
+          }
+        }
+      },
+      "Publication": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previousRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "approvedDigest": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          }
+        }
+      },
+      "Draft": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Notice": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConstructionPolicyRequest": {
+        "type": "object",
+        "properties": {
+          "expectedCostPolicyVersion": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "number"
+          },
+          "buildSeconds": {
+            "type": "number"
+          }
+        }
+      },
+      "ConstructionPolicyApplied": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "previousRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "costPolicyVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "before": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
           }
         }
       },
@@ -8053,21 +8738,6 @@
           "title"
         ]
       },
-      "Notice": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "title": {
-            "type": "string"
-          },
-          "body": {
-            "type": "string"
-          }
-        }
-      },
       "NoticeCommentRequest": {
         "type": "object",
         "properties": {
@@ -8216,32 +8886,6 @@
         "properties": {
           "content": {
             "type": "string"
-          }
-        }
-      },
-      "Item": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "authorId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "authorName": {
-            "type": "string"
-          },
-          "content": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "mine": {
-            "type": "boolean"
           }
         }
       },
@@ -8652,6 +9296,217 @@
         "required": [
           "deviceBootstrap"
         ]
+      },
+      "ApproveRequest": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "approvedDigest": {
+            "type": "string"
+          }
+        }
+      },
+      "Approval": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "approvedDigest": {
+            "type": "string"
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "approvedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Published": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PreviewRequest": {
+        "type": "object",
+        "properties": {
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "editorialBody": {
+            "type": "string"
+          }
+        }
+      },
+      "IslandCard": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "MagazineEditorial": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ranked"
+            }
+          },
+          "newIslands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandCard"
+            }
+          },
+          "note": {
+            "$ref": "#/components/schemas/Note"
+          }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tipNo": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "Preview": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "editorial": {
+            "$ref": "#/components/schemas/MagazineEditorial"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewCell"
+            }
+          }
+        }
+      },
+      "Ranked": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "island": {
+            "$ref": "#/components/schemas/IslandCard"
+          }
+        }
+      },
+      "ReviewCell": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
+          "moderation": {
+            "type": "string"
+          },
+          "card": {
+            "$ref": "#/components/schemas/IslandCard"
+          }
+        }
       },
       "AccountPatchRequest": {
         "type": "object",
@@ -9262,21 +10117,6 @@
           }
         }
       },
-      "Note": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string"
-          },
-          "body": {
-            "type": "string"
-          },
-          "tipNo": {
-            "type": "integer",
-            "format": "int32"
-          }
-        }
-      },
       "RankedIsland": {
         "type": "object",
         "properties": {
@@ -9866,6 +10706,17 @@
         "properties": {
           "session": {
             "$ref": "#/components/schemas/FocusSessionView"
+          }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Notice"
+            }
           }
         }
       },
@@ -10635,20 +11486,6 @@
           }
         }
       },
-      "Page": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Item"
-            }
-          },
-          "hasMore": {
-            "type": "boolean"
-          }
-        }
-      },
       "Comment": {
         "type": "object",
         "properties": {
@@ -11086,6 +11923,74 @@
           "renderData": {
             "type": "object",
             "additionalProperties": {}
+          }
+        }
+      },
+      "Revision": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "View": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Publication"
+            }
+          }
+        }
+      },
+      "ContentHistoryPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "ConstructionPolicyView": {
+        "type": "object",
+        "properties": {
+          "costPolicyVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
           }
         }
       },
