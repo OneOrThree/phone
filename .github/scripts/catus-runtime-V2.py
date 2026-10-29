@@ -127,12 +127,26 @@ def publish(args):
     run(['git','fetch','origin','release'])
     run(['git','merge-base','--is-ancestor',source,'origin/release'])
     tags=run(['git','tag','--list',PREFIX[args.role]+'-v*-V2']).splitlines()
+    reserved=aws('s3api','list-objects-v2','--bucket',BUCKET,'--prefix','versions/').get('Contents',[])
+    for item in reserved:
+        key=item['Key']
+        if key.startswith('versions/'+PREFIX[args.role]+'-v') and key.endswith('-V2.json'):
+            candidate=key[len('versions/'):-len('.json')];version(candidate,args.role);tags.append(candidate)
+    tags=sorted(set(tags))
     if args.version:
         tag=args.version;version(tag,args.role)
     else:
         latest=max([version(x,args.role) for x in tags],default=(1,0,-1) if args.role!='app' else (2,0,-1))
         tag=f'{PREFIX[args.role]}-v{latest[0]}.{latest[1]}.{latest[2]+1}-V2'
-    if tag in tags and run(['git','rev-parse',tag+'^{commit}']).strip()!=source:raise ValueError('Tag source mismatch')
+    git_tags=set(run(['git','tag','--list',PREFIX[args.role]+'-v*-V2']).splitlines())
+    if tag in git_tags and run(['git','rev-parse',tag+'^{commit}']).strip()!=source:raise ValueError('Tag source mismatch')
+    if tags:
+        latest_tag=max(tags,key=lambda value:version(value,args.role))
+        with tempfile.TemporaryDirectory() as history_dir:
+            history=Path(history_dir)/'latest.json'
+            aws('s3api','get-object','--bucket',BUCKET,'--key',f'versions/{latest_tag}.json',str(history))
+            latest=json.loads(history.read_text())
+            run(['git','merge-base','--is-ancestor',latest['source_revision'],source])
     images=dict(prior.get('images',{})) if prior else {}
     revisions=dict(prior.get('service_revisions',{})) if prior else {}
     service_versions=dict(prior.get('service_versions',{})) if prior else {}
@@ -163,10 +177,51 @@ def publish(args):
         envelope={'stack':'V2','role':args.role,'version':tag,'release_id':release_id,'source_revision':source,'key':key,'object_version':result['VersionId'],'sha256':hashlib.sha256(archive.read_bytes()).hexdigest(),'manifest':manifest}
         path=temp/'release.json';path.write_text(json.dumps(envelope,sort_keys=True))
         immutable_put(path,f'versions/{tag}.json')
-        if tag not in tags:
+        if tag not in git_tags:
             run(['git','tag',tag,source]);run(['git','push','origin','refs/tags/'+tag])
         Path(args.output).write_text(json.dumps(envelope,sort_keys=True))
         print('Published '+tag)
+
+
+def submit_ssm(identifier,document,params,marker,output):
+    found=aws('ssm','list-commands','--instance-id',identifier,'--filters','key=DocumentName,value='+document)['Commands']
+    found=[c for c in found if c.get('Comment')==marker]
+    if len(found)>1:raise ValueError('Ambiguous SSM command')
+    intent={'instance_id':identifier,'document':document,'parameters':params,'marker':marker}
+    intent_path=Path(output+'.intent.json')
+    intent_key='intents/'+hashlib.sha256(marker.encode()).hexdigest()+'-V2.json'
+    with tempfile.TemporaryDirectory() as intent_dir:
+        old_intent=Path(intent_dir)/'intent.json'
+        try:
+            aws('s3api','get-object','--bucket',BUCKET,'--key',intent_key,str(old_intent))
+            prior_intent=json.loads(old_intent.read_text())
+        except subprocess.CalledProcessError as error:
+            if 'NoSuchKey' not in (error.stderr or '') and '(404)' not in (error.stderr or ''):raise
+            prior_intent=None
+    if prior_intent and prior_intent!=intent:raise ValueError('Persisted SSM intent changed')
+    intent_path.write_text(json.dumps(intent,sort_keys=True))
+    command_id=None
+    if found:
+        if found[0].get('Parameters')!=params or found[0].get('InstanceIds')!=[identifier]:raise ValueError('SSM request changed')
+        command_id=found[0]['CommandId']
+    elif not prior_intent:
+        immutable_put(intent_path,intent_key)
+        try:
+            command_id=aws('ssm','send-command','--document-name',document,'--instance-ids',identifier,'--parameters',json.dumps(params),'--comment',marker)['Command']['CommandId']
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired):
+            pass
+    if command_id is None:
+        deadline=time.monotonic()+120
+        while time.monotonic()<deadline:
+            candidates=aws('ssm','list-commands','--instance-id',identifier,'--filters','key=DocumentName,value='+document)['Commands']
+            matches=[item for item in candidates if item.get('Comment')==marker]
+            if len(matches)>1:raise ValueError('Ambiguous SSM recovery')
+            if matches:
+                if matches[0].get('Parameters')!=params or matches[0].get('InstanceIds')!=[identifier]:raise ValueError('SSM recovery mismatch')
+                command_id=matches[0]['CommandId'];break
+            time.sleep(5)
+        if command_id is None:raise RuntimeError('Unconfirmed SSM request; inspect persisted intent before a new run')
+    return command_id
 
 
 def deploy(args):
@@ -179,21 +234,24 @@ def deploy(args):
     run(['git','fetch','origin','release','--tags'])
     if run(['git','rev-parse',args.version+'^{commit}']).strip()!=envelope['source_revision']:raise ValueError('Moved release tag')
     run(['git','merge-base','--is-ancestor',envelope['source_revision'],'origin/release'])
+    if args.role=='redis':
+        target=info['INSTANCE_IDS']['app']
+        projection_marker='catus-V2:redis-projection:'+os.environ.get('GITHUB_RUN_ID',envelope['release_id'])
+        projection=submit_ssm(target,info['REDIS_PROJECTION_DOCUMENT'],{},projection_marker,args.output+'.projection')
+        deadline=time.monotonic()+240
+        while time.monotonic()<deadline:
+            try:result=aws('ssm','get-command-invocation','--command-id',projection,'--instance-id',target)
+            except subprocess.CalledProcessError as error:
+                if 'InvocationDoesNotExist' not in (error.stderr or ''):raise
+                time.sleep(3);continue
+            if result['Status']=='Success':break
+            if result['Status'] in ['Failed','TimedOut','Cancelled']:raise RuntimeError('Redis credentials projection failed')
+            time.sleep(3)
+        else:raise TimeoutError('Redis credentials projection timeout')
     identifier=info['INSTANCE_IDS'][args.role];document=info['SSM_DOCUMENTS'][args.role]
-    params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']]}
+    params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']],'Rollback':['true' if args.rollback else 'false']}
     marker='catus-V2:'+args.role+':'+os.environ.get('GITHUB_RUN_ID',envelope['release_id'])
-    found=aws('ssm','list-commands','--instance-id',identifier,'--filters','key=DocumentName,value='+document)['Commands']
-    found=[c for c in found if c.get('Comment')==marker]
-    if len(found)>1:raise ValueError('Ambiguous SSM command')
-    if found:
-        if found[0].get('Parameters')!=params:raise ValueError('SSM request changed')
-        command_id=found[0]['CommandId']
-    else:
-        intent={'instance_id':identifier,'document':document,'parameters':params,'marker':marker}
-        intent_path=Path(args.output+'.intent.json')
-        if intent_path.exists():raise ValueError('Unconfirmed previous SSM request; inspect before resubmitting')
-        intent_path.write_text(json.dumps(intent))
-        command_id=aws('ssm','send-command','--document-name',document,'--instance-ids',identifier,'--parameters',json.dumps(params),'--comment',marker)['Command']['CommandId']
+    command_id=submit_ssm(identifier,document,params,marker,args.output)
     print('SSM '+command_id,flush=True)
     deadline=time.monotonic()+2450
     status='Pending'
@@ -258,7 +316,7 @@ def main():
     p=argparse.ArgumentParser();sub=p.add_subparsers(dest='command',required=True)
     plan=sub.add_parser('plan');plan.add_argument('--role',choices=ROLES,required=True);plan.add_argument('--output',default='plan-V2.json');plan.add_argument('--production',action='store_true');plan.add_argument('--pr-base')
     pub=sub.add_parser('publish');pub.add_argument('--role',choices=ROLES,required=True);pub.add_argument('--version');pub.add_argument('--infra-revision',required=True);pub.add_argument('--output',default='release-V2.json');pub.add_argument('--prs',nargs='*',type=int)
-    dep=sub.add_parser('deploy');dep.add_argument('--role',choices=ROLES,required=True);dep.add_argument('--version',required=True);dep.add_argument('--output',default='deployment-V2.json')
+    dep=sub.add_parser('deploy');dep.add_argument('--role',choices=ROLES,required=True);dep.add_argument('--version',required=True);dep.add_argument('--output',default='deployment-V2.json');dep.add_argument('--rollback',action='store_true')
     rec=sub.add_parser('record');rec.add_argument('--input',required=True)
     args=p.parse_args()
     if args.command=='plan':

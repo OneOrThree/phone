@@ -9,7 +9,13 @@ name: Catus app CI V2
     - server/realtime/**
     - server/business-api/**
     - server/notification/**
-    - .github/scripts/catus-runtime-V2.py
+    - .github/actions/ci-jar/**
+    - .github/scripts/ci-jar.py
+    - .github/scripts/catus-*
+    - .github/workflows/prod-ci.yml
+    - .github/workflows/be-gradle.yml
+    - .dockerignore
+    - server/gradle*
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/test_catus_runtime_V2.py
   push:
@@ -20,7 +26,13 @@ name: Catus app CI V2
     - server/realtime/**
     - server/business-api/**
     - server/notification/**
-    - .github/scripts/catus-runtime-V2.py
+    - .github/actions/ci-jar/**
+    - .github/scripts/ci-jar.py
+    - .github/scripts/catus-*
+    - .github/workflows/prod-ci.yml
+    - .github/workflows/be-gradle.yml
+    - .dockerignore
+    - server/gradle*
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/test_catus_runtime_V2.py
   workflow_dispatch: {}

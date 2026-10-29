@@ -1,4 +1,4 @@
-name: catus-redis-V2
+name: catus-redis-v2
 services:
   shared:
     image: redis:7.4.11-alpine

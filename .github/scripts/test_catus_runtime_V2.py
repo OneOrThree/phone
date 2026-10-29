@@ -55,4 +55,34 @@ class RuntimeTest(unittest.TestCase):
         with patch.object(runtime,'config',return_value={}),patch.dict(runtime.os.environ,{'GITHUB_REF':'refs/heads/main'}):
             with self.assertRaisesRegex(ValueError,'release'):runtime.deploy(SimpleNamespace(role='redis',version='redis-v1.0.0-V2'))
 
+    def test_SSM_응답_유실은_기존_명령으로_복구하고_중복_전송하지_않는다(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls=[];lists=0
+            command={'CommandId':'existing','Comment':'marker','Parameters':{'Key':['value']},'InstanceIds':['i-v2']}
+            def aws(*args):
+                nonlocal lists
+                calls.append(args)
+                if args[:2]==('ssm','list-commands'):
+                    lists+=1;return {'Commands':[] if lists==1 else [command]}
+                if args[:2]==('s3api','get-object'):raise subprocess.CalledProcessError(1,['aws'],stderr='NoSuchKey')
+                if args[:2]==('ssm','send-command'):raise subprocess.TimeoutExpired(['aws'],60)
+                raise AssertionError(args)
+            with patch.object(runtime,'aws',side_effect=aws),patch.object(runtime,'immutable_put'):
+                result=runtime.submit_ssm('i-v2','document',{'Key':['value']},'marker',str(Path(d)/'out'))
+            self.assertEqual(result,'existing')
+            self.assertEqual(sum(call[:2]==('ssm','send-command') for call in calls),1)
+
+    def test_SSM_전송_의도가_있으면_명령이_불명확해도_재전송하지_않는다(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls=[];intent={'instance_id':'i-v2','document':'document','parameters':{},'marker':'marker'}
+            def aws(*args):
+                calls.append(args)
+                if args[:2]==('ssm','list-commands'):return {'Commands':[]}
+                if args[:2]==('s3api','get-object'):
+                    Path(args[-1]).write_text(json.dumps(intent));return {}
+                raise AssertionError(args)
+            with patch.object(runtime,'aws',side_effect=aws),patch.object(runtime.time,'monotonic',side_effect=[0,121]):
+                with self.assertRaisesRegex(RuntimeError,'Unconfirmed'):runtime.submit_ssm('i-v2','document',{},'marker',str(Path(d)/'out'))
+            self.assertFalse(any(call[:2]==('ssm','send-command') for call in calls))
+
 if __name__=='__main__':unittest.main()

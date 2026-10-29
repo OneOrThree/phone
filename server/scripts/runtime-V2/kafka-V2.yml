@@ -1,4 +1,4 @@
-name: catus-kafka-V2
+name: catus-kafka-v2
 x-infra-logging: &id001
   driver: json-file
   options:

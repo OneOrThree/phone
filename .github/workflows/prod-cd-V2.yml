@@ -6,6 +6,11 @@ name: Catus app CD V2
         description: "app \uC6B4\uC601 V2 \uD0DC\uADF8"
         required: true
         type: string
+      rollback:
+        description: "이전 V2 태그로 명시적 복구"
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -31,14 +36,19 @@ jobs:
     - name: "V2 SSM \uC801\uC6A9 \uBC0F \uACB0\uACFC \uD655\uC778"
       env:
         VERSION: ${{ inputs.version }}
+        ROLLBACK: ${{ inputs.rollback }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      run: python3 .github/scripts/catus-runtime-V2.py deploy --role app --version "$VERSION"
+      run: |
+        flags=()
+        if [ "$ROLLBACK" = true ]; then flags+=(--rollback); fi
+        python3 .github/scripts/catus-runtime-V2.py deploy --role app --version "$VERSION" "${flags[@]}"
     - uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: catus-app-deployment-V2-${{ github.run_attempt }}
+        name: catus-app-deployment-V2
         path: deployment-V2.json*
         if-no-files-found: warn
+        overwrite: true
   record:
     needs: deploy
     if: always() && github.ref == 'refs/heads/release' && needs.deploy.result != 'skipped'
@@ -54,7 +64,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/download-artifact@v4
       with:
-        name: catus-app-deployment-V2-${{ github.run_attempt }}
+        name: catus-app-deployment-V2
     - name: "\uBC30\uC9C0 \uBC0F \uAD00\uB828 PR \uAE30\uB85D"
       env:
         GH_TOKEN: ${{ github.token }}
