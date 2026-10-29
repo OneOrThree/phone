@@ -147,7 +147,7 @@ class ObservationJsonProviderTest {
         assertThat(cutException.getBytes(StandardCharsets.UTF_8).length)
                 .isLessThanOrEqualTo(ObservationJsonProvider.EXCEPTION_LIMIT_BYTES)
                 .isGreaterThan(ObservationJsonProvider.EXCEPTION_LIMIT_BYTES - 3);
-        assertThat(cutException).doesNotContain("�").endsWith("가");
+        assertThat(cutException).doesNotContain("\uFFFD").endsWith("가");
         assertThat(json).containsEntry("truncated", true)
                 .containsEntry("original_size_bytes", 1 + 4 * 5000 + exceptionBytes)
                 .containsEntry("request_id", "req-long");
@@ -263,7 +263,7 @@ class ObservationJsonProviderTest {
         Map<String, Object> json = format(event(message, null, Map.of()));
 
         String cut = (String) json.get("message");
-        assertThat(cut).doesNotContain("�");
+        assertThat(cut).doesNotContain("\uFFFD");
         assertThat(cut.getBytes(StandardCharsets.UTF_8).length)
                 .isLessThanOrEqualTo(ObservationJsonProvider.MESSAGE_LIMIT_BYTES);
         assertThat(json).containsEntry("truncated", true).containsEntry("original_size_bytes", 80_000);
@@ -277,7 +277,7 @@ class ObservationJsonProviderTest {
             Map<String, Object> json = format(event(message, null, Map.of()));
 
             String cut = (String) json.get("message");
-            assertThat(cut).doesNotContain("�").isEqualTo("가".repeat(5461));
+            assertThat(cut).doesNotContain("\uFFFD").isEqualTo("가".repeat(5461));
             assertThat(cut.getBytes(StandardCharsets.UTF_8)).hasSize(3 * 5461);
             assertThat(json).containsEntry("truncated", true).containsEntry("original_size_bytes", 3 * chars);
         }

@@ -101,8 +101,10 @@ class KafkaBrokerBoundaryTest {
             send(broken, badCarrier);
 
             // 수신 scope: 소비자 스레드의 MDC 에 헤더 값이 실린다.
-            CapturedLogs.Line accepted = logs.await(CapturedLogs.event(LogContext.CONSUMER_ACCEPT,
-                    "result=accepted").and(l -> "req-ok".equals(l.get("origin_request_id"))), 1, 30_000).get(0);
+            List<CapturedLogs.Line> acceptedLines = logs.await(CapturedLogs.event(LogContext.CONSUMER_ACCEPT,
+                    "result=accepted").and(l -> "req-ok".equals(l.get("origin_request_id"))), 1, 30_000);
+            assertThat(acceptedLines).as("수신 로그가 오지 않음").isNotEmpty();
+            CapturedLogs.Line accepted = acceptedLines.get(0);
             assertThat(accepted.mdc()).containsEntry("origin_trace_id", "111")
                     .containsEntry("event_id", "user.withdrawn:" + okUser).containsEntry("delivery_id", "d-ok")
                     .containsEntry("attempt", "1");
