@@ -1,0 +1,96 @@
+name: 이미지 CDN
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/assets-cdn/**"
+      - "assets-cdn/**"
+      - "app/app-dev/src/assets/interiors/hall-cute-v1.png"
+      - ".github/workflows/image-assets.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/assets-cdn/**"
+      - "assets-cdn/**"
+      - "app/app-dev/src/assets/interiors/hall-cute-v1.png"
+      - ".github/workflows/image-assets.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 배포 환경
+        type: choice
+        options: [dev, prod]
+        required: true
+      operation:
+        description: 발행 또는 기존 릴리스 롤백
+        type: choice
+        options: [publish, rollback]
+        required: true
+      release_id:
+        description: 불변 릴리스 ID (ASCII 영숫자, 하이픈, 밑줄)
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: 계약·장애·로컬 HTTP 검사
+        run: node --test scripts/assets-cdn/*.test.mjs
+      - name: 실제 회관 팩 빌드
+        run: node scripts/assets-cdn/build.mjs "sha-${GITHUB_SHA}"
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    environment: image-assets-${{ inputs.environment }}
+    concurrency:
+      group: image-assets-${{ inputs.environment }}-1
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ASSET_ENVIRONMENT: ${{ inputs.environment }}
+      ASSET_BUCKET: ${{ vars.ASSET_BUCKET }}
+      ASSET_CDN_URL: ${{ vars.ASSET_CDN_URL }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ASSET_PUBLISH_ROLE_ARN: ${{ vars.ASSET_PUBLISH_ROLE_ARN }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      OPERATION: ${{ inputs.operation }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: 환경 설정 검증
+        run: |
+          node --input-type=module <<'JS'
+          import { token } from './scripts/assets-cdn/core.mjs';
+          import { baseUrl } from './scripts/assets-cdn/verify.mjs';
+          token(process.env.RELEASE_ID);
+          baseUrl(process.env.ASSET_CDN_URL);
+          for (const key of ['ASSET_BUCKET', 'AWS_REGION', 'ASSET_PUBLISH_ROLE_ARN']) {
+            if (!process.env[key]?.trim()) throw Error(`${key} 설정이 필요합니다`);
+          }
+          if (!/^arn:aws:iam::\d{12}:role\/.+/.test(process.env.ASSET_PUBLISH_ROLE_ARN)) throw Error('잘못된 OIDC 역할');
+          JS
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ASSET_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: 불변 릴리스 빌드
+        if: inputs.operation == 'publish'
+        run: node scripts/assets-cdn/build.mjs "$RELEASE_ID"
+      - name: CDN 검증 후 채널 승격
+        run: |
+          if [ "$OPERATION" = rollback ]; then
+            node scripts/assets-cdn/publish.mjs "$RELEASE_ID" --rollback
+          else
+            node scripts/assets-cdn/publish.mjs "$RELEASE_ID"
+          fi
