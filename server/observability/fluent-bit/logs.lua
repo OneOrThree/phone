@@ -11,6 +11,7 @@
 -- 다시 적용하지 않는다(신뢰 경계: 앱이 provider 로 마스킹한 JSON 은 믿는다) — 이 마스킹은 JSON 이 아닌 줄
 -- (parse_error)만을 위한 2차 그물이다. raw 줄은 «앱이 마스킹하지 못한 줄» 이라 Java 보다 키 목록을 넓혔다.
 -- 성능: 이메일 패턴은 '@' 없는 긴 단어 열에서 O(n²) 라서 mask 전에 입력을 MESSAGE_LIMIT*2 로 먼저 자른다.
+-- 먼저 자르면 끝에 걸린 이메일·휴대폰·주민번호 조각이 패턴에 안 걸려 원문이 남으므로 끝 토큰을 버린다(drop_cut_token).
 
 local ALLOWED = { ["data-api"] = true, ["business-api"] = true, ["notification"] = true, ["realtime"] = true, ["nginx"] = true }
 local ENVS = { dev = true, staging = true, prod = true }
@@ -97,6 +98,17 @@ local function truncate(text, limit)
   return text:sub(1, cut), true
 end
 
+-- 사전 자르기로 끝에 걸린 토큰 문자([A-Za-z0-9._%+@-]) 연속 구간을 버린다. Java LogMasking.dropCutToken 과 같은 규칙 —
+-- 두 쪽이 같은 결과인지는 local-test/mask_cases.py 가 네 서비스 공통 입력표(log-contract-vectors.tsv)의 cut 줄로 본다.
+-- 바이트 표로 거꾸로 센다: «[...]*$» Lua 패턴은 긴 단어 뒤에 구분자가 오면 O(n²) 이다.
+local TOKEN_BYTE = {}
+for c in ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+@-"):gmatch(".") do TOKEN_BYTE[c:byte()] = true end
+local function drop_cut_token(text)
+  local cut = #text
+  while cut > 0 and TOKEN_BYTE[text:byte(cut)] do cut = cut - 1 end
+  return text:sub(1, cut)
+end
+
 
 -- ---------------------------------------------------------------------------------------------
 -- GROMO-2556 — Nginx(access/error)·canary
@@ -141,9 +153,10 @@ end
 local function raw_record(line, stream)
   line = tostring(line or ""):gsub("[\r\n]+$", "")
   local original = #line
-  local head = truncate(line, MESSAGE_LIMIT * 2)
+  local head, pre_cut = truncate(line, MESSAGE_LIMIT * 2)
+  if pre_cut then head = drop_cut_token(head) end
   local message, cut = truncate(mask(head), MESSAGE_LIMIT)
-  cut = cut or #head < original
+  cut = cut or pre_cut
   local out = { parse_error = true, log_kind = "raw", message = message, stream = stream, env = DEFAULT_ENV }
   if not ENVS[out["env"]] then out["env"] = "unknown" end
   if cut then
