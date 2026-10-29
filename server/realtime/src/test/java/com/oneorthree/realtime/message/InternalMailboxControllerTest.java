@@ -283,10 +283,12 @@ class InternalMailboxControllerTest {
             CapturedLogs.Line published = logs.lines(CapturedLogs.event(LogContext.FANOUT_PUBLISH, "chat:fanout"))
                     .get(0);
             assertThat(published.mdc()).containsEntry("origin_request_id", "biz-req-1")
+                    .containsEntry("request_id", "biz-req-1") // 내부 필터가 Business 요청 번호를 설치한다(GROMO-2581)
                     .containsEntry("user_id", userId.toString()).containsKey("message_id");
             assertThat(published.message()).doesNotContain("원인 연결");
         }
         assertThat(org.slf4j.MDC.get(LogContext.ORIGIN_REQUEST_ID)).isNull();
+        assertThat(org.slf4j.MDC.get(LogContext.REQUEST_ID)).isNull();
         assertThat(org.slf4j.MDC.get(LogContext.USER_ID)).isNull();
     }
 

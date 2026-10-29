@@ -120,6 +120,19 @@ public final class LogContext implements AutoCloseable {
     }
 
     /**
+     * 지금 스레드의 전달 키를 작업에 실어 둔다 — 직접 만든 실행기(이동 길잡이·재검사 스케줄러)에 넘길 작업을 감싼다(GROMO-2581).
+     * 실행 스레드에서는 {@link #replace} 로 설치하고 작업이 끝나면 되돌린다. 작업 안의 실패 로그도 이 문맥을 단다.
+     */
+    public static Runnable carrying(Runnable task) {
+        Map<String, String> snapshot = capture();
+        return () -> {
+            try (LogContext scope = replace(snapshot)) {
+                task.run();
+            }
+        };
+    }
+
+    /**
      * 내부 carrier(계약 §3, Kafka 헤더·내부 HTTP 헤더 공통 소문자 이름)를 설치한다. 버전 헤더가 있으면 {@code 1} 만 읽고, 모르는
      * 버전은 통째로 무시한다.
      *

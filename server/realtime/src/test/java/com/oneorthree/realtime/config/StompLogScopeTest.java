@@ -28,13 +28,13 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * STOMP 수신 프레임별 로그 문맥 (GROMO-2559) — 운영과 같은 순서 보존 배선(실제 {@link ExecutorSubscribableChannel} +
+ * STOMP 수신 프레임별 로그 문맥 (GROMO-2559·2581) — 운영과 같은 순서 보존 배선(실제 {@link ExecutorSubscribableChannel} +
  * {@link OrderedMessageChannelDecorator} + Spring 의 순서 콜백, 실행 스레드 1개)으로 본다.
  */
 class StompLogScopeTest {
 
     @Test
-    @DisplayName("프레임마다 새 request_id·주체 user_id 가 실행 스레드에 깔리고, 순서 콜백이 같은 스레드로 보낸 다음 프레임의 preSend 는 앞 값을 달지 않는다")
+    @DisplayName("프레임마다 새 request_id·주체 user_id 가 관문(preSend)과 처리 스레드에 같은 값으로 깔리고, 순서 콜백이 같은 스레드로 보낸 다음 프레임의 관문은 앞 값을 달지 않는다")
     void eachFrameHasItsOwnRequestIdAndTheNextPreSendDoesNotInheritIt() throws Exception {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(1);
@@ -44,6 +44,7 @@ class StompLogScopeTest {
         try {
             ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(executor);
             List<String> gateRequestIds = new CopyOnWriteArrayList<>();
+            List<String> gateUsers = new CopyOnWriteArrayList<>();
             List<String> handleRequestIds = new CopyOnWriteArrayList<>();
             List<String> handleUsers = new CopyOnWriteArrayList<>();
             // 관문(preSend)과 처리 직전(beforeHandle)에서 MDC 를 본다 — 종전 인터셉터 자리.
@@ -51,6 +52,7 @@ class StompLogScopeTest {
                 @Override
                 public Message<?> preSend(Message<?> message, MessageChannel channel) {
                     gateRequestIds.add(Objects.toString(MDC.get("request_id"), "none"));
+                    gateUsers.add(Objects.toString(MDC.get("user_id"), "none"));
                     return message;
                 }
 
@@ -83,16 +85,45 @@ class StompLogScopeTest {
             release.countDown();
 
             assertThat(handled.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(gateRequestIds).as("두 프레임의 관문 — 둘째는 실행 스레드에서 앞 프레임 처리 중에 불린다")
-                    .containsExactly("none", "none");
-            assertThat(handleRequestIds).hasSize(2).doesNotContain("none").doesNotHaveDuplicates();
-            assertThat(UUID.fromString(handleRequestIds.get(0))).isNotNull();
+            // 둘째 프레임의 관문은 앞 프레임 처리가 끝난 뒤 그 실행 스레드에서 순서 콜백이 부른다 — 앞 값을 물려받지 않는다.
+            assertThat(gateRequestIds).as("관문 거절 로그도 그 프레임의 request_id 를 단다(GROMO-2581)")
+                    .hasSize(2).doesNotContain("none").doesNotHaveDuplicates();
+            assertThat(UUID.fromString(gateRequestIds.get(0))).isNotNull();
+            assertThat(handleRequestIds).as("한 프레임은 관문과 처리가 같은 값").isEqualTo(gateRequestIds);
+            assertThat(gateUsers).containsExactly(user.toString(), user.toString());
             assertThat(handleUsers).containsExactly(user.toString(), user.toString());
             String leftover = CompletableFuture.supplyAsync(() -> Objects.toString(MDC.get("request_id"), "none")
                     + "/" + Objects.toString(MDC.get("user_id"), "none"), executor).get(5, TimeUnit.SECONDS);
             assertThat(leftover).as("같은 실행 스레드의 다음 작업엔 남지 않는다").isEqualTo("none/none");
         } finally {
             executor.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("주체 없는 관문(CONNECT)엔 바깥 스레드의 user_id 가 보이지 않고, 헤더를 못 다는 불변 프레임은 처리 단계가 새 값을 만든다 — 닫으면 바깥 값 그대로")
+    void connectGateHidesTheOuterUserAndImmutableFramesStillGetAnId() {
+        StompLogScope scope = new StompLogScope();
+        MDC.put("request_id", "outer-req");
+        MDC.put("user_id", "outer-user");
+        try {
+            SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.CONNECT);
+            Message<byte[]> connect = MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders());
+
+            scope.preSend(connect, null);
+            String gate = MDC.get("request_id");
+            assertThat(MDC.get("user_id")).isNull();
+            scope.beforeHandle(connect, null, null);
+            String handle = MDC.get("request_id");
+            scope.afterMessageHandled(connect, null, null, null);
+            scope.afterSendCompletion(connect, null, true, null);
+
+            assertThat(UUID.fromString(gate)).isNotNull();
+            assertThat(UUID.fromString(handle)).as("불변 헤더 — 관문 값을 못 넘겨 새로 만든다").isNotEqualTo(UUID.fromString(gate));
+            assertThat(MDC.get("request_id")).isEqualTo("outer-req");
+            assertThat(MDC.get("user_id")).isEqualTo("outer-user");
+        } finally {
+            MDC.clear();
         }
     }
 

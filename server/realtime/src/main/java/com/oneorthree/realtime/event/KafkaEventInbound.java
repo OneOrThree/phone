@@ -1,16 +1,20 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.logging.LogContext;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.ConsumerAwareRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.RetryListener;
 import org.springframework.util.backoff.FixedBackOff;
 import tools.jackson.databind.ObjectMapper;
 
@@ -30,7 +34,12 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>로그 연결(GROMO-2559): 레코드 헤더의 원인 문맥(계약 §3 — origin·event·delivery·attempt)을 처리 동안 문맥에 두고 끝나면
  * 되돌린다. 헤더는 관측 전용이라 형식이 틀리면 그 키만 버리고, 본문·중복 판정·DLT 는 그대로다(DLT 발행기는 원본 헤더를 복사한다).
+ *
+ * <p>재시도·DLT 로그(GROMO-2581): 리스너가 던진 뒤의 일은 리스너 scope 밖(오류 처리기)이라, 실패한 레코드의 같은 헤더로 다시 연다 —
+ * {@link RetryLog} 의 시도·DLT 줄과 DLT 발행기 자신의 로그(발행 실패 등)가 같은 {@code event_id}·원인을 단다. 재시도 횟수·DLT 판정·
+ * 발행 실패를 성공으로 삼키지 않는 동작은 그대로다(발행기를 감싸기만 한다).
  */
+@Slf4j
 @Configuration
 @ConditionalOnProperty(name = "realtime.events.kafka-enabled", havingValue = "true")
 class KafkaEventInbound {
@@ -50,7 +59,7 @@ class KafkaEventInbound {
         }
     }
 
-    private static String header(ConsumerRecord<String, String> record, String name) {
+    private static String header(ConsumerRecord<?, ?> record, String name) {
         Header header = record.headers().lastHeader(name);
         return header == null || header.value() == null ? null : new String(header.value(), StandardCharsets.UTF_8);
     }
@@ -61,8 +70,54 @@ class KafkaEventInbound {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
                 (record, failure) -> new TopicPartition(record.topic() + ".DLT", record.partition()));
         recoverer.setFailIfSendResultIsError(true);
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));
+        ConsumerAwareRecordRecoverer withContext = (record, consumer, failure) -> {
+            try (LogContext scope = carrier(record)) {
+                recoverer.accept(record, consumer, failure);
+            }
+        };
+        DefaultErrorHandler handler = new DefaultErrorHandler(withContext, new FixedBackOff(1000L, 3L));
         handler.setResetStateOnRecoveryFailure(true);
+        handler.setRetryListeners(new RetryLog());
         return handler;
+    }
+
+    private static LogContext carrier(ConsumerRecord<?, ?> record) {
+        return LogContext.openCarrier(name -> header(record, name));
+    }
+
+    /**
+     * 오류 처리기의 시도·복구 결과 한 줄씩 — 실패한 레코드의 헤더 문맥 안에서 남긴다. 예외 «객체»는 남기지 않는다(역직렬화 메시지에
+     * 본문 조각이 실릴 수 있다). {@code deliveryAttempt} 는 이 소비자의 시도 번호이고, MDC {@code attempt} 는 헤더로 받은 relay 의
+     * 시도 번호다(계약 §2.1).
+     */
+    static final class RetryLog implements RetryListener {
+
+        @Override
+        public void failedDelivery(ConsumerRecord<?, ?> record, Exception ex, int deliveryAttempt) {
+            try (LogContext scope = carrier(record)) {
+                log.warn("Kafka 사건 처리 실패 — deliveryAttempt={} topic={} partition={} offset={} reason={}",
+                        deliveryAttempt, record.topic(), record.partition(), record.offset(), reason(ex));
+            }
+        }
+
+        @Override
+        public void recovered(ConsumerRecord<?, ?> record, Exception ex) {
+            try (LogContext scope = carrier(record)) {
+                log.error("Kafka 사건 재시도 소진 — DLT 로 보냈다. topic={} partition={} offset={} reason={}",
+                        record.topic(), record.partition(), record.offset(), reason(ex));
+            }
+        }
+
+        @Override
+        public void recoveryFailed(ConsumerRecord<?, ?> record, Exception original, Exception failure) {
+            try (LogContext scope = carrier(record)) {
+                log.error("Kafka 사건 DLT 발행 실패 — 재시도를 처음부터 다시 한다. topic={} partition={} offset={} reason={}",
+                        record.topic(), record.partition(), record.offset(), reason(failure));
+            }
+        }
+
+        private static String reason(Exception ex) {
+            return ex == null ? null : NestedExceptionUtils.getMostSpecificCause(ex).getClass().getName();
+        }
     }
 }

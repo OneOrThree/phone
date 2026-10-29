@@ -1,6 +1,8 @@
 package com.oneorthree.realtime.movement.stomp;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
 import com.oneorthree.realtime.movement.MoveIntent;
 import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.RoomRuntime;
@@ -546,14 +548,25 @@ public class MovementRelay implements RoomRuntime.Listener {
     /**
      * 비소유 인스턴스 → 소유자({@code ownerInstanceId}·{@code epoch} 가 그 소유자를 가리킬 때만 적용). RECHECK·PING 은
      * {@code ownerInstanceId=null} 로 전원에게. {@code sessionKey} = {@code <originInstanceId>:<sessionId>}.
+     *
+     * <p>{@code telemetry}(GROMO-2581)는 이 명령을 일으킨 원인(STOMP 프레임의 {@code request_id}, 강퇴 사건의 {@code event_id}·origin)
+     * — 받는 인스턴스가 처리 동안 로그 문맥에 둔다. 없으면 wire 에서 빠지고(감시가 만든 PING·RESYNC 등), 옛 인스턴스는 모르는 키로
+     * 무시한다. 명령 적용에는 쓰지 않는다.
      */
     public record Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
-            UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions) {
+            UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions,
+            @JsonInclude(JsonInclude.Include.NON_NULL) FanoutTelemetry telemetry) {
+
+        public Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
+                UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions) {
+            this(originInstanceId, ownerInstanceId, epoch, islandId, type, userId, sessionKey, intent, cacheStale,
+                    sessions, null);
+        }
 
         public Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
                 UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale) {
             this(originInstanceId, ownerInstanceId, epoch, islandId, type, userId, sessionKey, intent, cacheStale,
-                    null);
+                    null, null);
         }
     }
 }

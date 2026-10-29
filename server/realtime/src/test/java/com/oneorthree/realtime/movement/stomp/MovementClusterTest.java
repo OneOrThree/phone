@@ -1,10 +1,15 @@
 package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.CapturedLogs;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.movement.MoveIntent;
 import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.MovementRooms;
 import com.oneorthree.realtime.movement.RoomRuntime;
@@ -19,6 +24,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +45,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -46,9 +55,11 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -69,6 +80,10 @@ class MovementClusterTest {
     @Autowired
     private RedisConnectionFactory connectionFactory;
 
+    /** 운영과 같은 Boot 매퍼 — 혼합 배포 호환은 이것으로 본다. */
+    @Autowired
+    private ObjectMapper objectMapper;
+
     private final ObjectMapper json = JsonMapper.builder().build();
     private final List<Message<?>> sent = Collections.synchronizedList(new ArrayList<>());
     private final BlockingQueue<Command> commands = new LinkedBlockingQueue<>();
@@ -76,6 +91,8 @@ class MovementClusterTest {
     private final UUID user = UUID.randomUUID();
 
     private SimpleMeterRegistry meters;
+    private RealtimeSessionRegistry sessions;
+    private JwtValidator jwtValidator;
     private MovementPublisher publisher;
     private MovementOwnership ownership;
     private MovementRelay relay;
@@ -95,7 +112,8 @@ class MovementClusterTest {
             completion.afterMessageHandled(message, null, null, null);
             return true;
         };
-        RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
+        sessions = new RealtimeSessionRegistry();
+        jwtValidator = mock(JwtValidator.class);
         publisher = new MovementPublisher(json, sessions, meters, channel);
         ownership = new MovementOwnership(redis, meters, "ct-" + UUID.randomUUID().toString().substring(0, 8), 3000);
         relay = new MovementRelay(true, publisher, ownership, redis, json, meters, MovementRelay.QUEUE_CAPACITY,
@@ -111,7 +129,7 @@ class MovementClusterTest {
                         beans.getBeanProvider(MovementSubscriptionListener.class), meters);
         cluster.init();
         listener = new MovementSubscriptionListener(cluster, publisher, sessions, mock(ChatAccessGuard.class),
-                mock(JwtValidator.class), meters, Executors.newSingleThreadScheduledExecutor(),
+                jwtValidator, meters, Executors.newSingleThreadScheduledExecutor(),
                 Executors.newSingleThreadScheduledExecutor(), 120);
         beans.addBean("listener", listener);
 
@@ -242,6 +260,104 @@ class MovementClusterTest {
         command(new Command("ghost-4", null, 0, island, Type.RECHECK, user, null, null, true));
         await(() -> meters.counter("movement.recheck.suspended").count() == 2);
         assertThat(listener.membershipCacheStale(island, user)).as("캐시 삭제 실패 표시도 옮겨 온다").isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 인스턴스로 가는 명령은 넣은 스레드의 원인을 telemetry 로 싣는다 — STOMP 프레임의 request_id 는 origin 으로, 강퇴 사건은 event_id·origin 그대로 (GROMO-2581)")
+    void forwardedCommandsCarryTheirCause() throws Exception {
+        redis.opsForValue().set(RedisKeys.movementOwner(island), "ghost-7:5", Duration.ofMinutes(1));
+        open("s1");
+
+        try (LogContext frame = LogContext.open().put(LogContext.REQUEST_ID, "req-move")) {
+            cluster.join(island, user, "s1");
+        }
+        assertThat(awaitCommand(Type.JOIN).telemetry()).isEqualTo(new FanoutTelemetry(1, "req-move", null, null));
+
+        try (LogContext kick = LogContext.open().put(LogContext.EVENT_ID, "evt-kick")
+                .put(LogContext.ORIGIN_REQUEST_ID, "req-kick")) {
+            listener.recheckMembership(island, user);
+        }
+        assertThat(awaitCommand(Type.RECHECK).telemetry()).isEqualTo(new FanoutTelemetry(1, "req-kick", null,
+                "evt-kick"));
+    }
+
+    @Test
+    @DisplayName("소유자 쪽 — 받은 명령의 telemetry 를 처리 동안 깔아 적용 실패 줄이 보낸 쪽 원인을 달고, 원인 없는 다음 명령의 줄엔 남지 않는다 (GROMO-2581)")
+    void ownerSideFailureLogCarriesTheSendersCause() throws Exception {
+        open("s1");
+        cluster.join(island, user, "s1"); // 이 인스턴스가 소유자가 된다
+        cluster.requestFullState(island, "s1");
+        awaitFor("s1", "FullState");
+        long epoch = ownership.lease(island).epoch();
+        MoveIntent intent = new MoveIntent(1, 1, 1.0, 1.0);
+
+        try (CapturedLogs logs = CapturedLogs.of(MovementCluster.class)) {
+            // userId 가 빠진 원격 INTENT(고장 난 발행자) — 방이 받지 못해 던지고, 길잡이가 실패 한 줄을 남긴다.
+            command(new Command("ghost-8", ownership.instanceId(), epoch, island, Type.INTENT, null, "ghost-8:x",
+                    intent, false, null, new FanoutTelemetry(1, "req-remote", "77", "evt-move")));
+            CapturedLogs.Line failed = logs.await(line -> line.message().contains("이동 명령 처리 실패"), 1, TIMEOUT_MS)
+                    .get(0);
+            assertThat(failed.mdc()).containsEntry("origin_request_id", "req-remote")
+                    .containsEntry("origin_trace_id", "77").containsEntry("event_id", "evt-move");
+            assertThat(failed.thread()).isEqualTo("movement-cluster");
+
+            command(new Command("ghost-8", ownership.instanceId(), epoch, island, Type.INTENT, null, "ghost-8:y",
+                    intent, false));
+            List<CapturedLogs.Line> both = logs.await(line -> line.message().contains("이동 명령 처리 실패"), 2,
+                    TIMEOUT_MS);
+            assertThat(both).hasSize(2);
+            assertThat(both.get(1).mdc()).as("relay-in·길잡이 스레드가 앞 명령의 원인을 되돌렸다")
+                    .doesNotContainKeys("origin_request_id", "origin_trace_id", "event_id");
+        }
+    }
+
+    @Test
+    @DisplayName("다른 인스턴스의 RECHECK — 재판정 스레드가 그 강퇴 사건의 event_id·원인을 깐 채 판정한다 (GROMO-2581)")
+    void remoteRecheckJudgesWithTheKickCause() throws Exception {
+        sessions.register("s1", new ChatPrincipal(user, "Bearer t"));
+        open("s1");
+        AtomicReference<Map<String, String>> atJudgement = new AtomicReference<>();
+        given(jwtValidator.extractUserId("t")).willAnswer(invocation -> {
+            atJudgement.compareAndSet(null, Map.copyOf(Objects.requireNonNullElse(MDC.getCopyOfContextMap(),
+                    Map.<String, String>of())));
+            return Optional.of(user);
+        });
+
+        command(new Command("ghost-6", null, 0, island, Type.RECHECK, user, null, null, false, null,
+                new FanoutTelemetry(1, "req-kick", null, "evt-kick")));
+
+        await(() -> atJudgement.get() != null);
+        assertThat(atJudgement.get()).containsEntry("origin_request_id", "req-kick").containsEntry("event_id",
+                "evt-kick");
+    }
+
+    /** telemetry(GROMO-2581) 이전의 명령 모양 — 지금 운영 중인 인스턴스가 읽는다. */
+    private record PreTelemetryCommand(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId,
+            Type type, UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions) {
+    }
+
+    @Test
+    @DisplayName("명령 wire 혼합 배포 — 신→구: 새 명령을 옛 모양으로 읽어도 실패 없이 같은 값, 구→신: 옛 JSON 은 telemetry=null, 깨진 telemetry 는 메타데이터만 버린다 (GROMO-2581)")
+    void commandWireReadsAcrossVersions() {
+        MoveIntent intent = new MoveIntent(3, 1, 2.0, 3.0);
+        String newWire = objectMapper.writeValueAsString(new Command("a", "b", 3, island, Type.INTENT, user, "a:s",
+                intent, false, null, new FanoutTelemetry(1, "req-1", "77", null)));
+
+        assertThat(newWire).contains("\"telemetry\"").contains("\"originRequestId\":\"req-1\"");
+        PreTelemetryCommand old = objectMapper.readValue(newWire, PreTelemetryCommand.class);
+        assertThat(old).isEqualTo(new PreTelemetryCommand("a", "b", 3, island, Type.INTENT, user, "a:s", intent, false,
+                null));
+
+        String oldWire = objectMapper.writeValueAsString(new PreTelemetryCommand("a", "b", 3, island, Type.JOIN, user,
+                "a:s", null, false, null));
+        assertThat(objectMapper.readValue(oldWire, Command.class))
+                .isEqualTo(new Command("a", "b", 3, island, Type.JOIN, user, "a:s", null, false));
+        assertThat(objectMapper.writeValueAsString(new Command("a", "b", 3, island, Type.JOIN, user, "a:s", null,
+                false))).doesNotContain("telemetry");
+        String broken = newWire.replace("\"originTraceId\":\"77\"", "\"originTraceId\":{\"x\":1}");
+        Command parsed = objectMapper.readValue(broken, Command.class);
+        assertThat(parsed.telemetry()).isNull();
+        assertThat(parsed.intent()).isEqualTo(intent);
     }
 
     @Test
