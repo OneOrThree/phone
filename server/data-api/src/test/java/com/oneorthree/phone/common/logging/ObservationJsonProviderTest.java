@@ -268,4 +268,18 @@ class ObservationJsonProviderTest {
                 .isLessThanOrEqualTo(ObservationJsonProvider.MESSAGE_LIMIT_BYTES);
         assertThat(json).containsEntry("truncated", true).containsEntry("original_size_bytes", 80_000);
     }
+
+    @Test
+    void koreanStraddlingTheSixteenKibBoundaryIsCutOnACharacterBoundary() throws Exception {
+        // 한글은 3바이트라 16,384 = 3*5461+1 — 상한이 5462번째 글자 한가운데를 가른다.
+        for (int chars : new int[] {5462, 20_000}) { // 20,000자(60,000바이트)는 사전 자르기(32,768 = 3*10922+2)도 글자 한가운데다
+            String message = "가".repeat(chars);
+            Map<String, Object> json = format(event(message, null, Map.of()));
+
+            String cut = (String) json.get("message");
+            assertThat(cut).doesNotContain("�").isEqualTo("가".repeat(5461));
+            assertThat(cut.getBytes(StandardCharsets.UTF_8)).hasSize(3 * 5461);
+            assertThat(json).containsEntry("truncated", true).containsEntry("original_size_bytes", 3 * chars);
+        }
+    }
 }

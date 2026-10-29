@@ -15,6 +15,7 @@
 | S3 설정 변수 | `OBS_LOG_S3_BUCKET`(켤 때 필수), `OBS_LOG_S3_REGION`(기본 `ap-northeast-2` — **미확인 가정**), `OBS_LOG_S3_TOTAL_FILE_SIZE`(10M), `OBS_LOG_S3_UPLOAD_TIMEOUT`(5m), `OBS_LOG_S3_STORE_LIMIT`(64M: 2554 dev 산정 52 MB 올림) |
 | 자격 | `s3-on` 에는 `endpoint` 와 키가 없다 — AWS 기본 엔드포인트와 자격 체인(인스턴스 역할)을 쓴다. 새 장기 액세스 키를 기본으로 두지 않는다 |
 | dev | **S3 자격이 없다(2554 실측).** dev overlay 에서 `OBS_LOG_S3` 를 켜지 않는다. 켜면 업로드가 실패한다 |
+| 모르는 `log_kind` (GROMO-2583) | `schema_version` 이 있어도 `application`·`access` 밖의 값(문자열이 아닌 값 포함)은 거절하지 않고 `raw`(`parse_error=true`)로 보관한다 — 원문은 마스킹·16 KiB 상한을 거치고 Loki 라벨에는 `raw` 만 간다(`logs.lua` `KINDS`). 값을 `application` 으로 정규화하지 않는 이유: 구조화 필드를 믿고 쓰는 쪽(조회·알림)이 스키마를 모르는 레코드를 정상 레코드로 읽는 것을 막고, 새 종류를 쓰는 앱이 `KINDS` 갱신 전에 배포돼도 줄을 잃지 않기 위해서다. `local-test/mask_cases.py`·`run.sh` (e) 가 단언한다 |
 
 ### 스위치 방식 판단
 

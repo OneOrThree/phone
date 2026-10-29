@@ -5,7 +5,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 C="docker compose -p obs2562-collector -f docker-compose.yml"
 ok=0; fail() { echo "FAIL: $*"; ok=1; }
-clean() { docker rm -f gen_a gen_b gen_c gen_f gen_g gen_h decoy-other-project >/dev/null 2>&1; $C --profile gen down -v --remove-orphans >/dev/null 2>&1; }
+clean() { docker rm -f gen_a gen_b gen_c gen_f gen_g gen_h gen_r decoy-other-project >/dev/null 2>&1; $C --profile gen down -v --remove-orphans >/dev/null 2>&1; }
 trap clean EXIT
 clean
 WAIT=${WAIT:-90}   # 폴링 상한(초)
@@ -44,6 +44,43 @@ $C start fluent-bit >/dev/null
 python3 check.py --wait $WAIT a:500 b:500 c:500 f:300 || fail "(f) 누락·중복"
 for _ in $(seq 30); do curl -sf http://127.0.0.1:12020/api/v1/metrics >/dev/null && break; sleep 1; done
 
+echo "== (r) Docker json-file 회전(max-size 64k·max-file 3) 중 수집 — 보통 줄 누락 0·중복 0, 회전에 걸친 40 KiB 줄은 유실(알려진 한계)"
+# 회전은 Docker 가 하고(<id>-json.log -> .1 -> .2, 3번째 회전부터 가장 오래된 파일 삭제) 수집기는 inode 로 이어 읽는다.
+# 줄은 40ms 간격(약 25줄/초, 600줄 = 약 24초)이라 파일 하나(64 KiB 초과 시 회전)는 약 1~2초 분량이다.
+# 컨테이너는 7초 쉬었다가 쓴다: tail 은 새 컨테이너 파일을 Refresh_Interval(5초)마다 발견하므로, 발견 전에 회전이 끝나면 앞줄이
+# 회전 파일(.1)로 가 버려 수집기가 한 번도 못 본다(실측: 600줄 중 앞 33줄). 운영 max-size 는 이보다 훨씬 커서 이 창은 시험 설정의 부산물이다.
+docker run -d --name gen_r --label com.docker.compose.project=obs2562-collector --label com.docker.compose.service=data-api \
+  --log-driver json-file --log-opt max-size=64k --log-opt max-file=3 --network none \
+  -v "$PWD/gen.py:/gen.py:ro" --entrypoint sh python:3.12-alpine -c 'sleep 7; exec python -u /gen.py r 600 40' >/dev/null
+# gen.py 의 i%100==7 줄은 exception 40 KiB 라 Docker 가 16 KiB 3조각으로 쪼갠다. 조각이 회전 경계에 걸리면 수집기가 그 줄을 잃는다(실측:
+# 6줄 중 경계에 걸린 4줄 107·207·407·507 이 유실, 같은 입력을 회전 없는 max-size 로 돌리면 600/600 — 원인은 조각 이어 붙이기가 파일 단위라는 점).
+# 그래서 단언은 둘로 나눈다: 보통 줄(594)은 한 줄도 잃거나 겹치지 않는다 / 유실은 40 KiB 줄에만 있어야 하고 그 수를 출력한다.
+python3 - "$WAIT" <<'PY' || fail "(r) 회전 중 누락·중복"
+import sys, time, uuid, collections
+sys.path.insert(0, ".")
+from check import lines, NS
+deadline = time.time() + int(sys.argv[1])
+big = {i for i in range(600) if i % 100 == 7}
+ids = {str(uuid.uuid5(NS, f"r-{i}")): i for i in range(600)}
+while True:
+    got = collections.Counter(r["log_id"] for r, _ in lines('{env=~".+"}') if r.get("log_id") in ids)
+    seen = {ids[k] for k in got}
+    missing = set(range(600)) - seen
+    if not (missing - big) or time.time() > deadline: break
+    time.sleep(2)
+time.sleep(4)  # 늦게 도착하는 중복을 잡을 여유
+got = collections.Counter(r["log_id"] for r, _ in lines('{env=~".+"}') if r.get("log_id") in ids)
+seen = {ids[k] for k in got}; missing = set(range(600)) - seen
+dup = sum(n - 1 for n in got.values())
+print(f"run=r expected=600 received={len(seen)} missing={len(missing)} (보통 줄 {len(missing - big)}, 40 KiB 줄 {len(missing & big)}/{len(big)} {sorted(missing & big)}) duplicates={dup}")
+assert not (missing - big), f"보통 줄 누락 {sorted(missing - big)}"
+assert dup == 0, f"중복 {dup}"
+PY
+RID=$(docker inspect -f '{{.Id}}' gen_r)
+ROTATED=$(docker run --rm -v /var/lib/docker/containers:/c:ro alpine sh -c "ls /c/$RID | grep -c 'json.log\.[0-9]'")
+echo "회전 파일 수(기대 2 = max-file-1, 즉 3번째 회전부터 삭제가 일어남): $ROTATED"
+[ "$ROTATED" -eq 2 ] || fail "(r) 회전이 기대만큼 일어나지 않음($ROTATED)"
+
 echo "== (h) 1 MiB 단어 문자 한 줄 — 마스킹이 입력 길이에 2차로 늘면 수집기가 멈춘다"
 T0=$(date +%s)
 gen h 1 0 huge
@@ -57,7 +94,8 @@ while time.time() - t0 < limit + 30:
     if hit:
         took = time.time() - t0
         print(f"1 MiB 줄: 도착까지 {took:.1f}s (생성·Docker 기록 포함), message={len(hit[0]['message'])}B truncated={hit[0].get('truncated')}")
-        assert len(hit[0]["message"]) == 16384 and hit[0].get("truncated") is True
+        # 단어 문자만 1 MiB 라 사전 자르기 꼬리 토큰(drop_cut_token, GROMO-2584)이 앞 32 KiB 전체를 버려 message 는 비어도 된다(≤ 16 KiB).
+        assert len(hit[0]["message"]) <= 16384 and hit[0].get("truncated") is True
         raise SystemExit(0 if took <= limit else 1)
     time.sleep(1)
 print("1 MiB 줄이 도착하지 않음"); raise SystemExit(1)
@@ -136,6 +174,10 @@ assert "hunter2" not in plain["message"] and "alice@" not in plain["message"] an
 big = next(r for r in raw if r.get("truncated") and r["original_size_bytes"] == 20000); assert len(big["message"]) == 16384
 other = next(r for r in raw if "unrelated" in r["message"]); print("non-schema json kept as raw: parse_error =", other["parse_error"])
 assert "abc" not in other["message"], "raw 경로의 token 값이 가려지지 않음: " + other["message"]
+unk = next(r for r in raw if "unk-e2e" in r["message"])
+assert "pw-unk" not in unk["message"], "모르는 log_kind 줄의 값이 가려지지 않음"
+assert not any(r.get("log_id") == "unk-e2e" for r in recs), "모르는 log_kind 줄이 구조화 레코드로 들어옴"
+print("모르는 log_kind(weird): raw 로 보관, 값 마스킹, 라벨 weird 없음((d) 가 집합으로 단언)")
 secrets = next(r for r in raw if r["message"].startswith("secrets"))
 print("masked secrets:", secrets["message"])
 for leaked in ("tok-111", "tok-222", "tok-333", "bear-444", "key-555", "ref-666", "acc-777", "sec-888", "pw-999", "tok-000"):
@@ -154,6 +196,9 @@ exc = [r for r in recs if "exception" in r]; assert exc and any("\n\tat a.B.c" i
 assert all("observed_at" in r for r in recs)
 print("exception records:", len(exc), "/ observed_at 전부 있음 / decoy 0 / 자기 로그 0")
 PY
+
+echo "== 사전 자르기 꼬리·한글 16 KiB 경계·모르는 log_kind (logs.lua 직접 호출, 네트워크 없음)"
+python3 mask_cases.py || fail "mask_cases"
 
 echo "== Fluent Bit drop 판정"
 TOTAL_DROPPED=$((DROPPED_TOTAL + $(metric dropped_records)))

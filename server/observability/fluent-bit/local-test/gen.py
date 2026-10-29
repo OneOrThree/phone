@@ -24,6 +24,8 @@ if extras:
     print("plain text line email=alice@example.com password=hunter2 phone 010-1234-5678 rrn 900101-1234567", flush=True)
     print("X" * 20000, flush=True)
     print('{"unrelated":"json without our schema","token":"abc"}', flush=True)
+    # 스키마는 맞고 log_kind 만 모르는 값: raw 로 보관돼야 하고(라벨 값 weird 금지) 값은 가려져야 한다.
+    print('{"schema_version":1,"log_kind":"weird","log_id":"unk-e2e","message":"password=pw-unk"}', flush=True)
     print('secrets token=tok-111 "refresh_token":"ref-666" Authorization: Bearer bear-444 api_key=key-555 access_token: acc-777 client_secret=sec-888 password=pw-999 {"token":"tok-222"} refresh=tok-333 apiKey=tok-000', flush=True)
 if mode == "huge":
     print("X" * 1048576, flush=True)
