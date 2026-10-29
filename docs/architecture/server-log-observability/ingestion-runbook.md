@@ -34,6 +34,9 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 | env·service | 키 값은 레코드의 `env`·`service`. **S3 레코드 본문에도 `env`·`service`·`log_kind` 가 남는다**(Loki 출력만 라벨로 옮기며 본문에서 뺀다) | 객체 내용 확인 |
 | service allowlist | `rewrite_tag` 규칙이 `data-api\|business-api\|notification\|realtime\|nginx\|canary` 만 통과시킨다 | 설정 |
 | 시간 | **객체 «첫 레코드» 의 event time(UTC)**. 한 객체 안에 다른 시간대 레코드가 섞일 수 있다 — 정확한 발생·수집 시간 파티션이 아니다. 시험 k: event time 이 3시간 전인 레코드가 첫 레코드인 객체에 5분 전 레코드가 함께 들어가 `hour=03`(현재 06시대) 키가 만들어졌다 | 하네스 k |
+| 재시작 복구 파일의 시간 | 수집기 재시작 뒤 «이전 실행의 로컬 버퍼» 로 다시 올린 객체는 키 시간이 **복구(재기동) 시각**이다 — 레코드 시각과 몇 시간 어긋날 수 있다 | 4.2.8 `plugins/out_s3/s3_store.c:237-247` `set_files_context` 가 `first_log_time = time(NULL)` |
+| 조회 여유 | 키 hour 로 바로 거르지 않는다. **`[from − X, to + Y]` 가 걸치는 hour 객체를 읽고 레코드 `timestamp` 로 다시 거른다.** 기본 X = Y = 1시간(2560 `server/observability/athena/render.py` `--margin-hours` 기본 1과 같음). 최대 어긋남은 `upload_timeout`(운영 후보 5m)보다 클 수 있다 — S3 장애 중 재시도(아래 §7, 계산상 최대 약 1시간)와 재시작 복구(위 행)가 더해진다. 장애가 길었던 구간은 여유를 그만큼 늘린다 | 설정·소스 |
+| `date`/`hour` 시간대 | **UTC**. 플러그인이 키 시각을 `gmtime_r` 로 만든다 — 컨테이너 `TZ` 와 무관하다. 하네스·overlay 모두 `TZ` 를 주지 않으며 시험 k 의 키도 UTC 였다. 그래서 `TZ=UTC` 를 따로 두지 않는다 | 4.2.8 `src/aws/flb_aws_util.c:1196`, `1210` |
 | event time 의 출처 | 실제 파이프라인은 Docker json-file 이 줄에 찍은 시각(앱 `timestamp` 와 밀리초~초 차)이다. 앱 `timestamp` 를 event time 으로 쓰도록 parser 에 `Time_Key` 를 주지 않았다(Loki 시각을 바꾸는 2555 설정과 충돌) | `parsers.conf` |
 | 고유성 | `${HOSTNAME}`(컨테이너 id) + `$UUID`(플러그인이 만드는 **무작위 8자**). 정말 전역 UUID 가 아니다. 같은 컨테이너·같은 접두 안에서 8자 충돌은 이론상 가능하나 시험 중 관찰되지 않았다(수십 개 객체 규모, 충돌 확률은 계산하지 않음) | 키 목록 |
 | 업로드 | `total_file_size` 10M 미만이면 PutObject. `upload_timeout` 5m 이 지나면 크기와 무관하게 닫는다. 하네스는 20s 로 줄였다. 10 MiB 크기 트리거는 **미실행** | 로그 "will use PutObject API" |
@@ -55,8 +58,11 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 
 ### 4.1 공통 정제 (`logs.lua`, 하네스 i 에서 검증)
 
-- access: query string 은 JSON `log_format` 이 `$uri` 만 써서 애초에 없다. 경로의 20자 이상 영숫자 세그먼트(UUID 제외)는 `:redacted`. client IP·referrer·user-agent 는 형식에 넣지 않으며, 기본 combined 줄이 들어오면 IP·identd·user·referrer·agent 를 읽지 않고 버린다.
-- error: `request: "GET /path?query HTTP/1.1"` 의 query, `upstream: "http://…?query"` 의 query, `referrer: "…"` 전체, `client: <ip>`, `"/경로"` 로 감싼 파일 경로의 토큰 세그먼트를 정제한다. 그 뒤 `mask()`(토큰·인증·이메일·휴대폰 규칙)를 적용한다. 줄은 마스킹 전에 32 KiB 로 먼저 자른다.
+- access: query string 은 JSON `log_format` 이 `$uri` 만 써서 애초에 없다. 경로에서 `[A-Za-z0-9-_.~%]` 로 이어진 묶음(`/` 는 경계)을 아래 규칙으로 가린다: ① 묶음 끝의 확장자(점 + 영숫자 1~5자)를 떼어 «stem» 으로 판정하고 확장자는 남긴다(`main.<해시>.js` → `:redacted.js`). ② stem 이 UUID 8-4-4-4-12 면 유지(`/files/<uuid>.png` 포함). ③ stem 길이가 20 이상이고 **숫자 포함 또는 대문자 포함 또는 구분자(`-` `_` `.`)가 하나도 없으면** `:redacted`. 소문자 kebab/snake 라우트(`/api/v1/notification-preferences`)는 그대로 남고, 무작위 base62·hex·해시는 가려진다(하네스 i 가 정상 경로 3종 `ok-kebab`·`ok-uuid`·`ok-hash` 의 모양을 단언). 경로는 512바이트에서 UTF-8 문자 경계로 자른다. client IP·referrer·user-agent 는 형식에 넣지 않으며, 기본 combined 줄이 들어오면 IP·identd·user·referrer·agent 를 읽지 않고 버리고, **combined 의 `[dd/Mon/yyyy:HH:MM:SS +zzzz]` 를 시간대까지 해석해 `timestamp` 로 쓴다**(해석 실패 시 Fluent Bit 이벤트 시각; 수집 시각으로 덮지 않아 `Read_From_Head`·backlog 재처리에서 과거 요청이 현재로 찍히지 않는다). combined 패턴에 맞지 않는 access 줄(요청 줄이 `"-"` 인 400 등)은 `raw` 로 남기되 앞 IP·ident·user 를 `**** - -` 로, 요청 줄은 경로 정제로, 둘째 따옴표 구간(referer·agent)은 `"-"` 로 바꾸고 닫히지 않은 따옴표 꼬리도 `"-` 로 바꾼다.
+- **한계 — 짧은 경로 토큰**: 20자 미만 세그먼트(짧은 OTP·초대 코드, `/verify/ab12cd34` 같은 reset 코드)는 가리지 못한다. **경로에 비밀을 싣는 라우트는 앱에서 막아야 한다**(query·본문·헤더로 옮긴다). 수집기의 길이 규칙은 2차 그물이다. **두 번째 한계 — 구분자를 포함한 소문자 전용 20자 이상 비밀**(예: `abcd-efgh-ijkl-mnop-qrst`)은 소문자 kebab 라우트와 구별되지 않아 가리지 못한다(1라운드의 «20자 이상이면 전부 가림» 은 정상 라우트·정적 파일까지 가려 http_path 라벨·검색을 망가뜨려 위 규칙으로 바꿨다). **세 번째 — 과차단 방향**: 20자 이상이면서 대문자를 포함한 정상 라우트(CamelCase), 숫자를 포함한 정상 라우트(`oauth2-…`·`…-v2-…`)는 비밀로 간주되어 `:redacted` 가 된다. 퍼센트 인코딩 경로는 `%XX` 의 숫자 때문에 길이만 넘으면 가려진다. **네 번째 — 확장자 꼬리**: 확장자를 «점 + 영숫자 1~5자» 로만 보고 떼어 내므로 `<긴토큰>.a1b2c` 처럼 토큰 끝 5자가 점 뒤에 오면 그 5자는 남는다(stem 만 가려진다). **다섯 번째 — fallback 의 `remote_user`**: combined 파싱에 실패한 줄은 앞 세 필드를 공백 단위로 가리므로, 공백이 든 `remote_user`(Basic auth 이름에 공백)는 일부가 남을 수 있다.
+- error: `request: "GET /path?query HTTP/1.1"`(프로토콜 없는 HTTP/0.9 `request: "GET /path?query"` 포함) 의 query, `upstream: "http://…?query"` 의 query, `referrer: "…"` 전체, `client: <ip>`, `"/경로"` 로 감싼 파일 경로의 토큰 세그먼트, auth_basic 의 사용자 이름(`user ":redacted" was not found`, `user ":redacted": password mismatch`)을 정제한다. `host: "…"`·`server: …` 는 호스트 이름이라 그대로 둔다. 그 뒤 `mask()`(토큰·인증·이메일·휴대폰 규칙)를 적용한다. 줄은 마스킹 전에 32 KiB 로 먼저 자른다.
+- **error 줄 백스톱**: error 줄은 Nginx 가 요청 줄·헤더를 이스케이프 없이 써서 따옴표 경계가 모호하다(`request: "GET /a"?q=S HTTP/1.1"`). 그래서 필드 규칙 뒤에 따옴표와 무관한 줄 전체 백스톱을 둔다: 공백으로 나뉜 각 토큰에서 `?`·`#` 뒤를 지우고(토큰 끝의 닫는 `"`·`,` 는 남긴다), `/` 가 든 토큰(스킴://호스트 제외)에는 경로 토큰 규칙을 적용한다. access fallback 에도 같은 함수가 적용된다. 한계: error 본문에 `?`·`#` 가 든 정상 문장(예: PCRE 설정 오류 정규식)은 해당 토큰 뒤가 지워진다.
+- **잘린 error 줄**: Nginx 는 error 한 줄을 약 2 KiB(`NGX_MAX_ERROR_STR`)에서 자르고 뒤쪽 필드(`upstream`·`host`·`referrer`)부터 잘린다. 그러면 마지막 따옴표 값이 닫히지 않아 위 규칙이 모두 비껴간다(r2 까지는 `code=`·`invite=` 같은 목록 밖 키와 경로 토큰이 그대로 남았다 — r3 단위 입력으로 확인). 따옴표 수가 홀수면 마지막 따옴표 뒤를 줄 끝까지 정제한다: `referrer` 는 `-`, `upstream` 은 URL 규칙(스킴·호스트 보존), 그 밖(`request: "GET /…`, `open() "/…`)은 query 제거 + 경로 정제. 긴 파일 경로는 Nginx 가 스스로 `…BBB... (2: No such file or directory), client: …` 처럼 잘라 뒤에 글을 붙이므로(하네스 i 첫 실행에서 이 형태의 경로 토큰이 남아 발견), 경로 정제는 세그먼트 전체가 아니라 «토큰 묶음» 단위로 가린다. 하네스 i 가 실제 Nginx 로 잘린 줄 4종(request·upstream·referrer·open() 경로)과 auth_basic 실패·UUID 꼴이 아닌 긴 hex 경로를 만들어 확인한다(`unclosed_quote_errors`, `leaked=[]`).
 - 필드: `log_kind` = `access`(요청) \| `infrastructure`(error). 계약 §5 의 `application\|access\|raw` 에 `infrastructure` 를 더했다. `service=nginx`, `env`. `log_id` 는 수집기가 부여하는 무작위 UUID(원천에 안정 커서가 없다 — 수집기가 같은 파일을 처음부터 다시 읽으면 새 id 가 붙어 중복이 된다). trace 필드는 없다 — **trace 없는 로그도 그대로 보관된다**(S3·Loki 모두 도착 확인).
 - 연결: access 는 `edge_request_id`(Nginx `$request_id`)와 upstream 응답 헤더 `X-Request-Id`(`request_id`, Business 가 응답에 주는 자기 UUID)를 함께 남긴다. 502/413 처럼 upstream 에 닿지 않은 요청은 `request_id` 가 없다. **error 로그는 요청 단위 연결을 주장하지 않는다** — `connection`(`*<번호>`)과 시간으로만 보조 연계한다. error 시각은 서버 로컬 시간인데 UTC 로 간주해 `timestamp` 를 만든다(dev VM 시간대 **미확인**).
 
@@ -95,14 +101,14 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 
 ## 6. Canary 운영
 
-- 생성: Fluent Bit `dummy` 입력이 **60초마다** 합성 레코드 1건(`service=canary`, `logger=fluent-bit.canary`, 고유 `log_id`, `canary_seq`; 개인정보 없음)을 만든다. Loki 에는 항상, S3 모듈이 켜져 있으면 S3(`service=canary` 접두)에도 간다.
-- 확인(하네스 `canary.py`): **Loki 조회와 S3 객체 조회를 각각 따로** 한다 — Loki 결과와 무관하게 S3 객체를 직접 읽어 `log_id` 를 찾는다. 한쪽 sink 에만 늦으면 그쪽만 `MISSING_IN` 으로 표시한다.
+- 생성: Fluent Bit `dummy` 입력이 **60초마다** 합성 레코드 1건(`service=canary`, `logger=fluent-bit.canary`, 고유 `log_id`, `canary_seq`, `canary_boot`; 개인정보 없음)을 만든다. `canary_seq` 는 수집기 프로세스마다 1부터 다시 세고, `canary_boot` 는 프로세스마다 새 무작위 값이다. Loki 에는 항상, S3 모듈이 켜져 있으면 S3(`service=canary` 접두)에도 간다. **canary 는 모듈 스위치와 무관하게 기본 켜짐**이다(끄는 스위치는 없다 — 필요해지면 후속).
+- 확인(하네스 `canary.py`): **Loki 조회와 S3 객체 조회를 각각 따로** 한다 — Loki 결과와 무관하게 S3 객체를 직접 읽어 `log_id` 를 찾는다. 객체 읽기가 실패하면 다음 회차에 다시 읽는다. 관측 창은 `run-s3.sh` 가 돌린 시나리오 전체 + `max(max-delay, 2×interval+5초)` 다(마지막 시나리오 뒤에도 canary 가 최소 2주기 더 발행돼야 실행 끝의 꼬리 유실이 «뒤 번호 도착» 으로 공백이 된다). 하네스 `--interval`(기본 60)은 Fluent Bit canary 입력의 `Interval_Sec`·`Rate` 와 같아야 한다. 판정: 한 sink 에만 없거나 늦으면 `MISSING_IN`, 같은 `canary_boot` 안에서 빠진 `canary_seq` 는 `MISSING_BOTH`(어느 sink 에도 안 온 canary), sink 별 마지막으로 받은 canary 의 발행 시각이 «60초 + max-delay» 보다 오래되면 `STALE`(처음 몇 건 뒤 수집이 멈췄거나 조회가 계속 실패; 관측 종료 신호 시각 − `interval/2` 이후에 발행된 canary 를 하나도 못 받은 sink 도 `STALE` — 마지막 시나리오 직후 수집기가 멈춘 경우), 판정 시각 기준 max-delay 안에 발행돼 아직 안 온 것은 `PENDING`(성공으로 세지 않고 따로 출력). 유실을 일부러 만드는 f1·f2 는 `run-s3.sh` 가 각 시나리오의 시작·끝 시각을 `canary.py --allow-loss-file` 로 넘기고, **그 창 안에서 발행된 canary 의 `MISSING_*` 만** `ALLOWED_LOSS` 로 출력하고 종료 코드에서 뺀다(창 밖 유실은 그대로 실패). 못 잡는 꼬리: 수집기가 SIGKILL·교체로 끝난 boot 의 마지막 번호들(같은 boot 의 뒤 번호가 없다)과 관측 끝 직전 2주기 안의 발행분(`PENDING`). `canary.py` docstring 에 같은 내용을 적었다.
 - 운영 적용 설계(**미구현·미실행**): 별도 주기 작업(관측 호스트 cron 또는 Grafana 쪽 쿼리)이 ① Loki `{service="canary"}` 의 마지막 canary 시각 ② S3 `service=canary/` 의 최신 객체 내용의 마지막 canary 시각을 각각 지표로 내고, 각 sink 에서 «마지막 canary 나이 > 임계» 이면 따로 경보한다. S3 는 `upload_timeout` 만큼 늦게 보이므로 임계는 `upload_timeout` + 여유(초기 후보 10분, 하네스 20s 환경 측정과 별개). 저트래픽 시간대의 정상(canary 만 있음)과 수집 단절(canary 도 없음)이 구분된다. canary 도착이 모든 실제 로그의 무유실 증명은 아니다.
 - 추가 경보 후보: `s3.0` `errors`·`dropped_records`, `store_dir` 사용량 80%(64M 기준 51 MB), 로그에 `will not retry`(§7 d).
 
 ## 7. 장애 시나리오 결과 (로컬 하네스, 측정 그대로)
 
-환경: 로컬 Docker, Fluent Bit 4.2.8, Loki 3.3.2(dev 와 같은 설정), MinIO `RELEASE.2026-10-23T20-06-51Z`(Chainguard 빌드, digest 고정 — 공식 `minio/minio` 는 Docker Hub·Quay 에서 받을 수 없었다), `upload_timeout` 20s(운영 후보 5m), `total_file_size` 10M. 기대 `log_id` 집합은 외부 생성기가 들고(`uuid5(RUN-i)`) 2초 간격 watcher 가 Loki·S3 를 따로 조회해 처음 본 시각을 기록한다. **지연은 2초 해상도**이고 `emitted_ms`(생성기 시각) 기준이다. Loki 는 같은 스트림·시각·본문을 저장 시 합치므로 Loki 쪽 중복은 과소 계수될 수 있다. 시나리오마다 1회(b1 은 3회, 아래) 실행한 값이라 분포는 모른다.
+환경: 로컬 Docker, Fluent Bit 4.2.8, Loki 3.3.2(dev 와 같은 설정), MinIO `RELEASE.2026-10-23T20-06-51Z`(Chainguard 빌드, digest 고정 — 공식 `minio/minio` 는 Docker Hub·Quay 에서 받을 수 없었다), `upload_timeout` 20s(운영 후보 5m), `total_file_size` 10M. 기대 `log_id` 집합은 외부 생성기가 들고(`uuid5(RUN-i)`) 2초 간격 watcher 가 Loki·S3 를 따로 조회해 처음 본 시각을 기록한다. **지연은 2초 해상도**이고 `emitted_ms`(생성기 시각) 기준이다. Loki 는 같은 스트림·시각·본문을 저장 시 합치므로 Loki 쪽 중복은 과소 계수될 수 있다. 시나리오마다 1회(b1 은 3회, 아래) 실행한 값이라 분포는 모른다. 아래 소스 `file:line` 은 r4 에서 v4.2.8 태그 소스 대조를 마쳤다(대조 대상 전부 일치, `s3.c:1920-1925` 만 `1917-1919` 로 고침).
 
 | ID | 시나리오 | sink | 기대 | 수신 | 누락 | 중복 | 지연 p50 / p95 / 최대(초) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -130,9 +136,11 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 | | | S3 | 2400 | 2400 | 0 | 0 | 12.4 / 21.5 / 23.4 |
 | e2 | 같은 시험, 복구 후 최대 900초 | Loki | 2400 | 2390 | **10** | 0 | 88.0 / 338.8 / 436.0 |
 | | | S3 | 2400 | 2400 | 0 | 0 | 12.3 / 22.0 / 26.8 |
-| f1 | 두 sink 정지 + Loki 엔진 1M·S3 `store_dir` 2M·total_file_size 1M, 6000건 | Loki | 6000 | 2151 | **3849** | 0 | 52.2 / 90.8 / 91.4 |
+| f1 (※ S3 엔진 상한 64M 로 측정) | 두 sink 정지 + Loki 엔진 1M·S3 `store_dir` 2M·total_file_size 1M, 6000건 | Loki | 6000 | 2151 | **3849** | 0 | 52.2 / 90.8 / 91.4 |
 | | | S3 | 6000 | 3477 | **2523** | 165 | 48.1 / 77.9 / 78.9 |
-| f2 | f1 + 생성기 Docker 로그 500k×2 회전 | Loki | 6000 | 2027 | **3973** | 0 | 40.9 / 61.9 / 62.5 |
+| f1 수정 후 (r6: `Retry_Limit 60`·S3 엔진 1M 실제 적용, 마운트 설정 확인) | 같은 조건 | Loki | 6000 | 2135 | **3865** | 0 | 미집계 |
+| | | S3 | 6000 | 6000 | 0 | 166 | 미집계 — S3 엔진 `dropped_records` 160 인데 누락 0: `store_dir` 버퍼가 재전송한 것으로 추정(미확인), 중복은 그 결과로 보임 |
+| f2 (※ 같음) | f1 + 생성기 Docker 로그 500k×2 회전 | Loki | 6000 | 2027 | **3973** | 0 | 40.9 / 61.9 / 62.5 |
 | | | S3 | 6000 | 3527 | **2473** | 334 | 48.5 / 59.5 / 60.6 |
 | h | 수집기 정지 중 생성기 컨테이너 신규 생성, 재기동 뒤 400건 | Loki | 400 | 400 | 0 | 0 | 16.8 / 20.6 / 21.3 |
 | | | S3 | 400 | 400 | 0 | 0 | 41.9 / 45.8 / 46.5 |
@@ -144,7 +152,11 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 위 표의 «수정 후» 행은 r1 에서 `Retry_Limit 60` 으로 바꾼 뒤 다시 돌린 값이다(병합된 2555 최종 `logs.lua`·`fluent-bit.conf` 기준). 같은 병합본에서 a 와 Nginx 시나리오(i)도 다시 돌려 누락·중복 0, 민감값 0 이었다(a: Loki 600/600 p50 1.5s, S3 600/600 p50 20.9s).
 
 - **a·b·c·h**: 이 규모에서 누락·중복 0. b1(SIGTERM 재시작)은 같은 시험을 3회 돌려 **1회에서 S3 누락 1건**(1000 중 999)이 나왔고 2회는 0 이었다. 원인은 확인하지 못했다 — 재시작 순간의 S3 버퍼 파일 처리로 추정하지만 **미확정**이다. SIGKILL(b2)은 3회 시험에서 누락·중복이 나오지 않았으나 표본이 작다.
-- **d·d3·d4 (원인 확인과 완화)**: 수집기 로그 `Chunk file failed to send 5 times, will not retry` 의 한도는 설정으로 바뀐다. 4.2.8 `plugins/out_s3/s3.c` 는 초기화에서 `if(ctx->ins->retry_limit < 0) { ctx->ins->retry_limit = MAX_UPLOAD_ERRORS; }`(`s3.c:620-621`)로 `Retry_Limit no_limits`(-1)를 `#define MAX_UPLOAD_ERRORS 5`(`s3.h:51`)로 바꾼다. 업로드 큐는 `upload_contents->retry_counter >= ctx->ins->retry_limit` 이면 «will not retry» 를 찍고 파일을 `s3_store_file_inactive` 로 버리고(`s3.c:1908-1914`), 실패마다 `2 * retry_counter` 초 뒤로 미룬다(`s3.c:1920-1925`). 같은 한도가 flush 경로(`s3.c:3837-3841`)·put_all_chunks(`s3.c:1374-1380`)·멀티파트(`s3.c:1662`, `3309`, `3324`)에도 쓰인다. 그래서 `Retry_Limit` 를 양수로 주면 그 값이 쓰이고, 기본 `no_limits` 는 사실상 5회(약 20~30초)다. **`s3-on` 은 `Retry_Limit 60` 으로 바꿨다**(재시도 간격이 2n초씩 늘어 N 번이면 대략 N(N-1)초 → 약 1시간). 같은 d·d3 시험이 누락 0 이 됐고 5분 정지(d4)도 누락 0 이었다. 정지가 이 한도를 넘으면 같은 유실이 생기므로 «S3 정지 약 1시간 이상 → 그 구간 원본 유실» 이 한계다. 상한은 `store_dir_limit_size`(64M)가 따로 잡는다 — 정지 중 쌓이는 양이 이를 넘으면 새 데이터가 버려진다(f1/f2 의 S3 `dropped_records`). 수집기 지표 `s3.0 dropped_records` 는 이 시험에서 누락과 무관하게 올랐다(d 수정 후 40, d4 168, 유실 0) — 이 값만으로 유실을 판정하지 않는다.
+- **d·d3·d4 (원인 확인과 완화)**: 수집기 로그 `Chunk file failed to send 5 times, will not retry` 의 한도는 설정으로 바뀐다. 4.2.8 `plugins/out_s3/s3.c` 는 초기화에서 `if(ctx->ins->retry_limit < 0) { ctx->ins->retry_limit = MAX_UPLOAD_ERRORS; }`(`s3.c:620-621`)로 `Retry_Limit no_limits`(-1)를 `#define MAX_UPLOAD_ERRORS 5`(`s3.h:51`)로 바꾼다. 업로드 큐는 `upload_contents->retry_counter >= ctx->ins->retry_limit` 이면 «will not retry» 를 찍고 파일을 `s3_store_file_inactive` 로 버리고(`s3.c:1908-1914`), 실패마다 `2 * retry_counter` 초 뒤로 미룬다(`s3.c:1917-1919`). 같은 한도가 flush 경로(`s3.c:3837-3842`)·put_all_chunks(`s3.c:1374-1380`)·멀티파트(`s3.c:1662`, `3309`, `3324`)에도 쓰인다. 그래서 `Retry_Limit` 를 양수로 주면 그 값이 쓰이고, 기본 `no_limits` 는 사실상 5회다 — 이 하네스(`upload_timeout` 20s)에서는 약 20~30초 정지에서 버려졌다(시간 환산은 하네스 값이며 운영 후보 5m 에서는 업로드 시점이 달라 다를 수 있다). **`s3-on` 은 `Retry_Limit 60` 으로 바꿨다**(재시도 간격이 2n초씩 늘어 N 번이면 대략 N(N-1)초). **«약 1시간»은 이 backoff 합산 계산값이고, 실측으로 견딘 최대 정지는 5분(d4)이다.** 같은 d·d3 시험이 누락 0 이 됐고 5분 정지(d4)도 누락 0 이었다 — **각각 1회 실행에서 0** 이다(b1 은 3회 중 1회 누락이 나왔으므로 반복하면 달라질 수 있다). 정지가 이 한도를 넘으면 같은 유실이 생기므로 «S3 정지 약 1시간(계산) 이상 → 그 구간 원본 유실» 이 한계다. 상한은 `store_dir_limit_size`(64M)가 따로 잡는다 — 정지 중 쌓이는 양이 이를 넘으면 새 데이터가 버려진다(f1/f2 의 S3 `dropped_records`). 수집기 지표 `s3.0 dropped_records` 는 이 시험에서 누락과 무관하게 올랐다(d 수정 후 40, d4 168, 유실 0) — 이 값만으로 유실을 판정하지 않는다.
+- **엔진 쪽 저장 상한(r3)**: `Retry_Limit` 은 플러그인 업로드 한도이면서 **엔진 flush 재시도 한도**이기도 하다(엔진은 같은 `ins->retry_limit` 을 쓴다 — `src/flb_task.c:326`). `store_dir` 이 `store_dir_limit_size` 에 닿으면 `s3_store_buffer_put` 이 `Buffer is full` 로 실패하고(`s3_store.c:136-140`) flush 는 `FLB_RETRY` 를 돌려준다(`s3.c:3912-3915`). 그러면 `rewrite_tag` 에미터(`Emitter_Storage.type filesystem`)의 청크가 `fluent_bit_state` 의 `storage/` 에 재시도 대기로 남는다. 엔진 backoff 는 `random(5, min(2000, 5·2^n))` 초(`src/flb_scheduler.c:259-266`, 기본 base 5·cap 2000 — `include/fluent-bit/flb_scheduler.h:29-30`)라 60회면 청크 하나가 **수 시간**(계산: 평균 약 15시간, 최대 약 29시간) 남는다. 에미터는 filesystem 이라 `Emitter_Mem_Buf_Limit` 로 멈추지 않고(`src/flb_input_chunk.c:2461-2463` — FS 저장소는 메모리 한도로 pause 하지 않는다) 디스크 상한은 출력의 `storage.total_limit_size` 뿐인데(`flb_input_chunk.c:718-751`, 미설정 = -1 이면 검사 생략), r2 의 S3 출력에는 이 값이 없었다. 즉 **S3 장애가 `store_dir` 을 채운 뒤에는 에미터 청크가 상한 없이 쌓였다**. r3 에서 S3 출력에 `storage.total_limit_size 64M` 를 두었다 — 넘으면 S3 경로의 가장 오래된 청크부터 버리고(`flb_input_chunk.c:666-711`, S3 `dropped_records`) Loki 출력(128M)과는 따로 센다. 4.2.8 은 시작 때 «`store_dir_limit_size` 를 쓰라» 경고를 한 줄 찍지만 엔진은 이 값을 적용한다(`s3.c:637-640`). 로컬 실측(아래 «엔진 상한 실측»)으로 확인했다.
+- **남은 한계 — 두 상한의 폐기 방향이 반대다**: 엔진 `storage.total_limit_size`(S3 출력 64M)를 넘으면 **가장 오래된 청크부터** 버리고(`flb_input_chunk.c:666-711`), `store_dir_limit_size`(64M)를 넘으면 `Buffer is full` 로 **새 데이터**를 거절한다(`s3_store.c:136-140`). 긴 S3 장애에서는 먼저 `store_dir` 이 차서 새 데이터가 엔진 청크로 넘어가고, 그 청크가 다시 엔진 상한에서 오래된 것부터 버려진다 — 어느 쪽이 유실되는지가 구간마다 다르다(`s3.0` `dropped_records` 로만 보인다). **최악 디스크 합계 = `store_dir` 64M + 엔진 청크 64M + 재시작 잔여분**(아래 ②: 이전 파일은 크기 0 으로 잡혀 한도 밖에 더 쌓일 수 있다). Loki 출력의 엔진 상한 128M 은 별도이므로 `fluent_bit_state` 볼륨은 **상한 합계 256M(64+64+128)에 `store_dir` 초과분·재시작 잔여분·tail DB 여유를 더해 최소 1 GiB 를 권고**한다(계산값, 64M 실값 실측 아님). 2554 가 산정한 `store_dir` 용량(약 2 GB)과 별개이니 Infra 요청 항목(§9)에 같이 적는다.
+- **`store_dir` 의 상한이 깨지는 경로(소스 확인, 실측 아님)**: ① «will not retry» 로 버린 파일은 디스크에서 지우지 않고(`s3_store.c:404-414` → `flb_fstore_file_inactive` 는 «don't delete the real file», `src/flb_fstore.c:238-256`) 사용량 계산(`current_buffer_size`)에서도 빼지 않는다 — 재시작 전까지 그만큼 여유가 줄어 새 데이터가 `Buffer is full` 로 엔진 청크(위 상한)로 넘어간다. ② 재시작 때 다시 읽은 이전 파일은 크기 0 으로 잡힌다(`set_files_context` 가 `size` 를 채우지 않음, `s3_store.c:237-247`) — 재시작 직후 디스크의 `store_dir` 은 한도 + 이전 잔여분까지 커질 수 있다. ③ 95% 이상 찼을 때 `s3_store_buffer_put` 은 데이터를 **덧붙인 뒤** -1 을 돌려준다(`s3_store.c:198-204`) — 엔진이 같은 청크를 다시 보내 같은 레코드가 또 덧붙는다. f1·f2 의 S3 중복(165·334)과 방향이 맞다(이 경로가 원인인지 대조는 하지 않았다).
+- **`store_dir` 소실**: `store_dir`·엔진 청크·tail DB 는 모두 `fluent_bit_state` 볼륨에 있다. 컨테이너만 재생성하면 남지만, **볼륨을 지우거나(`down -v`, 볼륨 이름 변경) 호스트를 교체하면 아직 못 올린 S3 backlog 가 함께 사라진다**. 롤백·재배포 때 볼륨을 유지한다(§5 롤백 ③).
 - **d2 와 d3 의 차이**: d2 는 수집기를 재생성해 «will not retry» 로 버려진 파일까지 되살린 것처럼 보였다. 소스상 파일별 실패 횟수(`chunk->failures`)는 프로세스 메모리에 있어 재시작하면 0 이고, 재시작 때 로컬 버퍼를 다시 읽는다(`s3_store.c:211-250` `set_files_context`, 로그 «Sending locally buffered data from previous executions»). 그런데 d3(5회 한도)에서는 같은 재시작이 861건을 되살리지 못했다. 둘의 차이를 소스로 설명하지 못했다 — **미규명**. 따라서 «재시작하면 복구된다» 를 복구 절차로 믿지 않는다. 재시작으로 복구된 파일의 객체 키 시간은 복구 시각이다(`set_files_context` 가 `first_log_time = time(NULL)`).
 - **c** 는 30초 분리라 한도 안이었다. 분리를 늘린 시험은 하지 않았다(**미실행**).
 - **e·e2 (Loki 누락, 판정 부분 확정)**: 수집기는 `dropped_records` 0 으로 보고했지만 Loki 에는 연속 10~148건이 없었다(e2 의 누락은 idx 190~199 연속 10건, Loki 정지 직후 구간). Loki 설정은 dev(`server/observability/loki/loki-config.yml`)와 하네스가 **같은 파일**이다. 효과 설정(`/config`)은 `ingester.wal.enabled: true`, `wal.dir: /loki/wal`(컨테이너 파일시스템, 볼륨 아님), `checkpoint_duration: 5m`, **`flush_on_shutdown: false`**, `chunk_idle_period: 30m`, `max_chunk_age: 2h` 다. 별도 확인: 같은 설정의 Loki 에 100건을 push 한 직후 `docker stop`(SIGTERM) 후 재시작하면 100/100 이 보였고, push 직후 `docker kill`(SIGKILL) 후 재시작하면 **0/100** 이 보였다. 즉 Loki 는 «받았다» 고 응답한 항목을 WAL 에 동기화하기 전에 SIGKILL 되면 잃는다. e 의 `docker stop` 은 기본 10초 유예 뒤 SIGKILL 이라, 종료가 느린 Loki 가 SIGKILL 되었을 가능성이 있다 — **e·e2 에서 실제로 SIGKILL 되었는지는 확인하지 못했다(미확정)**. 이 구간은 S3 에는 있다. Loki 복구 뒤 backlog 는 3분 중단에 최대 약 6~7분(369~436초) 걸렸다(수집기 재시도 backoff).
@@ -155,10 +167,12 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 
 | 실행 | sink | canary 수 | p50(초) | 최대(초) |
 | --- | --- | --- | --- | --- |
-| 전체 시나리오 중 | Loki | 6 | 2.1 | 27.1 |
+| r1·r2: 하네스 시작 뒤 첫 420초(시나리오 전체가 아님) | Loki | 6 | 2.1 | 27.1 |
 | | S3 | 6 | 25.0 | 67.7 |
-| d3·e2·i 시나리오 중 | Loki | 5 | 1.8 | 2.9 |
+| r1·r2: d3·e2·i 실행의 첫 420초 | Loki | 5 | 1.8 | 2.9 |
 | | S3 | 6 | 26.2 | 79.2 |
+
+r1·r2 의 `canary.py` 는 고정 420초만 보았다 — 그 뒤에 발행된 canary 는 검증되지 않았고, 두 sink 모두에 없는 canary 는 목록에 나타나지 않았다. r3 부터 관측 창이 시나리오 전체 + max-delay 이고 빠진 번호·정지를 판정한다(§6).
 
 S3 지연은 `upload_timeout` 20s + 업로드 타이머 주기가 지배한다. 운영 후보 5m 에서의 p95 ≤5분 목표(구현 계획 P2)는 **미검증**이다 — 5m 이면 정의상 객체가 닫히는 데 5분이 걸려 p95 가 5분 근처 또는 초과할 수 있다. 목표와 `upload_timeout` 을 함께 조정해야 한다.
 
@@ -172,6 +186,20 @@ S3 지연은 `upload_timeout` 20s + 업로드 타이머 주기가 지배한다. 
 - upstream `X-Request-Id` 연결 120/120, 502 120건, 413 120건 확인. error 로그 879건(하네스는 `error_log info` 레벨이라 많다).
 - 민감값 검사: query(`token=`·`email=`·`code=`·`phone=`)·Referer 토큰·이메일 도메인·경로 토큰·`phone` 값 원문이 Loki·S3 에서 **0건**(최종 실행). 첫 실행에서 `open() "…/PATHTOKEN…" failed` 형태의 error 로그에 경로 토큰이 남아 `logs.lua` 를 고쳤다(따옴표 경로 정제 추가).
 - 앱 로그 마스킹의 일부(`Bearer`·`token`·`authorization`·`refresh` 키, 마스킹 전 사전 자르기)는 2555 리뷰 반영분과 같게 맞췄다.
+- **r3 재실행**(`run-s3.sh a i`, 1회): 요청 종류를 12종으로 늘렸다(위 5종 + UUID 꼴이 아닌 긴 hex 경로, auth_basic 실패, 잘린 줄 4종 — request·upstream·referrer·open() 경로, query 에 `invite=` 추가). Docker 480·호스트 960 = 1440건이 Loki·S3 모두 누락·중복 0, upstream 연결 120/120, error 2559건 중 닫는 따옴표 없는 줄 480건, 민감값 0(`leaked=[]`). 같은 실행의 a: Loki 600/600 p50 1.7s, S3 600/600 p50 20.8s, canary 3건(Loki p50 1.7s·S3 p50 25.8s, 빠진 번호 0). r3 첫 실행에서는 Nginx 가 긴 파일 경로를 스스로 `…... (2: No such file or directory), client: …` 로 잘라 경로 토큰이 Loki·S3 에 남았고(`leaked=['PATHTOKEN']`), 경로 정제를 «토큰 묶음» 단위로 바꾼 뒤 위 결과가 나왔다.
+
+### 엔진 상한 실측 (r3, S3 정지 + 작은 `store_dir`)
+
+환경: 하네스와 같은 이미지·같은 `fluent-bit/` 설정 디렉터리를 쓰는 별도 로컬 프로젝트(`obs2562-s3cap`). `store_dir_limit_size 1M`, `total_file_size 1M`, `upload_timeout 20s`. MinIO 를 멈춘 채 생성기 120,000건(약 500건/초, 약 240초)을 보내고 15초마다 `fluent_bit_state` 사용량을 쟀다. 설정마다 1회 실행. **축소값 시험(`store_dir` 1M·상한 4M)이며 64M 실값의 동작은 외삽이다.**
+
+| S3 출력 설정 | 에미터 청크(`storage/emitter.3`) | `store_dir` | S3 `dropped_records` | Loki 수신 |
+| --- | --- | --- | --- | --- |
+| r2: `storage.total_limit_size` 없음 | 15초마다 약 3 MB씩 늘어 **46,716K(234 파일)** — 생성기가 끝나서 멈췄을 뿐 상한이 없다 | 892~992K(1M 한도에서 멈춤) | 2 | 120000/120000 |
+| r3: 같은 자리 `4M`(실험용 축소값, 운영 값은 64M) | 31초부터 **3,804~3,972K(19~20 파일)** 에서 머묾 | 856~896K | 108,417 — 한도를 넘은 오래된 S3 청크를 버림(= S3 유실) | 120000/120000 |
+
+- 두 설정 모두 Loki `dropped_records` 0, 입력 pause 0 — S3 쪽 상한이 Loki 경로를 막지 않았다. 수집기 로그: `Buffer is full` r2 1,234회·r3 557회, r3 시작 때 `store_dir_limit_size` 경고 1줄.
+- **대량 유실을 받아들이는 선택(r3 축소값 시험)**: 엔진 상한을 둔 축소값(`4M`)으로 S3 를 오래 세운 시험에서 **S3 유실 108,417/120,000**(Loki 120000/120000)이었다. 64M 상한은 디스크 폭주를 막는 대신 장시간 S3 정지 시 대량 유실을 받아들이는 선택이다. «약 1시간» 계산(`Retry_Limit 60`)은 정지 동안 쌓이는 양이 상한 안일 때만 성립하고, 상한을 넘기면 가장 오래된 청크부터 버려져 그 시간보다 훨씬 일찍 유실이 시작된다.
+- 64M 크기 자체·MinIO 복구 뒤 엔진 청크 재전송은 이 실험에서 보지 않았다. 일반 S3 정지 d(MinIO 50초)를 새 설정(`64M`)으로 1회 다시 돌렸다: Loki 1800/1800·S3 1800/1800, 중복 0, S3 지연 p50 21.4s·최대 61.5s, `s3.0` `dropped_records` 40·`errors` 2(이전과 같이 유실 없이 오르는 값), canary 12건 빠진 번호 0(관측 756초, max-delay 600초).
 
 ## 8. 미확인·차단 조건
 
@@ -186,13 +214,14 @@ S3 지연은 `upload_timeout` 20s + 업로드 타이머 주기가 지배한다. 
 | 기존 업로더(590·2288) 공존 여부 | 미확인 |
 | 10 MiB 크기 트리거, 5분 `upload_timeout` 실측, 30분 backlog, 30초 초과 네트워크 분리, 호스트 디스크 포화 | 미실행 |
 | 첫 기동 시 기존 `*-json.log` 전체 재읽기(Read_From_Head) 규모와 Loki 수용창 밖 거절 | 로컬 소량만 확인, 실제 dev 규모 미확인 |
-| S3 폐기 한도 | 원인은 소스로 확정, `Retry_Limit 60` 으로 완화(약 1시간 한도). d2/d3 재시작 복구 차이는 미규명 |
+| S3 폐기 한도 | 원인은 소스로 확정, `Retry_Limit 60` 으로 완화(약 1시간은 계산, 실측은 5분 정지까지). d2/d3 재시작 복구 차이는 미규명 |
+| S3 장애가 길 때 디스크 | 엔진 쪽은 `storage.total_limit_size 64M` 로 상한(r3, 로컬 실측). `store_dir` 은 «will not retry» 파일·재시작 잔여분 때문에 한도를 넘을 수 있다(소스 확인, 실측 아님). 1시간 넘는 S3 정지 실측은 미실행 |
 | b1(SIGTERM 재시작) 3회 중 1회 S3 1건 누락 | 원인 미확정 — 운영 전 재현 필요 |
 | Loki 정지 시 연속 10~148건 누락 | WAL 은 켜져 있으나 `flush_on_shutdown: false`, SIGKILL 시 0/100 별도 확인. e 의 실제 SIGKILL 여부는 미확정 |
 
 ## 9. Infra(prod) 요청 항목
 
 1. S3: 환경별 prefix 쓰기 권한이 있는 인스턴스 역할(Fluent Bit 호스트), `system_log/v2/` 에 대한 PutObject, 타 환경 prefix 거부. lifecycle `system_log/` 90일·미완료 multipart 1일이 실제 버킷에 적용돼 있는지 확인.
-2. Catus 런타임: Fluent Bit 4.2.8 서비스 추가(`/var/lib/docker/containers` 읽기 전용, 상태 볼륨, `FLB_COMPOSE_PROJECT`·`FLB_ENV=prod`, `OBS_LOG_S3=on`, 버킷·리전·`store_dir` 한도 — 용량 확인 전 2554 산정 약 2 GB), Nginx 컨테이너에 `gromo_json` `log_format` 과 `access_log /dev/stdout gromo_json;`.
+2. Catus 런타임: Fluent Bit 4.2.8 서비스 추가(`/var/lib/docker/containers` 읽기 전용, 상태 볼륨, `FLB_COMPOSE_PROJECT`·`FLB_ENV=prod`, `OBS_LOG_S3=on`, 버킷·리전·`store_dir` 한도 — 용량 확인 전 2554 산정 약 2 GB; `fluent_bit_state` 볼륨은 상한 합계 256M(`store_dir` 64M + S3 엔진 64M + Loki 엔진 128M) + `store_dir` 초과분·재시작 잔여분·tail DB 여유로 **최소 1 GiB 권고**, §7 «남은 한계»), Nginx 컨테이너에 `gromo_json` `log_format` 과 `access_log /dev/stdout gromo_json;`.
 3. `ops-monitor.dev.yml`(또는 env 렌더)에 `OBS_LOG_NGINX_HOST`·`OBS_LOG_S3*` 변수를 넘기는 경로.
 4. `OBS_*`·`DD_*` 와 별개로 Datadog 컨테이너 로그 수집 제외 목록의 `gromo-promtail` → `gromo-fluent-bit`(계약 §6, 2555 소관).

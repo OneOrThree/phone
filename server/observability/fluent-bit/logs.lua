@@ -153,31 +153,85 @@ local function raw_record(line, stream)
   return out
 end
 
--- 경로: query·fragment 제거, 토큰처럼 보이는 긴 세그먼트(20자 이상 영숫자/-_.~%, UUID 제외)는 :redacted, 이메일·휴대폰은 mask 규칙.
+-- 경로: query·fragment 제거, 토큰처럼 보이는 긴 글자 묶음([%w-_.~%] 로 이어진 글자, '/' 는 경계)은 아래 규칙으로 :redacted, 이메일·휴대폰은 mask 규칙.
+--   1) 묶음 끝의 확장자(점 + 영숫자 1~5자)를 떼어 «stem» 으로 판정하고 확장자는 남긴다(main.<해시>.js -> :redacted.js).
+--   2) stem 이 UUID 8-4-4-4-12 면 유지(/files/<uuid>.png 포함).
+--   3) stem 길이 >= 20 이고 (숫자 포함 또는 대문자 포함 또는 구분자 - _ . 가 하나도 없음) 이면 :redacted. 소문자 kebab/snake 라우트(notification-preferences)는 유지.
+-- 한계: ① 20자 미만 세그먼트(짧은 OTP·초대 코드)는 가리지 못한다. ② 구분자를 포함한 «소문자 전용» 20자 이상 비밀(예: abcd-efgh-ijkl-mnop-qrst)은
+-- 라우트 이름과 구별되지 않아 가리지 못한다 — 경로에 비밀을 싣는 라우트는 앱에서 막아야 한다.
+local UUID = "^" .. ("%x"):rep(8) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(12) .. "$"
+local TOKEN_RUN = ("[%w%-_%.~%%]"):rep(20) .. "[%w%-_%.~%%]*"
+local function redact_run(run)
+  local stem, ext = run:match("^(.-)(%.%w%w?%w?%w?%w?)$")
+  if not stem or stem == "" then stem, ext = run, "" end
+  if run:match(UUID) or stem:match(UUID) or #stem < 20 then return run end
+  if stem:find("%d") or stem:find("%u") or not stem:find("[%-_%.]") then return ":redacted" .. ext end
+  return run
+end
 local function sanitize_path(uri)
-  uri = tostring(uri or ""):gsub("[?#].*$", "")
-  uri = uri:gsub("[%c]", "")
-  local parts = {}
-  local start = 1
-  while true do
-    local i = uri:find("/", start, true)
-    if not i then parts[#parts + 1] = uri:sub(start); break end
-    parts[#parts + 1] = uri:sub(start, i - 1)
-    start = i + 1
-  end
-  for i, seg in ipairs(parts) do
-    local is_uuid = seg:match("^%x+%-%x+%-%x+%-%x+%-%x+$") ~= nil
-    if #seg >= 20 and not is_uuid and seg:match("^[%w%-_%.~%%]+$") then parts[i] = ":redacted" end
-  end
-  local out = mask(table.concat(parts, "/"))
-  if #out > 512 then out = out:sub(1, 512) end
-  return out
+  uri = tostring(uri or ""):gsub("[?#].*$", ""):gsub("[%c]", "")
+  uri = uri:gsub(TOKEN_RUN, redact_run)
+  return (truncate(mask(uri), 512))
+end
+
+-- 줄 전체 백스톱: Nginx 는 요청 줄·헤더를 이스케이프 없이 error 로그에 쓰므로 따옴표 경계가 모호하다(`request: "GET /a"?q=S HTTP/1.1"`).
+-- 따옴표와 무관하게 공백으로 나뉜 각 토큰에서 ?·# 뒤를 지우고(토큰 끝의 닫는 `"`·`,` 는 남긴다), '/' 가 든 토큰은 경로 토큰 규칙을 적용한다(스킴://호스트는 건드리지 않는다).
+local function backstop(text)
+  return (text:gsub("%S+", function(tok)
+    local pos = tok:find("[?#]")
+    if pos then tok = tok:sub(1, pos - 1) .. tok:sub(pos):match("[\",]*$") end
+    if tok:find("/", 1, true) then
+      local head, path = tok:match("^(.-://[^/]*)(.*)$")
+      if not head then head, path = "", tok end
+      tok = head .. path:gsub(TOKEN_RUN, redact_run)
+    end
+    return tok
+  end))
+end
+
+-- URL: 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
+local function sanitize_url(u)
+  local base, path = u:match("^(%a[%w+.-]*://[^/?#]*)(.*)$")
+  if base then return base .. sanitize_path(path) end
+  return sanitize_path(u)
 end
 
 -- combined: ip ident user [time] "METHOD URI PROTO" status bytes "referer" "agent"
 local COMBINED = '^(%S+) %S+ %S+ %[([^%]]*)%] "(%S+) (%S+) ([^"]*)" (%d+) (%S+) "[^"]*" "[^"]*"'
 
-local function nginx_access(record, line, stream)
+-- [dd/Mon/yyyy:HH:MM:SS +zzzz] -> epoch 초(UTC). 실패하면 nil.
+local MONTHS = { Jan = 1, Feb = 2, Mar = 3, Apr = 4, May = 5, Jun = 6, Jul = 7, Aug = 8, Sep = 9, Oct = 10, Nov = 11, Dec = 12 }
+local function combined_time(t)
+  local d, mon, y, h, mi, s, sign, oh, om = tostring(t or ""):match("^(%d+)/(%a+)/(%d+):(%d+):(%d+):(%d+) ([+-])(%d%d)(%d%d)$")
+  mon = MONTHS[mon or ""]
+  if not mon then return nil end
+  y, d = tonumber(y), tonumber(d)
+  -- days-from-civil (Howard Hinnant): os.time 은 로컬 시간대를 타서 쓰지 않는다.
+  local yy = mon <= 2 and y - 1 or y
+  local era = math.floor(yy / 400)
+  local yoe = yy - era * 400
+  local doy = math.floor((153 * (mon + (mon > 2 and -3 or 9)) + 2) / 5) + d - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  local days = era * 146097 + doe - 719468
+  local off = (tonumber(oh) * 3600 + tonumber(om) * 60) * (sign == "-" and -1 or 1)
+  return days * 86400 + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(s) - off
+end
+
+-- combined 파싱에 실패한 access 줄(예: 요청 줄이 "-" 인 400)도 IP·user·referer·query 정책을 지킨다.
+local function access_fallback(line)
+  local n = 0
+  line = line:gsub("^%S+ %S+ %S+ ", "**** - - ", 1)  -- client IP·ident·remote_user
+  line = line:gsub('"([^"]*)"', function(q)
+    n = n + 1
+    if n > 1 then return '"-"' end  -- referer·user-agent
+    -- 메서드 대소문자·유무와 무관하게 공백으로 나눈 모든 토큰에서 query·fragment 를 지운다.
+    return '"' .. q:gsub("%S+", sanitize_path) .. '"'
+  end)
+  if select(2, line:gsub('"', "")) % 2 == 1 then line = line:gsub('"[^"]*$', '"-') end  -- 잘려 닫히지 않은 따옴표
+  return backstop(line)
+end
+
+local function nginx_access(record, line, stream, ts)
   local method, path, status, bytes, duration, edge, upstream_id, connection, connection_requests
   local seconds
   if record["status"] ~= nil and record["method"] ~= nil then
@@ -191,9 +245,12 @@ local function nginx_access(record, line, stream)
     seconds = tonumber(record["msec"])
   else
     -- 기본 combined 형식 줄: client IP·identd·user 는 버리고 query 는 경로 정제에서 제거. referer/user-agent 는 읽지 않는다.
-    local _, _, m, u, _, st, b = line:match(COMBINED)
+    local _, t, m, u, _, st, b = line:match(COMBINED)
     method, path, status, bytes = m, u, tonumber(st), tonumber(b)
+    seconds = combined_time(t)
   end
+  -- 시각: JSON msec > combined 원본 시각 > Fluent Bit 이벤트 시각(Read_From_Head·backlog 때 수집 시각으로 덮이지 않게).
+  seconds = seconds or (type(ts) == "number" and ts or nil)
   if not (method and status) then return nil end
   method = tostring(method):upper():gsub("[^A-Z]", ""):sub(1, 16)
   local out = {
@@ -225,17 +282,27 @@ local function nginx_error(line, stream)
   local conn, after = rest:match("^%*(%d+) (.*)$")
   if conn then connection, rest = tonumber(conn), after end
   -- 요청 줄·upstream·referrer·client 에는 query/토큰/IP 가 들어갈 수 있다.
-  rest = rest:gsub('request: "(%S+) (%S+) ([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. " " .. p .. '"' end)
-  rest = rest:gsub('upstream: "([^"]*)"', function(u)
-    -- 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
-    local base, path = u:match("^(%a[%w+.-]*://[^/]*)(.*)$")
-    if base then return 'upstream: "' .. base .. sanitize_path(path) .. '"' end
-    return 'upstream: "' .. sanitize_path(u) .. '"'
-  end)
-  rest = rest:gsub('referrer: "[^"]*"', 'referrer: "-"')
+  -- referrer 는 Nginx 가 이스케이프 없이 줄 끝에 `, referrer: "<값>"` 으로 붙인다(ngx_http_request.c, 항상 마지막 필드).
+  -- 값 안에 따옴표가 있어도 되므로 `, referrer: "` 지점부터 줄 끝까지를 통째로 버린다. 다른 규칙보다 먼저 적용한다.
+  local ref = rest:find(', referrer: "', 1, true)
+  if ref then rest = rest:sub(1, ref - 1) .. ', referrer: "-"' end
+  rest = rest:gsub('request: "(%S+) ([^" ]+)([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. p .. '"' end)  -- 프로토콜이 없는 HTTP/0.9 도
+  rest = rest:gsub('upstream: "([^"]*)"', function(u) return 'upstream: "' .. sanitize_url(u) .. '"' end)
   rest = rest:gsub("client: [^,%s]+", "client: ****")
+  -- auth_basic: user "<이름>" was not found in "…" / user "<이름>": password mismatch. host:·server: 는 호스트 이름이라 둔다.
+  rest = rest:gsub('%f[%w]user "[^"]*"', 'user ":redacted"')
   -- open() "/경로" failed, directory index of "/경로" 처럼 따옴표로 감싼 파일 경로에도 요청 경로가 그대로 들어간다.
   rest = rest:gsub('"(/[^"]*)"', function(p) return '"' .. sanitize_path(p) .. '"' end)
+  -- Nginx 는 error 한 줄을 약 2 KiB(NGX_MAX_ERROR_STR)에서 자른다. 그러면 마지막 따옴표 값이 닫히지 않아 위 규칙이 모두 비껴간다.
+  -- 따옴표 수가 홀수면 마지막 따옴표 뒤(줄 끝까지)를 정제한다: upstream 은 URL 규칙, 그 밖(request: "GET /…,
+  -- open() "/… 뒤에 Nginx 가 붙인 «... (2: No such file …), client: …» 포함)은 query 제거 + 경로 정제.
+  local before, tail = rest:match('^(.*")([^"]*)$')
+  if before and select(2, rest:gsub('"', '')) % 2 == 1 then
+    if before:sub(-11) == 'upstream: "' then tail = sanitize_url(tail)
+    else tail = sanitize_path(tail) end
+    rest = before .. tail
+  end
+  rest = backstop(rest)  -- 최종 단계: 위 필드별 규칙이 따옴표 모호성으로 놓친 query·fragment·토큰
   local message, cut = truncate(mask((truncate(rest, MESSAGE_LIMIT * 2))), MESSAGE_LIMIT)
   local out = {
     schema_version = 1, log_id = uuid4(), log_kind = "infrastructure",
@@ -255,7 +322,12 @@ local function nginx_finalize(record, ts)
   local line = tostring(record["log"] or ""):gsub("[\r\n]+$", "")
   local head = truncate(line, MESSAGE_LIMIT * 2)  -- 패턴 매칭·마스킹 전에 먼저 자른다(긴 줄 O(n²) 방지)
   local out
-  if src == "access" then out = nginx_access(record, head, record["stream"]) else out = nginx_error(head, record["stream"]) end
+  if src == "access" then out = nginx_access(record, head, record["stream"], ts) else out = nginx_error(head, record["stream"]) end
+  if not out and src == "access" and record["status"] == nil then
+    out = raw_record(access_fallback(head), record["stream"])
+    out["logger"] = "nginx.access"
+    if type(ts) == "number" then out["timestamp"] = iso_ms(ts) end
+  end
   if not out then out = raw_record(line, record["stream"]) end
   if not ENVS[out["env"]] then out["env"] = "unknown" end
   out["service"] = "nginx"
@@ -271,14 +343,16 @@ function nginx_host_select(tag, ts, record)
   return 1, ts, record
 end
 
-local canary_seq = 0
+-- canary_seq 는 수집기 프로세스마다 1 부터 다시 센다. canary_boot(프로세스마다 새 무작위 값)로 묶으면 빠진 번호 = 어느 sink 에도 안 온 canary.
+local canary_seq, CANARY_BOOT = 0, random_hex(4)
 function canary(tag, ts, record)
   canary_seq = canary_seq + 1
   local now = type(ts) == "number" and ts or os.time()
   local out = {
     schema_version = 1, log_id = uuid4(), log_kind = "application", timestamp = iso_ms(now),
     level = "INFO", logger = "fluent-bit.canary", thread = "canary", message = "canary",
-    service = "canary", env = DEFAULT_ENV, canary_seq = canary_seq, observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    service = "canary", env = DEFAULT_ENV, canary_seq = canary_seq, canary_boot = CANARY_BOOT,
+    observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
   }
   if not ENVS[out["env"]] then out["env"] = "unknown" end
   return 1, ts, out

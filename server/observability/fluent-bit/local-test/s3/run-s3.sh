@@ -13,7 +13,7 @@ FAILS=0; RESULTS="$TMP/results.tsv"; : > "$RESULTS"
 WATCH_PID=""
 clean() {
   [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null || true
-  [ -n "${CANARY_PID:-}" ] && kill "$CANARY_PID" 2>/dev/null || true
+  [ -n "${CANARY_PID:-}" ] && kill -KILL "$CANARY_PID" 2>/dev/null || true   # 비정상 종료 — 판정 대기 없이 끝낸다
   docker ps -aq --filter "name=obs2562s3-gen-" | xargs docker rm -f >/dev/null 2>&1 || true
   dc --profile gen --profile nginx down -v --remove-orphans >/dev/null 2>&1 || true
 }
@@ -65,7 +65,15 @@ clean
 dc up -d loki minio fluent-bit
 wait_ready
 sleep 8
-python3 "$HERE/canary.py" 420 --max-delay 120 > "$TMP/canary.out" 2>&1 & CANARY_PID=$!
+# canary 관측 창 = 첫 시나리오 시작 ~ 마지막 시나리오 끝 + max-delay(canary.py 가 SIGTERM 뒤 그만큼 더 본다).
+# sink 를 일부러 멈추는 시나리오가 있으면 그 지연(최대 약 7분, 런북 §7)을 덮도록 max-delay 를 늘리고, 유실을 일부러 만드는 f1·f2 가
+# 있으면 그 두 시나리오의 시간 창(START:END, $LOSS_WINDOWS)에서 «발행된» canary 만 유실을 허용한다. 창 밖 유실·STALE·0건은 실패다.
+# canary.py 는 SIGTERM 뒤 max(max-delay, 2*interval+5)초 더 봐서 마지막 시나리오 끝의 꼬리 유실도 번호 공백으로 드러나게 한다.
+CANARY_MAX_DELAY=120; LOSS_WINDOWS="$TMP/loss-windows.txt"; : > "$LOSS_WINDOWS"
+for s in "${SCENARIOS[@]}"; do
+  case "$s" in c|d|d2|d3|d4|e|e2|f1|f2) CANARY_MAX_DELAY=600;; esac
+done
+python3 "$HERE/canary.py" --max-delay "$CANARY_MAX_DELAY" --allow-loss-file "$LOSS_WINDOWS" > "$TMP/canary.out" 2>&1 & CANARY_PID=$!
 
 if want a; then echo "== (a) 정상 N=600"
   start_watch a a; gen a 600 20; finish a 90 a:600
@@ -111,8 +119,16 @@ limit_run() { # NAME RUN COUNT INTERVAL [docker 옵션...] — 작은 한도로 
   rm -rf "$TMP/etc-small"; cp -R "$FB" "$TMP/etc-small"; rm -rf "$TMP/etc-small/local-test"
   sed -i.bak 's/storage.total_limit_size  128M/storage.total_limit_size  1M/' "$TMP/etc-small/fluent-bit.conf"; rm -f "$TMP/etc-small/fluent-bit.conf.bak"
   grep -q 'total_limit_size  1M' "$TMP/etc-small/fluent-bit.conf"
+  # S3 설정은 compose 가 $TMP/s3-module 에서 따로 마운트하므로 etc-small 사본과 별개로 이 사본의 엔진 상한도 1M 으로 낮춘다.
+  sed -i.bak 's/storage.total_limit_size  64M/storage.total_limit_size  1M/' "$TMP/s3-module/s3.conf"; rm -f "$TMP/s3-module/s3.conf.bak"
   HARNESS_ETC="$TMP/etc-small" HARNESS_S3_TOTAL_FILE_SIZE=1M HARNESS_S3_STORE_LIMIT=2M dc up -d --force-recreate fluent-bit >/dev/null
-  sleep 6; start_watch "$name" "$run"
+  sleep 6
+  # 실제 마운트된 설정을 컨테이너 안에서 읽어 확인한다(1M 이 아니면 시험을 중단).
+  # (Fluent Bit 이미지에는 grep 이 없어 docker cp 로 컨테이너 안 파일을 꺼낸다.)
+  local mounted; mounted=$(docker cp "$(fb_id):/fluent-bit/etc/modules/s3/s3.conf" - | tar -xO | grep 'storage.total_limit_size' | tr -s ' ')
+  echo "마운트된 S3 모듈 설정(컨테이너 안): $mounted"
+  [ "$mounted" = "    storage.total_limit_size 1M" ] || [ "$(echo "$mounted" | tr -d ' ')" = "storage.total_limit_size1M" ] || { echo "FAIL: 마운트된 S3 엔진 상한이 1M 이 아니다"; return 1; }
+  start_watch "$name" "$run"
   dc stop loki minio >/dev/null
   gen "$run" "$count" "$iv" "$@"
   docker wait "obs2562s3-gen-$run" >/dev/null; sleep 20
@@ -121,19 +137,21 @@ limit_run() { # NAME RUN COUNT INTERVAL [docker 옵션...] — 작은 한도로 
   dc start loki minio >/dev/null; wait_ready
   finish "$name" 150 --allow-loss "$run:$count"
   metrics "$name-after"
-  dc up -d --force-recreate fluent-bit >/dev/null   # 기본 한도로 복귀(HARNESS_ETC=기본)
+  sed -i.bak 's/storage.total_limit_size  1M/storage.total_limit_size  64M/' "$TMP/s3-module/s3.conf"; rm -f "$TMP/s3-module/s3.conf.bak"
+  dc up -d --force-recreate fluent-bit >/dev/null   # 기본 한도로 복귀(HARNESS_ETC=기본, S3 모듈 64M)
 }
 if want f1; then echo "== (f1) 디스크 한도 — Loki 엔진 1M·S3 엔진 1M·store_dir 2M, 두 sink 정지, N=6000 (Docker 로그 회전 없음)"
-  limit_run f1 f1 6000 5
+  W0=$(date +%s); limit_run f1 f1 6000 5; echo "$W0:$(date +%s)" >> "$LOSS_WINDOWS"
 fi
 if want f2; then echo "== (f2) 디스크 한도 + 소스 회전 — 위와 같고 생성기 Docker 로그를 500k x 2 로 회전"
-  limit_run f2 f2 6000 5 --log-opt max-size=500k --log-opt max-file=2
+  W0=$(date +%s); limit_run f2 f2 6000 5 --log-opt max-size=500k --log-opt max-file=2; echo "$W0:$(date +%s)" >> "$LOSS_WINDOWS"
 fi
 if want h; then echo "== (h) Fluent Bit 정지 중 생성기 컨테이너 새로 생성 → 재기동 뒤 누락 0"
   start_watch h h; dc stop fluent-bit >/dev/null; gen h 400 20; docker wait obs2562s3-gen-h >/dev/null; sleep 3
   dc start fluent-bit >/dev/null; finish h 120 h:400
 fi
 if want i; then echo "== (i) Nginx — prod 컨테이너(Docker 입력)·dev 호스트(파일 tail, 회전 포함)"
+  python3 "$HERE/lua_cases.py" "$HERE/../../logs.lua" | tee -a "$RESULTS" || { FAILS=$((FAILS+1)); echo "FAIL: lua_cases"; }
   dc --profile nginx up -d nginx nginx-host >/dev/null; sleep 5
   python3 "$HERE/nginx_traffic.py" 28080 40 "$TMP/t-docker.json"
   python3 "$HERE/nginx_traffic.py" 28081 40 "$TMP/t-host1.json"
@@ -185,8 +203,10 @@ PYEOF
   docker rm -f obs2562s3-gen-k >/dev/null
 fi
 
-wait "$CANARY_PID" 2>/dev/null || { echo "FAIL: canary 검사 실패"; FAILS=$((FAILS + 1)); }; CANARY_PID=""
+echo "== canary 판정 대기(${CANARY_MAX_DELAY}s — 마지막 시나리오 뒤 늦게 오는 canary 와 꼬리 공백을 본다)"
+kill -TERM "$CANARY_PID" 2>/dev/null || true
+wait "$CANARY_PID" || { echo "FAIL: canary 검사 실패"; FAILS=$((FAILS + 1)); }; CANARY_PID=""
 echo "== canary"; cat "$TMP/canary.out" | tee -a "$RESULTS" | tail -40
-echo "== 요약"; cat "$RESULTS" | grep -E "^(RESULT|NGINX|WINDOW|METRICS|CANARY_SUMMARY)" || true
+echo "== 요약"; cat "$RESULTS" | grep -E "^(RESULT|NGINX|WINDOW|METRICS|CANARY_SUMMARY|CANARY_JUDGED|STALE|CANARY_NONE)" || true
 echo "결과 파일: $RESULTS"
 [ "$FAILS" -eq 0 ] || { echo "FAILS=$FAILS"; exit 1; }

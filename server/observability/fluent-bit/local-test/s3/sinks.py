@@ -12,11 +12,23 @@ REGION = "us-east-1"
 
 
 def loki_query(selector, start_ns, limit=5000):
-    """[(stream_labels, ts_ns, line)] — start_ns 이후, 오래된 것부터."""
-    q = urllib.parse.urlencode({"query": selector, "limit": limit, "start": int(start_ns), "direction": "forward"})
-    with urllib.request.urlopen(f"{LOKI}/loki/api/v1/query_range?{q}", timeout=20) as r:
-        data = json.load(r)
-    return [(s["stream"], int(v[0]), v[1]) for s in data["data"]["result"] for v in s["values"]]
+    """[(stream_labels, ts_ns, line)] — start_ns 이후 전부, 오래된 것부터. Loki 는 한 번에 limit 건만 주므로 페이지가 가득 차면
+    마지막 시각부터(포함) 다시 읽고, 경계 시각에서 겹친 항목은 (스트림, 시각, 본문)으로 걸러 낸다(Loki 도 이 셋이 같으면 한 건으로 저장)."""
+    out, seen = [], set()
+    while True:
+        q = urllib.parse.urlencode({"query": selector, "limit": limit, "start": int(start_ns), "direction": "forward"})
+        with urllib.request.urlopen(f"{LOKI}/loki/api/v1/query_range?{q}", timeout=20) as r:
+            data = json.load(r)
+        page = [(s["stream"], int(v[0]), v[1]) for s in data["data"]["result"] for v in s["values"]]
+        for e in page:
+            k = (tuple(sorted(e[0].items())), e[1], e[2])
+            if k not in seen:
+                seen.add(k)
+                out.append(e)
+        if len(page) < limit:
+            return out
+        last = max(ts for _, ts, _ in page)
+        start_ns = last if last > start_ns else last + 1  # 한 시각에 limit 건 넘게 몰리면 그 시각의 나머지는 건너뛴다(사실상 없음)
 
 
 def _hmac(key, msg):
