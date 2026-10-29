@@ -54,9 +54,17 @@ public class PreviewService {
         }
         Entry pending = new Entry(new Preview(id, "PENDING", uri.toString(), null, null, null,
                 null, null, null), null, UUID.randomUUID().toString());
-        if (!cache.claim(user, pending)) {
-            Entry concurrent = cache.find(user, id);
-            return concurrent == null ? pending.preview() : concurrent.preview();
+        try {
+            if (!cache.claim(user, pending)) {
+                Entry concurrent = cache.find(user, id);
+                return concurrent == null ? pending.preview() : concurrent.preview();
+            }
+        } catch (PreviewException e) {
+            if (!"BUSY".equals(e.getCode())) {
+                throw e;
+            }
+            LOG.info("preview_rejected request_id={} preview_id={} reason=CACHE_FULL", requestId, id);
+            return failed(pending, "BUSY").preview();
         }
         try {
             workers.execute(() -> process(user, pending, uri, requestId));

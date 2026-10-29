@@ -44,6 +44,8 @@ services:
       FOCUS_LIVE_ACTIVITY_APNS_KEY_ID: ${FOCUS_LIVE_ACTIVITY_APNS_KEY_ID:-}
       FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64: ${FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64:-}
       REDIS_HOST: redis
+      REDIS_USERNAME: data
+      REDIS_PASSWORD: ${REDIS_DATA_PASSWORD:?Data Redis 비밀번호 필요}
     depends_on:
       db:
         condition: service_healthy
@@ -92,29 +94,32 @@ services:
       timeout: 5s
       retries: 5
 
-  # 공유 Redis (GROMO-292). 호스트에 포트를 열지 않는다 — 같은 compose 네트워크의 app·chat 만 붙는다.
-  # 목표 아키텍처 A19: 서비스별 유저 + 키 패턴 ACL 로 네임스페이스를 강제한다. 지금은 단일 노드에
-  # ACL 없이 뜨고, ACL 적용은 채팅 dev 배포와 함께 온다(그때까지 이 Redis 는 프레즌스 전용이다).
+  # Business·Data·Realtime 공유 Redis. ACL 변경은 전환 절차로 적용하고 일반 CD에서 재생성하지 않는다.
   redis:
     logging: *infra-logging
     image: redis:7.4.11-alpine
     container_name: phone-redis
+    command: [redis-server, --aclfile, /etc/redis/shared.acl, --maxmemory, 384mb, --maxmemory-policy, noeviction, --appendonly, "yes", --appendfsync, everysec]
+    mem_limit: 576m
+    environment:
+      ACL_REVISION: ${SHARED_REDIS_ACL_SHA:-not-bootstrapped}
     labels:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-redis-dev"
       com.datadoghq.tags.version: "7.4.11-alpine"
       com.datadoghq.ad.checks: >-
-        {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"tags":["env:dev","service:gromo-redis-dev","redis_instance:shared"]}]}}
+        {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"username":"health","password":"","tags":["env:dev","service:gromo-redis-dev","redis_instance:shared"]}]}}
     networks:
       - app-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-e", "--user", "health", "--pass", "", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
     volumes:
       - redis_dev_data:/data
+      - ${SHARED_REDIS_ACL_FILE:-/var/lib/gromo/runtime/shared-redis.acl}:/etc/redis/shared.acl:ro
 
 volumes:
   postgres_dev_data:

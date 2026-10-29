@@ -95,6 +95,12 @@ class PreviewIntegrationTest {
         return "Bearer " + builder.compact();
     }
 
+    private String previewSlot(String owner, String id) {
+        return redis.keys("cache:business:preview:slot:v1:*").stream()
+                .filter(key -> (owner + ":" + id).equals(redis.opsForHash().get(key, "identity")))
+                .findFirst().orElseThrow();
+    }
+
     @Test
     void rejectsUnknownBatchField() throws Exception {
         mvc.perform(post("/api/v1/link-previews").header("Authorization", token)
@@ -138,7 +144,7 @@ class PreviewIntegrationTest {
         mvc.perform(get("/api/v1/link-previews/" + id + "/thumbnail").header("Authorization",
                 token(UUID.randomUUID().toString(), "access", Instant.now().plusSeconds(60))))
                 .andExpect(status().isNotFound());
-        assertThat(redis.getExpire("cache:business:preview:" + user + ":" + id)).isBetween(290L, 300L);
+        assertThat(redis.getExpire(previewSlot(user, id))).isBetween(290L, 300L);
     }
 
     @Test
@@ -152,8 +158,8 @@ class PreviewIntegrationTest {
                         .andExpect(jsonPath("$.errorCode").value("NOT_PUBLIC_OR_NOT_FOUND")));
         submit(url);
         verify(resolver, times(1)).resolve(any());
-        assertThat(redis.getExpire("cache:business:preview:" + user + ":" + id)).isBetween(20L, 30L);
-        redis.delete("cache:business:preview:" + user + ":" + id);
+        assertThat(redis.getExpire(previewSlot(user, id))).isBetween(20L, 30L);
+        redis.delete(previewSlot(user, id));
         doReturn(new PreviewContent("공개됨", "application/pdf", null, "FILE", null)).when(resolver).resolve(any());
         submit(url);
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> verify(resolver, times(2)).resolve(any()));
