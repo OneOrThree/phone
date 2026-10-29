@@ -15,4 +15,8 @@ services:
       DD_VERSION: ${APP_IMAGE}
       DD_TRACE_SAMPLE_RATE: "0.2"
       DD_LOGS_INJECTION: "true"
+      OBS_SERVICE: data-api
+      OBS_ENV: ${DEPLOY_ENV}
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"

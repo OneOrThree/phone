@@ -32,7 +32,7 @@ jobs:
       # app/db 는 아래 OBS_SERVICES 에서 제외해 CD 로 배포된 컨테이너를 건드리지 않는다.
       # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
       # 재부팅에도 살아남는다.
-      OBS_SERVICES: prometheus grafana loki promtail postgres-exporter redis-exporter business-redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
+      OBS_SERVICES: prometheus grafana loki fluent-bit postgres-exporter redis-exporter business-redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
     steps:
       - uses: actions/checkout@v4
 
@@ -55,20 +55,45 @@ jobs:
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
             -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml)
           read -r -a services <<< "$OBS_SERVICES"
+          # Promtail → Fluent Bit 전환(GROMO-2555): 서비스 목록에서 빠진 기존 Promtail 은 orphan 으로 남아
+          # 같은 로그를 중복 수집한다. 그 이름 하나만 지운다(없으면 no-op, compose orphan 옵션은 앱까지 지우므로 쓰지 않는다).
+          # up 은 Fluent Bit 을 띄운 «뒤», down 은 함께 지운다. restart 는 Fluent Bit 을 만들지 않으므로 지우지 않는다.
+          remove_promtail() {
+            if docker container inspect gromo-promtail >/dev/null 2>&1; then
+              docker rm -f gromo-promtail
+            fi
+          }
+          # Fluent Bit 이 «시작» 만 하고 곧 죽는 경우(설정·Lua 오류, 볼륨 권한)에도 up 은 성공한다.
+          # 정상으로 돌고 있음을 확인하기 전에는 Promtail 을 지우지 않는다 — 실패하면 Promtail 을 남기고 job 을 실패시킨다.
+          require_fluent_bit() {
+            sleep 15
+            state="$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' gromo-fluent-bit 2>/dev/null || true)"
+            if [ "$state" != "true 0" ]; then
+              echo "::error::Fluent Bit 이 정상 기동하지 않았다(상태 '$state') — Promtail 을 남기고 중단한다"
+              docker logs --tail 30 gromo-fluent-bit 2>&1 || true
+              exit 1
+            fi
+          }
           case "${{ inputs.action }}" in
             up)
               # 관측 서비스만 기동/갱신 — app/db 는 named 대상이 아니라 그대로 유지된다.
               "${compose[@]}" up -d "${services[@]}"
+              require_fluent_bit
+              remove_promtail
               # bind mount된 prometheus.yml만 바뀌면 Compose는 기존 컨테이너를 재생성하지 않는다.
               # 명시적으로 재시작해 신규 scrape target을 즉시 반영한다.
               "${compose[@]}" restart prometheus
               ;;
             restart)
+              if docker container inspect gromo-promtail >/dev/null 2>&1; then
+                echo "::warning::기존 Promtail 이 남아 있다 — 수집기 전환은 action=up 으로 한다(restart 는 Fluent Bit 을 만들지 않는다)"
+              fi
               "${compose[@]}" restart "${services[@]}"
               ;;
             down)
               # 관측 서비스만 중지·제거. (compose down 은 프로젝트 전체를 내려 app/db 까지 지우므로 쓰지 않는다)
               "${compose[@]}" rm -sf "${services[@]}"
+              remove_promtail
               ;;
           esac
 
