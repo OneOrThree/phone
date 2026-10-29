@@ -17,7 +17,7 @@
 
 1. Data V4, Notification V14와 서버 API를 적용한다. 기존 V0 baseline은 수정하지 않았다.
 2. 백오피스 운영자별 Data/Notification 자격, HTTPS, 단일 인스턴스 영구 볼륨을 설정한다. 잡지 자동 발행 전환 전에 매일 게시 담당자를 준비한다.
-   dev·prod는 서로 다른 URL·볼륨·서비스 자격을 사용하고 각 인스턴스의 `BACKOFFICE_ENV`·`BACKOFFICE_FCM_PROJECT_ID`를 맞춘다. Data·Notification의 각 DB에 환경 표식을 설정한 뒤 연결한다.
+   dev·prod는 서로 다른 URL·볼륨·서비스 자격을 사용하고 각 인스턴스의 `BACKOFFICE_ENV`·`BACKOFFICE_FCM_PROJECT_ID`를 맞춘다. Data·Notification의 각 DB에 환경 표식을, Notification DB에는 그 환경의 FCM 프로젝트 ID를 DB 소유자가 설정한 뒤 연결한다.
 3. 앱 공지 읽기 화면을 배포한다. 서버와 앱 변경은 별도 브랜치다.
 
 운영 설정·실행은 [백오피스 README](../../../../backoffice/README.md), 잡지는 [운영 런북](../magazine/ops-runbook.md)을 따른다.

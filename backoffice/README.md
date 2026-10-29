@@ -34,14 +34,16 @@ Vite 개발 화면을 쓸 때에는 BFF의 `BACKOFFICE_ORIGIN=http://127.0.0.1:5
 
 dev와 prod는 **별도 백오피스 인스턴스·HTTPS 주소·영구 볼륨·운영자 자격·Data/Notification 서비스와 DB**를 사용한다. 각 인스턴스에 맞는 `BACKOFFICE_ENV`와 앱 프로젝트의 `BACKOFFICE_FCM_PROJECT_ID`를 명시한다. 검토 데이터는 각각 `dev.sqlite`, `prod.sqlite`에 저장된다. 시작할 때와 미리보기·내부 조회·발행 요청 전에 인증된 서비스가 실제 연결한 DB의 환경 표식과 Notification의 실제 FCM 프로젝트를 대조한다. 표식이 없거나 불일치하면 연결·발행을 거부한다. 서비스는 환경 확인 API를 포함한 버전으로 먼저 교체해야 한다. 로컬 모드는 `local.sqlite`만 사용한다.
 
-서비스 연결 전에 DB 소유자가 dev Data·Notification DB에는 `dev`, prod Data·Notification DB에는 `prod` 표식을 **각각 한 번** 설정한다. `<DB명>`은 실제로 접속할 데이터베이스 이름으로 바꾼다.
+서비스 연결 전에 DB 소유자가 dev Data·Notification DB에는 `dev`, prod Data·Notification DB에는 `prod` 표식을 **각각 한 번** 설정한다. Notification DB에는 그 환경 앱의 FCM 프로젝트 ID도 독립적으로 기록한다. `<DB명>`은 실제로 접속할 데이터베이스 이름으로 바꾼다.
 
 ```sql
-ALTER DATABASE <DB명> SET gromo.environment TO 'dev';
--- 운영 DB에는 위의 dev 대신 prod를 사용한다.
+ALTER DATABASE <DATA_DB명> SET gromo.environment TO 'dev';
+ALTER DATABASE <NOTIFICATION_DB명> SET gromo.environment TO 'dev';
+ALTER DATABASE <NOTIFICATION_DB명> SET gromo.fcm_project_id TO '<dev 앱의 FCM 프로젝트 ID>';
+-- 운영 DB에는 prod와 운영 앱의 FCM 프로젝트 ID를 사용한다.
 ```
 
-이는 DB 자체의 설정이다. 서비스는 `pg_db_role_setting`에서 실제 연결한 DB의 표식을 읽어 실행 프로파일과 대조한다. `SET`으로 바뀐 세션 값은 표식 판정에 쓰지 않는다. 표식 설정 후 두 서비스를 새 버전으로 교체하고, 각각의 환경 확인 API가 올바른 값을 반환하는지 운영자 자격으로 확인한 다음 백오피스를 시작한다. 이 저장소는 환경 표식이나 운영 자격을 자동으로 운영 DB에 쓰지 않는다.
+이는 DB 자체의 설정이다. 서비스는 `pg_db_role_setting`에서 실제 연결한 DB의 표식과 Notification DB에 기록한 FCM 프로젝트 ID를 읽어 실행 프로파일·실제 전송 설정과 대조한다. `SET`으로 바뀐 세션 값은 표식 판정에 쓰지 않는다. 표식 설정 후 두 서비스를 새 버전으로 교체하고, 각각의 환경 확인 API가 올바른 값을 반환하는지 운영자 자격으로 확인한 다음 백오피스를 시작한다. 이 저장소는 환경 표식이나 운영 자격을 자동으로 운영 DB에 쓰지 않는다.
 
 HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷에 내부 `/internal/**` 경로를 개방하지 않는다. 백오피스 서버만 서비스망에 접속한다. SQLite 폴더는 전용 영구 볼륨으로 두고 일관된 SQLite 백업 방식으로 보존한다. 디스크·백업에는 검토 원문과 사용자 UUID가 있으므로 운영자만 접근할 수 있어야 한다. 로컬/연결 모드는 DB 파일이 분리되어 모의 게시를 운영 게시로 오해하지 않는다.
 

@@ -45,8 +45,13 @@ class PublicationController {
                 + " CROSS JOIN LATERAL unnest(setting.setconfig) config"
                 + " WHERE db.datname=current_database() AND setting.setrole=0"
                 + " AND config LIKE 'gromo.environment=%'", String.class);
-        if (markers.size() != 1 || !expected.equals(markers.get(0)) || fcmProjectId == null
-                || fcmProjectId.isBlank()) {
+        var projects = jdbc.queryForList("SELECT split_part(config, '=', 2)"
+                + " FROM pg_db_role_setting setting JOIN pg_database db ON db.oid=setting.setdatabase"
+                + " CROSS JOIN LATERAL unnest(setting.setconfig) config"
+                + " WHERE db.datname=current_database() AND setting.setrole=0"
+                + " AND config LIKE 'gromo.fcm_project_id=%'", String.class);
+        if (markers.size() != 1 || !expected.equals(markers.get(0)) || projects.size() != 1
+                || fcmProjectId == null || !fcmProjectId.equals(projects.get(0))) {
             throw new IllegalStateException("Notification DB/FCM 환경을 확인할 수 없습니다.");
         }
         return Map.of("environment", expected, "fcmProjectId", fcmProjectId);
