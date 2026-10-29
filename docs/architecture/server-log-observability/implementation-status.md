@@ -16,7 +16,7 @@
 | [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 스프린트 대기 |
 | [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 스프린트 대기 |
 | [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 스프린트 대기 |
-| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 여러 원사건 → 기기별 묶음 발송 연결 | 2557 | 1d | 스프린트 대기 |
+| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 스프린트 대기 |
 | [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 스프린트 대기 |
 | [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 스프린트 대기 |
 
@@ -112,9 +112,24 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 
 **dev 배포 뒤 확인.** agent 활성 상태에서 `origin_trace_id` 원문 형식, agent 자동 헤더(`traceparent` 등)와 `x-origin-*`의 공존.
 
+## 2558에서 구현한 경로
+
+**기기별 발송 시도 연결.** `DispatchService`가 기기별 `transport.send` 한 번마다 UUID `operation_id`를 발급하고, 그 호출의 구성원마다 `event_name=operation.link` 로그(`operation_id`·`delivery_id`·`event_id`·origin·`attempt`)를 남긴다. 같은 operation scope 안에서 `transport.result`와 FcmTransport 실패 로그가 같은 `operation_id`를 단다. DB 반영은 `dispatch.settle` 로그로 따로 남기며 라벨은 sent·retry·failed·expired·lease_lost·unchanged다. `attempt`는 이 dispatch가 본 `attempts+1`이고, `delivery_id`는 notification `deliveries.id`라 수신 로그의 ID 공간과 다르다. collapse 키(`event_id`)와 발송 멱등키는 바꾸지 않았다. 티켓 2421로 묶음이 제거돼 지금은 한 호출의 구성원이 1개다. 구성원이 여럿일 때 구성원마다 link를 남기는 경로는 현재 도달할 수 없고 `logLink` 단위 테스트로만 검증했다.
+
+**검증.**
+
+| 범위 | 결과 |
+| --- | --- |
+| notification 전체 `build` | 232개 실패 0 |
+| `DispatchOperationLinkTest` | 멀티기기 operation 2개, origin별 조회 분리(같은 스레드 순차 기준), 재시도 시 operation 교체, attempt 2, settle failed·expired·unchanged·lease_lost, 구버전 행, 구성원 2개 link, 호출자 MDC 복원, FcmTransport 503 실패 로그의 operation_id |
+
+**미검증.** 스케줄러 스레드를 거치는 MDC, 다중 행 `entryScope` 분기(도달 불가), 실배포 JSON 출력.
+
+**한계.** `backOffLeased`가 0행을 돌려주면 임대를 잃은 경우뿐 아니라 그사이 억제된 경우에도 `lease_lost`로 찍힌다.
+
 ## 아직 구현하지 않은 경계
 
-- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557 에서 구현했다(위 절). Preview worker, Redis/STOMP(2559), notification 기기별 발송 operation(2558)은 각 티켓 범위다.
+- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558 에서 구현했다(위 절). Preview worker 와 Redis/STOMP(2559)는 각 티켓 범위다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
 - 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, S3 수집·보존·부하 영향은 아직 미검증이다.

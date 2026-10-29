@@ -212,15 +212,17 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 
 채팅의 안정 키는 도메인 `messageId`를 로그의 `message_id`로 매핑한다. 채팅 본문·recipients 목록·토큰을 로그에 넣지 않는다. Pub/Sub publish 성공과 앱 수신 성공은 구분한다. subscriber 단절·역직렬화 실패는 현재 전달 보장의 한계로 남기며 관측 변경으로 Redis가 내구 큐가 됐다고 주장하지 않는다.
 
-### 3.3 여러 원사건이 한 발송으로 합쳐지는 Notification
+### 3.3 기기별 발송 시도 연결 (Notification)
 
-[DispatchService](../../../server/notification/src/main/java/com/oneorthree/notification/DispatchService.java)는 여러 `deliveries`를 한 `Plan`으로 묶고, `collapseEventId()`가 `bundle:...`를 만들 수 있다. 이를 한 원사건의 `event_id`나 `origin_trace_id`로 대표시키면 다른 원요청에서 발송 장애가 보이지 않는다.
+[DispatchService](../../../server/notification/src/main/java/com/oneorthree/notification/DispatchService.java)의 한 `Plan`은 전달 행 1개 × 기기 N개다. 티켓 2421이 묶음 발송을 제거해 `lockedCandidates`는 행 1개이고, `collapseEventId()`는 그 행의 `event_id`를 돌려준다. `bundle:` 접두어를 만드는 코드는 없다. 발송 장애를 원요청에서 따라가려면 기기별 외부 호출 하나를 원사건에 연결할 키가 필요하다.
 
-1. 외부 전송 **한 번**마다 UUID `operation_id`를 발급한다. 기기가 다르거나 재시도하면 다른 operation이다. 기존 bundle/collapse 키·발송 멱등키는 바꾸지 않는다.
-2. 전송에 포함되는 각 delivery마다 `event_name=operation.link`, `operation_id`, `delivery_id`, 실제 `event_id`, 해당 origin trace/request ID를 가진 연결 로그를 남긴다. 연결 로그의 `log_id`는 각각 다르다.
-3. transport 시작·결과 로그는 그 `operation_id`와 실제 발송 trace를 기록한다. 원인이 여러 개면 임의의 한 origin/event ID를 넣지 않는다. 이 단계는 외부 호출 결과와 DB의 최종 상태 반영 결과를 구분한다.
-4. 각 원요청의 조회 결과에서 연결 로그를 찾고 `operation_id`를 클릭해 공통 발송 로그로 이동한다. 긴 event ID 배열을 메시지에 넣어 잘리게 하지 않는다.
+1. 기기별 `transport.send` 한 번마다 UUID `operation_id`를 발급한다. 기기가 다르거나 재시도하면 다른 operation이다. collapse 키(`event_id`)와 발송 멱등키는 바꾸지 않는다.
+2. 그 호출에 포함되는 각 전달 행(구성원)마다 `event_name=operation.link`, `operation_id`, `delivery_id`, 실제 `event_id`, 해당 origin trace/request ID, `attempt`를 가진 연결 로그를 남긴다. `attempt`는 이 dispatch가 본 `attempts+1`이다. `delivery_id`는 notification `deliveries.id`이며 수신(consumer) 로그의 ID 공간과 다르다. 연결 로그의 `log_id`는 각각 다르다. 지금은 구성원이 1개이므로 호출당 연결 로그도 1개다.
+3. 같은 operation scope 안에서 `transport.result`와 FcmTransport 실패 로그가 같은 `operation_id`를 가진다. 원인 문맥은 바깥 scope에서 오며, 구성원이 여러 개라 원인이 갈리면 임의의 한 origin/event ID를 넣지 않는다. DB 반영 결과는 `dispatch.settle` 로그로 따로 남기고 라벨은 sent·retry·failed·expired·lease_lost·unchanged 중 하나다. 외부 호출 결과(`transport.result`)와 DB의 최종 상태 반영 결과(`dispatch.settle`)를 구분한다.
+4. 각 원요청의 조회 결과에서 연결 로그를 찾고 `operation_id`를 클릭해 해당 기기 호출의 발송 로그로 이동한다. 긴 event ID 배열을 메시지에 넣어 잘리게 하지 않는다.
 5. 연결 로그 일부가 유실될 수 있는 관측 한계는 그대로다. producer 처리량 대비 연결 로그량도 측정하며 로그 저장 성공을 발송의 선행 조건으로 삼지 않는다.
+
+묶음이 다시 생겨 한 호출에 구성원이 여럿이 되면 구성원마다 연결 로그를 남기고 원인 키를 한 개로 대표시키지 않는 설계다. 이 경로는 현재 도달할 수 없으며 `logLink` 단위 테스트로만 검증했다.
 
 ### 3.4 외부 ingress와 인증·에러 경계
 
@@ -245,7 +247,7 @@ APP access 로그는 요청 완료 시 한 번 남기는 것을 기본으로 하
 | 요청 번호 R1 | `request_id=R1` 또는 `origin_request_id=R1` → trace T1·event ID·operation ID로 확장 |
 | trace T1 | 같은 trace 로그 + T1에서 파생된 비동기 로그 |
 | 사건 E1 | `event_id=E1` → 각 delivery/attempt와 처리 trace 조회 |
-| 묶음 작업 OP1 | 연결 로그의 `operation_id=OP1` → 공통 transport 처리·결과 조회 |
+| 기기 호출 OP1 | 연결 로그의 `operation_id=OP1` → 해당 기기 호출의 transport 처리·결과 조회 |
 | 채팅 M1 | `message_id=M1` → 발행 인스턴스·Redis subscriber·outbound 전달 로그 |
 | 키 없는 인프라 오류 | 환경·인스턴스·시간으로 범위 제한. 특정 요청과의 인과관계는 미확정으로 표시 |
 
@@ -276,7 +278,7 @@ APP access 로그는 요청 완료 시 한 번 남기는 것을 기본으로 하
 {env="prod", service="realtime"} | json | message_id="M1"
 ```
 
-두 번째 쿼리는 단일 origin이 보존된 동기·비동기 로그를 모은다. 묶음 발송은 연결 로그를 찾은 뒤 네 번째 쿼리를 추가 실행해야 공통 작업의 결과까지 볼 수 있다. 오래 지연된 작업은 조회 시간 범위를 넓혀야 한다. Loki는 관계형 JOIN 엔진으로 사용하지 않는다. 관련 ID를 클릭하면 미리 구성한 Explore 쿼리 또는 APM 링크로 이동한다. 자동 dedup을 가정하지 않고 `log_id`를 로그 상세에 노출한다. [LogQL label filter 문서](https://grafana.com/docs/loki/latest/query/log_queries/)
+두 번째 쿼리는 단일 origin이 보존된 동기·비동기 로그를 모은다. 기기별 발송은 연결 로그를 찾은 뒤 네 번째 쿼리를 추가 실행해야 그 기기 호출의 결과까지 볼 수 있다. 오래 지연된 작업은 조회 시간 범위를 넓혀야 한다. Loki는 관계형 JOIN 엔진으로 사용하지 않는다. 관련 ID를 클릭하면 미리 구성한 Explore 쿼리 또는 APM 링크로 이동한다. 자동 dedup을 가정하지 않고 `log_id`를 로그 상세에 노출한다. [LogQL label filter 문서](https://grafana.com/docs/loki/latest/query/log_queries/)
 
 Explore 화면의 행 상한·API `limit`에 도달한 결과를 전체 로그라고 표시하지 않는다. 대량 조사·export는 시간/서비스 범위를 나누고 경계 시각을 겹쳐 조회한 뒤 log ID로 중복 제거한다. 같은 timestamp에 상한 이상의 로그가 몰리면 시간만 좁혀도 해결되지 않으므로 service/source 또는 S3 archive 조회로 전환한다. live tail의 재연결 구간도 범위 조회로 확인한다. [Loki 조회 API](https://grafana.com/docs/loki/latest/reference/loki-http-api/)
 

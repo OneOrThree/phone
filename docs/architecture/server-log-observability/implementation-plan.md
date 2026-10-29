@@ -13,7 +13,7 @@ Logback XML·custom provider 계약, 실제 executor별 문맥 전달, Loki/Athe
 | P0: 실제 기준 확정 | 서비스별 유효 compose·agent 버전·trace 전파·로그량·호스트 여유·업로더·S3 lifecycle 조사표. 수집기 버전 고정 및 dev→S3 자격 방식 결정 | 대표 요청의 실제 DD trace ID 표현·전파·샘플링을 확인. 비용/디스크 예산과 필터 적용 범위를 기록 |
 | P1: HTTP 한 경로 연결 | Business·Data 공통 JSON, OBS metadata 명시 주입, request/origin ID 유지, agent trace/span 출력, 인증 실패 포함 access 로그, executor 문맥 처리, dev 수집기→Loki | 정상·500·401·403·413·timeout 요청에서 실제로 진입한 서비스들의 로그를 요청 번호로 탐색. metadata가 컨테이너 출력과 일치. 한 trace의 APM 구간과 로그 ID 일치. 요청 간 문맥 누출 없음 |
 | P2: S3와 수집 내구성 | Fluent Bit dual output, 영속 cursor/buffer, IAM·S3 prefix/lifecycle, old/new 업로더 전환 절차, Athena 최소 조회, canary와 경보 | 정상 상태 S3 p95 가시성 ≤5분 목표 검증. 재시작·전송 중단·회전 실험에서 누락/중복 수량 보고. 7일 이전 원본 조회 경로 검증 |
-| P3: 비동기·나머지 서버 | Outbox 추적 metadata migration, Kafka/내부 HTTP 전파, Notification 묶음 발송 operation 연결, Realtime Redis 내부 carrier·message ID, infra source/parser | 원요청→Outbox→소비→묶음 발송·Redis 인스턴스 간 전달을 탐색. 복수 원인·구버전 행/wire·재시도·DLT 정상 처리 |
+| P3: 비동기·나머지 서버 | Outbox 추적 metadata migration, Kafka/내부 HTTP 전파, Notification 기기별 발송 시도 operation 연결, Realtime Redis 내부 carrier·message ID, infra source/parser | 원요청→Outbox→소비→기기별 발송 시도·Redis 인스턴스 간 전달을 탐색. 복수 원인·구버전 행/wire·재시도·DLT 정상 처리 |
 | P4: 운영 사용 완성 | 서버 로그·오류·느린 API·수집 상태 대시보드, APM 링크, 지표 연계, prod 배치/런북, 보존 정책 정합 | 대표 부하·장애 실험 통과 후 점진 배포. 운영자가 로그에서 원인 구간과 당시 자원 상태에 도달 가능 |
 
 P1 종료 시 첫 가치를 확인할 수 있다. 최초 S3 포함 배포 단위는 P1+P2이며, 전체 서버와 비동기 흐름의 완료는 P3/P4까지다. 실제 배포 일정은 P0에서 환경 접근·인프라 변경 범위를 확인한 후 산정한다.
@@ -27,7 +27,7 @@ P1 종료 시 첫 가치를 확인할 수 있다. 최초 S3 포함 배포 단위
 | JSON·마스킹 | `server/*/src/main/resources/logback-spring.xml`, 각 `build.gradle`, logging package | 공통 필드·stack trace·log ID, JSON 라이브러리 호환. 기존 Data 전용 encoder를 다른 서비스에 도입 시 각 JVM 라이브러리 조합 검증 |
 | HTTP 문맥 | Data `TraceIdFilter`·`FilterConfig`, Business `RequestEnvelopeFilter`·`InternalHttpClient`·executor 구성 | request/trace 분리, 인증 전후 문맥, 전체 HTTP 경로와 thread 전파 |
 | 비동기 문맥 | Data `EventOutbox`·command DTO·Relay·Kafka/HTTP transport·Flyway, Notification/Realtime consumers 및 후속 작업 저장 | nullable metadata, 기존 봉투·checksum·멱등·트랜잭션 경계 보존 |
-| 묶음·인스턴스 간 연결 | Notification `DispatchService`, Realtime `ChatFanoutEvent`·`RealtimeEventFanoutEvent`·subscriber·`RedisConfig` | 복수 원인→operation 연결, Redis carrier·message ID·구버전 wire 호환 |
+| 발송 시도·인스턴스 간 연결 | Notification `DispatchService`, Realtime `ChatFanoutEvent`·`RealtimeEventFanoutEvent`·subscriber·`RedisConfig` | 복수 원인→operation 연결, Redis carrier·message ID·구버전 wire 호환 |
 | 수집 | `server/observability/fluent-bit/` 신규, `server/scripts/docker-compose.*.yml` | source·parser·routing·영속 볼륨·자원 제한·두 출력 |
 | 조회 | `server/observability/loki/`, `grafana/`, `prometheus/` | labels·retention·대시보드·경보·APM 링크 |
 | 인프라 | 별도 `OneOrThree/Infra` 저장소의 `terraform/`·`prod/catus/runtime` 및 S3 설정 기록 | IAM·버킷·lifecycle·실제 배치. 2288의 정본 확인에 따라 구 OneOrThree/terraform은 신규 수정 대상으로 사용하지 않음 |
