@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.fanout;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -11,6 +12,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -72,23 +74,30 @@ public class ChatFanout {
      *                말이 생긴다
      */
     public void broadcast(ChatMessageResponse message) {
-        try {
-            deliverLocally(message);
-        } catch (RuntimeException e) {
-            // 이 인스턴스 구독자만 실시간으로 못 받는다. 저장은 이미 끝났으니 유실이 아니라 지연이고,
-            // 무엇보다 여기서 멈추면 아래 Redis 발행에 도달하지 못해 «다른 인스턴스까지» 못 받는다.
-            log.error("로컬 전달 실패 — messageId={} groupId={}", message.messageId(), message.groupId(), e);
-        }
+        // message_id 를 이 전달 동안 문맥에 둔다 — 로컬 구독자의 아웃바운드 작업이 실행기 장식기로 같은 값을 물려받는다.
+        String messageId = Objects.toString(message.messageId(), null);
+        try (LogContext scope = LogContext.open().put(LogContext.MESSAGE_ID, messageId)) {
+            try {
+                deliverLocally(message);
+            } catch (RuntimeException e) {
+                // 이 인스턴스 구독자만 실시간으로 못 받는다. 저장은 이미 끝났으니 유실이 아니라 지연이고,
+                // 무엇보다 여기서 멈추면 아래 Redis 발행에 도달하지 못해 «다른 인스턴스까지» 못 받는다.
+                log.error("로컬 전달 실패 — messageId={} groupId={}", message.messageId(), message.groupId(), e);
+            }
 
-        try {
-            // Jackson 3 은 직렬화 예외가 비검사(JacksonException extends RuntimeException)라
-            // 별도 catch 가 필요 없다 — 아래 RuntimeException 이 함께 받는다.
-            String payload = objectMapper.writeValueAsString(new ChatFanoutEvent(instanceId, message));
-            redis.convertAndSend(RedisKeys.FANOUT_CHANNEL, payload);
-        } catch (RuntimeException e) {
-            // 다른 인스턴스에 붙은 사람은 이 메시지를 실시간으로 못 받는다. 히스토리에는 남아 있으므로
-            // 유실이 아니라 «지연»이다 — 그래서 요청 자체는 실패시키지 않는다.
-            log.error("팬아웃 발행 실패 — messageId={} groupId={}", message.messageId(), message.groupId(), e);
+            try {
+                // Jackson 3 은 직렬화 예외가 비검사(JacksonException extends RuntimeException)라
+                // 별도 catch 가 필요 없다 — 아래 RuntimeException 이 함께 받는다.
+                String payload = objectMapper.writeValueAsString(
+                        new ChatFanoutEvent(instanceId, message, FanoutTelemetry.capture(null)));
+                Long receivers = redis.convertAndSend(RedisKeys.FANOUT_CHANNEL, payload);
+                LogContext.info(log, LogContext.FANOUT_PUBLISH, "팬아웃 발행 — channel={} receivers={}",
+                        RedisKeys.FANOUT_CHANNEL, receivers);
+            } catch (RuntimeException e) {
+                // 다른 인스턴스에 붙은 사람은 이 메시지를 실시간으로 못 받는다. 히스토리에는 남아 있으므로
+                // 유실이 아니라 «지연»이다 — 그래서 요청 자체는 실패시키지 않는다.
+                log.error("팬아웃 발행 실패 — messageId={} groupId={}", message.messageId(), message.groupId(), e);
+            }
         }
     }
 

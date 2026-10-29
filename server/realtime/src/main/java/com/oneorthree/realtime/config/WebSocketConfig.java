@@ -188,6 +188,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setHeartbeatValue(new long[] {heartbeatServerMillis, heartbeatClientMillis})
                 .setTaskScheduler(realtimeHeartbeatScheduler());
         // 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 여기로 다시 보낸다 — 같은 가드로 버리고 보상한다.
+        // 주의(GROMO-2559): brokerChannel 에 executor 를 주지 않는다 — 동기라서 deliverLocally → 브로커 → clientOutbound 제출이
+        // 같은 스레드이고, OutboundSendBudget 이 그 제출 시점의 MDC 를 캡처한다. executor 를 주면 이 연결이 조용히 끊긴다.
         registry.configureBrokerChannel().interceptors(endedSessionGuard());
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
@@ -216,7 +218,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
         registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
         // 끝난 세션의 늦은 CONNECT·SUBSCRIBE 를 맨 앞에서 버린다 — 포화 중 종료 DISCONNECT 가 그것들을 추월한다.
-        registration.interceptors(endedSessionGuard(), new RejectAsErrorFrame(), movementSubscriptions);
+        // 그보다 앞의 로그 문맥(GROMO-2559)은 프레임을 버리지 않고 request_id·user_id 만 연다.
+        registration.interceptors(new StompLogScope(), endedSessionGuard(), new RejectAsErrorFrame(),
+                movementSubscriptions);
     }
 
     /** 끝난 세션의 늦은 프레임을 수신·브로커 채널 양쪽에서 버리고 보상한다 — 상태는 소켓 세션 속성에만 있다. */

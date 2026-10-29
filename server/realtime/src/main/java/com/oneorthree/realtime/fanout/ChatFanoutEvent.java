@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.fanout;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 
 import java.util.UUID;
@@ -15,9 +16,17 @@ import java.util.UUID;
  *                         Redis Pub/Sub 는 발행자에게도 되돌려 주므로, 이 필드가 없으면 발행 인스턴스에
  *                         붙어 있는 구독자만 같은 메시지를 두 번 받는다
  * @param message 브로드캐스트할 내용. 소켓으로 나가는 모양과 히스토리 조회의 모양이 같다
+ * @param telemetry 원인 요청 연결용 내부 메타데이터(GROMO-2559) — 없으면 wire 에서 빠지고, 옛 구독자는 모르는 키로 무시한다.
+ *                  {@code message} 만 소켓으로 나가므로 클라이언트에 닿지 않는다
  */
 public record ChatFanoutEvent(
         UUID originInstanceId,
-        ChatMessageResponse message
+        ChatMessageResponse message,
+        @JsonInclude(JsonInclude.Include.NON_NULL) FanoutTelemetry telemetry
 ) {
+
+    /** 메타데이터 없는 옛 모양. */
+    public ChatFanoutEvent(UUID originInstanceId, ChatMessageResponse message) {
+        this(originInstanceId, message, null);
+    }
 }

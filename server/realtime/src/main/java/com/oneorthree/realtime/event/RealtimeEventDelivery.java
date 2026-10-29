@@ -1,6 +1,8 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.LogContext;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -117,31 +119,43 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
             // 여기서 보내도 아무도 못 받는다. 조용히 성공한 척하지 않고 명시적으로 거절한다.
             throw new IllegalStateException("개인 이벤트 큐 전달은 아직 활성화되지 않았습니다.");
         }
-        try {
-            deliverLocally(destination, event, island.recipients());
-        } catch (RuntimeException e) {
-            // 이 인스턴스 구독자만 실시간으로 못 받는다. 무엇보다 여기서 멈추면 아래 Redis 발행에
-            // 도달하지 못해 «다른 인스턴스까지» 못 받는다.
-            log.error("섬 사건 로컬 전달 실패 — eventId={} type={}", event.eventId(), event.type().wireName(), e);
-        }
+        // event_id 를 이 전달 동안 문맥에 둔다 — 로컬 구독자의 아웃바운드 작업이 실행기 장식기로 같은 값을 물려받는다.
+        String eventId = event.eventId().toString();
+        try (LogContext scope = LogContext.open().put(LogContext.EVENT_ID, eventId)) {
+            try {
+                deliverLocally(destination, event, island.recipients());
+            } catch (RuntimeException e) {
+                // 이 인스턴스 구독자만 실시간으로 못 받는다. 무엇보다 여기서 멈추면 아래 Redis 발행에
+                // 도달하지 못해 «다른 인스턴스까지» 못 받는다.
+                log.error("섬 사건 로컬 전달 실패 — eventId={} type={}", event.eventId(), event.type().wireName(), e);
+            }
 
-        try {
-            String payload = objectMapper.writeValueAsString(
-                    RealtimeEventFanoutEvent.island(instanceId, destination, event, island.recipients()));
-            redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, payload);
-        } catch (RuntimeException e) {
-            log.error("섬 사건 팬아웃 발행 실패 — eventId={} type={}", event.eventId(), event.type().wireName(), e);
+            try {
+                String payload = objectMapper.writeValueAsString(RealtimeEventFanoutEvent.island(instanceId,
+                        destination, event, island.recipients(), FanoutTelemetry.capture(eventId)));
+                published(redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, payload));
+            } catch (RuntimeException e) {
+                log.error("섬 사건 팬아웃 발행 실패 — eventId={} type={}", event.eventId(), event.type().wireName(), e);
+            }
         }
+    }
+
+    private static void published(Long receivers) {
+        LogContext.info(log, LogContext.FANOUT_PUBLISH, "팬아웃 발행 — channel={} receivers={}",
+                RedisKeys.EVENT_FANOUT_CHANNEL, receivers);
     }
 
     /**
      * 세션 폐기 제어 사건(GROMO-2350)을 다른 replica 에 퍼뜨린다 — 같은 채널에 얹은 제어 봉투다. 실패는 삼킨다: 수신 인스턴스는 이미
      * Redis 내구 펜스를 올렸고(CONNECT·REST 를 막는다), 여기서 던지면 수신 기록이 롤백돼 relay 가 같은 사건을 반복한다.
+     *
+     * @param eventId 이 폐기를 일으킨 Data 사건 id — 다른 replica 의 수신·종료 로그를 같은 사건에 잇는 내부 메타데이터로만 싣는다
      */
-    public void publishSessionRevoked(UUID userId, UUID sessionId, Instant until) {
+    public void publishSessionRevoked(UUID userId, UUID sessionId, Instant until, String eventId) {
         try {
-            redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, objectMapper.writeValueAsString(
-                    RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId, until)));
+            published(redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, objectMapper.writeValueAsString(
+                    RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId, until,
+                            FanoutTelemetry.capture(eventId)))));
         } catch (RuntimeException e) {
             sessionRevokedFanoutFailed.increment();
             log.error("세션 폐기 팬아웃 발행 실패 — 다른 replica 의 기존 연결은 AT 만료까지 살 수 있다. reason={}",
