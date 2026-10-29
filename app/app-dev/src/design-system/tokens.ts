@@ -448,6 +448,7 @@ export const componentTokens = {
     size: 34,
     iconSize: 18,
     iconStroke: 2.4,
+    boardCloseStroke: 3.4,
     borderWidth: semanticTokens.stroke.default,
     shadowOffset: 2,
     pressedOpacity: 0.7,

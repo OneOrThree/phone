@@ -252,12 +252,12 @@ export function Btn({
     </Animated.View>
   );
 }
-// 뒤로(‹)·닫기(×) 동그라미 — 건물 안·시트·패널·종이·망원경·일기장이 모두 이 하나를 쓴다(DESIGN §7.14).
+// 뒤로(‹)·닫기(×) — 게시판은 아이콘만, 그 밖의 장면은 동그라미 안에 그린다(DESIGN §7.14).
 // 장면을 떠나거나 한 단계 위로 가면 ‹, 장면 위에 뜬 시트·패널·종이를 닫으면 close(×). 원은 34, 누르는 자리는 44 상자.
 // 나머지 Pressable 속성(testID·ref·접근성 숨김)은 그대로 넘긴다.
 const NAV_ICON = { back: 'M15 5L8 12L15 19', close: 'M6 6L18 18M18 6L6 18' };
 export const NavBtn = React.forwardRef<View, any>(function NavBtn(
-  { label, close = false, disabled = false, style, ...rest },
+  { label, close = false, disabled = false, boardPaper = false, style, ...rest },
   ref,
 ) {
   const n = componentTokens.navButton;
@@ -289,12 +289,13 @@ export const NavBtn = React.forwardRef<View, any>(function NavBtn(
           width: n.size,
           height: n.size,
           borderRadius: semanticTokens.radius.full,
-          borderWidth: n.borderWidth,
+          borderWidth: boardPaper ? 0 : n.borderWidth,
           borderColor: semanticTokens.color.outline,
-          backgroundColor: semanticTokens.color.surface,
-          boxShadow: disabled
-            ? 'none'
-            : `0px ${n.shadowOffset}px 0px ${semanticTokens.color.outline}`,
+          backgroundColor: boardPaper ? 'transparent' : semanticTokens.color.surface,
+          boxShadow:
+            disabled || boardPaper
+              ? 'none'
+              : `0px ${n.shadowOffset}px 0px ${semanticTokens.color.outline}`,
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -303,7 +304,7 @@ export const NavBtn = React.forwardRef<View, any>(function NavBtn(
           <Path
             d={NAV_ICON[close ? 'close' : 'back']}
             stroke={semanticTokens.color.text}
-            strokeWidth={n.iconStroke}
+            strokeWidth={boardPaper && close ? n.boardCloseStroke : n.iconStroke}
             strokeLinecap="round"
             strokeLinejoin="round"
             fill="none"
