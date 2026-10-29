@@ -1,3 +1,4 @@
+import { customizationTitle } from '@/i18n/customization';
 import * as Application from 'expo-application';
 import appManifest from '../../../package.json';
 import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
@@ -3830,7 +3831,7 @@ export function RedesignScreens({ e }: any) {
                     slot,
                     id,
                     server
-                      ? (catalog[id]?.title ?? productTitle(id))
+                      ? customizationTitle(id, catalog[id]?.title ?? productTitle(id))
                       : products.find((p) => p.id === id)?.title || id,
                     picture(slot, id),
                   ),

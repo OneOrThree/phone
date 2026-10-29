@@ -1,3 +1,4 @@
+import { applyLocalePref } from '@/i18n';
 /** 옷장(GROMO-2311) — 슬롯별 장착·해제, 퇴역 항목, 옛 서버 인벤토리. useShop 은 목이다. */
 import assert from 'node:assert/strict';
 import React, { useMemo, useReducer, useRef, useState } from 'react';
@@ -326,3 +327,23 @@ function Harness({
     />
   );
 }
+
+afterEach(() => applyLocalePref('system'));
+
+test('언어 변경 시 캐시된 꾸미기 이름·접근성 라벨을 번역하고 장착 ID는 유지한다', async () => {
+  const id = 'cust.head.peach';
+  mockCatalog[id] = entry(id, 'head', { title: '복숭아 한 알' });
+  mockShopApi = api({ head: [id, 'cap'] });
+  applyLocalePref('en');
+  const screen = await render(<Harness />);
+  expect(screen.getByText('My Outfits')).toBeTruthy();
+  expect(screen.getByText('Peach')).toBeTruthy();
+  expect(screen.queryByText('복숭아 한 알')).toBeNull();
+  expect(screen.getByLabelText('cap-제목')).toBeTruthy(); // 새/미등록 상품은 서버 원문 유지
+  await fireEvent.press(screen.getByLabelText('Peach'));
+  expect(mockShopApi.equip).toHaveBeenLastCalledWith({ head: id });
+  applyLocalePref('ko');
+  await screen.rerender(<Harness />);
+  expect(screen.getByLabelText('복숭아 한 알')).toBeTruthy();
+  expect(screen.queryByText('Peach')).toBeNull();
+});
