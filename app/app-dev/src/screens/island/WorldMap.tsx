@@ -136,7 +136,11 @@ import {
   constructionPhase,
   normalizedConstructionProgress,
 } from '@/screens/island/constructionProgress';
-import { runBuildingEntryWalk, type BuildingTransitionTarget } from '@/services/buildingTransition';
+import {
+  isBuildingTransitionActive,
+  runBuildingEntryWalk,
+  type BuildingTransitionTarget,
+} from '@/services/buildingTransition';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import {
@@ -1856,6 +1860,7 @@ function FinalIslandScene({
   };
   // 바닥 탭 → 걷기. 자동 걷기(GROMO-2250)도 이 함수로 걷는다.
   const tapWalk = (p: Point) => {
+    if (isBuildingTransitionActive()) return;
     // 바닥 탭은 건물 진입 예약을 취소하고 새 목적지로 걷는다.
     buildingEntryPending.current = false;
     walkDone.current = undefined;

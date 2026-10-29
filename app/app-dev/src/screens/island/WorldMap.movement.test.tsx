@@ -1,9 +1,10 @@
 /**
  * 홈 섬 이동 동기화 배선(GROMO-2248) — 타일 섬(iOS·Android) + 서버 홈이면 늘 이동 전용 채널을 열고(GROMO-2476),
  * 내 고양이는 서버 확정 경로·도착을 따르며 다른 주민은 서버 위치(RemoteResident)로 그린다.
- * 동기화 위치가 없는 주민(FullState 전·채널 거절·미접속·목업 섬·웹)은 고정 자리(StandingResident)에 서 있다.
+ * 서버 홈에서는 접속이 확인된 주민만 표시하고 목업 섬은 고정 자리(StandingResident)를 유지한다.
  */
 import React from 'react';
+import { createBuildingTransitionController } from '@/services/buildingTransition';
 import * as apiClient from '@/services/api/client';
 import { memberLooks } from '@/services/memberLooks';
 import { Animated, AppState } from 'react-native';
@@ -1820,6 +1821,30 @@ describe('경로선 (GROMO-2479)', () => {
     await fireEvent.press(screen.getByTestId('building-name-hall'));
     await walkToEnd(screen);
     expect(go).toHaveBeenCalled();
+    await screen.unmount();
+  });
+
+  it('건물 진입 연출이 시작되면 바닥 탭으로 새 이동이나 중복 진입을 만들지 않는다', async () => {
+    jest.useFakeTimers();
+    const transition = createBuildingTransitionController();
+    const navigate = jest.fn();
+    const go = jest.fn(() => transition.start('hall', 'enter', false, navigate, 1280));
+    const screen = await render(
+      <FinalIsland state={serverState(nextIsland())} go={go} build={jest.fn()} />,
+    );
+    await emit(fullState([actor(ME, SPAWN)]));
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    await walkToEnd(screen);
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(transition.getState().phase).toBe('entering');
+    const sends = mockChannels[0].send.mock.calls.length;
+    await tapGround(screen, GOAL);
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    expect(mockChannels[0].send).toHaveBeenCalledTimes(sends);
+    expect(go).toHaveBeenCalledTimes(1);
+    await act(async () => jest.advanceTimersByTime(1280));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    transition.cancel();
     await screen.unmount();
   });
 

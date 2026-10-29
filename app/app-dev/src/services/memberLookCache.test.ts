@@ -136,3 +136,21 @@ test('주기 조회는 털색을 갱신하고 더 최신인 착용 이벤트를 
     hidden: false,
   });
 });
+
+test('응답 지연으로 캐시가 남아 있어도 강제 주기 조회는 갱신하고 실패 대기는 지킨다', async () => {
+  let time = 0;
+  const fetch = jest.fn(async (ids: string[]) => {
+    time += 500;
+    return batch(ids);
+  });
+  const cache = new MemberLookCache(fetch, () => time);
+  await cache.ensure([id(1)]);
+  time = 30_000;
+  await cache.ensure([id(1)], true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  time = 60_000;
+  await cache.ensure([id(1)], true);
+  await cache.ensure([id(1)], true);
+  expect(fetch).toHaveBeenCalledTimes(3);
+});

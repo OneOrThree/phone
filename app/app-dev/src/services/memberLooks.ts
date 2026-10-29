@@ -73,7 +73,8 @@ export function useMemberLooks(
       if (state === 'active') void ensureMemberLooks(wanted, true);
     });
     const timer = setInterval(() => {
-      void ensureMemberLooks(wanted);
+      // 응답 지연으로 캐시 만료가 다음 틱을 넘겨도 매 주기 색상을 확인한다.
+      void ensureMemberLooks(wanted, true);
     }, 30_000);
     return () => {
       sub.remove();

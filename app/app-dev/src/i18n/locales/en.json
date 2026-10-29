@@ -1316,5 +1316,14 @@
     "previewRestart": "Start over",
     "islandLabel": "{{name}} · {{minutes}} min",
     "back": "Back"
+  },
+  "developerNotices": {
+    "title": "Developer notices",
+    "section": "News",
+    "subtitle": "Service news and updates",
+    "loading": "Loading notices…",
+    "empty": "There are no published notices.",
+    "failed": "Could not load notices. Please try again.",
+    "missing": "This notice has expired or is no longer available."
   }
 }

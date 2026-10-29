@@ -41,7 +41,7 @@ type Point = { x: number; y: number };
 // 한계에 걸리거나 메모리 부담이 될 수 있다. 코드는 그대로 두고 실기기에서 로드·메모리를 확인한다.
 
 // 개발 확인용 이동 보기(`navDebug`, FinalIsland 의 개발 버튼): 타일 경계선 · 막힌 nav 셀 · 마지막 걷기(탭→보정 목적지·점)를
-// 그려 준다. 운영 화면은 `walkPath`의 도착 지점에 작은 화살표만 그린다.
+// 그려 준다. 운영 화면은 `walkPath`에 점선 경로와 목적지 화살표·링을 그린다.
 // 버튼이 CAN_PREVIEW_VILLAGE 로만 뜨고 그리기는 prop 이 있을 때만이라 배포 빌드에서는 그려지지 않는다.
 export type NavWalk = { tap: Point; path: Point[] };
 /** 서버 확정 경로·스냅샷·예측 오차(GROMO-2249), 전부 1x 이미지 px. 이동 동기화가 꺼져 있으면 전부 null. */
