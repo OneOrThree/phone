@@ -15,7 +15,7 @@ export async function buildRelease({
 }) {
   token(releaseId);
   repo = await realpath(repo);
-  const packs = {},
+  const packs = Object.create(null),
     objects = new Map();
   for (const name of (await readdir(path.join(repo, "assets-cdn/packs")))
     .filter((n) => n.endsWith(".json"))
@@ -25,7 +25,7 @@ export async function buildRelease({
     );
     token(definition.packId);
     if (packs[definition.packId]) throw Error("중복 팩");
-    const files = {};
+    const files = Object.create(null);
     for (const [assetId, source] of Object.entries(definition.files)) {
       token(assetId);
       if (typeof source !== "string" || path.isAbsolute(source))

@@ -34,6 +34,7 @@ permissions:
   contents: read
 jobs:
   check:
+    if: github.event_name != 'workflow_dispatch' || inputs.operation != 'rollback'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +46,8 @@ jobs:
       - name: 실제 회관 팩 빌드
         run: node scripts/assets-cdn/build.mjs "sha-${GITHUB_SHA}"
   publish:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # 롤백은 현재 원본 빌드와 독립적으로 보존된 릴리스 전체를 검증한다.
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.operation == 'rollback' || needs.check.result == 'success')
     needs: check
     runs-on: ubuntu-latest
     environment: image-assets-${{ inputs.environment }}

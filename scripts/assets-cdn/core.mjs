@@ -7,16 +7,16 @@ export const limits = {
 };
 export const immutableCache = "public, max-age=31536000, immutable";
 export const channelCache = "public, max-age=60";
-export const canonical = (value) =>
-  JSON.stringify(value, (_, v) =>
-    v && typeof v === "object" && !Array.isArray(v)
-      ? Object.fromEntries(
-          Object.keys(v)
-            .sort()
-            .map((k) => [k, v[k]]),
-        )
-      : v,
-  );
+export const canonical = (value) => {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+};
 export const digest = (bytes) =>
   createHash("sha256").update(bytes).digest("hex");
 export function token(value) {

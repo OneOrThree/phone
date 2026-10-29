@@ -258,3 +258,7 @@ test("Content-Length와 Content-Encoding 오류 거부", async (t) => {
       }),
     );
 });
+
+test("숫자형 assetId도 앱과 같은 사전순 정규 JSON을 사용", () => {
+  assert.equal(canonical({ 2: "b", 10: "a" }), '{"10":"a","2":"b"}');
+});
