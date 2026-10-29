@@ -76,8 +76,9 @@ compose = source('server/scripts/docker-compose.satellites.yml')
 require('business_redis_acl' in writer and '~cache:business:*' in writer
         and 'user default off' in writer and 'BUSINESS_REDIS_PASSWORD' in writer,
         'A22 ㋺: Business 전용 캐시 ACL 또는 시크릿 공급 누락')
-require('networks: [business-cache]' in compose and 'internal: true' in compose,
-        'A22 ㋺: Redis 캐시 전용 내부 네트워크 누락')
+require('BUSINESS_REDIS_HOST: redis' in compose and 'shared_redis_acl' in writer
+        and '(%R~presence:* +get +exists)' in writer,
+        '공유 Redis 주소 또는 서비스별 읽기 전용 ACL 누락')
 
 auth_service = source('server/data-api/src/main/java/com/oneorthree/phone/auth/service/AuthService.java')
 refresh_entry = auth_service.split('public TokenRefreshResponse refreshSessionAccessToken(String refreshToken)', 1)[1]

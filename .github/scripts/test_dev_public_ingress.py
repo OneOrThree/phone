@@ -21,6 +21,8 @@ class DevPublicIngressTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="gromo-realtime-port-") as directory:
             env = Path(directory) / "env"
             env.write_text("APP_IMAGE=example/data:dev\nREALTIME_IMAGE=example/realtime:dev\n"
+                           "REDIS_DATA_PASSWORD=synthetic-data-password\n"
+                           "REDIS_REALTIME_PASSWORD=synthetic-realtime-password\n"
                            "SVC_TOKEN_REALTIME_TO_DATA=synthetic-realtime-data-token\n")
             result = subprocess.run(
                 ["docker", "compose", "--env-file", str(env), "-f", str(base),
