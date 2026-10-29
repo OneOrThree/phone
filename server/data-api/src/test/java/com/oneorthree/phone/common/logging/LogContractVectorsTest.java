@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class LogContractVectorsTest {
 
-    static final String VECTORS_SHA256 = "ffe16b0af76c0a23e95cbf0aabbee12e1e290ee5131951672f815a33e696c429";
+    static final String VECTORS_SHA256 = "86a019bf424e861f8fbeaa6e0d18892802f2752157cbf4aff1a83bfbb99e2a13";
     private static final Logger LOGGER = (Logger) LoggerFactory.getLogger("obs-contract-test");
     // 마스킹되면 "secret=****" 로 줄어드는 앞부분 — 사전 자르기 꼬리가 실제 출력 message(16 KiB) 안으로 들어오게 한다.
     private static final String SHRINKING_PAD = "secret=";
@@ -46,8 +46,8 @@ class LogContractVectorsTest {
             String given = row[1];
             String actual = switch (row[0]) {
                 case "mask" -> MaskingConverter.mask(given);
-                case "cut" -> MaskingConverter.mask(
-                        MaskingConverter.dropCutToken(given.substring(0, given.indexOf('|'))));
+                case "cut" -> MaskingConverter.dropCutToken(
+                        MaskingConverter.mask(given.substring(0, given.indexOf('|'))));
                 case "raw" -> TraceIds.raw(given);
                 case "trace" -> TraceIds.traceId(given);
                 case "span" -> TraceIds.spanId(given);
