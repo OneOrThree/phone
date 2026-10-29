@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +25,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FocusPolicyAdminService {
 
-    private static final String PUBLICATION_SELECT = "SELECT p.publication_id,r.revision,p.previous_revision,"
+    private static final String PUBLICATION_SELECT = "SELECT p.publication_id,p.approval_id,r.revision,"
+            + "COALESCE(LAG(r.revision) OVER (ORDER BY r.revision),0) AS prior_revision,"
+            + "p.previous_revision,"
             + "p.actor,p.approved_by,p.approved_digest,COALESCE(p.published_at,r.published_at) AS published_at,"
             + "r.seconds_per_fish,r.daily_cap_fish,r.personal_share_percent,"
             + "r.golden_fish_reward,r.golden_max_members,r.golden_chance_ppm"
@@ -45,11 +48,73 @@ public class FocusPolicyAdminService {
     }
 
     @Transactional
+    public Approval approve(UUID approvalId, ApproveRequest request, String actor) {
+        if (approvalId == null || request == null || request.policy() == null || !validActor(actor)
+                || request.expectedRevision() < 0) {
+            throw badRequest();
+        }
+        validate(request.policy());
+        String digest = sha256(canonical(request.policy()));
+        if (!digest.equals(request.approvedDigest())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 정책의 지문이 다릅니다.");
+        }
+        String requestDigest = sha256(request.expectedRevision() + ":" + digest + ":" + actor);
+        lock();
+        List<StoredApproval> existing = jdbc.query("SELECT approval_id,expected_revision,policy_digest,approved_by,"
+                        + "approved_at,request_digest,revoked_at FROM focus_reward_policy_approvals"
+                        + " WHERE approval_id=?",
+                (rs, index) -> new StoredApproval(new Approval(rs.getObject("approval_id", UUID.class),
+                        rs.getInt("expected_revision"), request.policy(), rs.getString("policy_digest").trim(),
+                        rs.getString("approved_by"), rs.getTimestamp("approved_at").toInstant()),
+                        rs.getString("request_digest").trim(), rs.getTimestamp("revoked_at") != null), approvalId);
+        if (!existing.isEmpty()) {
+            StoredApproval approval = existing.get(0);
+            if (approval.revoked()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "취소된 승인입니다.");
+            }
+            if (!requestDigest.equals(approval.requestDigest())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 ID가 다른 요청에 사용되었습니다.");
+            }
+            return approval.result();
+        }
+        if (currentRevision() != request.expectedRevision()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "정책 revision이 변경되었습니다.");
+        }
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        jdbc.update("INSERT INTO focus_reward_policy_approvals(approval_id,expected_revision,policy_snapshot,"
+                        + "policy_digest,request_digest,approved_by,approved_at) VALUES(?,?,?::jsonb,?,?,?,?)",
+                approvalId, request.expectedRevision(), canonical(request.policy()), digest, requestDigest,
+                actor, Timestamp.from(now));
+        return new Approval(approvalId, request.expectedRevision(), request.policy(), digest, actor, now);
+    }
+
+    /** 로컬 변경안의 승인 취소와 함께 호출한다. 삭제 대신 누가 언제 취소했는지 보존한다. */
+    @Transactional
+    public void revoke(UUID approvalId, String actor) {
+        if (approvalId == null || !validActor(actor)) {
+            throw badRequest();
+        }
+        lock();
+        List<Boolean> revoked = jdbc.query("SELECT revoked_at IS NOT NULL FROM focus_reward_policy_approvals"
+                + " WHERE approval_id=?", (rs, index) -> rs.getBoolean(1), approvalId);
+        if (revoked.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "승인 기록을 찾을 수 없습니다.");
+        }
+        Integer used = jdbc.queryForObject("SELECT count(*) FROM focus_reward_policy_publications"
+                + " WHERE approval_id=?", Integer.class, approvalId);
+        if (used != null && used > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 발행에 사용한 승인입니다.");
+        }
+        if (!revoked.get(0)) {
+            jdbc.update("UPDATE focus_reward_policy_approvals SET revoked_at=?,revoked_by=?"
+                    + " WHERE approval_id=? AND revoked_at IS NULL", Timestamp.from(Instant.now()), actor, approvalId);
+        }
+    }
+
+    @Transactional
     public Publication publish(UUID publicationId, PublishRequest request, String actor) {
         if (publicationId == null || request == null || request.policy() == null || request.expectedRevision() < 0
-                || actor == null || !actor.matches("member-[1-3]")
-                || request.approvedBy() == null || !request.approvedBy().matches("member-[1-3]")
-                || actor.equals(request.approvedBy())) {
+                || request.approvalId() == null || !validActor(actor)) {
             throw badRequest();
         }
         validate(request.policy());
@@ -57,11 +122,11 @@ public class FocusPolicyAdminService {
         if (!digest.equals(request.approvedDigest())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 정책과 발행 정책이 다릅니다.");
         }
-        String requestDigest = sha256(request.expectedRevision() + ":" + digest + ":"
-                + request.approvedBy() + ":" + actor);
+        String requestDigest = sha256(request.approvalId() + ":" + request.expectedRevision() + ":" + digest
+                + ":" + actor);
 
         // 동일 UUID 재시도와 서로 다른 UUID의 동시 revision 발행을 모두 하나로 직렬화한다.
-        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", POLICY_LOCK);
+        lock();
         List<String> existing = jdbc.query("SELECT request_digest FROM focus_reward_policy_publications"
                         + " WHERE publication_id=?", (rs, index) -> rs.getString(1).trim(), publicationId);
         if (!existing.isEmpty()) {
@@ -71,8 +136,26 @@ public class FocusPolicyAdminService {
             return publication(publicationId);
         }
 
-        Integer current = jdbc.queryForObject("SELECT max(revision) FROM focus_reward_policies", Integer.class);
-        int previous = current == null ? 0 : current;
+        List<ApprovalEvidence> approvals = jdbc.query("SELECT expected_revision,policy_digest,approved_by,"
+                        + "policy_snapshot=?::jsonb AS snapshot_matches,revoked_at IS NULL AS active"
+                        + " FROM focus_reward_policy_approvals WHERE approval_id=?",
+                (rs, index) -> new ApprovalEvidence(rs.getInt(1), rs.getString(2).trim(), rs.getString(3),
+                        rs.getBoolean(4), rs.getBoolean(5)), canonical(request.policy()), request.approvalId());
+        if (approvals.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 기록을 찾을 수 없습니다.");
+        }
+        ApprovalEvidence approval = approvals.get(0);
+        String approvedBy = approval.actor();
+        if (approval.expectedRevision() != request.expectedRevision() || !digest.equals(approval.digest())
+                || approvedBy.equals(actor) || !approval.snapshotMatches() || !approval.active()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 기록과 발행 요청이 일치하지 않습니다.");
+        }
+        Integer used = jdbc.queryForObject("SELECT count(*) FROM focus_reward_policy_publications"
+                + " WHERE approval_id=?", Integer.class, request.approvalId());
+        if (used != null && used > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 발행에 사용한 승인입니다.");
+        }
+        int previous = currentRevision();
         if (previous != request.expectedRevision() || previous == Integer.MAX_VALUE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "정책 revision이 변경되었습니다.");
         }
@@ -80,16 +163,25 @@ public class FocusPolicyAdminService {
         int next = previous + 1;
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         Policy policy = request.policy();
-        jdbc.update("INSERT INTO focus_reward_policies(revision,seconds_per_fish,daily_cap_fish,"
-                        + "personal_share_percent,golden_fish_reward,golden_max_members,golden_chance_ppm,published_at)"
-                        + " VALUES(?,?,?,?,?,?,?,?)", next, policy.secondsPerFish(), policy.dailyCapFish(),
-                policy.personalSharePercent(), policy.goldenFishReward(), policy.goldenMaxMembers(),
-                joinChance(policy.goldenChancePpm()), Timestamp.from(now));
-        jdbc.update("INSERT INTO focus_reward_policy_publications(publication_id,revision,previous_revision,"
+        try {
+            jdbc.update("INSERT INTO focus_reward_policies(revision,seconds_per_fish,daily_cap_fish,"
+                            + "personal_share_percent,golden_fish_reward,golden_max_members,"
+                            + "golden_chance_ppm,published_at)"
+                            + " VALUES(?,?,?,?,?,?,?,?)", next, policy.secondsPerFish(), policy.dailyCapFish(),
+                    policy.personalSharePercent(), policy.goldenFishReward(), policy.goldenMaxMembers(),
+                    joinChance(policy.goldenChancePpm()), Timestamp.from(now));
+        } catch (DuplicateKeyException e) {
+            // 수동 SQL처럼 이 서비스의 advisory lock을 쓰지 않은 동시 INSERT도 500 대신 충돌로 알린다.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "정책 revision이 변경되었습니다.", e);
+        }
+        jdbc.update("INSERT INTO focus_reward_policy_publications(publication_id,approval_id,revision,"
+                        + "previous_revision,"
                         + "before_policy,after_policy,request_digest,approved_digest,approved_by,actor,published_at)"
-                        + " VALUES(?,?,?,?::jsonb,?::jsonb,?,?,?,?,?)", publicationId, next, previous,
-                before, canonical(policy), requestDigest, digest, request.approvedBy(), actor, Timestamp.from(now));
-        return new Publication(publicationId, next, previous, actor, request.approvedBy(), digest, now, policy);
+                        + " VALUES(?,?,?,?,?::jsonb,?::jsonb,?,?,?,?,?)", publicationId, request.approvalId(),
+                next, previous, before, canonical(policy), requestDigest, digest, approvedBy, actor,
+                Timestamp.from(now));
+        return new Publication(publicationId, request.approvalId(), next, previous, actor, approvedBy, digest,
+                now, policy);
     }
 
     private Publication publication(UUID id) {
@@ -100,7 +192,8 @@ public class FocusPolicyAdminService {
     private static Publication mapPublication(ResultSet rs) throws SQLException {
         UUID id = rs.getObject("publication_id", UUID.class);
         int revision = rs.getInt("revision");
-        return new Publication(id, revision, id == null ? revision - 1 : rs.getInt("previous_revision"),
+        return new Publication(id, rs.getObject("approval_id", UUID.class), revision,
+                id == null ? rs.getInt("prior_revision") : rs.getInt("previous_revision"),
                 rs.getString("actor"), rs.getString("approved_by"), rs.getString("approved_digest"),
                 rs.getTimestamp("published_at").toInstant(),
                 new Policy(rs.getInt("seconds_per_fish"), rs.getInt("daily_cap_fish"),
@@ -115,9 +208,22 @@ public class FocusPolicyAdminService {
                         rs.getInt(4), rs.getInt(5), parseChance(rs.getString(6))), revision);
     }
 
+    private void lock() {
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", POLICY_LOCK);
+    }
+
+    private int currentRevision() {
+        Integer current = jdbc.queryForObject("SELECT max(revision) FROM focus_reward_policies", Integer.class);
+        return current == null ? 0 : current;
+    }
+
+    private static boolean validActor(String actor) {
+        return actor != null && actor.matches("member-[1-3]");
+    }
+
     private static void validate(Policy policy) {
         // 적립 정산은 activeSeconds/secondsPerFish 회 순회하며 지급분마다 원장을 쓰므로
-        // 1초·무제한 상한은 하루 86,400건/세션까지 늘어난다. 현행 60초·480마리의 최대 두 배까지만 연다.
+        // 1초 설정은 하루 86,400회 순회할 수 있다. 일일 지급 상한은 현행 480마리의 두 배까지만 연다.
         if (policy.secondsPerFish() < 30 || policy.secondsPerFish() > 86400
                 || policy.dailyCapFish() < 0 || policy.dailyCapFish() > 960
                 || policy.personalSharePercent() != 0
@@ -135,7 +241,12 @@ public class FocusPolicyAdminService {
     }
 
     private static List<Integer> parseChance(String value) {
-        return List.of(value.split(",")).stream().map(String::strip).map(Integer::parseInt).toList();
+        try {
+            return List.of(value.split(",")).stream().map(String::strip).map(Integer::parseInt).toList();
+        } catch (RuntimeException e) {
+            // 기존 운영 DB에 파싱 불가능한 정책이 있으면 발행·조회 모두 닫고 복구를 요구한다.
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "저장된 확률 정책이 손상되었습니다.", e);
+        }
     }
 
     private static String joinChance(List<Integer> chances) {
@@ -168,11 +279,21 @@ public class FocusPolicyAdminService {
     public record Policy(int secondsPerFish, int dailyCapFish, int personalSharePercent,
                          int goldenFishReward, int goldenMaxMembers, List<Integer> goldenChancePpm) { }
 
-    public record PublishRequest(int expectedRevision, Policy policy, String approvedDigest, String approvedBy) { }
+    public record ApproveRequest(int expectedRevision, Policy policy, String approvedDigest) { }
+
+    public record Approval(UUID approvalId, int expectedRevision, Policy policy, String approvedDigest,
+                           String approvedBy, Instant approvedAt) { }
+
+    private record StoredApproval(Approval result, String requestDigest, boolean revoked) { }
+
+    private record ApprovalEvidence(int expectedRevision, String digest, String actor, boolean snapshotMatches,
+                                    boolean active) { }
+
+    public record PublishRequest(UUID approvalId, int expectedRevision, Policy policy, String approvedDigest) { }
 
     public record Revision(int revision, Policy policy, Instant publishedAt) { }
 
-    public record Publication(UUID publicationId, int revision, int previousRevision, String actor,
+    public record Publication(UUID publicationId, UUID approvalId, int revision, int previousRevision, String actor,
                               String approvedBy, String approvedDigest, Instant publishedAt, Policy policy) { }
 
     public record View(Revision current, List<Publication> history) { }

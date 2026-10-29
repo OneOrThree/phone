@@ -6,11 +6,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
 
 import java.util.Arrays;
 import java.util.UUID;
@@ -35,6 +39,20 @@ public class InternalFocusPolicyAdminController {
             @RequestBody FocusPolicyAdminService.PublishRequest body, HttpServletRequest request) {
         requireEnvironment(request);
         return policies.publish(publicationId, body, (String) request.getAttribute("content.actor"));
+    }
+
+    @PostMapping("/approvals/{approvalId}")
+    public FocusPolicyAdminService.Approval approve(@PathVariable UUID approvalId,
+            @RequestBody FocusPolicyAdminService.ApproveRequest body, HttpServletRequest request) {
+        requireEnvironment(request);
+        return policies.approve(approvalId, body, (String) request.getAttribute("content.actor"));
+    }
+
+    @DeleteMapping("/approvals/{approvalId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revoke(@PathVariable UUID approvalId, HttpServletRequest request) {
+        requireEnvironment(request);
+        policies.revoke(approvalId, (String) request.getAttribute("content.actor"));
     }
 
     private void requireEnvironment(HttpServletRequest request) {
