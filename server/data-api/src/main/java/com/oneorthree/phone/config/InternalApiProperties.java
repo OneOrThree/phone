@@ -48,6 +48,9 @@ public class InternalApiProperties {
         /** 이 호출자에게만 발급한 서비스 토큰. */
         private String token;
 
+        /** 관리 자격에 결박된 행위자. 일반 서비스에는 지정하지 않는다. */
+        private String consoleActor;
+
         /**
          * 허용 조합 — {@code "METHOD /internal/…"} 형식. 경로는 Ant 패턴({@code *} · {@code **})이다.
          *
@@ -55,6 +58,13 @@ public class InternalApiProperties {
          * 다른 하위 경로를 삼키지 않는다. {@code **} 를 쓰면 그 아래가 통째로 열리니 꼭 필요한 곳에만 쓴다.
          */
         private List<String> allow = new ArrayList<>();
+
+        /** 토큰이 아직 설정되지 않은 관리 caller는 등록하지 않는다. */
+        private boolean optional;
+
+        boolean hasToken() {
+            return token != null && !token.isBlank();
+        }
     }
 
     /**
@@ -74,15 +84,22 @@ public class InternalApiProperties {
                     "internal.api.enabled=true 인데 caller 가 하나도 없습니다 — 켤 이유가 없는 설정입니다.");
         }
         callers.forEach((name, caller) -> {
+            if (caller.isOptional() && !caller.hasToken()) {
+                return;
+            }
             requireResolvedSecret("internal.api.callers." + name + ".token", caller.getToken());
+            if (caller.getConsoleActor() != null
+                    && !caller.getConsoleActor().matches("member-[1-3]")) {
+                throw new IllegalStateException("관리 행위자는 member-1~3 중 하나여야 합니다.");
+            }
             if (caller.getAllow() == null || caller.getAllow().isEmpty()) {
                 throw new IllegalStateException(
                         "internal.api.callers." + name + ".allow 가 비었습니다 — 허용목록 없는 자격은 만들지 않습니다.");
             }
             caller.getAllow().forEach(entry -> validateAllowEntry(name, entry));
         });
-        long distinctTokens = callers.values().stream().map(Caller::getToken).distinct().count();
-        if (distinctTokens != callers.size()) {
+        List<String> activeTokens = callers.values().stream().filter(Caller::hasToken).map(Caller::getToken).toList();
+        if (activeTokens.stream().distinct().count() != activeTokens.size()) {
             // 토큰이 겹치면 먼저 매칭된 caller 의 허용목록이 적용돼, 둘의 권한이 사실상 합쳐진다(㊀).
             throw new IllegalStateException("internal.api 의 caller 토큰이 서로 겹칩니다 — caller 별로 분리해야 합니다.");
         }

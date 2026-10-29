@@ -20,8 +20,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATIONS="$(cd "$HERE/../../src/main/resources/db/migration" && pwd)"
 DBML="$HERE/schema.dbml"
-CONTAINER="schema-dbml-audit"
-PORT=55433
+CONTAINER="${SCHEMA_AUDIT_CONTAINER:-schema-dbml-audit}"
+PORT="${SCHEMA_AUDIT_PORT:-55433}"
 KEEP=0
 [ "${1:-}" = "--keep" ] && KEEP=1
 
@@ -50,6 +50,7 @@ WORK="$(mktemp -d)"
 Q() { docker exec -i "$CONTAINER" psql -U ci -d audit -At -F '|' -c "$1"; }
 Q "SELECT c.table_name, c.column_name,
           CASE WHEN c.data_type='character varying' THEN 'varchar('||c.character_maximum_length||')'
+               WHEN c.data_type='character' THEN 'char('||c.character_maximum_length||')'
                WHEN c.data_type='timestamp with time zone' THEN 'timestamptz'
                WHEN c.data_type='timestamp without time zone' THEN 'timestamp'
                ELSE c.data_type END,
