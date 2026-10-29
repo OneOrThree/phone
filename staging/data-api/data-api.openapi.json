@@ -548,6 +548,47 @@
         }
       }
     },
+    "/internal/admin/content/construction-policy/{publicationId}": {
+      "put": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "applyConstructionPolicy",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConstructionPolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionPolicyApplied"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/telescope/pins": {
       "post": {
         "tags": [
@@ -6110,6 +6151,26 @@
         }
       }
     },
+    "/internal/admin/content/construction-policy": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "constructionPolicy",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionPolicyView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/telescope/pins/{islandId}": {
       "delete": {
         "tags": [
@@ -6829,6 +6890,70 @@
           "publishedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ConstructionPolicyRequest": {
+        "type": "object",
+        "properties": {
+          "expectedCostPolicyVersion": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "number"
+          },
+          "buildSeconds": {
+            "type": "number"
+          }
+        }
+      },
+      "ConstructionPolicyApplied": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "previousRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "costPolicyVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "before": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
           }
         }
       },
@@ -8002,32 +8127,6 @@
         "properties": {
           "content": {
             "type": "string"
-          }
-        }
-      },
-      "Item": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "authorId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "authorName": {
-            "type": "string"
-          },
-          "content": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "mine": {
-            "type": "boolean"
           }
         }
       },
@@ -10783,6 +10882,25 @@
           },
           "nextCursor": {
             "type": "string"
+          }
+        }
+      },
+      "ConstructionPolicyView": {
+        "type": "object",
+        "properties": {
+          "costPolicyVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
           }
         }
       },
