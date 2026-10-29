@@ -191,8 +191,8 @@ end
 -- upstream URL 의 userinfo(`user:pass@`)는 '@' 째로 지운다. query·path 를 자르기 «전에» URL 토큰(공백·따옴표 전까지)에서
 -- `스킴://` 뒤 «마지막 '@'» 까지를 지운다 — 비밀번호에 raw '/'·'?'·'#' 가 있어도 남지 않는다.
 -- 대가: 경로에 '@' 가 든 정상 URL(`/users/@me`)은 호스트·앞 경로까지 지워진다(과잉 가림이 누출보다 안전).
--- 예외(query 안의 '@'): 마지막 '@' 앞에 query 표식이 있고 (그 앞에 '/' 가 있거나 '@' 뒤가 host[:port] 꼴이 아니면)
--- `?email=a@b&code=S` 의 '@' 로 보고 권한부(첫 '/'·'?'·'#' 까지)에서만 찾는다 — 마지막 '@' 규칙은 query 표식을 같이 지워 `code=S` 가 남기 때문.
+-- 예외(query 안의 '@'): 마지막 '@' 앞에 query 표식이 있고 (그 앞에 '/' 가 있거나 '@' 뒤가 host[:port] 꼴(영숫자·`.`·`_`·`-`, 또는 `[IPv6]`)이 아니면)
+-- `?email=a@b&code=S` 의 '@' 로 보고 첫 query 표식 앞에서만 마지막 '@' 를 찾는다 — 마지막 '@' 규칙은 query 표식을 같이 지워 `code=S` 가 남기 때문.
 -- '@' 를 남기면 뒤따르는 mask() 의 이메일 규칙이 도메인 호스트를 가리므로 표식 없이 지운다.
 local function redact_userinfo(s)
   local scheme, rest = s:match("^(.-://)(.*)$")
@@ -203,8 +203,8 @@ local function redact_userinfo(s)
   local q = query_pos(tok)
   if q and q < a then
     local host = tok:sub(a + 1):match("^[^/]*")
-    if tok:sub(1, q):find("/", 1, true) or not host:match("^[%w%.%-]+:?%d*$") then
-      local b = rest:match("^[^/?#]*"):match("^.*()@")  -- 권한부만
+    if tok:sub(1, q):find("/", 1, true) or not (host:match("^[%w%._%-]+:?%d*$") or host:match("^%[[%x:]+%]:?%d*$")) then
+      local b = tok:sub(1, q - 1):match("^.*()@")  -- 첫 query 표식 앞의 마지막 '@' 까지(비밀번호의 '/' 포함)
       return b and scheme .. rest:sub(b + 1) or s
     end
   end

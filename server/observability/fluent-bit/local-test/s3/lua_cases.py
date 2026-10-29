@@ -45,6 +45,10 @@ rows = [
     E('2026/10/29 10:00:00 [error] 1#1: *34 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080%3Fcode=HOSTQ1/p", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *35 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p?email=a@b.com&code=QSECRET1", host: "h"'),
     # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
+    E('2026/10/29 10:00:00 [error] 1#1: *36 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS4@my_backend:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *37 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS5@[::1]:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *38 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP/PASS6@10.0.0.1:8080/x?e=a@b.com", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *39 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS7@10.0.0.1:8080/x?e=a@b.com&code=Q", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *19 client sent invalid header NOSLASHTOKEN1234567890abcdef, client: 203.0.113.9, server: x, host: "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal"'),
 ]
 d = tempfile.mkdtemp()
@@ -88,8 +92,14 @@ checks = [
      "HOSTQ1" not in json.dumps(got[32]) and 'upstream: "http://10.0.0.1:8080"' in got[32]["message"]),
     ("⑧ query 안의 '@'(이메일)는 userinfo 로 오인하지 않는다 — query 전체가 지워지고 호스트·경로 유지",
      "QSECRET1" not in json.dumps(got[33]) and 'upstream: "http://10.0.0.1:8080/p"' in got[33]["message"]),
+    ("⑧ 호스트에 '_'·IPv6 [::1] 가 있고 비밀번호에 '?' 가 있어도 userinfo 잔존 0",
+     not any(x in json.dumps(got[i]) for i in (34, 35) for x in ("svcuser", "UP", "PASS")) and 'upstream: "http://my_backend:8080/p"' in got[34]["message"] and 'upstream: "http://[::1]:8080/p"' in got[35]["message"]),
+    ("⑧ 비밀번호의 '/' + 같은 URL query 안 '@' 도 userinfo 잔존 0(첫 query 표식 앞의 마지막 '@' 까지)",
+     not any(x in json.dumps(got[36]) for x in ("svcuser", "UP", "PASS6", "a@b")) and 'upstream: "http://10.0.0.1:8080/x"' in got[36]["message"]),
+    ("⑧ 한계 고정 — 비밀번호의 '?' + query 안 '@' + 호스트 꼴이 아닌 query 는 «user:pass 앞부분»이 남는다(PASS7 은 지워짐)",
+     'upstream: "http://svcuser:UP"' in got[37]["message"] and "PASS7" not in json.dumps(got[37])),
     ("⑨ '/' 없는 토큰은 한계 유지(비밀 꼴 토큰이 남는다) — 호스트 이름은 가려지지 않는다",
-     "NOSLASHTOKEN1234567890abcdef" in got[34]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[34]["message"]),
+     "NOSLASHTOKEN1234567890abcdef" in got[38]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[38]["message"]),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]
