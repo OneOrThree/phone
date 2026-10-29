@@ -257,7 +257,7 @@ export function Btn({
 // 나머지 Pressable 속성(testID·ref·접근성 숨김)은 그대로 넘긴다.
 const NAV_ICON = { back: 'M15 5L8 12L15 19', close: 'M6 6L18 18M18 6L6 18' };
 export const NavBtn = React.forwardRef<View, any>(function NavBtn(
-  { label, close = false, disabled = false, boardPaper = false, scrim = false, style, ...rest },
+  { label, close = false, disabled = false, boardPaper = false, style, ...rest },
   ref,
 ) {
   const n = componentTokens.navButton;
@@ -289,15 +289,11 @@ export const NavBtn = React.forwardRef<View, any>(function NavBtn(
           width: n.size,
           height: n.size,
           borderRadius: semanticTokens.radius.full,
-          borderWidth: scrim || boardPaper ? 0 : n.borderWidth,
+          borderWidth: boardPaper ? 0 : n.borderWidth,
           borderColor: semanticTokens.color.outline,
-          backgroundColor: scrim
-            ? n.scrimBackground
-            : boardPaper
-              ? 'transparent'
-              : semanticTokens.color.surface,
+          backgroundColor: boardPaper ? 'transparent' : semanticTokens.color.surface,
           boxShadow:
-            disabled || boardPaper || scrim
+            disabled || boardPaper
               ? 'none'
               : `0px ${n.shadowOffset}px 0px ${semanticTokens.color.outline}`,
           alignItems: 'center',
@@ -307,7 +303,7 @@ export const NavBtn = React.forwardRef<View, any>(function NavBtn(
         <Svg width={n.iconSize} height={n.iconSize} viewBox="0 0 24 24">
           <Path
             d={NAV_ICON[close ? 'close' : 'back']}
-            stroke={scrim ? n.scrimIcon : semanticTokens.color.text}
+            stroke={semanticTokens.color.text}
             strokeWidth={boardPaper && close ? n.boardCloseStroke : n.iconStroke}
             strokeLinecap="round"
             strokeLinejoin="round"

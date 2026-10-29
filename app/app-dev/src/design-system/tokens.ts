@@ -452,9 +452,6 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     shadowOffset: 2,
     pressedOpacity: 0.7,
-    // 게시판처럼 바탕(종이)이 복잡해 뒤로 원이 잘 안 보이는 곳에서 쓰는 반투명 원(scrim) 변형
-    scrimBackground: semanticTokens.color.overlayCinematic,
-    scrimIcon: color.white,
   },
   card: {
     background: semanticTokens.color.surface,
