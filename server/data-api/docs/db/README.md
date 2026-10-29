@@ -64,8 +64,8 @@ SQL은 하나의 `DO` 문에서 전용 advisory transaction lock과 기본 테�
 | `legacy` | 번들의 원본 migration 이력과 정확히 일치하는 prefix인지 확인하고 전체 custom-format 백업을 만든다. V138 미만이면 불변 원본 체인으로 V138까지 적용하고, V138 구조 지문을 검증한 뒤 V0로 전환한다. |
 | `current` | V0부터 시작하는 현재 migration 이력이 번들의 정확한 prefix인지 확인한다. 미적용 migration이 있으면 전체 백업 후 적용하고, 없으면 기본 데이터 콜백을 다시 실행한다. |
 
-현재 번들은 V0와 후속 V1(집중섬 자리 좌표), V2(건물 종류 DB 정본), V3(가상 무인도 목적지), V4(운영 콘텐츠 게시·공지·잡지 검토 테이블), V5(Outbox 원인 문맥 열)이다. 자동 실행기는 그 체인의
-미적용 migration을 처리한다(V0만 적용된 DB는 전체 백업 후 V1·V2·V3·V4·V5를 적용한다). V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
+현재 번들은 V0와 후속 V1(집중섬 자리 좌표), V2(건물 종류 DB 정본), V3(가상 무인도 목적지), V4(운영 콘텐츠 게시·공지·잡지 검토 테이블), V5(건설 정책 게시 영수증 종류), V6(집중 보상 정책 승인·발행 원장), V7(Outbox 원인 문맥 열)이다. 자동 실행기는 그 체인의
+미적용 migration을 처리한다(V0만 적용된 DB는 전체 백업 후 V1·V2·V3·V4·V5·V6·V7을 적용한다). V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
 후속 V1 이상은 불변 이력·체크섬과 Flyway 검증을 사용한다. 이미지보다 새로운 DB,
 실패 이력, 체크섬 불일치, 이력 없는 사용자 객체, 지원하지 않는 스키마는 자동 수정하지 않는다.
 기존 V125의 핀 만료, V130의 집계 백필, V135·V136의 보상 갱신을 생략하고 V0 이력만 기록하지 않는다.
@@ -232,3 +232,26 @@ V138→V0 CLI 전환·전체 백업 복원과 위 테스트를 검증한다. 이
 V0와 호환되지 않는다. 경로만 V0로 바꾸어 실행하지 않는다. 현행 스키마에 맞는
 seed 정비 전에는 이 부하 테스트 초기화 절차를 사용할 수 없다. loadtest 앱의
 Flyway 위치도 V0이므로 기존 원본 migration 체인의 golden DB를 그대로 연결하면 기동하지 않는다.
+
+## 백오피스 선별 release의 V137.1 호환 전환
+
+운영 release의 `V137_1__backoffice_publications.sql`은 main의 V4·V5·V6 효과를 미리 적용한 승인된 확장이다. main 이미지에도 이 파일을 원문 SHA256 `acaea4884a14d0c25ed5039116b4034615c3c7e7327d0622bd267629bfe0e92a` 그대로 보관한다. 기존 V0·V1..6 SQL과 원본 `manifest.json`은 변경하지 않는다.
+
+`v0-rebase/backoffice-profile.json`은 확장 migration checksum/SHA, canonical V1..6 checksum/SHA, 원본·복원본의 정확한 source/중간/final schema 지문을 고정한다. 자동 실행은 원본 history prefix 또는 이 확장의 history prefix만 인식한다. 알려지지 않은 추가 이력·확장 checksum·구조는 중단한다.
+
+- V138 미만 원본: 기존 legacy Flyway가 V137.1과 V138까지 순서대로 적용하고 확장 profile로 전환한다.
+- V137.1 선별 운영 DB: 기존 legacy Flyway가 V138만 추가하고 확장 profile로 전환한다.
+- 확장 없는 V138: 기존 원본 profile로 V0 전환 후 V1..6을 정상 실행한다. 누락된 V137.1을 out-of-order로 끼워 넣지 않는다.
+- 확장 있는 V138: 원본 retirement와 보존 행 수 검증 후 같은 transaction에서 V1..3을 실제 실행한다. 이미 검증된 V4..6 효과를 중복 생성하지 않고 canonical 이력을 기록한 다음 전체 V0..6 지문을 확인하여 commit한다. 실패하면 DDL·이력·보존 데이터 모두 rollback한다. V7 이후 후속 migration은 commit 뒤 `deploy-v0.py`의 current 단계가 일반 Flyway로 적용한다.
+
+검토 snapshot, 공지, 발행 영수증, 정책 승인·발행과 기존 revision은 보존 대상이다. exact source schema를 먼저 확인하며 확장 테이블을 fingerprint에서 제외하지 않는다. 기존 V1 `BASELINE` 이력 허용 조건도 유지한다.
+
+PostgreSQL dump/restore는 동등한 CHECK의 varchar-array/text cast 표현을 정규화한다. 따라서 기존 도구와 마찬가지로 원본 직접 전환·dump 복원본 전환·fresh canonical의 **검증된 세 final 지문만** 허용한다. 통합 테스트는 세 결과를 dump/restore로 동일하게 정규화했을 때 전체 카탈로그 지문이 fresh V0..6과 정확히 같음을 확인한다. 운영 DB의 업무 제약을 임의로 재작성하지 않는다.
+
+`python3 docs/db/test-backoffice-bridge-integration.py`는 기존 DB나 원격 접속 인자를 받지 않고 전용 PostgreSQL 컨테이너 하나를 생성·정리한다. 실제 populated receipt/revision 보존, 원본 및 BASELINE 복원 이력, unknown schema/checksum 거부, 마지막 검증 실패의 전체 transaction rollback, plain V138 경로를 확인한다. `--generate-profile`은 격리 fixture에서 지문을 재생성하는 개발 전용 옵션이며 운영 DB의 지문을 자동 승인하는 기능이 아니다. `DeploymentMigrationMainTest`는 전환 결과에 실제 Flyway validate와 반복 migrate를 실행한다.
+
+Dockerfile의 기존 `COPY docs/db/v0-rebase`와 `COPY src/main/resources/db/migration`가 새 profile 및 원문 확장을 같은 이미지에 포함한다. 별도 호스트 자료나 운영 DB 직접 수정은 필요 없다.
+
+전환 감사증거에는 manifest의 예상 이력을 복사하는 대신 DB에서 읽은 실제 `source_history`의 version/type/script/checksum/success를 보존한다. 최초 V1이 `BASELINE`이면 그 원문과 null checksum도 유지한다. 선택한 source profile·schema 지문, V137.1 확장의 version/script/checksum/SHA256도 기록한다. 비밀번호·연결 문자열·업무 payload는 포함하지 않는다.
+
+수동 rebase의 읽기 전용 계획 출력과 `<backup>.plan.json`이 같은 증거를 담는다. 자동 `deploy-v0.py`는 legacy catch-up을 마친 뒤 이력을 V0..6으로 교체하기 **전에** `<backup>.rebase-plan.json`을 만들고 journal의 `rebase_plan_path`에 위치를 남긴다. 두 sidecar는 0600으로 독점 생성하고 파일·디렉터리를 fsync하며 기존 파일을 덮어쓰지 않는다. 증거 저장에 실패하면 이력 교체를 시작하지 않는다.

@@ -2,6 +2,7 @@
 """배포 DB 실행기의 입력·이력·중단 복구 계약. 통합 검증은 test-deploy-v0-integration.py 참조."""
 import importlib.util
 import json
+from types import SimpleNamespace
 from pathlib import Path
 import tempfile
 import unittest
@@ -13,6 +14,46 @@ spec.loader.exec_module(deploy)
 
 
 class DeploymentGuardTest(unittest.TestCase):
+    def test_자동전환도_이력교체전에_백업옆_감사영수증을_보존한다(self):
+        manifest=deploy.rebase.extension_profile(deploy.rebase.load_manifest())
+        for conflict in (False, True):
+            with self.subTest(conflict=conflict), tempfile.TemporaryDirectory() as directory:
+                args=SimpleNamespace(network='isolated',data_image='sha256:'+'a'*64,environment='dev',
+                                     phase='apply',writers_stopped=True,backup_dir=Path(directory))
+                journal=Mock()
+                journal.data={'attempt_id':'attempt','backup_paths':[]}
+                journal.save.side_effect=lambda **updates:journal.data.update(updates)
+                database=Mock()
+                database.backup.side_effect=lambda path:path.write_bytes(b'fixture-backup')
+                database.data.return_value=manifest['source_history']
+                database.fingerprint.return_value=manifest['source_schemas'][0]
+                sidecar=Path(directory)/'attempt-before-change.dump.rebase-plan.json'
+                if conflict: sidecar.write_text('existing evidence')
+                def sql(statement):
+                    self.assertTrue(sidecar.exists())
+                    payload=json.loads(sidecar.read_text())
+                    self.assertEqual(payload['source_history'],manifest['source_history'])
+                    self.assertEqual(payload['extension']['sha256'],deploy.rebase.EXTENSION_SHA256)
+                    self.assertEqual(payload['extension']['checksum'],manifest['extension_history']['checksum'])
+                    self.assertEqual(sidecar.stat().st_mode & 0o777,0o600)
+                    self.assertNotIn('never-store-password',sidecar.read_text())
+                database.sql.side_effect=sql
+                legacy={'state':'legacy','database':'fixture','source_version':'138','needs_backup':True,
+                        'other_connections':0,'profile':'backoffice-137.1'}
+                current={'state':'current','database':'fixture','source_version':'6','needs_backup':False}
+                with patch.object(deploy,'Containers'),patch.object(deploy,'host'), \
+                     patch.object(deploy,'Database',return_value=database), \
+                     patch.object(deploy,'inspect_database',side_effect=[legacy,legacy,current]):
+                    if conflict:
+                        with self.assertRaises(FileExistsError):
+                            deploy.execute(args,journal,{'API_DB_PASSWORD':'never-store-password'}, {})
+                        database.sql.assert_not_called()
+                        self.assertEqual(sidecar.read_text(),'existing evidence')
+                    else:
+                        self.assertEqual(deploy.execute(args,journal,{'API_DB_PASSWORD':'never-store-password'}, {})['state'],'current')
+                        database.sql.assert_called_once()
+                        self.assertEqual(journal.data['rebase_plan_path'],str(sidecar.resolve()))
+
     def test_Compose_literal_자격증명은_쉘_확장_없이_파싱한다(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'data.env'
@@ -42,7 +83,7 @@ class DeploymentGuardTest(unittest.TestCase):
         manifest = deploy.rebase.load_manifest()
         current = deploy.bundled_history(manifest)
         # 현재 V0 체인 전체 — 후속 migration 이 추가되면 이 목록도 늘어난다.
-        self.assertEqual(['0', '1', '2', '3', '4', '5'], [item['version'] for item in current])
+        self.assertEqual(['0', '1', '2', '3', '4', '5', '6', '7'], [item['version'] for item in current])
         self.assertEqual(manifest['v0_checksum'], current[0]['checksum'])
 
     def test_원본_이력은_고정하고_후속_migration만_허용한다(self):

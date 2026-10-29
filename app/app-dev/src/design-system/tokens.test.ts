@@ -70,7 +70,7 @@ describe('design system tokens', () => {
     expect(componentTokens.nameplate).toEqual({
       ink: '#493B39',
       outline: '#8B6956',
-      me: '#B83D63',
+      me: '#246A8A',
       shadow: '#FFFDFA',
     });
   });

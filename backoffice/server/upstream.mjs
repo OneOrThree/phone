@@ -1,5 +1,7 @@
+import { policyRequest } from "./construction.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import { Failure } from "./store.mjs";
+import contract from "./contract.json" with { type: "json" };
 export class Upstream {
   constructor({ mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl = fetch }) {
     Object.assign(this, { mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl });
@@ -12,6 +14,13 @@ export class Upstream {
         this.request(this.notificationUrl, "/internal/admin/publications/environment", actor,
           operator.notificationToken, undefined, "GET"),
       ]);
+      for (const [service, identity] of Object.entries({ data, notification })) {
+        if (identity.contractVersion !== contract.contractVersion
+            || !Array.isArray(identity.capabilities)
+            || !contract[service].every(capability => identity.capabilities.includes(capability))) {
+          throw new Failure(503, `${service} API가 백오피스 필수 계약을 지원하지 않습니다.`);
+        }
+      }
       if (data.environment !== expected || notification.environment !== expected
           || notification.fcmProjectId !== this.expectedFcmProjectId) {
         throw new Failure(503, "Data·Notification DB 또는 FCM 프로젝트가 백오피스 환경과 일치하지 않습니다.");
@@ -68,6 +77,7 @@ export class Upstream {
         response.status !== 429;
       throw error;
     }
+    if (response.status === 204) return { ok: true };
     try {
       return await response.json();
     } catch {
@@ -123,7 +133,88 @@ export class Upstream {
       "GET",
     );
   }
+  async constructionPolicy(actor, operator) {
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl, "/internal/admin/content/construction-policy",
+      actor, operator.dataToken, undefined, "GET");
+  }
+  async history(kind, cursor, actor, operator) {
+    if (this.mode === "local") return { items: [], total: 0, nextCursor: null };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    if (kind === "fcm") {
+      const page = await this.request(
+        this.notificationUrl,
+        `/internal/admin/publications/history?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        actor,
+        operator.notificationToken,
+        undefined,
+        "GET",
+      );
+      return { ...page, items: page.items.map(item => ({ ...item, notificationKind: item.kind, kind: "fcm" })) };
+    }
+    const resource = kind === "notice" ? "notices" : "magazines";
+    const page = await this.request(
+      this.dataUrl,
+      `/internal/admin/content/history/${resource}?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      actor,
+      operator.dataToken,
+      undefined,
+      "GET",
+    );
+    return page;
+  }
+  async focusPolicy(actor, operator) {
+    if (this.mode === "local") return {
+      current: { revision: 1, publishedAt: null, policy: {
+        secondsPerFish: 60, dailyCapFish: 480, personalSharePercent: 0,
+        goldenFishReward: 50, goldenMaxMembers: 5,
+        goldenChancePpm: [4000, 12000, 24000, 40000],
+      } }, history: [], local: true,
+    };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl, "/internal/admin/policies/focus", actor,
+      operator.dataToken, undefined, "GET");
+  }
+  async approveFocusPolicy(request, actor, operator) {
+    if (this.mode === "local") return { ...request, approvedBy: actor,
+      approvedAt: new Date().toISOString(), local: true };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/policies/focus/approvals/${request.approvalId}`,
+      actor, operator.dataToken, {
+        expectedRevision: request.expectedRevision, policy: request.policy,
+        approvedDigest: request.approvedDigest,
+      }, "POST", request.approvalId);
+  }
+  async revokeFocusPolicy(approvalId, actor, operator) {
+    if (this.mode === "local") return { ok: true, local: true };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/policies/focus/approvals/${approvalId}`,
+      actor, operator.dataToken, undefined, "DELETE");
+  }
+  async publishFocusPolicy(item, actor, operator) {
+    if (this.mode === "local") return {
+      publicationId: item.publicationId, revision: item.expectedRevision + 1,
+      policy: item.approvedPolicy, local: true,
+    };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/policies/focus/publications/${item.publicationId}`,
+      actor, operator.dataToken, {
+        approvalId: item.approvalId,
+        expectedRevision: item.expectedRevision,
+        policy: item.approvedPolicy,
+        approvedDigest: item.approvedDigest,
+      }, "PUT", `${item.id}:${item.revision}`);
+  }
   async publish(item, actor, operator) {
+    if (item.kind === "construction") {
+      if (this.mode === "local") throw new Failure(503, "로컬 정책 저장소가 필요합니다.");
+      await this.verifyEnvironment(this.environment, actor, operator);
+      return this.request(this.dataUrl, `/internal/admin/content/construction-policy/${item.publicationId}`,
+        actor, operator.dataToken, policyRequest(item), "PUT");
+    }
     if (this.mode === "local")
       return {
         publicationId: item.publicationId,

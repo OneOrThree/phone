@@ -8,7 +8,7 @@
 ## 1. 순서 원칙
 
 1. **dev 에서 먼저, prod 는 dev 확인 뒤.** dev 는 Data·Realtime 공동 배포(`data-api-ci.dev.yml` → `data-api-cd.dev.yml`), 위성 배포(`satellite-cd.dev.yml`), 관측 스택(`ops-monitor.dev.yml`)으로 나뉜다. prod 는 `prod-ci.yml`(release 이미지 발행)과 승인 후 수동 `prod-cd.yml`(SSM 배포·버전 지정 롤백)이며, prod 실행 구성은 Infra 저장소(`OneOrThree/Infra`)가 소유한다. 이 저장소 변경만으로는 prod 에 적용되지 않는다.
-2. **스키마는 먼저, 모두 additive.** Data Flyway `V5`(`event_outbox` 의 `origin_request_id`·`origin_trace_id`·`trace_context_version`)와 Notification `V15`(`deliveries` 의 `origin_*`)는 nullable 열 추가뿐이다. 앱 이미지와 함께 적용되며 prod 의 DB 적용 절차는 `server/data-api/docs/db/README.md` 를 따른다(이 문서는 그 절차를 바꾸지 않는다). 2026-10-29 12:1xZ 읽기 조회로 dev data-api DB 는 V3 까지(main 의 V4 도 미적용, 18:43 KST 공동 배포 실패), notification 은 V14 까지라 에픽 마이그레이션은 어디에도 적용된 적이 없다.
+2. **스키마는 먼저, 모두 additive.** Data Flyway `V7`(`event_outbox` 의 `origin_request_id`·`origin_trace_id`·`trace_context_version`)와 Notification `V16`(`deliveries` 의 `origin_*`)는 nullable 열 추가뿐이다. 앱 이미지와 함께 적용되며 prod 의 DB 적용 절차는 `server/data-api/docs/db/README.md` 를 따른다(이 문서는 그 절차를 바꾸지 않는다). 2026-10-29 12:1xZ 읽기 조회로 dev data-api DB 는 V3 까지(main 의 V4 도 미적용, 18:43 KST 공동 배포 실패), notification 은 V14 까지라 에픽 마이그레이션은 어디에도 적용된 적이 없다.
 3. **혼합 배포에 순서 제약이 없는 것**: Outbox carrier 헤더(Kafka·내부 HTTP)와 Realtime Redis wire. 구버전은 모르는 헤더·`telemetry` 키를 무시하고 새 버전은 없는 값을 «문맥 없음»으로 읽는다(`KafkaInboundTest`, Realtime `InboundEventServiceTest` 가 양방향 확인). 실제 롤링 배포에서의 확인은 미실행.
 4. **수집기는 앱 JSON 이 나온 뒤에.** Fluent Bit 은 JSON 이 아닌 줄도 `log_kind=raw`·`parse_error=true` 로 보관하므로 순서를 어겨도 줄을 잃지는 않지만, 구조화 필드는 앱 JSON 이 먼저 있어야 조회된다.
 5. **한 번에 하나**: 앱 JSON → 수집기 → S3 출력 → Nginx 입력 순으로 하나씩 켜고, 각 단계의 판정 지표(§4)를 보고 다음으로 간다. 판정 기준값은 dev 관찰 뒤에 정한다 — **현재 정해진 수치 기준은 없다**.
@@ -22,7 +22,7 @@
 | D2 | dev CD 로 네 서비스 배포. dev 프로필 콘솔이 JSON 한 줄(`schema_version` 1)로 바뀐다. 텍스트 `app.log`·`logging.file.name` 파일은 그대로(컷오버 전) | `docker logs` 한 줄이 JSON, `service`·`env`·`version`·`instance_id` 가 컨테이너 env 와 일치(V20), 헬스 통과 | 미실행 |
 | D3 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true` 가 네 서비스 compose 에 있다. agent 1.64.0 기본이 켜져 있어 출력 변화를 기대하지 않는다 | 컨테이너 env 에 값 존재, 요청 하나의 `dd.trace_id` 가 32자리 hex 이고 canonical `trace_id` 와 같음. 10진이 보이면 상위 64비트가 0인 경우 외에는 원인을 조사 | 미실행 |
 | D4 | `ops-monitor.dev.yml` `action=up`: Loki·Grafana·Fluent Bit(4.2.8) 기동. 워크플로가 5초 간격 12회(60초) 동안 Fluent Bit 이 매번 `Running=true`·`RestartCount=0` 인지 보고 한 번이라도 아니면 **Promtail 을 남기고 실패**한다. 정상이면 `gromo-promtail` 을 제거한다. 기동 직후 Promtail 과 Fluent Bit 이 겹쳐 도는 짧은 구간에는 같은 줄이 두 수집기로 들어올 수 있다 | `gromo-fluent-bit` 실행, Promtail 없음, §4 의 canary 도착, 허용 밖 label 0 | 미실행 |
-| D5 | Data 마이그레이션(V5)·Notification(V15) 적용 확인 후 Outbox 경로 동작. 이벤트 하나가 `outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle` 로 이어지고 `event_id`·origin 이 유지되는지 | [조회 안내 §1](query-guide.md) 의 ②~④ 패널 | 미실행 |
+| D5 | Data 마이그레이션(V7)·Notification(V16) 적용 확인 후 Outbox 경로 동작. 이벤트 하나가 `outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle` 로 이어지고 `event_id`·origin 이 유지되는지 | [조회 안내 §1](query-guide.md) 의 ②~④ 패널 | 미실행 |
 | D6 | Realtime 두 인스턴스: A → Redis → B 의 `fanout.publish` / `fanout.receive`, 구·신 인스턴스 혼합 | `message_id`·`event_id` 조회, 자기 echo 중복 없음 | 미실행(인스턴스 2개가 dev 에 있는지 미확인) |
 | D7 | 관찰: 일정 기간(길이는 미정) canary·`dropped_records`·`parse_error` 를 보고 §4 기준을 정해 기록 | 아래 §4 | 미실행 |
 | D8 | (선택, **dev 에서는 켜지 않는다**) S3 출력 `OBS_LOG_S3=on`, Nginx 호스트 `OBS_LOG_NGINX_HOST=on`: dev 에는 S3 자격이 없다(2554 실측)고 [런북 §1](ingestion-runbook.md)이 정한다. `ops-monitor.dev.yml` 이 `OBS_LOG_*` 를 넘기는 경로도 아직 없다(후속) | — | 차단(자격 결정 대기 — [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)) |
@@ -65,7 +65,7 @@ dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는
 | 앱 JSON 출력 | 이전 이미지로 되돌린다(dev: 이전 SHA 재배포, prod: `prod-cd.yml` 의 버전 지정 롤백). JSON 은 프로필(`logback-spring.xml`·`application-{dev,prod}.yml`)에 고정돼 있어 런타임 스위치가 없다 | 되돌린 뒤 stdout 은 텍스트라 Fluent Bit 이 `raw` 로 보관하고 구조화 필드(`request_id` 등)는 조회되지 않는다. JSON 기간의 줄은 남는다 |
 | `OBS_*` | 이전 커밋을 재배포한다. 값을 지우면 배포 전 검사가 dev 배포를 멈춘다 | prod 는 Infra 가 값을 되돌린다 |
 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | compose 에서 제거 | agent 1.64.0 기본이 켜져 있어 출력이 달라지지 않는다(2557 조사) |
-| Flyway V5(data)·V15(notification) | **되돌리지 않는다.** nullable 열이 남는다 | Data V5 는 이전 번들로 migrate·validate 가 통과하는 것을 테스트한다(`OutboxOriginV5MigrationTest`) |
+| Flyway V7(data)·V16(notification) | **되돌리지 않는다.** nullable 열이 남는다 | Data V7 은 이전 번들로 migrate·validate 가 통과하는 것을 테스트한다(`OutboxOriginV7MigrationTest`) |
 | Outbox carrier (Kafka·HTTP 헤더) | 이전 이미지. 구버전은 모르는 헤더를 무시한다. 이미 저장된 `origin_*` 는 남는다 | 도메인 이벤트 봉투·`envelope_hash`·멱등 키는 바뀌지 않았다 |
 | Realtime Redis wire (`telemetry`) | 이전 이미지. 혼합 배포 양방향 무순서 | 롤백 중에도 클라이언트 DTO·7필드 봉투는 불변 |
 | Fluent Bit → Promtail (dev) | `ops-monitor.dev.yml` 을 Promtail 이 포함된 이전 커밋으로 `action=up`. **미검증** — Promtail 복귀 시 읽기 위치와 중복 범위는 기록해 둔다 | Fluent Bit 의 `fluent_bit_state` 볼륨·tail DB 는 지우지 않는다 |

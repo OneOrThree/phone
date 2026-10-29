@@ -73,6 +73,18 @@ code { overflow-wrap: anywhere; }
 .list-toolbar { display: grid; gap: var(--space-sm); padding: var(--space-lg) var(--space-lg) 0; }
 .list-toolbar input, .list-toolbar select { font-size: var(--text-sm); background: var(--color-paper); color: var(--color-ink); }
 .list-caption { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 4px 16px; color: var(--color-muted); font-size: var(--text-xs); }
+.view-switch { display: inline-flex; gap: 4px; margin: var(--space-lg) 0; padding: 4px; border: var(--rule-width) solid var(--color-rule); background: var(--color-surface); }
+.view-switch button { border: 0; background: transparent; color: var(--color-muted); padding: 9px 16px; cursor: pointer; font: inherit; }
+.view-switch button.active { background: var(--color-ink); color: var(--color-paper); }
+.history-panel { padding: var(--space-xl); border: var(--rule-width) solid var(--color-rule); background: var(--color-paper); }
+.history-panel .section-heading { align-items: flex-start; }
+.history-list { list-style: none; margin: var(--space-lg) 0; padding: 0; border-top: var(--rule-width) solid var(--color-rule); }
+.history-list li { border-bottom: var(--rule-width) solid var(--color-rule); }
+.history-list summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-lg); align-items: center; padding: var(--space-md); cursor: pointer; }
+.history-list summary strong { overflow-wrap: anywhere; }
+.history-list summary span, .history-list summary time { color: var(--color-muted); font-size: var(--text-xs); }
+.history-details { padding: var(--space-lg); border-top: var(--rule-width) solid var(--color-rule); background: var(--color-surface); }
+@media (max-width: 650px) { .history-list summary { grid-template-columns: minmax(0, 1fr) auto; } .history-list summary time { grid-column: 1 / -1; } .history-panel { padding: var(--space-lg); } }
 .item-list { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - 370px); overflow-y: auto; }
 .item-row { width: 100%; text-align: left; padding: 18px 20px; background: var(--color-transparent); color: var(--color-ink); border-top: var(--rule-width) solid var(--color-rule-soft); border-left: 3px solid var(--color-transparent); }
 .item-row:not(:disabled):hover { background: var(--color-paper); color: var(--color-ink); }
@@ -202,3 +214,32 @@ code { overflow-wrap: anywhere; }
   .sidebar-bottom > p { display: none; }
   .sidebar-bottom .logout { margin-left: 0; }
 }
+.policy-workspace { display: grid; gap: var(--space-lg); }
+.policy-card { min-width: 0; padding: var(--space-xl); border: var(--rule-width) solid var(--color-rule); border-radius: var(--radius-sm); background: var(--color-surface); }
+.policy-card h2 { font-size: var(--text-lg); margin-bottom: var(--space-md); }
+.policy-card h3 { font-size: var(--text-sm); margin: var(--space-xl) 0 var(--space-sm); }
+.policy-card > p { color: var(--color-muted); font-size: var(--text-sm); margin-bottom: var(--space-md); }
+.policy-grid { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(0, 1.25fr); gap: var(--space-lg); align-items: start; }
+.policy-grid .item-list { max-height: 540px; }
+.policy-grid .item-row { display: grid; gap: var(--space-xs); }
+.policy-grid .item-row span, .policy-grid .item-row time { color: var(--color-muted); font-size: var(--text-xs); }
+.policy-grid .action-buttons { margin-top: var(--space-lg); }
+.policy-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-lg) 0; }
+.policy-values div { min-width: 0; padding: var(--space-md); background: var(--color-paper); border-radius: var(--radius-sm); }
+.policy-values dt { color: var(--color-muted); font-size: var(--text-xs); margin-bottom: var(--space-xs); }
+.policy-values dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.policy-card .history-list { margin: var(--space-md) 0; padding-left: var(--space-xl); font-size: var(--text-sm); }
+.policy-card .history-list li { margin: var(--space-sm) 0; }
+.policy-card .history-list summary { cursor: pointer; overflow-wrap: anywhere; }
+.policy-card .audit-list li { display: block; font-size: var(--text-xs); color: var(--color-muted); padding: var(--space-xs) 0; }
+@media (max-width: 800px) { .policy-grid { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .policy-card { padding: var(--space-lg); } .policy-values { grid-template-columns: 1fr; } }
+
+/* 건설 정책은 숫자 입력과 변경 전후 값을 같은 행에서 비교한다. */
+.policy-table-wrap { overflow-x: auto; }
+.policy-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.policy-table th, .policy-table td { padding: 12px 8px; border-bottom: 1px solid var(--border, #ddd); vertical-align: top; }
+.policy-table input { min-width: 85px; width: 100%; }
+.policy-table small { display: block; margin-top: 5px; color: var(--text-muted, #666); font-weight: normal; }
+.policy-changed { background: #f0f6ef; }
+.construction-editor { margin: 16px 0; }

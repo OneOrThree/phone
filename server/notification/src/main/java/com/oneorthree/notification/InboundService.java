@@ -141,7 +141,7 @@ class InboundService {
         }
         String group = Json.nullableText(event.params(), "groupId");
         String slot = Json.nullableText(event.params(), "slotAt");
-        // 원인 문맥(V15)은 발송 작업 행에 한 번 적는다. 충돌이면 DO NOTHING 이라 기존 행의 origin 을 덮지 않는다.
+        // 원인 문맥(V16)은 발송 작업 행에 한 번 적는다. 충돌이면 DO NOTHING 이라 기존 행의 origin 을 덮지 않는다.
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,group_id,slot_at,payload,locale,"
                 + "status,next_attempt_at,origin_request_id,origin_trace_id)"
                 + " VALUES(?,?,?,?,?,?,?,?::jsonb,?,?,COALESCE(?,now()),?,?) ON CONFLICT DO NOTHING",

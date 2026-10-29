@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.content.exception.ContentException;
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
+import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
@@ -74,6 +75,7 @@ class ContentPublicationIntegrationTest {
     }
 
     @Autowired DeveloperNoticeService notices;
+    @Autowired ContentHistoryService history;
     @Autowired MagazineReviewService reviews;
     @Autowired MagazinePublishScheduler scheduler;
     @Autowired JdbcTemplate jdbc;
@@ -110,6 +112,50 @@ class ContentPublicationIntegrationTest {
                 .isInstanceOf(ContentException.class).hasMessageContaining("다른 내용");
         assertThat(jdbc.queryForObject("SELECT actor FROM content_publications WHERE publication_id=?",
                 String.class, id)).isEqualTo("member-1");
+    }
+
+    @Test
+    void noticeHistoryIncludesScheduledLiveExpiredAndAllPages() {
+        notices.publish(UUID.randomUUID(), draft(NOW.minusSeconds(60), NOW.plusSeconds(60)), "member-1");
+        notices.publish(UUID.randomUUID(), draft(NOW.plusSeconds(60), null), "member-2");
+        notices.publish(UUID.randomUUID(), draft(NOW.minusSeconds(120), NOW), "member-3");
+
+        var first = history.notices(null, 2);
+        when(clock.instant()).thenReturn(NOW.plusSeconds(1));
+        UUID inserted = UUID.randomUUID();
+        notices.publish(inserted, draft(NOW.minusSeconds(60), NOW.plusSeconds(60)), "member-1");
+        var second = history.notices(first.nextCursor(), 2);
+        assertThat(first.total()).isEqualTo(3);
+        assertThat(first.nextCursor()).isNotNull();
+        assertThat(second.nextCursor()).isNull();
+        assertThat(java.util.stream.Stream.concat(first.items().stream(), second.items().stream())
+                .map(item -> item.get("id"))).doesNotHaveDuplicates().doesNotContain(inserted.toString());
+        assertThat(java.util.stream.Stream.concat(first.items().stream(), second.items().stream())
+                .map(item -> item.get("status"))).containsExactlyInAnyOrder("LIVE", "SCHEDULED", "EXPIRED");
+        assertThat(first.items()).allSatisfy(item -> assertThat(item.get("actor")).isNotNull());
+    }
+
+    @Test
+    void magazineHistoryReadsOlderIssuesWithoutBackofficeReceipts() {
+        UUID older = UUID.randomUUID();
+        UUID newer = UUID.randomUUID();
+        jdbc.update("INSERT INTO magazine_issues(id,issue_date,issue_no,published_at,editorial,promotion_count)"
+                + " VALUES(?,?,1,?,'{}'::jsonb,0)", older, java.sql.Date.valueOf(DATE.minusDays(1)),
+                Timestamp.from(NOW.minusSeconds(86400)));
+        jdbc.update("INSERT INTO magazine_issues(id,issue_date,issue_no,published_at,editorial,promotion_count)"
+                + " VALUES(?,?,2,?,'{}'::jsonb,0)", newer, java.sql.Date.valueOf(DATE), Timestamp.from(NOW));
+
+        var first = history.magazines(null, 1);
+        UUID later = UUID.randomUUID();
+        jdbc.update("INSERT INTO magazine_issues(id,issue_date,issue_no,published_at,editorial,promotion_count)"
+                + " VALUES(?,?,3,?,'{}'::jsonb,0)", later, java.sql.Date.valueOf(DATE.plusDays(1)),
+                Timestamp.from(NOW.plusSeconds(86400)));
+        var second = history.magazines(first.nextCursor(), 1);
+        assertThat(first.items().get(0)).containsEntry("id", newer.toString())
+                .containsEntry("status", "NOTIFICATION_PENDING").containsEntry("actor", null);
+        assertThat(second.items().get(0)).containsEntry("id", older.toString());
+        assertThat(second.nextCursor()).isNull();
+        assertThat(second.items().get(0)).containsEntry("status", "NOTIFICATION_EXPIRED");
     }
 
     @Test

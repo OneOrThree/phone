@@ -213,6 +213,54 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  observatory: {
+    portraitSize: 48,
+    portraitZoom: 1.8,
+    rankGap: space[2],
+    rankMinWidth: space[6],
+    rankSize: 18,
+    rankLineHeight: 26.1,
+    introGap: space[1],
+    contentMaxWidth: 540,
+    toolbarSize: 26,
+    toolbarLineHeight: 32,
+    pagePadding: space[5],
+    sectionGap: space[6],
+    rowGap: space[3],
+    rowPadding: space[3],
+    rowHeight: 80,
+    paperPadding: space[3],
+    paperShadow: `0px ${space[1]}px 0px ${color.brown}`,
+    chevronWidth: space[4],
+    chevronHeight: space[5],
+    headingSize: 20,
+    headingLineHeight: 29,
+    scenery: {
+      podiumTop: space[4],
+      sky: color.sky,
+      footerHeight: 116,
+      raftWidth: 104,
+    },
+    podium: {
+      winnerSize: 88,
+      finalistSize: 72,
+      bodyHeight: 148,
+      joinedBodyHeight: 168,
+      winnerHeight: 72,
+      secondHeight: 48,
+      thirdHeight: 32,
+      crownSize: 24,
+      nameSize: 16,
+      nameLineHeight: 23.2,
+      averageSize: 12,
+      averageLineHeight: 17.4,
+      numberSize: 26,
+      numberLineHeight: 32,
+      gap: space[2],
+      columnPadding: space[1],
+      baseHeight: space[1],
+    },
+  },
   seaParticipant: {
     focusInk: color.focusInk,
     clockBackground: `${color.paper}E6`,
@@ -621,7 +669,7 @@ export const componentTokens = {
     ripple: color.sailingRipple,
   },
   // 고양이 이름표(GROMO-2475) — 모든 화면 공통. 내 이름표만 me. 피그마 확정 전 임시값
-  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#B83D63', shadow: '#FFFDFA' },
+  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#246A8A', shadow: '#FFFDFA' },
   // 바닥 목적지 표식과 이동 점선. 치수는 화면 pt로 줌과 무관하다.
   walkPath: {
     color: color.brown,

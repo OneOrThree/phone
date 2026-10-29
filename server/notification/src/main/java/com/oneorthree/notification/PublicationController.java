@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -16,27 +17,44 @@ import java.util.UUID;
 class PublicationController {
     private final PublicationService publications;
     private final NotificationEnvironmentGuard guard;
+    private final AdminCatalog catalog;
 
-    PublicationController(PublicationService publications, NotificationEnvironmentGuard guard) {
+    PublicationController(PublicationService publications, NotificationEnvironmentGuard guard, AdminCatalog catalog) {
         this.publications = publications;
         this.guard = guard;
+        this.catalog = catalog;
     }
 
     @GetMapping("/internal/admin/publications/environment")
-    Map<String, String> environment() {
-        return guard.identity();
+    Map<String, Object> environment() {
+        Map<String, Object> result = new java.util.LinkedHashMap<>(guard.identity());
+        result.put("contractVersion", "1");
+        result.put("capabilities", java.util.List.of("notification.publication.v1",
+                "notification.history.v1", "notification.templates.v1"));
+        return Map.copyOf(result);
+    }
+
+    @GetMapping("/internal/admin/publications/history")
+    Map<String, Object> history(@RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit, HttpServletRequest request) {
+        requireEnvironment(request);
+        return catalog.deliveries(AdminAudit.actor(request), cursor, limit, null, null, null);
     }
 
     @PostMapping("/internal/admin/publications/{publicationId}")
     Map<String, Object> publish(@PathVariable UUID publicationId, @RequestBody Map<String, Object> body,
             @RequestHeader("Idempotency-Key") String key, HttpServletRequest request) {
         if (guard.isConnectedEnvironment()) {
-            var actual = environment();
-            if (request == null || !actual.get("environment").equals(request.getHeader("X-Backoffice-Environment"))
-                    || !actual.get("fcmProjectId").equals(request.getHeader("X-Backoffice-Fcm-Project"))) {
-                throw new IllegalStateException("백오피스 요청 환경과 Notification DB/FCM 환경이 다릅니다.");
-            }
+            requireEnvironment(request);
         }
         return publications.publish(AdminAudit.actor(request), publicationId, body, key);
+    }
+
+    private void requireEnvironment(HttpServletRequest request) {
+        var actual = guard.identity();
+        if (request == null || !actual.get("environment").equals(request.getHeader("X-Backoffice-Environment"))
+                || !actual.get("fcmProjectId").equals(request.getHeader("X-Backoffice-Fcm-Project"))) {
+            throw new IllegalStateException("백오피스 요청 환경과 Notification DB/FCM 환경이 다릅니다.");
+        }
     }
 }

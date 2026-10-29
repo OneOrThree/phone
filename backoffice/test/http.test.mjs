@@ -1,3 +1,5 @@
+import contract from "../server/contract.json" with { type: "json" };
+const apiContract = { contractVersion: contract.contractVersion, capabilities: [...contract.data, ...contract.notification] };
 import test from "node:test";
 import assert from "node:assert/strict";
 import { scryptSync } from "node:crypto";
@@ -125,7 +127,7 @@ test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용"
     fetchImpl: async (url, options) => {
       if (options.method === "GET") {
         checked.push(url.pathname);
-        return new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }));
+        return new Response(JSON.stringify({ ...apiContract, environment: "dev", fcmProjectId: "gromo-dev" }));
       }
       request = { url, options };
       return new Response(JSON.stringify({ status: "PENDING" }), {
@@ -173,7 +175,7 @@ test("dev·prod 연결이 어긋나면 발행 전에 멈춘다", async () => {
     notificationUrl: "http://notification.internal",
     fetchImpl: async (url, options) => {
       requests.push({ path: url.pathname, method: options.method });
-      return new Response(JSON.stringify({ environment: url.hostname === "data.internal" ? "prod" : "dev",
+      return new Response(JSON.stringify({ ...apiContract, environment: url.hostname === "data.internal" ? "prod" : "dev",
         fcmProjectId: "gromo-dev" }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -194,13 +196,39 @@ test("FCM 프로젝트가 다르면 알림 발송 전에 멈춘다", async () =>
     dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
     fetchImpl: async (url, options) => {
       methods.push(options.method);
-      return new Response(JSON.stringify({ environment: "dev",
+      return new Response(JSON.stringify({ ...apiContract, environment: "dev",
         fcmProjectId: url.hostname === "notification.internal" ? "gromo-prod" : undefined }));
     },
   });
   await assert.rejects(upstream.publish({ kind: "fcm" }, "member-1",
     { dataToken: "data", notificationToken: "notification" }), /FCM 프로젝트/);
   assert.deepEqual(methods, ["GET", "GET"]);
+});
+test("운영 이력은 환경을 확인한 뒤 원장과 게시 DB에서 읽는다", async () => {
+  const paths = [];
+  const upstream = new Upstream({
+    mode: "connected", environment: "prod", expectedFcmProjectId: "gromo-prod",
+    dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
+    fetchImpl: async (url, options) => {
+      paths.push(`${options.method} ${url.pathname}${url.search}`);
+      if (url.pathname.endsWith("/environment"))
+        return new Response(JSON.stringify({ ...apiContract, environment: "prod", fcmProjectId: "gromo-prod" }));
+      if (url.pathname.endsWith("/publications/history"))
+        return new Response(JSON.stringify({ items: [{ id: "delivery", kind: "FRIEND_ACCEPTED", status: "SENT" }], nextCursor: null }));
+      return new Response(JSON.stringify({ items: [{ id: "notice" }], total: 1, nextCursor: null }));
+    },
+  });
+  const operator = { dataToken: "data-token", notificationToken: "notification-token" };
+  const fcm = await upstream.history("fcm", "", "member-1", operator);
+  const notice = await upstream.history("notice", "", "member-1", operator);
+  assert.equal(fcm.items[0].notificationKind, "FRIEND_ACCEPTED");
+  assert.equal(fcm.items[0].kind, "fcm");
+  assert.equal(notice.total, 1);
+  assert.ok(paths.includes("GET /internal/admin/publications/history?limit=50"));
+  assert.ok(paths.includes("GET /internal/admin/content/history/notices?limit=50"));
+  assert.equal(paths.filter(path => path.endsWith("/environment")).length, 4);
+  assert.deepEqual(await new Upstream({ mode: "local" }).history("magazine", "", "test", {}),
+    { items: [], total: 0, nextCursor: null });
 });
 test("정적 루트 제공과 경로 이탈 거부", async (t) => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
@@ -228,4 +256,35 @@ test("정적 루트 제공과 경로 이탈 거부", async (t) => {
   assert.equal(root.status, 200);
   assert.match(await root.text(), /콘텐츠/);
   assert.equal((await fetch(base + "/%2e%2e%2fsecret")).status, 404);
+});
+
+test("건설 정책 조회·CSRF·승인 적용은 로컬 정책을 한 번만 전환한다", async t => {
+  const { base, origin } = await setup(t);
+  assert.equal((await fetch(base + "/api/construction/policy")).status, 401);
+  let headers = { "Content-Type": "application/json", Origin: origin };
+  const post = (path, body, override = headers) => fetch(base + path,
+    { method: "POST", headers: override, body: JSON.stringify(body) });
+  const login = await post("/api/login", { actor: "member-1", password });
+  headers.Cookie = login.headers.get("set-cookie").split(";")[0];
+  headers["X-CSRF-Token"] = (await login.json()).csrfToken;
+  const policy = await (await fetch(base + "/api/construction/policy", { headers })).json();
+  const input = { kind: "construction", title: "건설 정책 변경", data: { construction: {
+    snapshotId: policy.snapshotId, digest: policy.digest,
+    items: policy.items.map(row => ({ buildingId: row.buildingId, cost: row.cost + 10, buildSeconds: 0 })),
+  } } };
+  assert.equal((await post("/api/items", input, { ...headers, "X-CSRF-Token": "wrong" })).status, 403);
+  let item = await (await post("/api/items", input)).json();
+  assert.equal((await post(`/api/items/${item.id}/publish`, { revision: item.revision })).status, 409);
+  for (const action of ["review", "approve", "publish"]) {
+    const response = await post(`/api/items/${item.id}/${action}`, { revision: item.revision });
+    assert.equal(response.status, 200);
+    item = await response.json();
+  }
+  assert.equal(item.status, "published");
+  assert.equal(item.receipt.local, true);
+  assert.equal(item.receipt.costPolicyVersion, 2);
+  const current = await (await fetch(base + "/api/construction/policy", { headers })).json();
+  assert.equal(current.items[0].cost, 70);
+  assert.equal(current.items[0].buildSeconds, 0);
+  assert.equal((await post(`/api/items/${item.id}/publish`, { revision: item.revision })).status, 409);
 });

@@ -112,6 +112,9 @@ jobs:
       CI: "1"
       LANG: en_US.UTF-8
       AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: ${{ vars.IMAGE_ASSETS_DEV_ENABLED || 'false' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_URL: ${{ vars.IMAGE_ASSETS_DEV_URL || '' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENV: dev
     steps:
       - uses: actions/checkout@v4
 

@@ -41,7 +41,15 @@ internal:
         console-actor: member-1
         allow:
           - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
           - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/policies/focus'
+          - 'PUT /internal/admin/policies/focus/publications/*'
+          - 'POST /internal/admin/policies/focus/approvals/*'
+          - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
@@ -51,7 +59,15 @@ internal:
         console-actor: member-2
         allow:
           - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
           - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/policies/focus'
+          - 'PUT /internal/admin/policies/focus/publications/*'
+          - 'POST /internal/admin/policies/focus/approvals/*'
+          - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
@@ -61,7 +77,15 @@ internal:
         console-actor: member-3
         allow:
           - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
           - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/policies/focus'
+          - 'PUT /internal/admin/policies/focus/publications/*'
+          - 'POST /internal/admin/policies/focus/approvals/*'
+          - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
