@@ -136,7 +136,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 - 순서 복원은 다음과 같이 계산한다. 기록의 `order_before` 순서를 기준으로 지금 남아 있는 ID 만 배치하고, 백업 이후 생긴 ID 는 뒤에 붙인다. 현재 순서와 다를 때만 `PUT pipeline-order` 를 보낸다. 이 API 는 전체 순서를 교체한다(§12 근거 4).
 - dry-run 으로 만든 기록(`"dry_run": true`)으로는 `--execute` 를 할 수 없다.
 - **부분 적용**: `apply --execute` 는 쓰기(생성·갱신·순서 조회) 하나가 성공할 때마다 `--record-out` 파일을 임시 파일 후 rename 으로 갱신한다. 중간에 실패하면 지금까지의 기록(`steps` 의 ok/failed/not-run, 생성된 ID, 갱신 전 원본, `order_before`)을 남기고 0 이 아닌 코드로 끝나며 «부분 적용 — `rollback --record <파일>`» 을 출력한다. 자동으로 되돌리지 않는다. 사람이 상태를 확인한 뒤 같은 기록으로 `rollback` 하면 성공한 단계만 되돌린다.
-- **실패 종류별 안내**: 아무것도 바뀌지 않은 실패(`created`·`updated` 비어 있음)는 «변경 없음 — 롤백 불필요», 일부가 반영된 실패만 «부분 적용 — rollback». 쓰기 요청이 응답 없이 끝나면(타임아웃·연결 끊김) 단계를 `unknown` 으로 기록하고 «서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인»하라고 안내한다. 이미 만들어졌더라도 `created` 에는 ID 가 없다. 같은 이름이 있으면 같은 `apply` 를 다시 실행해도 `plan_actions` 가 이름으로 찾아 `update` 로 처리하므로 중복 생성되지 않는다. 같은 이름이 없으면 그대로 다시 실행한다.
+- **실패 종류별 안내**: 아무것도 바뀌지 않은 실패(`created`·`updated` 비어 있음)는 «변경 없음 — 롤백 불필요», 일부가 반영된 실패만 «부분 적용 — rollback». 쓰기 요청이 응답 없이 끝나면(타임아웃·연결 끊김) 단계를 `unknown` 으로 기록하고 «서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인»하라고 안내한다. `apply` 는 POST **전에** `created` 에 `{name, id: null, pending: true}` 를 저장한다. 성공하면 id 를 채우고 pending 을 지우며, 확실한 실패(HTTP 오류)면 항목을 뺀다. 결과 불명이면 pending 이 남는다. `rollback` 은 id 없는 pending 항목을 목록 GET 으로 **같은 이름**을 찾아 회수한다. 정확히 1개이고 read-only 가 아니며 정의가 로컬과 같을 때만 삭제(`--disable-only` 면 비활성)한다. 0개면 «생성 안 됨 — 건너뜀», 2개 이상이거나 정의가 다르면 그 항목을 중단·보고한다. dry-run 도 회수 계획을 출력한다. 같은 이름이 있으면 같은 `apply` 를 다시 실행해도 `plan_actions` 가 `update`(정의가 같으면 `noop`)로 처리하므로 중복 생성되지 않는다. 이때 `--previous-record <이전 기록>` 을 주면 «이전 기록의 결과 불명 생성 — 그 기록으로 rollback 가능» 을 안내하고 새 기록에 경로를 남긴다. noop 이어도 첫 파이프라인은 그 이전 기록으로 롤백해야 회수된다.
 - **갱신 결과 불명**: `apply` 는 PUT **전에** `updated` 에 `{id, name, previous}` 를 기록하고 저장한다. PUT 이 서버에 반영된 뒤 응답만 유실돼도(`unknown`) 항목이 남아 롤백이 이전 정의로 복원한다. 확실한 실패(HTTP 오류)면 서버가 그대로이므로 항목을 뺀다. `rollback --execute` 는 updated 항목을 GET 해 이미 `previous` 와 같으면 건너뛰고(`already-previous`, 재실행 멱등) 다르면 `previous` 로 PUT 한다. GET 이 404 면 «복원 대상 없음» 경고를 출력한다.
 - 롤백 모드(삭제/비활성)를 바꾸려면 기록 파일을 복사해서 쓴다(`rollback` 필드의 완료 표시가 id 기준이라 같은 기록으로 모드를 바꾸면 건너뛴다).
 - 순서 복원 PUT 은 직전에 조회한 순서를 기준으로 전체를 덮어쓴다. 그 사이 다른 사람이 순서를 바꿨다면 덮어쓴다.
@@ -146,7 +146,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 29 tests(부분 적용 기록·응답 없음 `unknown`·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 34 tests(부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |

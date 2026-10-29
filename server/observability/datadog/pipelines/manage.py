@@ -244,6 +244,7 @@ def cmd_apply(args):
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "state_origin": st["origin"],
         "order_before": st["order"],
+        "previous_record": args.previous_record,
         "created": [],
         "updated": [],
         "order_after": None,
@@ -266,15 +267,19 @@ def cmd_apply(args):
             step["result"] = "unknown" if unknown else "failed"
             step["error"] = str(e.code)
             if pending is not None and not unknown:  # 확실한 실패면 서버는 그대로다 — 롤백 대상에서 뺀다. 결과 불명이면 남긴다
-                record["updated"].remove(pending)
+                for lst in (record["created"], record["updated"]):
+                    if pending in lst:
+                        lst.remove(pending)
             changed = bool(record["created"] or record["updated"])
             record["partial"] = changed
             save()
             if unknown:
                 msg = ("결과 불명 — 요청이 서버에 반영됐는지 모른다. 서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인한다. "
-                       "있으면 같은 명령을 다시 실행해도 된다(plan_actions 가 이름으로 찾아 update 로 처리한다, 중복 생성 없음).")
+                       "있으면 같은 명령을 다시 실행해도 된다(plan_actions 가 이름으로 찾아 update 로 처리한다, 중복 생성 없음). "
+                       "다시 실행할 때는 `--previous-record` 에 이 기록을 주면 결과 불명 생성을 안내한다.")
                 if changed:
-                    msg += f" 이미 성공한 단계는 `rollback --record {args.record_out}` 로 되돌릴 수 있다."
+                    msg += (f" 이 기록으로 `rollback --record {args.record_out}` 하면 성공한 단계와, 결과 불명 생성은 "
+                            "같은 이름의 파이프라인(정확히 1개·정의 일치일 때만)을 찾아 되돌린다.")
             elif changed:
                 msg = f"부분 적용 — 되돌리려면 `rollback --record {args.record_out}` (성공한 단계만 되돌린다)."
             else:
@@ -282,6 +287,12 @@ def cmd_apply(args):
             sys.exit(f"{e.code}\n{msg} 기록: {args.record_out}")
 
     save()
+    if args.previous_record:
+        prev = json.loads(Path(args.previous_record).read_text(encoding="utf-8"))
+        for c in prev.get("created", []):
+            if c.get("pending"):
+                print(f"이전 기록의 결과 불명 생성: '{c['name']}' — 그 기록으로 rollback 가능: "
+                      f"`rollback --record {args.previous_record}` (이름으로 찾아 정의가 같을 때만 되돌린다)")
     print("요청" + (" (실행)" if args.execute else " (dry-run, 보내지 않음)") + ":")
     for kind, d, cur in actions:
         if kind == "noop":
@@ -290,8 +301,13 @@ def cmd_apply(args):
         step = next(steps)
         if kind == "create":
             print(f"  POST {PIPELINES}  name='{d['name']}' processors={len(d['processors'])}")
-            res = write(step, "POST", PIPELINES, d)
-            record["created"].append({"name": d["name"], "id": res["id"] if res else f"<new:{d['name']}>"})
+            # POST 전에 pending 으로 먼저 저장한다 — 서버에 반영된 뒤 응답만 유실돼도 rollback 이 이름으로 찾아 회수한다
+            entry = {"name": d["name"], "id": None, "pending": True}
+            record["created"].append(entry)
+            save()
+            res = write(step, "POST", PIPELINES, d, pending=entry)
+            entry["id"] = res["id"] if res else f"<new:{d['name']}>"
+            del entry["pending"]
         else:
             print(f"  PUT  {PIPELINES}/{cur['id']}  name='{d['name']}'")
             # PUT 전에 previous 를 저장한다 — 반영된 뒤 응답만 유실돼도 롤백이 이전 정의를 알 수 있어야 한다
@@ -328,6 +344,19 @@ def _verify(api, pid, name):
     return ("ok" if cur.get("name") == name else "mismatch"), cur
 
 
+def find_pending(name, pipelines):
+    """id 없는 pending 생성 항목을 이름으로 찾는다. (pipeline|None, 중단 사유|None). 정확히 1개·비 read-only·로컬 정의와 같을 때만 대상."""
+    found = [p for p in pipelines if p.get("name") == name]
+    if not found:
+        return None, None
+    if len(found) > 1:
+        return None, f"같은 이름 {len(found)}개({[p['id'] for p in found]}) — 어느 쪽인지 알 수 없다"
+    p, local = found[0], next((d for d in load_definitions() if d["name"] == name), None)
+    if p.get("is_read_only") or local is None or body(p) != body(local):
+        return None, f"{p['id']} 가 로컬 정의와 다르거나 read-only 라 우리가 만든 것인지 확신할 수 없다"
+    return p, None
+
+
 def cmd_rollback(args):
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     if record.get("dry_run") and args.execute:
@@ -354,11 +383,24 @@ def cmd_rollback(args):
     try:
         for it, act in items():
             pid, name = it["id"], it["name"]
-            if pid in done:
-                print(f"  (건너뜀) '{name}' {pid} — 이전 롤백에서 {done[pid]}")
-                if act == "delete":
+            key = pid or f"pending:{name}"  # 결과 불명 생성은 id 가 없어 이름으로 기록한다
+            if key in done:
+                print(f"  (건너뜀) '{name}' {key} — 이전 롤백에서 {done[key]}")
+                if act == "delete" and pid:
                     removed.add(pid)
                 continue
+            if pid is None:
+                print(f"  GET    {PIPELINES}  결과 불명 생성 '{name}' 을 같은 이름으로 찾기 (정확히 1개·정의 일치일 때만 회수)")
+                found, why = find_pending(name, st["pipelines"])
+                if why:
+                    print(f"  중단   '{name}': {why} — 건드리지 않음")
+                    problems.append(key)
+                    continue
+                if found is None:
+                    print(f"  생성 안 됨 — 건너뜀 '{name}' (같은 이름 없음)")
+                    mark(key, "not-created")
+                    continue
+                pid = found["id"]
             print(f"  GET    {PIPELINES}/{pid}  이름이 '{name}' 인지 확인 (404 면 이미 없음으로 건너뜀, 다르면 이 항목 중단)")
             verdict, cur = _verify(api, pid, name) if args.execute else ("ok", None)
             if verdict == "mismatch":
@@ -369,26 +411,26 @@ def cmd_rollback(args):
                 removed.add(pid)
             if verdict == "gone":
                 print(f"  이미 없음 {pid} ('{name}')" + (" — 복원 대상 없음(경고): 이전 정의를 되돌릴 수 없다" if act == "restore" else ""))
-                mark(pid, "already-gone")
+                mark(key, "already-gone")
                 continue
             if act == "disable":
                 print(f"  PUT    {PIPELINES}/{pid}  is_enabled=false  ('{name}')")
                 if args.execute:
                     api.call("PUT", f"{PIPELINES}/{pid}", {**body(cur), "is_enabled": False})
-                mark(pid, "disabled")
+                mark(key, "disabled")
             elif act == "delete":
                 print(f"  DELETE {PIPELINES}/{pid}  ('{name}')")
                 if args.execute:
                     api.call("DELETE", f"{PIPELINES}/{pid}")
-                mark(pid, "deleted")
+                mark(key, "deleted")
             elif cur is not None and body(cur) == it["previous"]:
                 print(f"  (건너뜀) '{name}' {pid} — 이미 이전 정의")
-                mark(pid, "already-previous")
+                mark(key, "already-previous")
             else:
                 print(f"  PUT    {PIPELINES}/{pid}  이전 정의로 복원  ('{name}')")
                 if args.execute:
                     api.call("PUT", f"{PIPELINES}/{pid}", it["previous"])
-                mark(pid, "restored")
+                mark(key, "restored")
         if problems:
             sys.exit(f"이름이 기록과 다른 항목 {problems} — 순서 복원 없이 중단. 사람이 확인한 뒤 기록을 고치거나 직접 처리한다.")
         if "order" in done:
@@ -424,6 +466,7 @@ def main(argv=None):
             s.add_argument("--execute", action="store_true")
         if name == "apply":
             s.add_argument("--record-out")
+            s.add_argument("--previous-record")
         if name == "rollback":
             s.add_argument("--record", required=True)
             s.add_argument("--disable-only", action="store_true")

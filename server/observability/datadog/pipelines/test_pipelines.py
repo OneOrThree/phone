@@ -437,7 +437,7 @@ class PartialApplyTest(unittest.TestCase):
     def test_write_without_response_is_recorded_unknown_with_check_guidance(self):
         rec = self.execute(("POST", 2), expect="서버 상태를 직접 조회", api=UnknownApi)
         self.assertEqual([s["result"] for s in rec["steps"]], ["ok", "unknown", "not-run"])
-        self.assertEqual([c["id"] for c in rec["created"]], ["NEW1"])
+        self.assertEqual([c["id"] for c in rec["created"]], ["NEW1", None])  # 둘째는 결과 불명 pending
 
     def test_api_call_turns_urlerror_and_timeout_into_unknown_for_writes_only(self):
         with mock.patch.dict(os.environ, {"DD_API_KEY": "k", "DD_APP_KEY": "a"}):
@@ -611,6 +611,112 @@ class UpdateLostResponseTest(unittest.TestCase):
         self.record.write_text(json.dumps({"dry_run": False, "order_before": [], "created": [],
                                            "updated": [{"name": "x", "id": "GONE", "previous": {}}]}))
         self.assertIn("복원 대상 없음", self.run_cmd(api, "rollback", "--record", str(self.record), "--execute"))
+
+
+class CreateLostResponseTest(unittest.TestCase):
+    """POST 가 서버에 반영된 뒤 응답만 유실 → 기록에 pending 생성 → rollback 이 이름으로 찾아 회수한다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.record = self.tmp / "rec.json"
+        self.defs = manage.load_definitions()
+        env = mock.patch.dict(os.environ, {manage.CONFIRM_ENV: "yes"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def server(self, lose_first_post=True):
+        outer, stored, order = self, {}, ["K"]
+
+        class Api:
+            calls = []
+
+            def state(self_):
+                return {"pipelines": [{"id": i, **b} for i, b in stored.items()], "order": order, "origin": "fake"}
+
+            def call(self_, method, path, body=None):
+                self_.calls.append((method, path))
+                if path == manage.ORDER:
+                    return {"pipeline_ids": order}
+                if method == "POST":
+                    pid = f"S{len(stored) + 1}"
+                    stored[pid] = body
+                    order.append(pid)
+                    if lose_first_post and self_.calls.count(("POST", path)) == 1:
+                        raise manage.ApiError("POST → 응답 없음(TimeoutError)", unknown=True)
+                    return {"id": pid}
+                if path == manage.PIPELINES:
+                    return self_.state()["pipelines"]
+                pid = path.rsplit("/", 1)[1]
+                if pid not in stored:
+                    raise manage.ApiError("404", status=404)
+                if method == "GET":
+                    return {"id": pid, **stored[pid]}
+                del stored[pid]
+                order.remove(pid)
+
+        api = Api()
+        api.stored = stored
+        return api
+
+    def run_cmd(self, api, *argv):
+        with mock.patch.object(manage, "Api", lambda: api), contextlib.redirect_stdout(io.StringIO()) as buf:
+            manage.main(list(argv))
+        return buf.getvalue()
+
+    def apply_lost(self, api):
+        with self.assertRaises(SystemExit):
+            self.run_cmd(api, "apply", "--execute", "--record-out", str(self.record))
+        return json.loads(self.record.read_text())
+
+    def test_lost_post_leaves_pending_entry_and_rollback_recovers_by_name_then_is_idempotent(self):
+        api = self.server()
+        rec = self.apply_lost(api)
+        self.assertEqual(rec["created"], [{"name": self.defs[0]["name"], "id": None, "pending": True}])
+        self.assertEqual(list(api.stored), ["S1"])  # 서버엔 반영됨
+        dry = self.run_cmd(api, "rollback", "--record", str(self.record))  # dry-run 도 회수 계획을 출력
+        self.assertIn("DELETE", dry)
+        self.assertIn("/S1", dry)
+        self.assertEqual(list(api.stored), ["S1"])
+        self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertEqual(api.stored, {})
+        out = self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertIn("건너뜀", out)
+        self.assertEqual(api.calls.count(("DELETE", f"{manage.PIPELINES}/S1")), 1)
+
+    def test_rerun_apply_is_noop_but_points_to_previous_record(self):
+        api = self.server()
+        self.apply_lost(api)
+        api.stored["S1"] = manage.body(self.defs[0])  # 서버 정의 == 로컬 → noop
+        out = self.run_cmd(api, "apply", "--previous-record", str(self.record))
+        self.assertIn("이전 기록의 결과 불명 생성", out)
+        self.assertIn("변경 없음", out)
+
+    def test_two_pipelines_with_same_name_abort_that_item(self):
+        api = self.server()
+        self.apply_lost(api)
+        api.stored["S2"] = manage.body(self.defs[0])
+        api.stored["S1"] = manage.body(self.defs[0])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertEqual(set(api.stored), {"S1", "S2"})
+        self.assertNotIn("DELETE", {m for m, _ in api.calls})
+
+    def test_definition_mismatch_aborts_and_zero_matches_is_skipped(self):
+        api = self.server()
+        self.apply_lost(api)
+        api.stored["S1"] = {**manage.body(self.defs[0]), "description": "누군가 바꿈"}
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertIn("S1", api.stored)
+        api.stored.clear()  # 서버에 반영 안 된 경우
+        out = self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertIn("생성 안 됨 — 건너뜀", out)
+
+    def test_definite_post_failure_removes_pending_entry(self):
+        with mock.patch.object(manage, "Api", lambda: FakeApi(("POST", 1))), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                manage.main(["apply", "--execute", "--record-out", str(self.record)])
+        self.assertEqual(json.loads(self.record.read_text())["created"], [])
 
 
 if __name__ == "__main__":
