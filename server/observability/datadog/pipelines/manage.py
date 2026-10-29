@@ -215,31 +215,60 @@ def cmd_apply(args):
         sys.exit("--execute 에는 --record-out 이 필요하다(롤백 근거)")
     record = {
         "dry_run": not args.execute,
+        "partial": False,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "state_origin": st["origin"],
         "order_before": st["order"],
         "created": [],
         "updated": [],
         "order_after": None,
+        # 단계별 결과: ok / failed / not-run. created·updated 에는 성공한 것만 들어가므로 rollback 은 그것만 되돌린다.
+        "steps": [{"step": f"{k}:{d['name']}", "result": "not-run"} for k, d, _ in actions if k != "noop"]
+        + [{"step": "order-after", "result": "not-run"}],
     }
+    steps = iter(record["steps"])
+
+    def save():
+        if args.record_out:  # 임시 파일 후 rename — 중간에 죽어도 기록이 깨지지 않는다
+            tmp = Path(args.record_out + ".tmp")
+            tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            os.replace(tmp, args.record_out)
+
+    def write(step, method, path, payload):
+        """쓰기 하나. 실패하면 기록에 남기고 부분 적용 안내 후 비정상 종료한다(자동 되돌리기 없음)."""
+        try:
+            return api.call(method, path, payload) if args.execute else None
+        except SystemExit as e:
+            step["result"] = "failed"
+            step["error"] = str(e.code)
+            record["partial"] = bool(record["created"] or record["updated"])
+            save()
+            sys.exit(f"{e.code}\n부분 적용 — 되돌리려면 `rollback --record {args.record_out}` (성공한 단계만 되돌린다). 기록: {args.record_out}")
+
+    save()
     print("요청" + (" (실행)" if args.execute else " (dry-run, 보내지 않음)") + ":")
     for kind, d, cur in actions:
+        if kind == "noop":
+            print(f"  (변경 없음) '{d['name']}'")
+            continue
+        step = next(steps)
         if kind == "create":
             print(f"  POST {PIPELINES}  name='{d['name']}' processors={len(d['processors'])}")
-            new_id = api.call("POST", PIPELINES, d)["id"] if args.execute else f"<new:{d['name']}>"
-            record["created"].append({"name": d["name"], "id": new_id})
-        elif kind == "update":
-            print(f"  PUT  {PIPELINES}/{cur['id']}  name='{d['name']}'")
-            if args.execute:
-                api.call("PUT", f"{PIPELINES}/{cur['id']}", d)
-            record["updated"].append({"name": d["name"], "id": cur["id"], "previous": body(cur)})
+            res = write(step, "POST", PIPELINES, d)
+            record["created"].append({"name": d["name"], "id": res["id"] if res else f"<new:{d['name']}>"})
         else:
-            print(f"  (변경 없음) '{d['name']}'")
+            print(f"  PUT  {PIPELINES}/{cur['id']}  name='{d['name']}'")
+            write(step, "PUT", f"{PIPELINES}/{cur['id']}", d)
+            record["updated"].append({"name": d["name"], "id": cur["id"], "previous": body(cur)})
+        step["result"] = "ok"
+        save()
+    step = next(steps)
     if args.execute:
-        record["order_after"] = api.call("GET", ORDER)["pipeline_ids"]
+        record["order_after"] = write(step, "GET", ORDER, None)["pipeline_ids"]
+        step["result"] = "ok"
         print(f"적용 후 순서: {record['order_after']}")
+    save()
     if args.record_out:
-        Path(args.record_out).write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"기록: {args.record_out}")
 
 
@@ -255,6 +284,8 @@ def cmd_rollback(args):
         sys.exit("dry-run 기록으로는 --execute 할 수 없다")
     api, st = _state(args, execute=args.execute)
     print(f"상태 출처: {st['origin']}")
+    if record.get("partial"):
+        print("부분 적용 기록 — 성공한 단계만 되돌린다: " + ", ".join(f"{s['step']}={s['result']}" for s in record.get("steps", [])))
     print("요청" + (" (실행)" if args.execute else " (dry-run, 보내지 않음)") + ":")
     removed = set()
     for c in record["created"]:

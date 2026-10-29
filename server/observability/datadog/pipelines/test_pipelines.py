@@ -354,5 +354,67 @@ class ManageOfflineTest(unittest.TestCase):
         self.assertEqual(manage.restored_order(["a", "b", "c"], ["a", "new", "c", "b", "x"], {"new"}), ["a", "b", "c", "x"])
 
 
+class FakeApi:
+    """네트워크 없는 전송. fail_on=(method, n) 이면 그 method 의 n 번째 호출이 HTTP 실패(SystemExit)한다."""
+
+    def __init__(self, fail_on=None):
+        self.fail_on, self.counts, self.calls = fail_on, {}, []
+
+    def state(self):
+        return {"pipelines": [], "order": ["K"], "origin": "fake"}
+
+    def call(self, method, path, body=None):
+        n = self.counts[method] = self.counts.get(method, 0) + 1
+        self.calls.append((method, path))
+        if self.fail_on == (method, n):
+            raise SystemExit(f"{method} {path} → HTTP 500")
+        if method == "POST":
+            return {"id": f"NEW{n}"}
+        return {"pipeline_ids": ["K", "NEW1", "NEW2"]} if method == "GET" else None
+
+
+class PartialApplyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.record = self.tmp / "record.json"
+        env = mock.patch.dict(os.environ, {manage.CONFIRM_ENV: "yes"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def execute(self, fail_on):
+        with mock.patch.object(manage, "Api", lambda: FakeApi(fail_on)), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                manage.main(["apply", "--execute", "--record-out", str(self.record)])
+        self.assertNotEqual(cm.exception.code, 0)
+        self.assertIn("부분 적용", str(cm.exception.code))
+        return json.loads(self.record.read_text())
+
+    def rollback_dry_run(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            manage.main(["rollback", "--record", str(self.record), "--backup-file", str(self.backup())])
+        return buf.getvalue()
+
+    def backup(self):
+        f = self.tmp / "b.json"
+        f.write_text(json.dumps({"pipelines": [], "pipeline_order": {"pipeline_ids": ["K", "NEW1", "NEW2"]}}))
+        return f
+
+    def test_second_create_fails_record_keeps_first_id_and_rollback_deletes_only_it(self):
+        rec = self.execute(("POST", 2))
+        self.assertEqual([c["id"] for c in rec["created"]], ["NEW1"])
+        self.assertEqual([s["result"] for s in rec["steps"]], ["ok", "failed", "not-run"])
+        self.assertTrue(rec["partial"])
+        out = self.rollback_dry_run()
+        self.assertEqual(out.count("DELETE"), 1)
+        self.assertIn("/NEW1", out)
+
+    def test_order_lookup_fails_after_both_creates(self):
+        rec = self.execute(("GET", 1))
+        self.assertEqual([c["id"] for c in rec["created"]], ["NEW1", "NEW2"])
+        self.assertEqual(rec["steps"][-1]["result"], "failed")
+        self.assertEqual(self.rollback_dry_run().count("DELETE"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

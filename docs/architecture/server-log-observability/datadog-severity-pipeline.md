@@ -135,12 +135,13 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 
 - 순서 복원은 다음과 같이 계산한다. 기록의 `order_before` 순서를 기준으로 지금 남아 있는 ID 만 배치하고, 백업 이후 생긴 ID 는 뒤에 붙인다. 현재 순서와 다를 때만 `PUT pipeline-order` 를 보낸다. 이 API 는 전체 순서를 교체한다(§12 근거 4).
 - dry-run 으로 만든 기록(`"dry_run": true`)으로는 `--execute` 를 할 수 없다.
+- **부분 적용**: `apply --execute` 는 쓰기(생성·갱신·순서 조회) 하나가 성공할 때마다 `--record-out` 파일을 임시 파일 후 rename 으로 갱신한다. 중간에 실패하면 지금까지의 기록(`steps` 의 ok/failed/not-run, 생성된 ID, 갱신 전 원본, `order_before`)을 남기고 0 이 아닌 코드로 끝나며 «부분 적용 — `rollback --record <파일>`» 을 출력한다. 자동으로 되돌리지 않는다. 사람이 상태를 확인한 뒤 같은 기록으로 `rollback` 하면 성공한 단계만 되돌린다. `order-after` 조회만 실패했다면 생성·갱신은 이미 반영된 상태이므로 롤백 여부를 §8 판정 기준으로 정한다.
 
 ## 10. 검증 범위
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 16 tests. fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 18 tests(부분 적용 기록 2건 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |
