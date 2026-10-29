@@ -79,7 +79,10 @@ class CatalogIntegrationTest {
     @Test
     void actualFourLocaleCatalogRendersEveryKindIncludingSilentAndBundles() {
         Map<String, Object> params = inputs();
-        List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds");
+        // 승인 공지는 템플릿 대신 발행 시 고정한 reviewed_push를 사용한다. 기존 26종은 그대로 검증한다.
+        assertThat(store.one("SELECT enabled FROM kinds WHERE id='ADMIN_ANNOUNCEMENT'"))
+                .containsEntry("enabled", true);
+        List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds WHERE id<>'ADMIN_ANNOUNCEMENT'");
         assertThat(kinds).hasSize(26);
         assertThat(store.rows("SELECT id FROM templates")).hasSize(104);
         for (Map<String, Object> kind : kinds) {
