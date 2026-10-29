@@ -74,7 +74,8 @@ seen = {ids[k] for k in got}; missing = set(range(600)) - seen
 dup = sum(n - 1 for n in got.values())
 print(f"run=r expected=600 received={len(seen)} missing={len(missing)} (보통 줄 {len(missing - big)}, 40 KiB 줄 {len(missing & big)}/{len(big)} {sorted(missing & big)}) duplicates={dup}")
 assert not (missing - big), f"보통 줄 누락 {sorted(missing - big)}"
-# 40 KiB 줄 유실은 연속 3회 모두 같은 4개(107·207·407·507)였다 — 늘어나면 회귀로 본다.
+# 40 KiB 줄 유실 4개(107·207·407·507)는 이 환경(로컬 Docker)의 연속 3회 관측값이다. 회전 경계 위치는 Docker 버전별 json-file
+# 래퍼 길이 등 바이트 수로 정해지므로, 다른 Docker 에서 5~6개가 나오면 회귀가 아니라 경계 위치 차이일 수 있다 — 회전 없는 대조군(600/600)부터 확인한다.
 # 수집기 결함이 고쳐져 유실이 0이 되면 이 상한을 `missing & big == set()` 로 바꾼다.
 assert len(missing & big) <= 4, f"40 KiB 줄 유실이 늘었다 {sorted(missing & big)}"
 assert dup == 0, f"중복 {dup}"
