@@ -189,7 +189,13 @@ public final class NotificationReleaseBridge {
                 + " CROSS JOIN LATERAL unnest(setting.setconfig) config"
                 + " WHERE db.datname=current_database() AND setting.setrole=0"
                 + " AND (config LIKE 'gromo.environment=%' OR config LIKE 'gromo.fcm_project_id=%') ORDER BY config");
-        if (!markers.equals(List.of("gromo.environment=" + environment, "gromo.fcm_project_id=" + project))) {
+        boolean settingsMatch = markers.equals(List.of("gromo.environment=" + environment,
+                "gromo.fcm_project_id=" + project));
+        boolean commentMatches = markers.isEmpty() && ("gromo.environment=" + environment
+                + ";gromo.fcm_project_id=" + project).equals(scalar(connection,
+                        "SELECT shobj_description(oid, 'pg_database') FROM pg_database"
+                                + " WHERE datname=current_database()"));
+        if (!settingsMatch && !commentMatches) {
             throw new IllegalStateException("DB 환경·FCM 프로젝트 표식이 다릅니다.");
         }
     }
