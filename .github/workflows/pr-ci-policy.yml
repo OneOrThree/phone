@@ -1,0 +1,19 @@
+name: PR CI 정책
+on:
+  pull_request:
+    branches: [main, release]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - id: policy
+        run: python3 .github/scripts/pr-ci-policy.py
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_pr_ci_policy.py' -v

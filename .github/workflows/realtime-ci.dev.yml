@@ -11,7 +11,7 @@ name: Realtime CI
 
 on:
   pull_request:
-    branches-ignore: [release]
+    branches: [main]
     paths:
       - '.github/workflows/prod-ci.yml'
       - '.github/actions/check-arm-image/**'
@@ -45,6 +45,7 @@ on:
       # PathfinderTest(fixture) 가 돌아야 「다르면 CI 가 실패한다」가 성립한다 (GROMO-2245)
       - 'app/app-dev/src/assets/village-world/v1/nav.json'
       - 'docs/prd/fishcat/island-movement/fixtures/paths.json'
+  workflow_dispatch: {}
   workflow_call:
     outputs:
       image-digest:
@@ -131,6 +132,7 @@ jobs:
   # 아무도 올리지 않으면 새 호스트에서 `up` 이 이미지를 못 찾아 컨테이너가 아예 뜨지 않고, 코드가
   # 바뀌어도 배포될 길이 없다. 배포 호스트에는 레포 체크아웃이 없어 거기서 빌드할 수도 없다.
   docker-build:
+    if: github.event_name != 'workflow_dispatch'
     name: 채팅 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
     # 검증이 끝난 뒤에만 올린다. 이게 없으면 두 잡이 나란히 돌아, 테스트·checkstyle·spotbugs 가
     # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 GAR 에 올라간다.

@@ -18,6 +18,8 @@ name: Catus app CI V2
     - server/gradle*
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/pr-ci-policy.py
+    - .github/scripts/test_pr_ci_policy.py
   push:
     branches:
     - release
@@ -35,6 +37,8 @@ name: Catus app CI V2
     - server/gradle*
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/pr-ci-policy.py
+    - .github/scripts/test_pr_ci_policy.py
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -54,6 +58,8 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
+    - id: policy
+      run: python3 .github/scripts/pr-ci-policy.py
     - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
     - uses: aws-actions/configure-aws-credentials@v4
       if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
@@ -71,9 +77,11 @@ jobs:
       shell: bash
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      full-checks: ${{ steps.policy.outputs.full-checks }}
   checks:
     needs: verify
-    if: 'needs.verify.outputs.matrix != ''{"service": []}'''
+    if: >-
+      needs.verify.outputs.full-checks == 'true' && needs.verify.outputs.matrix != '{"service": []}'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.verify.outputs.matrix) }}

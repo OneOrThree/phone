@@ -1,14 +1,19 @@
 name: Backoffice CI
 on:
   pull_request:
-    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py']
+    branches: [main, release]
+    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py', '.github/scripts/pr-ci-policy.py', '.github/scripts/test_pr_ci_policy.py']
+  workflow_dispatch: {}
   push:
     branches: [main]
-    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py']
+    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py', '.github/scripts/pr-ci-policy.py', '.github/scripts/test_pr_ci_policy.py']
 permissions:
   contents: read
 jobs:
   verify:
+    if: >-
+      !(github.event_name == 'pull_request' && github.base_ref == 'release' &&
+        github.head_ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -4,7 +4,7 @@ name: Satellite CI (dev)
 
 on:
   pull_request:
-    branches-ignore: [release]
+    branches: [main]
     paths:
       - '.github/workflows/prod-ci.yml'
       - '.github/actions/check-arm-image/**'
@@ -41,6 +41,7 @@ on:
       - '.github/workflows/be-gradle.yml'
       - '.github/workflows/satellite-cd.dev.yml'
       - 'docs/contracts/**'
+  workflow_dispatch: {}
   push:
     branches: [main]
     paths:
@@ -116,6 +117,7 @@ jobs:
       actions: read
 
   images:
+    if: github.event_name != 'workflow_dispatch'
     name: ${{ matrix.service }} 이미지
     needs: [checks, secrets-check]
     # GROMO-1918: 이미지를 «발행»하는 push 에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
