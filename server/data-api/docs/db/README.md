@@ -251,3 +251,7 @@ PostgreSQL dump/restore는 동등한 CHECK의 varchar-array/text cast 표현을 
 `python3 docs/db/test-backoffice-bridge-integration.py`는 기존 DB나 원격 접속 인자를 받지 않고 전용 PostgreSQL 컨테이너 하나를 생성·정리한다. 실제 populated receipt/revision 보존, 원본 및 BASELINE 복원 이력, unknown schema/checksum 거부, 마지막 검증 실패의 전체 transaction rollback, plain V138 경로를 확인한다. `--generate-profile`은 격리 fixture에서 지문을 재생성하는 개발 전용 옵션이며 운영 DB의 지문을 자동 승인하는 기능이 아니다. `DeploymentMigrationMainTest`는 전환 결과에 실제 Flyway validate와 반복 migrate를 실행한다.
 
 Dockerfile의 기존 `COPY docs/db/v0-rebase`와 `COPY src/main/resources/db/migration`가 새 profile 및 원문 확장을 같은 이미지에 포함한다. 별도 호스트 자료나 운영 DB 직접 수정은 필요 없다.
+
+전환 감사증거에는 manifest의 예상 이력을 복사하는 대신 DB에서 읽은 실제 `source_history`의 version/type/script/checksum/success를 보존한다. 최초 V1이 `BASELINE`이면 그 원문과 null checksum도 유지한다. 선택한 source profile·schema 지문, V137.1 확장의 version/script/checksum/SHA256도 기록한다. 비밀번호·연결 문자열·업무 payload는 포함하지 않는다.
+
+수동 rebase의 읽기 전용 계획 출력과 `<backup>.plan.json`이 같은 증거를 담는다. 자동 `deploy-v0.py`는 legacy catch-up을 마친 뒤 이력을 V0..6으로 교체하기 **전에** `<backup>.rebase-plan.json`을 만들고 journal의 `rebase_plan_path`에 위치를 남긴다. 두 sidecar는 0600으로 독점 생성하고 파일·디렉터리를 fsync하며 기존 파일을 덮어쓰지 않는다. 증거 저장에 실패하면 이력 교체를 시작하지 않는다.

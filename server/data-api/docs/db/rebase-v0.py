@@ -196,6 +196,37 @@ def assert_history(actual, expected):
             raise ValueError('기존 migration 체크섬/스크립트가 다릅니다: V' + live['version'])
 
 
+
+def transition_evidence(manifest, history, fingerprint):
+    """승인한 이력의 실제 표현(BASELINE 포함)을 남긴다. 자격·업무 payload는 수집하지 않는다."""
+    keys = ('version', 'type', 'script', 'checksum', 'success')
+    evidence = {
+        'source_profile': manifest.get('profile', 'original'),
+        'source_schema': fingerprint,
+        'source_history': [{key: item[key] for key in keys} for item in history],
+        'extension': None,
+    }
+    if manifest.get('profile') == 'backoffice-137.1':
+        evidence['extension'] = {**{key: manifest['extension_history'][key]
+                                   for key in ('version', 'script', 'checksum')},
+                                 'sha256': manifest['extension_sha256']}
+    return evidence
+
+
+def write_plan(path, plan):
+    """검증 영수증은 DB 변경 전에 독점 생성·0600·fsync로 보존한다."""
+    with open(path, 'x', encoding='utf-8', opener=lambda name, flags: os.open(name, flags, 0o600)) as stream:
+        json.dump(plan, stream, ensure_ascii=False, indent=2)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def bot_ids_sql(manifest):
     return ', '.join(quote(value) + '::uuid' for value in manifest['bot_ids'])
 
@@ -469,7 +500,8 @@ def main():
     link_deliveries = int(database.sql("SELECT count(*) FROM event_outbox_deliveries WHERE target='LINK';"))
     link_events = int(database.sql('SELECT count(*) FROM event_outbox s WHERE ' + orphan_link_event() + ';'))
     plan = {'environment': args.environment, 'host': database.env['PGHOST'], 'port': database.env['PGPORT'],
-            **info, 'from_version': manifest['source_version'], 'to_version': '6' if manifest.get('profile') else '0', 'retired_table_rows': counts,
+            **info, **transition_evidence(manifest, history, fingerprint),
+            'from_version': manifest['source_version'], 'to_version': '6' if manifest.get('profile') else '0', 'retired_table_rows': counts,
             'v0_checksum': expected_checksum, 'seed_checksum': manifest['seed_checksum'],
             'seed_sha256': manifest['seed_sha256'], 'default_rows': manifest['default_rows'],
             'seed_bot_accounts': bots, 'legacy_focus_markers_to_close': legacy_open,
@@ -486,8 +518,7 @@ def main():
     if info['other_connections']:
         raise ValueError('다른 DB 연결이 있습니다. 모든 API·worker·writer를 중지한 뒤 실행하세요.')
     database.backup(args.backup)
-    args.backup.with_suffix(args.backup.suffix + '.plan.json').write_text(
-        json.dumps(plan, ensure_ascii=False, indent=2) + '\n')
+    write_plan(args.backup.with_suffix(args.backup.suffix + '.plan.json'), plan)
     database.sql(apply_sql(manifest, expected_checksum))
     print('V0 전환 완료. 전체 백업: ' + str(args.backup))
     print('새 V0 이미지로 Data API를 시작하고 health·회원·섬·집중 흐름을 확인하세요.')

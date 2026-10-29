@@ -20,6 +20,7 @@
 - `.github/scripts/check-satellite-contracts.py`
 - `.github/scripts/catus-version.py`, `test_catus_version_badges.py`, `test_catus_selective_version.py`
 - `docs/contracts/notification-admin-api.yaml`, `docs/contracts/business-satellite-api.yaml`
+- `server/scripts/nginx-satellites.include.conf.example` — 기존 `/me` Business 라우팅의 개발자 공지 경로 명시
 - `docs/engineering/backoffice-selective-release.md`
 
 `backoffice/`, `app/`, `server/realtime/`, 일반 workflow·배포 인프라 변경은 이 예외에 포함되지 않는다. 경로 허용은 개별 코드 변경의 승인을 대신하지 않으며 해당 서버 PR의 코드 리뷰·테스트는 여전히 필요하다. main → release의 기존 버전 계산과 main 부모 이력 보존 검사는 유지한다.

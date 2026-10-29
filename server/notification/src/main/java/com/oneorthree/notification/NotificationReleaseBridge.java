@@ -156,6 +156,13 @@ public final class NotificationReleaseBridge {
                     + " UPDATE templates t SET enabled=b.enabled FROM bridge_admin_templates b WHERE t.id=b.id;"
                     + " UPDATE deliveries d SET status=b.status,last_error=b.last_error,lease_token=b.lease_token,"
                     + "lease_expires_at=b.lease_expires_at FROM bridge_admin_deliveries b WHERE d.id=b.id");
+            verifySnapshot(connection, "bridge_admin_kind",
+                    "SELECT * FROM kinds WHERE id='" + ADMIN + "'");
+            verifySnapshot(connection, "bridge_admin_templates",
+                    "SELECT id,enabled FROM templates WHERE kind='" + ADMIN + "'");
+            verifySnapshot(connection, "bridge_admin_deliveries",
+                    "SELECT id,status,last_error,lease_token,lease_expires_at FROM deliveries WHERE kind='"
+                            + ADMIN + "'");
             // V9.1은 정규 V14+V15와 같은 DDL임을 전체 public 구조로 확인한 뒤에만 이력을 옮긴다.
             verifySchema(connection, "target-schema.txt");
             execute(connection, "DELETE FROM flyway_schema_history WHERE version='9.1'");
@@ -215,6 +222,17 @@ public final class NotificationReleaseBridge {
             statement.setString(4, migration.script());
             statement.setInt(5, migration.checksum());
             statement.executeUpdate();
+        }
+    }
+
+    /** 복원한 값과 행 집합 모두 원본과 같아야 이력 전환을 허용한다. 식별자와 쿼리는 내부 상수만 받는다. */
+    private static void verifySnapshot(Connection connection, String snapshot, String currentQuery)
+            throws SQLException {
+        String expected = "SELECT * FROM " + snapshot;
+        String difference = "SELECT EXISTS ((" + expected + " EXCEPT " + currentQuery + ") UNION ALL ("
+                + currentQuery + " EXCEPT " + expected + "))";
+        if (scalar(connection, difference).equals("t")) {
+            throw new IllegalStateException("승인 공지 복원 검증 실패: " + snapshot);
         }
     }
 

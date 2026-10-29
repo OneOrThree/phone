@@ -398,6 +398,13 @@ def execute(args, journal, values, connection):
             raise ValueError('V138 준비 후 다른 DB 연결이 있습니다')
         journal.save(phase='rebase-v0')
         selected = rebase.extension_profile(manifest) if ready.get('profile') == 'backoffice-137.1' else manifest
+        actual_history = database.data("SELECT json_agg(row_to_json(h) ORDER BY h.installed_rank) FROM "
+            "(SELECT installed_rank,version,type,script,checksum,success FROM flyway_schema_history) h;")
+        evidence = rebase.transition_evidence(selected, actual_history, database.fingerprint())
+        plan_path = Path(journal.data['backup_paths'][-1] + '.rebase-plan.json')
+        rebase.write_plan(plan_path, {'environment': args.environment, 'database': ready['database'],
+                                     'data_image': args.data_image, **evidence})
+        journal.save(rebase_plan_path=str(plan_path))
         database.sql(rebase.apply_sql(selected, manifest['v0_checksum']))
         journal.save(phase='v0-committed')
     migrate('current')

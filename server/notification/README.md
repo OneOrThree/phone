@@ -218,12 +218,14 @@ UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_inva
 
 전환은 advisory lock과 `public` 테이블 잠금 아래 단일 트랜잭션으로 실행합니다. 정규 V10–V13 SQL을 그대로 실행하되
 V10이 건드리는 `ADMIN_ANNOUNCEMENT` 종류의 모든 설정, 해당 템플릿 enabled 및 발송 원장의 status·last_error·lease를
-복원합니다. 승인 문구·payload·수신자·시도 횟수는 그대로 유지합니다. 정규 V15 스키마와 일치하는 것을 확인한 뒤
+복원하고 원본 스냅샷과 양방향 EXCEPT로 행 집합·값이 모두 같은지 확인합니다. 불일치하면 전체 트랜잭션을 롤백합니다.
+승인 문구·payload·수신자·시도 횟수는 그대로 유지합니다. 정규 V15 스키마와 일치하는 것을 확인한 뒤
 V9.1만 V14·V15 이력으로 대체하고 V1–V9 원본 이력은 보존합니다. V10–V13의 기존 기능 정리와 데이터 변경은 정규 main 승격 범위입니다.
 
 원본 이력 전체와 백업 SHA·DB 정체성은 별도 `notification_release_bridge.receipt`에 보존합니다. 이 audit 스키마는
 애플리케이션 Flyway의 `public` 스키마 밖에 있습니다. 실패하면 DDL·데이터·원장·receipt가 모두 롤백됩니다.
-재실행은 같은 백업 증거, 정확한 target 구조·원장, 기존 receipt가 모두 맞을 때만 아무 변경 없이 성공합니다.
+재실행은 최초 실행과 같은 백업 파일의 SHA256, 정확한 target 구조·원장, 기존 receipt가 모두 맞을 때만 아무 변경 없이 성공합니다.
+V16 이후에는 이 전환기의 재실행을 거절하며 이행 증거는 receipt를 별도로 조회합니다. V9.1을 제거한 installed_rank 10의 공백은 원본 V1–V9 이력을 보존한 결과이며 정상입니다.
 전환 후 일반 main 이미지의 Flyway validate/migrate가 성공하고 추가 migration 0건인지 확인한 뒤 서비스를 재기동합니다.
 서비스 정지는 운영자가 보장해야 하며 연결 부재 확인과 DB 잠금만으로 새로운 관리자 연결까지 영구 차단하지는 않습니다.
 
