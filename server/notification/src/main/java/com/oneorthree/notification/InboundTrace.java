@@ -78,17 +78,24 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
         if (version != null && !"1".equals(version)) {
             return NONE;
         }
-        String trace = safeId(header.apply("X-Origin-Trace-Id"));
+        String trace = safeTrace(header.apply("X-Origin-Trace-Id"));
         String attempt = header.apply("X-Attempt");
         return new InboundTrace(safeId(header.apply("X-Origin-Request-Id")),
-                trace != null && trace.length() <= MAX_TRACE_LENGTH ? trace : null,
+                trace,
                 safeId(header.apply("X-Delivery-Id")),
                 attempt != null && ATTEMPT.matcher(attempt).matches() && Integer.parseInt(attempt) <= MAX_ATTEMPT
                         ? attempt : null);
     }
 
-    private static String safeId(String value) {
-        return value != null && SAFE_ID.matcher(value).matches() ? value : null;
+    /** 형식 규칙 한 곳 — 발송 쪽 {@code DispatchService.Cause} 도 DB 값을 MDC 에 넣기 전에 여기를 거친다. */
+    static String safeId(Object value) {
+        return value != null && SAFE_ID.matcher(value.toString()).matches() ? value.toString() : null;
+    }
+
+    /** @return {@link #safeId} 를 통과하고 열 길이(64)를 넘지 않는 trace 원문, 아니면 {@code null} */
+    static String safeTrace(Object value) {
+        String id = safeId(value);
+        return id != null && id.length() <= MAX_TRACE_LENGTH ? id : null;
     }
 
     /**

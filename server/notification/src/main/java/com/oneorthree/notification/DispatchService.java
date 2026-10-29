@@ -685,6 +685,11 @@ class DispatchService {
     /**
      * 전달 행 하나의 원인 문맥 (GROMO-2558, 로그 계약 §2).
      *
+     * <p>발송 로그의 {@code delivery_id}·{@code attempt} 는 이 서비스의 {@code deliveries.id}·이 dispatch 가 본
+     * {@code attempts+1} 이며, 수신 로그({@code consumer.accept})의 relay 값과 ID 공간이 다르다 — 서비스 사이 연결은
+     * {@code event_id} 다. {@code lease_lost} 는 «이 인스턴스가 잃었다» 는 뜻이라 다른 인스턴스의 {@code sent} 와 같은
+     * delivery 에서 함께 보일 수 있다.
+     *
      * @param eventId         원사건 id
      * @param originRequestId 최초 원인 요청 ID — 구버전 행이면 {@code null}
      * @param originTraceId   최초 원인 trace 원문 — 구버전 행이면 {@code null}
@@ -692,10 +697,10 @@ class DispatchService {
      */
     record Cause(String eventId, String originRequestId, String originTraceId, int attempt) {
         static Cause of(Map<String, Object> row) {
-            Object origin = row.get("origin_request_id");
-            Object trace = row.get("origin_trace_id");
-            return new Cause(String.valueOf(row.get("event_id")), origin == null ? null : origin.toString(),
-                    trace == null ? null : trace.toString(),
+            // 수신 경로(InboundTrace)와 같은 형식 검사 — 어긋난 값은 키를 생략한다.
+            return new Cause(InboundTrace.safeId(row.get("event_id")),
+                    InboundTrace.safeId(row.get("origin_request_id")),
+                    InboundTrace.safeTrace(row.get("origin_trace_id")),
                     row.get("attempts") instanceof Number n ? n.intValue() + 1 : 0);
         }
     }
@@ -708,7 +713,10 @@ class DispatchService {
                 .set("attempt", cause == null || cause.attempt() <= 0 ? null : String.valueOf(cause.attempt()));
     }
 
-    /** 한 행이면 그 원인을 싣고, 둘 이상이면 임의의 한 원인을 싣지 않도록 키를 비운다. */
+    /**
+     * 한 행이면 그 원인을 싣고, 둘 이상이면 임의의 한 원인을 싣지 않도록 키를 비운다. 묶음 발송이 제거돼 둘 이상 분기는
+     * 현재 도달할 수 없고, 그래서 테스트도 없다.
+     */
     private InboundTrace.Scope entryScope(List<Map<String, Object>> ready) {
         if (ready.size() == 1) {
             return causeScope((UUID) ready.get(0).get("id"), Cause.of(ready.get(0)));
@@ -814,7 +822,8 @@ class DispatchService {
                     + " AND status IN ('PENDING','DEFERRED') AND lease_token=? RETURNING status,kind",
                     reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
             warnIfExhausted(id, reason, updated);
-            states.put(id, stateOf(updated));
+            // 조건이 임대 토큰이라 0행이면 임대를 잃은 것 — settle 과 같은 라벨.
+            states.put(id, updated == null ? "lease_lost" : stateOf(updated));
         }
         return states;
     }

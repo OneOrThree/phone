@@ -177,8 +177,12 @@ class DispatchOperationLinkTest {
                 .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=expired"));
     }
 
+    /**
+     * 억제가 {@code holdsLease} 이전에 커밋된 경우만 증명한다. 그 이후의 경쟁은 {@code holdsLease} 의
+     * {@code FOR UPDATE} 가 억제 쪽을 기다리게 하므로 DB 락이 보장하고, 이 테스트가 다루지 않는다.
+     */
     @Test
-    void settleReportsUnchangedWhenTheRowChangedStateMeanwhile() {
+    void settleReportsUnchangedWhenTheRowWasSuppressedBeforeTheLeaseCheck() {
         register("fcm-a", "boot-a", "reg-a");
         UUID id = enqueue("e1", "R1", null, null);
         when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
@@ -189,6 +193,62 @@ class DispatchOperationLinkTest {
 
         assertThat(named("dispatch.settle")).singleElement()
                 .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=unchanged"));
+    }
+
+    @Test
+    void settleReportsUnchangedWhenExpiryFindsTheRowAlreadySuppressed() {
+        register("fcm-a", "boot-a", "reg-a");
+        UUID id = enqueue("e1", "R1", null, DAY.plusSeconds(30));
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+            store.update("UPDATE deliveries SET status='SUPPRESSED' WHERE id=?", id);
+            return PushTransport.Result.RETRY;
+        });
+        dispatch.dispatch(id);
+
+        assertThat(named("dispatch.settle")).singleElement()
+                .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=unchanged"));
+    }
+
+    @Test
+    void renewLeaseFailureBeforeTheNextDeviceLogsLeaseLost() {
+        register("fcm-a", "boot-a", "reg-a");
+        register("fcm-b", "boot-b", "reg-b");
+        UUID id = enqueue("e1", "R1", null, null);
+        // 첫 기기 결과를 기록하는 트랜잭션 안에서 임대 토큰이 바뀐다 — 다음 기기 앞 renewLease 가 실패한다.
+        store.update("CREATE FUNCTION steal_lease() RETURNS trigger AS $$ BEGIN"
+                + " UPDATE deliveries SET lease_token=gen_random_uuid() WHERE id=NEW.delivery_id; RETURN NEW; END;"
+                + " $$ LANGUAGE plpgsql");
+        store.update("CREATE TRIGGER steal_lease AFTER INSERT ON delivery_devices"
+                + " FOR EACH ROW EXECUTE FUNCTION steal_lease()");
+        try {
+            dispatch.dispatch(id);
+        } finally {
+            store.update("DROP TRIGGER steal_lease ON delivery_devices");
+            store.update("DROP FUNCTION steal_lease()");
+        }
+
+        assertThat(named("operation.link")).hasSize(1);
+        assertThat(named("dispatch.settle")).singleElement()
+                .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=lease_lost"));
+    }
+
+    @Test
+    void backOffReportsLeaseLostWhenTheTokenChangedBeforeTheFailureWasRecorded() {
+        register("fcm-a", "boot-a", "reg-a");
+        UUID id = enqueue("e1", "R1", null, null);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            store.update("UPDATE deliveries SET lease_token=gen_random_uuid() WHERE id=?", id);
+            throw new IllegalStateException("boom");
+        });
+        try {
+            dispatch.dispatch(id);
+        } catch (RuntimeException expected) {
+            // 호출부에는 실패가 전해진다 — 여기서 보는 것은 로그 라벨뿐이다.
+        }
+
+        assertThat(named("dispatch.settle")).singleElement()
+                .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=lease_lost"));
     }
 
     @Test
