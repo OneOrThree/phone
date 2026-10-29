@@ -334,4 +334,13 @@ class TraceIdFilterTest {
         run(request, (req, response) -> assertThat(MDC.get("origin_request_id")).isNull());
     }
 
+    @Test
+    @DisplayName("X-Trace-Context-Version 앞뒤 공백은 걷어 내 v1 로 받는다 (GROMO-2582)")
+    void paddedContextVersionIsAccepted() throws Exception {
+        MockHttpServletRequest request = authenticated();
+        request.addHeader("X-Origin-Request-Id", "req-v1");
+        request.addHeader("X-Trace-Context-Version", " 1");
+        run(request, (req, response) -> assertThat(MDC.get("origin_request_id")).isEqualTo("req-v1"));
+    }
+
 }

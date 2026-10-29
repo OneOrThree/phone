@@ -44,6 +44,9 @@ public record InternalCall(
 
     private static final String HEADER_AUTHORIZATION = "authorization";
     private static final String HEADER_USER_ID = "x-user-id";
+    /** RFC 7230 token — 공백·제어 문자가 낀 이름 변형으로 금지 목록을 우회하지 못하게 한다. */
+    private static final java.util.regex.Pattern HEADER_TOKEN =
+            java.util.regex.Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
 
     /**
      * 상류 401 을 «사용자» 오류로 읽어도 되는 경로 — 사용자 자격이 인증 정본인 계약들이다.
@@ -84,6 +87,9 @@ public record InternalCall(
         query = query == null ? Map.of() : Map.copyOf(query);
         declaredHeaders = declaredHeaders == null ? Map.of() : Map.copyOf(declaredHeaders);
         for (String name : declaredHeaders.keySet()) {
+            if (!HEADER_TOKEN.matcher(name).matches()) {
+                throw new IllegalArgumentException("헤더 이름 형식이 올바르지 않다: [" + name + "]");
+            }
             String lower = name.toLowerCase(java.util.Locale.ROOT);
             if (HEADER_AUTHORIZATION.equals(lower) || HEADER_USER_ID.equals(lower)
                     || "x-request-id".equals(lower) || "idempotency-key".equals(lower)

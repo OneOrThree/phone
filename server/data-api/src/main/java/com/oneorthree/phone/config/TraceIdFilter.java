@@ -96,6 +96,8 @@ public class TraceIdFilter extends OncePerRequestFilter {
         String requestId = null;
         String traceId = null;
         String version = trim(request.getHeader("X-Trace-Context-Version"));
+        // 현재 필터 배치(/internal/* 에만 등록, InternalAuthFilter 다음)에서는 CALLER 가 항상 있어 else 쪽에 도달하지 않는다 —
+        // 배치가 바뀌어도 위조 헤더를 채택하지 않게 두는 방어 코드다.
         if (request.getAttribute(InternalCallAttributes.CALLER) != null) {
             if (version.isEmpty() || "1".equals(version)) {
                 requestId = originHeader(request, "X-Origin-Request-Id", 128);
