@@ -111,7 +111,7 @@
 | F | A + `/ddprof:size=16m,mode=0700,uid=10001,gid=10001,exec` + `DD_PROFILING_TEMPDIR=/ddprof` (수정안, compose와 같은 값) | 0 | 0 | 0 | — |
 | D | C 컨테이너를 같은 쓰기 레이어로 한 번 더 시작 | — | — | — | 1차 0 → 2차 2 |
 
-A의 건수(2·1·2)는 dev Business 원본 건수와 같다. 이전 판정 규칙의 amd64(에뮬레이션, `PLATFORM=linux/amd64`, `Linux X64`)와 arm64(네이티브) 통과에 더해, 수정안 값 `size=16m,mode=0700,uid=10001,gid=10001,exec`와 강화한 판정(마운트 단언·D-both 기동 2건)은 arm64(호스트)에서 전부 통과했다. 수정안 값의 amd64 재실행은 하지 않았다. 원문 첫 줄은 다음과 같다.
+A의 건수(2·1·2)는 dev Business 원본 건수와 같다. 이전 판정 규칙의 amd64(에뮬레이션, `PLATFORM=linux/amd64`, `Linux X64`)와 arm64(네이티브) 통과에 더해, 수정안 값 `size=16m,mode=0700,uid=10001,gid=10001,exec`와 강화한 판정(마운트 단언·D-both 기동 2건)은 arm64(호스트)에서 전부 통과했다. F에 `Untrusted` 0건과 `/ddprof/…/dd_crash_uploader.sh` 존재·소유자 10001 단언을 더한 최종 판정은 arm64(호스트)와 `PLATFORM=linux/amd64`(에뮬레이션, `"architecture":"amd64"` 단언 포함) 모두 종료 코드 0으로 통과했다. F에서 crash uploader·OOME notifier 스크립트가 에이전트가 만든 uid 10001 소유 파일로 확인됐으므로 crash tracking 초기화까지는 확인했다. crash 때 실제 업로드 실행은 확인하지 못했다. 원문 첫 줄은 다음과 같다.
 
 ```text
 MOUNT /tmp rw,nosuid,nodev,noexec,relatime,size=65536k
@@ -147,7 +147,7 @@ Agent 종료의 직접 메커니즘은 공동 배포 quiesce 단계의 `docker s
 | Exporter E 2건 | 해당 scrape 1회의 offset 지표 누락 | 같은 시각 앱 Kafka 오류 0건, APM error span 0건(00:45~00:58). 05:00~05:10에는 Business `ScreenController.home` 1건뿐이다(Kafka 무관). | **미확정(증거 없음)** |
 | Business profiler (a) | 네이티브 프로파일(wall·native CPU 등), OTel process context, crash·OOME 알림이 동작하지 않았다. JFR 기반 프로파일 업로드는 동작했다(`Upload done`). | 같은 컨테이너의 `business_public_failure` 10건(09:39:13~22Z, 내부 504/503 `UPSTREAM_TIMEOUT`·`SERVICE_UNAVAILABLE`)이 별도로 존재한다. 증거는 «내부 오류 코드가 상류를 가리킨다»까지이고, «Data 시간 초과»는 추정이다. 같은 시각(09:34~09:42Z) Datadog 읽기 조회에서 `gromo-data-dev` 스팬은 2517건이고 error 스팬은 0건이었다(Business는 error 스팬 19건). 이것도 Data의 지연을 배제하지 못한다(타임아웃은 호출 쪽 스팬에 남는다). profiler 오류(09:36:26~44Z, Spring 기동 전 premain)와 겹친다는 증거는 없다. 이 10건과 profiler의 관계는 증거 없음이다. | **업무 영향 증거 없음(원인 미확정)** |
 | 전송 실패 (d) | trace Notification 2·Realtime 5·Data 1건 유실, 09:43:21Z 이후 수집 중단 | 같은 시각 앱 정지는 배포 quiesce와 그 뒤 배포 중단의 결과다. 전송 실패가 원인이 아니다. | profiler·telemetry 오류로 인한 업무 영향 **없음(증거 없음)**. 배포 중단에 따른 dev 정지는 별건(2571) |
-| `Untrusted` 스크립트 (c) | 해당 JVM 실행 동안 crash·OOME 알림 미작동 | — | 업무 영향 없음 |
+| `Untrusted` 스크립트 (c) | 해당 JVM 실행 동안 crash·OOME 알림 미작동 | — | 업무 영향 증거 없음 |
 
 참고로 Datadog `status:error` 20건 중 실제 업무 실패는 0건이었다. 다만 «지금까지 업무 오류가 없었다»는 뜻이 아니다. 같은 시간대에 업무 실패 10건은 별도로 존재하고, profiler와의 관계는 증거 없음이다. 그 10건은 앱 ERROR로 기록됐는데 Datadog에는 `status:info`로 저장됐다. 따라서 Datadog error 건수로는 업무 실패를 셀 수 없다. 심각도 정정은 GROMO-2572 등 파이프라인 작업 범위다.
 
@@ -174,7 +174,7 @@ tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=16m,mode=0700,uid=10001,gid=100
 ```
 
 - `/tmp`는 외부 PDF 임시 파일 자리라 noexec를 유지한다. 실행 권한은 프로파일러 `.so`·JFR 임시 파일이 쓰는 `/ddprof`에만 준다. 로컬 재현 F에서 A의 오류 5건이 0건이 됐다. idle 80초 동안 `/ddprof` 사용량은 1.8 MB(`.so` 1.3 MB + JFR 0.4 MB)였다. 16 MiB는 이 idle 사용량의 약 9배 여유이며, **부하 시 JFR 크기는 측정하지 않았다**(부하 테스트 금지). 부족하면 업로드 실패 로그로 드러나며 크기만 늘리면 된다. 소유자·모드는 앱 실행 uid/gid 10001(`server/business-api/Dockerfile` 45행 `groupadd/useradd`, 50행 `USER business`)에 맞춰 다른 uid의 접근을 막았다. 같은 uid의 프로세스(PDF 파서 자식 포함)는 막지 못한다.
-- **보안 절충**: read-only 루트에서 쓰기와 실행이 함께 되는 자리가 하나 생긴다. 리뷰어가 이 절충을 받아들이지 않으면 이 두 줄을 되돌린다. 되돌릴 때는 `DD_PROFILING_TEMPDIR`와 tmpfs의 `/ddprof` 두 줄을 **함께** 되돌린다(환경변수만 남으면 `/ddprof`가 읽기 전용 루트 위라 쓰기가 실패한다). 그러면 현행 상태(JFR 프로파일만, crash·OOME 알림 없음, OTel process context 로드 실패도 그대로)로 돌아가고, 오류 줄은 수집 단계 분류로만 다룬다.
+- **보안 절충**: read-only 루트에서 쓰기와 실행이 함께 되는 자리가 하나 생긴다. 이 컨테이너의 seccomp 프로파일은 확인하지 못했다. 디스크 바이너리 실행 경로가 새로 열린다는 평가는 `memfd_create` 같은 메모리 기반 실행이 이미 가능하다는 가정을 뺀 전제 위의 평가다. 리뷰어가 이 절충을 받아들이지 않으면 이 두 줄을 되돌린다. 되돌릴 때는 `DD_PROFILING_TEMPDIR`와 tmpfs의 `/ddprof` 두 줄을 **함께** 되돌린다(환경변수만 남으면 `/ddprof`가 읽기 전용 루트 위라 쓰기가 실패한다). 그러면 현행 상태(JFR 프로파일만, crash·OOME 알림 없음, OTel process context 로드 실패도 그대로)로 돌아가고, 오류 줄은 수집 단계 분류로만 다룬다.
 - 비채택 대안: `/tmp`에 exec 추가(B)는 PDF 임시 파일 자리까지 실행이 열려 범위가 넓다. `DD_PROFILING_DDPROF_ENABLED=false`(E)는 OTel·crash tracking 실패가 남는다. 미리 푼 `.so`와 `DD_PROFILING_DDPROF_DEBUG_LIB` 조합은 프로파일러만 고치고 디버그용 키에 기대므로 채택하지 않았다.
 - 서버 반영은 하지 않았다. 머지 뒤 다음 Satellite Dev CD가 Business를 재생성할 때 적용된다. 운영 실행 구성은 Infra 저장소에 있어 같은 설정인지 확인하지 않았다.
 

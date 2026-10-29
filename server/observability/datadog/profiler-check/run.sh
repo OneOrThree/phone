@@ -87,7 +87,7 @@ mnt() {  # 이름, 마운트점, noexec|exec
 mnt A-business /tmp noexec; mnt B-tmp-exec /tmp exec; mnt E-ddprof-off /tmp noexec
 mnt F-tempdir /tmp noexec; mnt F-tempdir /ddprof exec
 # 플랫폼 단언: PLATFORM 을 줬는데 다른 아키텍처로 돌았으면 FAIL
-if [ "${PLATFORM##*/}" = amd64 ]; then pos A-business 'architecture: amd64'; fi
+if [ "${PLATFORM##*/}" = amd64 ]; then pos A-business '"architecture":"amd64"'; fi
 expect A-business "$M" 2;  expect A-business "$P" 1;  expect A-business "$N" 2
 expect B-tmp-exec "$M" 0;  expect B-tmp-exec "$P" 0;  expect B-tmp-exec "$N" 0
 expect C-plain "$M" 0;     expect C-plain "$P" 0;     expect C-plain "$N" 0
@@ -99,6 +99,9 @@ for c in A-business B-tmp-exec C-plain E-ddprof-off F-tempdir D-first; do pos $c
 atleast() { local got; got=$(n "$1" "$2"); if [ "$got" -ge "$3" ]; then echo "PASS $1 양성 '$2' = $got ($3 이상)"; else echo "FAIL $1 양성 '$2' = $got (기대 $3 이상)"; fail=1; fi; }
 atleast D-both "$T" 2
 for c in B-tmp-exec C-plain F-tempdir; do pos $c "$L"; done
+# F: crash uploader 스크립트가 /ddprof 아래 uid 10001 소유로 생겼고(에이전트의 Untrusted 검사 대상) Untrusted 는 0건이어야 한다.
+pos F-tempdir 'dd_crash_uploader.sh uid=10001$'
+expect F-tempdir "$U" 0
 expect D-first "$U" 0;     expect D-both "$U" 2
 echo "원문: $OUT"
 exit $fail
