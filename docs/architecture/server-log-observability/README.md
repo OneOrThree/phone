@@ -15,7 +15,7 @@
 - [재검토에서 발견한 공백·수정·잔여 검증](review-2026-10-29.md)
 - 기존 정본: [시스템 아키텍처](../system-architecture.md), [서비스 아키텍처](../service-architecture.md), [보존 정책](../../prd/fishcat/account/policy.md#로그분석-보존-기간)
 
-흐름도 원본은 이 문서의 Mermaid이며, 아래 SVG는 같은 소스를 렌더링한 정적 사본이다. 흐름을 바꾸면 두 형식을 함께 갱신한다. 노드·엣지의 «(목표)»는 피처 브랜치 현재 상태에서 코드가 없거나, 모듈 스위치 기본 꺼짐(dev S3 출력·호스트 Nginx 수집)이거나, dev에서 미가동(Loki)인 경로다. Grafana는 dev에서 가동 중이지만 Loki는 아니므로, Loki 노드가 없는 06 그림의 Grafana 경로에는 라벨을 붙이지 않는다. 근거는 [구현 현황](implementation-status.md)이다.
+흐름도 원본은 이 문서의 Mermaid이며, 아래 SVG는 같은 소스를 렌더링한 정적 사본이다. 흐름을 바꾸면 두 형식을 함께 갱신한다. 노드·엣지의 «(목표)»는 피처 브랜치 현재 상태에서 코드가 없거나, 모듈 스위치 기본 꺼짐(dev S3 출력·호스트 Nginx 수집)이거나, dev에서 미가동(Loki)인 경로다. Grafana는 dev에서 가동 중이지만 Loki는 아니므로, Loki 노드가 없는 06 그림의 Grafana 경로에는 라벨을 붙이지 않는다. 근거는 [구현 현황](implementation-status.md)이다. 02 의 "DB / Redis / Kafka 로그 (목표)" 노드의 (목표)는 로그 수집 기준이며, 같은 노드에서 나가는 exporter 메트릭 경로는 로그 수집과 별개로 구성돼 있다(`server/observability/prometheus/prometheus.yml` scrape 대상, dev 가동 기록은 `runtime-inventory.md` 52·53행).
 
 | 그림 | 읽을 내용 |
 | --- | --- |
@@ -115,7 +115,6 @@ flowchart LR
     GF -. trace ID 링크 .-> DD
     S3 --> ARCH["기간별 원본 조회: Athena / 제한된 다운로드 (목표)"]
     JVM -->|Actuator| PR
-    INF -->|exporter| PR
     INF2 -->|exporter| PR
 ```
 
