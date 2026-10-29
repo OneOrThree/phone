@@ -1,9 +1,11 @@
+import { DestinationMarker } from './DestinationMarker';
 import { CoastalAtlas } from './CoastalAtlas';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import { TileTerrainFacilities } from './TileTerrainFacilities';
 import {
   Canvas,
+  DashPathEffect,
   Circle,
   Group,
   Path,
@@ -39,7 +41,7 @@ type Point = { x: number; y: number };
 // 한계에 걸리거나 메모리 부담이 될 수 있다. 코드는 그대로 두고 실기기에서 로드·메모리를 확인한다.
 
 // 개발 확인용 이동 보기(`navDebug`, FinalIsland 의 개발 버튼): 타일 경계선 · 막힌 nav 셀 · 마지막 걷기(탭→보정 목적지·점)를
-// 그려 준다. 걷는 경로 선 자체는 운영 경로선(`walkPath` prop, GROMO-2479)이 늘 그린다.
+// 그려 준다. 운영 화면은 `walkPath`에 점선 경로와 목적지 화살표·링을 그린다.
 // 버튼이 CAN_PREVIEW_VILLAGE 로만 뜨고 그리기는 prop 이 있을 때만이라 배포 빌드에서는 그려지지 않는다.
 export type NavWalk = { tap: Point; path: Point[] };
 /** 서버 확정 경로·스냅샷·예측 오차(GROMO-2249), 전부 1x 이미지 px. 이동 동기화가 꺼져 있으면 전부 null. */
@@ -297,11 +299,13 @@ export function TileTerrainCanvas({
   );
   const blocked = useMemo(() => (nav ? buildBlockedPath(nav) : null), [nav]);
   const walk = navDebug?.walk;
-  // 지형이 안 뜬 동안은 아무것도 안 그리니(아래 return null) 선도 이미지가 뜬 뒤에 만든다.
+  const scale = base * camera.z;
   const route = useMemo(
     () => (image && walkPath && walkPath.length > 1 ? polyline(walkPath) : null),
     [image, walkPath],
   );
+  // 목적지 중심점과 링은 확대해도 화면 크기를 유지한다.
+  const destinationPoint = walkPath && walkPath.length > 1 ? walkPath[walkPath.length - 1] : null;
   const tapLine = useMemo(() => {
     const dest = walk?.path[walk.path.length - 1];
     return walk && dest ? polyline([walk.tap, dest]) : null;
@@ -335,7 +339,6 @@ export function TileTerrainCanvas({
     return () => clearInterval(id);
   }, [correctedAt, reduceMotion]);
   if (!image || !atlas || (needsCoastMask && !coastMask)) return null;
-  const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
   const arrow =
     server?.predicted && server?.snapshot
@@ -387,9 +390,21 @@ export function TileTerrainCanvas({
           <Path
             path={route}
             style="stroke"
-            strokeWidth={componentTokens.walkPath.width / scale}
+            strokeCap="round"
+            strokeWidth={componentTokens.walkPath.routeWidth / scale}
             color={componentTokens.walkPath.color}
-          />
+            opacity={componentTokens.walkPath.routeOpacity}
+          >
+            <DashPathEffect
+              intervals={[
+                componentTokens.walkPath.dashLength / scale,
+                componentTokens.walkPath.dashGap / scale,
+              ]}
+            />
+          </Path>
+        )}
+        {destinationPoint && (
+          <DestinationMarker x={destinationPoint.x} y={destinationPoint.y} scale={scale} />
         )}
         {walk && walk.path.length > 0 && (
           <>

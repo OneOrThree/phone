@@ -402,6 +402,31 @@ class DeviceTransportContinuityTest {
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
     }
 
+    @Test
+    void 환경_불일치가_지속되어도_시도_횟수를_소진하지_않고_복구_후_발송한다() {
+        register("fcm-env", "boot-env", 1, "reg-env");
+        when(transport.send(eq("fcm-env"), any(), anyBoolean(), anyString()))
+                .thenThrow(new NotificationEnvironmentGuard.EnvironmentMismatch("환경 불일치"));
+        UUID id = enqueue("env-recovery");
+        store.update("UPDATE deliveries SET attempts=59 WHERE id=?", id);
+
+        for (int minute = 0; minute < 3; minute++) {
+            when(clock.instant()).thenReturn(DAY.plusSeconds(60L * minute));
+            assertThatThrownBy(() -> dispatch.dispatch(id))
+                    .isInstanceOf(DispatchService.LeasedFailure.class)
+                    .hasCauseInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class);
+            assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                    .containsEntry("status", "PENDING").containsEntry("attempts", 59)
+                    .containsEntry("last_error", "ENVIRONMENT_MISMATCH").containsEntry("lease_token", null);
+        }
+
+        when(transport.send(eq("fcm-env"), any(), anyBoolean(), anyString()))
+                .thenReturn(PushTransport.Result.SENT);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(180));
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
     /**
      * 실패 기록의 UPDATE 까지 실패하면 원래 전송 예외가 보존돼야 한다. attempts 정수 오버플로로
      * 기록 쿼리만 결정적으로 실패시키므로 DB 락이나 실행 시각에 기대지 않는다.

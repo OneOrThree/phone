@@ -1,3 +1,4 @@
+import { applyLocalePref } from '@/i18n';
 import React from 'react';
 import { render } from '@testing-library/react-native';
 import type { CatalogEntry } from '@/services/customizationCatalog';
@@ -79,4 +80,15 @@ test('받은 아이템이 없거나 카탈로그가 모르면 보상 칸이 없�
   expect(
     (await render(summary('cust.head.unknown'))).queryByTestId('focus-result-item'),
   ).toBeNull();
+});
+
+afterEach(() => applyLocalePref('system'));
+
+test('영어 결과창은 꾸미기 이름과 스크린리더 설명을 함께 번역한다', async () => {
+  applyLocalePref('en');
+  const screen = await render(summary('cust.head.mandarin', true));
+  expect(screen.getByText('Mandarin')).toBeTruthy();
+  expect(screen.getByTestId('focus-result-item').props.accessibilityLabel).toContain('Mandarin');
+  expect(screen.queryByText('귤 한 알')).toBeNull();
+  expect(mockAddUnseen).toHaveBeenCalledWith('rec-1', ['cust.head.mandarin']);
 });
