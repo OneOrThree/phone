@@ -94,8 +94,9 @@ echo "Loki: loki_discarded_samples_total{too_far_behind}=$LOKI_DISCARDED  (보�
 $C logs fluent-bit 2>&1 | grep 'status=400' | head -3
 # Fluent Bit dropped_records 는 400 을 받은 «청크 단위»로 센다. 같은 청크에 수용창 안 줄(o30)과 밖 줄(o3h)이 섞이면 Loki 는 안쪽 줄은
 # 저장하고 바깥 줄만 거절하지만 Fluent Bit 은 그 청크 전체를 dropped 로 센다. 그래서 dropped·errors 는 tail 타이밍에 따라
-# 20·25·40·45… 로 달라지며 «잃은 줄 수»가 아니다. 실제 유실 판정의 정본은 위 수신 수(got == want), 아래 Loki 거절 25,
-# 마지막의 TOTAL_DROPPED == G_DROPPED(g 밖 drop 없음)이다. 여기선 범위만 본다:
+# 20·25·40·45… 로 달라지며 «잃은 줄 수»가 아니다. 아래 범위 단언은 유실을 잡지 못한다 — 상한 50 은 g 에서 보낸 줄 전부라 전부 버려져도
+# 통과한다. 실제 유실 판정의 정본은 위 수신 수(got == want), 아래 Loki 거절 25, 마지막의 TOTAL_DROPPED == G_DROPPED(g 밖 drop 0)이고,
+# 셋 중 하나라도 어긋나면 fail 이다. 범위 단언은 집계 방식이 바뀐 것(버전 변경 등)을 알리는 용도다:
 # 하한 = o3h 청크 20, 상한 = g 에서 보낸 줄 수 합 20+20+5+5 = 50, errors 는 1 이상·4(append 횟수) 이하.
 [ "$G_DROPPED" -ge 20 ] && [ "$G_DROPPED" -le 50 ] || fail "(g) Fluent Bit dropped=$G_DROPPED (기대 20~50, 청크 단위 집계)"
 [ "$G_ERRORS" -ge 1 ] && [ "$G_ERRORS" -le 4 ] || fail "(g) Fluent Bit errors=$G_ERRORS (기대 1~4, 청크 수)"
@@ -110,7 +111,8 @@ labels = q("labels"); print("labels:", sorted(labels))
 vals = {l: sorted(q(f"label/{l}/values")) for l in ("env", "service", "log_kind")}; print(vals)
 errors = []
 if set(labels) - {"env", "service", "log_kind"}: errors.append(f"허용 밖 라벨 {sorted(set(labels) - {'env', 'service', 'log_kind'})}")
-# canary(fluent-bit 합성 입력, 60초마다, 기본 켜짐)는 정상 도착이다 — 기대 집합에 명시적으로 포함한다.
+# canary(fluent-bit 합성 입력, 60초마다, 기본 켜짐)는 정상 도착이다 — 기대 집합에 명시적으로 포함한다. canary 가 «없어도» 통과한다:
+# 여기서는 라벨 값 집합만 보고, canary 의 도착·누락 판정은 local-test/s3/canary.py(run-s3.sh) 책임이다.
 if sorted(vals["service"]) not in (["data-api"], ["canary", "data-api"]): errors.append(f"service 값 집합이 {{data-api[, canary]}} 가 아님: {vals['service']}")
 if vals["env"] != ["dev"]: errors.append(f"env 값 집합이 {{dev}} 가 아님: {vals['env']}")
 if not set(vals["log_kind"]) <= {"application", "access", "raw"}: errors.append(f"log_kind 허용 밖: {vals['log_kind']}")

@@ -153,25 +153,22 @@ local function raw_record(line, stream)
   return out
 end
 
--- 경로: query·fragment 제거, 토큰처럼 보이는 긴 세그먼트(20자 이상 영숫자/-_.~%, UUID 제외)는 :redacted, 이메일·휴대폰은 mask 규칙.
+-- 경로: query·fragment 제거, 토큰처럼 보이는 긴 글자 묶음(20자 이상 영숫자/-_.~%, UUID 8-4-4-4-12 제외)은 :redacted, 이메일·휴대폰은 mask 규칙.
+-- '/' 는 묶음에 안 들어가므로 보통 경로에서는 «세그먼트 단위» 와 같고, 잘린 error 줄처럼 경로 뒤에 다른 글이 붙어도 토큰 부분만 가린다.
+-- 한계: 20자 미만 세그먼트(짧은 OTP·초대 코드 등)는 가리지 못한다 — 경로에 비밀을 싣는 라우트는 앱에서 막아야 한다.
+local UUID = "^" .. ("%x"):rep(8) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(12) .. "$"
+local TOKEN_RUN = ("[%w%-_%.~%%]"):rep(20) .. "[%w%-_%.~%%]*"
 local function sanitize_path(uri)
-  uri = tostring(uri or ""):gsub("[?#].*$", "")
-  uri = uri:gsub("[%c]", "")
-  local parts = {}
-  local start = 1
-  while true do
-    local i = uri:find("/", start, true)
-    if not i then parts[#parts + 1] = uri:sub(start); break end
-    parts[#parts + 1] = uri:sub(start, i - 1)
-    start = i + 1
-  end
-  for i, seg in ipairs(parts) do
-    local is_uuid = seg:match("^%x+%-%x+%-%x+%-%x+%-%x+$") ~= nil
-    if #seg >= 20 and not is_uuid and seg:match("^[%w%-_%.~%%]+$") then parts[i] = ":redacted" end
-  end
-  local out = mask(table.concat(parts, "/"))
-  if #out > 512 then out = out:sub(1, 512) end
-  return out
+  uri = tostring(uri or ""):gsub("[?#].*$", ""):gsub("[%c]", "")
+  uri = uri:gsub(TOKEN_RUN, function(run) return run:match(UUID) and run or ":redacted" end)
+  return (truncate(mask(uri), 512))
+end
+
+-- URL: 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
+local function sanitize_url(u)
+  local base, path = u:match("^(%a[%w+.-]*://[^/?#]*)(.*)$")
+  if base then return base .. sanitize_path(path) end
+  return sanitize_path(u)
 end
 
 -- combined: ip ident user [time] "METHOD URI PROTO" status bytes "referer" "agent"
@@ -226,16 +223,23 @@ local function nginx_error(line, stream)
   if conn then connection, rest = tonumber(conn), after end
   -- 요청 줄·upstream·referrer·client 에는 query/토큰/IP 가 들어갈 수 있다.
   rest = rest:gsub('request: "(%S+) (%S+) ([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. " " .. p .. '"' end)
-  rest = rest:gsub('upstream: "([^"]*)"', function(u)
-    -- 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
-    local base, path = u:match("^(%a[%w+.-]*://[^/]*)(.*)$")
-    if base then return 'upstream: "' .. base .. sanitize_path(path) .. '"' end
-    return 'upstream: "' .. sanitize_path(u) .. '"'
-  end)
+  rest = rest:gsub('upstream: "([^"]*)"', function(u) return 'upstream: "' .. sanitize_url(u) .. '"' end)
   rest = rest:gsub('referrer: "[^"]*"', 'referrer: "-"')
   rest = rest:gsub("client: [^,%s]+", "client: ****")
+  -- auth_basic: user "<이름>" was not found in "…" / user "<이름>": password mismatch. host:·server: 는 호스트 이름이라 둔다.
+  rest = rest:gsub('%f[%w]user "[^"]*"', 'user ":redacted"')
   -- open() "/경로" failed, directory index of "/경로" 처럼 따옴표로 감싼 파일 경로에도 요청 경로가 그대로 들어간다.
   rest = rest:gsub('"(/[^"]*)"', function(p) return '"' .. sanitize_path(p) .. '"' end)
+  -- Nginx 는 error 한 줄을 약 2 KiB(NGX_MAX_ERROR_STR)에서 자른다. 그러면 마지막 따옴표 값이 닫히지 않아 위 규칙이 모두 비껴간다.
+  -- 따옴표 수가 홀수면 마지막 따옴표 뒤(줄 끝까지)를 정제한다: referrer 는 버리고, upstream 은 URL 규칙, 그 밖(request: "GET /…,
+  -- open() "/… 뒤에 Nginx 가 붙인 «... (2: No such file …), client: …» 포함)은 query 제거 + 경로 정제.
+  local before, tail = rest:match('^(.*")([^"]*)$')
+  if before and select(2, rest:gsub('"', '')) % 2 == 1 then
+    if before:sub(-11) == 'referrer: "' then tail = "-"
+    elseif before:sub(-11) == 'upstream: "' then tail = sanitize_url(tail)
+    else tail = sanitize_path(tail) end
+    rest = before .. tail
+  end
   local message, cut = truncate(mask((truncate(rest, MESSAGE_LIMIT * 2))), MESSAGE_LIMIT)
   local out = {
     schema_version = 1, log_id = uuid4(), log_kind = "infrastructure",
@@ -271,14 +275,16 @@ function nginx_host_select(tag, ts, record)
   return 1, ts, record
 end
 
-local canary_seq = 0
+-- canary_seq 는 수집기 프로세스마다 1 부터 다시 센다. canary_boot(프로세스마다 새 무작위 값)로 묶으면 빠진 번호 = 어느 sink 에도 안 온 canary.
+local canary_seq, CANARY_BOOT = 0, random_hex(4)
 function canary(tag, ts, record)
   canary_seq = canary_seq + 1
   local now = type(ts) == "number" and ts or os.time()
   local out = {
     schema_version = 1, log_id = uuid4(), log_kind = "application", timestamp = iso_ms(now),
     level = "INFO", logger = "fluent-bit.canary", thread = "canary", message = "canary",
-    service = "canary", env = DEFAULT_ENV, canary_seq = canary_seq, observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    service = "canary", env = DEFAULT_ENV, canary_seq = canary_seq, canary_boot = CANARY_BOOT,
+    observed_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
   }
   if not ENVS[out["env"]] then out["env"] = "unknown" end
   return 1, ts, out

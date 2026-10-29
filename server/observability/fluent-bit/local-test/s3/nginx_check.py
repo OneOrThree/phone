@@ -35,12 +35,14 @@ for name, rs in (("loki", loki), ("s3", s3)):
     linked = sum(1 for r in up if str(r.get("request_id", "")).startswith("up-"))
     s502 = sum(1 for r in rs if r.get("log_kind") == "access" and r.get("status_code") == 502)
     s413 = sum(1 for r in rs if r.get("log_kind") == "access" and r.get("status_code") == 413)
+    # 따옴표 수가 홀수 = Nginx 가 잘라 닫는 따옴표가 없는 error 줄. 이 경우가 실제로 지나갔는지(0 이면 시험이 안 된 것) 본다.
+    unclosed = sum(1 for r in errs if r.get("message", "").count('"') % 2 == 1)
     src = collections.Counter("docker" if "stream" in r else "host" for r in rs if r.get("log_kind") == "access" and r.get("edge_request_id") in kinds)
     print(f"NGINX\t{name}\texpected={len(expected)}\treceived={len(got)}\tmissing={len(expected)-len(got)}\tduplicates={dup}\tby_source={dict(src)}\t"
-          f"status502={s502}\tstatus413={s413}\tupstream_id_linked={linked}/{len(up)}\terror_records={len(errs)}\traw_records={len(raw)}\tleaked={leaks}")
-    if len(got) != len(expected) or dup or leaks or not errs or linked != len(up): bad = 1
+          f"status502={s502}\tstatus413={s413}\tupstream_id_linked={linked}/{len(up)}\terror_records={len(errs)}\tunclosed_quote_errors={unclosed}\traw_records={len(raw)}\tleaked={leaks}")
+    if len(got) != len(expected) or dup or leaks or not errs or not unclosed or linked != len(up): bad = 1
     if name == "loki":
         for r in errs[:3]: print("  sample error:", r["message"][:200])
-        for r in rs[:0]: pass
+        for r in [r for r in errs if r.get("message", "").count('"') % 2 == 1][:4]: print("  sample unclosed:", r["message"][-160:])
         sample = next((r for r in rs if r.get("log_kind") == "access"), None); print("  sample access:", json.dumps(sample)[:300])
 sys.exit(bad)

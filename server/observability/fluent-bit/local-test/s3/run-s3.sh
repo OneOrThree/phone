@@ -13,7 +13,7 @@ FAILS=0; RESULTS="$TMP/results.tsv"; : > "$RESULTS"
 WATCH_PID=""
 clean() {
   [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null || true
-  [ -n "${CANARY_PID:-}" ] && kill "$CANARY_PID" 2>/dev/null || true
+  [ -n "${CANARY_PID:-}" ] && kill -KILL "$CANARY_PID" 2>/dev/null || true   # 비정상 종료 — 판정 대기 없이 끝낸다
   docker ps -aq --filter "name=obs2562s3-gen-" | xargs docker rm -f >/dev/null 2>&1 || true
   dc --profile gen --profile nginx down -v --remove-orphans >/dev/null 2>&1 || true
 }
@@ -65,7 +65,15 @@ clean
 dc up -d loki minio fluent-bit
 wait_ready
 sleep 8
-python3 "$HERE/canary.py" 420 --max-delay 120 > "$TMP/canary.out" 2>&1 & CANARY_PID=$!
+# canary 관측 창 = 첫 시나리오 시작 ~ 마지막 시나리오 끝 + max-delay(canary.py 가 SIGTERM 뒤 그만큼 더 본다).
+# sink 를 일부러 멈추는 시나리오가 있으면 그 지연(최대 약 7분, 런북 §7)을 덮도록 max-delay 를 늘리고, 유실을 일부러 만드는 f1·f2 가
+# 있으면 빠진 canary 를 출력만 한다(--allow-loss). 정지·조회 실패(STALE)·0건은 그래도 실패다.
+CANARY_MAX_DELAY=120; CANARY_ALLOW=""
+for s in "${SCENARIOS[@]}"; do
+  case "$s" in c|d|d2|d3|d4|e|e2|f1|f2) CANARY_MAX_DELAY=600;; esac
+  case "$s" in f1|f2) CANARY_ALLOW="--allow-loss";; esac
+done
+python3 "$HERE/canary.py" --max-delay "$CANARY_MAX_DELAY" $CANARY_ALLOW > "$TMP/canary.out" 2>&1 & CANARY_PID=$!
 
 if want a; then echo "== (a) 정상 N=600"
   start_watch a a; gen a 600 20; finish a 90 a:600
@@ -185,8 +193,10 @@ PYEOF
   docker rm -f obs2562s3-gen-k >/dev/null
 fi
 
-wait "$CANARY_PID" 2>/dev/null || { echo "FAIL: canary 검사 실패"; FAILS=$((FAILS + 1)); }; CANARY_PID=""
+echo "== canary 판정 대기(${CANARY_MAX_DELAY}s — 마지막 시나리오 뒤 늦게 오는 canary 를 본다)"
+kill -TERM "$CANARY_PID" 2>/dev/null || true
+wait "$CANARY_PID" || { echo "FAIL: canary 검사 실패"; FAILS=$((FAILS + 1)); }; CANARY_PID=""
 echo "== canary"; cat "$TMP/canary.out" | tee -a "$RESULTS" | tail -40
-echo "== 요약"; cat "$RESULTS" | grep -E "^(RESULT|NGINX|WINDOW|METRICS|CANARY_SUMMARY)" || true
+echo "== 요약"; cat "$RESULTS" | grep -E "^(RESULT|NGINX|WINDOW|METRICS|CANARY_SUMMARY|CANARY_JUDGED|STALE|CANARY_NONE)" || true
 echo "결과 파일: $RESULTS"
 [ "$FAILS" -eq 0 ] || { echo "FAILS=$FAILS"; exit 1; }
