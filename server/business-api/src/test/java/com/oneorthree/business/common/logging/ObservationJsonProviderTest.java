@@ -15,6 +15,7 @@ import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class ObservationJsonProviderTest {
 
@@ -240,5 +242,29 @@ class ObservationJsonProviderTest {
         assertThat(line).endsWith("\n");
         assertThat(line.indexOf('\n')).isEqualTo(line.length() - 1);
         return JSON.readValue(line, Map.class);
+    }
+
+    @Test
+    void hugeInputWithoutAtSignIsMaskedInLinearTimeAfterPreCut() {
+        String message = "path=/" + "a".repeat(200_000);
+
+        Map<String, Object> json = assertTimeoutPreemptively(Duration.ofSeconds(2),
+                () -> format(event(message, null, Map.of())));
+
+        assertThat(((String) json.get("message")).getBytes(StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(ObservationJsonProvider.MESSAGE_LIMIT_BYTES);
+        assertThat(json).containsEntry("truncated", true).containsEntry("original_size_bytes", 200_006);
+    }
+
+    @Test
+    void preCutKeepsUtf8BoundaryAndReportsRawSize() throws Exception {
+        String message = "😀".repeat(20_000); // 80,000 바이트 > 한도의 2배
+        Map<String, Object> json = format(event(message, null, Map.of()));
+
+        String cut = (String) json.get("message");
+        assertThat(cut).doesNotContain("�");
+        assertThat(cut.getBytes(StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(ObservationJsonProvider.MESSAGE_LIMIT_BYTES);
+        assertThat(json).containsEntry("truncated", true).containsEntry("original_size_bytes", 80_000);
     }
 }

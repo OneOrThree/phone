@@ -1,6 +1,9 @@
 package com.oneorthree.phone.common.logging;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+
+import java.time.Duration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,5 +75,26 @@ class MaskingConverterTest {
         // user_id(UUID v7)
         String uuid = "019700e8-1c2a-7def-8000-abc123456789";
         assertThat(MaskingConverter.mask("user_id=" + uuid)).contains(uuid);
+    }
+
+    @Test
+    void emailBoundariesKeepTheirMaskingResult() {
+        assertThat(MaskingConverter.mask("-abc@x.com")).isEqualTo("-ab****@****.***");
+        assertThat(MaskingConverter.mask(".abcd@x.com")).isEqualTo(".ab****@****.***");
+        assertThat(MaskingConverter.mask("a@x.com,b@y.org")).isEqualTo("a****@****.***,b****@****.***");
+        assertThat(MaskingConverter.mask("(abc@x.com).")).isEqualTo("(abc****@****.***).");
+        assertThat(MaskingConverter.mask("x@y.com-foo@x.com")).isEqualTo("x****@****.***-fo****@****.***");
+        // 직전 매치 끝에 바로 붙은 로컬 문자열도 새 이메일로 잡는다(\G)
+        assertThat(MaskingConverter.mask("a@b.com1foo@x.com")).isEqualTo("a****@****.***1fo****@****.***");
+    }
+
+    @Test
+    void longInputsAreMaskedInLinearTime() {
+        String noAt = "path=/" + "a".repeat(200_000);
+        String longLocal = "a".repeat(100_000) + "@x.com";
+        assertTimeoutPreemptively(Duration.ofSeconds(1), () -> {
+            assertThat(MaskingConverter.mask(noAt)).isEqualTo(noAt);
+            assertThat(MaskingConverter.mask(longLocal)).isEqualTo("aaa****@****.***");
+        });
     }
 }

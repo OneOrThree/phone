@@ -12,11 +12,11 @@
 | 티켓 | 검증 가능한 작업 단위 | 선행 | 초기 예상 | 현황 |
 | --- | --- | --- | --- | --- |
 | [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 진행 중, 아래 로컬 구현 |
-| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 스프린트 대기 |
+| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
 | [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 스프린트 대기 |
 | [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 스프린트 대기 |
 | [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 스프린트 대기 |
-| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 여러 원사건 → 기기별 묶음 발송 연결 | 2557 | 1d | 스프린트 대기 |
+| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 스프린트 대기 |
 | [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 스프린트 대기 |
 | [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 스프린트 대기 |
 
@@ -58,12 +58,12 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 
 - provider는 로그 이벤트의 MDC 스냅샷만 읽고 정해진 키(`request_id`, `origin_*`, `user_id`, `event_id`, `delivery_id`, `attempt`, `operation_id`, `event_name`, `message_id`, `edge_request_id`)만 내보낸다. Data의 레거시 `trace_id`는 `legacy_trace_id`로 낸다.
 - `dd.trace_id`·`dd.span_id` 원문은 `dd` 객체에 두고, 32자리 hex trace와 10진 span만 canonical `trace_id`(32 hex)·`span_id`(16 hex)로 바꾼다. 10진 trace는 상위 64비트를 잃었을 수 있어 canonical을 만들지 않는다. dd-trace 1.64.0은 128-bit 생성·로그가 기본 켜짐이라 이 서비스가 시작한 trace는 32 hex로 나온다(2557 조사). compose에 `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true`를 명시했다.
-- message·exception은 Data `MaskingConverter`의 4규칙으로 마스킹한 뒤 16 KiB·32 KiB(UTF-8 문자 경계)로 자르고, 잘리면 `truncated`·`original_size_bytes`를 붙인다.
+- message·exception은 Data `MaskingConverter`의 4규칙으로 마스킹한 뒤 16 KiB·32 KiB(UTF-8 문자 경계)로 자르고, 잘리면 `truncated`·`original_size_bytes`를 붙인다. 원본이 한도의 2배를 넘으면 마스킹 전에 2배로 먼저 자른다(이때 `original_size_bytes`는 원본 크기). 이메일 정규식은 로컬 파트 시작 위치를 묶고 possessive 로 받아 선형 시간이다(`@` 없는 영숫자 16,000자: 옛 정규식 1.5초 → 0ms, 로컬 측정). Data `%mask` 변환기도 같은 정규식을 쓴다.
 - Business 완료 로그는 `log_kind=access`와 `http_method`·`http_route`(경로 템플릿)·`status_code`·`duration_ms`·`outcome`을 구조화해 낸다. 예외가 필터 밖으로 나가 상태가 미확정이면 `status_code`를 빼고 `outcome=unhandled_exception`으로 낸다. query string·본문·헤더는 싣지 않는다.
 
 **실행 메타데이터.** compose `environment:`에서 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`(`DEPLOY_ENV`)·`OBS_VERSION`(`IMAGE_REVISION`)을 넣는다. 비밀이 아니므로 Secrets Manager 경로를 쓰지 않는다. 배포 전 `deploy-core-dev.py`·`prepare-satellite-deploy.py`가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비었으면 배포를 멈춘다. `OBS_VERSION`은 기존 `DD_VERSION`처럼 배포 커밋을 가리키므로 위성 한쪽만 바뀐 배포에서는 다른 쪽의 실제 이미지와 다를 수 있다. Catus prod 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못했다.
 
-**수집기.** dev 관측 overlay의 Promtail을 Fluent Bit `4.2.8`(amd64·arm64)로 바꿨다. `/var/lib/docker/containers`를 읽기 전용으로 tail하고 tail DB와 filesystem 버퍼(`storage.total_limit_size 128M`)는 `fluent_bit_state` 볼륨에 둔다. Lua 필터가 `config.v2.json`의 compose 라벨로 project `phone`의 네 서비스만 통과시킨다. Loki label은 `env`·`service`·`log_kind`(`application`·`access`·`raw`) 셋이며 ID는 JSON 필드로 남는다. JSON이 아닌 줄은 버리지 않고 `parse_error=true`·`log_kind=raw`로 Lua 마스킹(ASCII 근사) 후 보관한다. Loki 연결 오류·5xx·429는 재시도하지만 4xx는 버리고, 버퍼가 차면 오래된 chunk부터 버린다. 무유실을 보장하지 않는다.
+**수집기.** dev 관측 overlay의 Promtail을 Fluent Bit `4.2.8`(amd64·arm64)로 바꿨다. `/var/lib/docker/containers`를 읽기 전용으로 tail하고 tail DB와 filesystem 버퍼(`storage.total_limit_size 128M`)는 `fluent_bit_state` 볼륨에 둔다. Lua 필터가 `config.v2.json`의 compose 라벨로 project `phone`의 네 서비스만 통과시킨다. Loki label은 `env`·`service`·`log_kind`(`application`·`access`·`raw`) 셋이며 ID는 JSON 필드로 남는다. JSON이 아닌 줄은 버리지 않고 `parse_error=true`·`log_kind=raw`로 Lua 마스킹(ASCII 근사) 후 보관한다. Loki 연결 오류·5xx·429는 재시도하지만 4xx는 버린다. 버퍼가 가득 찼을 때의 동작(어느 chunk를 버리는지 포함)은 **측정하지 않았다**(2556). 무유실을 보장하지 않는다. `observed_at`은 필터가 줄을 처음 처리한 시각(초 단위)으로, Fluent Bit 재시도에서는 보존되지만 tail DB 소실·처음부터 다시 읽기 때는 갱신된다. raw 줄에는 `log_id`가 없다.
 
 **검증.**
 
@@ -74,6 +74,10 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 | 스레드 hop | 실제 `AsyncAppender` 아래에서 MDC를 바꾼 뒤 encode | 로그 시점의 `request_id`·`dd` 값 유지 |
 | 배포 스크립트 | `python3 -m unittest discover -s .github/scripts` | 347개 통과 |
 | 수집기 로컬 하네스 | `server/observability/fluent-bit/local-test/run.sh` | 500줄: 정상·Fluent Bit 재시작·컨테이너 재생성 모두 누락 0·중복 0, label 3개, 다른 project 미끼·자기 로그 재수집 0 |
+| 하네스 단언 | 같은 스크립트 | service 집합·env 집합이 기대와 같음, 허용 밖 label 0, 미끼(decoy) 0, 고정 sleep 대신 기대 수까지 폴링, 시나리오 밖 `dropped_records` 0, 순서 위반 시나리오의 Fluent Bit `dropped_records`·`errors`와 Loki `too_far_behind` 합계 |
+| 긴 줄 | 1 MiB 단어 문자 한 줄 | 마스킹 전에 입력을 32 KiB로 먼저 잘라 1 MiB 줄이 Loki에 도착하기까지 7.6초(생성·Docker 기록 포함). `@`·민감 키·`bearer`가 없으면 해당 패턴을 건너뛰는 가드를 더한 뒤 다시 재니 4.5~4.8초(두 번 실행) |
+| Loki 수용창 실측 | 같은 스트림 최신 시각보다 오래된 줄을 넣어 시험 | 30분 전 줄은 수용. 3시간 전 줄은 거절되어 Fluent Bit `dropped_records` 20, Loki `too_far_behind` 25(한 chunk에 방금 줄이 섞이면 Fluent Bit 지표에는 남지 않고 Loki 지표로만 보인다) |
+| 큰 앱 JSON | 40 KiB 앱 JSON | Docker가 16 KiB+로 나눈 18줄이 한 줄로 재조립되어 JSON으로 파싱됨 |
 
 dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 배포 경로에서는 검증하지 않았다. agent가 실제로 넣는 MDC 형식, 실배포 JSON 출력, prod 적용은 미검증이다.
 
@@ -107,6 +111,21 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 4. 공통 내부 HTTP client(Business `InternalHttpClient` 등)의 origin 헤더 전파. Outbox HTTP transport에만 적용했다.
 
 **dev 배포 뒤 확인.** agent 활성 상태에서 `origin_trace_id` 원문 형식, agent 자동 헤더(`traceparent` 등)와 `x-origin-*`의 공존.
+
+## 2558에서 구현한 경로
+
+**기기별 발송 시도 연결.** `DispatchService`가 기기별 `transport.send` 한 번마다 UUID `operation_id`를 발급하고, 그 호출의 구성원마다 `event_name=operation.link` 로그(`operation_id`·`delivery_id`·`event_id`·origin·`attempt`)를 남긴다. 같은 operation scope 안에서 `transport.result`와 FcmTransport 실패 로그가 같은 `operation_id`를 단다. DB 반영은 `dispatch.settle` 로그로 따로 남기며 라벨은 sent·retry·failed·expired·lease_lost·unchanged다. `attempt`는 이 dispatch가 본 `attempts+1`이고, `delivery_id`는 notification `deliveries.id`라 수신 로그의 ID 공간과 다르다. collapse 키(`event_id`)와 발송 멱등키는 바꾸지 않았다. 티켓 2421로 묶음이 제거돼 지금은 한 호출의 구성원이 1개다. 구성원이 여럿일 때 구성원마다 link를 남기는 경로는 현재 도달할 수 없고 `logLink` 단위 테스트로만 검증했다.
+
+**검증.**
+
+| 범위 | 결과 |
+| --- | --- |
+| notification 전체 `build` | 232개 실패 0 |
+| `DispatchOperationLinkTest` | 멀티기기 operation 2개, origin별 조회 분리(같은 스레드 순차 기준), 재시도 시 operation 교체, attempt 2, settle failed·expired·unchanged·lease_lost, 구버전 행, 구성원 2개 link, 호출자 MDC 복원, FcmTransport 503 실패 로그의 operation_id |
+
+**미검증.** 스케줄러 스레드를 거치는 MDC, 다중 행 `entryScope` 분기(도달 불가), 실배포 JSON 출력.
+
+**한계.** `backOffLeased`가 0행을 돌려주면 임대를 잃은 경우뿐 아니라 그사이 억제된 경우에도 `lease_lost`로 찍힌다.
 
 ## 2559에서 구현한 경로
 
@@ -143,10 +162,10 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 
 ## 아직 구현하지 않은 경계
 
-- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557 에서 구현했다(위 절). Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했고, 남은 것은 아래 「2559 범위 밖·후속」에 적었다. Preview worker 와 notification 기기별 발송 operation(2558)은 각 티켓 범위다.
+- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Preview worker 는 각 티켓 범위다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
-- DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 로그 JSON·마스킹·log_id, Loki/S3 수집·재전송·중복 제거·보존·부하 영향은 아직 미검증이다.
+- 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, S3 수집·보존·부하 영향은 아직 미검증이다.
 - 구현 기준 main에서 Data의 `AsyncConfig`·`NotificationAsyncConfig`는 삭제됐다. 초기 계획의 레거시 GA4/push executor를 복원하지 않는다.
 - Infra 정본은 2288에서 확인한 `OneOrThree/Infra`다. 실제 수집 설정·운영 버전은 2554에서 재확인한다.
 

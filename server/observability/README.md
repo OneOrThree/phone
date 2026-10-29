@@ -114,7 +114,7 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 
 - 흐름: tail(`*-json.log`, Docker 분할 줄 병합) → Lua 로 서비스 식별·허용 목록 → JSON 파싱 → Lua 정규화 → Loki.
 - 상태: named volume `fluent_bit_state` 에 tail 위치 DB(`tail.db`)와 디스크 버퍼(`storage.total_limit_size 128M`). 컨테이너를 지웠다 만들어도 이어 읽는다.
-  단 볼륨을 지우면 위치가 사라져 로그 파일이 남아 있는 컨테이너는 처음(새로 발견된 파일)부터 다시 읽을 수 있다 — 중복이 생길 수 있다.
+  볼륨은 `ops-monitor` 의 `down` 에도 남는다(다시 `up` 하면 이어 읽는다). 단 볼륨을 지우면 위치가 사라져 로그 파일이 남아 있는 컨테이너는 처음(새로 발견된 파일)부터 다시 읽을 수 있다 — 중복이 생길 수 있다.
 - 처음부터 읽기: tail 은 `Read_From_Head On` — DB 에 위치가 있는 파일은 그 offset 부터, 없는 새 파일은 처음부터 읽는다(수집기가 멈춘 동안 앱 컨테이너가 재생성돼도 시작·오류 로그를 건너뛰지 않는다).
   대가로 첫 기동(DB 없음)에는 기존 현재 파일을 전부 다시 읽는다(앱 컨테이너당 최대 50 MB, Loki `reject_old_samples: false` 라 수용). 회전된 파일(`*-json.log.1` 등)은 패턴 밖이라 읽지 않는다.
 - 앱 JSON 줄은 필드를 그대로 두고 `observed_at` 만 더한다. JSON 이 아니거나 스키마(`schema_version`·`log_kind`)가 아닌 줄은 `parse_error=true`, `log_kind=raw` 로
@@ -123,6 +123,15 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 - Loki 라벨: `env`(dev·staging·prod·unknown) · `service`(컨테이너 라벨이 정한 값) · `log_kind`(application·access·raw). 세 값은 라벨로 옮겨지며 줄 본문에서는 빠진다.
   요청·이벤트 ID 등 나머지는 JSON 필드라 `| json | request_id="…"` 로 찾는다. Loki 3 의 자동 `service_name` 라벨은 `discover_service_name: []` 로 껐다.
 - 재시도: 연결 실패·5xx·429 는 한도 없이 재시도(디스크 버퍼가 128M 를 넘으면 오래된 청크부터 버려진다), 4xx 는 버린다. 완전 무유실은 보장하지 않는다.
+- Promtail 전환: `ops-monitor` `up` 은 Fluent Bit 이 15초 뒤 `Running` 이고 재시작 0회일 때만 기존 Promtail 을 지우고, 아니면 Promtail 을 남기고 job 이 실패한다.
+  이 게이트는 **기동 확인까지만** 한다 — Lua 가 레코드마다 오류를 내는 상태나 Loki 로 실제 전달되는지는 확인하지 않는다.
+- Lua 허용 목록은 compose 서비스 이름(`data-api`·`business-api`·`notification`·`realtime`)과 project `phone` 에 의존한다. 서비스 이름이나 project 를 바꾸면 로그가 오류 없이 조용히 버려진다.
+  Promtail 설정 파일은 저장소에서 삭제됐다 — 체크아웃이 갱신된 뒤 기존 Promtail 이 재시작되면 못 뜰 수 있으니 전환은 `up` 으로 바로 한다.
+- **Loki 수용창 밖 줄은 거절된다**: 같은 라벨 스트림의 최신 시각보다 `max_chunk_age`(기본 2h)의 절반(1h) 넘게 오래된 줄은 Loki 가 `too far behind` 로 거절한다
+  (`reject_old_samples: false` 와 무관). 첫 기동 재읽기(`Read_From_Head`)에서 컨테이너 여러 개가 섞이면 생길 수 있다. 수집기는 시각을 바꿔 감추지 않는다.
+  로컬 하네스 실측(Loki 3.3.2·Fluent Bit 4.2.8): 1시간 안쪽으로 오래된 줄 20/20 수용, 3시간 오래된 줄 20/20 거절(청크 전체 400 → Fluent Bit `dropped_records` 20·`errors` 1),
+  오래된 5 + 방금 5 가 같은 청크이면 방금 줄 5 는 수용·오래된 5 는 거절되는데 이때는 **Fluent Bit 지표에 아무것도 남지 않고** Loki `loki_discarded_samples_total{reason="too_far_behind"}` 로만 보인다(합계 25).
+  원본 보관 경로는 S3(GROMO-2556)이다. 거절 수는 위 두 지표로 본다.
 - 로컬 검증: `fluent-bit/local-test/run.sh` (Docker 필요, 끝나면 자기 프로젝트 `obs2562-collector` 를 `down -v`).
 
 ## 쿼리 부하 L3 (옵션 — 느린 쿼리 Top N)

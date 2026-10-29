@@ -13,8 +13,10 @@ public class MaskingConverter extends MessageConverter {
     /**
      * 이메일: vol****@****.***
      */
+    // 선형 시간: 로컬 파트 시작을 «앞이 로컬 문자가 아닌 곳 또는 직전 매치 끝(\G)»으로 묶고 나머지는 possessive 로 받는다.
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
-            "([a-zA-Z0-9._%+\\-]{1,3})[a-zA-Z0-9._%+\\-]*@([a-zA-Z0-9.\\-]+)\\.([a-zA-Z]{2,})"
+            "(?:(?<![a-zA-Z0-9._%+\\-])|\\G)([a-zA-Z0-9._%+\\-]{1,3}+)"
+                    + "[a-zA-Z0-9._%+\\-]*+@([a-zA-Z0-9.\\-]+)\\.([a-zA-Z]{2,})"
     );
 
     /**
