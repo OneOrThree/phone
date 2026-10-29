@@ -12,6 +12,8 @@ rows = [
     E('2026/10/29 10:00:00 [error] 1#1: *1 open() failed, client: 203.0.113.9, server: x, request: "GET /reset?invite=INVITE123", host: "h"'),
     A('203.0.113.45 - - [01/Jan/2020:00:00:00 +0900] "GET /a?b=1 HTTP/1.1" 200 5 "-" "ua"'),
     A('203.0.113.45 - - [29/Feb/2024:23:59:59 -0500] "GET /a HTTP/1.1" 200 5 "-" "ua"'),
+    A('203.0.113.46 - - [29/Oct/2026:10:00:00 +0900] "get /reset?invite=LOWER99 HTTP/1.1" 400 0 "-" "ua'),
+    A('203.0.113.47 - - [29/Oct/2026:10:00:00 +0900] "/reset?code=NOMETH77" 400 0 "-" "ua'),
 ]
 d = tempfile.mkdtemp()
 shutil.copy(LUA, f"{d}/logs.lua")
@@ -25,10 +27,11 @@ out = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{d}:
 got = [json.loads(l) for l in out.splitlines() if l.startswith("{")]
 blob = json.dumps(got)
 checks = [
-    ("6줄 모두 출력", len(got) == 6),
+    ("8줄 모두 출력", len(got) == 8),
     ("① client IP 잔존 없음", "203.0.113.4" not in blob),
     ("① user·referer·UA·query 잔존 없음", not any(x in blob for x in ("alice", "REFSECRET", "UA-SECRET", "TOK123", "TOK456"))),
     ("② HTTP/0.9 request 의 invite 잔존 없음", "INVITE123" not in blob and 'request: "GET /reset"' in got[3]["message"]),
+    ("① 소문자 메서드·메서드 없는 줄의 query 잔존 없음", "LOWER99" not in blob and "NOMETH77" not in blob),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]

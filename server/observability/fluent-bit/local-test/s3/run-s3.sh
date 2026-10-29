@@ -119,8 +119,16 @@ limit_run() { # NAME RUN COUNT INTERVAL [docker 옵션...] — 작은 한도로 
   rm -rf "$TMP/etc-small"; cp -R "$FB" "$TMP/etc-small"; rm -rf "$TMP/etc-small/local-test"
   sed -i.bak 's/storage.total_limit_size  128M/storage.total_limit_size  1M/' "$TMP/etc-small/fluent-bit.conf"; rm -f "$TMP/etc-small/fluent-bit.conf.bak"
   grep -q 'total_limit_size  1M' "$TMP/etc-small/fluent-bit.conf"
+  # S3 설정은 compose 가 $TMP/s3-module 에서 따로 마운트하므로 etc-small 사본과 별개로 이 사본의 엔진 상한도 1M 으로 낮춘다.
+  sed -i.bak 's/storage.total_limit_size  64M/storage.total_limit_size  1M/' "$TMP/s3-module/s3.conf"; rm -f "$TMP/s3-module/s3.conf.bak"
   HARNESS_ETC="$TMP/etc-small" HARNESS_S3_TOTAL_FILE_SIZE=1M HARNESS_S3_STORE_LIMIT=2M dc up -d --force-recreate fluent-bit >/dev/null
-  sleep 6; start_watch "$name" "$run"
+  sleep 6
+  # 실제 마운트된 설정을 컨테이너 안에서 읽어 확인한다(1M 이 아니면 시험을 중단).
+  # (Fluent Bit 이미지에는 grep 이 없어 docker cp 로 컨테이너 안 파일을 꺼낸다.)
+  local mounted; mounted=$(docker cp "$(fb_id):/fluent-bit/etc/modules/s3/s3.conf" - | tar -xO | grep 'storage.total_limit_size' | tr -s ' ')
+  echo "마운트된 S3 모듈 설정(컨테이너 안): $mounted"
+  [ "$mounted" = "    storage.total_limit_size 1M" ] || [ "$(echo "$mounted" | tr -d ' ')" = "storage.total_limit_size1M" ] || { echo "FAIL: 마운트된 S3 엔진 상한이 1M 이 아니다"; return 1; }
+  start_watch "$name" "$run"
   dc stop loki minio >/dev/null
   gen "$run" "$count" "$iv" "$@"
   docker wait "obs2562s3-gen-$run" >/dev/null; sleep 20
@@ -129,7 +137,8 @@ limit_run() { # NAME RUN COUNT INTERVAL [docker 옵션...] — 작은 한도로 
   dc start loki minio >/dev/null; wait_ready
   finish "$name" 150 --allow-loss "$run:$count"
   metrics "$name-after"
-  dc up -d --force-recreate fluent-bit >/dev/null   # 기본 한도로 복귀(HARNESS_ETC=기본)
+  sed -i.bak 's/storage.total_limit_size  1M/storage.total_limit_size  64M/' "$TMP/s3-module/s3.conf"; rm -f "$TMP/s3-module/s3.conf.bak"
+  dc up -d --force-recreate fluent-bit >/dev/null   # 기본 한도로 복귀(HARNESS_ETC=기본, S3 모듈 64M)
 }
 if want f1; then echo "== (f1) 디스크 한도 — Loki 엔진 1M·S3 엔진 1M·store_dir 2M, 두 sink 정지, N=6000 (Docker 로그 회전 없음)"
   W0=$(date +%s); limit_run f1 f1 6000 5; echo "$W0:$(date +%s)" >> "$LOSS_WINDOWS"

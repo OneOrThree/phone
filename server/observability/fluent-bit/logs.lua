@@ -209,9 +209,8 @@ local function access_fallback(line)
   line = line:gsub('"([^"]*)"', function(q)
     n = n + 1
     if n > 1 then return '"-"' end  -- referer·user-agent
-    local m, u, p = q:match("^(%u+) ([^ ]+)(.*)$")
-    if m then return '"' .. m .. " " .. sanitize_path(u) .. p .. '"' end
-    return '"' .. q .. '"'
+    -- 메서드 대소문자·유무와 무관하게 공백으로 나눈 모든 토큰에서 query·fragment 를 지운다.
+    return '"' .. q:gsub("%S+", sanitize_path) .. '"'
   end)
   if select(2, line:gsub('"', "")) % 2 == 1 then line = line:gsub('"[^"]*$', '"-') end  -- 잘려 닫히지 않은 따옴표
   return line
