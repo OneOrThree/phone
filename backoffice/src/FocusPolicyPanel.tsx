@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { request } from './api';
+import { ApiError, request } from './api';
 import type { Session } from './types';
 
 interface Policy {
@@ -10,14 +10,14 @@ interface Current { revision: number; policy: Policy; publishedAt: string | null
 interface Published { publicationId: string | null; revision: number; previousRevision: number | null;
   actor: string | null; approvedBy: string | null; approvedDigest: string | null; publishedAt: string; policy: Policy }
 interface Catalog { current: Current; history: Published[]; local?: boolean }
-type Status = 'draft' | 'review' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain';
+type Status = 'draft' | 'review' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain' | 'cancelled';
 interface Draft { id: string; revision: number; expectedRevision: number; policy: Policy; status: Status;
   approvedBy?: string; approvedDigest?: string; dispatchActor?: string; publicationId?: string;
   receipt?: Published & { local?: boolean }; error?: string; updatedAt: string;
   audit: { at: string; actor: string; action: string; revision: number }[] }
 interface Snapshot { revision: number; policy: Policy; digest: string }
 const STATUS: Record<Status, string> = { draft: '작성 중', review: '검토 대기', approved: '승인됨',
-  publishing: '적용 중', published: '적용 완료', failed: '적용 실패', uncertain: '결과 확인 필요' };
+  publishing: '적용 중', published: '적용 완료', failed: '적용 실패', uncertain: '결과 확인 필요', cancelled: '철회됨' };
 const FIELDS: { key: keyof Omit<Policy, 'goldenChancePpm'>; label: string; hint: string }[] = [
   { key: 'secondsPerFish', label: '물고기 1마리당 집중 시간(초)', hint: '새로 시작하는 집중 세션부터 적용' },
   { key: 'dailyCapFish', label: '하루 물고기 상한', hint: '사용자·섬별 하루 상한' },
@@ -45,7 +45,8 @@ function PolicyValues({ policy }: { policy: Policy }) {
     <div><dt>황금 물고기 당첨 확률</dt><dd>{policy.goldenChancePpm.map((ppm, index) => `${index + 2}명 ${ppm.toLocaleString('ko-KR')} ppm (${(ppm / 10000).toLocaleString('ko-KR')}%)`).join(' · ')}</dd></div>
   </dl>;
 }
-export function FocusPolicyPanel({ session, onDirtyChange }: { session: Session; onDirtyChange: (dirty: boolean) => void }) {
+export function FocusPolicyPanel({ session, onDirtyChange, onUnauthorized }: {
+  session: Session; onDirtyChange: (dirty: boolean) => void; onUnauthorized: () => void }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [items, setItems] = useState<Draft[]>([]);
   const [selected, setSelected] = useState<Draft | null>(null);
@@ -67,7 +68,11 @@ export function FocusPolicyPanel({ session, onDirtyChange }: { session: Session;
       if (latest && !dirty) select(latest);
     }
   }
-  useEffect(() => { void refresh().catch(cause => setError(cause instanceof Error ? cause.message : '정책을 불러오지 못했습니다.')); }, []);
+  function report(cause: unknown) {
+    if (cause instanceof ApiError && cause.status === 401) { onUnauthorized(); return; }
+    setError(cause instanceof Error ? cause.message : '정책을 불러오지 못했습니다.');
+  }
+  useEffect(() => { void refresh().catch(report); }, []);
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -77,21 +82,20 @@ export function FocusPolicyPanel({ session, onDirtyChange }: { session: Session;
   async function run(name: string, work: () => Promise<void>) {
     if (busy) return;
     setBusy(name); setError('');
-    try { await work(); } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '요청을 처리하지 못했습니다.');
-    } finally { setBusy(''); }
+    try { await work(); } catch (cause) { report(cause); }
+    finally { setBusy(''); }
   }
   function canLeave() { return !dirty || window.confirm('저장하지 않은 정책 변경이 있습니다. 버릴까요?'); }
   function select(item: Draft) {
     if (!canLeave()) return;
     setSelected(item); setPolicy(copy(item.policy)); setExpectedRevision(item.expectedRevision); setDirty(false);
     void request<{ items: Snapshot[] }>(`/api/policies/focus/drafts/${item.id}/versions`)
-      .then(value => setVersions(value.items)).catch(() => setVersions([]));
+      .then(value => setVersions(value.items)).catch(cause => { setVersions([]); report(cause); });
   }
   function newDraft() {
     if (!catalog || !canLeave()) return;
     setSelected(null); setVersions([]); setExpectedRevision(catalog.current.revision);
-    setPolicy(copy(catalog.current.policy)); setDirty(true);
+    setPolicy(copy(catalog.current.policy)); setDirty(false);
   }
   function change(key: keyof Policy, value: number | number[]) {
     setPolicy(previous => previous ? { ...previous, [key]: value } : previous); setDirty(true);
@@ -111,15 +115,23 @@ export function FocusPolicyPanel({ session, onDirtyChange }: { session: Session;
       setVersions((await request<{ items: Snapshot[] }>(`/api/policies/focus/drafts/${item.id}/versions`)).items);
     });
   }
-  async function transition(action: 'review' | 'approve' | 'publish') {
+  async function transition(action: 'review' | 'approve' | 'publish' | 'cancel') {
     if (!selected || dirty) return;
     if (action === 'publish' && !window.confirm(`승인된 정책을 ${session.environment} 환경에 적용할까요?`)) return;
+    if (action === 'cancel' && !window.confirm('변경안을 철회할까요? 승인된 변경안은 Data 승인 기록도 취소됩니다.')) return;
     await run(action, async () => {
       const item = await request<Draft>(`/api/policies/focus/drafts/${selected.id}/${action}`, {
         method: 'POST', csrfToken: session.csrfToken, body: { revision: selected.revision },
       });
       setSelected(item); setPolicy(copy(item.policy)); setItems(previous => [item, ...previous.filter(value => value.id !== item.id)]);
-      if (action === 'publish' && item.status === 'published') setCatalog(await request<Catalog>('/api/policies/focus'));
+      if (action === 'publish') {
+        const latest = await request<Catalog>('/api/policies/focus');
+        setCatalog(latest);
+        if (item.status === 'failed' && latest.current.revision !== item.expectedRevision) {
+          setExpectedRevision(latest.current.revision);
+          setDirty(true);
+        }
+      }
     });
   }
   const editable = !selected || ['draft', 'review', 'approved', 'failed'].includes(selected.status);
@@ -153,6 +165,7 @@ export function FocusPolicyPanel({ session, onDirtyChange }: { session: Session;
           {selected?.status === 'draft' && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('review')}>검토 요청</button>}
           {selected?.status === 'review' && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('approve')}>승인하기</button>}
           {canPublish && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('publish')}>{selected?.status === 'uncertain' ? '같은 요청 재시도' : '정책 적용'}</button>}
+          {selected && ['draft', 'review', 'approved', 'failed'].includes(selected.status) && <button className="button secondary" disabled={!!busy || dirty} onClick={() => void transition('cancel')}>변경안 철회</button>}
         </div>{selected?.status === 'approved' && selected.approvedBy === session.actor && <p className="callout">승인자와 다른 운영자가 로그인해 적용해야 합니다.</p>}
         {selected?.status === 'uncertain' && <p className="callout">결과를 단정할 수 없습니다. 최초 적용자가 같은 요청으로 재시도해 확인하세요.</p>}
         {selected?.error && <p className="error-message" role="alert">{selected.error}</p>}

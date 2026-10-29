@@ -201,7 +201,10 @@ export default function App() {
   const currentChannel = CHANNELS.find(value => value.kind === channel)!;
   const filtered = items.filter(item => item.kind === channel && (filter === 'all' || item.status === filter) && `${item.title} ${item.body}`.toLowerCase().includes(search.toLowerCase()));
   function handleError(cause: unknown) {
-    if (cause instanceof ApiError && cause.status === 401) { setSession(null); setItems([]); setSelected(null); setDraft(null); }
+    if (cause instanceof ApiError && cause.status === 401) {
+      setSession(null); setItems([]); setSelected(null); setDraft(null);
+      setPolicyOpen(false); setPolicyDirty(false);
+    }
     setError(cause instanceof Error ? cause.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.');
   }
   useEffect(() => {
@@ -299,7 +302,7 @@ export default function App() {
       <nav aria-label="운영 메뉴">{CHANNELS.map(value => <button key={value.kind} className={`nav-item ${!policyOpen && channel === value.kind ? 'active' : ''}`} aria-current={!policyOpen && channel === value.kind ? 'page' : undefined} disabled={!!busy} onClick={() => changeChannel(value.kind)}><Icon name={value.icon} /><span>{value.name}</span><span className="nav-count">{items.filter(item => item.kind === value.kind && item.status === 'review').length || ''}</span></button>)}<button className={`nav-item ${policyOpen ? 'active' : ''}`} aria-current={policyOpen ? 'page' : undefined} disabled={!!busy} onClick={() => { if (!policyOpen && mayLeave()) { setPolicyDirty(false); setPolicyOpen(true); setDraft(null); setSelected(null); setError(''); } }}><Icon name="settings" /><span>집중 보상 정책</span></button></nav>
       <div className="sidebar-bottom"><p>{session.mode === 'local' ? '외부 발송·게시 없이 검토 흐름을 확인합니다.' : '승인한 내용만 서비스에 발송·게시합니다.'}</p><div className="actor-row"><span className="avatar" aria-hidden="true">{session.actor.slice(0, 1).toUpperCase()}</span><span>{session.actor}</span></div><button className="logout" disabled={!!busy} onClick={() => { if (mayLeave()) void perform('logout', async () => { await request('/api/logout', { method: 'POST', csrfToken: session.csrfToken }); setSession(null); setItems([]); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); }); }}>로그아웃</button></div>
     </aside>
-    <main className="workspace" id="workspace">{policyOpen ? <FocusPolicyPanel session={session} onDirtyChange={setPolicyDirty} /> : <><header className="workspace-header"><div><h1>{currentChannel.name}</h1><p>{currentChannel.description}</p></div><button className="button primary" onClick={createDraft} disabled={!!busy}><Icon name="plus" />새 초안</button></header>
+    <main className="workspace" id="workspace">{policyOpen ? <FocusPolicyPanel session={session} onDirtyChange={setPolicyDirty} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : <><header className="workspace-header"><div><h1>{currentChannel.name}</h1><p>{currentChannel.description}</p></div><button className="button primary" onClick={createDraft} disabled={!!busy}><Icon name="plus" />새 초안</button></header>
       <div className="local-banner"><strong>{session.environment === 'local' ? '로컬 작업 공간' : session.environment === 'dev' ? '개발 환경 · dev' : '운영 환경 · prod'}</strong><span>{session.environment === 'local' ? '발송·게시는 로컬 기록으로만 처리됩니다.' : '검토와 발행은 이 환경의 Data·Notification에서만 처리됩니다.'}</span></div>
       {error && <div className="error-banner" role="alert"><span>{error}</span><button className="text-button" onClick={() => setError('')}>닫기</button></div>}
       <div className="view-switch" role="group" aria-label="작업과 운영 이력"><button className={view === 'workflow' ? 'active' : ''} aria-pressed={view === 'workflow'} onClick={() => { if (mayLeave()) setView('workflow'); }}>작성·검토</button><button className={view === 'history' ? 'active' : ''} aria-pressed={view === 'history'} onClick={() => { if (mayLeave()) setView('history'); }}>운영 이력</button></div>

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Store, requireValue } from "./store.mjs";
 import { Upstream } from "./upstream.mjs";
 import { createApp } from "./app.mjs";
+import { validateOperators, verifyOperatorEnvironments } from "./operators.mjs";
 const mode = process.env.BACKOFFICE_MODE ?? "local";
 const environment = mode === "local" ? "local" : process.env.BACKOFFICE_ENV;
 requireValue(
@@ -49,21 +50,7 @@ const operators = mode === "local"
   ? Object.fromEntries(["test", "member-1", "member-2", "member-3"]
       .map(actor => [actor, { passwordHash: demoHash }]))
   : JSON.parse(process.env.BACKOFFICE_OPERATORS ?? "{}");
-requireValue(
-  Object.keys(operators).length > 0,
-  "BACKOFFICE_OPERATORS에 운영자 암호 해시를 설정하세요. README를 참고하세요.",
-);
-for (const [actor, operator] of Object.entries(operators)) {
-  requireValue(
-    (mode === "local" ? actor === "test" || /^member-[1-3]$/.test(actor) : /^member-[1-3]$/.test(actor)) &&
-      /^[a-f0-9]{32}:[a-f0-9]{128}$/.test(operator.passwordHash ?? ""),
-    "운영자 계정 또는 비밀번호 해시 형식을 확인하세요.",
-  );
-  requireValue(
-    mode !== "connected" || (operator.notificationToken && operator.dataToken),
-    "연결 모드에는 운영자별 두 서비스 토큰이 필요합니다.",
-  );
-}
+const operatorEntries = validateOperators(operators, mode);
 const upstream = new Upstream({
   mode,
   environment,
@@ -71,10 +58,7 @@ const upstream = new Upstream({
   notificationUrl: process.env.NOTIFICATION_URL,
   dataUrl: process.env.DATA_API_URL,
 });
-if (mode === "connected") {
-  const [actor, operator] = Object.entries(operators)[0];
-  await upstream.verifyEnvironment(environment, actor, operator);
-}
+if (mode === "connected") await verifyOperatorEnvironments(upstream, environment, operatorEntries);
 const directory = resolve(process.env.BACKOFFICE_STATE_DIR ?? "var");
 process.umask(0o077);
 mkdirSync(directory, { recursive: true, mode: 0o700 });

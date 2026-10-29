@@ -4,13 +4,32 @@ import { createHash, scryptSync } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../server/store.mjs";
+import { Store, Failure } from "../server/store.mjs";
 import { FocusPolicyStore, focusDigest } from "../server/focus-policy.mjs";
 import { Upstream } from "../server/upstream.mjs";
 import { createApp } from "../server/app.mjs";
+import { validateOperators, verifyOperatorEnvironments } from "../server/operators.mjs";
 
 const policy = { secondsPerFish: 60, dailyCapFish: 480, personalSharePercent: 0,
   goldenFishReward: 50, goldenMaxMembers: 5, goldenChancePpm: [4000, 12000, 24000, 40000] };
+test("연결 모드는 운영자 2명과 각자의 서비스 환경 검증이 필요하다", async () => {
+  const hash = `${"a".repeat(32)}:${"b".repeat(128)}`;
+  const one = { "member-1": { passwordHash: hash, dataToken: "data-1", notificationToken: "notification-1" } };
+  assert.throws(() => validateOperators(one, "connected"), /2명 이상/);
+  const entries = validateOperators({ ...one,
+    "member-2": { passwordHash: hash, dataToken: "data-2", notificationToken: "notification-2" } }, "connected");
+  const checked = [];
+  await verifyOperatorEnvironments({ verifyEnvironment: async (environment, actor, operator) => {
+    checked.push({ environment, actor, token: operator.dataToken });
+  } }, "prod", entries);
+  assert.deepEqual(checked, [
+    { environment: "prod", actor: "member-1", token: "data-1" },
+    { environment: "prod", actor: "member-2", token: "data-2" },
+  ]);
+  await assert.rejects(verifyOperatorEnvironments({ verifyEnvironment: async (_environment, actor) => {
+    if (actor === "member-2") throw new Error("두 번째 운영자 환경 불일치");
+  } }, "prod", entries), /두 번째 운영자/);
+});
 function approve(store, item, actor) {
   const request = store.approvalRequest(item.id, item.revision);
   return store.transition(item.id, item.revision, actor, "approve",
@@ -56,7 +75,7 @@ test("정책 변경은 승인 snapshot만 적용하며 수정 시 재승인하�
   assert.equal(item.publicationId.length, 36);
   item = store.finish(item.id, { revision: 2 });
   assert.equal(item.status, "published");
-  assert.throws(() => store.edit(item.id, { revision: item.revision, policy }, "member-1"), /수정할 수/);
+  assert.throws(() => store.edit(item.id, { revision: item.revision, policy }, "member-1"), /수정하거나 철회할 수/);
   db.close();
 });
 
@@ -113,6 +132,7 @@ test("상류 정책 조회·발행은 환경 확인과 승인 payload, 운영자
       calls.push({ path: url.pathname, method: options.method, headers: options.headers, body: options.body });
       if (url.pathname.endsWith("/environment")) return new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }));
       if (options.method === "GET") return new Response(JSON.stringify({ current: { revision: 1, policy }, history: [] }));
+      if (url.pathname.includes("/approvals/") && options.method === "DELETE") return new Response(null, { status: 204 });
       if (url.pathname.includes("/approvals/")) return new Response(JSON.stringify({ approvalId: "approval-id", expectedRevision: 1,
         policy, approvedDigest: focusDigest(policy), approvedBy: "member-1", approvedAt: new Date().toISOString() }));
       return new Response(JSON.stringify({ publicationId: "id", revision: 2, policy }));
@@ -122,19 +142,24 @@ test("상류 정책 조회·발행은 환경 확인과 승인 payload, 운영자
   assert.equal(current.current.revision, 1);
   await upstream.approveFocusPolicy({ approvalId: "approval-id", expectedRevision: 1,
     policy, approvedDigest: focusDigest(policy) }, "member-1", operator);
+  assert.deepEqual(await upstream.revokeFocusPolicy("approval-id", "member-2", operator), { ok: true });
   await upstream.publishFocusPolicy({ id: "draft", revision: 2, publicationId: "publication-id", expectedRevision: 1,
     approvalId: "approval-id", approvedPolicy: policy, approvedDigest: focusDigest(policy), approvedBy: "member-1" }, "member-2", operator);
   const approval = calls.find(call => call.path === "/internal/admin/policies/focus/approvals/approval-id");
   assert.equal(approval.headers.Authorization, "Bearer data-secret");
   assert.equal(approval.headers["X-Console-Actor"], "member-1");
   assert.deepEqual(JSON.parse(approval.body), { expectedRevision: 1, policy, approvedDigest: focusDigest(policy) });
+  const revoke = calls.find(call => call.path === "/internal/admin/policies/focus/approvals/approval-id" && call.method === "DELETE");
+  assert.equal(revoke.headers.Authorization, "Bearer data-secret");
+  assert.equal(revoke.headers["X-Console-Actor"], "member-2");
+  assert.equal(revoke.body, undefined);
   const put = calls.find(call => call.method === "PUT");
   assert.equal(put.path, "/internal/admin/policies/focus/publications/publication-id");
   assert.equal(put.headers.Authorization, "Bearer data-secret");
   assert.equal(put.headers["X-Console-Actor"], "member-2");
   assert.equal(put.headers["Idempotency-Key"], "draft:2");
   assert.deepEqual(JSON.parse(put.body), { approvalId: "approval-id", expectedRevision: 1, policy, approvedDigest: focusDigest(policy) });
-  assert.equal(calls.filter(call => call.path.endsWith("/environment")).length, 6);
+  assert.equal(calls.filter(call => call.path.endsWith("/environment")).length, 8);
 });
 
 test("Data revision 충돌은 확정 실패로 분류해 새 수정본·재승인이 가능하다", async () => {
@@ -166,11 +191,18 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
   const db = new Store(":memory:");
   const origin = "http://127.0.0.1:4310";
   const salt = "ac".repeat(16);
+  const revocations = [];
+  let rejectRevoke = false;
   const operators = Object.fromEntries(["member-1", "member-2"].map(actor =>
     [actor, { passwordHash: `${salt}:${scryptSync(actor, salt, 64).toString("hex")}` }]));
   const app = createApp({ store: db, upstream: {
     focusPolicy: async () => ({ current: { revision: 1, policy, publishedAt: null }, history: [] }),
     approveFocusPolicy: async (request, actor) => ({ ...request, approvedBy: actor, approvedAt: new Date().toISOString() }),
+    revokeFocusPolicy: async (approvalId, actor) => {
+      revocations.push({ approvalId, actor });
+      if (rejectRevoke) throw new Failure(502, "Data 승인 취소 실패");
+      return { ok: true };
+    },
     publishFocusPolicy: async item => ({ publicationId: item.publicationId, revision: 2, policy: item.approvedPolicy, local: true }),
   }, operators, origin, mode: "connected", environment: "dev" });
   await new Promise(resolve => app.listen(0, "127.0.0.1", resolve));
@@ -208,4 +240,109 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
   assert.equal(item.receipt.local, true);
   const versions = await fetch(`${base}/api/policies/focus/drafts/${item.id}/versions`, { headers: one });
   assert.equal((await versions.json()).items[0].digest, focusDigest(policy));
+
+  response = await post("/api/policies/focus/drafts", { expectedRevision: 1, policy }, one);
+  let change = await response.json();
+  for (const action of ["review", "approve"]) {
+    response = await post(`/api/policies/focus/drafts/${change.id}/${action}`, { revision: change.revision }, one);
+    assert.equal(response.status, 200);
+    change = await response.json();
+  }
+  rejectRevoke = true;
+  response = await post(`/api/policies/focus/drafts/${change.id}`, { revision: change.revision,
+    expectedRevision: 1, policy: { ...policy, goldenFishReward: 10 } }, two, "PATCH");
+  assert.equal(response.status, 502);
+  assert.equal(db.db.prepare("SELECT document FROM focus_policy_drafts WHERE id=?").get(change.id).document,
+    JSON.stringify(change));
+  response = await post(`/api/policies/focus/drafts/${change.id}/cancel`, { revision: change.revision }, two);
+  assert.equal(response.status, 502);
+  assert.equal((await (await fetch(`${base}/api/policies/focus/drafts/${change.id}`, { headers: one })).json()).status, "approved");
+  rejectRevoke = false;
+  response = await post(`/api/policies/focus/drafts/${change.id}`, { revision: change.revision,
+    expectedRevision: 1, policy: { ...policy, goldenFishReward: 1001 } }, two, "PATCH");
+  assert.equal(response.status, 400);
+  assert.equal(revocations.length, 2);
+  response = await post(`/api/policies/focus/drafts/${change.id}`, { revision: change.revision,
+    expectedRevision: 1, policy: { ...policy, goldenFishReward: 10 } }, two, "PATCH");
+  assert.equal(response.status, 200);
+  change = await response.json();
+  assert.equal(change.status, "draft");
+  assert.equal(change.approvalId, undefined);
+  assert.equal(revocations.at(-1).approvalId.length, 36);
+  response = await post(`/api/policies/focus/drafts/${change.id}/cancel`, { revision: change.revision }, one);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, "cancelled");
+  assert.equal(revocations.length, 3);
+
+  response = await post("/api/policies/focus/drafts", { expectedRevision: 1, policy }, one);
+  let withdrawn = await response.json();
+  for (const action of ["review", "approve"]) {
+    response = await post(`/api/policies/focus/drafts/${withdrawn.id}/${action}`, { revision: withdrawn.revision }, one);
+    withdrawn = await response.json();
+  }
+  response = await post(`/api/policies/focus/drafts/${withdrawn.id}/cancel`, { revision: withdrawn.revision }, two);
+  assert.equal(response.status, 200);
+  withdrawn = await response.json();
+  assert.equal(withdrawn.status, "cancelled");
+  assert.equal(revocations.length, 4);
+  assert.equal(revocations.at(-1).approvalId, withdrawn.approvalId);
+  assert.equal(revocations.at(-1).actor, "member-2");
+});
+
+test("응답 유실 뒤 409는 Data 발행 원장과 현재 revision으로 정산한다", async t => {
+  const db = new Store(":memory:");
+  const origin = "http://127.0.0.1:4311";
+  const salt = "ad".repeat(16);
+  const operators = Object.fromEntries(["member-1", "member-2"].map(actor =>
+    [actor, { passwordHash: `${salt}:${scryptSync(actor, salt, 64).toString("hex")}` }]));
+  let currentRevision = 1;
+  const history = [], attempts = new Map();
+  const app = createApp({ store: db, upstream: {
+    focusPolicy: async () => ({ current: { revision: currentRevision, policy, publishedAt: null }, history }),
+    approveFocusPolicy: async (request, actor) => ({ ...request, approvedBy: actor, approvedAt: new Date().toISOString() }),
+    publishFocusPolicy: async item => {
+      const count = (attempts.get(item.id) ?? 0) + 1;
+      attempts.set(item.id, count);
+      if (count === 1) throw new Failure(502, "응답 유실");
+      throw Object.assign(new Failure(409, "revision 충돌"), { definite: true });
+    },
+  }, operators, origin, mode: "connected", environment: "dev" });
+  await new Promise(resolve => app.listen(0, "127.0.0.1", resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const base = `http://127.0.0.1:${app.address().port}`;
+  async function login(actor) {
+    const response = await fetch(`${base}/api/login`, { method: "POST", headers: { Origin: origin,
+      "Content-Type": "application/json" }, body: JSON.stringify({ actor, password: actor }) });
+    return { Cookie: response.headers.get("set-cookie").split(";")[0],
+      "X-CSRF-Token": (await response.json()).csrfToken };
+  }
+  const one = await login("member-1"), two = await login("member-2");
+  async function post(path, body, auth) {
+    const response = await fetch(base + path, { method: "POST", headers: { Origin: origin,
+      "Content-Type": "application/json", ...auth }, body: JSON.stringify(body) });
+    assert.ok([200, 201].includes(response.status));
+    return response.json();
+  }
+  async function approvedDraft(expectedRevision) {
+    let item = await post("/api/policies/focus/drafts", { expectedRevision, policy }, one);
+    for (const action of ["review", "approve"])
+      item = await post(`/api/policies/focus/drafts/${item.id}/${action}`, { revision: item.revision }, one);
+    return item;
+  }
+  let item = await approvedDraft(1);
+  item = await post(`/api/policies/focus/drafts/${item.id}/publish`, { revision: item.revision }, two);
+  assert.equal(item.status, "uncertain");
+  history.push({ publicationId: item.publicationId, revision: 2, previousRevision: 1,
+    policy, approvedDigest: item.approvedDigest, actor: "member-2", approvedBy: "member-1", publishedAt: new Date().toISOString() });
+  currentRevision = 2;
+  item = await post(`/api/policies/focus/drafts/${item.id}/publish`, { revision: item.revision }, two);
+  assert.equal(item.status, "published");
+  assert.equal(item.receipt.publicationId, item.publicationId);
+
+  item = await approvedDraft(2);
+  item = await post(`/api/policies/focus/drafts/${item.id}/publish`, { revision: item.revision }, two);
+  assert.equal(item.status, "uncertain");
+  currentRevision = 3;
+  item = await post(`/api/policies/focus/drafts/${item.id}/publish`, { revision: item.revision }, two);
+  assert.equal(item.status, "failed");
 });

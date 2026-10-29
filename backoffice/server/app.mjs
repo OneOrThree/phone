@@ -8,7 +8,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { Failure, requireValue } from "./store.mjs";
-import { FocusPolicyStore } from "./focus-policy.mjs";
+import { FocusPolicyStore, focusDigest, normalizeFocusPolicy } from "./focus-policy.mjs";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const safeEqual = (a, b) => {
   const x = Buffer.from(a),
@@ -65,10 +65,30 @@ export function createApp({
   const sessions = new Map(),
     attempts = new Map();
   const policies = new FocusPolicyStore(store);
+  const policyActions = new Set();
+  async function withPolicyAction(id, work) {
+    requireValue(!policyActions.has(id), "다른 정책 요청이 처리 중입니다. 잠시 후 다시 시도하세요.", 409);
+    policyActions.add(id);
+    try { return await work(); }
+    finally { policyActions.delete(id); }
+  }
   function localPolicyCatalog() {
     const published = policies.list().filter(item => item.status === "published")
       .sort((a, b) => b.receipt.revision - a.receipt.revision);
     return published;
+  }
+  async function reconcileFocusPublication(item, actor, operator, error) {
+    if (!item.publicationUncertain || error.status !== 409) return null;
+    try {
+      const catalog = await upstream.focusPolicy(actor, operator);
+      const receipt = catalog.history?.find(entry => entry.publicationId === item.publicationId);
+      if (receipt && receipt.approvedDigest === item.approvedDigest
+        && focusDigest(receipt.policy) === item.approvedDigest) return { receipt };
+      if (!receipt && Number.isInteger(catalog.current?.revision)
+        && catalog.current.revision !== item.expectedRevision)
+        return { error: Object.assign(error, { reconciled: true }) };
+    } catch { /* 조회가 실패하거나 불일치하면 적용 결과를 단정하지 않는다. */ }
+    return null;
   }
   const cookie = (token, maxAge) =>
     `backoffice_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookie ? "; Secure" : ""}`;
@@ -241,33 +261,53 @@ export function createApp({
         send(201, policies.create(await bodyOf(req), auth.actor));
         return;
       }
-      const focusMatch = path.match(/^\/api\/policies\/focus\/drafts\/([0-9a-f-]+)(?:\/(versions|review|approve|publish))?$/);
+      const focusMatch = path.match(/^\/api\/policies\/focus\/drafts\/([0-9a-f-]+)(?:\/(versions|review|approve|publish|cancel))?$/);
       if (focusMatch) {
         const [, id, action] = focusMatch;
         if (req.method === "GET" && !action) { send(200, policies.get(id)); return; }
         if (req.method === "GET" && action === "versions") { send(200, { items: policies.versions(id) }); return; }
         if (req.method === "PATCH" && !action) {
-          send(200, policies.edit(id, await bodyOf(req), auth.actor));
+          const input = await bodyOf(req);
+          send(200, await withPolicyAction(id, async () => {
+            const approvalId = policies.changeRequest(id, input.revision);
+            normalizeFocusPolicy(input.policy);
+            requireValue(Number.isInteger(input.expectedRevision) && input.expectedRevision > 0,
+              "현재 정책 revision을 확인하세요.");
+            if (approvalId) await upstream.revokeFocusPolicy(approvalId, auth.actor, operator);
+            return policies.edit(id, input, auth.actor);
+          }));
           return;
         }
-        if (req.method === "POST" && ["review", "approve", "publish"].includes(action)) {
+        if (req.method === "POST" && ["review", "approve", "publish", "cancel"].includes(action)) {
           const revision = (await bodyOf(req)).revision;
-          const approval = action === "approve"
-            ? await upstream.approveFocusPolicy(policies.approvalRequest(id, revision), auth.actor, operator)
-            : undefined;
-          let item = policies.transition(id, revision, auth.actor, action, approval);
-          if (action === "publish") {
-            try {
-              if (mode === "local") {
-                const current = localPolicyCatalog()[0]?.receipt.revision ?? 1;
-                if (item.expectedRevision !== current)
-                  throw Object.assign(new Failure(409,
-                    "현재 정책 revision이 변경되었습니다. 최신값으로 다시 검토하세요."), { definite: true });
-              }
-              item = policies.finish(id, await upstream.publishFocusPolicy(item, auth.actor, operator));
+          const item = await withPolicyAction(id, async () => {
+            if (action === "cancel") {
+              const approvalId = policies.changeRequest(id, revision);
+              if (approvalId) await upstream.revokeFocusPolicy(approvalId, auth.actor, operator);
+              return policies.cancel(id, revision, auth.actor);
             }
-            catch (error) { item = policies.finish(id, null, error); }
-          }
+            const approval = action === "approve"
+              ? await upstream.approveFocusPolicy(policies.approvalRequest(id, revision), auth.actor, operator)
+              : undefined;
+            let item = policies.transition(id, revision, auth.actor, action, approval);
+            if (action === "publish") {
+              try {
+                if (mode === "local") {
+                  const current = localPolicyCatalog()[0]?.receipt.revision ?? 1;
+                  if (item.expectedRevision !== current)
+                    throw Object.assign(new Failure(409,
+                      "현재 정책 revision이 변경되었습니다. 최신값으로 다시 검토하세요."), { definite: true });
+                }
+                item = policies.finish(id, await upstream.publishFocusPolicy(item, auth.actor, operator));
+              }
+              catch (error) {
+                const resolution = await reconcileFocusPublication(item, auth.actor, operator, error);
+                item = resolution?.receipt ? policies.finish(id, resolution.receipt)
+                  : policies.finish(id, null, resolution?.error ?? error);
+              }
+            }
+            return item;
+          });
           send(200, item);
           return;
         }

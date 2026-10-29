@@ -68,6 +68,7 @@ export class Upstream {
         response.status !== 429;
       throw error;
     }
+    if (response.status === 204) return { ok: true };
     try {
       return await response.json();
     } catch {
@@ -170,6 +171,13 @@ export class Upstream {
         expectedRevision: request.expectedRevision, policy: request.policy,
         approvedDigest: request.approvedDigest,
       }, "POST", request.approvalId);
+  }
+  async revokeFocusPolicy(approvalId, actor, operator) {
+    if (this.mode === "local") return { ok: true, local: true };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/policies/focus/approvals/${approvalId}`,
+      actor, operator.dataToken, undefined, "DELETE");
   }
   async publishFocusPolicy(item, actor, operator) {
     if (this.mode === "local") return {

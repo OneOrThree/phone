@@ -80,16 +80,23 @@ export class FocusPolicyStore {
     requireValue(Number.isInteger(revision) && item.revision === revision,
       "다른 변경이 있습니다. 새로고침 후 다시 시도하세요.", 409);
   }
+  changeRequest(id, revision) {
+    const item = this.get(id);
+    this.checkRevision(item, revision);
+    requireValue(["draft", "review", "approved", "failed"].includes(item.status),
+      "적용 중이거나 완료된 정책은 수정하거나 철회할 수 없습니다.", 409);
+    return item.approvalId ?? null;
+  }
   edit(id, input, actor) {
     return this.store.transaction(() => {
       const item = this.get(id);
-      this.checkRevision(item, input.revision);
-      requireValue(["draft", "review", "approved", "failed"].includes(item.status),
-        "적용 중이거나 완료된 정책은 수정할 수 없습니다.", 409);
-      item.policy = normalizeFocusPolicy(input.policy);
+      this.changeRequest(id, input.revision);
+      const policy = normalizeFocusPolicy(input.policy);
       requireValue(Number.isInteger(input.expectedRevision) && input.expectedRevision > 0,
         "현재 정책 revision을 확인하세요.");
+      item.policy = policy;
       item.expectedRevision = input.expectedRevision;
+      if (item.approvalId) this.event(item, actor, "revoke");
       item.revision++;
       item.status = "draft";
       delete item.approvedBy;
@@ -100,8 +107,20 @@ export class FocusPolicyStore {
       delete item.error;
       delete item.receipt;
       delete item.dispatchActor;
+      delete item.publicationId;
+      delete item.publicationUncertain;
       this.event(item, actor, "edit");
       this.snapshot(item);
+      return this.save(item);
+    });
+  }
+  cancel(id, revision, actor) {
+    return this.store.transaction(() => {
+      const item = this.get(id);
+      this.changeRequest(id, revision);
+      item.status = "cancelled";
+      if (item.approvalId) this.event(item, actor, "revoke");
+      this.event(item, actor, "cancel");
       return this.save(item);
     });
   }
@@ -170,7 +189,7 @@ export class FocusPolicyStore {
         delete item.error;
       } else {
         item.publicationUncertain = item.publicationUncertain || !error.definite;
-        item.status = item.publicationUncertain ? "uncertain" : "failed";
+        item.status = item.publicationUncertain && !error.reconciled ? "uncertain" : "failed";
         item.error = error.message;
       }
       this.event(item, item.dispatchActor, item.status);
