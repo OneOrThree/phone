@@ -1,0 +1,77 @@
+name: Catus backoffice CI V2
+'on':
+  pull_request:
+    branches:
+    - main
+    - release
+    paths:
+    - backoffice/**
+    - .github/scripts/catus-runtime-V2.py
+    - .github/scripts/test_catus_runtime_V2.py
+    - .github/workflows/backoffice-ci.prod-V2.yml
+  push:
+    branches:
+    - release
+    paths:
+    - backoffice/**
+    - .github/scripts/catus-runtime-V2.py
+    - .github/scripts/test_catus_runtime_V2.py
+    - .github/workflows/backoffice-ci.prod-V2.yml
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: catus-backoffice-publish-V2-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: backoffice/package-lock.json
+    - run: npm ci && npm test && npm run build
+      working-directory: backoffice
+  publish:
+    needs:
+    - verify
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/release' && needs.verify.result == 'success'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish-V2
+        aws-region: ap-northeast-2
+    - name: "V2 \uC6B4\uC601 \uC0B0\uCD9C\uBB3C \uBC1C\uD589"
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION_V2 }}
+      run: python3 .github/scripts/catus-runtime-V2.py publish --role backoffice --infra-revision "$INFRA_REVISION"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: catus-backoffice-release-V2
+        path: release-V2.json
+        if-no-files-found: error
