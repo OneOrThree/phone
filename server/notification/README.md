@@ -105,3 +105,30 @@ cd server/notification
 | `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | `true` | 기존 기기 등록 호환 |
 
 서비스가 실행됐다는 이유만으로 발송이 시작되지는 않습니다. DB의 발송 게이트와 이관 검증 절차까지 [운영 API 계약](../../docs/contracts/notification-admin-api.yaml)에 따라 확인합니다.
+
+### 독립 백오피스 API (선별 운영 이식)
+
+백오피스는 Notification DB에 직접 연결하지 않고 다음 HTTP 계약을 사용합니다. 서버와 백오피스의 커밋 SHA는 같을 필요가 없습니다.
+
+| 경로 | 계약 |
+| --- | --- |
+| `GET /internal/admin/publications/environment` | `environment`, `fcmProjectId`, `contractVersion: "1"`, `capabilities` 반환 |
+| `POST /internal/admin/publications/{publicationId}` | `ADMIN_ANNOUNCEMENT` 승인 본문을 고정하여 명시적 수신자 최대 100명에게 적재 |
+| `GET /internal/admin/publications/history` | 기존 발송 전체 원장의 최신순 커서 페이지 (`cursor`, `limit`) |
+| `GET /internal/admin/templates` | 기존 템플릿 목록 |
+
+capabilities는 `notification.publication.v1`, `notification.history.v1`, `notification.templates.v1`입니다.
+인증은 기존 `SVC_TOKEN_CONSOLE_TO_NOTI=member-1:토큰,member-2:토큰,...`을 사용합니다. actor는 토큰으로 결정됩니다.
+발행에는 `Idempotency-Key`가 필수이고, 발행·이력에는 `X-Backoffice-Environment` 및 `X-Backoffice-Fcm-Project`가 필요합니다.
+발행 ID와 본문이 같으면 다른 요청 키의 재시도도 기존 결과를 반환하며 본문 변경은 충돌로 거절합니다.
+적재 결과 `PENDING`은 전송 완료가 아닙니다. 기존 게이트·수신 설정·조용한 시간·Data의 사용자 적격 판정을 통과해야 발송됩니다.
+
+실제 `dev` 또는 `prod` 프로파일 하나와 Notification DB의 `gromo.environment`, `gromo.fcm_project_id` 표식이 일치해야 합니다.
+표식은 운영자가 해당 DB를 확인한 뒤 `ALTER DATABASE <알림DB> SET gromo.environment='prod'` 및
+`ALTER DATABASE <알림DB> SET gromo.fcm_project_id='<운영 FCM 프로젝트>'`로 설정합니다. 세션의 `SET` 값은 표식으로 인정하지 않습니다.
+실제 FCM transport는 **모든 발송 직전**에 이 표식을 재확인합니다. 불일치는 `ENVIRONMENT_MISMATCH`로 기록하고
+임대를 해제하여 60초 뒤 재검사하며 발송 시도 횟수를 소진하지 않습니다. 환경 표식은 새 서버 배포 전에 준비해야 합니다.
+
+이 선별 릴리스는 `V9_1__backoffice_publications.sql`만 추가합니다. 기존 V1–V9 이력과 종류·묶음 잡·이관 경로를 보존합니다.
+V10–V13을 함께 실행하거나 임의로 마이그레이션 번호를 바꾸지 않습니다. 이후 main의 V14·V15와 중복되지 않도록
+후속 DB 전환 절차 및 호환 검증이 완료되기 전까지 이 마이그레이션의 운영 적용을 차단합니다.

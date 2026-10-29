@@ -27,9 +27,11 @@ class FcmTransport implements PushTransport {
     private final GoogleCredentials credentials;
     private final RestClient client;
     private final String project;
+    private final NotificationEnvironmentGuard environmentGuard;
 
     FcmTransport(@Value("${fcm.project-id:}") String project,
-            @Value("${fcm.service-account-json:}") String encoded) {
+            @Value("${fcm.service-account-json:}") String encoded, NotificationEnvironmentGuard environmentGuard) {
+        this.environmentGuard = environmentGuard;
         ServiceAuth.require(project, "FCM_PROJECT_ID");
         ServiceAuth.require(encoded, "FCM_SERVICE_ACCOUNT_JSON");
         this.project = project;
@@ -47,6 +49,7 @@ class FcmTransport implements PushTransport {
 
     @Override
     public Result send(String token, RenderedPush push, boolean sound, String eventId) {
+        environmentGuard.assertDispatchReady();
         // Dispatch는 이 검사를 임대·외부 호출 전에 한다. 다른 직접 호출도 크기 초과를 전송하지 않는다.
         Map<String, Object> payload = payload(token, push, sound, eventId);
         try {
