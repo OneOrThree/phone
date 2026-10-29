@@ -261,7 +261,7 @@ AWS 접근 불가로 아래는 모두 **미확인**이다. 하나라도 확인�
 | 암호화 | 미확인 | 기본 암호화 미설정 | `get-bucket-encryption` |
 | versioning | 미확인 | 켜져 있으면 비현재 버전 만료 규칙 필요 | `get-bucket-versioning` |
 | 불완전 multipart | 미확인 | 오래된 업로드 잔존 | `list-multipart-uploads` |
-| Fluent Bit 쓰기 IAM | 미확인 | `system_log/v2/` 최소 권한 + 타 환경 쓰기 차단 + 삭제 불가 확인 불가 | 역할 조회 + `simulate-principal-policy`(아래) |
+| Fluent Bit 쓰기 IAM | 미확인 | `system_log/v2/` 최소 권한 + 타 환경 쓰기 차단 + 삭제 불가 확인 불가 | (A) 역할 identity policy 시뮬레이션 + (B) 버킷 정책 검토(아래, 둘을 결합하지 않는다) |
 | dev -> S3 자격 방식 | 미결정 | dev에 AWS 자격 경로 없음(aws CLI만 설치) | 결정 필요 |
 | 롤백 소유자 | 미확인 | S3 설정·업로더 롤백 담당 미지정 | 담당 확인 |
 | 업로더 중복(590 timer / 2288) | 미확인 | 이중 적재로 중복 | prod 호스트 `systemctl list-timers` |
@@ -303,50 +303,61 @@ aws --profile gromo iam get-policy-version --policy-arn "$P" --version-id "$V"
 # 인라인 정책: list-role-policies 가 돌려준 각 이름마다
 aws --profile gromo iam get-role-policy --role-name "$R" --policy-name <POLICY_NAME>
 
-# 판정: 정책 본문을 눈으로 읽지 않고 결합 평가(권한 경계 포함)를 시뮬레이션한다.
-RP=$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)   # 정책이 없으면 --resource-policy·--policy-input-list 와 함께 뺀다
+# 판정 (A): 역할 identity policy(권한 경계 포함)만 시뮬레이션한다. --resource-policy 는 쓰지 않는다.
+# AWS CLI 문서: "Simulation of resource-based policies isn't supported for IAM roles."
+# (https://docs.aws.amazon.com/cli/latest/reference/iam/simulate-principal-policy.html, --resource-policy 항목)
+# 버킷 정책은 아래 (B)에서 사람이 읽는다. 버킷 정책의 조건 키도 (B)에서 확인한다.
 # 먼저 이 역할 정책이 참조하는 조건 키를 읽어 --context-entries 에 채울 값을 정한다(읽기 전용).
-# 이 명령은 역할 정책만 본다. 버킷 정책의 조건 키는 아래 RP 를 --policy-input-list "$RP" 로 함께 넘겨 포함한다.
-aws --profile gromo iam get-context-keys-for-principal-policy --policy-source-arn "$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)" --policy-input-list "$RP"
-# --action-names 와 --resource-arns 는 모든 조합으로 평가되므로, 리소스 유형(객체/버킷)이 맞는 묶음끼리 따로 호출한다.
 ARN=$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)
+aws --profile gromo iam get-context-keys-for-principal-policy --policy-source-arn "$ARN"
+# --action-names 와 --resource-arns 는 모든 조합으로 평가되므로, 리소스 유형(객체/버킷)이 맞는 묶음끼리 따로 호출한다.
 OBJ="arn:aws:s3:::$B/system_log/v2"
 # (1) 객체 ARN 호출: 허용 env 접두 안 / 다른 env= / 이웃 접두 아래 ARN 전부에 Put 과 Delete*·AbortMultipartUpload 를 넣는다
 #   env=<허용 env 를 접두로 포함하는 값>: 허용 env 가 prod 면 env=prod2 (정책이 env=prod* 로 쓰인 경우만 잡힌다)
 #   system_log/app-1 (590 업로더 경로), system_log/v2 (env 없이), user-activity/dt=2026-01-01
-# --resource-policy 가 여러 객체 ARN 에서 오류를 내면 ARN 마다 나눠 호출한다.
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
   --action-names s3:PutObject s3:DeleteObject s3:DeleteObjectVersion s3:AbortMultipartUpload \
   --resource-arns "$OBJ/env=<허용 env>/x" "$OBJ/env=<다른 env>/x" "$OBJ/env=<허용 env를 접두로 포함하는 값>/x" \
     "$OBJ/x" "arn:aws:s3:::$B/system_log/app-1/x" "arn:aws:s3:::$B/user-activity/dt=2026-01-01/x" "arn:aws:s3:::$B/user_log/x" \
-  --resource-policy "$RP" \
   --context-entries "ContextKeyName=aws:SecureTransport,ContextKeyValues=true,ContextKeyType=boolean" \
     "ContextKeyName=aws:RequestedRegion,ContextKeyValues=<버킷 리전>,ContextKeyType=string" \
     "ContextKeyName=s3:x-amz-server-side-encryption,ContextKeyValues=<정책이 요구하는 값>,ContextKeyType=string"
 # (2) 버킷 ARN 호출: 버킷 수준 액션은 버킷 ARN 으로만
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
   --action-names s3:PutLifecycleConfiguration s3:PutBucketPolicy s3:PutBucketVersioning s3:PutEncryptionConfiguration s3:DeleteBucket s3:ListBucketMultipartUploads \
-  --resource-arns "arn:aws:s3:::$B" --resource-policy "$RP"
-# (3) SSE-KMS 버킷이면 키 ARN 과 다른 키 ARN 에 각각 넣는다
+  --resource-arns "arn:aws:s3:::$B"
+# (3) SSE-KMS 버킷이면 버킷 키 ARN 과 «다른 키 ARN» 에 각각 넣는다. 다른 키 대표 선정: 다른 환경 로그 버킷의 키 1개 + 같은 계정·리전의 임의 고객 관리 키 1개(둘 다 시험)
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
   --action-names kms:GenerateDataKey kms:Decrypt --resource-arns "<버킷 키 ARN>" "<다른 키 ARN>" \
   --context-entries "ContextKeyName=kms:ViaService,ContextKeyValues=s3.<버킷 리전>.amazonaws.com,ContextKeyType=string"
 # (4) 키 정책·grant 는 시뮬레이터 밖이므로 대상 키마다 직접 읽는다(읽기 전용)
 aws --profile gromo kms get-key-policy --key-id "<키 ARN>" --policy-name default
 aws --profile gromo kms list-grants --key-id "<키 ARN>"
+# 판정 (B): 버킷 정책 본문을 읽는다(시뮬레이션 아님). 정책이 없으면(NoSuchBucketPolicy) (B)는 «정책 없음»으로 기록한다.
+aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text
 ```
 
-**결과 기록.** `EvaluationResults[]` 의 (액션, 리소스) 쌍마다 `EvalDecision`(`allowed`/`implicitDeny`/`explicitDeny`)을 한 줄씩 적는다. 출력의 `MissingContextValues` 도 같이 적는다. 정책에 `aws:SecureTransport`·`s3:x-amz-server-side-encryption`·`aws:RequestedRegion` 같은 Condition 이 있으면 `--context-entries` 로 채우지 않은 값은 «불일치»로 평가되어 허용이 `implicitDeny` 로, 조건부 Deny 가 적용되지 않은 채로 나올 수 있다. `MissingContextValues` 가 남아 있으면 값을 채워 다시 실행한다. 어떤 키를 채울지는 위 `get-context-keys-for-principal-policy` 결과로 정한다.
+**결과 기록 (A).** `EvaluationResults[]` 의 (액션, 리소스) 쌍마다 `EvalDecision`(`allowed`/`implicitDeny`/`explicitDeny`)을 한 줄씩 적는다. 출력의 `MissingContextValues` 도 같이 적는다. 정책에 `aws:SecureTransport`·`s3:x-amz-server-side-encryption`·`aws:RequestedRegion` 같은 Condition 이 있으면 `--context-entries` 로 채우지 않은 값은 «불일치»로 평가되어 허용이 `implicitDeny` 로, 조건부 Deny 가 적용되지 않은 채로 나올 수 있다. `MissingContextValues` 가 남아 있으면 값을 채워 다시 실행한다. 어떤 키를 채울지는 위 `get-context-keys-for-principal-policy` 결과(역할 정책 기준)로 정한다. 버킷 정책의 조건 키는 (B)에서 사람이 확인한다.
 
-버킷 정책이 없으면(`NoSuchBucketPolicy`) `--resource-policy`는 뺀다. 합격 방향은 항목마다 반대다. 쓰기 범위는 `allowed` 가 합격이고, 삭제·버킷 변경·타 환경 항목은 `allowed` 가 나오면 불합격이다.
+(A) 합격 방향은 항목마다 반대다. 쓰기 범위는 `allowed` 가 합격이고, 삭제·버킷 변경·타 환경 항목은 `allowed` 가 나오면 불합격이다.
 
 | 판정 항목 | 합격 기준 |
 | --- | --- |
-| 쓰기 범위 | `s3:PutObject`가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`에서 `allowed`(합격), 다른 접두에서는 아래 행 |
+| 쓰기 범위 | `s3:PutObject`가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`에서 `allowed`(합격), 다른 접두에서는 아래 행. 버킷이 SSE-KMS 면 (3)의 버킷 키 `kms:GenerateDataKey`·`kms:Decrypt` 도 `allowed` 여야 한다 |
 | 삭제·수명주기·버킷 변경 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`은 (1)의 객체 ARN 전부(허용 env 안 포함), `s3:PutLifecycleConfiguration`·`s3:PutBucketPolicy`·`s3:PutBucketVersioning`·`s3:PutEncryptionConfiguration`·`s3:DeleteBucket`은 버킷 ARN 에서 `implicitDeny` 또는 `explicitDeny`. 한 곳이라도 `allowed` 면 불합격 |
 | 타 환경 쓰기 차단 | 다른 `env=` 접두(허용 env 를 접두로 포함하는 값 포함)와 `system_log/v2/` 밖(`system_log/app-1/`·env 없는 `system_log/v2/`·`user-activity/`·`user_log/`)에 대한 `s3:PutObject`가 `implicitDeny` 또는 `explicitDeny`. `allowed` 면 불합격 |
-| 다른 KMS 키 차단 | (3)의 다른 키가 `implicitDeny` 또는 `explicitDeny` 이고, (4)로 읽은 그 키의 키 정책·grant 에 이 역할 ARN 이 직접 명시돼 있지 않아야 한다. 키 정책이 IAM 위임(`arn:aws:iam::<ACCOUNT_ID>:root`)만 쓰는 경우에 한해 (3)의 `implicitDeny` 를 차단 근거로 인정한다. 그 밖이면 판정 불가로 기록 |
-| 판정 불가 | `implicitDeny` 라도 `MissingContextValues` 가 비어 있지 않으면 합격으로 기록하지 않는다. 값을 채워 다시 실행한다 |
+| 다른 KMS 키 차단 | (3)의 다른 키가 `implicitDeny` 또는 `explicitDeny` 이고, (4)로 읽은 그 키의 키 정책·grant 에 이 역할 ARN 이 직접 명시돼 있지 않아야 한다. 키 정책이 Condition 없는 IAM 위임(`arn:aws:iam::<ACCOUNT_ID>:root`)만 쓰는 경우에 한해 (3)의 `implicitDeny` 를 차단 근거로 인정한다. 그 밖이면 판정 불가로 기록 |
+| 판정 불가 | (A)에서 `implicitDeny` 라도 `MissingContextValues` 가 비어 있지 않으면 합격으로 기록하지 않는다. 값을 채워 다시 실행한다 |
+
+**결과 기록 (B): 버킷 정책 검토.** `get-bucket-policy` 본문을 Statement 하나씩 읽고 문장 단위로 판정한다. 이 판정은 (A)의 시뮬레이션과 «결합»한 결과가 아니다. IAM 역할에 대한 리소스 정책 시뮬레이션은 지원되지 않으므로(위 문서 인용) 두 결과를 따로 적고, 하나로 합쳐 합격 근거로 쓰지 않는다.
+
+| 확인 항목 | 합격 기준(문장 단위) |
+| --- | --- |
+| 이 역할을 여는 `Allow` 의 범위 | Principal 이 이 역할 ARN, 역할이 속한 계정 `:root`, 또는 `*` 인 `Allow` 문장마다 Action·Resource·Condition 을 적는다. `system_log/v2/env=<env>/*` 쓰기 밖의 객체 ARN, `s3:Delete*`, 버킷 설정 변경(`s3:PutBucket*`·`s3:PutLifecycleConfiguration`·`s3:PutEncryptionConfiguration`·`s3:DeleteBucket*`)을 여는 문장이 하나라도 있으면 불합격 |
+| `NotPrincipal`·`NotAction`·`NotResource` | 쓰인 문장이 있으면 실제로 열리는 범위를 풀어서 적고 위 행으로 판정한다. 풀 수 없으면 판정 불가 |
+| 필요한 `Deny` | 타 env 접두 쓰기 차단 `Deny` 가 있는지 적는다. 없는 것이 불합격은 아니다(그 경우 차단은 (A)의 역할 정책 `implicitDeny` 에만 의존함을 기록). 있으면 Condition 을 적는다 |
+| 조건 키 | 문장에 쓰인 Condition 키(`aws:SecureTransport`·`aws:SourceVpce`·`s3:x-amz-server-side-encryption` 등)를 모두 적는다. 역할 호출이 이 조건을 만족하는지 판단하지 못하면 판정 불가 |
+| 정책 없음 | `NoSuchBucketPolicy` 이면 «버킷 정책 없음»으로 기록하고 (B)는 이 상태로 종료. 역할 쪽 평가는 (A)만 근거다 |
 
 **허용 예외(삭제 권한 부재 판정과 혼동하지 않는다).** Fluent Bit S3 플러그인은 multipart 업로드를 쓰므로 `s3:PutObject`만으로는 실패할 수 있다. 아래는 허용되어도 합격이다.
 
@@ -355,7 +366,7 @@ aws --profile gromo kms list-grants --key-id "<키 ARN>"
 - 판정 방향은 쓰기 범위와 같다. (1)의 `s3:AbortMultipartUpload`는 허용 env 접두 안에서만 `allowed`이고 그 밖(다른 env·`system_log/app-1/`·`user_log/` 등)은 `implicitDeny` 또는 `explicitDeny`여야 한다. (2)의 `s3:ListBucketMultipartUploads`는 버킷 ARN 의 `allowed`만 허용 예외다.
 - 버킷이 SSE-KMS(`get-bucket-encryption` 결과)이면 multipart 업로드에는 `kms:GenerateDataKey` 와 `kms:Decrypt` 가 둘 다 필요한 것으로 알려져 있다(AWS 문서 확인 필요). 두 액션은 해당 키 ARN 에 한해서만 허용돼야 하며, 위 (3) 호출에서 버킷 키는 `allowed`, 다른 키는 `implicitDeny` 또는 `explicitDeny` 인지 확인한다.
 
-**시뮬레이션의 한계.** KMS 는 키 정책이 같은 계정의 역할을 직접 허용할 수 있어 역할 쪽 `implicitDeny` 만으로 «다른 키 차단»을 확정할 수 없고, 시뮬레이터는 키 정책을 평가하지 않는 것으로 알려져 있다(확인 필요). 그래서 (4)로 대상 키의 키 정책과 grant 를 직접 읽는다. 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
+**시뮬레이션의 한계.** 역할에 대한 리소스 정책 시뮬레이션은 지원되지 않아, 역할 정책과 버킷 정책의 결합 평가는 이 절차로 얻을 수 없다. 결합 결과(교차 계정 접근에서 양쪽 허용이 모두 필요한 규칙, 같은 계정에서 버킷 정책의 `Allow` 가 역할 정책 없이도 통하는 경우, 어느 한쪽의 명시적 `Deny` 우선)는 (A)와 (B)를 사람이 읽고 AWS 평가 규칙(https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html)을 적용해 판정한다. 이 판정은 배포 합격의 자동 근거가 아니라 검토 기록이며, 실제 호출 시험은 별도다. KMS 는 키 정책이 같은 계정의 역할을 직접 허용할 수 있어 역할 쪽 `implicitDeny` 만으로 «다른 키 차단»을 확정할 수 없고, 시뮬레이터는 키 정책을 평가하지 않는 것으로 알려져 있다(확인 필요). 그래서 (4)로 대상 키의 키 정책과 grant 를 직접 읽는다. 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
 
 결과를 문서에 남길 때 계정 ID, 키, 정책 본문의 시크릿 값은 가린다(정책 본문은 Action·Resource 구조만 옮기고 계정 ID는 `<ACCOUNT_ID>`로 바꾼다). `list-objects-v2` 결과를 옮길 때는 객체 키에 사용자 값이 섞이지 않았는지 확인한다.
 
