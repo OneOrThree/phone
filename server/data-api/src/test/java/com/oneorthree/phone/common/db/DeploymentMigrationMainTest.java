@@ -52,7 +52,7 @@ class DeploymentMigrationMainTest {
 
         // 반복 배포·기본데이터 콜백은 V0 체인에 이력 행을 더하지 않는다.
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0", "1", "2", "3");
+                .containsExactly("0", "1", "2", "3", "4");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audio_tracks", Integer.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items", Integer.class)).isEqualTo(110);
     }

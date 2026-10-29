@@ -1,6 +1,8 @@
 package com.oneorthree.phone.outbox.service;
 
+import com.oneorthree.phone.common.logging.LogScope;
 import com.oneorthree.phone.config.OutboxRelayProperties;
+import com.oneorthree.phone.outbox.client.OutboxCarrier;
 import com.oneorthree.phone.outbox.client.OutboxTransport;
 import com.oneorthree.phone.outbox.client.OutboxTransportResult;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
@@ -62,6 +64,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * 순 순차</b>, 축 사이는 병렬이다. 축 안에서 한 건이 끝나지 못하면(재시도·영구 실패·리스 상실·낡은 표시) 그 축은
  * 거기서 멈추고 나머지를 보내지 않은 채 되돌린다({@code released{predecessor_failed}}) — 뒤 행이 앞 행 실패를
  * 앞지르지 않게. 한 틱은 {@code tick-budget} 안에서 «집은 것이 없을 때까지» 라운드를 반복한다(0 = 한 라운드).
+ *
+ * <h2>원인 문맥 (GROMO-2557)</h2>
+ * 전달 행마다 축 작업 스레드에서 {@code event_id}·{@code delivery_id}·{@code attempt}·봉투의 origin 을 MDC 에 설치하고 그 행이
+ * 끝나면(성공·실패·예외·낡은 리스 모두) 이전 값으로 되돌린다. 같은 값을 {@link OutboxCarrier} 헤더로 실어 보내고, 시도마다
+ * {@code event_name=outbox.delivery} INFO 한 줄로 결과를 남긴다. 스레드 사이로는 MDC 를 복사하지 않는다 — 문맥의 출처는 DB 행이다.
  */
 @Slf4j
 public class OutboxRelayService {
@@ -208,13 +215,34 @@ public class OutboxRelayService {
     private int deliverAxis(List<EventOutboxDelivery> rows, Map<UUID, EventOutbox> envelopes, UUID token) {
         for (int i = 0; i < rows.size(); i++) {
             EventOutboxDelivery delivery = rows.get(i);
+            EventOutbox envelope = envelopes.get(delivery.getOutboxId());
             boolean done;
+            // 행 하나의 문맥 — 아래 예외 로그까지 이 행의 event_id·origin 을 달고, 끝나면 이 스레드의 이전 값으로 돌아간다.
+            // 관측 실패(carrier·scope 생성)가 축을 멈추면 안 된다 — 전달은 그대로 진행한다.
+            // carrier 생성이 실패하면 origin 헤더 없이, scope 만 실패하면 헤더는 유지하고 로그 문맥 없이 보낸다.
+            OutboxCarrier carrier = OutboxCarrier.NONE;
+            LogScope scope = null;
             try {
-                done = deliverOne(delivery, envelopes.get(delivery.getOutboxId()), token);
+                OutboxCarrier built = OutboxCarrier.of(delivery, envelope);
+                carrier = built;
+                scope = built.openScope();
+            } catch (RuntimeException e) {
+                log.warn("원인 문맥 carrier·scope 생성 실패(carrier 실패면 origin 헤더 없이, scope 만 실패면 헤더 유지·로그 문맥 없이 전달)"
+                        + " — deliveryId={} target={}",
+                        delivery.getId(), delivery.getTarget(), e);
+            }
+            try {
+                Outcome outcome = deliverOne(delivery, envelope, token, carrier);
+                done = outcome == Outcome.DELIVERED;
+                logOutcome(outcome, delivery);
             } catch (RuntimeException e) {
                 // 표시 단계 DB 오류 등 — 축을 멈추고 나머지는 놓는다. 이 행은 리스 만료 뒤 다시 집힌다.
                 log.error("축 전달 중 예외 — deliveryId={} target={}", delivery.getId(), delivery.getTarget(), e);
                 done = false;
+            } finally {
+                if (scope != null) {
+                    scope.close();
+                }
             }
             if (!done) {
                 releaseRest(rows.subList(i + 1, rows.size()), token);
@@ -266,29 +294,54 @@ public class OutboxRelayService {
         }
     }
 
+    /** 한 시도의 결과 — {@code outbox.delivery} 로그의 {@code result} 값이다. */
+    private enum Outcome {
+        DELIVERED("delivered"),
+        FAILED("failed"),
+        PERMANENT_FAILURE("permanent_failure"),
+        STALE_LEASE("stale_lease"),
+        LEASE_LOST("lease_lost");
+
+        private final String label;
+
+        Outcome(String label) {
+            this.label = label;
+        }
+    }
+
+    /** 시도 결과 한 줄 — 본문·토큰·사유 원문은 싣지 않는다(사유는 기존 WARN/ERROR 와 {@code last_error} 에 있다). */
+    private static void logOutcome(Outcome outcome, EventOutboxDelivery delivery) {
+        // 관측 실패가 전달 판정을 바꾸면 안 된다 — 이미 표시까지 끝난 행이 로깅 오류로 «실패»가 되어 축이 멈추는 것을 막는다.
+        try (LogScope ignored = LogScope.open().set("event_name", "outbox.delivery")) {
+            log.info("outbox 전달 시도 결과 result={} target={}", outcome.label, delivery.getTarget());
+        } catch (RuntimeException ignored) {
+            // 로그 한 줄을 잃을 뿐이다.
+        }
+    }
+
     /**
      * 한 건을 <b>트랜잭션 밖에서</b> 내보내고 결과를 표시한다.
      *
      * @param envelope 이 행의 봉투. {@code null} = 없다
-     * @return 전달·표시까지 마쳤으면 {@code true}
+     * @param carrier  이번 시도의 원인 문맥 — 헤더로 실린다
+     * @return 이번 시도의 결과. 전달·표시까지 마쳤으면 {@link Outcome#DELIVERED}
      */
-    private boolean deliverOne(EventOutboxDelivery delivery, EventOutbox envelope, UUID token) {
+    private Outcome deliverOne(EventOutboxDelivery delivery, EventOutbox envelope, UUID token, OutboxCarrier carrier) {
         if (envelope == null) {
             // FK 가 있어 정상 흐름에선 불가능하다. 조용히 넘기면 그 행이 영원히 재시도되므로 기록한다.
-            recordFailure(delivery, token, "봉투가 없습니다 — outboxId=" + delivery.getOutboxId(), false);
-            return false;
+            return recordFailure(delivery, token, "봉투가 없습니다 — outboxId=" + delivery.getOutboxId(), false);
         }
 
         OutboxTransport transport = transports.get(delivery.getTarget());
         if (!store.renewLease(delivery.getId(), token)) {
             log.warn("전송 전 리스를 잃어 건너뛴다 — deliveryId={} target={}",
                     delivery.getId(), delivery.getTarget());
-            return false;
+            return Outcome.LEASE_LOST;
         }
         OutboxTransportResult result;
         Timer.Sample sending = Timer.start(meterRegistry);
         try {
-            result = transport.send(delivery, envelope.getUserId());
+            result = transport.send(delivery, envelope.getUserId(), carrier);
         } catch (RuntimeException e) {
             // 전달 경로가 예상 밖으로 던지면 그 예외가 틱을 끊는다 — 같은 틱에 선점한 다른 행들이
             // 표시를 못 받고 리스만 문 채 남는다. «보냈는지 모른다»가 정확한 상태이므로 재시도로 본다
@@ -304,14 +357,13 @@ public class OutboxRelayService {
             if (store.markDelivered(delivery.getId(), token) == 0) {
                 log.warn("낡은 리스의 완료 표시를 거부했다 — deliveryId={} target={}",
                         delivery.getId(), delivery.getTarget());
-                return false;
+                return Outcome.STALE_LEASE;
             }
             meterRegistry.counter("outbox.relay.delivered", "target", delivery.getTarget().name()).increment();
-            return true;
+            return Outcome.DELIVERED;
         }
 
-        recordFailure(delivery, token, result.error(), result.retryable());
-        return false;
+        return recordFailure(delivery, token, result.error(), result.retryable());
     }
 
     /**
@@ -323,12 +375,12 @@ public class OutboxRelayService {
      * <p>ERROR 로그는 같은 행에서 반복하지 않는다 — 영구 실패는 사유가 바뀔 때만, 임계값 경고는 시도 수가 임계값에 닿는
      * 한 번만 남긴다. 재시도마다 세는 것은 {@code outbox.relay.failed} 카운터다.
      */
-    private void recordFailure(EventOutboxDelivery delivery, UUID token, String error, boolean retryable) {
+    private Outcome recordFailure(EventOutboxDelivery delivery, UUID token, String error, boolean retryable) {
         String reason = truncate(error);
         Instant nextAt = clock.instant().plus(backoffFor(delivery.getAttemptCount()));
         if (store.markFailed(delivery.getId(), token, nextAt, reason) == 0) {
             log.warn("낡은 리스의 실패 표시를 거부했다 — deliveryId={}", delivery.getId());
-            return;
+            return Outcome.STALE_LEASE;
         }
         meterRegistry.counter("outbox.relay.failed",
                 "target", delivery.getTarget().name(), "retryable", String.valueOf(retryable)).increment();
@@ -347,6 +399,7 @@ public class OutboxRelayService {
             log.error("전달 시도가 임계값에 닿았다 — deliveryId={} target={} attempts={} 사유={}",
                     delivery.getId(), delivery.getTarget(), delivery.getAttemptCount(), error);
         }
+        return retryable ? Outcome.FAILED : Outcome.PERMANENT_FAILURE;
     }
 
     /**

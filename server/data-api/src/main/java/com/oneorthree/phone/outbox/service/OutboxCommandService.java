@@ -16,6 +16,7 @@ import com.oneorthree.phone.outbox.repository.domain.CommandIdempotency;
 import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
+import com.oneorthree.phone.outbox.support.OutboxOrigin;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -88,6 +89,8 @@ public class OutboxCommandService implements OutboxCommandPort {
                 command.subjectId(),
                 version,
                 command.params());
+        // 원인 문맥은 봉투 본문 밖 열로만 남는다 — 소비자 봉투·멱등 비교가 바뀌지 않는다(GROMO-2557).
+        OutboxOrigin origin = OutboxOrigin.capture();
 
         EventOutbox saved = eventOutboxRepository.save(EventOutbox.builder()
                 .eventId(envelope.eventId())
@@ -103,6 +106,9 @@ public class OutboxCommandService implements OutboxCommandPort {
                 .version(version)
                 .params(envelope.params())
                 .createdAt(now)
+                .originRequestId(origin.requestId())
+                .originTraceId(origin.traceId())
+                .traceContextVersion(origin.version())
                 .build());
 
         Map<String, Object> envelopeMap = OutboxEnvelopeCodec.toMap(envelope);
