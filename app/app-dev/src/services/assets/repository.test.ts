@@ -431,3 +431,47 @@ test('이전 버전 수신 실패는 새 버전 성공 후 복귀의 6시간 제
   await restarted.onForeground();
   expect(f.counts().requests).toBe(requests + 1);
 });
+
+test('알려진 불량 SHA도 채널 성공과 별개로 1분·5분·30분 수신 백오프를 적용한다', async () => {
+  const f = fixture(),
+    r = f.create();
+  await r.ensurePack('interior-hall');
+  const lease = (await r.acquirePack('interior-hall'))!;
+  await r.reportDecodeFailure(lease);
+  for (const delay of [60000, 300000, 1800000, 1800000]) {
+    const before = f.counts().requests;
+    expect(await r.ensurePack('interior-hall')).toEqual({ status: 'failed', reason: 'decode' });
+    expect(f.counts().requests).toBe(before + 1);
+    const after = f.counts().requests;
+    await r.onForeground();
+    expect(await r.ensurePack('interior-hall')).toEqual({ status: 'deferred', reason: 'backoff' });
+    f.advance(delay - 1);
+    await r.onForeground();
+    expect(await r.ensurePack('interior-hall')).toEqual({ status: 'deferred', reason: 'backoff' });
+    expect(f.counts().requests).toBe(after);
+    f.advance(1);
+  }
+  expect(f.counts().downloads).toBe(1);
+});
+test('부팅 디스크 목록의 일시 실패 후 다음 초기화는 기존 snapshot을 다시 복구한다', async () => {
+  const f = fixture();
+  const original = f.create();
+  await original.ensurePack('interior-hall');
+  const lease = (await original.acquirePack('interior-hall'))!;
+  lease.release();
+  const list = f.port.list;
+  let fail = true;
+  f.port.list = async () => {
+    if (fail) {
+      fail = false;
+      throw new Error('temporary disk failure');
+    }
+    return list();
+  };
+  const restarted = f.create();
+  await expect(restarted.initialize()).rejects.toThrow('temporary disk failure');
+  await expect(restarted.initialize()).resolves.toBeUndefined();
+  expect((await restarted.acquirePack('interior-hall'))?.version).toBe(lease.version);
+  expect([...f.files.keys()].filter((uri) => uri.includes('/indexes/'))).toHaveLength(2);
+  expect(f.counts().downloads).toBe(1);
+});

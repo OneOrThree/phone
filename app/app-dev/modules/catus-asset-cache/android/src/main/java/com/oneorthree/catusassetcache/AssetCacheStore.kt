@@ -64,14 +64,21 @@ internal class AssetCacheStore(
     @Volatile var call: Call? = null
     fun cancel() { cancelled = true; call?.cancel() }
   }
+  private val rootPath = root.canonicalFile
   private val jobs = ConcurrentHashMap<String, Job>()
   private val workers = Executors.newCachedThreadPool()
   private val timer = Executors.newSingleThreadScheduledExecutor()
 
   init {
-    listOf(root, File(root, "staging"), File(root, "objects"), File(root, "indexes")).forEach {
-      if (!it.isDirectory && !it.mkdirs()) fail("E_IO", "캐시 디렉터리 생성 실패")
-    }
+    listOf("staging", "objects", "indexes").forEach { ensureDirectory(it) }
+  }
+
+  private fun ensureDirectory(name: String) {
+    // OS 캐시 회수 후에도 같은 인스턴스가 다시 쓸 수 있어야 한다.
+    if (root.canonicalFile != rootPath) fail("E_PATH", "캐시 root 변경 거부")
+    val directory = contained(uri(File(root, name)))
+    // 다른 다운로드가 먼저 생성했으면 mkdirs의 false도 정상으로 처리한다.
+    if (!directory.isDirectory && !directory.mkdirs() && !directory.isDirectory) fail("E_IO", "캐시 디렉터리 생성 실패")
   }
 
   fun download(input: DownloadInput, complete: (Result<Map<String, Any>>) -> Unit) {
@@ -91,6 +98,7 @@ internal class AssetCacheStore(
       }
       val result = runCatching {
         checkDeadline()
+        ensureDirectory("staging")
         contained(uri(file))
         if (!file.createNewFile()) fail("E_EXISTS", "staging 파일이 이미 존재")
         owned = true
@@ -205,10 +213,11 @@ internal class AssetCacheStore(
   fun shutdown() { jobs.values.forEach { it.cancel() }; workers.shutdown(); timer.shutdown() }
 
   private fun contained(uri: String): File {
+    if (root.canonicalFile != rootPath) fail("E_PATH", "캐시 root 변경 거부")
     val parsed = URI(uri)
     if (parsed.scheme != "file" || !parsed.rawAuthority.isNullOrEmpty() || parsed.rawQuery != null || parsed.rawFragment != null) fail("E_PATH", "로컬 캐시 URI만 허용")
     val file = File(parsed).canonicalFile
-    if (!file.path.startsWith(root.canonicalPath + File.separator)) fail("E_PATH", "캐시 밖 경로 거부")
+    if (!file.path.startsWith(rootPath.path + File.separator)) fail("E_PATH", "캐시 밖 경로 거부")
     return file
   }
 
@@ -252,6 +261,7 @@ internal class AssetCacheStore(
     val jobId = source.name.removeSuffix(".partial")
     if (jobs.containsKey(jobId)) fail("E_BUSY", "다운로드 중인 파일")
     if (inspect(uri)["sha256"] != sha256) fail("E_INTEGRITY", "공개 전 SHA-256 불일치")
+    ensureDirectory("objects")
     val target = contained(uri(File(root, "objects/$sha256.png")))
     val existingGood = target.exists() && runCatching { inspect(uri(target))["sha256"] == sha256 }.getOrDefault(false)
     if (existingGood) {
@@ -270,6 +280,7 @@ internal class AssetCacheStore(
     val bytes = payload.toByteArray(Charsets.UTF_8)
     if (bytes.size > MAX_SNAPSHOT) fail("E_SIZE", "snapshot 크기 초과")
     val hash = digest(bytes)
+    ensureDirectory("indexes")
     val file = contained(uri(File(root, "indexes/${seq.toLong()}.$hash.json")))
     if (file.createNewFile()) {
       try { FileOutputStream(file).use { it.write(bytes); it.fd.sync() } }

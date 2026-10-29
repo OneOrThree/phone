@@ -111,9 +111,8 @@ test('native 기능이 없는 바이너리는 기존 번들 그림을 사용한�
   await screen.unmount();
 });
 
-test('복귀 동기화와 디코드 복구가 겹쳐도 교체된 lease를 모두 해제한다', async () => {
+test('디코드 복구 중 복귀는 조회하지 않고 복구 lease를 정확히 해제한다', async () => {
   const current = lease('broken'),
-    foreground = lease('foreground'),
     recovered = lease('recovered');
   let finish!: () => void;
   const failure = new Promise<void>((resolve) => {
@@ -127,11 +126,7 @@ test('복귀 동기화와 디코드 복구가 겹쳐도 교체된 lease를 모�
       return { remove: jest.fn() };
     });
   const repository = {
-    acquirePack: jest
-      .fn()
-      .mockResolvedValueOnce(current)
-      .mockResolvedValueOnce(foreground)
-      .mockResolvedValueOnce(recovered),
+    acquirePack: jest.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(recovered),
     ensurePack: jest.fn().mockResolvedValue({ status: 'ready' }),
     reportDecodeFailure: jest.fn(() => failure),
   };
@@ -143,12 +138,12 @@ test('복귀 동기화와 디코드 복구가 겹쳐도 교체된 lease를 모�
     }),
   );
   await fireEvent(screen.getByTestId('interior-background-image'), 'error', {});
-  await act(async () => onChange('active'));
-  await waitFor(() =>
-    expect(screen.getByTestId('interior-background-image').props.source).toEqual({
-      uri: foreground.assets.background.uri,
-    }),
-  );
+  await act(async () => {
+    onChange('active');
+    onChange('active');
+  });
+  expect(repository.acquirePack).toHaveBeenCalledTimes(1);
+  expect(repository.ensurePack).toHaveBeenCalledTimes(1);
   await act(async () => {
     finish();
     await failure;
@@ -158,7 +153,9 @@ test('복귀 동기화와 디코드 복구가 겹쳐도 교체된 lease를 모�
       uri: recovered.assets.background.uri,
     }),
   );
-  expect(foreground.release).toHaveBeenCalledTimes(1);
+  await act(async () => onChange('active'));
+  expect(repository.acquirePack).toHaveBeenCalledTimes(2);
+  expect(repository.ensurePack).toHaveBeenCalledTimes(2);
   await screen.unmount();
   expect(recovered.release).toHaveBeenCalledTimes(1);
   expect(current.release).toHaveBeenCalledTimes(1);

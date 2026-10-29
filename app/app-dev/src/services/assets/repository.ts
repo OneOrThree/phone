@@ -88,6 +88,8 @@ export class AssetRepository {
   }
   initialize() {
     return (this.initialized ??= this.locked(async () => {
+      this.snapshots = [];
+      this.seq = 0;
       const files = await this.port.list();
       const candidates = files
         .filter((f) => /\/indexes\/\d+\.[a-f0-9]{64}\.json$/.test(f.uri))
@@ -133,6 +135,9 @@ export class AssetRepository {
       // 작업 소유자가 없는 staging만 정리한다. 삭제 실패 파일은 다음 실사용 집계에 남는다.
       for (const file of files.filter((f) => f.uri.includes('/staging/')))
         await this.port.remove(file.uri).catch(() => {});
+    }).catch((error) => {
+      this.initialized = undefined;
+      throw error;
     }));
   }
   private async commit(next: Index) {
@@ -279,8 +284,10 @@ export class AssetRepository {
     if (!pack) return { status: 'deferred', reason: 'offline' };
     if (now < this.state.channel.nextRetry) return { status: 'deferred', reason: 'backoff' };
     const k = key(packId, pack.version);
-    if (Object.values(pack.files).some((f) => this.state.bad.includes(f.sha256)))
+    if (Object.values(pack.files).some((f) => this.state.bad.includes(f.sha256))) {
+      await this.recordFailure(k);
       return { status: 'failed', reason: 'decode' };
+    }
     await this.locked(async () => {
       for (const f of Object.values(pack.files))
         this.packPins.set(f.sha256, (this.packPins.get(f.sha256) ?? 0) + 1);
@@ -338,16 +345,7 @@ export class AssetRepository {
       });
       return { status: 'ready', version: pack.version };
     } catch (error) {
-      await this.locked(async () => {
-        const failureCount = (this.state.failures[k]?.failureCount ?? 0) + 1;
-        await this.commit({
-          ...this.state,
-          failures: {
-            ...this.state.failures,
-            [k]: { failureCount, nextRetry: this.now() + retryDelay(failureCount) },
-          },
-        });
-      }).catch(() => {});
+      await this.recordFailure(k);
       return error instanceof Error && error.message === 'space'
         ? { status: 'deferred', reason: 'space' }
         : { status: 'failed', reason: 'integrity' };
@@ -360,6 +358,18 @@ export class AssetRepository {
         }
       });
     }
+  }
+  private async recordFailure(k: string) {
+    await this.locked(async () => {
+      const failureCount = (this.state.failures[k]?.failureCount ?? 0) + 1;
+      await this.commit({
+        ...this.state,
+        failures: {
+          ...this.state.failures,
+          [k]: { failureCount, nextRetry: this.now() + retryDelay(failureCount) },
+        },
+      });
+    }).catch(() => {});
   }
   private object(file: AssetFile): Promise<string> {
     const hit = this.jobs.get(file.sha256);

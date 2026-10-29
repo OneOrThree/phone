@@ -140,6 +140,42 @@ final class FixtureProtocol: URLProtocol {
     catch { check((error as? CacheFailure)?.code == "E_SIZE", "PNG 파일 16MiB 상한") }
     do { _ = try store.inspectPng("file:///etc/passwd"); fatalError("PNG root 탈출") }
     catch { check((error as? CacheFailure)?.code == "E_PATH", "PNG root 탈출 거부") }
+    FixtureProtocol.handler = { $0.respond(replacementBody) }
+    try FileManager.default.removeItem(at: base)
+    var restored = try download(replacementBody).get()
+    check(try store.inspect(restored["uri"] as! String)["bytes"] as? Int64 == Int64(replacementBody.count), "같은 인스턴스 root 회수 후 다운로드 복구")
+    _ = try store.publish(uri: restored["uri"] as! String, sha256: restored["sha256"] as! String, ext: "png")
+    try FileManager.default.removeItem(at: base.appendingPathComponent("staging"))
+    restored = try download(replacementBody).get()
+    check(try store.inspect(restored["uri"] as! String)["sha256"] as? String == AssetCacheStore.hash(replacementBody), "staging 회수 후 다운로드 복구")
+    try FileManager.default.removeItem(at: base.appendingPathComponent("objects"))
+    let restoredObject = try store.publish(uri: restored["uri"] as! String, sha256: restored["sha256"] as! String, ext: "png")
+    check(try store.inspect(restoredObject)["sha256"] as? String == AssetCacheStore.hash(replacementBody), "objects 회수 후 공개 복구")
+    try FileManager.default.removeItem(at: base)
+    var restoredSnapshot = try store.snapshot(seq: 1, payload: "{\"seq\":1}")
+    check(try store.inspect(restoredSnapshot["uri"] as! String)["sha256"] as? String == restoredSnapshot["sha256"] as? String, "root 회수 후 snapshot 복구")
+    try FileManager.default.removeItem(at: base.appendingPathComponent("indexes"))
+    restoredSnapshot = try store.snapshot(seq: 2, payload: "{\"seq\":2}")
+    check(try store.inspect(restoredSnapshot["uri"] as! String)["sha256"] as? String == restoredSnapshot["sha256"] as? String, "indexes 회수 후 snapshot 복구")
+    try FileManager.default.removeItem(at: base)
+    let concurrentDone = DispatchSemaphore(value: 0)
+    let resultLock = NSLock()
+    var successes = 0
+    for job in ["parallel-a", "parallel-b"] {
+      store.download(DownloadInput(url: "https://cdn.example/a.png", jobId: job, expectedBytes: Int64(replacementBody.count), expectedSha256: AssetCacheStore.hash(replacementBody), allowedOrigins: ["https://cdn.example"], timeoutMs: 1000)) { result in
+        resultLock.lock(); if case .success = result { successes += 1 }; resultLock.unlock()
+        concurrentDone.signal()
+      }
+    }
+    check(concurrentDone.wait(timeout: .now() + 3) == .success && concurrentDone.wait(timeout: .now() + 3) == .success && successes == 2, "root 회수 후 동시 다운로드 mkdir 경합")
+    let outside = base.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    let indexesLink = base.appendingPathComponent("indexes")
+    try FileManager.default.createSymbolicLink(at: indexesLink, withDestinationURL: outside)
+    do { _ = try store.snapshot(seq: 3, payload: "{}"); fatalError("외부 디렉터리 생성 허용") }
+    catch { check((error as? CacheFailure)?.code == "E_PATH", "디렉터리 재생성도 외부 symlink 거부") }
+    check(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty, "외부 디렉터리에 쓰지 않음")
+    try FileManager.default.removeItem(at: indexesLink); try FileManager.default.removeItem(at: outside)
     print("Swift native tests: \(passed) passed")
   }
 }

@@ -29,9 +29,16 @@ final class AssetCacheStore {
   init(root: URL, configuration: @escaping () -> URLSessionConfiguration = { .ephemeral }) throws {
     self.configuration = configuration
     self.root = root.standardizedFileURL.resolvingSymlinksInPath()
-    for directory in ["", "staging", "objects", "indexes"] {
-      try FileManager.default.createDirectory(at: self.root.appendingPathComponent(directory), withIntermediateDirectories: true)
+    for directory in ["staging", "objects", "indexes"] {
+      try Self.ensureDirectory(root: self.root, name: directory)
     }
+  }
+  static func ensureDirectory(root: URL, name: String) throws {
+    // OS 캐시 회수 후에도 같은 인스턴스가 다시 쓸 수 있어야 한다.
+    guard root.resolvingSymlinksInPath().path == root.path else { throw cacheFail("E_PATH", "캐시 root 변경 거부") }
+    let directory = root.appendingPathComponent(name).resolvingSymlinksInPath()
+    guard directory.path.hasPrefix(root.path + "/") else { throw cacheFail("E_PATH", "캐시 밖 디렉터리 거부") }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   }
   static func validHash(_ value: String) -> Bool {
     value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
@@ -99,6 +106,7 @@ final class AssetCacheStore {
     active.forEach { $0.cancel(complete: {}) }
   }
   private func contained(_ uri: String) throws -> URL {
+    guard root.resolvingSymlinksInPath().path == root.path else { throw cacheFail("E_PATH", "캐시 root 변경 거부") }
     guard let url = URL(string: uri), url.isFileURL, url.host == nil || url.host == "",
       url.query == nil, url.fragment == nil else { throw cacheFail("E_PATH", "로컬 캐시 URI만 허용") }
     let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -155,6 +163,7 @@ final class AssetCacheStore {
     lock.lock(); let active = jobs[source.deletingPathExtension().lastPathComponent] != nil; lock.unlock()
     guard !active else { throw cacheFail("E_BUSY", "다운로드 중인 파일") }
     guard try inspect(uri)["sha256"] as? String == sha256 else { throw cacheFail("E_INTEGRITY", "공개 전 SHA-256 불일치") }
+    try Self.ensureDirectory(root: root, name: "objects")
     let target = try contained(root.appendingPathComponent("objects/\(sha256).png").absoluteString)
     let existingGood = (try? inspect(target.absoluteString)["sha256"] as? String) == sha256
     if existingGood {
@@ -174,6 +183,7 @@ final class AssetCacheStore {
     let data = Data(payload.utf8)
     guard data.count <= Self.maxSnapshot else { throw cacheFail("E_SIZE", "snapshot 크기 초과") }
     let digest = Self.hash(data)
+    try Self.ensureDirectory(root: root, name: "indexes")
     let file = try contained(root.appendingPathComponent("indexes/\(Int64(seq)).\(digest).json").absoluteString)
     let descriptor = open(file.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
     if descriptor >= 0 {
@@ -224,6 +234,7 @@ private final class BoundedDownload: NSObject, URLSessionDataDelegate, @unchecke
       do {
         started = DispatchTime.now().uptimeNanoseconds
         if !metadata {
+          try AssetCacheStore.ensureDirectory(root: file.deletingLastPathComponent().deletingLastPathComponent(), name: "staging")
           let fd = open(file.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
           guard fd >= 0 else { throw cacheFail("E_EXISTS", "staging 생성 실패") }
           owned = true; handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)

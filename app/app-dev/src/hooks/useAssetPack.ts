@@ -7,12 +7,13 @@ export function useAssetPack(packId: string | null) {
   const [lease, setLease] = useState<PackLease | null>(null);
   const held = useRef<PackLease | null>(null);
   const epoch = useRef(0);
+  const recovering = useRef<number | null>(null);
   useEffect(() => {
     const repository = getAssetRepository();
     const current = ++epoch.current;
     setLease(null);
     const adopt = (candidate: PackLease | null) => {
-      if (current !== epoch.current) {
+      if (current !== epoch.current || recovering.current === current) {
         candidate?.release();
         return;
       }
@@ -22,13 +23,13 @@ export function useAssetPack(packId: string | null) {
     };
     let running = false;
     const synchronize = async () => {
-      if (!repository || !packId || running) return;
+      if (!repository || !packId || running || recovering.current === current) return;
       running = true;
       try {
         if (!held.current) adopt(await repository.acquirePack(packId));
-        if (current !== epoch.current) return;
+        if (current !== epoch.current || recovering.current === current) return;
         await repository.ensurePack(packId);
-        if (current !== epoch.current || held.current) return;
+        if (current !== epoch.current || held.current || recovering.current === current) return;
         adopt(await repository.acquirePack(packId));
       } finally {
         running = false;
@@ -52,8 +53,10 @@ export function useAssetPack(packId: string | null) {
     lease: lease?.packId === packId ? lease : null,
     onError: () => {
       const repository = getAssetRepository();
-      if (!lease || !repository || held.current !== lease) return;
+      if (!lease || !repository || held.current !== lease || recovering.current === epoch.current)
+        return;
       const current = epoch.current;
+      recovering.current = current;
       setLease(null);
       held.current = null;
       void (async () => {
@@ -70,7 +73,11 @@ export function useAssetPack(packId: string | null) {
         if (held.current !== previous) held.current?.release();
         held.current = previous;
         setLease(previous);
-      })().catch(() => {});
+      })()
+        .catch(() => {})
+        .finally(() => {
+          if (recovering.current === current) recovering.current = null;
+        });
     },
   };
 }

@@ -138,6 +138,45 @@ class AssetCacheStoreTest {
       assertThrows(CacheFailure::class.java) { cache.inspectPng("file:///etc/passwd") }
     }
   }
+  @Test fun liveStoreRecoversEvictedDirectories() {
+    val body = "cache-recovery".toByteArray()
+    using(store(body)) { cache ->
+      assertTrue(cache.root.deleteRecursively())
+      var result = download(cache, body).getOrThrow()
+      var published = cache.publish(result["uri"] as String, result["sha256"] as String, "png")
+      assertEquals(body.size.toLong(), cache.inspect(published)["bytes"])
+      assertTrue(File(cache.root, "staging").deleteRecursively())
+      result = download(cache, body).getOrThrow()
+      assertTrue(File(cache.root, "objects").deleteRecursively())
+      published = cache.publish(result["uri"] as String, result["sha256"] as String, "png")
+      assertEquals(AssetCacheStore.digest(body), cache.inspect(published)["sha256"])
+      assertTrue(cache.root.deleteRecursively())
+      var snapshot = cache.snapshot(1.0, "{\"seq\":1}")
+      assertEquals(snapshot["sha256"], cache.inspect(snapshot["uri"] as String)["sha256"])
+      assertTrue(File(cache.root, "indexes").deleteRecursively())
+      snapshot = cache.snapshot(2.0, "{\"seq\":2}")
+      assertEquals(snapshot["sha256"], cache.inspect(snapshot["uri"] as String)["sha256"])
+      assertTrue(cache.root.deleteRecursively())
+      val done = CountDownLatch(2)
+      val results = java.util.Collections.synchronizedList(mutableListOf<Result<Map<String, Any>>>())
+      for (job in listOf("parallel-a", "parallel-b")) {
+        cache.download(DownloadInput("https://cdn.example/a.png", job, body.size.toLong(), AssetCacheStore.digest(body), listOf("https://cdn.example"), 1000)) { results.add(it); done.countDown() }
+      }
+      assertTrue(done.await(3, TimeUnit.SECONDS))
+      assertEquals(2, results.size); results.forEach { assertTrue(it.toString(), it.isSuccess) }
+    }
+  }
+  @Test fun recoveredDirectoriesStillRejectExternalSymlinks() {
+    using(store(ByteArray(0))) { cache ->
+      val outside = Files.createTempDirectory("catus-outside-")
+      val indexes = File(cache.root, "indexes").toPath()
+      Files.delete(indexes); Files.createSymbolicLink(indexes, outside)
+      try {
+        assertEquals("E_PATH", assertThrows(CacheFailure::class.java) { cache.snapshot(1.0, "{}") }.errorCode)
+        assertEquals(0, outside.toFile().list()!!.size)
+      } finally { Files.delete(indexes); Files.delete(outside) }
+    }
+  }
   @Test fun inputSecurity() {
     for (url in listOf("http://cdn.example/a", "https://user@cdn.example/a", "https://evil.example/a", "https://cdn.example/a?token=x")) {
       assertThrows(Exception::class.java) { AssetCacheStore.validate(DownloadInput(url, "job", 0, "0".repeat(64), listOf("https://cdn.example"), 1000)) }
