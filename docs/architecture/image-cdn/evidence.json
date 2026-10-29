@@ -1,0 +1,2830 @@
+{
+  "checkedAt": "2026-10-29",
+  "baselineSha": "4f3a3d96c204d57ba0a593ffb2caacdd7be7ef88",
+  "scope": "app/app-dev/src/assets/**/*.png,jpg,jpeg,webp,gif; source size, not bundled or compressed size",
+  "imageCount": 690,
+  "bytes": 215084572,
+  "categories": {
+    "backgrounds": {
+      "count": 41,
+      "bytes": 27916971
+    },
+    "boats": {
+      "count": 37,
+      "bytes": 12574475
+    },
+    "buildings": {
+      "count": 18,
+      "bytes": 16663233
+    },
+    "characters": {
+      "count": 173,
+      "bytes": 40711886
+    },
+    "icon.png": {
+      "count": 1,
+      "bytes": 3405264
+    },
+    "interiors": {
+      "count": 23,
+      "bytes": 25775666
+    },
+    "login": {
+      "count": 2,
+      "bytes": 5724
+    },
+    "ota": {
+      "count": 113,
+      "bytes": 17921772
+    },
+    "props": {
+      "count": 14,
+      "bytes": 4251191
+    },
+    "redesign": {
+      "count": 57,
+      "bytes": 6536880
+    },
+    "reference-v2": {
+      "count": 102,
+      "bytes": 20431718
+    },
+    "ui": {
+      "count": 10,
+      "bytes": 5946892
+    },
+    "village-world": {
+      "count": 99,
+      "bytes": 32942900
+    }
+  },
+  "validation": {
+    "command": "./node_modules/.bin/jest src/services/mapAssets.test.ts --runInBand --silent",
+    "result": "PASS: 1 suite, 20 tests",
+    "dependencySource": "node_modules symlink to existing phone checkout; lockfile clean-install not performed",
+    "awsRuntimeVerified": false,
+    "nativeDeviceVerified": false
+  },
+  "files": [
+    {
+      "path": "app/app-dev/src/assets/backgrounds/campfire/day.jpg",
+      "bytes": 369101
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/fishing/day.jpg",
+      "bytes": 386404
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/fishing-island/day.jpg",
+      "bytes": 479174
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/base/day.png",
+      "bytes": 2573252
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/base/night.png",
+      "bytes": 2375610
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/00-start/day.jpg",
+      "bytes": 683349
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/01-village-hall/day.jpg",
+      "bytes": 692986
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/02-notice-board/day.jpg",
+      "bytes": 693042
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/03-gramophone/day.jpg",
+      "bytes": 694553
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/03a-observatory-first/day.jpg",
+      "bytes": 715421
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/03b-mailbox-first/day.jpg",
+      "bytes": 714593
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/04-library/day.jpg",
+      "bytes": 713357
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/04-observatory-and-mailbox/day.jpg",
+      "bytes": 715421
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/05-final-shop/day.jpg",
+      "bytes": 729626
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/05-mailbox/day.jpg",
+      "bytes": 714593
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/06-observatory/day.jpg",
+      "bytes": 715421
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/07-shop/day.jpg",
+      "bytes": 729626
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/growth/07-shop/night.jpg",
+      "bytes": 623369
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/campfire-on.png",
+      "bytes": 6177
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/gramophone.png",
+      "bytes": 21259
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/hall.png",
+      "bytes": 116205
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/library.png",
+      "bytes": 176498
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/mailbox.png",
+      "bytes": 12893
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/notice-board.png",
+      "bytes": 20129
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/observatory.png",
+      "bytes": 49725
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/day/shop.png",
+      "bytes": 116713
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/campfire-on.png",
+      "bytes": 6177
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/gramophone.png",
+      "bytes": 20532
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/hall.png",
+      "bytes": 109919
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/library.png",
+      "bytes": 169453
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/mailbox.png",
+      "bytes": 12377
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/notice-board.png",
+      "bytes": 19403
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/observatory.png",
+      "bytes": 47820
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/layers/night/shop.png",
+      "bytes": 111100
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/ocean/day.png",
+      "bytes": 1321362
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/ocean/focus-day.png",
+      "bytes": 2914965
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/ocean/home-day.png",
+      "bytes": 2865382
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/ocean/home-mask.png",
+      "bytes": 160577
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/ocean/home-night.png",
+      "bytes": 2650469
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/island/ocean/night.png",
+      "bytes": 1337225
+    },
+    {
+      "path": "app/app-dev/src/assets/backgrounds/rest/day.jpg",
+      "bytes": 331713
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/day.png",
+      "bytes": 794163
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/layers/back-day.png",
+      "bytes": 585328
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/layers/back-night.png",
+      "bytes": 525662
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/layers/front-day.png",
+      "bytes": 232365
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/layers/front-night.png",
+      "bytes": 205896
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/sailing/back-day.png",
+      "bytes": 291917
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/sailing/back-night.png",
+      "bytes": 291455
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/sailing/day.png",
+      "bytes": 523260
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/sailing/front-day.png",
+      "bytes": 242206
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/sailing/front-night.png",
+      "bytes": 240325
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/cabinboat/sailing/night.png",
+      "bytes": 521141
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/day.png",
+      "bytes": 676858
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/layers/back-day.png",
+      "bytes": 183664
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/layers/back-night.png",
+      "bytes": 595683
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/layers/front-day.png",
+      "bytes": 14964
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/layers/front-night.png",
+      "bytes": 42050
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/sailing/back-day.png",
+      "bytes": 10615
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/sailing/back-night.png",
+      "bytes": 10829
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/sailing/day.png",
+      "bytes": 322469
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/sailing/front-day.png",
+      "bytes": 318093
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/sailing/front-night.png",
+      "bytes": 320937
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/raft/sailing/night.png",
+      "bytes": 325878
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/day.png",
+      "bytes": 640167
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/back-day.png",
+      "bytes": 434603
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/back-night.png",
+      "bytes": 434535
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/front-day.png",
+      "bytes": 228712
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/front-night.png",
+      "bytes": 220111
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/hull-day.png",
+      "bytes": 440802
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/hull-night.png",
+      "bytes": 427195
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/mast-sail-day.png",
+      "bytes": 214823
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/layers/mast-sail-night.png",
+      "bytes": 219413
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/sailing/back-day.png",
+      "bytes": 279328
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/sailing/back-night.png",
+      "bytes": 284647
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/sailing/day.png",
+      "bytes": 501374
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/sailing/front-day.png",
+      "bytes": 232861
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/sailing/front-night.png",
+      "bytes": 231778
+    },
+    {
+      "path": "app/app-dev/src/assets/boats/sailboat/sailing/night.png",
+      "bytes": 508368
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/gramophone/day.png",
+      "bytes": 800191
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/gramophone/night.png",
+      "bytes": 485606
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/hall/day.png",
+      "bytes": 2068387
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/hall/night.png",
+      "bytes": 1425439
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/library/day.png",
+      "bytes": 1557509
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/library/night.png",
+      "bytes": 1280734
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/mailbox/day.png",
+      "bytes": 620506
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/mailbox/night.png",
+      "bytes": 339244
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/notice-board/day.png",
+      "bytes": 897076
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/notice-board/night.png",
+      "bytes": 601811
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/observatory/day.png",
+      "bytes": 903077
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/observatory/night.png",
+      "bytes": 697891
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/shop/day.png",
+      "bytes": 1404232
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/shop/layers/back-day.png",
+      "bytes": 1404232
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/shop/layers/back-night.png",
+      "bytes": 1085011
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/shop/layers/counter-front-day.png",
+      "bytes": 3638
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/shop/layers/counter-front-night.png",
+      "bytes": 3638
+    },
+    {
+      "path": "app/app-dev/src/assets/buildings/shop/night.png",
+      "bytes": 1085011
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/avatar.png",
+      "bytes": 38653
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/blink/blink-frame-0.png",
+      "bytes": 182767
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/blink/blink-frame-1.png",
+      "bytes": 180388
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/blink/blink-frame-2.png",
+      "bytes": 177334
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/fishing-frame-0.png",
+      "bytes": 158807
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/fishing-frame-1.png",
+      "bytes": 157804
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/fishing-frame-2.png",
+      "bytes": 175552
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/fishing-frame-3.png",
+      "bytes": 158529
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/reel-frame-0.png",
+      "bytes": 162600
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/reel-frame-1.png",
+      "bytes": 162020
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/reel-frame-2.png",
+      "bytes": 178600
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/fishing/reel-frame-3.png",
+      "bytes": 160341
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/idle/idle-atlas.png",
+      "bytes": 1381031
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/idle.png",
+      "bytes": 159477
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/loaf/loaf.png",
+      "bytes": 127484
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/poses/reading.png",
+      "bytes": 159574
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/reading/atlas.png",
+      "bytes": 551213
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/side.png",
+      "bytes": 160003
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/tilt/tilt-frame-0.png",
+      "bytes": 182767
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/tilt/tilt-frame-1.png",
+      "bytes": 190181
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/tilt/tilt-frame-2.png",
+      "bytes": 189704
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/tilt/tilt-frame-3.png",
+      "bytes": 190141
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/walking/walking-frame-0.png",
+      "bytes": 132169
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/walking/walking-frame-1.png",
+      "bytes": 130569
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/walking/walking-frame-2.png",
+      "bytes": 128794
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/walking/walking-frame-3.png",
+      "bytes": 131858
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/walking/walking-frame-4.png",
+      "bytes": 130679
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/black/walking/walking-frame-5.png",
+      "bytes": 126349
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/avatar.png",
+      "bytes": 46990
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/blink/blink-frame-0.png",
+      "bytes": 211903
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/blink/blink-frame-1.png",
+      "bytes": 209440
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/blink/blink-frame-2.png",
+      "bytes": 207378
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/fishing-frame-0.png",
+      "bytes": 194650
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/fishing-frame-1.png",
+      "bytes": 194808
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/fishing-frame-2.png",
+      "bytes": 192499
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/fishing-frame-3.png",
+      "bytes": 193807
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/reel-frame-0.png",
+      "bytes": 198736
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/reel-frame-1.png",
+      "bytes": 201576
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/reel-frame-2.png",
+      "bytes": 200199
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/fishing/reel-frame-3.png",
+      "bytes": 198944
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/idle/idle-atlas.png",
+      "bytes": 1627267
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/idle.png",
+      "bytes": 205075
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/loaf/loaf.png",
+      "bytes": 168856
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/poses/reading.png",
+      "bytes": 258076
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/reading/atlas.png",
+      "bytes": 628193
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/side.png",
+      "bytes": 203001
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/tilt/tilt-frame-0.png",
+      "bytes": 211903
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/tilt/tilt-frame-1.png",
+      "bytes": 212614
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/tilt/tilt-frame-2.png",
+      "bytes": 211917
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/tilt/tilt-frame-3.png",
+      "bytes": 212541
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/walking/walking-frame-0.png",
+      "bytes": 143671
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/walking/walking-frame-1.png",
+      "bytes": 139674
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/walking/walking-frame-2.png",
+      "bytes": 143333
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/walking/walking-frame-3.png",
+      "bytes": 143285
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/walking/walking-frame-4.png",
+      "bytes": 144098
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/calico/walking/walking-frame-5.png",
+      "bytes": 143488
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/avatar.png",
+      "bytes": 43773
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/blink/blink-frame-0.png",
+      "bytes": 198480
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/blink/blink-frame-1.png",
+      "bytes": 195294
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/blink/blink-frame-2.png",
+      "bytes": 195853
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/fishing-frame-0.png",
+      "bytes": 186506
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/fishing-frame-1.png",
+      "bytes": 184051
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/fishing-frame-2.png",
+      "bytes": 182594
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/fishing-frame-3.png",
+      "bytes": 182840
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/reel-frame-0.png",
+      "bytes": 197099
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/reel-frame-1.png",
+      "bytes": 189581
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/reel-frame-2.png",
+      "bytes": 190183
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/fishing/reel-frame-3.png",
+      "bytes": 196849
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/idle/idle-atlas.png",
+      "bytes": 1530511
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/idle.png",
+      "bytes": 187566
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/loaf/loaf.png",
+      "bytes": 147157
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/poses/reading.png",
+      "bytes": 230102
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/reading/atlas.png",
+      "bytes": 601798
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/side.png",
+      "bytes": 165595
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/tilt/tilt-frame-0.png",
+      "bytes": 198480
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/tilt/tilt-frame-1.png",
+      "bytes": 198869
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/tilt/tilt-frame-2.png",
+      "bytes": 198253
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/tilt/tilt-frame-3.png",
+      "bytes": 198931
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/walking/walking-frame-0.png",
+      "bytes": 130289
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/walking/walking-frame-1.png",
+      "bytes": 133896
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/walking/walking-frame-2.png",
+      "bytes": 126365
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/walking/walking-frame-3.png",
+      "bytes": 134370
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/walking/walking-frame-4.png",
+      "bytes": 128621
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/cream/walking/walking-frame-5.png",
+      "bytes": 130970
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/avatar.png",
+      "bytes": 47979
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/blink/blink-frame-0.png",
+      "bytes": 218816
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/blink/blink-frame-1.png",
+      "bytes": 217079
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/blink/blink-frame-2.png",
+      "bytes": 216258
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/fishing-frame-0.png",
+      "bytes": 194928
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/fishing-frame-1.png",
+      "bytes": 195284
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/fishing-frame-2.png",
+      "bytes": 192824
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/fishing-frame-3.png",
+      "bytes": 194051
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/reel-frame-0.png",
+      "bytes": 204197
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/reel-frame-1.png",
+      "bytes": 208706
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/reel-frame-2.png",
+      "bytes": 214922
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/fishing/reel-frame-3.png",
+      "bytes": 204352
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/idle/idle-atlas.png",
+      "bytes": 1665267
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/idle.png",
+      "bytes": 208103
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/loaf/loaf.png",
+      "bytes": 158673
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/poses/reading.png",
+      "bytes": 234674
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/reading/atlas.png",
+      "bytes": 620072
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/side.png",
+      "bytes": 194936
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/tilt/tilt-frame-0.png",
+      "bytes": 218816
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/tilt/tilt-frame-1.png",
+      "bytes": 217655
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/tilt/tilt-frame-2.png",
+      "bytes": 217338
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/tilt/tilt-frame-3.png",
+      "bytes": 217864
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/walking/walking-frame-0.png",
+      "bytes": 148225
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/walking/walking-frame-1.png",
+      "bytes": 142478
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/walking/walking-frame-2.png",
+      "bytes": 138999
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/walking/walking-frame-3.png",
+      "bytes": 142091
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/walking/walking-frame-4.png",
+      "bytes": 138768
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/ginger/walking/walking-frame-5.png",
+      "bytes": 141931
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/avatar.png",
+      "bytes": 44453
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/blink/blink-frame-0.png",
+      "bytes": 203278
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/blink/blink-frame-1.png",
+      "bytes": 201814
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/blink/blink-frame-2.png",
+      "bytes": 202335
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/fishing-frame-0.png",
+      "bytes": 201237
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/fishing-frame-1.png",
+      "bytes": 200882
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/fishing-frame-2.png",
+      "bytes": 198492
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/fishing-frame-3.png",
+      "bytes": 200484
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/reel-frame-0.png",
+      "bytes": 198884
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/reel-frame-1.png",
+      "bytes": 187902
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/reel-frame-2.png",
+      "bytes": 180759
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/fishing/reel-frame-3.png",
+      "bytes": 199574
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/idle/idle-atlas.png",
+      "bytes": 1602892
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/idle.png",
+      "bytes": 190322
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/loaf/loaf.png",
+      "bytes": 149944
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/poses/reading.png",
+      "bytes": 214844
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/reading/atlas.png",
+      "bytes": 582070
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/side.png",
+      "bytes": 188504
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/tilt/tilt-frame-0.png",
+      "bytes": 203278
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/tilt/tilt-frame-1.png",
+      "bytes": 214300
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/tilt/tilt-frame-2.png",
+      "bytes": 213608
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/tilt/tilt-frame-3.png",
+      "bytes": 214483
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/walking/walking-frame-0.png",
+      "bytes": 114064
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/walking/walking-frame-1.png",
+      "bytes": 116284
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/walking/walking-frame-2.png",
+      "bytes": 114836
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/walking/walking-frame-3.png",
+      "bytes": 120242
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/walking/walking-frame-4.png",
+      "bytes": 116301
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/gray/walking/walking-frame-5.png",
+      "bytes": 117920
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/avatar.png",
+      "bytes": 42617
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/blink/blink-frame-0.png",
+      "bytes": 193459
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/blink/blink-frame-1.png",
+      "bytes": 192951
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/blink/blink-frame-2.png",
+      "bytes": 191919
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/fishing-frame-0.png",
+      "bytes": 179526
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/fishing-frame-1.png",
+      "bytes": 178316
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/fishing-frame-2.png",
+      "bytes": 174542
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/fishing-frame-3.png",
+      "bytes": 180279
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/reel-frame-0.png",
+      "bytes": 193981
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/reel-frame-1.png",
+      "bytes": 195654
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/reel-frame-2.png",
+      "bytes": 192092
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/fishing/reel-frame-3.png",
+      "bytes": 194015
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/idle/idle-atlas.png",
+      "bytes": 1568320
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/idle.png",
+      "bytes": 182289
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/loaf/loaf.png",
+      "bytes": 143359
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/poses/reading.png",
+      "bytes": 202478
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/reading/atlas.png",
+      "bytes": 592620
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/side.png",
+      "bytes": 167778
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/tilt/tilt-frame-0.png",
+      "bytes": 193459
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/tilt/tilt-frame-1.png",
+      "bytes": 196113
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/tilt/tilt-frame-2.png",
+      "bytes": 195360
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/tilt/tilt-frame-3.png",
+      "bytes": 196193
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/walking/walking-frame-0.png",
+      "bytes": 120692
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/walking/walking-frame-1.png",
+      "bytes": 121049
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/walking/walking-frame-2.png",
+      "bytes": 116029
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/walking/walking-frame-3.png",
+      "bytes": 115326
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/walking/walking-frame-4.png",
+      "bytes": 116895
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/cat/white/walking/walking-frame-5.png",
+      "bytes": 121956
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/dog/npc/idle.png",
+      "bytes": 175464
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/mongdol/npc/idle.png",
+      "bytes": 182622
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/parrot/npc/idle.png",
+      "bytes": 215689
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/pelican/npc/idle.png",
+      "bytes": 159640
+    },
+    {
+      "path": "app/app-dev/src/assets/characters/pelican/npc/on-mailbox.png",
+      "bytes": 111746
+    },
+    {
+      "path": "app/app-dev/src/assets/icon.png",
+      "bytes": 3405264
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/avatars/black.png",
+      "bytes": 38653
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/avatars/calico.png",
+      "bytes": 46990
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/avatars/cream.png",
+      "bytes": 43773
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/avatars/ginger.png",
+      "bytes": 47979
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/avatars/gray.png",
+      "bytes": 44453
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/avatars/white.png",
+      "bytes": 42617
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/board-three-papers-v5.png",
+      "bytes": 2204277
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/gramophone.png",
+      "bytes": 800191
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/hall.png",
+      "bytes": 2068387
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/library.png",
+      "bytes": 1557509
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/mailbox.png",
+      "bytes": 620506
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/noticeboard.png",
+      "bytes": 942453
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/observatory.png",
+      "bytes": 903077
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/buildings/shop.png",
+      "bytes": 1404232
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/gram-cute-v1.png",
+      "bytes": 2207311
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/hall-cute-v1.png",
+      "bytes": 2173605
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/mail-cute-v1.png",
+      "bytes": 2050284
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/observatory-cute-v1.png",
+      "bytes": 2321782
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/shop-cute-v1.png",
+      "bytes": 2113287
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/ui/board-sheet-notice-detail-v3.png",
+      "bytes": 1291291
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/ui/board-sheet-notice-v2.png",
+      "bytes": 1379910
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/ui/board-sheet-quest-v2.png",
+      "bytes": 1408830
+    },
+    {
+      "path": "app/app-dev/src/assets/interiors/ui/letter-envelope-v1.png",
+      "bytes": 64269
+    },
+    {
+      "path": "app/app-dev/src/assets/login/kakao_login_medium_wide.png",
+      "bytes": 3307
+    },
+    {
+      "path": "app/app-dev/src/assets/login/line_login_logo_3x.png",
+      "bytes": 2417
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/customization/head/duck.png",
+      "bytes": 435013
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.en.png",
+      "bytes": 73326
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.ko.png",
+      "bytes": 115560
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/interiors/ui/ledger-book-v2.png",
+      "bytes": 1404162
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/interiors/ui/tab-blue.png",
+      "bytes": 65218
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/interiors/ui/tab-pink.png",
+      "bytes": 65242
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/interiors/ui/tab-yellow.png",
+      "bytes": 65049
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-catear.png",
+      "bytes": 30251
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-cloud.png",
+      "bytes": 18738
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-envelope.png",
+      "bytes": 35007
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-grid.png",
+      "bytes": 25993
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-lifering.png",
+      "bytes": 51217
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-notebook.png",
+      "bytes": 43584
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-polaroid.png",
+      "bytes": 10906
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-scallop.png",
+      "bytes": 26040
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-ticket.png",
+      "bytes": 25898
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-wave.png",
+      "bytes": 20749
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/frame/frame-woodsign.png",
+      "bytes": 34606
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/island/island-houses-0.png",
+      "bytes": 190751
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/island/island-houses-1.png",
+      "bytes": 192970
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/island/island-houses-3.png",
+      "bytes": 196725
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/island/island-houses-5.png",
+      "bytes": 201351
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/book.png",
+      "bytes": 13326
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/bottle.png",
+      "bytes": 16323
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/bow.png",
+      "bytes": 11447
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/campfire.png",
+      "bytes": 23565
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-black-book.png",
+      "bytes": 18878
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-black-peek.png",
+      "bytes": 11214
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-calico-raft.png",
+      "bytes": 24370
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-calico-wave.png",
+      "bytes": 19030
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-cream-booknap.png",
+      "bytes": 30909
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-cream-coffee.png",
+      "bytes": 17569
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-cream-heart.png",
+      "bytes": 17569
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-ginger-face.png",
+      "bytes": 15418
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-ginger-fish.png",
+      "bytes": 21635
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-gray-bottle.png",
+      "bytes": 23681
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-gray-cheer.png",
+      "bytes": 21771
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-gray-headphone.png",
+      "bytes": 30455
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-white-pencil.png",
+      "bytes": 17105
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cat-white-sleep.png",
+      "bytes": 16572
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/clock.png",
+      "bytes": 28869
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/cloud.png",
+      "bytes": 13693
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/crown.png",
+      "bytes": 6945
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/dog.png",
+      "bytes": 14318
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/drink.png",
+      "bytes": 11873
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/fish-basket.png",
+      "bytes": 18208
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/fish.png",
+      "bytes": 10782
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/heart.png",
+      "bytes": 9974
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/lantern.png",
+      "bytes": 12206
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/lighthouse.png",
+      "bytes": 10343
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/mailbox.png",
+      "bytes": 11350
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/map.png",
+      "bytes": 14431
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/mongdol.png",
+      "bytes": 10969
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/moon.png",
+      "bytes": 24668
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/palm-island.png",
+      "bytes": 15243
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/paw.png",
+      "bytes": 10794
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/pelican.png",
+      "bytes": 13232
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/pencil.png",
+      "bytes": 9302
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/sailboat.png",
+      "bytes": 10700
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/seagull.png",
+      "bytes": 18321
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/shell.png",
+      "bytes": 9488
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/sparkle.png",
+      "bytes": 5028
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/star.png",
+      "bytes": 10999
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/telescope.png",
+      "bytes": 25606
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/tomato-timer.png",
+      "bytes": 32660
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/turtle.png",
+      "bytes": 26372
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/sticker/whale.png",
+      "bytes": 18638
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-blue.png",
+      "bytes": 4116
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-bluestripe.png",
+      "bytes": 2640
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-cream.png",
+      "bytes": 3814
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-mint.png",
+      "bytes": 2490
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-paw.png",
+      "bytes": 3430
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-pink.png",
+      "bytes": 4157
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-pinkdots.png",
+      "bytes": 3504
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/tape/tape-yellowcheck.png",
+      "bytes": 2961
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/banner-ranking.png",
+      "bytes": 18869
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/close.png",
+      "bytes": 4359
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/cover.png",
+      "bytes": 18407
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/editor-cat.png",
+      "bytes": 16629
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/icon-telescope.png",
+      "bytes": 6317
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/medal-1.png",
+      "bytes": 6075
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/medal-2.png",
+      "bytes": 6199
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/medal-3.png",
+      "bytes": 6401
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/page.png",
+      "bytes": 53690
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/stamp.png",
+      "bytes": 13443
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/magazine/ui/tag-new.png",
+      "bytes": 5677
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/cat-black.png",
+      "bytes": 159477
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/cat-calico.png",
+      "bytes": 205075
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/cat-cream.png",
+      "bytes": 187566
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/cat-ginger.png",
+      "bytes": 208103
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/cat-gray.png",
+      "bytes": 190322
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/cat-white.png",
+      "bytes": 182289
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/island-houses-0.png",
+      "bytes": 190751
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/island-houses-1.png",
+      "bytes": 192970
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/island-houses-3.png",
+      "bytes": 196725
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/island-houses-5.png",
+      "bytes": 201351
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/lying-black.png",
+      "bytes": 826925
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/lying-calico.png",
+      "bytes": 859857
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/lying-white.png",
+      "bytes": 833432
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/raft.png",
+      "bytes": 1378924
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/onboarding/scope-black.png",
+      "bytes": 839836
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/raft/destinations-landscape.png",
+      "bytes": 1885207
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/raft/destinations.png",
+      "bytes": 1843076
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/destination-island.png",
+      "bytes": 687733
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/far-sea.jpg",
+      "bytes": 312237
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/raft-telescope/black.png",
+      "bytes": 319476
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/raft-telescope/calico.png",
+      "bytes": 320169
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/raft-telescope/cream.png",
+      "bytes": 320667
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/raft-telescope/ginger.png",
+      "bytes": 322022
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/raft-telescope/gray.png",
+      "bytes": 318974
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/raft-telescope/white.png",
+      "bytes": 316041
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/seagulls.png",
+      "bytes": 147053
+    },
+    {
+      "path": "app/app-dev/src/assets/ota/sea/telescope-sea.jpg",
+      "bytes": 208131
+    },
+    {
+      "path": "app/app-dev/src/assets/props/boat-lantern/day.png",
+      "bytes": 610258
+    },
+    {
+      "path": "app/app-dev/src/assets/props/campfire/layers/front-stones-day.png",
+      "bytes": 224224
+    },
+    {
+      "path": "app/app-dev/src/assets/props/campfire/layers/front-stones-night.png",
+      "bytes": 237556
+    },
+    {
+      "path": "app/app-dev/src/assets/props/dock/layers/back-day.png",
+      "bytes": 413300
+    },
+    {
+      "path": "app/app-dev/src/assets/props/dock/layers/back-night.png",
+      "bytes": 416403
+    },
+    {
+      "path": "app/app-dev/src/assets/props/dock/layers/front-day.png",
+      "bytes": 289664
+    },
+    {
+      "path": "app/app-dev/src/assets/props/dock/layers/front-night.png",
+      "bytes": 277585
+    },
+    {
+      "path": "app/app-dev/src/assets/props/fishing/catch/pile-large.png",
+      "bytes": 223601
+    },
+    {
+      "path": "app/app-dev/src/assets/props/fishing/catch/pile-medium.png",
+      "bytes": 205584
+    },
+    {
+      "path": "app/app-dev/src/assets/props/fishing/catch/pile-small.png",
+      "bytes": 200056
+    },
+    {
+      "path": "app/app-dev/src/assets/props/fishing/catch/single.png",
+      "bytes": 120159
+    },
+    {
+      "path": "app/app-dev/src/assets/props/fishing/fishing-rod.png",
+      "bytes": 256662
+    },
+    {
+      "path": "app/app-dev/src/assets/props/music-player/day.png",
+      "bytes": 605336
+    },
+    {
+      "path": "app/app-dev/src/assets/props/rest/reading-chair.png",
+      "bytes": 170803
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/avatar-black.png",
+      "bytes": 12559
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/avatar-calico.png",
+      "bytes": 14705
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/avatar-cream.png",
+      "bytes": 13727
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/avatar-ginger.png",
+      "bytes": 14765
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/avatar-gray.png",
+      "bytes": 14461
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/avatar-white.png",
+      "bytes": 13560
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bld-hall.png",
+      "bytes": 63526
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bld-mailbox.png",
+      "bytes": 24693
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bld-notice-board.png",
+      "bytes": 51099
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bld-observatory.png",
+      "bytes": 35995
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bld-shop.png",
+      "bytes": 64578
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-board.jpg",
+      "bytes": 212983
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-dock.jpg",
+      "bytes": 168960
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-fire.jpg",
+      "bytes": 210729
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-gram.jpg",
+      "bytes": 206832
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-hall.jpg",
+      "bytes": 251315
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-mail.jpg",
+      "bytes": 174607
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-shop.jpg",
+      "bytes": 206645
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/bldbg-tower.jpg",
+      "bytes": 257921
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/boat-cabinboat.png",
+      "bytes": 89750
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/boat-raft.png",
+      "bytes": 77499
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/boat-sailboat.png",
+      "bytes": 72383
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/cat-black-phone.png",
+      "bytes": 150288
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/cat-black-sitting.png",
+      "bytes": 42870
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/cat-black.png",
+      "bytes": 36149
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/dog.png",
+      "bytes": 41217
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/emote-cheer.png",
+      "bytes": 11707
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/emote-hearts.png",
+      "bytes": 7725
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/emote-hello.png",
+      "bytes": 10266
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/emote-laugh.png",
+      "bytes": 4803
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/emote-sleepy.png",
+      "bytes": 4970
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/fish-gold.png",
+      "bytes": 8914
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/fish.png",
+      "bytes": 9358
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/gram.png",
+      "bytes": 37504
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/home-00-start.jpg",
+      "bytes": 249219
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/home-01-village-hall.jpg",
+      "bytes": 261239
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/home-05-final-shop-nocat.jpg",
+      "bytes": 283384
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/home-05-final-shop.jpg",
+      "bytes": 284932
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/island-whole-warm.jpg",
+      "bytes": 156843
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/island-whole.jpg",
+      "bytes": 154752
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-board.jpg",
+      "bytes": 194603
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-dock.jpg",
+      "bytes": 189819
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-fire.jpg",
+      "bytes": 185828
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-gram.jpg",
+      "bytes": 212505
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-hall.jpg",
+      "bytes": 241597
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-mail.jpg",
+      "bytes": 206978
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-shop.jpg",
+      "bytes": 207652
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/lbldbg-tower.jpg",
+      "bytes": 206947
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/parrot.png",
+      "bytes": 64521
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/qb-board.png",
+      "bytes": 278265
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/qb-note-butter.png",
+      "bytes": 26001
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/qb-note-peach.png",
+      "bytes": 47601
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/qb-pin-pink.png",
+      "bytes": 5504
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/qb-pin-sky.png",
+      "bytes": 5904
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/scarf-cat.png",
+      "bytes": 36149
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/sea-group.jpg",
+      "bytes": 215027
+    },
+    {
+      "path": "app/app-dev/src/assets/redesign/welcome.jpg",
+      "bytes": 202547
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg1.jpg",
+      "bytes": 269170
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg10.jpg",
+      "bytes": 149063
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg11.jpg",
+      "bytes": 82026
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg12.jpg",
+      "bytes": 132095
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg13.jpg",
+      "bytes": 82343
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg14.jpg",
+      "bytes": 92217
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg16.jpg",
+      "bytes": 336217
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg21.jpg",
+      "bytes": 19431
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg22.jpg",
+      "bytes": 78446
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg23.jpg",
+      "bytes": 95240
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg24.jpg",
+      "bytes": 89682
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg25.jpg",
+      "bytes": 107552
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg26.jpg",
+      "bytes": 96779
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg27.jpg",
+      "bytes": 105201
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg28.jpg",
+      "bytes": 101649
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg6.jpg",
+      "bytes": 36194
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg7.png",
+      "bytes": 235667
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg8.jpg",
+      "bytes": 199307
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/--bg9.jpg",
+      "bytes": 91331
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-board.jpg",
+      "bytes": 95240
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-dock.jpg",
+      "bytes": 105201
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-gram.jpg",
+      "bytes": 101649
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-hall.jpg",
+      "bytes": 78446
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-mail.jpg",
+      "bytes": 107552
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-shop.jpg",
+      "bytes": 96779
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-bldbg-tower.jpg",
+      "bytes": 89682
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-hall-room-blur.jpg",
+      "bytes": 39814
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-hall-room.jpg",
+      "bytes": 100684
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-home-00-start-nocat.jpg",
+      "bytes": 335268
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-home-00-start.jpg",
+      "bytes": 336217
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-home-01-village-hall.jpg",
+      "bytes": 341090
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-home-02-notice-board.jpg",
+      "bytes": 341081
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-home-05-final-shop-nocat.jpg",
+      "bytes": 358309
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-home-05-final-shop.jpg",
+      "bytes": 359339
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-lib-room-blur.jpg",
+      "bytes": 19431
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-lib-room.jpg",
+      "bytes": 90743
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-rest-scene.jpg",
+      "bytes": 221545
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-sail.jpg",
+      "bytes": 38442
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/L-welcome.jpg",
+      "bytes": 293435
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/avatar-black.png",
+      "bytes": 12559
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/avatar-calico.png",
+      "bytes": 14705
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/avatar-cream.png",
+      "bytes": 13727
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/avatar-ginger.png",
+      "bytes": 14765
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/avatar-gray.png",
+      "bytes": 14461
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/avatar-white.png",
+      "bytes": 13560
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-gramophone.png",
+      "bytes": 38199
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-hall.png",
+      "bytes": 64054
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-library.png",
+      "bytes": 55696
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-mailbox.png",
+      "bytes": 30994
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-notice-board.png",
+      "bytes": 45827
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-observatory.png",
+      "bytes": 39872
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bld-shop.png",
+      "bytes": 60239
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-board.jpg",
+      "bytes": 91331
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-dock.jpg",
+      "bytes": 82343
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-gram.jpg",
+      "bytes": 92217
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-hall.jpg",
+      "bytes": 199307
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-mail.jpg",
+      "bytes": 82026
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-shop.jpg",
+      "bytes": 132095
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/bldbg-tower.jpg",
+      "bytes": 149063
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/boat-raft-cat-scarf.png",
+      "bytes": 172755
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/boat-raft-cat.png",
+      "bytes": 172915
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/boat-raft.png",
+      "bytes": 77499
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/cat-black-sitting.png",
+      "bytes": 42870
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/cat-black.png",
+      "bytes": 36149
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/dog.png",
+      "bytes": 41217
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/emote-cheer.png",
+      "bytes": 11707
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/emote-hearts.png",
+      "bytes": 7725
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/emote-hello.png",
+      "bytes": 10266
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/emote-laugh.png",
+      "bytes": 4803
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/emote-sleepy.png",
+      "bytes": 4970
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/fish-few.png",
+      "bytes": 12939
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/fish.png",
+      "bytes": 9400
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/fishing-island.png",
+      "bytes": 2056953
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-black.png",
+      "bytes": 38653
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-calico.png",
+      "bytes": 46990
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-cream.png",
+      "bytes": 43773
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-ginger.png",
+      "bytes": 47979
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-gramophone.png",
+      "bytes": 800191
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-gray.png",
+      "bytes": 44453
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-library.png",
+      "bytes": 1557509
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-mailbox.png",
+      "bytes": 620506
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-observatory.png",
+      "bytes": 903077
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-room-blur.jpg",
+      "bytes": 75626
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-room.png",
+      "bytes": 2173605
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-shop.png",
+      "bytes": 1404232
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/hall-white.png",
+      "bytes": 42617
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/home-00-start.jpg",
+      "bytes": 269170
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/home-01-village-hall.jpg",
+      "bytes": 270413
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/home-02-notice-board.jpg",
+      "bytes": 270385
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/home-05-final-shop-nocat.jpg",
+      "bytes": 278937
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/home-05-final-shop.jpg",
+      "bytes": 279996
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/island-whole-warm.jpg",
+      "bytes": 194038
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/island-whole.jpg",
+      "bytes": 191442
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/lib-page.png",
+      "bytes": 235667
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/lib-room-blur.jpg",
+      "bytes": 36194
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/lib-room.jpg",
+      "bytes": 200075
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/old-44.jpg",
+      "bytes": 16365
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/parrot.png",
+      "bytes": 64521
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/rest-scene.jpg",
+      "bytes": 226736
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/scarf-cat.png",
+      "bytes": 36014
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/sea-tile.jpg",
+      "bytes": 12055
+    },
+    {
+      "path": "app/app-dev/src/assets/reference-v2/welcome.jpg",
+      "bytes": 191734
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/construction-complete.png",
+      "bytes": 37410
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/crown.png",
+      "bytes": 9400
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/emotes/cheer.png",
+      "bytes": 200365
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/emotes/hearts.png",
+      "bytes": 121359
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/emotes/hello.png",
+      "bytes": 168072
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/emotes/laugh.png",
+      "bytes": 68022
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/emotes/question.png",
+      "bytes": 7227
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/emotes/sleepy.png",
+      "bytes": 73548
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/quest-board/butter-note.png",
+      "bytes": 2315493
+    },
+    {
+      "path": "app/app-dev/src/assets/ui/quest-board/wood-board.png",
+      "bytes": 2945996
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/bridge.png",
+      "bytes": 657798
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/bush.png",
+      "bytes": 180655
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/construction/effects-atlas-night.png",
+      "bytes": 639471
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/construction/effects-atlas.png",
+      "bytes": 648459
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/construction/hall-board-gram-library-atlas-night.png",
+      "bytes": 1915761
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/construction/hall-board-gram-library-atlas.png",
+      "bytes": 2115095
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/construction/mail-tower-shop-atlas-night.png",
+      "bytes": 1631975
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/construction/mail-tower-shop-atlas.png",
+      "bytes": 1706192
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/dock.png",
+      "bytes": 836026
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/board-day.png",
+      "bytes": 11421
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/board-night.png",
+      "bytes": 10692
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/gram-day.png",
+      "bytes": 12527
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/gram-night.png",
+      "bytes": 11914
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/mail-day.png",
+      "bytes": 5536
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/mail-night.png",
+      "bytes": 5104
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/board-day.png",
+      "bytes": 1680
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/board-night.png",
+      "bytes": 1680
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/gram-day.png",
+      "bytes": 2029
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/gram-night.png",
+      "bytes": 2029
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/hall-day.png",
+      "bytes": 6200
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/hall-night.png",
+      "bytes": 5513
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/library-day.png",
+      "bytes": 7531
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/library-night.png",
+      "bytes": 7245
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/mail-day.png",
+      "bytes": 1102
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/mail-night.png",
+      "bytes": 1102
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/mail-pelican.png",
+      "bytes": 2069
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/shop-day.png",
+      "bytes": 5175
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/shop-night.png",
+      "bytes": 5175
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/tower-day.png",
+      "bytes": 3656
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/outline/tower-night.png",
+      "bytes": 3657
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/terrain/fire-day.png",
+      "bytes": 18339
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/terrain/fire-night.png",
+      "bytes": 18004
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/terrain/raft-day.png",
+      "bytes": 42694
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/facility/terrain/raft-night.png",
+      "bytes": 39118
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/fire.png",
+      "bytes": 148689
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/flowers.png",
+      "bytes": 166980
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/gramophone.png",
+      "bytes": 14679
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/grass.png",
+      "bytes": 131310
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/hall.png",
+      "bytes": 117581
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/library.png",
+      "bytes": 181990
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/mailbox.png",
+      "bytes": 6422
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire/frame-0.png",
+      "bytes": 13277
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire/frame-1.png",
+      "bytes": 14222
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire/frame-2.png",
+      "bytes": 14717
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire/frame-3.png",
+      "bytes": 13418
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire-smoke/frame-0.png",
+      "bytes": 5385
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire-smoke/frame-1.png",
+      "bytes": 8644
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire-smoke/frame-2.png",
+      "bytes": 5402
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/fire-smoke/frame-3.png",
+      "bytes": 8678
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/frame-0.png",
+      "bytes": 107533
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/frame-1.png",
+      "bytes": 108369
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/frame-2.png",
+      "bytes": 108263
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/frame-3.png",
+      "bytes": 108303
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/night-frame-0.png",
+      "bytes": 97117
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/night-frame-1.png",
+      "bytes": 97156
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/night-frame-2.png",
+      "bytes": 97164
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/hall/night-frame-3.png",
+      "bytes": 97091
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/frame-0.png",
+      "bytes": 165726
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/frame-1.png",
+      "bytes": 165293
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/frame-2.png",
+      "bytes": 166025
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/frame-3.png",
+      "bytes": 165661
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/night-frame-0.png",
+      "bytes": 151389
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/night-frame-1.png",
+      "bytes": 150839
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/night-frame-2.png",
+      "bytes": 150888
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/library/night-frame-3.png",
+      "bytes": 151214
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/frame-0.png",
+      "bytes": 38790
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/frame-1.png",
+      "bytes": 37873
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/frame-2.png",
+      "bytes": 37020
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/frame-3.png",
+      "bytes": 39247
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/night-frame-0.png",
+      "bytes": 36315
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/night-frame-1.png",
+      "bytes": 35589
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/night-frame-2.png",
+      "bytes": 34865
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/observatory/night-frame-3.png",
+      "bytes": 36050
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/frame-0.png",
+      "bytes": 118600
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/frame-1.png",
+      "bytes": 100547
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/frame-2.png",
+      "bytes": 100564
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/frame-3.png",
+      "bytes": 118600
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/night-frame-0.png",
+      "bytes": 96230
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/night-frame-1.png",
+      "bytes": 95372
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/night-frame-2.png",
+      "bytes": 95275
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/motion/shop/night-frame-3.png",
+      "bytes": 96230
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/notice-board.png",
+      "bytes": 14080
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/observatory.png",
+      "bytes": 43457
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/pine.png",
+      "bytes": 197827
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-base.png",
+      "bytes": 212347
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-board.png",
+      "bytes": 4960
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-gram.png",
+      "bytes": 8329
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-hall.png",
+      "bytes": 10943
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-library.png",
+      "bytes": 29999
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-mail.png",
+      "bytes": 16391
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-shop.png",
+      "bytes": 42429
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/road-tower.png",
+      "bytes": 21463
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/shop.png",
+      "bytes": 118600
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/terrain.png",
+      "bytes": 2059281
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/tree.png",
+      "bytes": 289386
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/ui/wooden-name-sign.png",
+      "bytes": 1264071
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/v1/checks/dock-raft@1x.png",
+      "bytes": 95134
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/v1/tileset-night@2x.png",
+      "bytes": 6538393
+    },
+    {
+      "path": "app/app-dev/src/assets/village-world/v1/tileset@2x.png",
+      "bytes": 7356594
+    }
+  ]
+}
