@@ -62,15 +62,22 @@ local BEARER = "[Bb][Ee][Aa][Rr][Ee][Rr]%s+"
 
 local function mask(text)
   -- "Authorization: Bearer xxx" — 값 앞에 스킴 단어가 끼므로 먼저 따로 가린다.
-  text = text:gsub("(" .. BEARER .. ")[%w%-._~+/]+=*", "%1****")
+  local lower = text:lower()
+  if lower:find("bearer", 1, true) then
+    text = text:gsub("(" .. BEARER .. ")[%w%-._~+/]+=*", "%1****")
+  end
   for _, key in ipairs(SENSITIVE) do
-    for _, sep in ipairs(SEPARATORS) do
-      text = text:gsub("(" .. ci(key) .. sep .. ")" .. VALUE, "%1****")
+    if lower:find(key:lower(), 1, true) then -- 키가 없으면 패턴 3개를 건너뛴다
+      for _, sep in ipairs(SEPARATORS) do
+        text = text:gsub("(" .. ci(key) .. sep .. ")" .. VALUE, "%1****")
+      end
     end
   end
-  text = text:gsub("([%w._%%+%-]+)@([%w.%-]+)%.(%a%a+)", function(local_part)
-    return local_part:sub(1, 3) .. "****@****.***"
-  end)
+  if text:find("@", 1, true) then -- '@' 없는 긴 단어 열에서 이메일 패턴이 O(n²) 라 먼저 거른다
+    text = text:gsub("([%w._%%+%-]+)@([%w.%-]+)%.(%a%a+)", function(local_part)
+      return local_part:sub(1, 3) .. "****@****.***"
+    end)
+  end
   text = text:gsub("(01[016789])[%-.]?(%d%d%d%d?)[%-.]?(%d%d%d%d)", "%1-****-%3")
   text = text:gsub("(%d%d%d%d%d%d)%-(%d)(%d%d%d%d%d%d)", "%1-%2******")
   return text

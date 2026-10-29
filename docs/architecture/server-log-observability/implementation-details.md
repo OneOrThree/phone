@@ -1,6 +1,6 @@
 # Logback 설정·스레드 추적·로그 연결 상세
 
-> 2026-10-29 보강. **목표 설계와 예시**다. 신규 JSON provider와 범용 decorator는 아직 구현 전이며, 첫 요청 ID scope 구현은 [구현 현황](implementation-status.md)에 명시한다. 기준 커밋은 상위 [아키텍처](README.md)와 같다.
+> 2026-10-29 보강. **목표 설계와 예시**다. 2555에서 JSON provider를 구현했다(Spring Boot 내장 `StructuredLogFormatter`+`JsonWriter`). 범용 decorator는 만들지 않았고 경계마다 명시 scope를 둔다. 요청 ID scope(2553)와 JSON 출력(2555)의 구현 범위는 [구현 현황](implementation-status.md)에 명시한다. 기준 커밋은 상위 [아키텍처](README.md)와 같다.
 
 핵심은 **로그 발생 시점에 문맥을 붙이고, 스레드·프로세스 경계에서는 문맥을 전달하며, 조회할 때 공통 ID로 이벤트를 모으는 것**이다. thread 이름이나 발생 시각으로 요청을 추측하지 않는다.
 
@@ -15,11 +15,19 @@
 | Logback JSON provider | 로그 이벤트의 MDC snapshot에서 ID를 읽고 공통 JSON 생성, log ID 부여, message/exception/추가 필드 마스킹 |
 | Fluent Bit | JSON 파싱, 최초 수집 시각·컨테이너 메타데이터 보강, **같은 log ID와 문맥을 유지**하며 Loki/S3에 전송 |
 
-현재 네 서비스 Dockerfile은 DD Java agent `1.64.0`을 지정한다. 배포된 이미지가 그 버전이라는 뜻은 아니므로 P0에서 실배포를 확인한다. Data API는 `logstash-logback-encoder:7.4` 의존성이 있다. 신규 공통 JSON 설정은 각 독립 Gradle 프로젝트의 실제 Logback/Jackson 조합으로 기동 검증한다. 버전을 무조건 최신으로 올리지 않는다.
+현재 네 서비스 Dockerfile은 DD Java agent `1.64.0`을 지정한다. 배포된 이미지가 그 버전이라는 뜻은 아니므로 P0에서 실배포를 확인한다.
 
-### 1.2 APP appender 설정 예시
+### 1.2 구현한 구성과 채택하지 않은 대안
 
-Data API용 `observability-appender.xml` 신규 파일의 제안이다. 다른 서비스에서는 service 기본값과 custom provider의 패키지만 맞춘다. 아래 `ObservationJsonProvider`는 **신규 구현 대상**이며 없는 클래스를 설정만 추가하면 기동 실패한다.
+**구현 (2555).** 네 서비스 모두 Spring Boot `4.0.6` 내장 `StructuredLogFormatter`와 `JsonWriter`로 JSON 한 줄을 만든다. 서비스마다 `ObservationJsonProvider`를 자기 패키지에 둔다(서비스 간 공유 코드 없음).
+
+- Business·Notification·Realtime: `application-{dev,prod}.yml`의 `logging.structured.format.console`로 켠다.
+- Data: `logback-spring.xml`의 `CONSOLE_JSON` appender와 `StructuredLogEncoder`로 켠다(dev·staging·prod 프로파일). `APP_FILE`·`UA_FILE`·user-activity 경로는 텍스트 그대로다.
+- local·ci·default 프로파일 콘솔은 사람이 읽는 텍스트를 유지한다.
+
+선택 이유: Boot 4.0.6에 이미 들어 있어 **새 의존성이 없다.** Data만 Jackson 2를 쓰는 조합이라 서비스마다 다르게 맞춰야 하는 부담도 피했다. 초기 console은 기존처럼 동기 출력이며 AsyncAppender는 도입하지 않았다. 범용 decorator도 만들지 않고, 스레드 hop은 지금처럼 경계마다 명시 scope로 넘긴다.
+
+**채택하지 않은 대안.** 초기 설계에서는 `logstash-logback-encoder`의 `LoggingEventCompositeJsonEncoder`와 별도 `observability-appender.xml`(`APP_JSON`)을 제안했다. 새 의존성이 필요하고 Data의 Jackson 조합을 따로 맞춰야 해서 쓰지 않았다. 아래 XML은 그 대안의 모양을 보존한 것이며 **현재 코드에는 없다.**
 
 ```xml
 <included>
@@ -49,8 +57,6 @@ Data API용 `observability-appender.xml` 신규 파일의 제안이다. 다른 �
 </included>
 ```
 
-기존 `logback-spring.xml`의 dev/staging/prod root 부분을 아래 형태로 교체한다. 이 블록은 **기존 전체 파일에 병합할 조각**이다. `user-activity` 전용 appender·logger·`additivity=false`와 local/ci 구성을 유지한다.
-
 ```xml
 <springProfile name="dev | staging | prod">
     <include resource="observability-appender.xml"/>
@@ -60,31 +66,25 @@ Data API용 `observability-appender.xml` 신규 파일의 제안이다. 다른 �
 </springProfile>
 ```
 
-전환 검증 동안 기존 APP 파일 보관이 필요하면 `APP_FILE` 참조도 잠시 유지하되 Fluent Bit은 stdout만 읽는다. 기존 호스트 타이머의 APP 적재 중단 및 파일 보존 정책 변경 여부를 함께 정한 뒤 파일 출력을 제거한다. user-activity 업로더까지 함께 중단하지 않는다. local/ci는 기존 사람이 읽는 콘솔 출력을 유지할 수 있다.
+기존 APP 파일은 컷오버 전까지 텍스트로 유지하고 Fluent Bit은 stdout만 읽는다. 파일 출력 제거와 기존 호스트 타이머의 APP 적재 중단·보존 정책은 컷오버(2556)에서 함께 정한다. user-activity 업로더까지 함께 중단하지 않는다. 향후 AsyncAppender가 필요해지면 queue·discard·종료 drain·drop 계측을 별도 설계하고 이벤트 snapshot 테스트를 통과시킨다.
 
-초기 APP JSON console은 기존 console처럼 **동기 출력**으로 시작한다. 추가 AsyncAppender를 기본 도입하지 않는다. S3 네트워크 I/O는 Fluent Bit이 담당하지만 stdout 쓰기 자체의 지연 가능성은 남으므로 부하 검증한다. APP AsyncAppender가 필요해지면 queue·discard·종료 drain·drop 계측을 별도 설계하고 이벤트 snapshot 테스트를 통과시킨다.
-
-Composite encoder의 provider 구성과 custom provider 확장은 [encoder 7.4 문서](https://github.com/logfellow/logstash-logback-encoder/tree/logstash-logback-encoder-7.4)를 기준으로 한다. 환경 metadata는 배포 시 허용 형식으로 검증한다.
-
-**환경변수는 컨테이너 안에 명시적으로 주입한다.** 호스트의 compose 치환용 `DEPLOY_ENV`·`IMAGE_REVISION`은 자동으로 JVM 환경변수가 되지 않는다. 현재 위성 compose는 이 값으로 `DD_ENV`·`DD_VERSION`을 만들고 있으므로, 기존 XML의 호스트 변수 참조만으로는 env/version이 빠질 수 있다. 각 배포 경로에서 `OBS_SERVICE=business-api|data-api|notification|realtime`, `OBS_ENV`, `OBS_VERSION`을 설정하고 컨테이너 실행 전 빈 값·미정 값·허용 형식을 검사한다. dev에서는 기존 revision 입력, prod에서는 해당 서비스의 실제 image revision을 쓴다. 태그 문자열을 SHA라고 가정하지 않는다. 시크릿을 출력하지 않고 metadata만 검증한다.
-
-서비스별 env 생성 allowlist와 compose environment를 함께 수정한다. `docker compose config` 합성 검증에 더해 실제 컨테이너가 출력한 JSON의 service/env/version을 확인한다. 잘못된 값이면 배포 전 검증을 실패시키며, 이미 실행 중인 서비스가 관측 서버 장애 때문에 중단되게 만들지는 않는다. `DD_SERVICE`의 `gromo-back-prod` 등과 로그의 `data-api` 명칭은 별도 매핑표로 관리하고, APM 링크에 로그 service 이름을 그대로 넣지 않는다.
+**실행 메타데이터.** 호스트의 compose 치환용 `DEPLOY_ENV`·`IMAGE_REVISION`은 자동으로 JVM 환경변수가 되지 않으므로 compose `environment:`에 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`·`OBS_VERSION`을 명시한다. provider는 이 값을 로그 패턴 치환이 아니라 Spring `Environment`에서 읽는다. **형식이 틀리면 그 필드를 조용히 생략한다**(`putRuntime`). 그래서 생략이 운영에서 드러나지 않도록 배포 전 검사(`deploy-core-dev.py`·`prepare-satellite-deploy.py`)가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비면 배포를 막는다. 이 검사는 `docker compose config` 렌더 결과만 본다. **실제 컨테이너가 출력한 JSON의 service/env/version 확인은 아직 하지 않았다**(후속, 2556·2560). `DD_SERVICE`의 `gromo-back-prod` 등과 로그의 `data-api` 명칭은 별도 매핑표로 관리하고, APM 링크에 로그 service 이름을 그대로 넣지 않는다. prod(Catus) 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못했다.
 
 ### 1.3 ObservationJsonProvider 구현 계약
 
 provider가 출력하는 필드는 `log_id`, `log_kind`, `message`, `exception`, 실제 trace/span, allowlist MDC, 허용된 접근 로그 필드다. stock `<message/>`, `<stackTrace/>`, `<mdc/>`, `<arguments/>`를 동시에 추가해 같은 필드를 중복 출력하거나 미검사 필드를 우회 노출하지 않는다.
 
 1. `ILoggingEvent.getMDCPropertyMap()`에서 **이벤트의 문맥**을 읽는다. provider 실행 스레드의 `MDC.get()` 또는 `CorrelationIdentifier.getTraceId()`로 현재 값을 읽지 않는다.
-2. `dd.trace_id`·`dd.span_id` 원문을 문자열로 유지하고 동일 ID의 canonical `trace_id`·`span_id`를 출력한다. 128-bit ID 출력 옵션과 64-bit 호환 표현을 고정 버전으로 시험한다. 기존 앱 UUID `trace_id`는 정규화 입력으로 사용하지 않는다. 실제 ID를 해석할 수 없으면 DD 원문만 보존하고 canonical 필드를 비워 오류를 계측한다.
+2. `dd.trace_id`·`dd.span_id` 원문을 문자열로 유지하고 동일 ID의 canonical `trace_id`·`span_id`를 출력한다. canonical은 `TraceIds`가 한 곳에서 만든다. 기존 앱 UUID `trace_id`는 정규화 입력으로 사용하지 않는다(`legacy_trace_id`로 낸다). 실제 ID를 해석할 수 없으면 DD 원문만 보존하고 canonical 필드를 생략한다. **해석 실패의 «오류 계측»은 구현하지 않았다**(후속).
 3. 앱 MDC는 위 출력 책임 표의 ID allowlist만 허용한다. `attempt`, `status_code`, `duration_ms`는 검증 후 JSON 숫자로 출력한다. `event_name`은 `operation.link` 등 사전 정의 값만 구조화 필드로 허용한다. 임의 MDC 전체와 임의 structured argument를 덤프하지 않는다.
 4. `log_kind`는 허용된 접근 로그 이벤트면 `access`, 나머지는 `application`. 접근 로그의 method/route/status/duration은 검증된 구조화 필드로 전달한다. `ThreadLocal` 숫자를 message 정규식에서 추출하지 않는다.
-5. 로그 한 건마다 UUID `log_id`를 생성한다. 실제 수집되는 APP encoder는 하나로 유지해 Loki·S3에는 같은 ID가 전달된다. 로그 재수집 시 Fluent Bit이 새 ID를 만들지 않는다. 향후 여러 직접 출력으로 분기하면 encoder마다 UUID를 만들지 말고 분기 전 이벤트에 한 번만 부여한다.
+5. 로그 한 건마다 UUID `log_id`를 생성한다. 실제 수집되는 APP encoder는 하나로 유지해 Loki·S3에는 같은 ID가 전달된다. 로그 재수집 시 Fluent Bit이 새 ID를 만들지 않는다. **JSON이 아니어서 `parse_error=true`로 보관되는 raw 줄에는 `log_id`가 없다.** 이 줄은 Loki의 «같은 시각·같은 줄» 중복 제거와 `observed_at`에 기대며, 재읽기로 중복이 생길 수 있다는 한계가 있다. 향후 여러 직접 출력으로 분기하면 encoder마다 UUID를 만들지 말고 분기 전 이벤트에 한 번만 부여한다.
 6. `event.getFormattedMessage()`와 exception proxy에서 message/stack을 얻어 마스킹·크기 제한 후 출력한다. 제한 시 `truncated=true`, `original_size_bytes`를 추가한다. stack의 줄바꿈은 JSON 안에 escape한다. 기존 `%mask` 패턴 변환기를 JSON 전환 후 자동으로 적용된다고 가정하지 않는다.
 7. agent 미활성·기동 로그는 trace 없이도 정상 출력한다. provider 오류·드롭 계측에서 같은 logger를 재귀 호출하지 않는다.
 
 DD `1.64.0`은 로그 발생 시점의 span context를 `ILoggingEvent`와 연결하고 `getMDCPropertyMap()` 결과에 ID를 합친다. 따라서 AsyncAppender를 나중에 사용해도 이 **이벤트 기준 조회**가 중요하다. [로그 발생 계측 소스](https://github.com/DataDog/dd-trace-java/blob/v1.64.0/dd-java-agent/instrumentation/logback-1.0/src/main/java/datadog/trace/instrumentation/logback/LogbackLoggerInstrumentation.java), [이벤트 MDC 계측 소스](https://github.com/DataDog/dd-trace-java/blob/v1.64.0/dd-java-agent/instrumentation/logback-1.0/src/main/java/datadog/trace/instrumentation/logback/LoggingEventInstrumentation.java)
 
-정규화는 표기만 바꾸며 식별자를 새로 만들지 않는다. `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true`가 실제 적용된 `1.64.0`에서 trace는 상위 비트가 있으면 32자리 hex, 없으면 unsigned 64-bit 십진 문자열이다. 전자는 그대로, 후자는 unsigned 변환 후 상위 0으로 채운 32자리 hex로 정규화한다. span은 unsigned 십진 문자열을 16자리 hex로 변환한다. trace/span이 `0`이면 활성 trace가 없는 것으로 처리한다. **128-bit 생성 중 로그 옵션이 꺼져 하위 64비트만 남은 값은 전체 ID로 복원할 수 없다.** 그 상태에서는 canonical trace를 추측하지 않고 DD 원문만 보존하며 P0를 실패시킨다. [DD ID 생성·출력 소스](https://github.com/DataDog/dd-trace-java/blob/v1.64.0/dd-trace-core/src/main/java/datadog/trace/core/CoreTracer.java)
+정규화는 표기만 바꾸며 식별자를 새로 만들지 않는다. **32자리 hex trace만 canonical `trace_id`가 된다**(소문자로 그대로). 10진 trace는 128-bit 생성 중 상위 64비트를 잃었을 수 있어 canonical을 만들지 않고 `dd` 원문만 낸다. span은 unsigned 10진 문자열을 16자리 hex로 변환한다. compose에는 `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true`를 명시했고, 실제 적용은 dev 배포 뒤 검증 항목이다. trace/span이 `0`이면 활성 trace가 없는 것으로 처리한다. **128-bit 생성 중 로그 옵션이 꺼져 하위 64비트만 남은 값은 전체 ID로 복원할 수 없다.** 그 상태에서는 canonical trace를 추측하지 않고 DD 원문만 보존한다(P0 실패 판정 자동화는 후속). [DD ID 생성·출력 소스](https://github.com/DataDog/dd-trace-java/blob/v1.64.0/dd-trace-core/src/main/java/datadog/trace/core/CoreTracer.java)
 
 ## 2. 스레드가 다른데 어떻게 추적하나
 

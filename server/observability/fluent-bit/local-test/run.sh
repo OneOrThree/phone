@@ -92,10 +92,11 @@ LOKI_DISCARDED=$(curl -s http://127.0.0.1:13100/metrics | awk '/^loki_discarded_
 echo "Fluent Bit: proc=$(metric proc_records) retried=$(metric retried_records) dropped=$G_DROPPED errors=$G_ERRORS"
 echo "Loki: loki_discarded_samples_total{too_far_behind}=$LOKI_DISCARDED  (보낸 오래된 줄 = 20 + 5)"
 $C logs fluent-bit 2>&1 | grep 'status=400' | head -3
-# Fluent Bit 은 청크 전체가 400 일 때만 dropped 로 센다(20). 같은 청크에 새 줄이 섞이면 Loki 가 새 줄은 받고 오래된 줄만 거절하는데,
-# 이때는 Fluent Bit 지표에 아무것도 남지 않는다 — Loki 쪽 집계(25)로만 보인다.
-[ "$G_DROPPED" -eq 20 ] || fail "(g) Fluent Bit dropped=$G_DROPPED (기대 20)"
-[ "$G_ERRORS" -eq 1 ] || fail "(g) Fluent Bit errors=$G_ERRORS (기대 1)"
+# Fluent Bit 은 청크 전체가 400 일 때만 dropped 로 센다. mixold 5 줄이 mixnew 와 같은 청크면 Loki 가 새 줄은 받고 오래된 줄만
+# 거절해 Fluent Bit 지표엔 안 남고(dropped 20·errors 1), 다른 청크로 갈리면 그 청크도 통째로 400 이다(dropped 25·errors 2).
+# 어느 쪽인지는 tail 타이밍이 정한다 — 고정값이 아니라 범위와 Loki 쪽 집계(오래된 줄 25 전부 거절)로 판정한다.
+[ "$G_DROPPED" -ge 20 ] && [ "$G_DROPPED" -le 25 ] || fail "(g) Fluent Bit dropped=$G_DROPPED (기대 20~25)"
+[ "$G_ERRORS" -ge 1 ] && [ "$G_ERRORS" -le 2 ] || fail "(g) Fluent Bit errors=$G_ERRORS (기대 1~2)"
 [ "${LOKI_DISCARDED%.*}" -eq 25 ] || fail "(g) Loki 거절 $LOKI_DISCARDED (기대 25)"
 
 echo "== (d) 라벨 집합·service 값 집합"
@@ -151,6 +152,6 @@ PY
 
 echo "== Fluent Bit drop 판정"
 TOTAL_DROPPED=$((DROPPED_TOTAL + $(metric dropped_records)))
-echo "재시작 전 누적 drop=$DROPPED_TOTAL / 최종 dropped=$(metric dropped_records) / 합계=$TOTAL_DROPPED (기대 20 = (g) o3h 뿐)"
-[ "$TOTAL_DROPPED" -eq 20 ] || fail "기대 시나리오 밖 drop (합계 $TOTAL_DROPPED)"
+echo "재시작 전 누적 drop=$DROPPED_TOTAL / 최종 dropped=$(metric dropped_records) / 합계=$TOTAL_DROPPED (기대 = (g) 의 $G_DROPPED 뿐)"
+[ "$TOTAL_DROPPED" -eq "$G_DROPPED" ] || fail "기대 시나리오 밖 drop (합계 $TOTAL_DROPPED, (g) $G_DROPPED)"
 exit $ok

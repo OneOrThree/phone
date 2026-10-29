@@ -124,6 +124,8 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
   요청·이벤트 ID 등 나머지는 JSON 필드라 `| json | request_id="…"` 로 찾는다. Loki 3 의 자동 `service_name` 라벨은 `discover_service_name: []` 로 껐다.
 - 재시도: 연결 실패·5xx·429 는 한도 없이 재시도(디스크 버퍼가 128M 를 넘으면 오래된 청크부터 버려진다), 4xx 는 버린다. 완전 무유실은 보장하지 않는다.
 - Promtail 전환: `ops-monitor` `up` 은 Fluent Bit 이 15초 뒤 `Running` 이고 재시작 0회일 때만 기존 Promtail 을 지우고, 아니면 Promtail 을 남기고 job 이 실패한다.
+  이 게이트는 **기동 확인까지만** 한다 — Lua 가 레코드마다 오류를 내는 상태나 Loki 로 실제 전달되는지는 확인하지 않는다.
+- Lua 허용 목록은 compose 서비스 이름(`data-api`·`business-api`·`notification`·`realtime`)과 project `phone` 에 의존한다. 서비스 이름이나 project 를 바꾸면 로그가 오류 없이 조용히 버려진다.
   Promtail 설정 파일은 저장소에서 삭제됐다 — 체크아웃이 갱신된 뒤 기존 Promtail 이 재시작되면 못 뜰 수 있으니 전환은 `up` 으로 바로 한다.
 - **Loki 수용창 밖 줄은 거절된다**: 같은 라벨 스트림의 최신 시각보다 `max_chunk_age`(기본 2h)의 절반(1h) 넘게 오래된 줄은 Loki 가 `too far behind` 로 거절한다
   (`reject_old_samples: false` 와 무관). 첫 기동 재읽기(`Read_From_Head`)에서 컨테이너 여러 개가 섞이면 생길 수 있다. 수집기는 시각을 바꿔 감추지 않는다.

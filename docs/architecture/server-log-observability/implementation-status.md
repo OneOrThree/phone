@@ -63,7 +63,7 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 
 **실행 메타데이터.** compose `environment:`에서 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`(`DEPLOY_ENV`)·`OBS_VERSION`(`IMAGE_REVISION`)을 넣는다. 비밀이 아니므로 Secrets Manager 경로를 쓰지 않는다. 배포 전 `deploy-core-dev.py`·`prepare-satellite-deploy.py`가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비었으면 배포를 멈춘다. `OBS_VERSION`은 기존 `DD_VERSION`처럼 배포 커밋을 가리키므로 위성 한쪽만 바뀐 배포에서는 다른 쪽의 실제 이미지와 다를 수 있다. Catus prod 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못했다.
 
-**수집기.** dev 관측 overlay의 Promtail을 Fluent Bit `4.2.8`(amd64·arm64)로 바꿨다. `/var/lib/docker/containers`를 읽기 전용으로 tail하고 tail DB와 filesystem 버퍼(`storage.total_limit_size 128M`)는 `fluent_bit_state` 볼륨에 둔다. Lua 필터가 `config.v2.json`의 compose 라벨로 project `phone`의 네 서비스만 통과시킨다. Loki label은 `env`·`service`·`log_kind`(`application`·`access`·`raw`) 셋이며 ID는 JSON 필드로 남는다. JSON이 아닌 줄은 버리지 않고 `parse_error=true`·`log_kind=raw`로 Lua 마스킹(ASCII 근사) 후 보관한다. Loki 연결 오류·5xx·429는 재시도하지만 4xx는 버리고, 버퍼가 차면 오래된 chunk부터 버린다. 무유실을 보장하지 않는다.
+**수집기.** dev 관측 overlay의 Promtail을 Fluent Bit `4.2.8`(amd64·arm64)로 바꿨다. `/var/lib/docker/containers`를 읽기 전용으로 tail하고 tail DB와 filesystem 버퍼(`storage.total_limit_size 128M`)는 `fluent_bit_state` 볼륨에 둔다. Lua 필터가 `config.v2.json`의 compose 라벨로 project `phone`의 네 서비스만 통과시킨다. Loki label은 `env`·`service`·`log_kind`(`application`·`access`·`raw`) 셋이며 ID는 JSON 필드로 남는다. JSON이 아닌 줄은 버리지 않고 `parse_error=true`·`log_kind=raw`로 Lua 마스킹(ASCII 근사) 후 보관한다. Loki 연결 오류·5xx·429는 재시도하지만 4xx는 버린다. 버퍼가 가득 찼을 때의 동작(어느 chunk를 버리는지 포함)은 **측정하지 않았다**(2556). 무유실을 보장하지 않는다. `observed_at`은 필터가 줄을 처음 처리한 시각(초 단위)으로, Fluent Bit 재시도에서는 보존되지만 tail DB 소실·처음부터 다시 읽기 때는 갱신된다. raw 줄에는 `log_id`가 없다.
 
 **검증.**
 
@@ -74,6 +74,10 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 | 스레드 hop | 실제 `AsyncAppender` 아래에서 MDC를 바꾼 뒤 encode | 로그 시점의 `request_id`·`dd` 값 유지 |
 | 배포 스크립트 | `python3 -m unittest discover -s .github/scripts` | 347개 통과 |
 | 수집기 로컬 하네스 | `server/observability/fluent-bit/local-test/run.sh` | 500줄: 정상·Fluent Bit 재시작·컨테이너 재생성 모두 누락 0·중복 0, label 3개, 다른 project 미끼·자기 로그 재수집 0 |
+| 하네스 단언 | 같은 스크립트 | service 집합·env 집합이 기대와 같음, 허용 밖 label 0, 미끼(decoy) 0, 고정 sleep 대신 기대 수까지 폴링, 시나리오 밖 `dropped_records` 0, 순서 위반 시나리오의 Fluent Bit `dropped_records`·`errors`와 Loki `too_far_behind` 합계 |
+| 긴 줄 | 1 MiB 단어 문자 한 줄 | 마스킹 전에 입력을 32 KiB로 먼저 잘라 1 MiB 줄이 Loki에 도착하기까지 7.6초(생성·Docker 기록 포함). `@`·민감 키·`bearer`가 없으면 해당 패턴을 건너뛰는 가드를 더한 뒤 다시 재니 4.5~4.8초(두 번 실행) |
+| Loki 수용창 실측 | 같은 스트림 최신 시각보다 오래된 줄을 넣어 시험 | 30분 전 줄은 수용. 3시간 전 줄은 거절되어 Fluent Bit `dropped_records` 20, Loki `too_far_behind` 25(한 chunk에 방금 줄이 섞이면 Fluent Bit 지표에는 남지 않고 Loki 지표로만 보인다) |
+| 큰 앱 JSON | 40 KiB 앱 JSON | Docker가 16 KiB+로 나눈 18줄이 한 줄로 재조립되어 JSON으로 파싱됨 |
 
 dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 배포 경로에서는 검증하지 않았다. agent가 실제로 넣는 MDC 형식, 실배포 JSON 출력, prod 적용은 미검증이다.
 
@@ -82,7 +86,7 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 - 이 첫 티켓은 요청 ID의 동기 HTTP 경로를 연결한다. Preview worker, Outbox 영속 carrier, Kafka/Redis/STOMP, Notification 묶음 전송은 후속 범위다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
-- DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 로그 JSON·마스킹·log_id, Loki/S3 수집·재전송·중복 제거·보존·부하 영향은 아직 미검증이다.
+- 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, S3 수집·보존·부하 영향은 아직 미검증이다.
 - 구현 기준 main에서 Data의 `AsyncConfig`·`NotificationAsyncConfig`는 삭제됐다. 초기 계획의 레거시 GA4/push executor를 복원하지 않는다.
 - Infra 정본은 2288에서 확인한 `OneOrThree/Infra`다. 실제 수집 설정·운영 버전은 2554에서 재확인한다.
 
