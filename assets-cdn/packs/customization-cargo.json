@@ -1,0 +1,15 @@
+{
+  "packId": "customization-cargo",
+  "files": {
+    "cargo-berries-fe79f4f5": "server/static/customization/decor/cargo-berries.fe79f4f5.png",
+    "cargo-bottle-42cc18f8": "server/static/customization/decor/cargo-bottle.42cc18f8.png",
+    "cargo-bread-6b2b792c": "server/static/customization/decor/cargo-bread.6b2b792c.png",
+    "cargo-bundle-40f0495d": "server/static/customization/decor/cargo-bundle.40f0495d.png",
+    "cargo-fishbucket-59c67026": "server/static/customization/decor/cargo-fishbucket.59c67026.png",
+    "cargo-picnic-899b4741": "server/static/customization/decor/cargo-picnic.899b4741.png",
+    "cargo-plant-30ac429d": "server/static/customization/decor/cargo-plant.30ac429d.png",
+    "cargo-shells-ca785372": "server/static/customization/decor/cargo-shells.ca785372.png",
+    "cargo-tackle-feea65ef": "server/static/customization/decor/cargo-tackle.feea65ef.png",
+    "cargo-teapot-63b65890": "server/static/customization/decor/cargo-teapot.63b65890.png"
+  }
+}

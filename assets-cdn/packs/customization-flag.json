@@ -1,0 +1,15 @@
+{
+  "packId": "customization-flag",
+  "files": {
+    "flag-cloud-234ff807": "server/static/customization/decor/flag-cloud.234ff807.png",
+    "flag-duck-195ff25c": "server/static/customization/decor/flag-duck.195ff25c.png",
+    "flag-fish-bdb8f7c3": "server/static/customization/decor/flag-fish.bdb8f7c3.png",
+    "flag-flower-6886f58a": "server/static/customization/decor/flag-flower.6886f58a.png",
+    "flag-leaf-e14c9184": "server/static/customization/decor/flag-leaf.e14c9184.png",
+    "flag-moon-03a2a7a5": "server/static/customization/decor/flag-moon.03a2a7a5.png",
+    "flag-paw-f80b0734": "server/static/customization/decor/flag-paw.f80b0734.png",
+    "flag-picnic-e7fd7c0c": "server/static/customization/decor/flag-picnic.e7fd7c0c.png",
+    "flag-shell-e881a484": "server/static/customization/decor/flag-shell.e881a484.png",
+    "flag-strawberry-e276aac3": "server/static/customization/decor/flag-strawberry.e276aac3.png"
+  }
+}

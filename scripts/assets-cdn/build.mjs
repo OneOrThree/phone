@@ -7,7 +7,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonical, digest, png, token, validateManifest } from "./core.mjs";
+import { assetFile, canonical, digest, token, validateManifest } from "./core.mjs";
 export async function buildRelease({
   repo = process.cwd(),
   out = path.join(repo, "dist/assets-cdn"),
@@ -33,15 +33,16 @@ export async function buildRelease({
       const absolute = await realpath(path.resolve(repo, source));
       if (!absolute.startsWith(repo + path.sep)) throw Error("원본 경로 탈출");
       const bytes = await readFile(absolute),
-        dimensions = png(bytes),
+        metadata = assetFile(bytes, path.extname(absolute)),
         sha256 = digest(bytes),
-        objectPath = `assets/${sha256}.png`;
+        objectPath = source.startsWith("server/static/customization/")
+          ? source.slice("server/".length)
+          : `assets/${sha256}${path.extname(absolute)}`;
       files[assetId] = {
         path: objectPath,
         sha256,
         bytes: bytes.length,
-        mediaType: "image/png",
-        ...dimensions,
+        ...metadata,
       };
       objects.set(objectPath, bytes);
     }

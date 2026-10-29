@@ -1,0 +1,15 @@
+{
+  "packId": "customization-shoes",
+  "files": {
+    "acorn-8391ed51": "server/static/customization/shoes/acorn.8391ed51.png",
+    "butter-445c8067": "server/static/customization/shoes/butter.445c8067.png",
+    "cloud-0c9750ff": "server/static/customization/shoes/cloud.0c9750ff.png",
+    "flower-621606dc": "server/static/customization/shoes/flower.621606dc.png",
+    "leaf-c2ceef1d": "server/static/customization/shoes/leaf.c2ceef1d.png",
+    "peach-15ffae7e": "server/static/customization/shoes/peach.15ffae7e.png",
+    "pudding-cc669a59": "server/static/customization/shoes/pudding.cc669a59.png",
+    "sailor-459a8c0e": "server/static/customization/shoes/sailor.459a8c0e.png",
+    "shell-1b7c82e9": "server/static/customization/shoes/shell.1b7c82e9.png",
+    "strawberry-89c01889": "server/static/customization/shoes/strawberry.89c01889.png"
+  }
+}

@@ -29,7 +29,7 @@ export async function getVerified({
 }) {
   const origin = baseUrl(base, { local });
   if (
-    !/^(assets\/[a-f0-9]{64}\.png|releases\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/manifest\.json)$/.test(
+    !/^(assets\/[a-f0-9]{64}\.(png|json)|static\/customization\/(decor|head|neck|shoes|raft|rigs)\/[A-Za-z0-9_-]+\.[a-f0-9]{8}\.(png|json)|releases\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/manifest\.json)$/.test(
       key,
     )
   )

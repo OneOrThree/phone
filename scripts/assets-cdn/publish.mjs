@@ -13,7 +13,7 @@ import {
   validateManifest,
   validateChannel,
   token,
-  png,
+  assetFile,
 } from "./core.mjs";
 import { getVerified, baseUrl } from "./verify.mjs";
 const exec = promisify(execFile);
@@ -116,12 +116,13 @@ export async function publishRelease({
     for (const [key, file] of objects) {
       if (!rollback) {
         const body = await readFile(path.join(directory, key));
-        const dimensions = png(body);
+        const metadata = assetFile(body, path.extname(key));
         if (
           body.length !== file.bytes ||
           digest(body) !== file.sha256 ||
-          dimensions.width !== file.width ||
-          dimensions.height !== file.height
+          metadata.mediaType !== file.mediaType ||
+          metadata.width !== file.width ||
+          metadata.height !== file.height
         )
           throw Error("로컬 파일 무결성 실패");
         await upload(key, body, file.mediaType);

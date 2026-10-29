@@ -1,0 +1,15 @@
+{
+  "packId": "customization-oar",
+  "files": {
+    "oar-duck-717d8676": "server/static/customization/decor/oar-duck.717d8676.png",
+    "oar-fish-3b35b0ee": "server/static/customization/decor/oar-fish.3b35b0ee.png",
+    "oar-flower-785a4b0e": "server/static/customization/decor/oar-flower.785a4b0e.png",
+    "oar-heart-cc69cf39": "server/static/customization/decor/oar-heart.cc69cf39.png",
+    "oar-leaf-2c346ee7": "server/static/customization/decor/oar-leaf.2c346ee7.png",
+    "oar-paw-1c49ad01": "server/static/customization/decor/oar-paw.1c49ad01.png",
+    "oar-shell-1fdd532f": "server/static/customization/decor/oar-shell.1fdd532f.png",
+    "oar-spoon-d5d1e285": "server/static/customization/decor/oar-spoon.d5d1e285.png",
+    "oar-star-c502d11a": "server/static/customization/decor/oar-star.c502d11a.png",
+    "oar-whale-249ad404": "server/static/customization/decor/oar-whale.249ad404.png"
+  }
+}

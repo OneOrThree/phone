@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { buildRelease } from "./build.mjs";
@@ -11,6 +11,7 @@ import {
   digest,
   canonical,
   immutableCache,
+  assetFile,
   png,
   validateManifest,
 } from "./core.mjs";
@@ -85,7 +86,7 @@ const options = (f, s) => ({
   aws: s.aws,
   fetcher: s.fetcher,
 });
-test("실제 회관 재현 빌드와 localhost GET/304", async (t) => {
+test("회관·꾸미기 빌드와 localhost PNG/rig GET·채널 304", async (t) => {
   const f = await fixture(t);
   const second = await buildRelease({
     repo,
@@ -102,6 +103,10 @@ test("실제 회관 재현 빌드와 localhost GET/304", async (t) => {
   const base = `http://127.0.0.1:${server.address().port}`;
   const file = f.manifest.packs["interior-hall"].files.background;
   await getVerified({ base, key: file.path, ...file, local: true });
+  const image = Object.values(f.manifest.packs["customization-head"].files)[0];
+  const rig = Object.values(f.manifest.packs["customization-rigs"].files)[0];
+  await getVerified({ base, key: image.path, ...image, local: true });
+  await getVerified({ base, key: rig.path, ...rig, local: true });
   const first = await fetch(`${base}/channels/dev/1.json`);
   assert.equal(first.headers.get("cache-control"), "public, max-age=60");
   await first.arrayBuffer();
@@ -128,6 +133,43 @@ test("PNG signature와 해상도 제한 및 manifest digest", () => {
       packs: { x: { version: "x", files: {} } },
     }),
   );
+});
+test("꾸미기 카탈로그의 모든 정적 그림과 rig를 CDN 팩에 포함", async (t) => {
+  const f = await fixture(t);
+  const root = path.join(repo, "server/static/customization");
+  const runtime = new Set();
+  for (const category of await readdir(root)) {
+    if (category === "reference") continue;
+    for (const file of await readdir(path.join(root, category))) {
+      if (/\.(png|json)$/.test(file))
+        runtime.add(`server/static/customization/${category}/${file}`);
+    }
+  }
+  const sources = new Set();
+  for (const name of await readdir(path.join(repo, "assets-cdn/packs"))) {
+    const definition = JSON.parse(
+      await readFile(path.join(repo, "assets-cdn/packs", name), "utf8"),
+    );
+    if (definition.packId.startsWith("customization-"))
+      for (const source of Object.values(definition.files)) sources.add(source);
+  }
+  assert.deepEqual([...sources].sort(), [...runtime].sort());
+  assert.equal(sources.size, 112);
+  const manifestFiles = Object.entries(f.manifest.packs)
+    .filter(([id]) => id.startsWith("customization-"))
+    .flatMap(([, pack]) => Object.values(pack.files));
+  assert.equal(manifestFiles.length, runtime.size);
+  assert.equal(manifestFiles.filter((file) => file.mediaType === "image/png").length, 103);
+  assert.equal(manifestFiles.filter((file) => file.mediaType === "application/json").length, 9);
+  assert.ok(manifestFiles.every((file) => file.path.startsWith("static/customization/")));
+});
+test("rig JSON은 유효한 문서만 허용하고 PNG로 위장할 수 없음", () => {
+  assert.deepEqual(assetFile(Buffer.from('{"frames":{}}'), ".json"), {
+    mediaType: "application/json",
+  });
+  assert.throws(() => assetFile(Buffer.from("{"), ".json"));
+  assert.throws(() => assetFile(Buffer.from("[]"), ".json"));
+  assert.throws(() => assetFile(Buffer.from("{}"), ".png"));
 });
 test("최초 승격, 동일 객체 재검증 및 롤백 generation 증가", async (t) => {
   const f = await fixture(t),

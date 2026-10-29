@@ -1,0 +1,15 @@
+{
+  "packId": "customization-canopy",
+  "files": {
+    "canopy-cloud-45336ca2": "server/static/customization/decor/canopy-cloud.45336ca2.png",
+    "canopy-flower-45f2325b": "server/static/customization/decor/canopy-flower.45f2325b.png",
+    "canopy-leaf-edbdd885": "server/static/customization/decor/canopy-leaf.edbdd885.png",
+    "canopy-lotus-edc327cb": "server/static/customization/decor/canopy-lotus.edc327cb.png",
+    "canopy-moon-130f3bd9": "server/static/customization/decor/canopy-moon.130f3bd9.png",
+    "canopy-mushroom-fbf47673": "server/static/customization/decor/canopy-mushroom.fbf47673.png",
+    "canopy-picnic-4a012362": "server/static/customization/decor/canopy-picnic.4a012362.png",
+    "canopy-sailor-3f8d957a": "server/static/customization/decor/canopy-sailor.3f8d957a.png",
+    "canopy-shell-7c362fc6": "server/static/customization/decor/canopy-shell.7c362fc6.png",
+    "canopy-strawberry-6f9d2612": "server/static/customization/decor/canopy-strawberry.6f9d2612.png"
+  }
+}

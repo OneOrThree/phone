@@ -1,6 +1,6 @@
 # 이미지 팩 발행
 
-Node.js 24 이상과 AWS CLI v2를 사용한다. 추가 npm 의존성은 없다. 초기 팩은 `interior-hall/background`이며 원본 번들 참조를 유지한다.
+Node.js 24 이상과 AWS CLI v2를 사용한다. 추가 npm 의존성은 없다. `interior-hall/background`는 앱 번들 원본을 유지한다. `customization-*` 팩은 서버 꾸미기 카탈로그가 참조하는 `server/static/customization/`의 PNG 103개와 렌더링 rig JSON 9개를 포함한다. `reference/`의 이식 참고용 JS는 앱 런타임에서 쓰지 않아 제외한다. 꾸미기 파일은 카탈로그 경로와 같은 `static/customization/<분류>/<이름>.<sha8>.<확장자>`로 CDN에 올려 `STATIC_ASSETS_BASE_URL`만 CDN origin으로 바꾸면 이미지와 rig를 함께 읽을 수 있다.
 
 ```sh
 node --test scripts/assets-cdn/*.test.mjs
@@ -8,9 +8,9 @@ node scripts/assets-cdn/build.mjs local-v1
 node scripts/assets-cdn/serve.mjs local-v1
 ```
 
-로컬 서버는 `127.0.0.1:4301`에서 `channels/dev/1.json`, 불변 manifest와 PNG를 제공한다. 포트는 `PORT`로 바꾼다. 실제 기기 연결용 공개 서버가 아니다. 산출물은 `dist/assets-cdn/`이며 커밋하지 않는다. 같은 releaseId로 다른 내용의 빌드를 덮어쓰면 실패한다. 원본 PNG는 변환·축소하지 않고 signature/IHDR, 크기, 해상도를 검사한다. 실제 이미지 디코드 검증은 기기 검증에 남는다.
+로컬 서버는 `127.0.0.1:4301`에서 `channels/dev/1.json`, 불변 manifest와 PNG·rig JSON을 제공한다. 포트는 `PORT`로 바꾼다. 실제 기기 연결용 공개 서버가 아니다. 산출물은 `dist/assets-cdn/`이며 커밋하지 않는다. 같은 releaseId로 다른 내용의 빌드를 덮어쓰면 실패한다. 원본 PNG는 변환·축소하지 않고 signature/IHDR, 크기, 해상도를 검사한다. 실제 이미지 디코드 검증은 기기 검증에 남는다. 꾸미기 발행 전 Infra 이미지 CDN 모듈의 `static/customization/*` 읽기·쓰기 정책을 먼저 적용한다.
 
-팩 정의는 `packs/*.json`에 `{ "packId": "...", "files": { "assetId": "저장소 상대 PNG 경로" } }` 형태로 작성한다. 원본 symlink가 저장소를 벗어나면 거부한다. 정렬된 키의 UTF-8 JSON에 줄바꿈을 붙이지 않으며 pack version은 files의 정규 JSON SHA-256이다.
+팩 정의는 `packs/*.json`에 `{ "packId": "...", "files": { "assetId": "저장소 상대 PNG/JSON 경로" } }` 형태로 작성한다. 꾸미기 파일을 추가하면 해당 팩에 원본 경로를 등록한다. 테스트가 `server/static/customization/` 전체와 팩 목록의 일치를 확인한다. 원본 symlink가 저장소를 벗어나면 거부한다. 정렬된 키의 UTF-8 JSON에 줄바꿈을 붙이지 않으며 pack version은 files의 정규 JSON SHA-256이다.
 
 ## 수동 발행과 롤백
 

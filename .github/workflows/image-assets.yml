@@ -6,6 +6,7 @@ on:
       - "scripts/assets-cdn/**"
       - "assets-cdn/**"
       - "app/app-dev/src/assets/interiors/hall-cute-v1.png"
+      - "server/static/customization/**"
       - ".github/workflows/image-assets.yml"
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - "scripts/assets-cdn/**"
       - "assets-cdn/**"
       - "app/app-dev/src/assets/interiors/hall-cute-v1.png"
+      - "server/static/customization/**"
       - ".github/workflows/image-assets.yml"
   workflow_dispatch:
     inputs:
@@ -43,7 +45,7 @@ jobs:
           node-version: "24"
       - name: 계약·장애·로컬 HTTP 검사
         run: node --test scripts/assets-cdn/*.test.mjs
-      - name: 실제 회관 팩 빌드
+      - name: 이미지 팩 빌드
         run: node scripts/assets-cdn/build.mjs "sha-${GITHUB_SHA}"
   publish:
     # 롤백은 현재 원본 빌드와 독립적으로 보존된 릴리스 전체를 검증한다.
