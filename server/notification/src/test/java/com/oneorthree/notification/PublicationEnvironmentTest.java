@@ -23,6 +23,22 @@ import static org.mockito.Mockito.verify;
 
 class PublicationEnvironmentTest {
     @Test
+    void RDS_설명_표식이_프로파일과_FCM에_일치할_때만_발송_준비가_된다() {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of());
+        when(jdbc.queryForObject(anyString(), eq(String.class)))
+                .thenReturn("gromo.environment=prod;gromo.fcm_project_id=catus-prod");
+        var guard = new NotificationEnvironmentGuard(environment, jdbc, "catus-prod");
+
+        assertThat(guard.identity()).containsEntry("environment", "prod")
+                .containsEntry("fcmProjectId", "catus-prod");
+        var wrongProject = new NotificationEnvironmentGuard(environment, jdbc, "catus-dev");
+        assertThatThrownBy(wrongProject::assertDispatchReady)
+                .isInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class);
+    }
+    @Test
     void 운영_이력도_환경을_검증한_뒤_실제_원장을_읽는다() {
         var guard = mock(NotificationEnvironmentGuard.class);
         when(guard.identity()).thenReturn(Map.of("environment", "prod", "fcmProjectId", "gromo-prod"));

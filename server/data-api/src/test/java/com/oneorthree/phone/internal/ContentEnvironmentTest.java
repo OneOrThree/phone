@@ -20,6 +20,22 @@ import static org.mockito.Mockito.when;
 
 class ContentEnvironmentTest {
     @Test
+    void RDS에서_데이터베이스_설명_표식을_검증한다() {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of());
+        when(jdbc.queryForObject(anyString(), eq(String.class))).thenReturn("gromo.environment=prod");
+        var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
+                mock(ContentHistoryService.class), mock(MagazineReviewService.class),
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+
+        org.assertj.core.api.Assertions.assertThat(controller.environment().get("environment")).isEqualTo("prod");
+        when(jdbc.queryForObject(anyString(), eq(String.class))).thenReturn("gromo.environment=dev");
+        assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Data DB 환경");
+    }
+    @Test
     void 다른_환경의_이력은_조회하지_않는다() {
         var environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
