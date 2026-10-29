@@ -1,3 +1,4 @@
+import { getAssetRepository } from '@/services/assets/repository';
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
@@ -1672,6 +1673,12 @@ function Gromo() {
     );
     return () => subscription.remove();
   }, []);
+  useEffect(() => {
+    if (appActive)
+      void getAssetRepository()
+        ?.onForeground()
+        .catch(() => {});
+  }, [appActive]);
   const pushPromptReady =
     loaded &&
     !REVIEW &&

@@ -65,6 +65,10 @@ export EXPO_NO_DOTENV=1
 export EXPO_PUBLIC_API_URL="https://catus-api.oneorthree.world"
 export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1
 export EXPO_PUBLIC_ENV=prod
+# CDN 시범 검증 전에는 OTA도 번들 이미지를 사용합니다.
+export EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=false
+export EXPO_PUBLIC_IMAGE_ASSETS_URL=""
+export EXPO_PUBLIC_IMAGE_ASSETS_ENV=prod
 # 약관 버전·Datadog RUM 공개 설정 — 스토어 빌드(iOS testflight.sh·안드로이드 CI)와 같은 정본
 # shellcheck disable=SC1091
 source ios/release-config.sh
