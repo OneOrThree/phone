@@ -210,6 +210,8 @@ sequenceDiagram
     Note over B,W: event/message ID로 조회, 실행 종료 후 scope 복원
 ```
 
+그림과 구현의 차이: 실제 scope는 역직렬화 직후, 자기 echo 판정 **전**에 만들고 결과를 `delivered|self_echo|invalid|failed` 한 줄로 남긴다(역직렬화 실패인 `invalid`는 scope 없음). 아웃바운드로 넘기는 키는 request/origin/event/message ID이며 `user_id`는 제외한다. 그림에는 STOMP 수신 프레임 scope와 `consumer.accept`·`fanout.publish` 로그가 없다.
+
 Redis subscriber가 새 thread에서 실행된다는 점과 프로세스가 다르다는 점을 각각 처리한다. wire 변경은 내부 carrier에 한정하며 클라이언트의 기존 봉투·자기 메아리 제외·수신 권한을 유지한다. publish 성공을 클라이언트 수신 확인으로 해석하지 않는다.
 
 ### Notification의 복수 원인
