@@ -58,6 +58,7 @@ const mockPrepareLogout = jest.fn();
 const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
 const mockClearStudyWidget = jest.fn(async () => false);
 let mockEmitAppLink: ((url: string) => void) | undefined;
+let mockInvitationCommands: Record<string, jest.Mock> | undefined;
 let mockRememberOverride: ((...args: any[]) => Promise<boolean>) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
 const mockAdoptSignedInAccount = jest.fn(
@@ -167,6 +168,7 @@ jest.mock('@/services/islandCommands', () => {
           ...created.commands,
           sync: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
           switchCurrent: (...switchArgs: unknown[]) => mockSwitchCurrent(...switchArgs),
+          ...mockInvitationCommands,
         },
       };
     },
@@ -202,6 +204,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 beforeEach(async () => {
+  mockInvitationCommands = undefined;
   process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
   mockLoadHomeSnapshot = undefined;
@@ -3408,5 +3411,62 @@ test.each(['granted', 'denied'] as const)(
     await afterShield();
     expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
     await app.unmount();
+  },
+);
+
+test.each(['active', 'pending', 'joined'] as const)(
+  '초대 링크는 캐릭터 설정 뒤 첫 섬 선택을 건너뛰고 %s 상태로 진입한다',
+  async (status) => {
+    const memberships = (id: string | null) => ({
+      items: id ? [{ id, name: '초대 섬', membershipStatus: 'active' }] : [],
+      nextCursor: null,
+      currentIslandId: id,
+      lossReason: null,
+    });
+    mockInvitationCommands = {
+      resolveInvite: jest.fn(async () => ({ id: 'invited', name: '초대 섬' })),
+      join: jest.fn(async () => {
+        if (status === 'active')
+          mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
+        return { status, islandId: 'invited' };
+      }),
+      switchCurrent: jest.fn(async () => {
+        mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
+      }),
+    };
+    const commands = mockInvitationCommands;
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    await act(async () => mockEmitAppLink!('https://link.oneorthree.world/l/abcdefgh?g=untrusted'));
+    expect(commands.resolveInvite).not.toHaveBeenCalled();
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships:
+          status === 'joined'
+            ? { ...memberships('invited'), currentIslandId: 'other' }
+            : memberships(null),
+      });
+      captured.reset('character');
+    });
+    expect(commands.resolveInvite).not.toHaveBeenCalled();
+    await act(async () => captured.reset('chooseIsland'));
+    await waitFor(() => expect(commands.resolveInvite).toHaveBeenCalledWith('abcdefgh'));
+    if (status === 'joined') {
+      await waitFor(() => expect(commands.switchCurrent).toHaveBeenCalledWith('invited'));
+      expect(commands.join).not.toHaveBeenCalled();
+      await waitFor(() => assert.equal(captured.route, 'home'));
+    } else {
+      await waitFor(() =>
+        expect(commands.join).toHaveBeenCalledWith('invited', { showApproval: false }),
+      );
+      await waitFor(() =>
+        assert.equal(captured.route, status === 'pending' ? 'approval' : 'guide'),
+      );
+    }
   },
 );

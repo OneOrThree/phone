@@ -4,6 +4,7 @@ import {
   createIsland,
   discoverIslands,
   explore,
+  issueInvitation,
   joinIsland,
   joinRequest,
   myIslands,
@@ -59,6 +60,16 @@ beforeEach(async () => {
   calls.length = 0;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('초대 발급은 멱등 키를 보내고 서버 URL을 반환한다', async () => {
+  const invitation = { code: 'ABC123', url: 'https://link.example/l/ABC123?g=i1', expiresAt: null };
+  stub([{ status: 200, body: { data: invitation } }]);
+  const result = await issueInvitation('i1', 'invite-key');
+  assert.equal(path(calls[0]), '/islands/i1/invitations');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'invite-key');
+  assert.deepEqual(result, invitation);
 });
 
 test('createIsland — POST /islands 에 멱등 키와 허용된 body 만 보낸다', async () => {

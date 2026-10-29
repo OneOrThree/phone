@@ -142,6 +142,7 @@ import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
 import { parseAppDeepLink, subscribeToAppLinks } from '@/services/appDeepLink';
+import { islandErrorMessage } from '@/services/islandErrors';
 import {
   BUILDING_TRANSITION_DURATION_MS,
   BUILDING_TRANSITION_RETURN_TARGET,
@@ -490,6 +491,7 @@ function Gromo() {
     setStorageOwnerReady(ready);
   };
   const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
+  const [openingInvitation, setOpeningInvitation] = useState(false);
   const socialLoginAttempt = useRef<{
     provider: Provider;
     credential: string;
@@ -846,6 +848,53 @@ function Gromo() {
       setIncomingAppLink(null);
       return;
     }
+    if (target.kind === 'invitation') {
+      // 초대는 첫 섬 선택을 대신한다. 계정 준비와 진행 중 집중만 끝나기를 기다린다.
+      if (
+        !hasServerSession ||
+        !islandsSynced ||
+        fireTransition.phase !== 'idle' ||
+        ['login', 'character', 'guide'].includes(route) ||
+        state.session ||
+        openingInvitation
+      )
+        return;
+      setIncomingAppLink(null);
+      setOpeningInvitation(true);
+      const gen = sessionGeneration();
+      const seq = ++linkSeq.current;
+      const nav = navKeyRef.current;
+      const latest = () =>
+        gen === sessionGeneration() && seq === linkSeq.current && nav === navKeyRef.current;
+      void (async () => {
+        try {
+          const commands = islandCmds.current!.commands;
+          const island = await commands.resolveInvite(target.code);
+          if (!latest()) return;
+          const snapshot = stateRef.current.serverIslands;
+          const joined = snapshot?.memberships.some((item) => item.id === island.id);
+          if (joined) {
+            if (snapshot?.currentIslandId !== island.id) await commands.switchCurrent(island.id);
+          } else {
+            const result = await commands.join(island.id, { showApproval: false });
+            if (!latest()) return;
+            if (result.status === 'pending') {
+              goRef.current('approval', island.id);
+              return;
+            }
+          }
+          if (latest()) {
+            if (stateRef.current.visitingIslandId) dispatch({ type: 'END_VISIT' });
+            resetRef.current('home');
+          }
+        } catch (error) {
+          if (latest()) notifyRef.current(islandErrorMessage(error));
+        } finally {
+          setOpeningInvitation(false);
+        }
+      })();
+      return;
+    }
     // 앱 부팅 전이나 로그인 중 받은 링크는 보관했다가 세션이 준비된 뒤에만 연다.
     // 딥링크가 로그인 화면을 우회해 회원 전용 화면을 노출하지 않게 한다.
     // 로그인 응답으로 session store만 먼저 바뀌는 틈이 있다. 채택 완료로 login route가
@@ -965,6 +1014,8 @@ function Gromo() {
     state.tutorial,
     route,
     fireTransition.phase,
+    openingInvitation,
+    state.session,
   ]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({

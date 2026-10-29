@@ -249,6 +249,17 @@ export function resolveInvitation(
   return request('/invitations/resolve', { method: 'POST', body: { code } });
 }
 
+/** 활성 주민의 초대 링크 발급. 공유 URL은 서버 응답을 그대로 사용한다. */
+export function issueInvitation(
+  islandId: string,
+  idempotencyKey: string,
+): Promise<{ code: string; url: string; expiresAt: string | null }> {
+  return request(`/islands/${encodeURIComponent(islandId)}/invitations`, {
+    method: 'POST',
+    idempotencyKey,
+  });
+}
+
 /** 내 섬 정본 — `currentIslandId` 가 null 이면 소속이 없을 수 있다. */
 export function myIslands(): Promise<MyIslands> {
   return request<MyIslands>('/me/islands');
