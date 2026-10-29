@@ -111,6 +111,12 @@ class SharedRedisTest(unittest.TestCase):
 
 
 class TransitionGuardTest(unittest.TestCase):
+    def test_monitoring_workflow_names_only_existing_services(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ops-monitor.dev.yml").read_text())
+        requested = set(workflow["jobs"]["monitor"]["env"]["OBS_SERVICES"].split())
+        overlay = yaml.safe_load((ROOT / "server/scripts/docker-compose.observability.yml").read_text())
+        self.assertTrue(requested <= set(overlay["services"]), requested - set(overlay["services"]))
+
     def test_legacy_requires_bridge_even_with_correct_shared_acl(self):
         acl = b"fixture"
         state = {"Config": {"Env": ["ACL_REVISION=" + hashlib.sha256(acl).hexdigest()],
