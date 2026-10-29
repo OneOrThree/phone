@@ -86,6 +86,33 @@ test("인증/Origin/CSRF 경계와 세션 종료", async (t) => {
     401,
   );
 });
+test("test 계정은 로컬에서만 로그인할 수 있다", async (t) => {
+  for (const mode of ["local", "connected"]) {
+    const store = new Store(":memory:");
+    const app = createApp({
+      store,
+      upstream: {},
+      operators: {
+        test: {
+          passwordHash: `${salt}:${scryptSync("test", salt, 64).toString("hex")}`,
+        },
+      },
+      origin: "http://127.0.0.1:4310",
+      mode,
+    });
+    await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
+    t.after(async () => {
+      await new Promise((resolve) => app.close(resolve));
+      store.close();
+    });
+    const response = await fetch(`http://127.0.0.1:${app.address().port}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "http://127.0.0.1:4310" },
+      body: JSON.stringify({ actor: "test", password: "test" }),
+    });
+    assert.equal(response.status, mode === "local" ? 200 : 401);
+  }
+});
 test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용", async () => {
   let request;
   const upstream = new Upstream({

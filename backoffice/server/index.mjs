@@ -1,4 +1,5 @@
 import { mkdirSync, chmodSync } from "node:fs";
+import { scryptSync } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Store, requireValue } from "./store.mjs";
@@ -32,14 +33,17 @@ if (mode === "connected") {
     );
   }
 }
-const operators = JSON.parse(process.env.BACKOFFICE_OPERATORS ?? "{}");
+const demoSalt = "0".repeat(32);
+const operators = mode === "local"
+  ? { test: { passwordHash: `${demoSalt}:${scryptSync("test", demoSalt, 64).toString("hex")}` } }
+  : JSON.parse(process.env.BACKOFFICE_OPERATORS ?? "{}");
 requireValue(
   Object.keys(operators).length > 0,
   "BACKOFFICE_OPERATORS에 운영자 암호 해시를 설정하세요. README를 참고하세요.",
 );
 for (const [actor, operator] of Object.entries(operators)) {
   requireValue(
-    /^member-[1-3]$/.test(actor) &&
+    (mode === "local" ? actor === "test" : /^member-[1-3]$/.test(actor)) &&
       /^[a-f0-9]{32}:[a-f0-9]{128}$/.test(operator.passwordHash ?? ""),
     "운영자 계정 또는 비밀번호 해시 형식을 확인하세요.",
   );

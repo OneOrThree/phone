@@ -9,13 +9,10 @@ Node 24 이상이 필요하다. 로컬 모드는 외부 서비스 호출 없이 
 ```sh
 npm ci
 npm run build
-# 12자 이상 비밀번호를 표준 입력으로 전달하면 salt:hash를 출력한다.
-npm run --silent password
-export BACKOFFICE_OPERATORS='{"member-1":{"passwordHash":"위 명령에서 얻은 해시"}}'
 npm start
 ```
 
-http://127.0.0.1:4310 에서 member-1과 지정한 비밀번호로 로그인한다. 비밀번호 해시를 만드는 명령은 입력을 마친 뒤 EOF를 전달한다. 원문 비밀번호나 서비스 토큰을 git에 기록하지 않는다.
+http://127.0.0.1:4310 에서 `test` / `test`로 로그인한다. 로컬 모드는 루프백 주소에서만 실행되고 실제 서비스에 발송·게시하지 않는다. 연결 모드는 `member-1`~`member-3` 계정과 별도의 비밀번호 해시를 요구한다. 연결 모드의 비밀번호 해시는 12자 이상 비밀번호를 `npm run --silent password` 명령의 표준 입력에 전달해 생성한다. 원문 비밀번호나 서비스 토큰을 git에 기록하지 않는다.
 
 Vite 개발 화면을 쓸 때에는 BFF의 `BACKOFFICE_ORIGIN=http://127.0.0.1:5173`을 설정하고 `npm run dev`를 별도 실행한다. 기본 빌드 화면은 4310 포트 하나에서 제공한다.
 
