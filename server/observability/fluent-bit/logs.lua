@@ -11,7 +11,7 @@
 -- 다시 적용하지 않는다(신뢰 경계: 앱이 provider 로 마스킹한 JSON 은 믿는다) — 이 마스킹은 JSON 이 아닌 줄
 -- (parse_error)만을 위한 2차 그물이다. raw 줄은 «앱이 마스킹하지 못한 줄» 이라 Java 보다 키 목록을 넓혔다.
 -- 성능: 이메일 패턴은 '@' 없는 긴 단어 열에서 O(n²) 라서 mask 전에 입력을 MESSAGE_LIMIT*2 로 먼저 자른다.
--- 먼저 자르면 끝에 걸린 이메일·휴대폰·주민번호 조각이 패턴에 안 걸려 원문이 남으므로 끝 토큰을 버린다(drop_cut_token).
+-- 먼저 자르면 끝에 걸린 이메일·휴대폰·주민번호 조각이 패턴에 안 걸려 원문이 남으므로 마스킹한 뒤 끝 토큰을 버린다(drop_cut_token).
 
 local ALLOWED = { ["data-api"] = true, ["business-api"] = true, ["notification"] = true, ["realtime"] = true, ["nginx"] = true }
 local ENVS = { dev = true, staging = true, prod = true }
@@ -98,13 +98,15 @@ local function truncate(text, limit)
   return text:sub(1, cut), true
 end
 
--- 사전 자르기로 끝에 걸린 토큰 문자([A-Za-z0-9._%+@-]) 연속 구간을 버린다. Java LogMasking.dropCutToken 과 같은 규칙 —
+-- 사전 자르기한 줄을 마스킹한 결과의 끝에 이어진 토큰 문자([A-Za-z0-9._%+@*-]) 구간을 버린다. Java LogMasking.dropCutToken 과 같은 규칙 —
 -- 두 쪽이 같은 결과인지는 local-test/mask_cases.py 가 네 서비스 공통 입력표(log-contract-vectors.tsv)의 cut 줄로 본다.
+-- 마스킹이 먼저라 자르기 지점 앞의 완전한 번호·이메일은 이미 가려져 있어, 버리는 경계가 그것을 갈라 패턴에 안 걸리는 조각을 남기지 않는다.
+-- '*'(마스킹이 넣는 문자)도 버려 잘린 이메일 안의 휴대폰만 먼저 가려진 경우에도 그 앞 로컬 파트까지 버린다.
 -- 바이트 표로 거꾸로 센다: «[...]*$» Lua 패턴은 긴 단어 뒤에 구분자가 오면 O(n²) 이다.
 local TOKEN_BYTE = {}
-for c in ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+@-"):gmatch(".") do TOKEN_BYTE[c:byte()] = true end
--- 버리는 길이는 254 바이트까지(Java MAX_CUT_TOKEN): 이메일은 254자 이하, 휴대폰·주민번호는 14자 이하라 잘린 조각이 마스킹 대상이었다면
--- '@' 나 숫자 시작이 끝 254자 안에 있다. 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
+for c in ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+@-*"):gmatch(".") do TOKEN_BYTE[c:byte()] = true end
+-- 버리는 길이는 254 바이트까지(Java MAX_CUT_TOKEN): 이메일은 254자 이하, 휴대폰·주민번호는 14자 이하라 잘린 조각은 끝 254자 안에 있다.
+-- 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
 local MAX_CUT_TOKEN = 254
 local function drop_cut_token(text)
   local cut = #text
@@ -158,8 +160,9 @@ local function raw_record(line, stream)
   line = tostring(line or ""):gsub("[\r\n]+$", "")
   local original = #line
   local head, pre_cut = truncate(line, MESSAGE_LIMIT * 2)
-  if pre_cut then head = drop_cut_token(head) end
-  local message, cut = truncate(mask(head), MESSAGE_LIMIT)
+  local masked = mask(head)
+  if pre_cut then masked = drop_cut_token(masked) end
+  local message, cut = truncate(masked, MESSAGE_LIMIT)
   cut = cut or pre_cut
   local out = { parse_error = true, log_kind = "raw", message = message, stream = stream, env = DEFAULT_ENV }
   if not ENVS[out["env"]] then out["env"] = "unknown" end

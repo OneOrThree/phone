@@ -22,8 +22,8 @@ final class LogMasking {
                     + "[a-zA-Z0-9._%+\\-]*+@([a-zA-Z0-9.\\-]+)\\.([a-zA-Z]{2,})");
     private static final Pattern PHONE = Pattern.compile("(01[016789])[\\-.]?(\\d{3,4})[\\-.]?(\\d{4})");
     private static final Pattern SSN = Pattern.compile("(\\d{6})[\\-](\\d)(\\d{6})");
-    /** 이메일·휴대폰·주민번호 패턴이 쓰는 문자(ASCII). 사전 자르기 끝에 이 문자가 이어져 있으면 잘린 토큰일 수 있다. */
-    private static final String TOKEN_PUNCTUATION = "._%+@-";
+    /** 이메일·휴대폰·주민번호 패턴이 쓰는 문자와 마스킹이 넣는 '*'(ASCII). 사전 자르기 끝에 이 문자가 이어져 있으면 잘린 토큰일 수 있다. */
+    private static final String TOKEN_PUNCTUATION = "._%+@-*";
 
     private LogMasking() {
     }
@@ -51,20 +51,21 @@ final class LogMasking {
     static final int MAX_CUT_TOKEN = 254;
 
     /**
-     * 사전 자르기로 끝에 걸린 토큰 문자({@code [A-Za-z0-9._%+@-]}) 연속 구간을 버린다. 잘린 이메일·휴대폰·주민번호 조각은
-     * 마스킹 패턴에 안 걸려 원문이 그대로 남기 때문이다. logs.lua 의 {@code drop_cut_token} 과 같은 규칙이다.
-     * 버리는 길이는 {@link #MAX_CUT_TOKEN}(254) 자까지다: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰·주민번호는 14자 이하라,
-     * 잘린 조각이 마스킹 패턴에 걸릴 수 있었던 토큰이면 '@' 나 숫자 시작이 반드시 끝 254자 안에 있다. 그보다 앞은 이메일·휴대폰이 될 수 없는
-     * 꼴이라 남겨도 안전하다. 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
-     * ponytail: 254자를 넘는 덩어리의 앞부분(이메일 로컬 파트일 수 있는 문자열)은 남는다 — 유효 이메일이 아니라 마스킹 대상 밖으로 둔다.
+     * 사전 자르기한 입력을 <b>마스킹한 결과</b>의 끝에 이어진 토큰 문자({@code [A-Za-z0-9._%+@*-]}) 구간을 버린다. 잘린 이메일·휴대폰·주민번호
+     * 조각은 마스킹 패턴에 안 걸려 원문이 그대로 남기 때문이다. logs.lua 의 {@code drop_cut_token} 과 같은 규칙이다.
+     * 마스킹 뒤에 버리므로 자르기 지점 앞의 완전한 번호·이메일은 이미 가려져 있다 — 버리는 경계가 그것을 갈라 패턴에 안 걸리는 조각
+     * ({@code tel:0101234})을 남기지 않는다. '*' 도 버리는 문자라 잘린 이메일 안의 휴대폰만 먼저 가려진 경우에도 그 앞 로컬 파트까지 버린다.
+     * 버리는 길이는 {@link #MAX_CUT_TOKEN}(254) 자까지다: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰·주민번호는 14자 이하라
+     * 잘린 조각은 끝 254자 안에 있다. 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
+     * ponytail: 254자를 넘는 덩어리의 앞부분은 남는다 — 유효 이메일이 아니라 마스킹 대상 밖으로 둔다.
      */
-    static String dropCutToken(String head) {
-        int end = head.length();
+    static String dropCutToken(String masked) {
+        int end = masked.length();
         int floor = Math.max(0, end - MAX_CUT_TOKEN);
-        while (end > floor && isTokenChar(head.charAt(end - 1))) {
+        while (end > floor && isTokenChar(masked.charAt(end - 1))) {
             end--;
         }
-        return head.substring(0, end);
+        return masked.substring(0, end);
     }
 
     private static boolean isTokenChar(char c) {

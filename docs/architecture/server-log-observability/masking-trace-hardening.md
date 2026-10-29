@@ -4,7 +4,11 @@
 
 provider 는 message·exception 원본이 한도(16 KiB·32 KiB)의 2배를 넘으면 마스킹 전에 UTF-8 문자 경계에서 먼저 자른다. 그 끝에 이메일·휴대폰·주민번호가 걸치면 조각(`user@exam`, `010-1234-56`, `900101-123`)이 마스킹 패턴에 안 걸린다. 앞부분이 마스킹으로 크게 줄면(예: `secret=<긴 값>` → `secret=****`) 그 조각이 16 KiB 출력 안에 원문으로 남았다.
 
-규칙: **사전 자르기를 했으면, 잘린 끝에 이어진 토큰 문자 `[A-Za-z0-9._%+@-]`(이메일·휴대폰·주민번호 패턴이 쓰는 ASCII) 연속 구간을 버린 뒤 마스킹한다.** 한도의 2배 이하인 입력과 바이트 상한·UTF-8 경계 규칙은 그대로다.
+규칙: **사전 자르기 → 마스킹 → (사전 자르기를 했을 때만) 마스킹 결과의 끝에 이어진 토큰 문자 `[A-Za-z0-9._%+@*-]` 구간을 최대 254자 버림 → 최종 한도 자르기.** 토큰 문자는 이메일·휴대폰·주민번호 패턴이 쓰는 ASCII 와 마스킹이 넣는 `*` 다. 한도의 2배 이하인 입력과 바이트 상한·UTF-8 경계 규칙은 그대로다.
+
+마스킹을 먼저 하는 이유: 처음에는 버린 뒤 마스킹했다. 그러면 254자 경계가 완전한 번호를 가를 수 있다. 자르기 지점 직전이 `tel:01012345678` + `a`×250 이면 끝 254자를 버린 뒤 `tel:0101234` 가 남고, 이 조각은 휴대폰 패턴에 안 걸려 가운데 번호가 그대로 나갔다(사전 자르기 꼬리 처리 전 출력은 `tel:010-****-5678aaa…`). 마스킹을 먼저 하면 경계 앞의 완전한 번호·이메일은 이미 가려져 있다. 경계가 그것을 갈라도 가린 꼴의 앞부분만 남는다(`tel:010-****-`). 자르기 지점의 미완성 조각은 패턴에 안 걸린 원문으로 출력 끝에 있으므로 그대로 버려진다.
+
+`*` 도 버리는 이유: 잘린 조각 안에서 휴대폰·주민번호만 먼저 가려지는 경우가 있다. `to:johnsmith01012345678@nav|er.com` 은 마스킹하면 `to:johnsmith010-****-5678@nav` 가 된다. `*` 에서 멈추면 `to:johnsmith010-****` 가 남아, 이메일 전체였다면 `joh` 만 보였을 로컬 파트가 드러난다. `*` 까지 버리면 `to:` 만 남는다. 가린 꼴(`****`)은 버려도 잃는 정보가 없다.
 
 | 위치 | 구현 |
 |---|---|
@@ -12,21 +16,30 @@ provider 는 message·exception 원본이 한도(16 KiB·32 KiB)의 2배를 넘�
 | business-api·notification·realtime | `LogMasking.dropCutToken` ← `ObservationJsonProvider.putLimited` |
 | Fluent Bit | `logs.lua` `drop_cut_token` ← `raw_record`(JSON 이 아닌 앱 줄) |
 
-버리는 길이는 **최대 254자**다(네 서비스 `MAX_CUT_TOKEN`, `logs.lua` `MAX_CUT_TOKEN`). 근거: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰 11자·주민번호 14자라, 잘린 조각이 마스킹 대상이었다면 `@`·숫자 시작은 끝 254자 안에 있다. 그보다 앞은 이메일·휴대폰이 될 수 없는 꼴이라 남긴다. 결과: 구분자 없는 긴 덩어리는 이전에 통째로 빠져 `message` 가 0바이트가 됐지만 이제 끝 254자만 빠지고 앞이 남는다(입력표 `cut` 300자 줄 → 46자). 남은 한계: 254자를 넘는 덩어리의 앞부분은 마스킹 대상이 아니다. `truncated`·`original_size_bytes`(원본 바이트)는 그대로 붙는다.
+버리는 길이는 **최대 254자**다(네 서비스 `MAX_CUT_TOKEN`, `logs.lua` `MAX_CUT_TOKEN`). 근거: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰 11자·주민번호 14자라, 잘린 조각은 끝 254자 안에 있다. 결과: 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞이 남는다(입력표 `cut` 300자 줄 → 46자). 한도 경계는 입력표의 254자·255자 줄이 고정한다. `truncated`·`original_size_bytes`(원본 바이트)는 그대로 붙는다.
 
-**범위 밖**: `logs.lua` 의 Nginx 경로(`nginx_finalize` 의 사전 자르기, `nginx_error` 의 `truncate(mask(truncate(rest, MESSAGE_LIMIT * 2)), …)`)는 같은 꼬리 문제가 있지만 GROMO-2585 담당 함수라 고치지 않았다. 고칠 때는 사전 자르기 결과에 `drop_cut_token` 을 같은 방식으로 적용한다.
+남은 한계:
+
+- 254자를 넘는 덩어리의 앞부분은 남는다. 유효한 이메일이 될 수 없는 꼴이라 마스킹 대상 밖으로 둔다.
+- 휴대폰 가림은 11자를 13자로 늘린다. 254자에 가까운 잘린 이메일 조각 안에 구분자 없는 휴대폰이 들어 있으면, 마스킹 뒤 조각이 254자를 넘어 앞 몇 글자(휴대폰 하나당 최대 2자)가 남는다.
+
+**범위 밖**: `logs.lua` 의 Nginx 경로(`nginx_finalize` 의 사전 자르기, `nginx_error` 의 `truncate(mask(truncate(rest, MESSAGE_LIMIT * 2)), …)`)는 같은 꼬리 문제가 있지만 GROMO-2585 담당 함수라 고치지 않았다. 고칠 때는 `raw_record` 와 같은 순서(사전 자르기 → `mask` → `drop_cut_token` → 최종 자르기)로 적용한다.
 
 ## 네 서비스 공통 입력표
 
 `src/test/resources/log-contract-vectors.tsv` 를 네 서비스(data-api·business-api·notification·realtime)에 **같은 바이트로** 둔다. 서비스 간 공유 코드가 없어 복제는 피할 수 없다. 각 서비스의 `LogContractVectorsTest` 가 세 가지를 본다.
 
 - `tableIsTheSharedCopy`: 표의 SHA-256 이 테스트 상수 `VECTORS_SHA256` 과 같다. 네 테스트의 상수가 같으므로 한 복사본만 바뀌면 그 서비스 빌드가 실패한다.
-- `everyRowGivesTheSharedResult`: `mask`(4규칙), `cut`(꼬리 버림 + 마스킹), `raw`·`trace`·`span`(`TraceIds`) 줄마다 기대값과 같다.
+- `everyRowGivesTheSharedResult`: `mask`(4규칙), `cut`(마스킹 + 꼬리 버림), `raw`·`trace`·`span`(`TraceIds`) 줄마다 기대값과 같다.
 - `cutRowsLeaveNoPartialTokenInTheOutputMessage`: `cut` 줄의 `|` 가 정확히 사전 자르기 지점(32 KiB)에 오게 앞을 `secret=xxx…` 로 채워 provider 에 넣고, 출력 `message` 가 `secret=**** <기대값>` 인지 본다.
 
 표를 바꿀 때는 네 복사본을 같이 바꾸고, `shasum -a 256` 결과로 네 테스트의 `VECTORS_SHA256` 을 같이 바꾼다. 한계: 한 서비스의 표·상수·코드를 함께 바꾸면 그 서비스만으로는 다른 세 서비스와 어긋난 것을 알 수 없다. 네 복사본을 서로 비교하는 검사는 CI 경로 필터상 네 서비스 변경 모두에서 도는 자리가 없어 넣지 않았다.
 
-Lua 쪽은 `server/observability/fluent-bit/local-test/mask_cases.py` 가 같은 표(data-api 복사본)의 `cut` 줄만 읽어 로컬 Fluent Bit 4.2.8 컨테이너(`--network none`)의 `finalize` 에 넣는다. `mask` 줄은 읽지 않는다 — Lua 마스킹은 키 목록이 더 넓고 Java 와 결과가 다를 수 있는 근사(파일 머리 주석)다. CI 에서는 돌지 않는다.
+`cut` 줄에는 경계 사례를 둔다: 완전한 번호가 254자 경계 앞에 걸친 줄(`tel:01012345678` + `a`×250), 덩어리 길이 254자·255자, 대소문자 섞인 키(`PassWord=`), 키 없이 `@` 만 있는 줄, 비 ASCII(`İ`)가 덩어리를 끊는 줄, 잘린 이메일 안의 휴대폰.
+
+**«다섯 곳 일치»의 범위는 꼬리 처리 규칙이다**(순서·버리는 문자·254자). `logs.lua` 의 `mask()` 는 Java 4규칙을 Lua 패턴으로 근사한 별도 구현이라 키 목록이 더 넓고(`token`·`authorization`·`Bearer` 등) 문자 클래스가 ASCII 기준이다(파일 머리 주석). 그래서 입력표에서 Lua 는 `cut` 줄만 돌리고, `mask` 줄은 Java 네 곳만 확인한다. `cut` 줄은 두 구현의 마스킹 결과가 같은 입력으로만 만든다.
+
+Lua 쪽은 `server/observability/fluent-bit/local-test/mask_cases.py` 가 같은 표(data-api 복사본)의 `cut` 줄을 읽어 로컬 Fluent Bit 4.2.8 컨테이너(`--network none`)의 `finalize`(raw 경로)에 넣는다. **이 스크립트는 CI 에 연결돼 있지 않다**(`.github/` 에서 부르는 곳 없음). Docker 와 fluent-bit 이미지가 필요한 수동 도구라, Lua 꼬리 규칙이 Java 와 어긋나도 CI 는 잡지 못한다. `logs.lua` 의 마스킹·꼬리 처리나 입력표 `cut` 줄을 바꾸면 PR 전에 직접 돌린다.
 
 ```bash
 python3 server/observability/fluent-bit/local-test/mask_cases.py
