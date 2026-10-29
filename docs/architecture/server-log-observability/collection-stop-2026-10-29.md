@@ -42,7 +42,7 @@
 - 메커니즘: Agent는 외부에서 중지 요청을 받아 정상 종료 절차를 밟았다(크래시·OOM 아님). 근거: ExitCode=0, OOMKilled=false, 정상 종료 로그, `restart-manager` 중지 로그, `RestartPolicy`가 재기동하지 않은 상태.
 - 동시성: 중지된 컨테이너는 data-api, realtime, business-api, notification, postgres-exporter, datadog-agent로 `deploy-core-dev.py`의 `QUIESCE_SERVICES`/`QUIESCE_NAMES`와 일치한다. db·redis·business-redis·kafka·prometheus·grafana는 중지되지 않았다.
 - 실행 주체(워크플로): 같은 구간에 `Dev 공동 CD` job이 dev VM 러너(`gromo-dev-app`, 사용자 `runner`)에서 돌았고, `runner`의 `sudo systemctl stop nginx`가 09:43:10에 기록됐다. 스크립트는 nginx 중지 직후 `docker stop --time 60`을 호출하도록 작성돼 있다(`72e436852`의 `deploy-core-dev.py` `stop()`).
-- 복원 실패 원인(1차): nginx 중지가 시간 초과로 `failed`가 됐고 스크립트가 `ActiveState != inactive`로 판정해 중단했다. `except` 경로의 `stop()` 재시도도 같은 이유로 실패했고, 스크립트는 `restore()`로 가지 않는다. 이는 메모리 기록 GROMO-2561(11:38~12:03 같은 유형 사건)과 같은 증상이다.
+- 복원 실패 원인(1차): nginx 중지가 시간 초과로 `failed`가 됐고 스크립트가 `ActiveState != inactive`로 판정해 중단했다. `except` 경로의 `stop()` 재시도도 같은 이유로 실패했고, 스크립트는 `restore()`로 가지 않는다. 같은 날 11:38~12:03 KST 의 같은 유형 사건(티켓 2561)과 같은 증상이다.
 - 푸시 대상 workflow: push 주체 `joejaeyoung`(main push `72e436852`, #1388).
 
 ### 미확정
@@ -76,7 +76,7 @@
 수집 재개는 «Agent만 켜기»가 아니라 dev 복구의 일부다. 아래를 모두 만족해야 한다.
 
 1. 승인: dev 운영 담당자가 재개를 명시한다. 이 문서의 조사는 재개 승인이 아니다.
-2. 선행 상태 확인: `systemctl show -p ActiveState nginx`, `docker ps -a`, `free -m`, `uptime`, `df -h /var/lib/docker`로 VM 용량·부하를 확인한다. 메모리 기록상 dev VM은 과부하(swap·kafka/monitor 상주) 전력이 있다. 여유가 없으면 재개하지 않는다.
+2. 선행 상태 확인: `systemctl show -p ActiveState nginx`, `docker ps -a`, `free -m`, `uptime`, `df -h /var/lib/docker`로 VM 용량·부하를 확인한다. dev VM 은 과부하(swap·kafka/monitor 상주) 전력이 있다(10-23~ 스모크 timeout, 10-29 12:48 무응답 → reset). 여유가 없으면 재개하지 않는다.
 3. 먼저 배포 중단 상태를 정리한다. nginx가 `failed`이고 앱이 내려가 있으므로 수집만 켜면 수집할 로그가 없다. 복구 경로는 `server/scripts/README.md`와 GROMO-2561(nginx 중지 시간 초과 수정)을 따른다. 이 문서는 해당 절차를 대체하지 않는다.
 4. 재개 명령은 저장소 경로만 쓴다: `.github/workflows/ops-datadog.dev.yml`(`action: up` 또는 `restart`), 앱·nginx 복구는 `ops-redeploy.dev.yml`/`data-api-cd.dev.yml`의 수동 복구 입력. 이번 조사에서는 실행하지 않았다.
 5. 공동 배포 job이 같은 시각에 돌고 있지 않은지 `gh run list`로 확인한다(경합 방지).
