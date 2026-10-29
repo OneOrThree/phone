@@ -44,8 +44,10 @@ if (mode === "connected") {
   }
 }
 const demoSalt = "0".repeat(32);
+const demoHash = `${demoSalt}:${scryptSync("test", demoSalt, 64).toString("hex")}`;
 const operators = mode === "local"
-  ? { test: { passwordHash: `${demoSalt}:${scryptSync("test", demoSalt, 64).toString("hex")}` } }
+  ? Object.fromEntries(["test", "member-1", "member-2", "member-3"]
+      .map(actor => [actor, { passwordHash: demoHash }]))
   : JSON.parse(process.env.BACKOFFICE_OPERATORS ?? "{}");
 requireValue(
   Object.keys(operators).length > 0,
@@ -53,7 +55,7 @@ requireValue(
 );
 for (const [actor, operator] of Object.entries(operators)) {
   requireValue(
-    (mode === "local" ? actor === "test" : /^member-[1-3]$/.test(actor)) &&
+    (mode === "local" ? actor === "test" || /^member-[1-3]$/.test(actor) : /^member-[1-3]$/.test(actor)) &&
       /^[a-f0-9]{32}:[a-f0-9]{128}$/.test(operator.passwordHash ?? ""),
     "운영자 계정 또는 비밀번호 해시 형식을 확인하세요.",
   );

@@ -148,6 +148,33 @@ export class Upstream {
     );
     return page;
   }
+  async focusPolicy(actor, operator) {
+    if (this.mode === "local") return {
+      current: { revision: 1, publishedAt: null, policy: {
+        secondsPerFish: 60, dailyCapFish: 480, personalSharePercent: 0,
+        goldenFishReward: 50, goldenMaxMembers: 5,
+        goldenChancePpm: [4000, 12000, 24000, 40000],
+      } }, history: [], local: true,
+    };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl, "/internal/admin/policies/focus", actor,
+      operator.dataToken, undefined, "GET");
+  }
+  async publishFocusPolicy(item, actor, operator) {
+    if (this.mode === "local") return {
+      publicationId: item.publicationId, revision: item.expectedRevision + 1,
+      policy: item.approvedPolicy, local: true,
+    };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/policies/focus/publications/${item.publicationId}`,
+      actor, operator.dataToken, {
+        expectedRevision: item.expectedRevision,
+        policy: item.approvedPolicy,
+        approvedDigest: item.approvedDigest,
+        approvedBy: item.approvedBy,
+      }, "PUT", `${item.id}:${item.revision}`);
+  }
   async publish(item, actor, operator) {
     if (this.mode === "local")
       return {

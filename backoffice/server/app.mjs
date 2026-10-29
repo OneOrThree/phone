@@ -8,6 +8,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { Failure, requireValue } from "./store.mjs";
+import { FocusPolicyStore } from "./focus-policy.mjs";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const safeEqual = (a, b) => {
   const x = Buffer.from(a),
@@ -63,6 +64,12 @@ export function createApp({
 }) {
   const sessions = new Map(),
     attempts = new Map();
+  const policies = new FocusPolicyStore(store);
+  function localPolicyCatalog() {
+    const published = policies.list().filter(item => item.status === "published")
+      .sort((a, b) => b.receipt.revision - a.receipt.revision);
+    return published;
+  }
   const cookie = (token, maxAge) =>
     `backoffice_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookie ? "; Secure" : ""}`;
   function session(req) {
@@ -210,6 +217,56 @@ export function createApp({
         sessions.delete(auth.key);
         send(200, { ok: true }, { "Set-Cookie": cookie("", 0) });
         return;
+      }
+      if (path === "/api/policies/focus" && req.method === "GET") {
+        const catalog = await upstream.focusPolicy(auth.actor, operator);
+        if (mode !== "local") { send(200, catalog); return; }
+        const published = localPolicyCatalog();
+        send(200, published.length ? { ...catalog,
+          current: { revision: published[0].receipt.revision, policy: published[0].approvedPolicy,
+            publishedAt: published[0].updatedAt },
+          history: published.map(item => ({ publicationId: item.publicationId,
+            revision: item.receipt.revision, previousRevision: item.expectedRevision,
+            actor: item.dispatchActor, approvedBy: item.approvedBy,
+            approvedDigest: item.approvedDigest, publishedAt: item.updatedAt,
+            policy: item.approvedPolicy })),
+        } : catalog);
+        return;
+      }
+      if (path === "/api/policies/focus/drafts" && req.method === "GET") {
+        send(200, { items: policies.list() });
+        return;
+      }
+      if (path === "/api/policies/focus/drafts" && req.method === "POST") {
+        send(201, policies.create(await bodyOf(req), auth.actor));
+        return;
+      }
+      const focusMatch = path.match(/^\/api\/policies\/focus\/drafts\/([0-9a-f-]+)(?:\/(versions|review|approve|publish))?$/);
+      if (focusMatch) {
+        const [, id, action] = focusMatch;
+        if (req.method === "GET" && !action) { send(200, policies.get(id)); return; }
+        if (req.method === "GET" && action === "versions") { send(200, { items: policies.versions(id) }); return; }
+        if (req.method === "PATCH" && !action) {
+          send(200, policies.edit(id, await bodyOf(req), auth.actor));
+          return;
+        }
+        if (req.method === "POST" && ["review", "approve", "publish"].includes(action)) {
+          let item = policies.transition(id, (await bodyOf(req)).revision, auth.actor, action);
+          if (action === "publish") {
+            try {
+              if (mode === "local") {
+                const current = localPolicyCatalog()[0]?.receipt.revision ?? 1;
+                if (item.expectedRevision !== current)
+                  throw Object.assign(new Failure(409,
+                    "현재 정책 revision이 변경되었습니다. 최신값으로 다시 검토하세요."), { definite: true });
+              }
+              item = policies.finish(id, await upstream.publishFocusPolicy(item, auth.actor, operator));
+            }
+            catch (error) { item = policies.finish(id, null, error); }
+          }
+          send(200, item);
+          return;
+        }
       }
       if (path === "/api/items" && req.method === "GET") {
         send(200, { items: store.list() });

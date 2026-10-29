@@ -1,0 +1,162 @@
+import { createHash, randomUUID } from "node:crypto";
+import { Failure, requireValue, publicationId } from "./store.mjs";
+
+const FIELDS = ["secondsPerFish", "dailyCapFish", "personalSharePercent", "goldenFishReward", "goldenMaxMembers", "goldenChancePpm"];
+const LIMITS = { secondsPerFish: [30, 86400], dailyCapFish: [0, 960], personalSharePercent: [0, 0],
+  goldenFishReward: [0, 1000], goldenMaxMembers: [2, 15] };
+export function normalizeFocusPolicy(input) {
+  requireValue(input && typeof input === "object" && !Array.isArray(input), "집중 보상 정책을 확인하세요.");
+  requireValue(Object.keys(input).length === FIELDS.length && FIELDS.every(key => Object.hasOwn(input, key)),
+    "집중 보상 정책 필드를 확인하세요.");
+  const policy = Object.fromEntries(FIELDS.map(key => [key, input[key]]));
+  requireValue(policy.personalSharePercent === 0, "개인 지갑 몫은 0으로 고정됩니다.");
+  for (const key of FIELDS.slice(0, 5)) {
+    const [min, max] = LIMITS[key];
+    requireValue(Number.isInteger(policy[key]) && policy[key] >= min && policy[key] <= max,
+      `${key} 값은 ${min}~${max} 정수여야 합니다.`);
+  }
+  requireValue(Array.isArray(policy.goldenChancePpm)
+    && policy.goldenChancePpm.length === policy.goldenMaxMembers - 1
+    && policy.goldenChancePpm.every(value => Number.isInteger(value) && value >= 0 && value <= 1_000_000),
+  "황금 물고기 확률표는 2명부터 인원 상한까지의 0~1000000 ppm 정수여야 합니다.");
+  return policy;
+}
+export function focusDigest(policy) {
+  return createHash("sha256").update(JSON.stringify(normalizeFocusPolicy(policy)), "utf8").digest("hex");
+}
+export class FocusPolicyStore {
+  constructor(store) {
+    this.store = store;
+    this.db = store.db;
+    this.db.exec("CREATE TABLE IF NOT EXISTS focus_policy_drafts(id TEXT PRIMARY KEY, document TEXT NOT NULL);"
+      + "CREATE TABLE IF NOT EXISTS focus_policy_snapshots(draft_id TEXT NOT NULL, revision INTEGER NOT NULL,"
+      + "document TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(draft_id,revision));");
+    for (const item of this.list()) if (item.status === "publishing") {
+      item.status = "uncertain";
+      item.error = "서버 재시작으로 적용 결과 확인이 필요합니다. 같은 요청으로 재시도하세요.";
+      this.save(item);
+    }
+  }
+  list() {
+    return this.db.prepare("SELECT document FROM focus_policy_drafts ORDER BY rowid DESC").all()
+      .map(row => JSON.parse(row.document));
+  }
+  get(id) {
+    const row = this.db.prepare("SELECT document FROM focus_policy_drafts WHERE id=?").get(id);
+    requireValue(row, "정책 변경안을 찾을 수 없습니다.", 404);
+    return JSON.parse(row.document);
+  }
+  save(item) {
+    this.db.prepare("INSERT INTO focus_policy_drafts VALUES (?,?) ON CONFLICT(id) DO UPDATE SET document=excluded.document")
+      .run(item.id, JSON.stringify(item));
+    return item;
+  }
+  event(item, actor, action) {
+    item.updatedAt = new Date().toISOString();
+    item.audit.push({ at: item.updatedAt, actor, action, revision: item.revision });
+  }
+  snapshot(item) {
+    const policy = normalizeFocusPolicy(item.policy);
+    this.db.prepare("INSERT INTO focus_policy_snapshots VALUES (?,?,?,?)")
+      .run(item.id, item.revision, JSON.stringify(policy), focusDigest(policy));
+  }
+  create(input, actor) {
+    const policy = normalizeFocusPolicy(input.policy);
+    requireValue(Number.isInteger(input.expectedRevision) && input.expectedRevision > 0,
+      "현재 정책 revision을 확인하세요.");
+    return this.store.transaction(() => {
+      const item = { id: randomUUID(), revision: 1, expectedRevision: input.expectedRevision, policy,
+        status: "draft", createdAt: new Date().toISOString(), audit: [] };
+      this.event(item, actor, "create");
+      this.snapshot(item);
+      return this.save(item);
+    });
+  }
+  checkRevision(item, revision) {
+    requireValue(Number.isInteger(revision) && item.revision === revision,
+      "다른 변경이 있습니다. 새로고침 후 다시 시도하세요.", 409);
+  }
+  edit(id, input, actor) {
+    return this.store.transaction(() => {
+      const item = this.get(id);
+      this.checkRevision(item, input.revision);
+      requireValue(["draft", "review", "approved", "failed"].includes(item.status),
+        "적용 중이거나 완료된 정책은 수정할 수 없습니다.", 409);
+      item.policy = normalizeFocusPolicy(input.policy);
+      requireValue(Number.isInteger(input.expectedRevision) && input.expectedRevision > 0,
+        "현재 정책 revision을 확인하세요.");
+      item.expectedRevision = input.expectedRevision;
+      item.revision++;
+      item.status = "draft";
+      delete item.approvedBy;
+      delete item.approvedAt;
+      delete item.approvedDigest;
+      delete item.approvedPolicy;
+      delete item.error;
+      delete item.receipt;
+      delete item.dispatchActor;
+      this.event(item, actor, "edit");
+      this.snapshot(item);
+      return this.save(item);
+    });
+  }
+  transition(id, revision, actor, action) {
+    return this.store.transaction(() => {
+      const item = this.get(id);
+      this.checkRevision(item, revision);
+      if (action === "review") {
+        requireValue(item.status === "draft", "작성 중인 정책만 검토 요청할 수 있습니다.", 409);
+        item.status = "review";
+      } else if (action === "approve") {
+        requireValue(item.status === "review", "검토 요청된 정책만 승인할 수 있습니다.", 409);
+        item.approvedPolicy = normalizeFocusPolicy(item.policy);
+        item.approvedDigest = focusDigest(item.approvedPolicy);
+        item.approvedBy = actor;
+        item.approvedAt = new Date().toISOString();
+        item.status = "approved";
+      } else if (action === "publish") {
+        requireValue(item.status === "approved" || item.status === "uncertain",
+          "승인된 정책만 적용할 수 있습니다.", 409);
+        requireValue(item.approvedBy !== actor,
+          "운영 정책은 승인자와 다른 운영자가 적용해야 합니다.", 409);
+        requireValue(!item.dispatchActor || item.dispatchActor === actor,
+          "결과가 불확실한 요청은 최초 적용자가 재시도해야 합니다.", 409);
+        const snapshot = this.db.prepare("SELECT document,digest FROM focus_policy_snapshots WHERE draft_id=? AND revision=?")
+          .get(item.id, item.revision);
+        requireValue(focusDigest(item.policy) === item.approvedDigest
+          && JSON.stringify(item.policy) === JSON.stringify(item.approvedPolicy)
+          && snapshot?.digest === item.approvedDigest
+          && snapshot?.document === JSON.stringify(item.approvedPolicy),
+        "승인된 정책 스냅샷이 다릅니다.", 409);
+        item.publicationUncertain = item.publicationUncertain || item.status === "uncertain";
+        item.status = "publishing";
+        item.dispatchActor = actor;
+        item.publicationId = publicationId(item);
+      } else throw new Failure(404, "지원하지 않는 정책 동작입니다.");
+      this.event(item, actor, action);
+      return this.save(item);
+    });
+  }
+  finish(id, receipt, error) {
+    return this.store.transaction(() => {
+      const item = this.get(id);
+      requireValue(item.status === "publishing", "적용 상태가 변경되었습니다.", 409);
+      if (!error) {
+        item.status = "published";
+        item.receipt = receipt;
+        delete item.error;
+      } else {
+        item.publicationUncertain = item.publicationUncertain || !error.definite;
+        item.status = item.publicationUncertain ? "uncertain" : "failed";
+        item.error = error.message;
+      }
+      this.event(item, item.dispatchActor, item.status);
+      return this.save(item);
+    });
+  }
+  versions(id) {
+    this.get(id);
+    return this.db.prepare("SELECT revision, document, digest FROM focus_policy_snapshots WHERE draft_id=? ORDER BY revision DESC")
+      .all(id).map(row => ({ revision: row.revision, policy: JSON.parse(row.document), digest: row.digest }));
+  }
+}
