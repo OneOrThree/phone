@@ -600,6 +600,7 @@ class OutboundSendBudgetTest {
             String destination = "/topic/islands/" + UUID.randomUUID() + "/focus";
 
             MDC.put("event_id", "evt-1");
+            MDC.put("user_id", "sender-1");
             MDC.put("origin_request_id", "req-1");
             MDC.put("dd.trace_id", "123");
             MDC.put("span_id", "9");
@@ -612,7 +613,7 @@ class OutboundSendBudgetTest {
 
             assertThat(handled.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(seen.get(0)).containsEntry("event_id", "evt-1").containsEntry("origin_request_id", "req-1")
-                    .doesNotContainKeys("dd.trace_id", "span_id");
+                    .doesNotContainKeys("dd.trace_id", "span_id", "user_id");
             assertThat(threads.get(1)).as("스레드 1개 — 같은 실행 스레드의 다음 작업").isSameAs(threads.get(0));
             assertThat(seen.get(1)).doesNotContainKeys("event_id", "origin_request_id");
         } finally {

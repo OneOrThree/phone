@@ -191,7 +191,7 @@ class FanoutLogContextIntegrationTest {
             assertThat(echo.get("request_id")).as("구독자 스레드는 자기 요청이 없다").isNull();
             Map<String, String> atAuthorization = seat.await("message_id", messageId);
             assertThat(atAuthorization).containsEntry("request_id", requestId)
-                    .containsEntry("user_id", alice.toString());
+                    .as("발신자 user_id 는 수신자별 판정 자리로 옮기지 않는다").doesNotContainKey("user_id");
             assertThat(seat.thread(messageId)).startsWith("realtime-outbound-");
         }
         assertNoAppContextLeftOn("clientInboundChannelExecutor");

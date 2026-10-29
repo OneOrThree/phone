@@ -75,6 +75,9 @@ class WebSocketConfigTest {
                 "getInterceptors");
         assertThat(brokerInterceptors).hasSize(1);
         assertThat(brokerInterceptors.get(0)).isInstanceOf(EndedSessionGuard.class);
+        // 브로커 채널은 동기 — executor 를 주면 OutboundSendBudget 의 제출 스레드 MDC 캡처가 끊긴다(GROMO-2559).
+        assertThat(ReflectionTestUtils.<Object>invokeMethod(brokers.configureBrokerChannel(), "hasExecutor"))
+                .isEqualTo(false);
 
         Interceptors outbound = new Interceptors();
         config.configureClientOutboundChannel(outbound);

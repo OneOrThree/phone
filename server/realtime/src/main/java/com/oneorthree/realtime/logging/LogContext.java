@@ -33,8 +33,12 @@ public final class LogContext implements AutoCloseable {
     public static final String FANOUT_RECEIVE = "fanout.receive";
     public static final String CONSUMER_ACCEPT = "consumer.accept";
 
-    /** 스레드를 건널 때 옮기는 키(설계 §2.2). {@code event_name} 은 로그 한 줄의 표지라 옮기지 않는다. */
-    static final List<String> PROPAGATED = List.of(REQUEST_ID, ORIGIN_REQUEST_ID, USER_ID, EVENT_ID,
+    /**
+     * 스레드를 건널 때 옮기는 키(설계 §2.2). {@code event_name} 은 로그 한 줄의 표지라 옮기지 않는다. {@code user_id} 도 옮기지
+     * 않는다 — 아웃바운드 스레드의 «현재 사용자»는 수신 세션인데 발신자 id 가 붙으면 수신자별 판정 로그와 섞여 읽힌다. 연결은
+     * {@code request_id}·{@code origin_*}·{@code event_id}/{@code message_id} 로 한다.
+     */
+    static final List<String> PROPAGATED = List.of(REQUEST_ID, ORIGIN_REQUEST_ID, EVENT_ID,
             ORIGIN_TRACE_ID, DELIVERY_ID, ATTEMPT, "operation_id", MESSAGE_ID, "edge_request_id");
 
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
@@ -110,6 +114,8 @@ public final class LogContext implements AutoCloseable {
                 scope.put(key, value);
             }
         }
+        // 전달 대상은 아니지만 CallerRuns 처럼 제출 스레드에서 실행돼도 발신자 id 가 보이지 않게 내려 둔다.
+        scope.remove(USER_ID);
         return scope;
     }
 

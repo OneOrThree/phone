@@ -50,7 +50,7 @@ public class RealtimeEventFanoutSubscriber implements MessageListener {
         }
         try (LogContext scope = FanoutTelemetry.install(event.telemetry())) {
             if (event.event() != null) {
-                scope.put(LogContext.EVENT_ID, event.event().eventId().toString());
+                scope.put(LogContext.EVENT_ID, java.util.Objects.toString(event.event().eventId(), null));
             }
             received(deliver(event));
         }

@@ -85,7 +85,10 @@ class LogContextTest {
         MDC.put("trace_id", "legacy");
         MDC.put("span_id", "2");
 
-        assertThat(LogContext.capture()).containsExactly(Map.entry(LogContext.REQUEST_ID, "r-1"));
+        MDC.put(LogContext.USER_ID, "sender");
+
+        assertThat(LogContext.capture()).as("user_id 는 아웃바운드로 옮기지 않는다")
+                .containsExactly(Map.entry(LogContext.REQUEST_ID, "r-1"));
     }
 
     @Test

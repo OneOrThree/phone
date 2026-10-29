@@ -205,7 +205,8 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
 
     /**
      * 작업을 세션별로 세고(실행기에 들어가는 순간 +1, 끝나거나({@code run}) 거부되면 -1) 제출 스레드의 앱 로그 문맥을 싣는다.
-     * 제출 스레드에서 불린다.
+     * 제출 스레드에서 불린다. brokerChannel 은 동기(executor 없음)라야 그 제출 스레드 MDC 가 원인 요청의 것이다 —
+     * brokerChannel 에 executor 를 주면 제출 스레드 MDC 캡처가 끊긴다(WebSocketConfigTest 가 고정).
      */
     private Runnable decorate(Runnable task) {
         if (!(task instanceof MessageHandlingRunnable handling)) {

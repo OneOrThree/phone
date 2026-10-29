@@ -188,6 +188,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setHeartbeatValue(new long[] {heartbeatServerMillis, heartbeatClientMillis})
                 .setTaskScheduler(realtimeHeartbeatScheduler());
         // 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 여기로 다시 보낸다 — 같은 가드로 버리고 보상한다.
+        // 주의(GROMO-2559): brokerChannel 에 executor 를 주지 않는다 — 동기라서 deliverLocally → 브로커 → clientOutbound 제출이
+        // 같은 스레드이고, OutboundSendBudget 이 그 제출 시점의 MDC 를 캡처한다. executor 를 주면 이 연결이 조용히 끊긴다.
         registry.configureBrokerChannel().interceptors(endedSessionGuard());
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
