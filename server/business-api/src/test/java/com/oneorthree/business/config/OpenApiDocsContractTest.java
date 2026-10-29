@@ -86,6 +86,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/shop/products|items|id title kind price currency ownerType owned available reason productVersion|id title kind price currency ownerType owned available reason productVersion",
             "/islands/{islandId}/construction-options|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
             "/islands/{islandId}/notices|items|id title commentCount|",
+            "/me/developer-notices|items|publicationId title body startsAt endsAt publishedAt|",
             "/islands/{islandId}/quests/current|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
             "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/statistics/fish-earnings|members|userId name earnedFish|",

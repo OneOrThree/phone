@@ -12,6 +12,54 @@ VERSION = re.compile(r'^catus-v(\d+)\.(\d+)\.(\d+)$')
 BUMP_ORDER = {'release:patch': 1, 'release:minor': 2, 'release:major': 3}
 
 
+
+# 이번에 검토한 백오피스 선별 승격만 허용한다. 일반 feature 브랜치 예외가 아니다.
+SELECTIVE_BRANCH = 'release-backoffice/GROMO-2595'
+SELECTIVE_PREFIXES = ('server/data-api/', 'server/notification/', 'server/business-api/')
+SELECTIVE_FILES = frozenset({
+    '.github/scripts/write-compose-env.py',
+    '.github/scripts/test_write_compose_env.py',
+    '.github/scripts/test_config_contract.py',
+    '.github/scripts/check-satellite-contracts.py',
+    '.github/scripts/catus-version.py',
+    '.github/scripts/test_catus_version_badges.py',
+    '.github/scripts/test_catus_selective_version.py',
+    'docs/contracts/notification-admin-api.yaml',
+    'docs/contracts/business-satellite-api.yaml',
+    'docs/engineering/backoffice-selective-release.md',
+})
+
+
+def validate_selective_promotion(pr, sha):
+    head = pr.get('head') or {}
+    base = pr.get('base') or {}
+    repositories = [head.get('repo') or {}, base.get('repo') or {}]
+    repository = os.environ['GITHUB_REPOSITORY']
+    if (any(item.get('full_name') != repository or type(item.get('id')) is not int
+            or item['id'] <= 0 for item in repositories)
+            or repositories[0]['id'] != repositories[1]['id']):
+        raise ValueError('선별 승격은 같은 저장소의 소스와 release 브랜치만 허용한다')
+    if head.get('ref') != SELECTIVE_BRANCH or not re.fullmatch('[0-9a-f]{40}', head.get('sha', '')):
+        raise ValueError('검토된 선별 승격 브랜치와 소스 SHA가 필요하다')
+    selected = {label['name'] for label in pr.get('labels', [])} & BUMP_ORDER.keys()
+    if len(selected) != 1:
+        raise ValueError('선별 승격에는 정확히 하나의 릴리스 버전 라벨이 필요하다')
+    parents = subprocess.check_output(['git', 'rev-list', '--parents', '-n', '1', sha], text=True).split()
+    if len(parents) != 3 or parents[0] != sha or parents[2] != head['sha']:
+        raise ValueError('선별 승격은 정확한 소스 부모를 보존하는 merge commit으로 병합해야 한다')
+    merged_tree = subprocess.check_output(['git', 'rev-parse', sha + '^{tree}'], text=True).strip()
+    source_tree = subprocess.check_output(['git', 'rev-parse', head['sha'] + '^{tree}'], text=True).strip()
+    if merged_tree != source_tree:
+        raise ValueError('선별 승격 merge 결과가 검토된 소스와 다르다. release를 소스에 먼저 반영한다')
+    changed = subprocess.check_output(['git', 'diff', '--no-renames', '--name-only', '-z',
+                                       parents[1], sha], text=True).split('\0')
+    unsupported = [path for path in changed if path and path not in SELECTIVE_FILES
+                   and not path.startswith(SELECTIVE_PREFIXES)]
+    if unsupported:
+        raise ValueError('선별 승격 범위 밖 변경: ' + ', '.join(unsupported))
+    return selected
+
+
 def reserved_versions(bucket):
     if not re.fullmatch(r'catus-prod-deploy-artifacts-[a-z0-9-]+', bucket):
         raise ValueError('Catus 버전 버킷 오류')
@@ -117,6 +165,9 @@ def release_labels(revision, base_revision):
                 if not pr.get('merged_at') or pr['base']['ref'] != 'release' or pr.get('merge_commit_sha') != sha:
                     continue
                 head = pr.get('head') or {}
+                if head.get('ref') == SELECTIVE_BRANCH:
+                    labels.extend(validate_selective_promotion(pr, sha))
+                    continue
                 if head.get('ref') != 'main' or not re.fullmatch('[0-9a-f]{40}', head.get('sha', '')):
                     raise ValueError('release 승격 PR의 소스 브랜치는 main이어야 한다')
                 try:

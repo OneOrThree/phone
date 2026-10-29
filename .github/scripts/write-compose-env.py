@@ -97,6 +97,9 @@ OBSERVABILITY_KEYS = (
 )
 SERVICE_OPTIONAL_KEYS = {
     "data-api": ANALYTICS_KEYS + (
+        # 선택 관리 자격은 Data에만 공급한다. 미설정 운영자는 내부 인증에서 비활성이다.
+        "SVC_TOKEN_CONSOLE_MEMBER_1_TO_DATA", "SVC_TOKEN_CONSOLE_MEMBER_2_TO_DATA",
+        "SVC_TOKEN_CONSOLE_MEMBER_3_TO_DATA",
         # 집중 상태 FCM은 Data에서 발송하므로 final 단계에도 보존한다.
         "FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON",
         "FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",

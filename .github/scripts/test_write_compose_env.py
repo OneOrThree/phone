@@ -26,6 +26,20 @@ def secret(**overrides: object) -> dict[str, object]:
 
 
 class WriteComposeEnvTest(unittest.TestCase):
+    def test_data_console_tokens_are_optional_and_isolated(self) -> None:
+        keys = tuple(f"SVC_TOKEN_CONSOLE_MEMBER_{number}_TO_DATA" for number in range(1, 4))
+        base = {key: f"value-{key}" for key in
+                MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        supplied = {key: f"console-token-{number}" for number, key in enumerate(keys, 1)}
+        for phase in ("transition", "final"):
+            with_tokens = MODULE.render({**base, **supplied}, "example/data:1", "data-api", phase=phase)
+            without_tokens = MODULE.render(base, "example/data:1", "data-api", phase=phase)
+            for key in keys:
+                self.assertIn(f"{key}='{supplied[key]}'", with_tokens)
+                self.assertNotIn(f"{key}=", without_tokens)
+        for service in ("business-api", "notification", "legacy"):
+            self.assertTrue(set(keys).isdisjoint(MODULE.allowed_keys(service)))
+
     def test_live_activity_키는_compose와_data_api에_전달되고_다른_서비스에는_없다(self) -> None:
         keys = ("FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
                 "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64")
