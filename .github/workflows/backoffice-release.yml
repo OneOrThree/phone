@@ -68,7 +68,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}-${{ github.run_attempt }}
           path: backoffice-release.json
       - name: Release summary
         run: |
