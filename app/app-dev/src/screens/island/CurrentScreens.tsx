@@ -2349,6 +2349,8 @@ function FocusFlow({ e: environment }: any) {
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const returningFromArrival = useRef(false);
+  // 보상을 확인하는 동안에도 결과 화면에서 고른 다음 목적지를 유지한다.
+  const resultDestination = useRef<'island' | 'focus'>('island');
   useEffect(() => {
     if (r !== 'fishingArrival') returningFromArrival.current = false;
   }, [r]);
@@ -3037,10 +3039,26 @@ function FocusFlow({ e: environment }: any) {
     go();
   };
   const result = s.lastResult,
+    canRestartFocus =
+      !!result &&
+      !s.session &&
+      !experience &&
+      !(tutorialStep >= 5 && tutorialStep <= 21) &&
+      !!(s.serverIslands ? s.serverIslands.currentIslandId : i.joined),
     leave = () => {
       const navigate = () => {
         // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
         if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
+        if (resultDestination.current === 'focus' && canRestartFocus) {
+          setDialog(null);
+          setError('');
+          // 복구한 서버 자리도 새 준비 화면에 이어 쓴다. 실제 새 세션은 시작 버튼에서 만든다.
+          e.dispatch({ type: 'FOCUS_SPOT', spot: minePoint });
+          e.reset('focusSetup');
+          // reset이 입력을 비우므로 과목은 화면을 바꾼 뒤 채운다.
+          e.setText(result?.subject ?? '');
+          return;
+        }
         s.resultFromRest
           ? e.home()
           : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
@@ -3051,17 +3069,19 @@ function FocusFlow({ e: environment }: any) {
       }
       navigate();
     },
-    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로.
+    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 선택한 목적지로.
     // 서버 경로는 회차 목록 로딩 중이거나 수령 가능한 퀘스트가 있으면 모달을 연다 —
     // 로딩이 끝났는데 받을 게 없으면 모달 스스로 닫힌다.
-    done = () =>
-      serverQuests
+    done = (destination: 'island' | 'focus' = 'island') => {
+      resultDestination.current = destination;
+      return serverQuests
         ? boardQ.loading || boardQ.quests.some((q) => q.claimable)
           ? setDialog('reward')
           : leave()
         : s.rewards?.some((x) => !x.acknowledged)
           ? setDialog('reward')
-          : leave(),
+          : leave();
+    },
     claimed = (more: boolean) => {
       if (!more) leave();
     };
@@ -3554,18 +3574,29 @@ function FocusFlow({ e: environment }: any) {
     <FiModal
       hidden={dialog === 'reward'}
       footer={
-        <View ref={resultTarget.ref} collapsable={false} onLayout={resultTarget.measure}>
-          <FiButton
-            primary
-            id="result-done"
-            multiline
-            title={
-              s.resultFromRest || tutorialStep === 21
-                ? t('focusFlow.common.backToIsland')
-                : t('focusFlow.result.backByBoat')
-            }
-            onPress={finishResult}
-          />
+        <View style={{ gap: semanticTokens.spacing.control }}>
+          {canRestartFocus && (
+            <FiButton
+              primary
+              id="result-restart"
+              multiline
+              title={t('focusFlow.result.restart')}
+              onPress={() => done('focus')}
+            />
+          )}
+          <View ref={resultTarget.ref} collapsable={false} onLayout={resultTarget.measure}>
+            <FiButton
+              primary={!canRestartFocus}
+              id="result-done"
+              multiline
+              title={
+                s.resultFromRest || tutorialStep === 21
+                  ? t('focusFlow.common.backToIsland')
+                  : t('focusFlow.result.backByBoat')
+              }
+              onPress={finishResult}
+            />
+          </View>
         </View>
       }
     >

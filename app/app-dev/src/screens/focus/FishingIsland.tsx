@@ -1743,7 +1743,7 @@ export function FiModal({
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
-      accessibilityViewIsModal
+      accessibilityViewIsModal={!hidden}
       {...a11yHidden(!!hidden)}
     >
       <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3940' }]} />
