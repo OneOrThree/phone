@@ -1,3 +1,4 @@
+import { DestinationMarker } from './DestinationMarker';
 import { CoastalAtlas } from './CoastalAtlas';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
@@ -403,54 +404,7 @@ export function TileTerrainCanvas({
           </Path>
         )}
         {destinationPoint && (
-          <>
-            <Circle
-              cx={destinationPoint.x}
-              cy={destinationPoint.y}
-              r={componentTokens.walkPath.ringRadius / scale}
-              color={componentTokens.walkPath.fill}
-              opacity={componentTokens.walkPath.fillOpacity}
-            />
-            <Circle
-              cx={destinationPoint.x}
-              cy={destinationPoint.y}
-              r={componentTokens.walkPath.ringRadius / scale}
-              style="stroke"
-              strokeWidth={componentTokens.walkPath.ringGlowWidth / scale}
-              color={componentTokens.walkPath.fill}
-              opacity={componentTokens.walkPath.ringGlowOpacity}
-            />
-            <Circle
-              cx={destinationPoint.x}
-              cy={destinationPoint.y}
-              r={componentTokens.walkPath.ringRadius / scale}
-              style="stroke"
-              strokeWidth={componentTokens.walkPath.haloWidth / scale}
-              color={componentTokens.walkPath.outline}
-            />
-            <Circle
-              cx={destinationPoint.x}
-              cy={destinationPoint.y}
-              r={componentTokens.walkPath.ringRadius / scale}
-              style="stroke"
-              strokeWidth={componentTokens.walkPath.strokeWidth / scale}
-              color={componentTokens.walkPath.highlight}
-            />
-            <Circle
-              cx={destinationPoint.x}
-              cy={destinationPoint.y}
-              r={componentTokens.walkPath.innerRadius / scale}
-              style="stroke"
-              strokeWidth={componentTokens.walkPath.strokeWidth / scale}
-              color={componentTokens.walkPath.fill}
-            />
-            <Circle
-              cx={destinationPoint.x}
-              cy={destinationPoint.y}
-              r={componentTokens.walkPath.centerRadius / scale}
-              color={componentTokens.walkPath.highlight}
-            />
-          </>
+          <DestinationMarker x={destinationPoint.x} y={destinationPoint.y} scale={scale} />
         )}
         {walk && walk.path.length > 0 && (
           <>
