@@ -26,11 +26,10 @@ def widget_by_title(d, title):
 
 def log_queries(d):
     out = {}
-    for df in [widget_by_title(d, DETAIL)]:
-        for label, url in LINK.findall(df.get("content", "")):
-            u = urlparse(url)
-            if u.path == "/logs" and "kafka" in url:
-                out[label] = parse_qs(u.query)["query"][0]
+    for label, url in LINK.findall(widget_by_title(d, DETAIL).get("content", "")):
+        u = urlparse(url)
+        if u.path == "/logs" and "kafka" in url:
+            out[label] = parse_qs(u.query)["query"][0]
     return out
 
 
@@ -40,7 +39,7 @@ def metric_queries(d):
 
 
 def apm_queries(d):
-    """위젯 18 note 안 APM 링크의 query (정렬)."""
+    """«상세 조사» note 안 APM 링크의 query (정렬)."""
     c = widget_by_title(d, DETAIL).get("content", "")
     return sorted(parse_qs(urlparse(u).query)["query"][0]
                   for u in re.findall(r"\((https://[^)\s]*/apm/services[^)\s]*)\)", c))
@@ -79,7 +78,7 @@ class KafkaLogLinks(unittest.TestCase):
         self.assertIn("source:jmx-exporter", j)
         self.assertIn("service:gromo-kafka-dev", j)
         for other in (self.q["Kafka 브로커 로그"], self.q["Kafka Exporter 로그"]):
-            self.assertFalse(set(tokens(j)) & set(tokens(other)) - {"env:dev", "service:gromo-kafka-dev", "OR"})
+            self.assertFalse((set(tokens(j)) & set(tokens(other))) - {"env:dev", "service:gromo-kafka-dev", "OR"})
         self.assertNotIn("phone-kafka", j)
         self.assertNotIn("source:kafka", tokens(j))
         self.assertNotIn("source:kafka-exporter", j)

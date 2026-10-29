@@ -773,6 +773,26 @@ class AbortedRecordRollbackTest(unittest.TestCase):
             manage.main(["rollback", "--record", str(rec)])
         self.assertIn("중단 기록 — 되돌릴 것 없음", buf.getvalue())
 
+    def _rollback_with_record(self, rec_body):
+        tmp = Path(tempfile.mkdtemp())
+        rec = tmp / "rec.json"
+        rec.write_text(json.dumps(rec_body))
+        called = []
+        def fake_state(args, execute=False):
+            called.append(1)
+            raise SystemExit("롤백 경로 진입")
+        with mock.patch.object(manage, "_state", fake_state), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                manage.main(["rollback", "--record", str(rec)])
+        return called
+
+    def test_aborted_key_with_created_or_updated_still_rolls_back(self):
+        self.assertTrue(self._rollback_with_record({"aborted": "x", "created": [{"name": "A", "id": "1"}], "updated": []}))
+        self.assertTrue(self._rollback_with_record({"aborted": "x", "created": [], "updated": [{"id": "1", "name": "A", "previous": {}}]}))
+
+    def test_partial_record_without_aborted_still_rolls_back(self):
+        self.assertTrue(self._rollback_with_record({"partial": True, "created": [{"name": "A", "id": "1"}], "updated": []}))
+
 
 class ServerDefaultsComparisonTest(unittest.TestCase):
     """서버가 채우는 기본값(SERVER_DEFAULTS)은 같음 판정에서 무시하고, 실제 내용 차이는 update 로 잡는다.
@@ -811,6 +831,14 @@ class ServerDefaultsComparisonTest(unittest.TestCase):
         self.assertFalse(manage.same(s, d))
         st = {"pipelines": [s], "order": ["S1"], "origin": "t"}
         self.assertEqual([a[0] for a in manage.plan_actions([d], st)], ["update"])
+
+    def test_null_outside_server_defaults_differs_from_absent(self):
+        d = json.loads(json.dumps(manage.load_definitions()[0]))
+        s = json.loads(json.dumps(d))
+        s["processors"][0]["unlisted_field"] = None
+        self.assertFalse(manage.same(s, d))
+        s["processors"][0].pop("unlisted_field")
+        self.assertTrue(manage.same(s, d))
 
     def test_false_is_enabled_is_not_ignored(self):
         self.assertNotIn("is_enabled", manage.SERVER_DEFAULTS)

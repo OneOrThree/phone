@@ -35,7 +35,8 @@ ORDER = "/api/v1/logs/config/pipeline-order"
 # 갱신 비교·PUT 본문에 쓰는 필드. id·type·is_read_only 는 서버가 정한다.
 BODY_KEYS = ("name", "is_enabled", "filter", "description", "processors")
 # 서버가 비워 두거나 기본값으로 채워 돌려줄 수 있는 필드(Logs Pipelines API 문서의 선택 필드 기본값, 2026-10-29 문서 기준 — 실제 응답으로 확인한 값이 아님).
-# 같음 판정(`same`)에서만 이 값과 null 을 «없음»으로 본다. PUT 본문과 로컬 정의는 그대로 둔다. 새 기본값이 확인되면 여기에 추가한다.
+# 같음 판정(`same`)에서만 이 값을 «없음»으로 본다(null 은 `default_lookup` 처럼 여기 적힌 필드만). PUT 본문과 로컬 정의는 그대로 둔다. 새 기본값이 확인되면 여기에 추가한다.
+# 키 이름으로만 지우므로 중첩 dict 의 같은 이름 필드에도 적용된다.
 SERVER_DEFAULTS = {"description": "", "samples": [], "support_rules": "", "default_lookup": None}
 # Datadog 공식 사이트 목록의 Site Parameter(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인).
 # 이 밖의 값이면 키가 엉뚱한 호스트로 나가므로 거절한다. 새 사이트가 생기면 여기에 추가한다.
@@ -151,14 +152,14 @@ def body(pipeline):
 
 def _strip_defaults(obj):
     if isinstance(obj, dict):
-        return {k: _strip_defaults(v) for k, v in obj.items() if v is not None and not (k in SERVER_DEFAULTS and v == SERVER_DEFAULTS[k])}
+        return {k: _strip_defaults(v) for k, v in obj.items() if not (k in SERVER_DEFAULTS and v == SERVER_DEFAULTS[k])}
     if isinstance(obj, list):
         return [_strip_defaults(v) for v in obj]
     return obj
 
 
 def same(a, b):
-    """파이프라인 본문이 같은가. 서버가 채우는 기본값(SERVER_DEFAULTS)·null 은 없는 것과 같게 본다."""
+    """파이프라인 본문이 같은가. 서버가 채우는 기본값(SERVER_DEFAULTS)은 없는 것과 같게 본다."""
     return _strip_defaults(body(a)) == _strip_defaults(body(b))
 
 
@@ -399,7 +400,7 @@ def cmd_rollback(args):
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     if record.get("dry_run") and args.execute:
         sys.exit("dry-run 기록으로는 --execute 할 수 없다")
-    if record.get("aborted"):  # 쓰기 전에 중단된 기록 — order_before 등이 없고 서버는 바뀌지 않았다
+    if record.get("aborted") and not (record.get("created") or record.get("updated")):  # 쓰기 전에 중단된 기록 — order_before 등이 없고 서버는 바뀌지 않았다
         print(f"중단 기록 — 되돌릴 것 없음: {record['aborted']}")
         return
     api, st = _state(args, execute=args.execute)

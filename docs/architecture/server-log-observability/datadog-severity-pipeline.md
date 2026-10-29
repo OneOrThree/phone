@@ -123,7 +123,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py apply --execute --record-out /안�
    - 실제 `E`/`F`·`ERROR`/`FATAL`/`PANIC` 이 info 이하로 내려가지 않았다.
    - 속성이 없는 줄은 수집 status 를 유지했다.
 
-`plan` 은 현재 정의와 로컬 정의를 필드 단위로 비교하되, `manage.py` 의 `SERVER_DEFAULTS`(`description`="" · `samples`=[] · `support_rules`="" · `default_lookup`=null, API 문서 기준이고 실제 응답 캡처로 확인한 값은 아님)와 null 은 «없음»으로 보고 `is_enabled` 같은 값은 무시하지 않는다(GROMO-2586, 테스트 `ServerDefaultsComparisonTest`). 목록에 없는 기본값을 서버가 채우면 내용이 같아도 `update` 로 표시될 수 있고, 그때 PUT 은 같은 정의로 교체하므로 결과는 같다. `DD_SITE` 허용 목록은 Datadog 사이트 문서(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인)의 Site Parameter 이며, 새 사이트가 생기면 `manage.py` 의 `SITES` 에 추가한다.
+`plan` 은 현재 정의와 로컬 정의를 필드 단위로 비교하되, `manage.py` 의 `SERVER_DEFAULTS`(`description`="" · `samples`=[] · `support_rules`="" · `default_lookup`=null, API 문서 기준이고 실제 응답 캡처로 확인한 값은 아님)에 적힌 필드의 그 값(`default_lookup` 의 null 포함)만 «없음»으로 보고, 목록 밖 필드의 null 이나 `is_enabled` 같은 값은 무시하지 않는다(GROMO-2586, 테스트 `ServerDefaultsComparisonTest`). 목록에 없는 기본값을 서버가 채우면 내용이 같아도 `update` 로 표시될 수 있고, 그때 PUT 은 같은 정의로 교체하므로 결과는 같다. `DD_SITE` 허용 목록은 Datadog 사이트 문서(https://docs.datadoghq.com/getting_started/site/, 2026-10-29 확인)의 Site Parameter 이며, 새 사이트가 생기면 `manage.py` 의 `SITES` 에 추가한다.
 
 ## 9. 롤백
 
@@ -148,7 +148,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 42 tests(중단 기록 rollback·서버 기본값 비교 포함, 동명 중복 중단·겹침 경고 쓰기 5xx 결과 불명·부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 45 tests(중단 기록 rollback·aborted 경계·서버 기본값 비교 포함, 동명 중복 중단·겹침 경고 쓰기 5xx 결과 불명·부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |
