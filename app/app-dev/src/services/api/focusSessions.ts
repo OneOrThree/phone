@@ -14,7 +14,7 @@
  * 쓰기 의도마다 `Idempotency-Key` 는 호출부가 의도당 한 번 만든다 — 응답 유실·재시도는
  * **같은 키와 같은 body** 로 보낸다(어댑터가 키를 만들면 유실 재호출 때 멱등이 깨진다).
  */
-import { request } from './client';
+import { API_URL, isProductionApiUrl, request } from './client';
 
 export type TutorialExperienceRewardView = {
   islandId: string;
@@ -135,10 +135,17 @@ export function startFocusSession(
   input: FocusSessionStartInput,
   idempotencyKey: string,
 ): Promise<FocusSessionView> {
+  // 운영의 catus-v2.1.0은 seat를 알 수 없는 필드로 거절한다. 서버·DB의 자리 지원 배포를
+  // 확인한 뒤 EXPO_PUBLIC_FOCUS_SEAT_ENABLED=1로 켠다. dev는 이미 지원하므로 기본 전송한다.
+  // 빌드 종류가 아닌 실제 API 주소로 판정해 운영 서버를 쓰는 테스트 빌드도 보호한다.
+  const configured = process.env.EXPO_PUBLIC_FOCUS_SEAT_ENABLED;
+  const includeSeat = configured ? configured === '1' : !isProductionApiUrl(API_URL);
+  const body = { ...input };
+  if (!includeSeat) delete body.seat;
   return request<FocusSessionView>('/focus-sessions', {
     method: 'POST',
     idempotencyKey,
-    body: input,
+    body,
   });
 }
 

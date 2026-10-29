@@ -1,3 +1,4 @@
+import { DeveloperNoticesScreen } from '@/screens/island/DeveloperNoticesScreen';
 import { useAccountGuides } from '@/screens/island/useAccountGuides';
 import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
 import { BuildingGuide, BuildingCompletionGuide } from '@/screens/island/NpcGuide';
@@ -888,6 +889,7 @@ function CurrentScreensContent({ e }: any) {
       <ScreenTimePermission e={e} />
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  if (r === 'developerNotices' || r === 'developerNotice') return <DeveloperNoticesScreen e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
   return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today, islandChat }} />;
 }

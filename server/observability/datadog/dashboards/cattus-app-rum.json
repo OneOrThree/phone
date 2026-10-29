@@ -1,0 +1,716 @@
+{
+  "title": "cattus 앱 성능 · RUM",
+  "description": "cattus 전용 RUM. gromo 1.x와 Application ID를 분리하고 prod를 기본으로 사용한다. 세션·화면·모바일 성능·자사 API·집중 명령 처리시간을 관찰한다.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": [
+        "prod",
+        "dev"
+      ],
+      "default": "prod"
+    },
+    {
+      "name": "version",
+      "prefix": "version",
+      "available_values": [],
+      "default": "*"
+    },
+    {
+      "name": "os",
+      "prefix": "@os.name",
+      "available_values": [],
+      "default": "*"
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "type": "note",
+        "content": "**cattus 전용 수집 공간**\n- 모든 패널은 cattus Application ID와 `service:cattus-app`에 고정됩니다. env·version·os 필터로 gromo 데이터를 불러올 수 없습니다.\n- 기본 환경은 prod입니다. dev QA는 env를 dev로 전환하세요.\n- 새 설정을 적용한 빌드부터 수집합니다. 기존 gromo Application의 과거 cattus 기록은 옮겨지지 않습니다.\n- 오류·크래시 수집은 기존 앱 설정대로 꺼져 있습니다. 빈 패널이나 오류 이벤트 0건은 무장애 증명이 아닙니다.\n- 집중 처리시간은 명령 시작부터 API·상태 반영까지이며 화면 렌더링 시간이나 집중 지속시간이 아닙니다. p95는 `@context.duration_ms`를 millisecond 단위 Measure로 등록한 뒤 표시됩니다.\n- 메모리·주사율·앱 시작 지표는 OS·SDK 지원 및 이벤트 수신 여부에 따라 비어 있을 수 있습니다.\n- API 리소스에서 연결된 Trace가 있으면 서버 내부 병목을 이어서 확인할 수 있습니다.",
+        "background_color": "blue",
+        "font_size": "14",
+        "text_align": "left",
+        "show_tick": false
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "사용량 · 배포 버전",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "세션 수",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:session @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ],
+              "autoscale": true,
+              "precision": 1
+            }
+          },
+          {
+            "definition": {
+              "title": "화면 방문 수",
+              "type": "query_value",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:view @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ],
+              "autoscale": true,
+              "precision": 1
+            }
+          },
+          {
+            "definition": {
+              "title": "세션 추이",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:session @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "버전별 세션",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:session @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "version",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "count",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "OS별 세션",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:session @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@os.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "count",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "화면 · 모바일 성능",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "화면별 방문 수",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:view @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@view.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "count",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "화면별 평균 체류시간",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:view @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "avg",
+                        "metric": "@view.time_spent"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@view.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "avg",
+                            "metric": "@view.time_spent",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "화면별 메모리 사용량 p75",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:view @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "pc75",
+                        "metric": "@view.memory_average"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@view.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "pc75",
+                            "metric": "@view.memory_average",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "화면별 평균 주사율",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:view @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "avg",
+                        "metric": "@view.refresh_rate_average"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@view.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "avg",
+                            "metric": "@view.refresh_rate_average",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "앱 시작시간 p75 · 지원 이벤트 수신 시",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:action @action.type:application_start @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "pc75",
+                        "metric": "@action.loading_time"
+                      },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "자사 API · 네트워크",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "API 응답시간 p95 · 경로별",
+              "type": "toplist",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "pc95",
+                        "metric": "@resource.duration"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@resource.url_path_group",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "pc95",
+                            "metric": "@resource.duration",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "scalar",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "API 호출량 · 경로별",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@resource.url_path_group",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "count",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "API 4xx 비율",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "all",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    },
+                    {
+                      "data_source": "rum",
+                      "name": "errors",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[400 TO 499] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "100 * errors / all"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "API 5xx 비율",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "all",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    },
+                    {
+                      "data_source": "rum",
+                      "name": "errors",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[500 TO 599] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": []
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "100 * errors / all"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "서버 오류 응답 · 경로별",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[500 TO 599] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@resource.url_path_group",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "count",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "집중 명령 · API 및 상태 반영",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "title": "집중 시작·종료 처리시간 p95 · 성공한 명령",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:action @context.outcome:success @context.operation:* @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "pc95",
+                        "metric": "@context.duration_ms"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@action.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "pc95",
+                            "metric": "@context.duration_ms",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "title": "집중 명령 실패 수",
+              "type": "timeseries",
+              "requests": [
+                {
+                  "queries": [
+                    {
+                      "data_source": "rum",
+                      "name": "a",
+                      "search": {
+                        "query": "@type:action @context.outcome:failure @context.operation:* @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                      },
+                      "compute": {
+                        "aggregation": "count"
+                      },
+                      "group_by": [
+                        {
+                          "facet": "@action.name",
+                          "limit": 10,
+                          "sort": {
+                            "aggregation": "count",
+                            "order": "desc"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "response_format": "timeseries",
+                  "formulas": [
+                    {
+                      "formula": "a"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

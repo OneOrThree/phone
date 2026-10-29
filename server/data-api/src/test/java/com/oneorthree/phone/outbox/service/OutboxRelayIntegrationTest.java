@@ -529,7 +529,7 @@ class OutboxRelayIntegrationTest {
         assertThat(sent.method()).isEqualTo("POST");
         assertThat(sent.path()).isEqualTo("/internal/events");
         assertThat(sent.serviceToken()).isEqualTo("Bearer " + REALTIME_TOKEN);
-        // 요청 문맥 없이 적힌 행(origin 열 null — V4 이전 행과 같은 상태)도 그대로 나가고, origin 헤더만 빠진다(GROMO-2557).
+        // 요청 문맥 없이 적힌 행(origin 열 null — V5 이전 행과 같은 상태)도 그대로 나가고, origin 헤더만 빠진다(GROMO-2557).
         assertThat(outboxRepository.findById(outboxId).orElseThrow().getOriginRequestId()).isNull();
         assertThat(sent.header("X-Event-Id")).isEqualTo("user.withdrawn:" + userId);
         assertThat(sent.header("X-Delivery-Id"))

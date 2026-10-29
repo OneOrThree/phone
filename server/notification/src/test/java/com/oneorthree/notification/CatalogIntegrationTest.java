@@ -38,10 +38,12 @@ class CatalogIntegrationTest {
 
 
     @Test
-    void currentFiveKindsRenderInAllFourLocales() {
+    void eventKindsRenderInAllFourLocalesAndPublicationKindUsesFrozenCopy() {
         Map<String, Object> params = inputs();
-        List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds WHERE enabled");
+        List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds WHERE enabled AND id <> 'ADMIN_ANNOUNCEMENT'");
         assertThat(kinds).hasSize(5);
+        assertThat(store.one("SELECT silent,quiet_policy FROM kinds WHERE id='ADMIN_ANNOUNCEMENT'"))
+                .containsEntry("silent", false).containsEntry("quiet_policy", "DEFER");
         assertThat(store.rows("SELECT id FROM templates WHERE enabled")).hasSize(20);
         for (Map<String, Object> kind : kinds) {
             for (String locale : List.of("ko", "en", "ja", "zh-Hant")) {

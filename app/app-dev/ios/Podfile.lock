@@ -16,6 +16,8 @@ PODS:
     - PromisesObjC (~> 2.4)
     - PromisesSwift (~> 2.4)
     - RecaptchaInterop (~> 101.0)
+  - CatusAssetCache (1.0.0):
+    - ExpoModulesCore
   - DatadogCore (3.16.0):
     - DatadogInternal (= 3.16.0)
   - DatadogCrashReporting (3.16.0):
@@ -2597,6 +2599,7 @@ PODS:
 
 DEPENDENCIES:
   - airbridge-react-native-sdk (from `../node_modules/airbridge-react-native-sdk`)
+  - CatusAssetCache (from `../modules/catus-asset-cache/ios`)
   - "DatadogSDKReactNative (from `../node_modules/@datadog/mobile-react-native`)"
   - EASClient (from `../node_modules/expo-eas-client/ios`)
   - EXApplication (from `../node_modules/expo-application/ios`)
@@ -2760,6 +2763,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   airbridge-react-native-sdk:
     :path: "../node_modules/airbridge-react-native-sdk"
+  CatusAssetCache:
+    :path: "../modules/catus-asset-cache/ios"
   DatadogSDKReactNative:
     :path: "../node_modules/@datadog/mobile-react-native"
   EASClient:
@@ -3002,6 +3007,7 @@ SPEC CHECKSUMS:
   Alamofire: f36a35757af4587d8e4f4bfa223ad10be2422b8c
   AppAuth: ef4da5a3fc2e10b90c09a0a94a9baeaedc0341d5
   AppCheckCore: e215d35177a9cf469927863e69c13e220df32a8b
+  CatusAssetCache: 1276b2e178c53e01c2c05c7d9dd2dd7f1c62fa0c
   DatadogCore: 7eed8fbaaa1575503c389f343c230858343c8baf
   DatadogCrashReporting: 04f3c3a5bfd9921aef4d44b4ab80accb39c84ddb
   DatadogFlags: 033cf48e769c271843e77068c015519880011866
@@ -3030,7 +3036,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLocalization: f204d4ca963bfcea932068a978247878f664f5a4
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: d5350d46147f58cec02ccfd2492d380054c5eefb
+  ExpoModulesCore: e24850ddfb355c0feed25f58ce1eb0e1b42835a6
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoModulesWorkletsAdapter: 13e111038fec9c5f2e92c16481ba928fa4bf5414
@@ -3054,7 +3060,7 @@ SPEC CHECKSUMS:
   GoogleUtilities: 766ace00c6b10d8148408f329d10c4f051931850
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  hermes-engine: 23f2494d0cf886ec87eb2e78e818064792fca65e
+  hermes-engine: 2b054e3cbe0dfdad348c99040024130d5ab796b8
   KakaoSDKAuth: 569b377eda622d93d4575240b8031cd658163eef
   KakaoSDKCommon: d57127c339fc79e73aa8b236a4c77211c29924f1
   KakaoSDKUser: 043bcd7e91454ebf3bf64f150c430e6f65f0a08d

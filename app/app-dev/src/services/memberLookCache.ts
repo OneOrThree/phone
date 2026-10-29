@@ -28,7 +28,8 @@ export class MemberLookCache {
     private readonly fetchBatch: (ids: string[]) => Promise<MemberLookBatch>,
     private readonly now: () => number = Date.now,
     private readonly capacity = 512,
-    private readonly ttl = 5 * 60_000,
+    // 털색은 실시간 이벤트가 없으므로 화면의 30초 주기 조회에서 다시 확인한다.
+    private readonly ttl = 30_000,
   ) {}
 
   get = (id: string): CachedMemberLook | undefined => {

@@ -1,5 +1,8 @@
 package com.oneorthree.phone.common.exception;
 
+import com.oneorthree.phone.content.exception.ContentErrorCode;
+import com.oneorthree.phone.content.exception.ContentException;
+
 import com.oneorthree.phone.appearance.exception.AppearanceErrorCode;
 import com.oneorthree.phone.appearance.exception.AppearanceException;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
@@ -82,6 +85,7 @@ class ErrorContractTest {
             Map.entry(AuthErrorCode.class, c -> new AuthException((AuthErrorCode) c)),
             Map.entry(InvalidTokenErrorCode.class, c -> new InvalidTokenException((InvalidTokenErrorCode) c)),
             Map.entry(ConstructionErrorCode.class, c -> new ConstructionException((ConstructionErrorCode) c)),
+            Map.entry(ContentErrorCode.class, c -> new ContentException((ContentErrorCode) c)),
             Map.entry(FocusErrorCode.class, c -> new FocusException((FocusErrorCode) c)),
             Map.entry(FriendErrorCode.class, c -> new FriendException((FriendErrorCode) c)),
             Map.entry(LetterErrorCode.class, c -> new LetterException((LetterErrorCode) c)),

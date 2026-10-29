@@ -251,6 +251,27 @@ class DispatchOperationLinkTest {
                 .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=lease_lost"));
     }
 
+    /** 환경 불일치(2563)는 시도 횟수를 쓰지 않고 미룬다 — settle 로그는 같은 원인 문맥으로 retry 를 남긴다. */
+    @Test
+    void environmentMismatchDefersAndSettleLogsRetryWithTheOrigin() {
+        register("fcm-a", "boot-a", "reg-a");
+        UUID id = enqueue("e1", "R1", null, null);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString()))
+                .thenThrow(new NotificationEnvironmentGuard.EnvironmentMismatch("환경 불일치"));
+        try {
+            dispatch.dispatch(id);
+        } catch (RuntimeException expected) {
+            // 호출부에는 실패가 전해진다 — 여기서 보는 것은 로그 라벨과 원인 문맥이다.
+        }
+
+        assertThat(store.one("SELECT attempts,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("attempts", 0).containsEntry("last_error", "ENVIRONMENT_MISMATCH");
+        assertThat(named("dispatch.settle")).singleElement().satisfies(e -> {
+            assertThat(e.getFormattedMessage()).contains("state=retry");
+            assertThat(mdc(e)).containsEntry("delivery_id", id.toString()).containsEntry("origin_request_id", "R1");
+        });
+    }
+
     @Test
     void anOldRowWithoutOriginStillSendsAndTheLinkCarriesNoOriginKeys() {
         register("fcm-a", "boot-a", "reg-a");

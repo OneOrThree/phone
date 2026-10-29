@@ -16,6 +16,37 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 | `.github/workflows/ops-datadog.dev.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
 | `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 (손으로 관리, 생성기 없음) |
 | `dashboards/test_log_links.py` | Kafka 로그 링크 분리 검증 (`python3 -m unittest discover -s server/observability/datadog/dashboards -p 'test_*.py'`) |
+| `dashboards/cattus-app-rum.json` | cattus 전용 RUM — 세션·버전·화면·API·집중 명령 처리시간 |
+
+## cattus 앱 RUM 분리 (2026-10-29)
+
+- RUM Application: **cattus**, React Native, US5. ID는 `31edaff8-b8b4-434b-9d8c-898e05a41255`.
+- SDK 서비스는 `cattus-app`. 1.x의 `gromo-app`과 별도 Application ID로 수집한다.
+- [cattus 앱 성능 대시보드](https://us5.datadoghq.com/dashboard/qp2-2ym-yyh).
+  JSON은 `dashboards/cattus-app-rum.json`이 정본이다. 모든 쿼리에 cattus ID·서비스를 고정하고
+  환경 기본값은 `prod`로 둔다. 버전·OS 필터로 배포 영향을 비교한다.
+- iOS `testflight.sh`·Android CI·`scripts/ota-update.sh`가 `app/app-dev/ios/release-config.sh`의 새 ID·Client Token을
+  읽는다. Client Token은 공개 SDK 수집 토큰이다. Datadog API/App Key를 앱에 넣지 않는다.
+- 로컬 실행은 `app/app-dev/.env.example`의 두 Datadog 변수를 설정한다. 키가 없으면 수집을 끈다.
+  `release-config.sh`는 셸에서 덮어쓴 ID가 옛 gromo ID면 실패하고, SDK도 해당 ID로 전송하지 않는다.
+- 변경을 반영한 앱 빌드 또는 OTA부터 새 공간으로 보낸다. 기존 설치 버전의 전송 목적지와 과거 데이터는
+  자동 변경·이동되지 않는다. 이전 cattus 기록은 기존 Application에서 `service:gromo-app-v2`로 조회한다.
+- `sessionCommands.ts`는 집중 시작·항해 시작·종료 시 `focus_start`, `focus_sea_start`, `focus_finish`
+  수동 Action을 기록한다. 문맥은 `operation`, `outcome`, `duration_ms`뿐이며 사용자 ID·과목·오류 내용은
+  포함하지 않는다. 시간은 API와 상태 반영까지이며 화면 렌더 시간이나 집중 지속시간이 아니다.
+- 처리시간 p95에는 `@context.duration_ms` Measure(millisecond), 명령 결과 필터에는
+  `@context.operation`·`@context.outcome` Facet을 사용한다. 세 항목 모두 2026-10-29 콘솔에 등록했다.
+  다른 조직에서 재구성할 때는 RUM Explorer의 **Add**에서 동일하게 등록한다.
+- 오류·크래시·자동 터치 수집은 기존 설정대로 끈다. 빈 패널은 성공·무장애를 뜻하지 않는다.
+  API 패널은 자사 prod/dev 호스트로 한정하며 리소스 타입으로 제한하지 않아 native 요청도 포함한다.
+
+### 배포 후 수신 확인
+
+1. 새 설정으로 빌드한 실기기에서 집중을 시작하고 종료한다.
+2. RUM Explorer에서 `@application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app env:prod`
+   (dev 빌드는 `env:dev`)로 화면·리소스·수동 Action을 확인한다.
+3. 대시보드의 세션·화면·API 패널과 버전·OS 필터를 확인한다. 명령 p95는 Measure 등록 후 확인한다.
+4. 리소스에 연결된 Trace가 있을 때 APM으로 이동한다. 서버의 계측·샘플링에 따라 연결이 없을 수 있다.
 
 ### OpenMetrics 브리지가 이미지 라벨에 있는 이유 (GROMO-1489)
 
