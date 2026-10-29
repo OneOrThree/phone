@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WRITER = ROOT / ".github" / "scripts" / "write-compose-env.py"
 SATELLITES_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.yml")
 DATA_OVERLAY_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.data.yml")
+DEV_SATELLITES_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.dev.yml")
 DEV_DATA_OVERLAY_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.data.dev.yml")
 NGINX_EXAMPLE = Path(__file__).resolve().with_name("nginx-satellites.include.conf.example")
 
@@ -396,7 +397,11 @@ def main() -> None:
     guard_output_path(compose_env, args.shared_env_file)
 
     # 필수 보간 변수 대조 — 실제 최종값만 검사하며 값은 로그·오류로 내보내지 않는다.
+    # 검사 파일 집합은 satellite-cd.dev.yml 의 실제 기동 파일 집합(dev.yml + satellites.yml + satellites.dev.yml)과
+    # 같아야 한다 — 한쪽을 바꾸면 다른 쪽도 바꾼다. (datadog.yml 은 OBS_* 를 건드리지 않는다.)
     checked = [args.base_compose, SATELLITES_COMPOSE]
+    if args.environment == "dev":
+        checked.append(DEV_SATELLITES_COMPOSE)
     if "data-api" in written:
         checked.append(DEV_DATA_OVERLAY_COMPOSE if args.environment == "dev" else DATA_OVERLAY_COMPOSE)
     required: set[str] = set()
