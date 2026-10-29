@@ -855,6 +855,7 @@ function Gromo() {
         !islandsSynced ||
         fireTransition.phase !== 'idle' ||
         ['login', 'character', 'guide'].includes(route) ||
+        (route === 'home' && !!state.tutorial && state.tutorial.step <= 3) ||
         state.session ||
         openingInvitation
       )
@@ -877,7 +878,15 @@ function Gromo() {
             if (snapshot?.currentIslandId !== island.id) await commands.switchCurrent(island.id);
           } else {
             const result = await commands.join(island.id, { showApproval: false });
-            if (!latest()) return;
+            if (!latest()) {
+              if (gen === sessionGeneration())
+                notifyRef.current(
+                  result.status === 'pending'
+                    ? '초대받은 섬에 가입을 신청했어요.'
+                    : '초대받은 섬에 합류했어요.',
+                );
+              return;
+            }
             if (result.status === 'pending') {
               goRef.current('approval', island.id);
               return;

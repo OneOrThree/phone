@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Share } from 'react-native';
 import { issueInvitation } from '@/services/api/islands';
-import { uuid } from '@/services/api/client';
+import { ApiError, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import { isMockMode } from '@/services/demoMode';
 
@@ -20,6 +20,10 @@ export function useInviteShare(
       notify('초대 링크는 로그인한 실제 섬에서 공유할 수 있어요.');
       return;
     }
+    if (!islandId) {
+      notify('섬 정보를 불러온 뒤 다시 시도해 주세요.');
+      return;
+    }
     const generation = sessionGeneration();
     if (intent.current?.islandId !== islandId || intent.current.generation !== generation)
       intent.current = { islandId, generation, key: uuid() };
@@ -33,7 +37,15 @@ export function useInviteShare(
       intent.current = null;
       // Android 공유는 url 필드를 지원하지 않으므로 본문에 링크를 담는다.
       await Share.share({ message: `${islandName}에서 같이 집중해요!\n${invitation.url}` });
-    } catch {
+    } catch (error) {
+      // 결과가 불명인 오류만 기존 키로 재시도한다. 확정된 거절 뒤에는 새 의도다.
+      if (
+        error instanceof ApiError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        !['UPSTREAM_TIMEOUT', 'SERVICE_UNAVAILABLE'].includes(error.code)
+      )
+        intent.current = null;
       if (sessionGeneration() === generation)
         notify('초대 링크를 공유하지 못했어요. 다시 시도해 주세요.');
     } finally {

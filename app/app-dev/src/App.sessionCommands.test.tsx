@@ -3470,3 +3470,55 @@ test.each(['active', 'pending', 'joined'] as const)(
     }
   },
 );
+
+test.each(['이동', '세션 변경', '가입 실패'] as const)(
+  '초대 가입 응답 중 %s가 발생하면 현재 화면과 계정을 보존한다',
+  async (mode) => {
+    let finish!: (value: unknown) => void;
+    let fail!: (error: unknown) => void;
+    const join = jest.fn(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    mockInvitationCommands = {
+      resolveInvite: jest.fn(async () => ({ id: 'invited', name: '초대 섬' })),
+      join,
+    };
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: 'other', name: '현재 섬', membershipStatus: 'active' }],
+          nextCursor: null,
+          currentIslandId: 'other',
+          lossReason: null,
+        },
+      });
+      captured.reset('home');
+    });
+    await act(async () => mockEmitAppLink!('gromo://join?s=abcdefgh'));
+    await waitFor(() => expect(join).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      captured.reset('settings');
+      if (mode === '세션 변경') await clearSession();
+    });
+    await act(async () => {
+      if (mode === '가입 실패') fail(new ApiError('GROUP_FULL', '정원이 찼어요.', 409));
+      else finish({ status: 'active', islandId: 'invited' });
+    });
+    if (mode !== '세션 변경') assert.equal(captured.route, 'settings');
+    else assert.notEqual(captured.route, 'home');
+    if (mode === '이동')
+      await waitFor(() => assert.ok(screen.getByText('초대받은 섬에 합류했어요.')));
+    if (mode === '세션 변경') assert.equal(screen.queryByText('초대받은 섬에 합류했어요.'), null);
+  },
+);

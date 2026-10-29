@@ -4,6 +4,7 @@ import { issueInvitation } from '@/services/api/islands';
 import { sessionGeneration } from '@/services/api/session';
 import { isMockMode } from '@/services/demoMode';
 import { useInviteShare } from './useInviteShare';
+import { ApiError } from '@/services/api/client';
 
 jest.mock('@/services/api/islands', () => ({ issueInvitation: jest.fn() }));
 jest.mock('@/services/api/session', () => ({ sessionGeneration: jest.fn(() => 1) }));
@@ -69,4 +70,21 @@ test('시연 모드에서는 가짜 초대 링크를 만들거나 서버를 호�
   expect(issue).not.toHaveBeenCalled();
   expect(Share.share).not.toHaveBeenCalled();
   expect(notify).toHaveBeenCalled();
+});
+
+test('섬 ID가 없으면 발급 API를 호출하지 않는다', async () => {
+  const notify = jest.fn();
+  const { result } = await renderHook(() => useInviteShare('', '구름섬', notify));
+  await act(() => result.current.share());
+  expect(issue).not.toHaveBeenCalled();
+  expect(Share.share).not.toHaveBeenCalled();
+  expect(notify).toHaveBeenCalledWith('섬 정보를 불러온 뒤 다시 시도해 주세요.');
+});
+
+test('확정된 발급 거절 뒤의 재시도는 새 멱등 키를 사용한다', async () => {
+  issue.mockRejectedValueOnce(new ApiError('MEMBER_ONLY', '주민만 가능해요.', 403));
+  const { result } = await renderHook(() => useInviteShare('island', '구름섬', jest.fn()));
+  await act(() => result.current.share());
+  await act(() => result.current.share());
+  expect(issue.mock.calls[0][1]).not.toBe(issue.mock.calls[1][1]);
 });
