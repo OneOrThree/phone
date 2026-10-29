@@ -192,6 +192,10 @@ public class MagazinePublishService {
                 || !IslandMovementGuards.isAlive(alive.get(id)))) {
             throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
         }
+        // 새로 생긴 섬은 공개 섬만 소개한다. 랭킹·홍보는 기존 비공개 섬 허용 정책을 유지한다.
+        if (review.editorial().newIslands().stream().anyMatch(row -> alive.get(row.islandId()).isPrivate())) {
+            throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
+        }
         int count = 0;
         for (int i = 0; i < current.size(); i++) {
             IslandPromotion row = current.get(i);

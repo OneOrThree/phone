@@ -184,3 +184,33 @@ test("큰 잡지는 원본 재전송 없이 스냅샷 참조로 저장·검토�
   );
   store.close();
 });
+
+test("서비스 공지 외 사건 알림은 검토·발송할 수 없다", () => {
+  const store = new Store(":memory:");
+  const item = store.create(
+    {
+      kind: "fcm",
+      title: "공지",
+      body: "안내",
+      targets: ["11111111-1111-4111-8111-111111111111"],
+      data: { fcm: { kind: "FRIEND_REQUEST", locale: "ko", silent: false } },
+    },
+    "member-1",
+  );
+  assert.throws(
+    () => store.transition(item.id, item, "member-1", "review"),
+    /ADMIN_ANNOUNCEMENT/,
+  );
+  const fixed = store.edit(
+    item.id,
+    {
+      revision: item.revision,
+      data: {
+        fcm: { kind: "ADMIN_ANNOUNCEMENT", locale: "ko", silent: false },
+      },
+    },
+    "member-1",
+  );
+  assert.equal(approve(store, fixed).status, "approved");
+  store.close();
+});

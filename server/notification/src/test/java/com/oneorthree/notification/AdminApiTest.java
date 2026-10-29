@@ -69,6 +69,7 @@ class AdminApiTest {
                 + "admin_audit CASCADE");
         store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false");
         store.update("INSERT INTO kinds(id,quiet_policy) VALUES('FRIEND_REQUEST','BYPASS')");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('ADMIN_ANNOUNCEMENT','DEFER')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
                 + " VALUES('FRIEND_REQUEST.ko','FRIEND_REQUEST','ko','결과','내기 {count}건')");
         reset(transport, data, clock);
@@ -415,7 +416,6 @@ class AdminApiTest {
 
     @Test
     void serviceAnnouncementUsesPublicationIdentityAndStillChecksCurrentUser() throws Exception {
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('ADMIN_ANNOUNCEMENT','DEFER')");
         devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
         UUID publication = UUID.randomUUID();
         Map<String, Object> request = publication();
@@ -432,8 +432,23 @@ class AdminApiTest {
         verifyNoInteractions(transport);
     }
 
+    @Test
+    void publicationRejectsDomainEventKindsBeforeWritingDeliveries() throws Exception {
+        for (String kind : List.of("FRIEND_REQUEST", "FRIEND_ACCEPTED", "MAGAZINE_PUBLISHED",
+                "MAIN_ISLAND_TRANSFERRED", "ISLAND_KICKED")) {
+            Map<String, Object> request = publication();
+            request.put("kind", kind);
+            MvcResult result = post("/internal/admin/publications/" + UUID.randomUUID(), kind, request);
+            assertThat(result.getResponse().getStatus()).isEqualTo(400);
+            assertThat(code(result)).isEqualTo("INVALID_PUBLICATION_KIND");
+        }
+        assertThat(store.rows("SELECT id FROM deliveries")).isEmpty();
+        assertThat(store.rows("SELECT command_key FROM commands")).isEmpty();
+        verifyNoInteractions(transport);
+    }
+
     private static Map<String, Object> publication() {
-        return new LinkedHashMap<>(Map.of("kind", "FRIEND_REQUEST", "locale", "ko", "title", "검토",
+        return new LinkedHashMap<>(Map.of("kind", "ADMIN_ANNOUNCEMENT", "locale", "ko", "title", "검토",
                 "body", "검토 완료 문구", "data", Map.of("screen", "friends"), "silent", false,
                 "params", Map.of(), "userIds", List.of(USER.toString())));
     }

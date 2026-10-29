@@ -111,8 +111,8 @@ export class Store {
       );
       const fcm = item.data.fcm;
       requireValue(
-        fcm && typeof fcm.kind === "string" && fcm.kind.trim(),
-        "기존 알림 종류(kind)를 지정하세요.",
+        fcm && fcm.kind === "ADMIN_ANNOUNCEMENT",
+        "백오피스에서는 서비스 공지(ADMIN_ANNOUNCEMENT)만 발송할 수 있습니다.",
       );
       requireValue(
         typeof fcm.locale === "string" && typeof fcm.silent === "boolean",

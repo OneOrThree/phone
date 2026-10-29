@@ -3,7 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.DeveloperNoticeUseCase;
-import com.oneorthree.business.upstream.data.dto.DeveloperNotices;
+import com.oneorthree.business.api.dto.DeveloperNoticeResponses;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -20,16 +20,16 @@ public class DeveloperNoticeController {
     private final UpstreamConfigProperties properties;
 
     @GetMapping("/me/developer-notices")
-    public DeveloperNotices.Page list(HttpServletRequest request) {
+    public DeveloperNoticeResponses.Page list(HttpServletRequest request) {
         var claims = sessions.requireSession(request);
-        return notices.list(claims.userId(), properties.deadline());
+        return DeveloperNoticeResponses.Page.from(notices.list(claims.userId(), properties.deadline()));
     }
 
     @GetMapping("/me/developer-notices/{publicationId}")
-    public DeveloperNotices.Notice get(@PathVariable String publicationId, HttpServletRequest request) {
+    public DeveloperNoticeResponses.Notice get(@PathVariable String publicationId, HttpServletRequest request) {
         var claims = sessions.requireSession(request);
-        return notices.get(claims.userId(), PublicIds.uuid(publicationId, "publicationId"),
-                properties.deadline());
+        return DeveloperNoticeResponses.Notice.from(notices.get(claims.userId(),
+                PublicIds.uuid(publicationId, "publicationId"), properties.deadline()));
     }
 
 }

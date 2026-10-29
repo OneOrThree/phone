@@ -27,6 +27,10 @@ class PublicationService {
 
     @Transactional
     public Map<String, Object> publish(String actor, UUID publicationId, Map<String, Object> body, String key) {
+        // 임의 문구는 서비스 공지만 허용한다. 친구·잡지 같은 도메인 사건을 관리자 본문으로 위장하지 않는다.
+        if (!"ADMIN_ANNOUNCEMENT".equals(Json.text(body, "kind"))) {
+            throw new NotificationFailure(400, "INVALID_PUBLICATION_KIND");
+        }
         // 요청 키와 발행 id 모두 고정한다. 응답 유실 뒤 새 키로 재시도해도 수신자가 중복되지 않는다.
         return store.command("publication-request:" + publicationId, key, body,
                 () -> store.command("publication", publicationId.toString(), body,

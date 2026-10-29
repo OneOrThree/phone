@@ -185,6 +185,6 @@ UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_inva
 - 응답은 `{publicationId, status: "PENDING", deliveryIds, recipientCount, dispatchEnabled}`입니다. 적재 성공은 실제 발송 완료가 아닙니다. 발송 이력에서 각 delivery 상태를 확인합니다.
 - `reviewed_push`에 최종 title/body/data/silent를 저장하므로 승인 이후 템플릿·딥링크 변경으로 문구가 달라지지 않습니다. 수신 기기의 deliveryTag와 서버 eventId만 발송 단계에서 더합니다.
 - 발송 게이트를 자동으로 열지 않습니다. 기존 활성 기기, 탈퇴, 수신 설정, 조용한 시간, 종류별 현재 적격성, 사건 만료 검사를 그대로 거칩니다. 시험 발송의 15분 예외는 적용하지 않습니다.
-- `ADMIN_ANNOUNCEMENT`는 서비스 공지이며 subjectId를 publicationId로 고정합니다. 별도 사건 시한이 없어 params는 빈 객체를 사용할 수 있습니다. 다른 종류의 `subjectId`와 `params`는 기존 Data 적격성 계약을 만족해야 합니다. 자격 없는 대상은 공통 발송 경로에서 제외됩니다.
+- 검토 발행 API는 `ADMIN_ANNOUNCEMENT` 서비스 공지만 허용합니다. 다른 종류는 `400 INVALID_PUBLICATION_KIND`로 거부하며 기존 사건 발송 경로를 사용합니다. subjectId는 publicationId로 고정하고, 별도 사건 시한이 없어 params는 빈 객체를 사용할 수 있습니다. 자격 없는 대상은 공통 발송 경로에서 제외됩니다.
 - 승인 상태와 승인된 버전의 불변성은 호출하는 백오피스가 관리합니다. 이 내부 API는 콘솔 자격만 신뢰하며 공개 브라우저에 서비스 토큰을 배포하지 않습니다.
 - V14는 nullable JSONB 컬럼만 추가합니다. 이 기능으로 적재한 PENDING 행이 있으면 이전 이미지로 되돌리지 않습니다. 이전 발송기는 고정 문구를 읽지 않고 템플릿을 다시 렌더링하기 때문입니다.

@@ -194,6 +194,21 @@ class ContentPublicationIntegrationTest {
     }
 
     @Test
+    void newlyPrivateIslandRequiresReviewAgain() {
+        Group island = groups.save(Group.builder().name("공개로 소개할 새 섬").maxMembers(10).isPrivate(false).build());
+        jdbc.update("UPDATE islands SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
+                island.getId());
+        var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE, null), "member-1");
+        assertThat(preview.editorial().newIslands()).extracting(row -> row.islandId()).contains(island.getId());
+        jdbc.update("UPDATE islands SET is_private=true WHERE id=?", island.getId());
+        assertThatThrownBy(() -> reviews.publish(UUID.randomUUID(),
+                new MagazineReviewService.PublishRequest(preview.snapshotId(), preview.digest()), "member-1"))
+                .isInstanceOf(ContentException.class).hasMessageContaining("다시 검토");
+        assertThat(count("magazine_issues")).isZero();
+        assertThat(count("content_publications")).isZero();
+    }
+
+    @Test
     void schedulerDoesNotCreateOrPublishAnUnreviewedIssue() {
         reviews.preview(new MagazineReviewService.PreviewRequest(DATE, "아직 검토 중"), "member-1");
         runTick();

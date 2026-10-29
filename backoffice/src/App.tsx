@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { ApiError, request } from './api';
 import type { ContentItem, ContentKind, ContentStatus, Draft, MagazineCard, MagazineSnapshot, Session } from './types';
 
+const ANNOUNCEMENT_KIND = 'ADMIN_ANNOUNCEMENT';
 const CHANNELS: { kind: ContentKind; name: string; description: string; icon: string }[] = [
-  { kind: 'fcm', name: 'FCM 알림', description: '수신자를 확인하고 알림 발송을 요청합니다.', icon: 'bell' },
+  { kind: 'fcm', name: 'FCM 알림', description: '수신자를 확인하고 운영 공지 알림을 발송합니다.', icon: 'bell' },
   { kind: 'notice', name: '개발자 공지', description: '앱에 표시할 소식과 게시 기간을 관리합니다.', icon: 'notice' },
   { kind: 'magazine', name: '잡지', description: '발행일의 콘텐츠를 검토하고 게시합니다.', icon: 'book' },
 ];
@@ -18,11 +19,11 @@ const localDate = (value?: string | null) => {
 };
 function emptyDraft(kind: ContentKind): Draft {
   const today = localDate(new Date().toISOString()).slice(0, 10);
-  return { kind, title: '', body: '', targetsText: '', fcmKind: 'ADMIN_ANNOUNCEMENT', dataText: kind === 'fcm' ? '{\n  "fcm": { "kind": "ADMIN_ANNOUNCEMENT", "locale": "ko", "silent": false, "params": {} },\n  "payload": {}\n}' : '{}', issueDate: today, startsAt: localDate(new Date().toISOString()), endsAt: '' };
+  return { kind, title: '', body: '', targetsText: '', fcmKind: ANNOUNCEMENT_KIND, dataText: '{}', issueDate: today, startsAt: localDate(new Date().toISOString()), endsAt: '' };
 }
 function draftFrom(item: ContentItem): Draft {
   const fcm = item.data?.fcm as { kind?: string } | undefined;
-  return { kind: item.kind, title: item.title, body: item.body, targetsText: (item.targets ?? []).join('\n'), fcmKind: fcm?.kind ?? '', dataText: JSON.stringify(item.data ?? {}, null, 2), issueDate: item.issueDate ?? '', startsAt: localDate(item.startsAt), endsAt: localDate(item.endsAt) };
+  return { kind: item.kind, title: item.title, body: item.body, targetsText: (item.targets ?? []).join('\n'), fcmKind: fcm?.kind ?? '', dataText: JSON.stringify(item.kind === 'fcm' ? item.data?.payload ?? {} : item.data ?? {}, null, 2), issueDate: item.issueDate ?? '', startsAt: localDate(item.startsAt), endsAt: localDate(item.endsAt) };
 }
 function objectData(text: string): Record<string, unknown> {
   let value: unknown;
@@ -32,16 +33,15 @@ function objectData(text: string): Record<string, unknown> {
 }
 function buildPayload(draft: Draft) {
   if (!draft.title.trim()) throw new Error('관리 제목을 입력해 주세요.');
-  const data = objectData(draft.dataText);
+  let data = objectData(draft.dataText);
   const targets = draft.targetsText.split(/[\s,;]+/).filter(Boolean);
   if (draft.kind === 'fcm') {
     if (targets.length < 1 || targets.length > 100) throw new Error('수신자 UUID를 1명 이상 100명 이하로 입력해 주세요.');
     if (targets.some(id => !UUID.test(id))) throw new Error('수신자 목록에 올바르지 않은 UUID가 있습니다.');
     if (new Set(targets.map(id => id.toLowerCase())).size !== targets.length) throw new Error('중복 수신자를 제거해 주세요.');
-    if (!draft.fcmKind.trim()) throw new Error('알림 종류를 입력해 주세요.');
-    const previous = data.fcm && typeof data.fcm === 'object' && !Array.isArray(data.fcm) ? data.fcm : {};
-    data.fcm = { locale: 'ko', silent: false, params: {}, ...previous, kind: draft.fcmKind.trim() };
-    if (!data.payload) data.payload = {};
+    if (draft.fcmKind !== ANNOUNCEMENT_KIND) throw new Error('운영 공지 알림만 작성·검토·발송할 수 있습니다. 새 초안을 작성해 주세요.');
+    if (Object.values(data).some(value => typeof value !== 'string')) throw new Error('FCM 추가 데이터 값은 모두 문자열이어야 합니다.');
+    data = { fcm: { kind: ANNOUNCEMENT_KIND, locale: 'ko', silent: false, params: {} }, payload: data };
   }
   if (draft.kind === 'notice' && !draft.startsAt) throw new Error('공지 게시 시작 시각을 입력해 주세요.');
   if (draft.endsAt && draft.startsAt && new Date(draft.endsAt) <= new Date(draft.startsAt)) throw new Error('종료 시각은 시작 시각보다 늦어야 합니다.');
@@ -114,7 +114,7 @@ function ContentPreview({ draft }: { draft: Draft }) {
       <div className="message-channel"><Icon name={draft.kind === 'fcm' ? 'bell' : 'notice'} /><span>{draft.kind === 'fcm' ? '앱 알림' : '개발자 공지'}</span></div>
       <h4>{draft.title || '제목을 입력해 주세요'}</h4><p className="prewrap">{draft.body || '본문을 입력하면 이곳에 표시됩니다.'}</p>
     </article>}
-    {draft.kind === 'fcm' && <div className="preview-meta"><span>명시한 수신자</span><strong>{targets.length}명</strong><span>알림 종류</span><code>{draft.fcmKind || '미입력'}</code></div>}
+    {draft.kind === 'fcm' && <div className="preview-meta"><span>명시한 수신자</span><strong>{targets.length}명</strong><span>알림 종류</span><strong>{draft.fcmKind === ANNOUNCEMENT_KIND ? '운영 공지' : draft.fcmKind || '지원하지 않는 종류'}</strong></div>}
     {draft.kind === 'notice' && <div className="preview-meta"><span>게시 시작</span><strong>{draft.startsAt ? readableDate(draft.startsAt) : '미입력'}</strong><span>게시 종료</span><strong>{draft.endsAt ? readableDate(draft.endsAt) : '종료일 없음'}</strong></div>}
     {draft.kind === 'magazine' && snapshot && <details className="technical-details"><summary>스냅샷 원본 보기</summary><pre className="json-view">{JSON.stringify(snapshot, null, 2)}</pre></details>}
   </section>;
@@ -158,10 +158,10 @@ export default function App() {
   const [filter, setFilter] = useState('all');
   const [actor, setActor] = useState('');
   const [password, setPassword] = useState('');
-  const [catalog, setCatalog] = useState<string[]>([]);
   const actionLock = useRef(false);
   const dirty = draft !== null && JSON.stringify(draft) !== baseline;
-  const editable = !selected || ['draft', 'review', 'approved', 'failed'].includes(selected.status);
+  const unsupportedFcm = selected?.kind === 'fcm' && (selected.data?.fcm as { kind?: string } | undefined)?.kind !== ANNOUNCEMENT_KIND;
+  const editable = !unsupportedFcm && (!selected || ['draft', 'review', 'approved', 'failed'].includes(selected.status));
   const currentChannel = CHANNELS.find(value => value.kind === channel)!;
   const filtered = items.filter(item => item.kind === channel && (filter === 'all' || item.status === filter) && `${item.title} ${item.body}`.toLowerCase().includes(search.toLowerCase()));
   function handleError(cause: unknown) {
@@ -180,10 +180,6 @@ export default function App() {
     const controller = new AbortController();
     setListLoading(true);
     request<{ items: ContentItem[] }>('/api/items', { signal: controller.signal }).then(value => setItems(value.items)).catch(cause => { if (cause.name !== 'AbortError') handleError(cause); }).finally(() => { if (!controller.signal.aborted) setListLoading(false); });
-    request<unknown>('/api/fcm/catalog', { signal: controller.signal }).then(value => {
-      const entries = Array.isArray(value) ? value : (value as { templates?: unknown[]; items?: unknown[] })?.templates ?? (value as { items?: unknown[] })?.items ?? [];
-      setCatalog([...new Set(entries.flatMap(entry => typeof entry === 'object' && entry && 'kind' in entry ? [String(entry.kind)] : []))]);
-    }).catch(() => { /* 카탈로그가 없더라도 명시한 종류로 초안을 작성할 수 있다. */ });
     return () => controller.abort();
   }, [session]);
   useEffect(() => {
@@ -240,7 +236,7 @@ export default function App() {
     });
   }
   async function transition() {
-    if (!selected || !confirmation || !session || actionLock.current) return;
+    if (!selected || !confirmation || !session || actionLock.current || unsupportedFcm) return;
     actionLock.current = true; setBusy('transition'); setModalError('');
     try {
       const item = await request<ContentItem>(`/api/items/${encodeURIComponent(selected.id)}/${confirmation}`, { method: 'POST', csrfToken: session.csrfToken, body: { revision: selected.revision } });
@@ -275,20 +271,21 @@ export default function App() {
       </section>
       <section className="editor-panel" aria-label="콘텐츠 편집 및 검토" aria-busy={busy === 'select'}>{draft ? <>
         <header className="editor-header"><div className="editor-heading"><h2>{selected ? '콘텐츠 상세' : '새 초안 작성'}</h2>{selected ? <Badge item={selected} /> : <span className="badge">저장 전</span>}</div><span className="save-state" role="status">{busy === 'save' ? '저장 중…' : dirty ? '저장하지 않은 변경' : selected ? `수정본 ${selected.revision} · ${readableDate(selected.updatedAt)}` : '초안을 저장해 검토를 시작하세요'}</span></header>
+        {unsupportedFcm && <p className="receipt-section callout">이 항목은 운영 공지 알림이 아니므로 읽기만 가능합니다. 검토·승인·발송하려면 새 운영 공지 초안을 작성해 주세요.</p>}
         <div className="editor-columns"><form id="content-form" className="editor-form" onSubmit={save}><fieldset disabled={!!busy || !editable}>
           <Field label={draft.kind === 'magazine' ? '관리 제목' : '제목'} hint={draft.kind === 'magazine' ? '운영실에서 구분하는 제목입니다.' : undefined}><input value={draft.title} onChange={event => updateDraft('title', event.target.value)} maxLength={120} required /></Field>
           <Field label={draft.kind === 'magazine' ? '편집부의 한마디' : '본문'} hint={draft.kind === 'magazine' ? `${draft.body.length}/80자 · 변경하면 게시 내용을 다시 불러와야 합니다.` : '미리보기에서 줄바꿈과 문구를 확인하세요.'}><textarea rows={draft.kind === 'magazine' ? 3 : 5} value={draft.body} onChange={event => updateDraft('body', event.target.value)} maxLength={draft.kind === 'magazine' ? 80 : 10000} /></Field>
-          {draft.kind === 'fcm' && <><Field label="수신자 UUID" hint="한 줄에 한 명 또는 쉼표로 구분합니다. 1~100명, 중복 불가."><textarea className="mono-input" rows={4} value={draft.targetsText} onChange={event => updateDraft('targetsText', event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" spellCheck={false} required /></Field><Field label="알림 종류" hint="기존 알림 템플릿의 kind를 지정합니다."><input list="fcm-kinds" value={draft.fcmKind} onChange={event => updateDraft('fcmKind', event.target.value)} required /><datalist id="fcm-kinds">{catalog.map(kind => <option value={kind} key={kind} />)}</datalist></Field></>}
+          {draft.kind === 'fcm' && <><Field label="수신자 UUID" hint="한 줄에 한 명 또는 쉼표로 구분합니다. 1~100명, 중복 불가."><textarea className="mono-input" rows={4} value={draft.targetsText} onChange={event => updateDraft('targetsText', event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" spellCheck={false} required /></Field><p className="field-hint">운영 공지 알림으로 발송합니다. 한국어 표시 알림만 지원하며, 다른 서비스 알림의 종류·매개변수는 사용하지 않습니다.</p></>}
           {draft.kind === 'notice' && <div className="date-fields"><Field label="게시 시작" hint="현재 브라우저의 현지 시각 기준"><input type="datetime-local" value={draft.startsAt} onChange={event => updateDraft('startsAt', event.target.value)} required /></Field><Field label="게시 종료" hint="비워두면 종료일 없이 게시"><input type="datetime-local" value={draft.endsAt} onChange={event => updateDraft('endsAt', event.target.value)} /></Field></div>}
           {draft.kind === 'magazine' && <><Field label="발행일"><input type="date" value={draft.issueDate} onChange={event => updateDraft('issueDate', event.target.value)} required /></Field><button type="button" className="button secondary preview-button" onClick={() => void previewMagazine()} disabled={!!busy}>{busy === 'preview' ? '게시 내용 불러오는 중…' : '게시 내용 불러오기'}<Icon name="arrow" /></button><p className="field-hint">불러온 내용을 확인한 뒤 초안을 저장해 주세요. 실제 게시는 발행일 당일 오전 7시(KST) 이후에 가능합니다.</p></>}
-          {draft.kind !== 'magazine' && <details className="advanced-fields"><summary>추가 데이터 설정</summary><Field label={draft.kind === 'fcm' ? 'FCM 매개변수·페이로드 (JSON)' : '추가 데이터 (JSON)'} hint={draft.kind === 'fcm' ? 'fcm.params, fcm.subjectId 및 payload를 설정합니다. kind는 위 입력값이 적용됩니다.' : undefined}><textarea className="mono-input" rows={8} value={draft.dataText} onChange={event => updateDraft('dataText', event.target.value)} spellCheck={false} /></Field></details>}
+          {draft.kind !== 'magazine' && <details className="advanced-fields"><summary>추가 데이터 설정</summary><Field label={draft.kind === 'fcm' ? 'FCM 추가 데이터 (JSON)' : '추가 데이터 (JSON)'} hint={draft.kind === 'fcm' ? '앱에 전달할 추가 데이터만 입력합니다. 모든 값은 문자열이어야 합니다. 필요하지 않으면 {}로 두세요.' : undefined}><textarea className="mono-input" rows={8} value={draft.dataText} onChange={event => updateDraft('dataText', event.target.value)} spellCheck={false} /></Field></details>}
         </fieldset></form><div className="preview-column"><ContentPreview draft={draft} /></div></div>
-        <div className="editor-actions"><div className="action-explanation">{!editable ? '처리된 콘텐츠는 수정할 수 없습니다.' : dirty && selected?.status === 'approved' ? '수정하면 승인이 해제됩니다.' : dirty ? '변경 내용을 저장한 뒤 검토를 요청하세요.' : selected?.status === 'review' ? '내용과 대상을 확인한 뒤 승인하세요.' : selected?.status === 'approved' ? '승인한 수정본을 발송·게시할 수 있습니다.' : '초안 저장 → 검토 요청 → 승인 → 발송·게시'}</div><div className="action-buttons">
+        <div className="editor-actions"><div className="action-explanation">{unsupportedFcm ? '운영 공지 알림만 검토·승인·발송할 수 있습니다.' : !editable ? '처리된 콘텐츠는 수정할 수 없습니다.' : dirty && selected?.status === 'approved' ? '수정하면 승인이 해제됩니다.' : dirty ? '변경 내용을 저장한 뒤 검토를 요청하세요.' : selected?.status === 'review' ? '내용과 대상을 확인한 뒤 승인하세요.' : selected?.status === 'approved' ? '승인한 수정본을 발송·게시할 수 있습니다.' : '초안 저장 → 검토 요청 → 승인 → 발송·게시'}</div><div className="action-buttons">
           {editable && <button className="button secondary" type="submit" form="content-form" disabled={!!busy || (!!selected && !dirty && selected.status !== 'failed')}>{busy === 'save' ? '저장 중…' : selected?.status === 'failed' ? '초안 다시 저장' : '초안 저장'}</button>}
-          {selected?.status === 'draft' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('review'); }}>검토 요청</button>}
-          {selected?.status === 'review' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('approve'); }}>승인하기</button>}
-          {selected?.status === 'uncertain' && (!selected.dispatchActor || selected.dispatchActor === session.actor) && <button className="button primary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('publish'); }}>같은 요청 재시도</button>}
-          {selected?.status === 'approved' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('publish'); }}>{selected.kind === 'fcm' ? '발송 요청' : '게시하기'}<Icon name="arrow" /></button>}
+          {!unsupportedFcm && selected?.status === 'draft' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('review'); }}>검토 요청</button>}
+          {!unsupportedFcm && selected?.status === 'review' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('approve'); }}>승인하기</button>}
+          {!unsupportedFcm && selected?.status === 'uncertain' && (!selected.dispatchActor || selected.dispatchActor === session.actor) && <button className="button primary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('publish'); }}>같은 요청 재시도</button>}
+          {!unsupportedFcm && selected?.status === 'approved' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('publish'); }}>{selected.kind === 'fcm' ? '발송 요청' : '게시하기'}<Icon name="arrow" /></button>}
         </div></div>
         {selected?.error && <div className="receipt-section error-message" role="alert">{selected.error}</div>}
         {selected?.receipt && <section className="receipt-section"><h3>{selected.kind === 'fcm' ? '발송 요청 결과' : '게시 처리 결과'}</h3>{selected.kind === 'fcm' && <p>{selected.receipt.dispatchEnabled === false ? '발송 게이트가 꺼져 있어 대기 중입니다. 실제 발송·수신은 완료되지 않았습니다.' : '발송 요청 접수 기록입니다. 기기 수신 완료를 의미하지 않습니다.'}</p>}
