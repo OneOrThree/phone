@@ -1,0 +1,6 @@
+[
+  "env:dev service:gromo-back-dev",
+  "env:dev service:gromo-business-dev",
+  "env:dev service:gromo-notification-dev",
+  "env:dev service:gromo-realtime-dev"
+]

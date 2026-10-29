@@ -27,6 +27,18 @@ def metric_queries(d):
                   for k in ("q",) if k in r)
 
 
+def apm_queries(d):
+    """위젯 18 note 안 APM 링크의 query (정렬)."""
+    c = widgets(d)[18].get("content", "")
+    return sorted(parse_qs(urlparse(u).query)["query"][0]
+                  for u in re.findall(r"\((https://[^)\s]*/apm/services[^)\s]*)\)", c))
+
+
+def tokens(q):
+    """괄호를 떼고 공백으로 나눈 검색 토큰."""
+    return q.replace("(", " ").replace(")", " ").split()
+
+
 class KafkaLogLinks(unittest.TestCase):
     def setUp(self):
         self.d = json.loads(DASH.read_text(encoding="utf-8"))
@@ -40,18 +52,22 @@ class KafkaLogLinks(unittest.TestCase):
     def test_each_selects_only_own_component(self):
         b, e = self.q["Kafka 브로커 로그"], self.q["Kafka Exporter 로그"]
         self.assertIn("container_name:phone-kafka", b)
-        self.assertIn("source:kafka)", b)
+        self.assertIn("source:kafka", tokens(b))
         self.assertNotIn("exporter", b)
         self.assertIn("container_name:gromo-kafka-exporter", e)
         self.assertIn("source:kafka-exporter", e)
         self.assertNotIn("phone-kafka", e)
-        self.assertNotIn("source:kafka)", e)
+        self.assertNotIn("source:kafka", tokens(e))
         for q in (b, e):
             self.assertIn("service:gromo-kafka-dev", q)
 
     def test_metrics_unchanged(self):
         before = json.loads((HERE / "fixtures" / "metric-queries-before.json").read_text(encoding="utf-8"))
         self.assertEqual(before, metric_queries(self.d))
+
+    def test_apm_links_unchanged(self):
+        before = json.loads((HERE / "fixtures" / "apm-queries-before.json").read_text(encoding="utf-8"))
+        self.assertEqual(before, apm_queries(self.d))
 
 
 if __name__ == "__main__":

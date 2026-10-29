@@ -14,7 +14,9 @@
 | 브로커 | `phone-kafka` | `kafka` | `env:dev service:gromo-kafka-dev (container_name:phone-kafka OR source:kafka)` |
 | Exporter | `gromo-kafka-exporter` | `kafka-exporter` | `env:dev service:gromo-kafka-dev (container_name:gromo-kafka-exporter OR source:kafka-exporter)` |
 
-`source:kafka` 는 정확히 일치하는 값만 고르므로 `kafka-exporter` 를 포함하지 않는다. 컨테이너 이름과 source 중 하나만 맞아도 걸리게 OR 로 묶어 둔다. 괄호는 URL 에서 `%28 %29` 로 인코딩해 마크다운 링크를 깨지 않게 했다. 문법은 Datadog 로그 검색 문서의 불리언 연산자·`key:value` 규칙을 따랐다. 실제 Datadog 화면에서 열어 본 확인은 하지 않았다.
+`source:kafka` 는 정확히 일치하는 값만 고르므로 `kafka-exporter` 를 포함하지 않는다. 컨테이너 이름과 source 중 하나만 맞아도 걸리게 OR 로 묶어 둔다. 괄호는 URL 에서 `%28 %29` 로 인코딩해 마크다운 링크를 깨지 않게 했다. source 값은 compose 에 `com.datadoghq.ad.logs` 라벨이 없어 Agent 기본값(이미지 short name: `apache/kafka` → `kafka`, `danielqsj/kafka-exporter` → `kafka-exporter`)이다. 이미지가 바뀌면 source 도 바뀌므로 그때 링크를 다시 점검한다.
+
+문법 근거는 Datadog 공식 문서 Log Search Syntax(https://docs.datadoghq.com/logs/explorer/search_syntax/)의 불리언 연산자·`key:value` 규칙이다. 실제 Datadog 화면에서 열어 본 확인은 하지 않았다.
 
 `gromo-kafka-jmx-exporter` 는 이번 범위가 아니며 두 링크 어디에도 잡히지 않는다(컨테이너·source 조건 불일치). 로그 링크가 필요하면 별도 조건을 추가한다.
 
@@ -36,7 +38,7 @@
 | `server/scripts/docker-compose.observability.yml:153,170` | Exporter·JMX Exporter service 태그 | 없음 |
 | `server/observability/datadog/dashboards/gromo-dev-architecture.json` 위젯 18 | 로그 링크 | 변경됨(위 표) |
 
-저장소 안에 `gromo-kafka-dev` 를 쓰는 모니터·알림 정의는 없다. 메트릭 쿼리 집합은 변경 전과 같음을 `test_log_links.py` 가 확인한다.
+저장소 안에 `gromo-kafka-dev` 를 쓰는 모니터·알림 정의는 없다(모니터 JSON·워크플로·스크립트 전부를 검색한 범위). 테스트 보장 범위는 메트릭 쿼리 15개와 APM 링크 4개에 한하며, 그 밖(레이아웃·템플릿 변수·service 태그)은 diff 로 확인한다.
 
 ## 외부(저장소 밖) 확인 범위
 
@@ -52,7 +54,7 @@ Datadog MCP 읽기 도구로 조회했다(쓰기 없음).
 이번 작업은 저장소 JSON 만 바꿨다. Datadog 에 대시보드를 올리거나 수정하지 않았다. 반영하려면:
 
 1. 현재 대시보드 JSON 을 내려받아 백업한다(Datadog UI Export 또는 API GET).
-2. 저장소의 `gromo-dev-architecture.json` 을 import 한다(기존 대시보드를 덮어쓸지 새로 만들지 먼저 정한다).
+2. 저장소의 `gromo-dev-architecture.json` 을 import 한다(기존 대시보드를 덮어쓸지 새로 만들지 먼저 정한다. 새로 만들기를 고르면 롤백은 4 대신 «새 대시보드 삭제»가 된다).
 3. 대시보드 「상세 조사」의 두 링크를 열어 각각 브로커·Exporter 줄만 나오는지 본다.
 4. 문제가 있으면 1 에서 받은 백업 JSON 으로 되돌린다.
 
@@ -62,4 +64,4 @@ Datadog MCP 읽기 도구로 조회했다(쓰기 없음).
 
 ## 검증
 
-`python3 -m unittest discover -s server/observability/datadog/dashboards -p 'test_*.py'` 는 두 링크의 `query` 를 디코드해 서로 다르고, 각 조건이 상대 컨테이너·source 를 포함하지 않음을 확인한다. 메트릭 쿼리는 변경 전 대시보드에서 뽑아 저장한 `dashboards/fixtures/metric-queries-before.json`(정렬된 목록)과 현재 JSON 의 집합이 같은지 비교한다. git 을 호출하지 않으므로 커밋 뒤에도 의미가 유지된다.
+`python3 -m unittest discover -s server/observability/datadog/dashboards -p 'test_*.py'` 는 두 링크의 `query` 를 디코드해 서로 다르고, 각 조건이 상대 컨테이너·source 를 포함하지 않음을 확인한다. 브로커 조건은 디코드한 query 에서 `container_name:phone-kafka`·`source:kafka` 토큰(`kafka-exporter` 와 구분)의 존재로 판정한다. 메트릭 쿼리와 APM 링크 query 는 변경 전 대시보드에서 뽑아 저장한 `dashboards/fixtures/metric-queries-before.json`·`apm-queries-before.json`(정렬된 목록)과 현재 JSON 이 같은지 비교한다. git 을 호출하지 않으므로 커밋 뒤에도 의미가 유지된다.
