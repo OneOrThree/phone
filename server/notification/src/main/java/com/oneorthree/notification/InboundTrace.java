@@ -24,6 +24,8 @@ import java.util.regex.Pattern;
  * <p>{@code delivery_id}·{@code attempt} 는 헤더로 받은 <b>relay 의</b> 값이다(이 서비스의 {@code deliveries.id} 와 다르다).
  * 서비스 사이 연결 키는 {@code event_id} 다.
  *
+ * <p>{@code X-Trace-Context-Version} 헤더가 없고 origin 헤더만 있으면 v1 로 간주한다(의도).
+ *
  * @param originRequestId 최초 원인 요청 ID
  * @param originTraceId   최초 원인 trace id 원문
  * @param deliveryId      relay 전달 행 id

@@ -222,8 +222,8 @@ public class OutboxRelayService {
             try (LogScope ignored = carrier.openScope()) {
                 try {
                     Outcome outcome = deliverOne(delivery, envelope, token, carrier);
-                    logOutcome(outcome, delivery);
                     done = outcome == Outcome.DELIVERED;
+                    logOutcome(outcome, delivery);
                 } catch (RuntimeException e) {
                     // 표시 단계 DB 오류 등 — 축을 멈추고 나머지는 놓는다. 이 행은 리스 만료 뒤 다시 집힌다.
                     log.error("축 전달 중 예외 — deliveryId={} target={}", delivery.getId(), delivery.getTarget(), e);
@@ -297,8 +297,11 @@ public class OutboxRelayService {
 
     /** 시도 결과 한 줄 — 본문·토큰·사유 원문은 싣지 않는다(사유는 기존 WARN/ERROR 와 {@code last_error} 에 있다). */
     private static void logOutcome(Outcome outcome, EventOutboxDelivery delivery) {
+        // 관측 실패가 전달 판정을 바꾸면 안 된다 — 이미 표시까지 끝난 행이 로깅 오류로 «실패»가 되어 축이 멈추는 것을 막는다.
         try (LogScope ignored = LogScope.open().set("event_name", "outbox.delivery")) {
             log.info("outbox 전달 시도 결과 result={} target={}", outcome.label, delivery.getTarget());
+        } catch (RuntimeException ignored) {
+            // 로그 한 줄을 잃을 뿐이다.
         }
     }
 
