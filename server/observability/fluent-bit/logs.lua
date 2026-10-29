@@ -267,21 +267,23 @@ local function nginx_error(line, stream)
   local conn, after = rest:match("^%*(%d+) (.*)$")
   if conn then connection, rest = tonumber(conn), after end
   -- 요청 줄·upstream·referrer·client 에는 query/토큰/IP 가 들어갈 수 있다.
+  -- referrer 는 Nginx 가 이스케이프 없이 줄 끝에 `, referrer: "<값>"` 으로 붙인다(ngx_http_request.c, 항상 마지막 필드).
+  -- 값 안에 따옴표가 있어도 되므로 `, referrer: "` 지점부터 줄 끝까지를 통째로 버린다. 다른 규칙보다 먼저 적용한다.
+  local ref = rest:find(', referrer: "', 1, true)
+  if ref then rest = rest:sub(1, ref - 1) .. ', referrer: "-"' end
   rest = rest:gsub('request: "(%S+) ([^" ]+)([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. p .. '"' end)  -- 프로토콜이 없는 HTTP/0.9 도
   rest = rest:gsub('upstream: "([^"]*)"', function(u) return 'upstream: "' .. sanitize_url(u) .. '"' end)
-  rest = rest:gsub('referrer: "[^"]*"', 'referrer: "-"')
   rest = rest:gsub("client: [^,%s]+", "client: ****")
   -- auth_basic: user "<이름>" was not found in "…" / user "<이름>": password mismatch. host:·server: 는 호스트 이름이라 둔다.
   rest = rest:gsub('%f[%w]user "[^"]*"', 'user ":redacted"')
   -- open() "/경로" failed, directory index of "/경로" 처럼 따옴표로 감싼 파일 경로에도 요청 경로가 그대로 들어간다.
   rest = rest:gsub('"(/[^"]*)"', function(p) return '"' .. sanitize_path(p) .. '"' end)
   -- Nginx 는 error 한 줄을 약 2 KiB(NGX_MAX_ERROR_STR)에서 자른다. 그러면 마지막 따옴표 값이 닫히지 않아 위 규칙이 모두 비껴간다.
-  -- 따옴표 수가 홀수면 마지막 따옴표 뒤(줄 끝까지)를 정제한다: referrer 는 버리고, upstream 은 URL 규칙, 그 밖(request: "GET /…,
+  -- 따옴표 수가 홀수면 마지막 따옴표 뒤(줄 끝까지)를 정제한다: upstream 은 URL 규칙, 그 밖(request: "GET /…,
   -- open() "/… 뒤에 Nginx 가 붙인 «... (2: No such file …), client: …» 포함)은 query 제거 + 경로 정제.
   local before, tail = rest:match('^(.*")([^"]*)$')
   if before and select(2, rest:gsub('"', '')) % 2 == 1 then
-    if before:sub(-11) == 'referrer: "' then tail = "-"
-    elseif before:sub(-11) == 'upstream: "' then tail = sanitize_url(tail)
+    if before:sub(-11) == 'upstream: "' then tail = sanitize_url(tail)
     else tail = sanitize_path(tail) end
     rest = before .. tail
   end
