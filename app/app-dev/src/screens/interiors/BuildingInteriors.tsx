@@ -748,7 +748,7 @@ export function InteriorScreen({
   reduceMotion?: boolean;
   hideArtifact?: boolean;
   e?: any;
-  insets?: { top: number; left: number };
+  insets?: { top: number; left: number; right?: number };
   sceneHeight?: number;
   higherModalOpen?: boolean;
 }) {
@@ -922,21 +922,31 @@ export function InteriorScreen({
       )}
       <NavBtn
         testID="scene-back"
-        boardPaper={fullBoardScene}
+        // 게시판은 바탕(종이)이 복잡해 뒤로 원이 잘 안 보여서, X를 반투명 원 위에 올리고 오른쪽 위에 둔다.
+        // 다른 건물은 그대로 왼쪽 위의 불투명 원·뒤로 화살표.
+        close={fullBoardScene}
+        scrim={fullBoardScene}
         ref={sceneBackRef as any}
         disabled={sceneBackBlocked}
         accessibilityElementsHidden={sceneBackBlocked}
         {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
         label="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
-        // 원(34)이 예전 자리(왼쪽 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
-        // 장면을 키워 그리는 우체통(navScale = 1/k)도 왼쪽 위 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
+        // 원(34)이 예전 자리(좌/우 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
+        // 장면을 키워 그리는 우체통(navScale = 1/k)도 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
         style={{
           position: 'absolute',
           zIndex: 12,
-          left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+          ...(fullBoardScene
+            ? {
+                right: navScale * (9 + Math.max(0, (insets?.right ?? 0) / navScale - 52)),
+                transformOrigin: 'right top',
+              }
+            : {
+                left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+                transformOrigin: 'left top',
+              }),
           top: navScale * (31 + Math.max(0, (insets?.top ?? 0) / navScale - 52)),
-          transformOrigin: 'left top',
           transform: [{ scale: navScale }],
         }}
       />
@@ -1139,7 +1149,11 @@ export function InteriorRoute({
               height={height / k}
               reduceMotion={e.state.settings.reduceMotion}
               e={e}
-              insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
+              insets={{
+                top: layout.insets.top / k,
+                left: layout.insets.left / k,
+                right: layout.insets.right / k,
+              }}
               sceneHeight={Math.max(height, layout.height) / k}
               higherModalOpen={modalAboveBoard}
             />
