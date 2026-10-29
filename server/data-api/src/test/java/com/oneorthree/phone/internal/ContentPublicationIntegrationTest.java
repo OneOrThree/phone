@@ -6,6 +6,7 @@ import com.oneorthree.phone.content.service.DeveloperNoticeService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
+import com.oneorthree.phone.internal.service.MagazinePublishService;
 import com.oneorthree.phone.internal.scheduler.MagazinePublishScheduler;
 import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.notification.producer.NotificationExpiry;
@@ -45,6 +46,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -80,6 +82,7 @@ class ContentPublicationIntegrationTest {
     @Autowired GroupRepository groups;
     @MockitoBean Clock clock;
     @MockitoSpyBean NotificationOutboxProducer producer;
+    @MockitoSpyBean MagazinePublishService publisher;
 
     @BeforeEach
     void reset() {
@@ -281,11 +284,48 @@ class ContentPublicationIntegrationTest {
     }
 
     @Test
-    void aFutureIssueCannotBePublishedEarly() {
-        var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE.plusDays(1), null), "member-1");
-        assertThatThrownBy(() -> reviews.publish(UUID.randomUUID(),
-                new MagazineReviewService.PublishRequest(preview.snapshotId(), preview.digest()), "member-1"))
-                .isInstanceOf(ContentException.class).hasMessageContaining("오전 7시");
+    void previewRejectsFutureAndUnclosedWindowsBeforeWritingAverages() {
+        for (LocalDate date : List.of(DATE.minusDays(1), DATE.plusDays(1))) {
+            assertThatThrownBy(() -> reviews.preview(new MagazineReviewService.PreviewRequest(date, null), "member-1"))
+                    .isInstanceOf(ContentException.class).hasMessageContaining("오전 7시");
+        }
+        Group island = groups.save(Group.builder().name("아직 집계할 수 없는 섬").maxMembers(10).build());
+        setClock(DATE.atTime(6, 59).atZone(ZonePolicy.KST).toInstant());
+        assertThatThrownBy(() -> reviews.preview(new MagazineReviewService.PreviewRequest(DATE, null), "member-1"))
+                    .isInstanceOf(ContentException.class).hasMessageContaining("오전 7시");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM island_focus_averages WHERE island_id=?",
+                Long.class, island.getId())).isZero();
+        assertThat(count("magazine_review_snapshots")).isZero();
+        assertThat(count("magazine_issues")).isZero();
+    }
+
+    @Test
+    void previewComputesTheClosedWindowBeforeFreezingCards() {
+        Group island = groups.save(Group.builder().name("오늘 평균을 기다리는 섬").maxMembers(10).build());
+        jdbc.update("UPDATE islands SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
+                island.getId());
+        jdbc.update("INSERT INTO island_focus_averages(snapshot_date,island_id,member_count,avg_minutes_per_member_day)"
+                + " VALUES(?,?,?,?)", DATE.minusDays(1), island.getId(), 1, 77);
+        setClock(DATE.atTime(7, 0).atZone(ZonePolicy.KST).toInstant());
+        var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE, null), "member-1");
+        assertThat(jdbc.queryForObject("SELECT member_count FROM island_focus_averages"
+                + " WHERE snapshot_date=? AND island_id=?", Integer.class, DATE, island.getId())).isZero();
+        var card = preview.editorial().newIslands().stream()
+                .filter(row -> row.islandId().equals(island.getId())).findFirst().orElseThrow();
+        assertThat(card.averageFocusMinutesPerDay()).as("전날 77분 대신 오늘 주민0명의 null 평균을 동결한다").isNull();
+        assertThat(count("magazine_review_snapshots")).isEqualTo(1);
+        assertThat(count("magazine_issues")).isZero();
+    }
+
+    @Test
+    void averageCommitSurvivesAFailedReviewWithoutPublishing() {
+        Group island = groups.save(Group.builder().name("집계 후 검토 실패 섬").maxMembers(10).build());
+        doThrow(new IllegalStateException("검토 읽기 실패")).when(publisher).preview(DATE, null);
+        assertThatThrownBy(() -> reviews.preview(new MagazineReviewService.PreviewRequest(DATE, null), "member-1"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("검토 읽기 실패");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM island_focus_averages"
+                + " WHERE snapshot_date=? AND island_id=?", Long.class, DATE, island.getId())).isEqualTo(1);
+        assertThat(count("magazine_review_snapshots")).isZero();
         assertThat(count("magazine_issues")).isZero();
     }
 
