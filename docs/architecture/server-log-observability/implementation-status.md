@@ -108,9 +108,42 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 
 **dev 배포 뒤 확인.** agent 활성 상태에서 `origin_trace_id` 원문 형식, agent 자동 헤더(`traceparent` 등)와 `x-origin-*`의 공존.
 
+## 2559에서 구현한 경로
+
+**내부 wire.** `chat:fanout`의 `ChatFanoutEvent`와 `chat:events:v1`의 `RealtimeEventFanoutEvent`에 nullable `telemetry {v, originRequestId, originTraceId, eventId}`(`@JsonInclude(NON_NULL)`)를 더했다. `v`는 boxed `Integer`다. 클라이언트 DTO(`ChatMessageResponse`)와 7필드 이벤트 봉투에는 추가하지 않는다. 받는 쪽은 전용 lenient 역직렬화기(`FanoutTelemetry.Lenient`)로 읽는다. 객체가 아니거나 한 필드라도 타입이 어긋나면 telemetry **전체**를 버리고 봉투는 그대로 처리한다. 필드 단위로 살리지 않는 이유는 깨진 발행자가 낸 나머지 값을 원인으로 믿으면 엉뚱한 요청에 로그가 이어질 수 있기 때문이다.
+
+**발행.** 발행 직전 현재 스레드 MDC에서 telemetry를 만든다(`FanoutTelemetry.capture`). origin 키가 하나라도 있으면 그대로 싣고, 없을 때만 `request_id`를 origin으로 승격한다. 채팅(`chat:fanout`)은 `eventId`를 비우고 `message_id`로 잇는다. 도메인 사건은 봉투의 `eventId`를 싣는다. 세션 폐기 제어 사건도 같은 `chat:events:v1` 채널을 쓰며 Data 사건 id를 telemetry `eventId`로 싣는다. 발행마다 `event_name=fanout.publish` INFO 한 줄을 남긴다. 이 줄은 «Pub/Sub에 넘겼다»이지 «건너편이 받았다»가 아니다.
+
+**구독.** 두 subscriber는 역직렬화 성공 직후, 자기 echo 판정 **전**에 scope를 연다. `self_echo` 줄도 원인과 ID를 단다. scope에는 telemetry 값과 채팅의 `message_id`, 사건의 봉투 `eventId`를 넣고 `finally`에서 이전 값으로 되돌린다. 결과는 `event_name=fanout.receive` 한 줄(`result=delivered|self_echo|invalid|failed`)이다. 역직렬화 자체가 실패한 `invalid` 줄은 scope가 없다. 섬 사건 subscriber에서 제어 필드도 섬 사건 필드도 갖추지 못한 봉투를 버릴 때의 `invalid`는 scope 안에서 나온다. 실패 로그는 예외 클래스 이름만 남기고 본문 조각을 싣지 않는다.
+
+**아웃바운드.** `OutboundSendBudget`의 TaskDecorator가 «세션별 개수 세기»와 «앱 MDC 스냅샷 설치·복원»을 함께 한다. 제출 시점에 `request_id`·`origin_*`·`event_id`·`message_id` 등 allowlist 키를 캡처해 `realtime-outbound-*` 스레드에 설치하고 닫을 때 실행 스레드의 원래 값으로 되돌린다. `user_id`는 옮기지 않는다. 아웃바운드의 현재 사용자는 수신 세션인데 발신자 id가 붙으면 수신자별 판정 로그와 섞이기 때문이다. `event_name`·`dd.*`·`trace_id`·`span_id`도 옮기지 않는다. 이 연결은 `configureBrokerChannel`에 executor가 없다(동기)는 전제 위에 있다. executor를 주면 제출 스레드의 MDC 캡처가 끊긴다. `WebSocketConfigTest`가 이 전제(`hasExecutor` false)를 고정한다.
+
+**STOMP 수신 프레임.** 수신 인터셉터 맨 앞의 `StompLogScope`가 프레임마다 새 `request_id`와 인증 주체 `user_id`를 `beforeHandle`~`afterMessageHandled` 동안 설치하고 복원한다. 채팅 발신이 내는 팬아웃의 origin은 이 `request_id`다. 순서 보존 콜백이 같은 스레드에서 다음 프레임의 `preSend`를 부르는 구간에는 두 키를 내려 둔다. 그래서 `preSend`~`afterSendCompletion` 구간에서 나오는 거절 로그(ERROR 프레임)에는 `request_id`가 없다. 프레임을 버리지 않으며 거절 판정은 기존 인터셉터 그대로다(`StompLogScopeTest`).
+
+**수신 입구.** `KafkaEventInbound`는 `ConsumerRecord` 헤더를, `/internal/events`·우체통은 인증을 통과한 요청의 헤더를 처리 동안 설치한다(형식 오류·모르는 버전은 무시). HTTP·Kafka 공통 `InboundAcceptLog`가 `event_name=consumer.accept` 한 줄(`accepted|duplicate|failed`)을 남긴다. 본문 처리·dedupe·재시도·DLT 판정은 바꾸지 않는다.
+
+**혼합 배포.** 순서 제약이 없다. 구버전 인스턴스는 모르는 `telemetry` 키를 무시하고(Jackson 3 `FAIL_ON_UNKNOWN_PROPERTIES` 기본값 false), 새 인스턴스는 키 없는 구버전 JSON을 `telemetry=null`로 읽는다. `InboundEventServiceTest`의 `oldReplicasReadTelemetryWireWithoutFailing`(신→구)과 `newReplicasReadPreTelemetryWire`(구→신)가 실제 ObjectMapper로 양방향을 확인한다.
+
+**검증.**
+
+| 범위 | 결과 |
+| --- | --- |
+| realtime 전체 `build` (로컬 실행, 2557 병합 트리) | 824개 실패·오류 0 |
+| 두 인스턴스 `FanoutLogContextIntegrationTest` (같은 JVM 두 컨텍스트, 실제 Redis·Postgres) | STOMP 프레임 `request_id`가 팬아웃 origin이 됨, 두 채널의 구독·아웃바운드 MDC 연결, 자기 echo, 클라이언트 원문 키 불변, 손상 telemetry가 업무 전달을 막지 않음 |
+
+위 숫자는 로컬 실행 결과다. dev 배포 검증이 아니다.
+
+**2559 범위 밖·후속.**
+
+1. `chat:sea:v1`(`SeaRoomFanoutEvent`)과 이동 채널은 wire에 telemetry를 싣지 않았다. 바다 방 사건은 `message_id` 조회에 잡히지 않는다.
+2. Redis 메시지 처리 span은 만들지 않았다. 이번 범위는 앱 ID scope뿐이다.
+3. subscriber 단절을 구분하는 로그는 없다(`implementation-details.md` §5 완료 조건 중 후속). 역직렬화 실패만 `invalid`로 구분한다.
+4. Kafka 재시도·DLT recoverer 로그는 scope 밖이다.
+5. 미검증: Realtime Kafka 실제 브로커, DLT 헤더 보존(리스너를 `ConsumerRecord`로 직접 호출해 검증), 실배포 JSON 출력.
+
 ## 아직 구현하지 않은 경계
 
-- 이 첫 티켓은 요청 ID의 동기 HTTP 경로를 연결한다. Preview worker, Outbox 영속 carrier, Kafka/Redis/STOMP, Notification 묶음 전송은 후속 범위다.
+- 이 첫 티켓은 요청 ID의 동기 HTTP 경로를 연결한다. Preview worker와 Notification 묶음 전송은 후속 범위다. Outbox 영속 carrier와 Kafka 소비는 2557, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559에서 구현했다. Realtime에서 남은 것은 아래 「2559 범위 밖·후속」에 적었다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
 - DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 로그 JSON·마스킹·log_id, Loki/S3 수집·재전송·중복 제거·보존·부하 영향은 아직 미검증이다.

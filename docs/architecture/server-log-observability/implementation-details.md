@@ -110,6 +110,12 @@ DD `1.64.0`은 로그 발생 시점의 span context를 `ILoggingEvent`와 연결
 | Realtime 인스턴스 간 전달 | [RedisConfig](../../../server/realtime/src/main/java/com/oneorthree/realtime/config/RedisConfig.java), `ChatFanoutSubscriber`, `RealtimeEventFanoutSubscriber` | Redis 내부 wire에 nullable telemetry metadata 추가. subscriber thread에서 복원. 채팅은 `message_id`, 도메인 사건은 `event_id`로 연결 |
 | Logback 출력 thread | JSON provider 및 선택적 async appender | 실행 thread의 ThreadLocal을 조회하지 않고 `ILoggingEvent` snapshot 사용 |
 
+Realtime 구현의 제약(2559):
+
+- 아웃바운드 스냅샷은 `user_id`를 옮기지 않는다. 그 스레드의 현재 사용자는 수신 세션이라 발신자 id가 붙으면 수신자별 판정 로그와 섞인다. 아래 2.2의 `KEYS` 예시를 그대로 복사하지 않는다.
+- STOMP 아웃바운드 연결은 `configureBrokerChannel`에 executor가 없다(동기)는 전제 위에 있다. executor를 주면 제출 스레드의 MDC 캡처가 끊긴다. `WebSocketConfigTest`가 이 전제를 고정한다.
+- STOMP 프레임 scope는 `beforeHandle`~`afterMessageHandled` 동안만 열린다. `preSend`~`afterSendCompletion` 구간에서 나오는 거절 ERROR 프레임 로그에는 `request_id`가 없다.
+
 `ScreenComposer`와 `InternalHttpClient`는 Spring `ThreadPoolTaskExecutor`가 아니므로 **TaskDecorator 빈 하나를 등록하는 것만으로 처리되지 않는다**. 직접 만든 pool의 submission wrapper도 수정해야 한다. future 완료 callback·`thenApplyAsync`는 callback 등록과 executor 제출 시점이 다를 수 있다. 이 경우 등록 시 앱 문맥을 캡처한 callback wrapper가 실행 본문에서 그 값을 설치·복원해야 한다. 완료를 알린 다른 요청의 thread 문맥을 실수로 물려받지 않게 검사한다.
 
 ### 2.2 앱 MDC 전달 코드 예시
@@ -206,11 +212,19 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 
 ### 3.2 Redis를 건너는 Realtime
 
-[ChatFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/fanout/ChatFanoutEvent.java)는 `chat:fanout`, [RealtimeEventFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutEvent.java)는 `chat:events:v1` 내부 wire다. 두 채널에 nullable telemetry metadata를 추가하되 기존 클라이언트 메시지·7필드 사건 봉투와 수신 권한 로직을 변경하지 않는다. 구버전 consumer의 알 수 없는 필드 허용 여부를 실제 ObjectMapper로 확인하고, 필요하면 consumer 선배포 후 producer를 켠다.
+[ChatFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/fanout/ChatFanoutEvent.java)는 `chat:fanout`, [RealtimeEventFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutEvent.java)는 `chat:events:v1` 내부 wire다. 두 채널에 nullable telemetry metadata를 추가하되 기존 클라이언트 메시지·7필드 사건 봉투와 수신 권한 로직을 변경하지 않는다. 구버전 consumer의 알 수 없는 필드 허용 여부를 실제 ObjectMapper로 확인했고 **순서 제약은 없다**(Jackson 3 기본값은 알 수 없는 속성을 무시하며, `InboundEventServiceTest`가 신→구·구→신 양방향을 읽는다). consumer 선배포 단계는 필요 없다.
 
-발행 인스턴스 A의 문맥을 Redis subscriber B의 ThreadLocal이 자동으로 물려받지는 않는다. B는 carrier를 추출해 메시지 처리 span과 앱 ID scope를 만들고 `finally`에서 복원한다. Redis client 명령 span이 생긴다는 것만으로 Pub/Sub 수신까지 연결됐다고 판정하지 않는다. 자기 인스턴스 메아리 제외와 로컬/원격 전달 중복 방지는 기존 계약을 유지한다.
+발행 인스턴스 A의 문맥을 Redis subscriber B의 ThreadLocal이 자동으로 물려받지는 않는다. B는 carrier를 추출해 앱 ID scope를 만들고 `finally`에서 복원한다. 메시지 처리 span 생성은 이번 구현 범위가 아니라 후속이다. Redis client 명령 span이 생긴다는 것만으로 Pub/Sub 수신까지 연결됐다고 판정하지 않는다. 자기 인스턴스 메아리 제외와 로컬/원격 전달 중복 방지는 기존 계약을 유지한다.
 
 채팅의 안정 키는 도메인 `messageId`를 로그의 `message_id`로 매핑한다. 채팅 본문·recipients 목록·토큰을 로그에 넣지 않는다. Pub/Sub publish 성공과 앱 수신 성공은 구분한다. subscriber 단절·역직렬화 실패는 현재 전달 보장의 한계로 남기며 관측 변경으로 Redis가 내구 큐가 됐다고 주장하지 않는다.
+
+구현에서 정한 점은 다음과 같다.
+
+- telemetry는 전용 lenient 역직렬화기로 읽는다. 형식이 하나라도 어긋나면 필드 단위로 살리지 않고 telemetry **전체**를 버리며 봉투는 그대로 처리한다.
+- subscriber scope는 역직렬화 성공 직후, 자기 echo 판정 **전**에 연다. `self_echo` 줄도 원인과 ID를 단다. 결과는 `delivered|self_echo|invalid|failed` 한 줄이며, 역직렬화에 실패한 `invalid` 줄에는 scope가 없다.
+- 세션 폐기 제어 사건도 `chat:events:v1`을 쓰며 Data 사건 id를 telemetry `eventId`로 싣는다.
+- `chat:sea:v1`(`SeaRoomFanoutEvent`)과 이동 채널은 wire에 telemetry를 싣지 않았다. 후속이다. 그래서 바다 방 사건은 `message_id` 조회에 잡히지 않는다.
+- subscriber 단절을 구분하는 로그는 후속이다. 이번 구현은 역직렬화 실패만 `invalid`로 구분한다.
 
 ### 3.3 여러 원사건이 한 발송으로 합쳐지는 Notification
 
