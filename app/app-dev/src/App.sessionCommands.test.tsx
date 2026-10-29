@@ -3454,8 +3454,19 @@ test.each(['active', 'pending', 'joined'] as const)(
       captured.reset('character');
     });
     expect(commands.resolveInvite).not.toHaveBeenCalled();
+    if (status === 'pending') {
+      await act(async () =>
+        mockAppDispatch!({
+          type: 'LOAD',
+          state: { ...captured.state, visitingIslandId: 'visiting-other' },
+          now: Date.now(),
+        }),
+      );
+    }
     await act(async () => captured.reset('chooseIsland'));
-    await waitFor(() => expect(commands.resolveInvite).toHaveBeenCalledWith('abcdefgh'));
+    await waitFor(() =>
+      expect(commands.resolveInvite).toHaveBeenCalledWith('abcdefgh', { arrive: true }),
+    );
     if (status === 'joined') {
       await waitFor(() => expect(commands.switchCurrent).toHaveBeenCalledWith('invited'));
       expect(commands.join).not.toHaveBeenCalled();
@@ -3467,6 +3478,7 @@ test.each(['active', 'pending', 'joined'] as const)(
       await waitFor(() =>
         assert.equal(captured.route, status === 'pending' ? 'approval' : 'guide'),
       );
+      if (status === 'pending') assert.ok(!captured.state.visitingIslandId);
     }
   },
 );

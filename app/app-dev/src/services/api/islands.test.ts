@@ -457,3 +457,9 @@ test('응답이 돌아올 때 세션 세대가 바뀌었으면 CLIENT_STALE_SESS
   const error = await myIslands().catch((e) => e);
   assert.equal(error.code, CLIENT_STALE_SESSION);
 });
+
+test('초대 링크 진입은 arrive=true로 도착 이력을 기록한다', async () => {
+  stub([{ status: 200, body: { data: { island: summary('i1'), invitationToken: 'abcdefgh' } } }]);
+  await resolveInvitation('abcdefgh', { arrive: true });
+  assert.deepEqual(body(calls[0]), { code: 'abcdefgh', arrive: true });
+});

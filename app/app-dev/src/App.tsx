@@ -870,10 +870,12 @@ function Gromo() {
       void (async () => {
         try {
           const commands = islandCmds.current!.commands;
-          const island = await commands.resolveInvite(target.code);
+          const island = await commands.resolveInvite(target.code, { arrive: true });
           if (!latest()) return;
           const snapshot = stateRef.current.serverIslands;
-          const joined = snapshot?.memberships.some((item) => item.id === island.id);
+          const joined =
+            island.membershipStatus === 'active' ||
+            snapshot?.memberships.some((item) => item.id === island.id);
           if (joined) {
             if (snapshot?.currentIslandId !== island.id) await commands.switchCurrent(island.id);
           } else {
@@ -888,7 +890,8 @@ function Gromo() {
               return;
             }
             if (result.status === 'pending') {
-              goRef.current('approval', island.id);
+              if (stateRef.current.visitingIslandId) dispatch({ type: 'END_VISIT' });
+              resetRef.current('approval', island.id);
               return;
             }
           }

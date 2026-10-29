@@ -1289,3 +1289,17 @@ test('안내 이력 오류와 별개로 서버 정본 조회 실패는 그대로
   await assert.rejects(h.cmds.syncIslands(), (e: unknown) => e === error);
   assert.equal(h.dispatched.length, 0);
 });
+
+test('초대 도착 해석 뒤 소속 정본을 갱신한다', async () => {
+  const invited = island({ id: 'i9', membershipStatus: 'active', arrivedBefore: true });
+  const resolveInvite = jest.fn(async () => ({ island: invited, invitationToken: 'abcdefgh' }));
+  const h = harness({
+    resolveInvite,
+    myIslands: async () => myIslands({ items: [invited], currentIslandId: 'i9' }),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.resolveInvite('abcdefgh', { arrive: true });
+  expect(resolveInvite).toHaveBeenCalledWith('abcdefgh', { arrive: true });
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i9');
+  assert.equal(h.state().serverIslands?.memberships[0].arrivedBefore, true);
+});
