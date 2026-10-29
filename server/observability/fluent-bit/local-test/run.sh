@@ -94,8 +94,8 @@ while time.time() - t0 < limit + 30:
     if hit:
         took = time.time() - t0
         print(f"1 MiB 줄: 도착까지 {took:.1f}s (생성·Docker 기록 포함), message={len(hit[0]['message'])}B truncated={hit[0].get('truncated')}")
-        # 단어 문자만 1 MiB 라 사전 자르기 꼬리 토큰(drop_cut_token, GROMO-2584)이 앞 32 KiB 전체를 버려 message 는 비어도 된다(≤ 16 KiB).
-        assert len(hit[0]["message"]) <= 16384 and hit[0].get("truncated") is True
+        # 단어 문자만 1 MiB 라도 꼬리 토큰 버림은 끝 254자까지만이라(GROMO-2584) message 는 비지 않고 16 KiB 상한까지 찬다(실측 16384B).
+        assert len(hit[0]["message"]) == 16384 and hit[0].get("truncated") is True
         raise SystemExit(0 if took <= limit else 1)
     time.sleep(1)
 print("1 MiB 줄이 도착하지 않음"); raise SystemExit(1)
