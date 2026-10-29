@@ -216,18 +216,32 @@ public class OutboxRelayService {
         for (int i = 0; i < rows.size(); i++) {
             EventOutboxDelivery delivery = rows.get(i);
             EventOutbox envelope = envelopes.get(delivery.getOutboxId());
-            OutboxCarrier carrier = OutboxCarrier.of(delivery, envelope);
             boolean done;
             // 행 하나의 문맥 — 아래 예외 로그까지 이 행의 event_id·origin 을 달고, 끝나면 이 스레드의 이전 값으로 돌아간다.
-            try (LogScope ignored = carrier.openScope()) {
-                try {
-                    Outcome outcome = deliverOne(delivery, envelope, token, carrier);
-                    done = outcome == Outcome.DELIVERED;
-                    logOutcome(outcome, delivery);
-                } catch (RuntimeException e) {
-                    // 표시 단계 DB 오류 등 — 축을 멈추고 나머지는 놓는다. 이 행은 리스 만료 뒤 다시 집힌다.
-                    log.error("축 전달 중 예외 — deliveryId={} target={}", delivery.getId(), delivery.getTarget(), e);
-                    done = false;
+            // 관측 실패(carrier·scope 생성)가 축을 멈추면 안 된다 — 전달은 그대로 진행한다.
+            // carrier 생성이 실패하면 origin 헤더 없이, scope 만 실패하면 헤더는 유지하고 로그 문맥 없이 보낸다.
+            OutboxCarrier carrier = OutboxCarrier.NONE;
+            LogScope scope = null;
+            try {
+                OutboxCarrier built = OutboxCarrier.of(delivery, envelope);
+                carrier = built;
+                scope = built.openScope();
+            } catch (RuntimeException e) {
+                log.warn("원인 문맥 carrier·scope 생성 실패(carrier 실패면 origin 헤더 없이, scope 만 실패면 헤더 유지·로그 문맥 없이 전달)"
+                        + " — deliveryId={} target={}",
+                        delivery.getId(), delivery.getTarget(), e);
+            }
+            try {
+                Outcome outcome = deliverOne(delivery, envelope, token, carrier);
+                done = outcome == Outcome.DELIVERED;
+                logOutcome(outcome, delivery);
+            } catch (RuntimeException e) {
+                // 표시 단계 DB 오류 등 — 축을 멈추고 나머지는 놓는다. 이 행은 리스 만료 뒤 다시 집힌다.
+                log.error("축 전달 중 예외 — deliveryId={} target={}", delivery.getId(), delivery.getTarget(), e);
+                done = false;
+            } finally {
+                if (scope != null) {
+                    scope.close();
                 }
             }
             if (!done) {

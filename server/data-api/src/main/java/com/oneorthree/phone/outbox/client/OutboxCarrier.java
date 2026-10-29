@@ -26,6 +26,9 @@ public record OutboxCarrier(String eventId, UUID deliveryId, int attempt, String
     /** carrier 형식 버전 — 수신 측은 모르는 버전이면 origin·전달 헤더를 통째로 무시한다. */
     public static final String VERSION = "1";
 
+    /** 문맥을 만들지 못했을 때 쓰는 빈 carrier — origin·id 헤더 없이 버전 헤더만 싣는다. */
+    public static final OutboxCarrier NONE = new OutboxCarrier(null, null, 0, null, null);
+
     /**
      * @param delivery 선점한 전달 행
      * @param envelope 그 봉투 — 없으면({@code null}) 전달 행 값만 싣는다
@@ -44,12 +47,17 @@ public record OutboxCarrier(String eventId, UUID deliveryId, int attempt, String
      * @return 설치한 scope
      */
     public LogScope openScope() {
-        return LogScope.open()
-                .id("event_id", eventId)
-                .id("delivery_id", deliveryId)
-                .attempt(attempt)
-                .id("origin_request_id", originRequestId)
-                .id("origin_trace_id", originTraceId);
+        LogScope scope = LogScope.open();
+        try {
+            return scope.id("event_id", eventId)
+                    .id("delivery_id", deliveryId)
+                    .attempt(attempt)
+                    .id("origin_request_id", originRequestId)
+                    .id("origin_trace_id", originTraceId);
+        } catch (RuntimeException e) {
+            scope.close(); // 일부만 설치된 키를 남기지 않는다
+            throw e;
+        }
     }
 
     /**

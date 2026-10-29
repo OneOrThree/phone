@@ -128,7 +128,10 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
         }
     }
 
-    /** 자기가 넣은 키만 이전 값으로 되돌린다. 전체 MDC 를 지우지 않는다(§2.2). */
+    /**
+     * 자기가 넣은 키만 이전 값으로 되돌린다. 전체 MDC 를 지우지 않는다(§2.2). data-api {@code LogScope} 와 같은 규칙의 복사본이다
+     * (서비스 간 공유 코드 없음) — 규칙을 바꾸면 양쪽을 함께 고친다.
+     */
     private static final class Scope implements AutoCloseable {
         private final Map<String, String> previous = new LinkedHashMap<>();
 
