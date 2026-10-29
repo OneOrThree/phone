@@ -26,8 +26,12 @@ class PublicationController {
     }
 
     @GetMapping("/internal/admin/publications/environment")
-    Map<String, String> environment() {
-        return guard.identity();
+    Map<String, Object> environment() {
+        Map<String, Object> result = new java.util.LinkedHashMap<>(guard.identity());
+        result.put("contractVersion", "1");
+        result.put("capabilities", java.util.List.of("notification.publication.v1",
+                "notification.history.v1", "notification.templates.v1"));
+        return Map.copyOf(result);
     }
 
     @GetMapping("/internal/admin/publications/history")
@@ -47,7 +51,7 @@ class PublicationController {
     }
 
     private void requireEnvironment(HttpServletRequest request) {
-        var actual = environment();
+        var actual = guard.identity();
         if (request == null || !actual.get("environment").equals(request.getHeader("X-Backoffice-Environment"))
                 || !actual.get("fcmProjectId").equals(request.getHeader("X-Backoffice-Fcm-Project"))) {
             throw new IllegalStateException("백오피스 요청 환경과 Notification DB/FCM 환경이 다릅니다.");

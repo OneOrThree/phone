@@ -1,3 +1,5 @@
+import contract from "../server/contract.json" with { type: "json" };
+const apiContract = { contractVersion: contract.contractVersion, capabilities: [...contract.data, ...contract.notification] };
 import test from "node:test";
 import assert from "node:assert/strict";
 import { scryptSync } from "node:crypto";
@@ -125,7 +127,7 @@ test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용"
     fetchImpl: async (url, options) => {
       if (options.method === "GET") {
         checked.push(url.pathname);
-        return new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }));
+        return new Response(JSON.stringify({ ...apiContract, environment: "dev", fcmProjectId: "gromo-dev" }));
       }
       request = { url, options };
       return new Response(JSON.stringify({ status: "PENDING" }), {
@@ -173,7 +175,7 @@ test("dev·prod 연결이 어긋나면 발행 전에 멈춘다", async () => {
     notificationUrl: "http://notification.internal",
     fetchImpl: async (url, options) => {
       requests.push({ path: url.pathname, method: options.method });
-      return new Response(JSON.stringify({ environment: url.hostname === "data.internal" ? "prod" : "dev",
+      return new Response(JSON.stringify({ ...apiContract, environment: url.hostname === "data.internal" ? "prod" : "dev",
         fcmProjectId: "gromo-dev" }), {
         headers: { "Content-Type": "application/json" },
       });
@@ -194,7 +196,7 @@ test("FCM 프로젝트가 다르면 알림 발송 전에 멈춘다", async () =>
     dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
     fetchImpl: async (url, options) => {
       methods.push(options.method);
-      return new Response(JSON.stringify({ environment: "dev",
+      return new Response(JSON.stringify({ ...apiContract, environment: "dev",
         fcmProjectId: url.hostname === "notification.internal" ? "gromo-prod" : undefined }));
     },
   });
@@ -210,7 +212,7 @@ test("운영 이력은 환경을 확인한 뒤 원장과 게시 DB에서 읽는�
     fetchImpl: async (url, options) => {
       paths.push(`${options.method} ${url.pathname}${url.search}`);
       if (url.pathname.endsWith("/environment"))
-        return new Response(JSON.stringify({ environment: "prod", fcmProjectId: "gromo-prod" }));
+        return new Response(JSON.stringify({ ...apiContract, environment: "prod", fcmProjectId: "gromo-prod" }));
       if (url.pathname.endsWith("/publications/history"))
         return new Response(JSON.stringify({ items: [{ id: "delivery", kind: "FRIEND_ACCEPTED", status: "SENT" }], nextCursor: null }));
       return new Response(JSON.stringify({ items: [{ id: "notice" }], total: 1, nextCursor: null }));

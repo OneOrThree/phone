@@ -83,4 +83,26 @@ class ContentEnvironmentTest {
         verifyNoInteractions(policies);
     }
 
+
+    @Test
+    void 환경_응답은_검증된_환경과_지원_API_계약을_함께_반환한다() throws Exception {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
+        var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
+                mock(ContentHistoryService.class), mock(MagazineReviewService.class),
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/content/environment"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.environment").value("prod"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.contractVersion").value("1"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
+                                "content.history.v1", "construction.policy.v1", "focus.policy.v1")));
+    }
 }

@@ -38,7 +38,13 @@ public class InternalContentAdminController {
     private final JdbcTemplate jdbc;
 
     @GetMapping("/environment")
-    public Map<String, String> environment() {
+    public Map<String, Object> environment() {
+        return Map.of("environment", verifiedEnvironment(), "contractVersion", "1",
+                "capabilities", java.util.List.of("content.publication.v1", "content.history.v1",
+                        "construction.policy.v1", "focus.policy.v1"));
+    }
+
+    private String verifiedEnvironment() {
         var profiles = Arrays.asList(environment.getActiveProfiles());
         boolean dev = profiles.contains("dev");
         boolean prod = profiles.contains("prod");
@@ -54,7 +60,7 @@ public class InternalContentAdminController {
         if (markers.size() != 1 || !expected.equals(markers.get(0))) {
             throw new IllegalStateException("Data DB 환경이 실행 프로파일과 일치하지 않습니다.");
         }
-        return Map.of("environment", expected);
+        return expected;
     }
 
     @GetMapping("/notices")
@@ -114,7 +120,7 @@ public class InternalContentAdminController {
     private void requireEnvironment(HttpServletRequest request) {
         var profiles = Arrays.asList(environment.getActiveProfiles());
         if (profiles.contains("dev") || profiles.contains("prod")) {
-            String actual = environment().get("environment");
+            String actual = verifiedEnvironment();
             if (request == null || !actual.equals(request.getHeader("X-Backoffice-Environment"))) {
                 throw new IllegalStateException("백오피스 요청 환경과 Data DB 환경이 다릅니다.");
             }

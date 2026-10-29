@@ -86,3 +86,7 @@ Notification의 모든 인스턴스를 새 버전으로 교체한 다음 연결 
 기준 정책이 바뀌면 적용이 409로 거부되므로 현재 값을 다시 읽어 검토·승인한다. 응답 유실은 같은 요청으로 재시도하며, 로컬 정책과 영수증도 SQLite에 보존한다. 실제 적용 전후 값·적용자는 Data 영수증, 승인자·검토 이력은 백오피스에 남는다. Data V5 마이그레이션과 운영자별 새 경로 허용목록을 함께 배포해야 한다.
 
 [설계·데이터 흐름·복구 절차](../docs/engineering/backoffice-construction-policy.md)를 참고한다.
+
+## 독립 릴리스
+
+서버 `release`와 별도로 `backoffice-vX.Y.Z` 태그에서 이미지를 발행하고 `backoffice-production` 승인 후 배포한다. 서버와 Git SHA를 맞추지 않고 필수 API 계약과 환경을 확인한다. [발행·배포·재시도·롤백 절차](../docs/engineering/backoffice-independent-release.md)를 따른다.
