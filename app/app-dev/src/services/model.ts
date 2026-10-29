@@ -63,6 +63,8 @@ export type Route =
   | 'settings'
   | 'language'
   | 'blockedUsers'
+  | 'developerNotices'
+  | 'developerNotice'
   | 'wardrobe'
   | 'sound'
   | 'library'

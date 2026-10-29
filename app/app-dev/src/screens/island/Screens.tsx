@@ -4521,6 +4521,15 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
+        {sec(t('developerNotices.section'))}
+        <SheetGroup flat>
+          <SheetRow
+            title={t('developerNotices.title')}
+            sub={t('developerNotices.subtitle')}
+            chevron
+            onPress={() => go('developerNotices')}
+          />
+        </SheetGroup>
         {sec(t('settings.safetySection'))}
         <SheetGroup flat>
           {/* 차단한 사용자 관리는 친구 관리 머리가 아니라 여기(안전 첫 줄)다(GROMO-2473). 목업에는 차단 API 가 없다 */}
