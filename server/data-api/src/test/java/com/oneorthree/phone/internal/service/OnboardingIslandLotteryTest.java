@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.internal.dto.TelescopeItemView;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -13,29 +14,34 @@ class OnboardingIslandLotteryTest {
             null, null, null, null, null, null, null, null);
 
     @Test
-    void memberLotteryIsIndependentOfNormalListAndStableWithinBucket() {
-        UUID user = UUID.randomUUID();
-        UUID joined = UUID.randomUUID();
+    void destinationIsAlwaysShownBelowMembershipLimitAndStableWithinBucket() {
+        UUID user = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        List<UUID> memberships = List.of(
+                UUID.fromString("00000000-0000-0000-0000-000000000002"),
+                UUID.fromString("00000000-0000-0000-0000-000000000003"));
+        var normalIsland = new TelescopeItemView(
+                UUID.fromString("00000000-0000-0000-0000-000000000004"), "가입 가능한 섬", "", 1, 15,
+                false, "active", "nearby", 15, null, false, false, null, null, null, 0);
         Instant start = Instant.parse("2026-10-27T12:00:00Z");
-        int shown = 0;
-        for (int hour = 0; hour < 200; hour++) {
-            Instant bucket = start.plusSeconds(hour * 3600L);
-            var empty = service.destination(user, List.of(joined), List.of(), bucket);
-            var withNormalIsland = service.destination(user, List.of(joined), List.of(
-                    new com.oneorthree.phone.internal.dto.TelescopeItemView(joined, "기존 섬", "", 1, 15,
-                            false, "active", "joined", 30, null, false, true, null, null, null, 0)), bucket);
-            assertThat(empty).isEqualTo(withNormalIsland);
-            shown += empty.isPresent() ? 1 : 0;
+        for (int joinedCount = 0; joinedCount <= 2; joinedCount++) {
+            List<UUID> joined = memberships.subList(0, joinedCount);
+            for (int hour = 0; hour < 200; hour++) {
+                Instant bucket = start.plusSeconds(hour * 3600L);
+                var empty = service.destination(user, joined, List.of(), bucket);
+                var withNormalIsland = service.destination(user, joined, List.of(normalIsland), bucket);
+                assertThat(empty).isPresent().isEqualTo(withNormalIsland);
+                assertThat(service.destination(user, joined, List.of(normalIsland), bucket))
+                        .isEqualTo(withNormalIsland);
+            }
         }
-        assertThat(shown).isBetween(20, 60);
-        assertThat(service.destination(user, List.of(joined, UUID.randomUUID(), UUID.randomUUID()),
-                List.of(), start)).isEmpty();
     }
 
     @Test
-    void firstSettlementWithoutJoinableIslandIsGuaranteed() {
+    void destinationIsHiddenAtOrAboveMembershipLimit() {
         UUID user = UUID.randomUUID();
         Instant bucket = Instant.parse("2026-10-27T12:00:00Z");
-        assertThat(service.destination(user, List.of(), List.of(), bucket)).isPresent();
+        List<UUID> memberships = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        assertThat(service.destination(user, memberships.subList(0, 3), List.of(), bucket)).isEmpty();
+        assertThat(service.destination(user, memberships, List.of(), bucket)).isEmpty();
     }
 }
