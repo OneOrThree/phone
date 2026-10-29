@@ -2668,6 +2668,7 @@ function FinalIslandScene({
             target={focusTarget.rect}
             text={focusTutorial.text}
             action={{ title: t('focus.start'), onPress: departFocus }}
+            radius={999}
           />
         ) : (
           catInfo && (
@@ -2984,7 +2985,12 @@ function FinalIslandScene({
                 }}
               />
             ) : (
-              <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
+              <View
+                ref={focusTarget.ref}
+                collapsable={false}
+                onLayout={focusTarget.measure}
+                style={{ alignSelf: 'flex-start' }}
+              >
                 <Btn round title={t('focus.start')} id="depart-focus" onPress={departFocus} />
               </View>
             )}

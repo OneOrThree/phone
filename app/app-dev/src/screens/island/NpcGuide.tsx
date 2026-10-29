@@ -192,6 +192,7 @@ export function TutorialSpotlight({
   action,
   accessibleInput,
   error,
+  radius,
 }: {
   target?: SpotlightRect | null;
   text: string;
@@ -200,6 +201,8 @@ export function TutorialSpotlight({
   accessibleInput?: React.ReactNode;
   /** 조작 실패 메시지 — 블러·딤 뒤로 가려지지 않게 대화창 안에서 읽어 준다. */
   error?: string;
+  /** 원형·둥근 버튼용 구멍 모서리 반경. 구멍 반(半)너비·반높이로 클램프된다. */
+  radius?: number;
 }) {
   const layout = useAppLayout();
   const blurTarget = useContext(BlurTargetContext);
@@ -246,6 +249,11 @@ export function TutorialSpotlight({
     y,
     Math.min(area.height, (target?.y ?? 0) - area.y + (target?.height ?? 0) + pad),
   );
+  // 둥근 버튼이면 구멍 네 모서리를 반경만큼 딤으로 가려 둥근(원형) 구멍을 만든다.
+  // 블러뷰 borderRadius 클리핑이 Android에서 불안정해 plain View로 가린다(양 플랫폼 확실).
+  const holeRadius = radius
+    ? Math.min(radius, Math.max(0, (right - x) / 2), Math.max(0, (bottom - y) / 2))
+    : 0;
   const panes = target
     ? [
         { left: 0, top: 0, right: 0, height: y },
@@ -295,6 +303,23 @@ export function TutorialSpotlight({
           <View style={styles.dim} />
         </BlurView>
       ))}
+      {target &&
+        holeRadius > 0 &&
+        (
+          [
+            { left: x, top: y, borderBottomRightRadius: holeRadius },
+            { left: right - holeRadius, top: y, borderBottomLeftRadius: holeRadius },
+            { left: x, top: bottom - holeRadius, borderTopRightRadius: holeRadius },
+            { left: right - holeRadius, top: bottom - holeRadius, borderTopLeftRadius: holeRadius },
+          ] as const
+        ).map((corner, index) => (
+          <View
+            key={`corner-${index}`}
+            testID="spotlight-hole-corner"
+            pointerEvents="none"
+            style={[styles.holeCorner, { width: holeRadius, height: holeRadius, ...corner }]}
+          />
+        ))}
       <ScrollView
         testID="tutorial-dialogue"
         keyboardShouldPersistTaps="handled"
@@ -556,4 +581,5 @@ const styles = StyleSheet.create({
   spotlight: { zIndex: 100 },
   blurPane: { position: 'absolute', overflow: 'hidden' },
   dim: { flex: 1, backgroundColor: semanticTokens.color.overlay },
+  holeCorner: { position: 'absolute', backgroundColor: semanticTokens.color.overlay },
 });
