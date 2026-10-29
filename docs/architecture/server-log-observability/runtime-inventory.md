@@ -142,25 +142,25 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 
 ## 4. prod 저장소 설정(설정상 값)
 
-**먼저 알아둘 점.** `server/scripts/docker-compose.prod.yml`은 단일 앱(`gromo-app`, `DD_SERVICE=gromo-back-prod`) 구성이다. 문서 `docs/prd/fishcat/server-separation/deployment.md:78`은 Catus 2.0 운영 실행 구성·nginx·SSM 배포 문서가 별도 Infra 저장소(`prod/catus/runtime`)에서 관리된다고 한다. 따라서 아래 값이 현재 Catus 운영 컨테이너 설정과 같은지는 **확인되지 않았다**(§3의 Datadog 서비스명 `catus-*-prod`가 이를 뒷받침한다). prod에 1.x compose의 `gromo-nginx-prod`와 env 없는 `nginx`가 함께 관측되는 점(§3.1)도 같은 방향의 단서다. 아래 표는 전 행이 **Gromo 1.x compose 기준 설정상 값**이며 Catus 적용 여부는 모두 미확인이다.
+**먼저 알아둘 점.** `server/scripts/docker-compose.prod.yml`은 단일 앱(`gromo-app`, `DD_SERVICE=gromo-back-prod`) 구성이다. 문서 `docs/prd/fishcat/server-separation/deployment.md:78`은 Catus 2.0 운영 실행 구성·nginx·SSM 배포 문서가 별도 Infra 저장소(`prod/catus/runtime`)에서 관리된다고 한다. 따라서 아래 값이 현재 Catus 운영 컨테이너 설정과 같은지는 **확인되지 않았다**(§3의 Datadog 서비스명 `catus-*-prod`가 이를 뒷받침한다). prod에 1.x compose의 `gromo-nginx-prod`와 env 없는 `nginx`가 함께 관측되는 점(§3.1)도 같은 방향의 단서다. 아래 표는 «출처» 열로 근거를 나눈다. **1.x compose** 행은 Gromo 1.x 구성의 설정상 값이라 Catus 적용 여부가 미확인이다. **Catus 워크플로**·**Catus Dockerfile** 행은 Catus 2.0 쪽 저장소 사실이고, **호스트 업로더 기록** 행은 `server/scripts/README.md`의 기록이다. 어느 행도 실제 기동 상태의 실측은 아니다.
 
-| 항목 | 설정상 값(Gromo 1.x 구성, Catus 적용 여부 미확인) | 근거 |
-| --- | --- | --- |
-| 앱 이미지 | ECR 저장소 `catus-prod/<service>`, `linux/arm64`, 릴리스에 digest 조합 기록 | `.github/workflows/prod-ci.yml:152,171-172`, `deployment.md:100-101` |
-| 실행 구성 고정 | `CATUS_PROD_INFRA_REVISION` 40자리 SHA, S3 `configurations/<SHA>/configuration.zip` 검증 | `prod-ci.yml:70,93`, `deployment.md:78` |
-| 배포 방식 | `prod-cd.yml`, SSM 전송 | `.github/workflows/prod-cd.yml:55-80` |
-| DD agent | `gcr.io/datadoghq/agent:7`(태그 고정 아님), `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`, `DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE=true`, APM 활성 | `docker-compose.prod.yml:88,104,108,112` |
-| 로그 오프셋 | named volume `datadog_agent_run` | `docker-compose.prod.yml:121` |
-| tracer | dd-java-agent 1.64.0 jar를 각 Dockerfile이 포함 | `server/data-api/Dockerfile:43`, `server/business-api/Dockerfile:40`, `server/notification/Dockerfile:41`, `server/realtime/Dockerfile:41` |
-| `DD_ENV`, `DD_TRACE_SAMPLE_RATE` | prod, 0.2 (1.x 앱 구성) | `docker-compose.prod.yml:35,38` |
-| `DD_LOGS_INJECTION` | true | `docker-compose.prod.yml:41` |
-| Docker log 옵션 | 앱·nginx `50m x 4`, 인프라 `10m x 3` | `docker-compose.prod.yml:14-19`, `server/scripts/README.md:140-141` |
-| Nginx | **컨테이너** `nginx:1.28-alpine`(`gromo-nginx`), 서비스 태그 `gromo-nginx-prod` | `docker-compose.prod.yml:58-77` |
-| 앱 파일 로그 | 호스트 `/var/log/springboot`를 `/app/logs`에 바인드(`app.log`, `user-activity.log`) | `docker-compose.prod.yml:46-49` |
-| S3 업로더 | 호스트 systemd 타이머, 매시간, 티켓 590. `user-activity/` 접두는 Fluent Bit 전환 예정(790, 미완) | `server/scripts/README.md:250-254` |
-| 업로더 중복 | 2288(새 prod·호스트 업로더)과 위 590 타이머의 공존 여부 미확인 | `implementation-status.md` 2288 기재 |
-| lifecycle 규칙(기록) | `system_log/`·`user_log/`·`user-activity/` 각 90일, 불완전 multipart 1일 | `server/scripts/s3-log-archive-lifecycle.json:1-24` |
-| 컷오버 | 2026-10-14 Catus 전환 완료, 로그 아카이브 확인 문구가 있으나 세부는 Infra 문서에 있음 | `deployment.md:93` |
+| 항목 | 출처 | 설정상 값 | 근거 |
+| --- | --- | --- | --- |
+| 앱 이미지 | Catus 워크플로 | ECR 저장소 `catus-prod/<service>`, `linux/arm64`, 릴리스에 digest 조합 기록 | `.github/workflows/prod-ci.yml:152,171-172`, `deployment.md:100-101` |
+| 실행 구성 고정 | Catus 워크플로 | `CATUS_PROD_INFRA_REVISION` 40자리 SHA, S3 `configurations/<SHA>/configuration.zip` 검증 | `prod-ci.yml:70,93`, `deployment.md:78` |
+| 배포 방식 | Catus 워크플로 | `prod-cd.yml`, SSM 전송 | `.github/workflows/prod-cd.yml:55-80` |
+| DD agent | 1.x compose | `gcr.io/datadoghq/agent:7`(태그 고정 아님), `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`, `DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE=true`, APM 활성 | `docker-compose.prod.yml:88,104,108,112` |
+| 로그 오프셋 | 1.x compose | named volume `datadog_agent_run` | `docker-compose.prod.yml:121` |
+| tracer | Catus Dockerfile | dd-java-agent 1.64.0 jar를 각 Dockerfile이 포함 | `server/data-api/Dockerfile:43`, `server/business-api/Dockerfile:40`, `server/notification/Dockerfile:41`, `server/realtime/Dockerfile:41` |
+| `DD_ENV`, `DD_TRACE_SAMPLE_RATE` | 1.x compose | prod, 0.2 | `docker-compose.prod.yml:35,38` |
+| `DD_LOGS_INJECTION` | 1.x compose | true | `docker-compose.prod.yml:41` |
+| Docker log 옵션 | 1.x compose | 앱·nginx `50m x 4`, 인프라 `10m x 3` | `docker-compose.prod.yml:14-19`, `server/scripts/README.md:140-141` |
+| Nginx | 1.x compose | **컨테이너** `nginx:1.28-alpine`(`gromo-nginx`), 서비스 태그 `gromo-nginx-prod` | `docker-compose.prod.yml:58-77` |
+| 앱 파일 로그 | 1.x compose | 호스트 `/var/log/springboot`를 `/app/logs`에 바인드(`app.log`, `user-activity.log`) | `docker-compose.prod.yml:46-49` |
+| S3 업로더 | 호스트 업로더 기록 | 호스트 systemd 타이머, 매시간, 티켓 590. `user-activity/` 접두는 Fluent Bit 전환 예정(790, 미완) | `server/scripts/README.md:250-254` |
+| 업로더 중복 | 호스트 업로더 기록 | 2288(새 prod·호스트 업로더)과 위 590 타이머의 공존 여부 미확인 | `implementation-status.md` 2288 기재 |
+| lifecycle 규칙(기록) | 호스트 업로더 기록 | `system_log/`·`user_log/`·`user-activity/` 각 90일, 불완전 multipart 1일 | `server/scripts/s3-log-archive-lifecycle.json:1-24` |
+| 컷오버 | Catus 워크플로(`deployment.md`) | 2026-10-14 Catus 전환 완료, 로그 아카이브 확인 문구가 있으나 세부는 Infra 문서에 있음 | `deployment.md:93` |
 
 저장소에 적힌 «적용 완료 2026-09-19»와 «Terraform 원본과 어긋남(GROMO-1948)»(`server/scripts/README.md:258-260`)은 **과거 기록**이다. 구현 계획 P0 5번대로 실측을 대신하지 않는다. 버킷 이름은 12자리 계정 ID를 포함하므로 이 문서에서는 `gromo-prod-logs-<ACCOUNT_ID>`로 쓴다(실제 이름은 운영 문서에 있다).
 
@@ -179,8 +179,9 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 | 견딜 중단 시간 | 1,800초(30분) | 구현 계획 P0의 초기 시험 조건 |
 | 여유 계수 | 2 | 추정. 근거: (a) Datadog 지표는 수신 크기라 Docker 원본·JSON 변환 후 크기와 다르다 (b) parser가 필드를 붙여 줄 크기가 커질 수 있다 (c) 측정 한계(최대 줄 크기·미확인 소스 미반영). 실측 후 조정한다. (a)~(c)는 서로 독립이며 서비스별 peak를 겹쳐 합산한 보수성과도 별개다 |
 | peak 기준 | **알려진 소스 기준** Datadog 1분 최대 합. 같은 분에 동시에 발생한다고 가정한 값이며, 미확인 소스(아래 «미확인 용량 소스»)는 제외했으므로 **상한이 아니다** | §3.1 |
-| prod 합산 대상 | catus-realtime, business-api, data-api, kafka, gromo-nginx-prod, `nginx`(env 불명 — 판정 미확인이지만 prod 컨테이너 Nginx일 가능성이 높아(추정, §3.1) 합에 포함). 합산 범위는 «Fluent Bit이 수집할 대상인가»로 정한다. 1.x `gromo-back-prod`(가동 중, 1분 최대 11,510 B)는 허용 목록 4개 앱(2555)에 없어 제외하고, 1.x `gromo-nginx-prod`는 Nginx 입력(2556) 대상일 수 있어 포함한다. prod `catus-kafka-prod`는 인프라이지만 수집 여부가 2556 이후 결정이라 보수적으로 포함한다 | §3.1 |
-| dev 합산 대상(**전체 컨테이너 합**, 수집 대상 합이 아님) | gromo-data/business/realtime/notification, kafka, db. Fluent Bit 2555는 앱 4개만 수집하고 인프라 수집 여부는 2556 이후 결정이므로, 인프라(kafka, db)를 포함한 합은 수집 대상 합보다 크다(보수적). `gromo-back-dev`(옛 이름)는 현재 컨테이너 목록(§2.2)에 없어 소스가 아니므로 합에서 뺐다(7일 안에 사라졌는지는 미확인). 호스트 Nginx는 컨테이너가 아니어서 Datadog 컨테이너 수치에 없고 합에 **들어 있지 않다** | §3.1 |
+| 합산 기준 | 앱 4개 + Nginx는 수집 대상으로 확정이고, 인프라(kafka·db)는 수집 여부가 2556 이후 결정이라 보수적으로 포함한다 | §3.1 |
+| prod 합산 대상 | catus-realtime, business-api, data-api, kafka, gromo-nginx-prod, `nginx`(env 불명 — prod 컨테이너 Nginx일 가능성이 높아(추정, §3.1) 포함). 1.x `gromo-back-prod`(가동 중, 1분 최대 11,510 B)는 허용 목록 4개 앱(2555)에 없어 제외하고, 1.x `gromo-nginx-prod`는 Nginx 입력(2556) 대상일 수 있어 포함한다 | §3.1 |
+| dev 합산 대상(**전체 컨테이너 합**) | gromo-data/business/realtime/notification, kafka, db. 인프라(kafka, db)를 포함하므로 수집 대상 합보다 크다. `gromo-back-dev`(옛 이름)는 현재 컨테이너 목록(§2.2)에 없어 합에서 뺐다(7일 안에 사라졌는지는 미확인, §9). 호스트 Nginx는 컨테이너가 아니어서 Datadog 컨테이너 수치에 없고 합에 **들어 있지 않다** | §3.1 |
 | 한 줄 최대 크기 | 측정하지 않음 | 미확인 |
 | 미확인 용량 소스 | 아래 표 | 합산 제외 |
 
@@ -200,7 +201,7 @@ dev 60초 샘플(합 약 345 B/s)은 peak 근거로 쓰지 않는다. DD 7일 �
 | prod (알려진 소스 + `nginx`) | 26,260,824 + 6,927,666 = 33,188,490 | **553,142** | 213,894(`nginx` 제외) | 739(`nginx` 제외) |
 | dev (전체 컨테이너 합, `gromo-back-dev` 제외) | 859,424 | **14,324** | 3,709 | 354 |
 
-계산(python): `round((26260824+6927666)/60) = 553142`, dev `d=225528+135912+95765+83893+227500+90826 = 859424`, `round(d/60) = 14324`. 비교 열: dev 5분 최대 합 `(226782+238145+97633+89435+279227+181419)/300 = 3709`, dev 7일 평균 합 `(2743678+79805688+2736101+3956526+121510776+3566961)/604800 = 354`. 기존 prod 합 437,680 B/s에서 `nginx`를 더해 바꿨고, dev는 `gromo-back-dev`(1분 최대 226,503 B)를 빼서 바꿨다.
+계산(python): `round((26260824+6927666)/60) = 553142`, dev `d=225528+135912+95765+83893+227500+90826 = 859424`, `round(d/60) = 14324`. 비교 열: dev 5분 최대 합 `(226782+238145+97633+89435+279227+181419)/300 = 3709`, dev 7일 평균 합 `(2743678+79805688+2736101+3956526+121510776+3566961)/604800 = 354`.
 
 peak는 **알려진 소스의 1분 최대 합**이다(같은 분 동시 발생 가정). 아래 소스는 제외돼 있어 상한이 아니다.
 
@@ -235,7 +236,7 @@ peak는 **알려진 소스의 1분 최대 합**이다(같은 분 동시 발생 �
 | 임시 파일 | 100 MB(추정) | 500 MB(추정) |
 | 소계(운영 여유 제외) | 약 **1.27 GB** | 약 **5.5 GB + 30 MB x N** |
 | 디스크 크기·여유 | 49 GB, 여유 18 GB(실측) | **미확인**(차단 조건) |
-| 판정 | 여유 18 GB 대비 7.1%(1,273 MB / 18,000 MB) — 충분 | 디스크 크기 확인 전 판정 불가 |
+| 판정 | 여유 18 GB 대비 7.1%(1,274 MB / 18,000 MB) — 충분 | 디스크 크기 확인 전 판정 불가 |
 
 ### 5.5 경보 임계값 후보
 
@@ -280,7 +281,7 @@ aws --profile gromo s3api list-multipart-uploads --bucket "$B" --max-uploads 100
 aws --profile gromo s3api list-objects-v2 --bucket "$B" --prefix system_log/ --max-items 5
 ```
 
-설정이 없으면 `NoSuchLifecycleConfiguration`, `NoSuchBucketPolicy`, `ServerSideEncryptionConfigurationNotFoundError` 같은 오류로 끝난다. 이 오류도 «없음»이라는 판정 결과이므로 오류 응답 그대로 기록한다.
+설정이 없으면 `NoSuchLifecycleConfiguration`, `NoSuchBucketPolicy`, `ServerSideEncryptionConfigurationNotFoundError` 같은 오류로 끝난다. 이 오류도 «없음»이라는 판정 결과이므로 오류 응답 그대로 기록한다. 단 `AccessDenied` 는 «없음»이 아니라 **판정 불가**다. 운영자 쪽에도 `iam:SimulatePrincipalPolicy`·`iam:GetRole` 등 읽기 권한과 `ec2:DescribeInstances` 가 필요하므로, 권한 부족 오류를 «없음»으로 적지 않는다.
 
 **대상 역할 찾기.** 역할 이름을 추측(`log`·`fluent` 포함 여부)하지 않는다. 아래 순서로 실제 사용 중인 역할을 먼저 찾는다.
 
@@ -302,34 +303,45 @@ aws --profile gromo iam get-policy-version --policy-arn "$P" --version-id "$V"
 # 인라인 정책: list-role-policies 가 돌려준 각 이름마다
 aws --profile gromo iam get-role-policy --role-name "$R" --policy-name <POLICY_NAME>
 
-# 판정: 정책 본문을 눈으로 읽지 않고 결합 평가(권한 경계 포함)를 시뮬레이션한다
+# 판정: 정책 본문을 눈으로 읽지 않고 결합 평가(권한 경계 포함)를 시뮬레이션한다.
+# --action-names 와 --resource-arns 는 모든 조합으로 평가되므로, 리소스 유형(객체/버킷)이 맞는 묶음끼리 따로 호출한다.
 ARN=$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)
+RP=$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)   # 정책이 없으면 --resource-policy 와 함께 뺀다
+OBJ="arn:aws:s3:::$B/system_log/v2"
+# (1) 객체 ARN 호출: 허용 env 접두 안 / 다른 env= / user_log/ 세 곳 모두에 Put 과 Delete* 를 넣는다
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
-  --action-names s3:DeleteObject s3:DeleteObjectVersion s3:PutLifecycleConfiguration \
-  --resource-arns "arn:aws:s3:::$B" "arn:aws:s3:::$B/system_log/v2/env=dev/x" \
-  --resource-policy "$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)"
-# 쓰기 범위: s3:PutObject 를 허용 접두와 그 밖(다른 env=, system_log/v2/ 밖)에 각각 넣어 비교
-aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" --action-names s3:PutObject \
-  --resource-arns "arn:aws:s3:::$B/system_log/v2/env=<허용 env>/x" \
-    "arn:aws:s3:::$B/system_log/v2/env=<다른 env>/x" "arn:aws:s3:::$B/user_log/x" \
-  --resource-policy "$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)"
+  --action-names s3:PutObject s3:DeleteObject s3:DeleteObjectVersion \
+  --resource-arns "$OBJ/env=<허용 env>/x" "$OBJ/env=<다른 env>/x" "arn:aws:s3:::$B/user_log/x" \
+  --resource-policy "$RP" \
+  --context-entries "ContextKeyName=aws:SecureTransport,ContextKeyValues=true,ContextKeyType=boolean" \
+    "ContextKeyName=aws:RequestedRegion,ContextKeyValues=<버킷 리전>,ContextKeyType=string" \
+    "ContextKeyName=s3:x-amz-server-side-encryption,ContextKeyValues=<정책이 요구하는 값>,ContextKeyType=string"
+# (2) 버킷 ARN 호출: 버킷 수준 액션은 버킷 ARN 으로만
+aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
+  --action-names s3:PutLifecycleConfiguration \
+  --resource-arns "arn:aws:s3:::$B" --resource-policy "$RP"
+# (3) SSE-KMS 버킷이면 키 ARN 과 다른 키 ARN 에 각각 넣는다
+aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
+  --action-names kms:GenerateDataKey kms:Decrypt --resource-arns "<버킷 키 ARN>" "<다른 키 ARN>"
 ```
 
-버킷 정책이 없으면(`NoSuchBucketPolicy`) `--resource-policy`는 뺀다. 판정 항목은 모두 «시뮬레이션 결과가 허용되는가» 하나의 기준으로 정리한다. 결과의 `EvalDecision`이 `allowed`/`implicitDeny`/`explicitDeny` 중 무엇인지 적는다.
+**결과 기록.** `EvaluationResults[]` 의 (액션, 리소스) 쌍마다 `EvalDecision`(`allowed`/`implicitDeny`/`explicitDeny`)을 한 줄씩 적는다. 출력의 `MissingContextValues` 도 같이 적는다. 정책에 `aws:SecureTransport`·`s3:x-amz-server-side-encryption`·`aws:RequestedRegion` 같은 Condition 이 있으면 `--context-entries` 로 채우지 않은 값은 «불일치»로 평가되어 허용이 `implicitDeny` 로, 조건부 Deny 가 적용되지 않은 채로 나올 수 있다. `MissingContextValues` 가 남아 있으면 값을 채워 다시 실행한다.
+
+버킷 정책이 없으면(`NoSuchBucketPolicy`) `--resource-policy`는 뺀다. 합격 방향은 항목마다 반대다. 쓰기 범위는 `allowed` 가 합격이고, 삭제·수명주기·타 환경 항목은 `allowed` 가 나오면 불합격이다.
 
 | 판정 항목 | 합격 기준 |
 | --- | --- |
-| 쓰기 범위 | `s3:PutObject`가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`에서만 `allowed` |
-| 삭제·수명주기 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`, `s3:PutLifecycleConfiguration`이 `implicitDeny` 또는 `explicitDeny` |
-| 타 환경 쓰기 차단 | 다른 `env=` 접두 및 `system_log/v2/` 밖에 대한 `s3:PutObject`가 `implicitDeny` 또는 `explicitDeny` |
+| 쓰기 범위 | `s3:PutObject`가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`에서 `allowed`(합격), 다른 접두에서는 아래 행 |
+| 삭제·수명주기 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`은 객체 ARN 세 곳(허용 env 안·다른 `env=`·`user_log/`) 모두, `s3:PutLifecycleConfiguration`은 버킷 ARN 에서 `implicitDeny` 또는 `explicitDeny`. 한 곳이라도 `allowed` 면 불합격 |
+| 타 환경 쓰기 차단 | 다른 `env=` 접두 및 `system_log/v2/` 밖에 대한 `s3:PutObject`가 `implicitDeny` 또는 `explicitDeny`. `allowed` 면 불합격 |
 
 **허용 예외(삭제 권한 부재 판정과 혼동하지 않는다).** Fluent Bit S3 플러그인은 multipart 업로드를 쓰므로 `s3:PutObject`만으로는 실패할 수 있다. 아래는 허용되어도 합격이다.
 
 - `s3:AbortMultipartUpload`: 객체 접두(`system_log/v2/env=<env>/*`)로 제한된 경우.
 - `s3:ListBucketMultipartUploads`: 필요한 경우에 한해 버킷 단위로만.
-- 버킷이 SSE-KMS(`get-bucket-encryption` 결과)이면 `kms:GenerateDataKey`(및 필요 시 `kms:Decrypt`)를 해당 키에 한해.
+- 버킷이 SSE-KMS(`get-bucket-encryption` 결과)이면 multipart 업로드에는 `kms:GenerateDataKey` 와 `kms:Decrypt` 가 둘 다 필요한 것으로 알려져 있다(AWS 문서 확인 필요). 두 액션은 해당 키 ARN 에 한해서만 허용돼야 하며, 위 (3) 호출에서 버킷 키는 `allowed`, 다른 키는 `implicitDeny` 또는 `explicitDeny` 인지 확인한다.
 
-**시뮬레이션의 한계.** `simulate-principal-policy`는 `NotAction`/`NotResource` 자체를 확정해 주지 않고, SCP(조직 정책)와 세션 정책은 평가에 반영되지 않을 수 있다. 정책 본문의 `NotAction`·`NotResource`는 눈으로도 확인하고, 시뮬레이션 결과가 허용이면 합격으로 보지 않고 실제 부여 경로를 추가 조사한다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
+**시뮬레이션의 한계.** 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
 
 결과를 문서에 남길 때 계정 ID, 키, 정책 본문의 시크릿 값은 가린다(정책 본문은 Action·Resource 구조만 옮기고 계정 ID는 `<ACCOUNT_ID>`로 바꾼다). `list-objects-v2` 결과를 옮길 때는 객체 키에 사용자 값이 섞이지 않았는지 확인한다.
 
@@ -379,6 +391,7 @@ aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" --a
 | peak 급증 구간의 원문 줄 크기 샘플(개인정보 없는 합성 재현) | 2555·2556 담당 | 수집기 부하 시험 전 |
 | prod Notification·dev 호스트 Nginx 생산량(분 단위 peak) 측정 | 2554 후속(prod는 운영 책임자 또는 Infra 담당) | 버퍼 확정 전 |
 | 여유 계수·버퍼 크기 재산정 | 2554 후속 | 위 실측 후 |
+| `gromo-back-dev` 가 다른 호스트에서 아직 로그를 내는지(내면 dev peak 과소 산정) | 운영 책임자 또는 Infra 담당 | 버퍼 확정 전 |
 | Datadog Logs 이중 적재 결정 | 운영 책임자 | 2556 컷오버 설계 전 |
 
 ## 10. 이 문서가 하지 않은 것
