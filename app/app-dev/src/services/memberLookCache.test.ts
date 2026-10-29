@@ -113,3 +113,44 @@ test('첫 배치가 실패하면 남은 배치도 요청 없이 끝내고 대기
   expect(fetch.mock.calls.map(([wanted]) => wanted.length)).toEqual([50, 50, 50, 20]);
   expect(cache.get(id(119))?.hidden).toBe(false);
 });
+
+test('주기 조회는 털색을 갱신하고 더 최신인 착용 이벤트를 보존한다', async () => {
+  let time = 0;
+  const fetch = jest.fn(async (ids: string[]) => batch(ids));
+  const cache = new MemberLookCache(fetch, () => time);
+  await cache.ensure([id(1)]);
+  time = 29_000;
+  cache.accept(id(1), look(5, 'new'));
+  fetch.mockResolvedValueOnce({
+    members: [{ userId: id(1), catColor: 'white', appearance: look(1) }],
+    hiddenUserIds: [],
+  });
+  await cache.ensure([id(1)]);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  time = 30_000;
+  await Promise.all([cache.ensure([id(1)]), cache.ensure([id(1)])]);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(cache.get(id(1))).toEqual({
+    catColor: 'white',
+    appearance: look(5, 'new'),
+    hidden: false,
+  });
+});
+
+test('응답 지연으로 캐시가 남아 있어도 강제 주기 조회는 갱신하고 실패 대기는 지킨다', async () => {
+  let time = 0;
+  const fetch = jest.fn(async (ids: string[]) => {
+    time += 500;
+    return batch(ids);
+  });
+  const cache = new MemberLookCache(fetch, () => time);
+  await cache.ensure([id(1)]);
+  time = 30_000;
+  await cache.ensure([id(1)], true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  time = 60_000;
+  await cache.ensure([id(1)], true);
+  await cache.ensure([id(1)], true);
+  expect(fetch).toHaveBeenCalledTimes(3);
+});
