@@ -185,7 +185,7 @@ PYEOF
   docker rm -f obs2562s3-gen-k >/dev/null
 fi
 
-wait "$CANARY_PID" 2>/dev/null || true; CANARY_PID=""
+wait "$CANARY_PID" 2>/dev/null || { echo "FAIL: canary 검사 실패"; FAILS=$((FAILS + 1)); }; CANARY_PID=""
 echo "== canary"; cat "$TMP/canary.out" | tee -a "$RESULTS" | tail -40
 echo "== 요약"; cat "$RESULTS" | grep -E "^(RESULT|NGINX|WINDOW|METRICS|CANARY_SUMMARY)" || true
 echo "결과 파일: $RESULTS"

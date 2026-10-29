@@ -20,6 +20,7 @@ for i in range(n):
         "ok": ("GET", f"/ok?{q}", {"Referer": f"http://ref.example/?token=REFSECRET{tag}"}, None),
         "up": ("GET", f"/up/x?{q}", {}, None),
         "502": ("GET", f"/api/y?{q}", {"Referer": f"http://ref.example/?token=REFSECRET{tag}"}, None),
+        "502-path": ("GET", f"/api/PATHTOKEN{tag}ABCDEFGHIJKLMNOP", {}, None),   # upstream 연결 실패 → error 로그의 upstream URL 경로에 토큰
         "413": ("POST", f"/upload?{q}", {"Referer": f"http://ref.example/?token=REFSECRET{tag}"}, "x" * 4096),
         "404-path": ("GET", f"/invitations/PATHTOKEN{tag}ABCDEFGHIJKLMNOP", {}, None),
     }.items():

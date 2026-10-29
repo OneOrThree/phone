@@ -35,9 +35,12 @@ while time.time() < t_end:
 
 bad = 0
 now = time.time()
+for k in ("loki", "s3"):  # 관측 시간 동안 sink 한쪽이라도 canary 를 하나도 못 받았으면 실패(빈 집합 통과 방지)
+    if not any(k in c for c in canaries.values()):
+        print(f"CANARY_NONE\t{k}\t관측 {duration}s 동안 수신 0"); bad += 1
 for lid, c in sorted(canaries.items(), key=lambda kv: kv[1]["emitted"]):
     d = {k: (round(c[k] - c["emitted"], 1) if k in c else None) for k in ("loki", "s3")}
-    late = [k for k in ("loki", "s3") if d[k] is None and now - c["emitted"] > max_delay]
+    late = [k for k in ("loki", "s3") if (d[k] is None and now - c["emitted"] > max_delay) or (d[k] is not None and d[k] > max_delay)]
     bad += bool(late)
     print(f"CANARY\t{lid}\tloki_delay={d['loki']}\ts3_delay={d['s3']}" + (f"\tMISSING_IN={late}" if late else ""))
 for k in ("loki", "s3"):

@@ -226,7 +226,12 @@ local function nginx_error(line, stream)
   if conn then connection, rest = tonumber(conn), after end
   -- 요청 줄·upstream·referrer·client 에는 query/토큰/IP 가 들어갈 수 있다.
   rest = rest:gsub('request: "(%S+) (%S+) ([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. " " .. p .. '"' end)
-  rest = rest:gsub('upstream: "([^"]*)"', function(u) return 'upstream: "' .. (u:gsub("[?#].*$", "")) .. '"' end)
+  rest = rest:gsub('upstream: "([^"]*)"', function(u)
+    -- 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
+    local base, path = u:match("^(%a[%w+.-]*://[^/]*)(.*)$")
+    if base then return 'upstream: "' .. base .. sanitize_path(path) .. '"' end
+    return 'upstream: "' .. sanitize_path(u) .. '"'
+  end)
   rest = rest:gsub('referrer: "[^"]*"', 'referrer: "-"')
   rest = rest:gsub("client: [^,%s]+", "client: ****")
   -- open() "/경로" failed, directory index of "/경로" 처럼 따옴표로 감싼 파일 경로에도 요청 경로가 그대로 들어간다.
