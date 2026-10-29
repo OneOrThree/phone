@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -18,8 +19,29 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 class PublicationEnvironmentTest {
+    @Test
+    void 운영_이력도_환경을_검증한_뒤_실제_원장을_읽는다() {
+        var guard = mock(NotificationEnvironmentGuard.class);
+        when(guard.identity()).thenReturn(Map.of("environment", "prod", "fcmProjectId", "gromo-prod"));
+        var catalog = mock(AdminCatalog.class);
+        var request = mock(HttpServletRequest.class);
+        when(request.getHeader("X-Backoffice-Environment")).thenReturn("prod");
+        when(request.getHeader("X-Backoffice-Fcm-Project")).thenReturn("gromo-prod");
+        when(request.getAttribute("notification.actor")).thenReturn("member-1");
+        when(catalog.deliveries("member-1", "cursor", 50, null, null, null))
+                .thenReturn(Map.of("items", List.of()));
+        var controller = new PublicationController(mock(PublicationService.class), guard, catalog);
+
+        assertThat(controller.history("cursor", 50, request)).containsKey("items");
+        verify(catalog).deliveries("member-1", "cursor", 50, null, null, null);
+        when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
+        assertThatThrownBy(() -> controller.history("cursor", 50, request))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
+    }
+
     @Test
     void DB_표식_조회_실패도_환경_오류로_분류한다() {
         var environment = new MockEnvironment();
@@ -51,7 +73,7 @@ class PublicationEnvironmentTest {
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
         var publications = mock(PublicationService.class);
         var controller = new PublicationController(publications,
-                new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev"));
+                new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev"), mock(AdminCatalog.class));
 
         assertThatThrownBy(() -> controller.publish(UUID.randomUUID(), Map.of(), "key", null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB/FCM 환경");
@@ -71,7 +93,7 @@ class PublicationEnvironmentTest {
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
         when(request.getHeader("X-Backoffice-Fcm-Project")).thenReturn("gromo-prod");
         var controller = new PublicationController(publications,
-                new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev"));
+                new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev"), mock(AdminCatalog.class));
 
         assertThatThrownBy(() -> controller.publish(UUID.randomUUID(), Map.of(), "key", request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
@@ -91,7 +113,7 @@ class PublicationEnvironmentTest {
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
         when(request.getHeader("X-Backoffice-Fcm-Project")).thenReturn("gromo-prod");
         var controller = new PublicationController(publications,
-                new NotificationEnvironmentGuard(environment, jdbc, "gromo-prod"));
+                new NotificationEnvironmentGuard(environment, jdbc, "gromo-prod"), mock(AdminCatalog.class));
 
         assertThatThrownBy(() -> controller.publish(UUID.randomUUID(), Map.of(), "key", request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB/FCM 환경");

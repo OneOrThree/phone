@@ -41,6 +41,8 @@ internal:
         console-actor: member-1
         allow:
           - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
           - 'GET /internal/admin/content/environment'
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
@@ -53,6 +55,8 @@ internal:
         console-actor: member-2
         allow:
           - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
           - 'GET /internal/admin/content/environment'
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
@@ -65,6 +69,8 @@ internal:
         console-actor: member-3
         allow:
           - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
           - 'GET /internal/admin/content/environment'
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'

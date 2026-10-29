@@ -129,6 +129,31 @@ export class Upstream {
     return this.request(this.dataUrl, "/internal/admin/content/construction-policy",
       actor, operator.dataToken, undefined, "GET");
   }
+  async history(kind, cursor, actor, operator) {
+    if (this.mode === "local") return { items: [], total: 0, nextCursor: null };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    if (kind === "fcm") {
+      const page = await this.request(
+        this.notificationUrl,
+        `/internal/admin/publications/history?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        actor,
+        operator.notificationToken,
+        undefined,
+        "GET",
+      );
+      return { ...page, items: page.items.map(item => ({ ...item, notificationKind: item.kind, kind: "fcm" })) };
+    }
+    const resource = kind === "notice" ? "notices" : "magazines";
+    const page = await this.request(
+      this.dataUrl,
+      `/internal/admin/content/history/${resource}?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      actor,
+      operator.dataToken,
+      undefined,
+      "GET",
+    );
+    return page;
+  }
   async publish(item, actor, operator) {
     if (item.kind === "construction") {
       if (this.mode === "local") throw new Failure(503, "로컬 정책 저장소가 필요합니다.");

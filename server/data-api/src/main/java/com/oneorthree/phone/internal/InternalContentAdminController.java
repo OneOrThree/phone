@@ -1,6 +1,8 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
+import com.oneorthree.phone.internal.dto.ContentHistoryPage;
+import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
 import com.oneorthree.phone.internal.service.ConstructionPolicyAdminService;
 import com.oneorthree.phone.internal.dto.ConstructionPolicyView;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.UUID;
 import java.util.Map;
@@ -28,6 +31,7 @@ import java.util.Arrays;
 @RequestMapping("/internal/admin/content")
 public class InternalContentAdminController {
     private final DeveloperNoticeService notices;
+    private final ContentHistoryService history;
     private final MagazineReviewService magazine;
     private final ConstructionPolicyAdminService constructionPolicy;
     private final Environment environment;
@@ -57,6 +61,20 @@ public class InternalContentAdminController {
     public DeveloperNoticeService.Page notices(HttpServletRequest request) {
         requireEnvironment(request);
         return notices.list(true);
+    }
+
+    @GetMapping("/history/notices")
+    public ContentHistoryPage noticeHistory(@RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit, HttpServletRequest request) {
+        requireEnvironment(request);
+        return history.notices(cursor, limit);
+    }
+
+    @GetMapping("/history/magazines")
+    public ContentHistoryPage magazineHistory(@RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit, HttpServletRequest request) {
+        requireEnvironment(request);
+        return history.magazines(cursor, limit);
     }
 
     @PutMapping("/notices/{publicationId}")
