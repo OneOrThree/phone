@@ -89,7 +89,7 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 
 - `DD_API_KEY` — **GitHub Actions 리포 시크릿**. `gh secret set DD_API_KEY` 또는 Settings → Secrets and variables → Actions. checkout에는 노출하지 않고 compose 실행·확인 step에만 주입한다.
 - `DD_SITE` — `us5.datadoghq.com`(비밀 아님, 워크플로우 job env 하드코딩). Agent·APM 일치 필수.
-- DB/app 시크릿(`POSTGRES_*`·`JWT_SECRET` 등) — 신 AWS 계정(`808715036056`), 서울 리전(`ap-northeast-2`)의 Secrets Manager `gromo/dev/env` 사용.
+- DB/app 시크릿(`POSTGRES_*`·`JWT_SECRET` 등) — 신 AWS 계정(`<account-id>`), 서울 리전(`ap-northeast-2`)의 Secrets Manager `gromo/dev/env` 사용.
 
 `cd.yml`은 장기 AWS 키를 저장하지 않고 OIDC로 `gromo-dev-github-actions` 롤을 인계한다. 이 롤의
 Secrets Manager 권한은 dev 시크릿 조회로 제한한다. Datadog·monitor 워크플로도 같은 롤로 SM 을 읽어

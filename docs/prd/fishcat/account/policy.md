@@ -43,7 +43,7 @@ A22의 보존 기간 정본이다. 탈퇴자 자료는 이 기간이 지나면 �
 | --- | --- | --- | --- | --- |
 | L01 | APP 시스템 로그 파일(`logs/app.log`·일별 회전본, 운영 호스트 `/var/log/springboot`) | **7일** | `logback-spring.xml` `APP_FILE_RAW` `maxHistory=7` | 적용 |
 | L02 | user-activity 로그 파일(`logs/user-activity.log`·일별 회전본, 같은 호스트 경로) | **30일** | `logback-spring.xml` `UA_FILE_RAW` `maxHistory=30` | 적용 |
-| L03 | S3 적재본 `system_log/` 접두(`system_log/app-N/`, `app.log` 매시간 업로드 — 티켓 590) | **90일** | 버킷 `gromo-prod-logs-808715036056` 수명 주기 규칙 `expire-system-logs`(기록: `server/scripts/s3-log-archive-lifecycle.json`) | 적용 2026-09-19 |
+| L03 | S3 적재본 `system_log/` 접두(`system_log/app-N/`, `app.log` 매시간 업로드 — 티켓 590) | **90일** | 버킷 `gromo-prod-logs-<account-id>` 수명 주기 규칙 `expire-system-logs`(기록: `server/scripts/s3-log-archive-lifecycle.json`) | 적용 2026-09-19 |
 | L04 | S3 적재본 `user_log/` 접두(`user_log/app-N/`, `user-activity.log` 매시간 업로드 — 티켓 590) | **90일** | 같은 버킷 규칙 `expire-user-logs` | 적용 2026-09-19. 티켓 590의 「만료 없음」을 재영님이 90일로 변경(2026-09-19) |
 | L10 | S3 적재본 `user-activity/` 접두(`user-activity/dt=YYYY-MM-DD/`, Fluent Bit 전환 예정 — 티켓 790) | **90일** | 같은 버킷 규칙 `expire-user-activity` | 적용 2026-09-19(적재는 790 완료 뒤 시작) |
 | L05 | GA4 속성 이벤트 데이터(Firebase Analytics 앱스트림·서버 MP 포함) | **2개월**(권장값) | GA4 관리 > 데이터 설정 > 데이터 보존 | **GA4 관리 화면에서 재영님이 설정 — 설정값 확인 필요** |
