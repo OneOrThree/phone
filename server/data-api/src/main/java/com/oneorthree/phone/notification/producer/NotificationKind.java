@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Data 가 <b>판정</b>하는 알림 종류 — 22종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
+ * Data 가 <b>판정</b>하는 알림 종류 — 기존 22종과 운영 공지 1종. 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
  *
  * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
  * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
@@ -120,7 +120,10 @@ public enum NotificationKind {
      * params: {@code issueId}·{@code issueNo}·{@code issueDate}. 틱이 07:00~23:50 이라 조용한 시간(DROP)과
      * 겹치지 않는다.
      */
-    MAGAZINE_PUBLISHED(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.MAGAZINE_ISSUE);
+    MAGAZINE_PUBLISHED(NotificationSlotGranularity.DAY, NotificationQuietPolicy.DROP, SubjectKind.MAGAZINE_ISSUE),
+
+    /** 검토·승인된 운영 공지. 대상 = 발행 ID; 문구는 Notification의 불변 스냅샷에서 읽는다. */
+    ADMIN_ANNOUNCEMENT(NotificationSlotGranularity.NONE, NotificationQuietPolicy.DEFER, SubjectKind.PUBLICATION);
 
     /** {@code subjectId} 가 가리키는 것 — 알림 서버의 상태 재검증이 무엇을 조회할지 가른다. */
     public enum SubjectKind {
@@ -142,7 +145,9 @@ public enum NotificationKind {
          * 고양이 잡지 호 id (GROMO-2307). 이미 발행된 호의 통보라 알림 서버가 상태를 재검증하지 않는다 —
          * 키의 대상 축으로만 쓰여 다른 날의 호가 한 건으로 접히지 않게 한다.
          */
-        MAGAZINE_ISSUE
+        MAGAZINE_ISSUE,
+        /** 운영 공지 발행 ID. */
+        PUBLICATION
     }
 
     private static final Map<String, NotificationKind> BY_NAME = Arrays.stream(values())

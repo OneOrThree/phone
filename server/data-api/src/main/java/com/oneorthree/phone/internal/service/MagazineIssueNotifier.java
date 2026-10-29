@@ -5,6 +5,7 @@ import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
 import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
+import com.oneorthree.phone.magazine.support.MagazineCalendar;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
@@ -88,6 +89,14 @@ public class MagazineIssueNotifier {
 
     /** 한 쪽 크기 — 테스트가 쪽 경계를 만들려고 줄인다. */
     int pageSize = 200;
+
+    /** 자정을 넘겨도 아직 유효한 미완료 호를 다시 찾는다. */
+    public List<LocalDate> pendingIssueDates(Instant now) {
+        return issues.findTop7ByOrderByIssueNoDesc().stream()
+                .filter(issue -> issue.getNotifiedAt() == null && !issue.getPublishedAt().isAfter(now)
+                        && now.isBefore(MagazineCalendar.currentUntil(issue.getIssueDate())))
+                .map(MagazineIssue::getIssueDate).toList();
+    }
 
     /**
      * 그날 호가 있고 아직 펼치지 않았으면 이어서 펼친다.

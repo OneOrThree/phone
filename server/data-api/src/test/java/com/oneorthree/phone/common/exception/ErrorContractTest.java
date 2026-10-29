@@ -1,6 +1,8 @@
 package com.oneorthree.phone.common.exception;
 
 import com.oneorthree.phone.analytics.exception.AnalyticsErrorCode;
+import com.oneorthree.phone.content.exception.ContentErrorCode;
+import com.oneorthree.phone.content.exception.ContentException;
 import com.oneorthree.phone.appearance.exception.AppearanceErrorCode;
 import com.oneorthree.phone.appearance.exception.AppearanceException;
 import com.oneorthree.phone.analytics.exception.AnalyticsException;
@@ -93,6 +95,7 @@ class ErrorContractTest {
             Map.entry(InvalidTokenErrorCode.class, c -> new InvalidTokenException((InvalidTokenErrorCode) c)),
             Map.entry(ConstructionErrorCode.class, c -> new ConstructionException((ConstructionErrorCode) c)),
             Map.entry(CurrencyErrorCode.class, c -> new CurrencyException((CurrencyErrorCode) c)),
+            Map.entry(ContentErrorCode.class, c -> new ContentException((ContentErrorCode) c)),
             Map.entry(FocusErrorCode.class, c -> new FocusException((FocusErrorCode) c)),
             Map.entry(FriendErrorCode.class, c -> new FriendException((FriendErrorCode) c)),
             Map.entry(LetterErrorCode.class, c -> new LetterException((LetterErrorCode) c)),
@@ -139,12 +142,12 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 18개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)·magazine(GROMO-2289)이 늘었다")
-                .hasSize(19);
+        assertThat(found).as("실측 기준 도메인 enum 19개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)·magazine(GROMO-2289)이 늘었다")
+                .hasSize(20);
     }
 
     @TestFactory
-    @DisplayName("상수 239개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 247개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -257,8 +260,8 @@ class ErrorContractTest {
         // 마감 뒤 고치기·없는 홍보·기능 스위치 꺼짐(503))를 더했고, 발행 묶음이 없는 호(MAGAZINE_ISSUE_NOT_FOUND, 404)를 더했다.
         // 앱이 각 코드로 안내를 가르므로 STATE_CONFLICT 로 접지 않는다. 지금 주민인 섬의 칸 신고(PROMOTION_REPORT_OWN_ISLAND,
         // 403)를 더했다 — 공개 응답은 Business 가 FORBIDDEN 으로 옮긴다.
-        assertThat(tests).as("실측 기준 도메인 상수 224개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·Live Activity 등록 검증·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회·잡지 10종·바다 항해 3종 포함")
-                .hasSize(242);
+        assertThat(tests).as("실측 기준 도메인 상수 229개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·Live Activity 등록 검증·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회·잡지 10종·바다 항해 3종·운영 콘텐츠 5종 포함")
+                .hasSize(247);
         return tests;
     }
 

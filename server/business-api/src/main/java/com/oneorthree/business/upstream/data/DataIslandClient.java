@@ -5,6 +5,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.dto.DeveloperNotices;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
@@ -401,6 +402,20 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandPromotions.Assets>() { });
+    }
+
+    /** 현재 게시 중인 개발자 소식 목록. */
+    public DeveloperNotices.Page fetchDeveloperNotices(UUID userId, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.GET,
+                "/internal/users/" + userId + "/developer-notices").onBehalfOf(userId).build(),
+                deadline, new ParameterizedTypeReference<DeveloperNotices.Page>() { });
+    }
+
+    /** 기간 밖 소식의 직접 ID 조회도 Data가 거절한다. */
+    public DeveloperNotices.Notice fetchDeveloperNotice(UUID userId, UUID id, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.GET,
+                "/internal/users/" + userId + "/developer-notices/" + id).onBehalfOf(userId).build(),
+                deadline, new ParameterizedTypeReference<DeveloperNotices.Notice>() { });
     }
 
     /** 오늘 호와 내 받기 기록 (GROMO-2289) — 게스트도 읽는다. 멱등 GET 이라 재시도한다. */

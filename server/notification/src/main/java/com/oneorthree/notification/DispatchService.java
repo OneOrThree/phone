@@ -203,8 +203,13 @@ class DispatchService {
                 continue;
             }
             // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
-            PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
-                    plan.eventId());
+            PushTransport.Result result;
+            try {
+                result = transport.send(attempt.token(), attempt.push(), plan.sound(), plan.eventId());
+            } catch (NotificationEnvironmentGuard.EnvironmentMismatch mismatch) {
+                recording.executeWithoutResult(status -> deferEnvironmentLeased(plan));
+                return;
+            }
             Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
             if (outcome == Outcome.LEASE_LOST) {
                 return;
@@ -490,7 +495,8 @@ class DispatchService {
         // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
         // admin_actor는 콘솔 인증 경로만 쓰는 정본 컬럼이다. payload의 adminTest/adminActor는 믿지 않는다.
         // 재전송은 replay_of가 있어 원사건 만료를 계속 따른다.
-        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null;
+        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null
+                && delivery.get("reviewed_push") == null;
         return adminTest
                 ? data.eligibleTest(user, kind, subject, params, ((Timestamp) delivery.get("created_at")).toInstant())
                 : data.eligible(user, kind, subject, params);
@@ -539,7 +545,9 @@ class DispatchService {
             }
             // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
             // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
-            RenderedPush push = renderer.renderBundle(unsent);
+            Map<String, Object> message = unsent.get(0);
+            RenderedPush push = message.get("reviewed_push") == null ? renderer.renderBundle(unsent)
+                    : PublicationService.reviewedPush(Json.map(message.get("reviewed_push").toString()));
             try {
                 FcmPayload.requireFits(push, sound, collapseEventId(ready));
             } catch (NotificationFailure invalid) {
@@ -758,6 +766,16 @@ class DispatchService {
         }
     }
 
+    /** 환경 복구 후 재시도하도록 횟수를 소진하지 않고 이 실행의 임대만 해제한다. */
+    private void deferEnvironmentLeased(Plan plan) {
+        for (UUID id : plan.deliveries()) {
+            store.update("UPDATE deliveries SET last_error='ENVIRONMENT_MISMATCH',next_attempt_at=?,"
+                    + "lease_token=NULL,lease_expires_at=NULL WHERE id=?"
+                    + " AND status IN ('PENDING','DEFERRED') AND lease_token=?",
+                    Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
+        }
+    }
+
     private String collapseEventId(List<Map<String, Object>> rows) {
         Map<String, Object> first = rows.get(0);
         Bundles.Family family = Bundles.of(first.get("kind"));
@@ -839,7 +857,8 @@ class DispatchService {
      * @return 원사건 만료를 적용해야 하면 {@code true}
      */
     static boolean governedByEventExpiry(Map<String, Object> delivery) {
-        return delivery.get("admin_actor") == null || delivery.get("replay_of") != null;
+        return delivery.get("admin_actor") == null || delivery.get("replay_of") != null
+                || delivery.get("reviewed_push") != null;
     }
 
     /**

@@ -95,6 +95,15 @@ class NotificationEligibilityServiceTest {
     }
 
     @Test
+    void adminAnnouncementRequiresAnActiveRecipientAndPublicationSubject() {
+        userIsActive();
+        assertThat(service().evaluate(request("ADMIN_ANNOUNCEMENT", SUBJECT)).eligible()).isTrue();
+        assertThat(service().evaluate(request("ADMIN_ANNOUNCEMENT", null)).eligible()).isFalse();
+        when(userQueryService.findActive(USER)).thenReturn(Optional.empty());
+        assertThat(service().evaluate(request("ADMIN_ANNOUNCEMENT", SUBJECT)).eligible()).isFalse();
+    }
+
+    @Test
     void magazinePublishedIsAllowedOnlyWhileItsIssueIsTheCurrentOne() {
         UUID issueId = UUID.randomUUID();
         userIsActive();

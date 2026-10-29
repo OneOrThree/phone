@@ -129,6 +129,8 @@ location = /ws/realtime {
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 # 바다 집중(GROMO-2299)도 focus-sessions·me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # POST /focus-sessions/sea · PUT /me/sea-remark. 한마디(sea-remark)는 게스트 403·20자·5분 잠금을 Data 가 판정한다.
+# 개발자 공지(GROMO-2595)도 me 분기가 Business로 전달한다. 인증은 Business가 검증한다.
+# GET /me/developer-notices · GET /me/developer-notices/{publicationId}.
 # 꾸미기 카탈로그(GROMO-2331) — GET /customization/catalog 는 새 접두어 customization 으로 Business 에 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks|customization)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;

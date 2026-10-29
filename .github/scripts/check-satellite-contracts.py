@@ -40,15 +40,29 @@ producer = set(re.findall(r'^\s+([A-Z][A-Z0-9_]+)\(NotificationSlotGranularity\.
 # 통째로 합쳐 본다. 아래 템플릿 4로케일 검사도 같은 합본을 쓴다.
 seed = '\n'.join(path.read_text() for path in sorted(
         (ROOT / 'server/notification/src/main/resources/db/migration').glob('V*.sql'),
-        key=lambda path: int(path.name.split('__', 1)[0][1:])))
+        key=lambda path: tuple(int(part) for part in re.split(r'[_.]', path.name.split('__', 1)[0][1:]))))
 consumers = set(re.findall(r"INSERT INTO kinds\([^\n]+VALUES\('([^']+)'", seed))
 bundles = {'BET_RESULT_BUNDLE', 'BET_VOID_REFUND_BUNDLE', 'BET_MIXED_BUNDLE', 'CHALLENGE_SESSION_OPEN_BUNDLE'}
 require(bool(producer) and consumers == producer | bundles,
         f'producer/consumer kind 불일치: 수신 누락={producer-consumers}, 미정의={consumers-producer-bundles}')
-for kind in consumers:
+# 운영 공지는 검토한 문구 스냅샷으로 발송하므로 템플릿 시드가 없다.
+for kind in consumers - {'ADMIN_ANNOUNCEMENT'}:
     for locale in ['ko', 'en', 'ja', 'zh-Hant']:
         require(f"'{kind}.{locale}','{kind}','{locale}'" in seed,
                 f'{kind}/{locale}: 템플릿 시드 없음')
+
+require(re.search(r'ADMIN_ANNOUNCEMENT\(NotificationSlotGranularity\.NONE,\s*'
+                  r'NotificationQuietPolicy\.DEFER,\s*SubjectKind\.PUBLICATION\)', kinds),
+        '운영 공지 사건은 발행 ID를 대상으로 하고 조용한 시간에는 보류해야 한다')
+public_notices = source('server/business-api/src/main/java/com/oneorthree/business/api/DeveloperNoticeController.java')
+data_notices = source('server/data-api/src/main/java/com/oneorthree/phone/internal/InternalDeveloperNoticeController.java')
+data_notice_client = source('server/business-api/src/main/java/com/oneorthree/business/upstream/data/DataIslandClient.java')
+require('@GetMapping("/me/developer-notices")' in public_notices
+        and '@GetMapping("/me/developer-notices/{publicationId}")' in public_notices
+        and 'sessions.requireSession(request)' in public_notices
+        and '"/internal/users/{userId}/developer-notices"' in data_notices
+        and '"/internal/users/" + userId + "/developer-notices").onBehalfOf(userId)' in data_notice_client,
+        '개발자 공지 공개 조회는 검증한 세션 주체를 Data 사용자 경로에 전달해야 한다')
 
 kafka = source('server/notification/src/main/java/com/oneorthree/notification/KafkaInbound.java')
 require('record.topic() + ".DLT"' in kafka and 'setFailIfSendResultIsError(true)' in kafka,
@@ -303,4 +317,4 @@ require('DISPATCH_OPEN_REPLAY_STALE' in gate_commands and 'activate.get();' in g
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)
-print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {len(consumers)*4}개')
+print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {(len(consumers)-1)*4}개')

@@ -104,6 +104,10 @@ class AdminService {
             UUID id = enqueue(actor, user, origin.get("kind").toString(), (String) origin.get("subject_id"),
                     (UUID) origin.get("group_id"), params, (String) origin.get("locale"),
                     eventId("admin-resend:" + deliveryId, key), deliveryId);
+            if (origin.get("reviewed_push") != null) {
+                store.update("UPDATE deliveries SET reviewed_push=?::jsonb WHERE id=?",
+                        origin.get("reviewed_push").toString(), id);
+            }
             audit.record(actor, "deliveries.resend.enqueued", id.toString(),
                     Map.of("replayOf", deliveryId.toString(), "kind", origin.get("kind").toString()));
             return queued(id, deliveryId);
