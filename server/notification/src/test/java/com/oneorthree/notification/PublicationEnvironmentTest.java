@@ -25,7 +25,8 @@ class PublicationEnvironmentTest {
         var jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
         var publications = mock(PublicationService.class);
-        var controller = new PublicationController(publications, environment, jdbc, "gromo-dev");
+        var controller = new PublicationController(publications,
+                new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev"));
 
         assertThatThrownBy(() -> controller.publish(UUID.randomUUID(), Map.of(), "key", null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB/FCM 환경");
@@ -44,7 +45,8 @@ class PublicationEnvironmentTest {
         var request = mock(HttpServletRequest.class);
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
         when(request.getHeader("X-Backoffice-Fcm-Project")).thenReturn("gromo-prod");
-        var controller = new PublicationController(publications, environment, jdbc, "gromo-dev");
+        var controller = new PublicationController(publications,
+                new NotificationEnvironmentGuard(environment, jdbc, "gromo-dev"));
 
         assertThatThrownBy(() -> controller.publish(UUID.randomUUID(), Map.of(), "key", request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
@@ -63,7 +65,8 @@ class PublicationEnvironmentTest {
         var request = mock(HttpServletRequest.class);
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
         when(request.getHeader("X-Backoffice-Fcm-Project")).thenReturn("gromo-prod");
-        var controller = new PublicationController(publications, environment, jdbc, "gromo-prod");
+        var controller = new PublicationController(publications,
+                new NotificationEnvironmentGuard(environment, jdbc, "gromo-prod"));
 
         assertThatThrownBy(() -> controller.publish(UUID.randomUUID(), Map.of(), "key", request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB/FCM 환경");
