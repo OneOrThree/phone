@@ -1,7 +1,6 @@
 package com.oneorthree.realtime.logging;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -14,7 +13,7 @@ final class LogMasking {
     private static final Pattern SENSITIVE_KV = Pattern.compile(
             "(?i)((?:password|accessToken|access_token|mobile|email|cardNumber|card_number|cvv|secret)"
                     + "(?:\\s*=\\s*|\\s*\"\\s*:\\s*\"\\s*|\\s*:\\s*))[^&\"\\s,}]+");
-    // SENSITIVE_KV 의 키 목록(소문자). (?i) 는 ASCII 만 대소문자를 무시하므로 소문자로 바꾼 입력에 키가 없으면 매치도 없다.
+    // SENSITIVE_KV 의 키 목록(소문자). (?i) 는 ASCII 만 대소문자를 무시하므로 ASCII 대소문자 무시 검색에서 키가 없으면 매치도 없다.
     private static final List<String> SENSITIVE_KEYS = List.of("password", "accesstoken", "access_token", "mobile",
             "email", "cardnumber", "card_number", "cvv", "secret");
     // 선형 시간: 로컬 파트 시작을 «앞이 로컬 문자가 아닌 곳 또는 직전 매치 끝(\G)»으로 묶고 나머지는 possessive 로 받는다.
@@ -38,8 +37,7 @@ final class LogMasking {
             return value;
         }
         String result = value;
-        String lower = value.toLowerCase(Locale.ROOT);
-        if (SENSITIVE_KEYS.stream().anyMatch(lower::contains)) {
+        if (hasSensitiveKey(value)) {
             result = SENSITIVE_KV.matcher(result).replaceAll(m -> m.group(1) + "****");
         }
         if (result.indexOf('@') >= 0) {
@@ -49,14 +47,21 @@ final class LogMasking {
         return SSN.matcher(result).replaceAll(m -> m.group(1) + "-" + m.group(2) + "******");
     }
 
+    /** 사전 자르기 꼬리에서 버리는 토큰 문자 최대 길이. logs.lua MAX_CUT_TOKEN 과 같다. */
+    static final int MAX_CUT_TOKEN = 254;
+
     /**
      * 사전 자르기로 끝에 걸린 토큰 문자({@code [A-Za-z0-9._%+@-]}) 연속 구간을 버린다. 잘린 이메일·휴대폰·주민번호 조각은
      * 마스킹 패턴에 안 걸려 원문이 그대로 남기 때문이다. logs.lua 의 {@code drop_cut_token} 과 같은 규칙이다.
-     * ponytail: 사전 자르기 지점까지 이어진 긴 덩어리(구분자 없는 수십 KiB)는 통째로 빠진다 — 출력이 짧아질 뿐 원문 조각은 안 남는다.
+     * 버리는 길이는 {@link #MAX_CUT_TOKEN}(254) 자까지다: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰·주민번호는 14자 이하라,
+     * 잘린 조각이 마스킹 패턴에 걸릴 수 있었던 토큰이면 '@' 나 숫자 시작이 반드시 끝 254자 안에 있다. 그보다 앞은 이메일·휴대폰이 될 수 없는
+     * 꼴이라 남겨도 안전하다. 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
+     * ponytail: 254자를 넘는 덩어리의 앞부분(이메일 로컬 파트일 수 있는 문자열)은 남는다 — 유효 이메일이 아니라 마스킹 대상 밖으로 둔다.
      */
     static String dropCutToken(String head) {
         int end = head.length();
-        while (end > 0 && isTokenChar(head.charAt(end - 1))) {
+        int floor = Math.max(0, end - MAX_CUT_TOKEN);
+        while (end > floor && isTokenChar(head.charAt(end - 1))) {
             end--;
         }
         return head.substring(0, end);
@@ -64,5 +69,42 @@ final class LogMasking {
 
     private static boolean isTokenChar(char c) {
         return c < 128 && (Character.isLetterOrDigit(c) || TOKEN_PUNCTUATION.indexOf(c) >= 0);
+    }
+
+    /**
+     * 민감 키가 ASCII 대소문자 무시로 들어 있는지 새 문자열 없이 선형 스캔한다. toLowerCase 는 «İ» 처럼 길이가 늘어나는 문자에서
+     * 입력마다 재할당이 커져(16384자에 약 800 MB) 쓰지 않는다. 정규식 (?i) 가 ASCII 만 무시하므로 결과는 같다.
+     */
+    private static boolean hasSensitiveKey(String s) {
+        for (int i = 0, n = s.length(); i < n; i++) {
+            char c = s.charAt(i);
+            if (c >= 'A' && c <= 'Z') {
+                c += 'a' - 'A';
+            }
+            // 키 첫 글자(p·a·m·e·c·s)가 아니면 키 비교를 건너뛴다 — 긴 스택에서 대부분의 위치가 여기서 끝난다.
+            if (c != 'p' && c != 'a' && c != 'm' && c != 'e' && c != 'c' && c != 's') {
+                continue;
+            }
+            for (String key : SENSITIVE_KEYS) {
+                if (key.charAt(0) == c && i + key.length() <= n && matchesAsciiIgnoreCase(s, i, key)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** key 는 소문자 ASCII. 비ASCII 문자는 접지 않으므로 일치하지 않는다. */
+    private static boolean matchesAsciiIgnoreCase(String s, int from, String key) {
+        for (int k = 0; k < key.length(); k++) {
+            char c = s.charAt(from + k);
+            if (c >= 'A' && c <= 'Z') {
+                c += 'a' - 'A';
+            }
+            if (c != key.charAt(k)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
