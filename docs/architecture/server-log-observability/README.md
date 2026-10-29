@@ -15,7 +15,7 @@
 - [재검토에서 발견한 공백·수정·잔여 검증](review-2026-10-29.md)
 - 기존 정본: [시스템 아키텍처](../system-architecture.md), [서비스 아키텍처](../service-architecture.md), [보존 정책](../../prd/fishcat/account/policy.md#로그분석-보존-기간)
 
-흐름도 원본은 이 문서의 Mermaid이며, 아래 SVG는 같은 소스를 렌더링한 정적 사본이다. 흐름을 바꾸면 두 형식을 함께 갱신한다. 노드·엣지의 «(목표)»는 피처 브랜치 현재 상태에서 코드가 없거나, 모듈 스위치 기본 꺼짐(dev S3 출력·호스트 Nginx 수집)이거나, dev에서 미가동(Loki)인 경로다. 근거는 [구현 현황](implementation-status.md)이다.
+흐름도 원본은 이 문서의 Mermaid이며, 아래 SVG는 같은 소스를 렌더링한 정적 사본이다. 흐름을 바꾸면 두 형식을 함께 갱신한다. 노드·엣지의 «(목표)»는 피처 브랜치 현재 상태에서 코드가 없거나, 모듈 스위치 기본 꺼짐(dev S3 출력·호스트 Nginx 수집)이거나, dev에서 미가동(Loki)인 경로다. Grafana는 dev에서 가동 중이지만 Loki는 아니므로, Loki 노드가 없는 06 그림의 Grafana 경로에는 라벨을 붙이지 않는다. 근거는 [구현 현황](implementation-status.md)이다.
 
 | 그림 | 읽을 내용 |
 | --- | --- |
@@ -87,7 +87,8 @@ flowchart LR
 flowchart LR
     subgraph HOST[애플리케이션 호스트: 환경별 분리]
         JVM[4개 JVM: Logback JSON]
-        INF[컨테이너 Nginx / DB / Redis / Kafka]
+        INF[컨테이너 Nginx]
+        INF2["DB / Redis / Kafka 로그 (목표)"]
         HNG["dev 호스트 Nginx: 파일 / journal (목표)"]
         DOCKER[Docker 로그 파일: 크기 기반 회전]
         FB[Fluent Bit: parser / enrichment / routing]
@@ -95,6 +96,7 @@ flowchart LR
         AGENT[기존 Datadog Agent]
         JVM -->|stdout / stderr| DOCKER
         INF -->|stdout / stderr| DOCKER
+        INF2 -->|stdout / stderr| DOCKER
         DOCKER --> FB
         HNG -->|"별도 input / 영속 cursor (목표)"| FB
         FB <--> DISK
@@ -114,6 +116,7 @@ flowchart LR
     S3 --> ARCH["기간별 원본 조회: Athena / 제한된 다운로드 (목표)"]
     JVM -->|Actuator| PR
     INF -->|exporter| PR
+    INF2 -->|exporter| PR
 ```
 
 - 호스트마다 수집기 한 개를 두고 tail DB·engine buffer·S3 `store_dir`를 재생성 후에도 남는 볼륨에 저장한다. source 파일은 읽기 전용으로 마운트한다.
@@ -181,7 +184,7 @@ sequenceDiagram
     D->>DB: 도메인 변경 + event_id + 원인 문맥을 같은 TX에 저장
     DB-->>D: commit
     R->>DB: 전달 행 claim, 저장한 문맥 조회
-    Note over R: 시도별 trace/span 시작(목표), origin_trace_id와 event_id 기록
+    Note over R: 시도별 trace/span 시작 (목표), origin_trace_id와 event_id 기록
     R->>K: 기존 이벤트 봉투 + 추적용 Kafka headers
     K-->>R: broker ack
     R->>DB: 기존 fencing 조건으로 전달 완료 표시
@@ -246,7 +249,7 @@ flowchart TD
     L --> G[Grafana 최근 로그]
     S --> O["S3 gzip JSONL (목표)"]
     O --> Q["기간 제한 원본 조회 (목표)"]
-    D -->|파싱 실패| F["parse_error 표시 / 민감정보 정책 적용 / 오류 건수 알림(목표)"]
+    D -->|파싱 실패| F["parse_error 표시 / 민감정보 정책 적용 / 오류 건수 알림 (목표)"]
 ```
 
 - APP 수집 원천은 stdout/stderr 한 경로로 정한다. 같은 메시지의 `app.log`도 tail하지 않는다. user-activity는 콘솔에 없는 환경이 있으므로 기존 별도 수집을 유지한다.
@@ -278,7 +281,7 @@ flowchart TD
     A[오류 알림 / 느린 API / 요청 번호] --> B[Grafana: 환경 + 시간 + 서비스 선택]
     B --> C[서버 로그 검색 / 예외 확인]
     C --> D{연결 키}
-    D -->|trace_id| T[같은 요청의 서비스 로그 + Datadog APM]
+    D -->|"trace_id (목표)"| T[같은 요청의 서비스 로그 + Datadog APM]
     D -->|event_id / origin_trace_id| E[Relay / 소비 / 재시도 / 최종 처리 로그]
     E -->|operation.link의 operation_id| O[공통 묶음 발송 로그]
     D -->|message_id| RT[Realtime 인스턴스 간 전달 로그]
