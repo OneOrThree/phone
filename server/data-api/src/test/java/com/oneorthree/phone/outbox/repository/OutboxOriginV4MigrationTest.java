@@ -4,10 +4,14 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,5 +77,32 @@ class OutboxOriginV4MigrationTest {
                 .target(target)
                 .load()
                 .migrate();
+    }
+
+    /**
+     * 롤백 공존 — 이전 이미지의 {@code db/v0} 번들에는 V4 가 없다. 그 번들로 V4 가 적용된 DB 를 migrate·validate 해도 통과해야 한다.
+     * 근거는 Flyway 기본 {@code ignore-migration-patterns=*:future}(적용됐지만 로컬에 없는 더 높은 버전은 무시) 하나뿐이다.
+     * dev/prod 설정은 이 값을 건드리지 않고 {@code out-of-order: false} 만 둔다 — 아래도 같은 옵션만 쓴다.
+     * 이 기본값이 바뀌거나 설정에 {@code ignoreMigrationPatterns} 가 들어오면 이 테스트가 먼저 깨져야 한다.
+     */
+    @Test
+    @DisplayName("V4 까지 적용된 DB 를 V4 없는 번들(V0~V3)로 migrate·validate 해도 통과한다")
+    void rollbackBundleWithoutV4StillValidatesAppliedV4(@TempDir Path previousImage) throws IOException {
+        migrate(MigrationVersion.LATEST);
+        for (String name : List.of("V0__baseline.sql", "V1__focus_session_details_seat.sql",
+                "V2__construction_buildings.sql", "V3__deferred_uninhabited_island.sql")) {
+            Files.copy(Path.of("src/main/resources/db/v0", name), previousImage.resolve(name));
+        }
+
+        Flyway previous = Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("filesystem:" + previousImage).outOfOrder(false).load();
+        previous.migrate();
+        previous.validate();
+
+        assertThat(new JdbcTemplate(new DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()))
+                .queryForObject("SELECT max(version::int) FROM flyway_schema_history WHERE success", Integer.class))
+                .as("V4 기록이 그대로 남는다").isEqualTo(4);
     }
 }

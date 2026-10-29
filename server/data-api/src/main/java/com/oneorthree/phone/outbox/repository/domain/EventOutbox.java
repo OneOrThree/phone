@@ -126,7 +126,7 @@ public class EventOutbox {
     @Column(name = "origin_trace_id", length = 64)
     private String originTraceId;
 
-    /** 위 두 값의 형식 버전 — 하나라도 있으면 1. */
+    /** 위 두 값의 형식 버전 — 하나라도 있으면 1. 지금은 쓰기만 한다 — carrier 형식이 갈릴 때 읽기 위한 열이다. */
     @Column(name = "trace_context_version")
     private Short traceContextVersion;
 
