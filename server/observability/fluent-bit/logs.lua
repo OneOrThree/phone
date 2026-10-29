@@ -184,7 +184,40 @@ end
 -- combined: ip ident user [time] "METHOD URI PROTO" status bytes "referer" "agent"
 local COMBINED = '^(%S+) %S+ %S+ %[([^%]]*)%] "(%S+) (%S+) ([^"]*)" (%d+) (%S+) "[^"]*" "[^"]*"'
 
-local function nginx_access(record, line, stream)
+-- [dd/Mon/yyyy:HH:MM:SS +zzzz] -> epoch 초(UTC). 실패하면 nil.
+local MONTHS = { Jan = 1, Feb = 2, Mar = 3, Apr = 4, May = 5, Jun = 6, Jul = 7, Aug = 8, Sep = 9, Oct = 10, Nov = 11, Dec = 12 }
+local function combined_time(t)
+  local d, mon, y, h, mi, s, sign, oh, om = tostring(t or ""):match("^(%d+)/(%a+)/(%d+):(%d+):(%d+):(%d+) ([+-])(%d%d)(%d%d)$")
+  mon = MONTHS[mon or ""]
+  if not mon then return nil end
+  y, d = tonumber(y), tonumber(d)
+  -- days-from-civil (Howard Hinnant): os.time 은 로컬 시간대를 타서 쓰지 않는다.
+  local yy = mon <= 2 and y - 1 or y
+  local era = math.floor(yy / 400)
+  local yoe = yy - era * 400
+  local doy = math.floor((153 * (mon + (mon > 2 and -3 or 9)) + 2) / 5) + d - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  local days = era * 146097 + doe - 719468
+  local off = (tonumber(oh) * 3600 + tonumber(om) * 60) * (sign == "-" and -1 or 1)
+  return days * 86400 + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(s) - off
+end
+
+-- combined 파싱에 실패한 access 줄(예: 요청 줄이 "-" 인 400)도 IP·user·referer·query 정책을 지킨다.
+local function access_fallback(line)
+  local n = 0
+  line = line:gsub("^%S+ %S+ %S+ ", "**** - - ", 1)  -- client IP·ident·remote_user
+  line = line:gsub('"([^"]*)"', function(q)
+    n = n + 1
+    if n > 1 then return '"-"' end  -- referer·user-agent
+    local m, u, p = q:match("^(%u+) ([^ ]+)(.*)$")
+    if m then return '"' .. m .. " " .. sanitize_path(u) .. p .. '"' end
+    return '"' .. q .. '"'
+  end)
+  if select(2, line:gsub('"', "")) % 2 == 1 then line = line:gsub('"[^"]*$', '"-') end  -- 잘려 닫히지 않은 따옴표
+  return line
+end
+
+local function nginx_access(record, line, stream, ts)
   local method, path, status, bytes, duration, edge, upstream_id, connection, connection_requests
   local seconds
   if record["status"] ~= nil and record["method"] ~= nil then
@@ -198,9 +231,12 @@ local function nginx_access(record, line, stream)
     seconds = tonumber(record["msec"])
   else
     -- 기본 combined 형식 줄: client IP·identd·user 는 버리고 query 는 경로 정제에서 제거. referer/user-agent 는 읽지 않는다.
-    local _, _, m, u, _, st, b = line:match(COMBINED)
+    local _, t, m, u, _, st, b = line:match(COMBINED)
     method, path, status, bytes = m, u, tonumber(st), tonumber(b)
+    seconds = combined_time(t)
   end
+  -- 시각: JSON msec > combined 원본 시각 > Fluent Bit 이벤트 시각(Read_From_Head·backlog 때 수집 시각으로 덮이지 않게).
+  seconds = seconds or (type(ts) == "number" and ts or nil)
   if not (method and status) then return nil end
   method = tostring(method):upper():gsub("[^A-Z]", ""):sub(1, 16)
   local out = {
@@ -232,7 +268,7 @@ local function nginx_error(line, stream)
   local conn, after = rest:match("^%*(%d+) (.*)$")
   if conn then connection, rest = tonumber(conn), after end
   -- 요청 줄·upstream·referrer·client 에는 query/토큰/IP 가 들어갈 수 있다.
-  rest = rest:gsub('request: "(%S+) (%S+) ([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. " " .. p .. '"' end)
+  rest = rest:gsub('request: "(%S+) ([^" ]+)([^"]*)"', function(m, u, p) return 'request: "' .. m .. " " .. sanitize_path(u) .. p .. '"' end)  -- 프로토콜이 없는 HTTP/0.9 도
   rest = rest:gsub('upstream: "([^"]*)"', function(u) return 'upstream: "' .. sanitize_url(u) .. '"' end)
   rest = rest:gsub('referrer: "[^"]*"', 'referrer: "-"')
   rest = rest:gsub("client: [^,%s]+", "client: ****")
@@ -269,7 +305,12 @@ local function nginx_finalize(record, ts)
   local line = tostring(record["log"] or ""):gsub("[\r\n]+$", "")
   local head = truncate(line, MESSAGE_LIMIT * 2)  -- 패턴 매칭·마스킹 전에 먼저 자른다(긴 줄 O(n²) 방지)
   local out
-  if src == "access" then out = nginx_access(record, head, record["stream"]) else out = nginx_error(head, record["stream"]) end
+  if src == "access" then out = nginx_access(record, head, record["stream"], ts) else out = nginx_error(head, record["stream"]) end
+  if not out and src == "access" and record["status"] == nil then
+    out = raw_record(access_fallback(head), record["stream"])
+    out["logger"] = "nginx.access"
+    if type(ts) == "number" then out["timestamp"] = iso_ms(ts) end
+  end
   if not out then out = raw_record(line, record["stream"]) end
   if not ENVS[out["env"]] then out["env"] = "unknown" end
   out["service"] = "nginx"

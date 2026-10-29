@@ -1,7 +1,7 @@
 """Nginx 하네스 구동기. 사용: nginx_traffic.py PORT N OUT.json   → 기대 edge_request_id 와 금지 문자열을 OUT 에 쓴다.
 요청마다 query 에 토큰·이메일·코드, Referer 에 토큰, 경로에 토큰 세그먼트를 넣는다(수집 결과에 원문이 남으면 실패).
 trunc-* 는 Nginx 가 error 한 줄을 약 2 KiB 에서 잘라 request·upstream·referrer·open() 경로의 닫는 따옴표가 없어지는 경우다."""
-import base64, http.client, json, sys, uuid
+import base64, http.client, json, socket, sys, uuid
 
 port, n, out = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
 SECRET = "SECRETTOKEN"
@@ -21,6 +21,8 @@ for i in range(n):
     tag = uuid.uuid4().hex[:8]
     q = f"token={SECRET}{tag}&email=person{tag}@example.com&code=C0DE{tag}&phone=010-1234-5678&invite=INV1TE{tag}"
     basic = base64.b64encode(f"USERSECRET{tag}:pw".encode()).decode()
+    # HTTP/0.9(프로토콜 없는 요청 줄): 502 → error 로그 request: "GET /… " 에 프로토콜이 없다. edge id 헤더가 없어 기대 목록엔 넣지 않고 금지 문자열 검사만 받는다.
+    sk = socket.create_connection(("127.0.0.1", port), timeout=10); sk.sendall(f"GET /api/y?invite=INV1TE{tag}\r\n".encode()); sk.recv(4096); sk.close()
     for kind, (m, p, h, b) in {
         "ok": ("GET", f"/ok?{q}", {"Referer": f"http://ref.example/?token=REFSECRET{tag}"}, None),
         "up": ("GET", f"/up/x?{q}", {}, None),

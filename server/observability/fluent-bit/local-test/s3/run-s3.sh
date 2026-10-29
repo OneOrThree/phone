@@ -142,6 +142,7 @@ if want h; then echo "== (h) Fluent Bit 정지 중 생성기 컨테이너 새로
   dc start fluent-bit >/dev/null; finish h 120 h:400
 fi
 if want i; then echo "== (i) Nginx — prod 컨테이너(Docker 입력)·dev 호스트(파일 tail, 회전 포함)"
+  python3 "$HERE/lua_cases.py" "$HERE/../../logs.lua" | tee -a "$RESULTS" || { FAILS=$((FAILS+1)); echo "FAIL: lua_cases"; }
   dc --profile nginx up -d nginx nginx-host >/dev/null; sleep 5
   python3 "$HERE/nginx_traffic.py" 28080 40 "$TMP/t-docker.json"
   python3 "$HERE/nginx_traffic.py" 28081 40 "$TMP/t-host1.json"

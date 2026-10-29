@@ -7,6 +7,9 @@
   MISSING_BOTH  canary_seq 의 빠진 번호 — 어느 sink 에도 안 온 canary. 같은 canary_boot(수집기 프로세스) 안에서 번호 연속성으로 찾는다
   STALE         sink 별 «마지막으로 받은 canary 의 발행 시각»이 판정 시각보다 interval + max-delay 넘게 오래됨
                 (처음 몇 건만 오고 수집기가 멈췄거나 조회가 계속 실패한 경우 — 빠진 번호로는 안 보인다)
+                또는 그 sink 가 «관측 종료 신호(SIGTERM) 이후 발행된 canary» 를 하나도 못 받음(받은 것 중 max(발행) < 종료 신호 − interval/2).
+                마지막 시나리오 직후 수집기가 멈추면 max-delay 가 길 때 앞 판정만으로는 통과하므로 꼬리 판정을 따로 둔다.
+                한계: --allow-loss 면제 창 안에서는 정상 구간의 유실과 의도된 유실을 구별하지 못한다.
   CANARY_NONE   관측 동안 그 sink 에서 0건
   PENDING       판정 시각 기준 max-delay 안에 발행돼 아직 판정하지 않은 것. 성공으로 세지 않고 따로 출력한다.
 --allow-loss-window START:END (epoch 초, 반복 가능) / --allow-loss-file PATH (한 줄에 START:END): 유실을 일부러 만드는 시나리오(f1·f2)의 시간 창.
@@ -120,6 +123,9 @@ for k in SINKS:
     elif now - max(c["emitted"] for c in got) > interval + max_delay:
         bad += 1
         print(f"STALE\t{k}\t마지막 수신 canary 발행 {now - max(c['emitted'] for c in got):.0f}s 전 (> interval {interval:.0f} + max-delay {max_delay:.0f})")
+    elif max(c["emitted"] for c in got) < stop_at - interval / 2:
+        bad += 1
+        print(f"STALE\t{k}\t관측 종료 신호 이후 발행된 canary 를 못 받음 (마지막 수신 발행 = 종료 {stop_at - max(c['emitted'] for c in got):.0f}s 전, 허용 interval/2 = {interval / 2:.0f}s)")
     print(f"CANARY_SUMMARY\t{k}\tcount={len(xs)}\tp50={xs[len(xs)//2]:.1f}s\tmax={xs[-1]:.1f}s" if xs else f"CANARY_SUMMARY\t{k}\tcount=0")
 print(f"CANARY_JUDGED\tcanaries={len(canaries)}\tboots={len(by_boot)}\tmissing={loss}\tallowed_loss={allowed}\twindows={len(windows)}\tpending={pending}\tmax_delay={max_delay:.0f}s"
       f"\tobserved={now - obs_start:.0f}s" )
