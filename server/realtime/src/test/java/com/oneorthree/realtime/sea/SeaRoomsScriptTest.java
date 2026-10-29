@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.sea;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class SeaRoomsScriptTest {
 
     @Autowired

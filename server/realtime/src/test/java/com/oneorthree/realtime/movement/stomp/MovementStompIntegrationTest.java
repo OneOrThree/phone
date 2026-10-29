@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.movement.stomp;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.block.client.BlockClient;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
@@ -67,7 +67,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class MovementStompIntegrationTest {
 
     private static final long TIMEOUT_MS = 15_000;

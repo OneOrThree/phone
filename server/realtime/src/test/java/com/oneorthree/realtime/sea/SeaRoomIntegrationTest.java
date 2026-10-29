@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.sea;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.block.client.BlockClient;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -67,7 +68,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class SeaRoomIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 15;
@@ -86,6 +87,9 @@ class SeaRoomIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @MockitoBean
     private SeaStateClient seaState;
@@ -857,6 +861,14 @@ class SeaRoomIntegrationTest {
         assertThat(redis.hasKey(RedisKeys.seaUser(alice))).isFalse();
         assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), alice.toString())).isFalse();
         assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, alice.toString())).isNull();
+
+        // Redis 퇴장과 같은 트랜잭션의 탈퇴 기록이 커밋되고, 재전달도 한 번만 적용된다.
+        postEvent(withdrawn(alice));
+        assertThat(heardByBob.poll(1, TimeUnit.SECONDS)).isNull();
+        assertThat(jdbc.queryForObject("SELECT auth_generation FROM user_tombstones WHERE user_id = ?",
+                Long.class, alice)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?",
+                Long.class, "user.withdrawn:" + alice)).isEqualTo(1L);
 
         UUID outsider = UUID.randomUUID();
         postEvent(withdrawn(outsider)); // 바다 밖 — 200, 방 사건 없음

@@ -1,0 +1,4 @@
+user default off
+user health on nopass +ping
+user data on #3cba1bacaf3527618b005f5108139e41985154bce0c0b1ddcf4011105c7775cb ~presence:* +@read +@write +@scripting +ping +hello +info +select +client|setinfo +client|setname
+user realtime on #8da580d0bf6676abf2bafce16d9144ca2012d9d4d684a2aee9ac3d1b74564045 %R~presence:* ~cache:chat:* ~lock:chat:* ~movement:owner:* ~movement:epoch ~movement:room:*:handoff ~sea:user:* ~sea:room:*:members ~sea:rooms:open ~sea:adrift &chat:* +@read +@write +@scripting +@pubsub +ping +hello +info +select +time +client|setinfo +client|setname
