@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.oneorthree.phone.config.OutboxRelayProperties;
+import com.oneorthree.phone.outbox.client.OutboxCarrier;
 import com.oneorthree.phone.outbox.client.OutboxTransport;
 import com.oneorthree.phone.outbox.client.OutboxTransportResult;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -190,7 +191,7 @@ class OutboxRelayFailureLogIntegrationTest {
             }
 
             @Override
-            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user) {
+            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user, OutboxCarrier carrier) {
                 return result.apply(calls.incrementAndGet());
             }
         };

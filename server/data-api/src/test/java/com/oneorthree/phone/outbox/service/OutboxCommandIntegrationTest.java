@@ -14,8 +14,10 @@ import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import datadog.trace.api.CorrelationIdentifier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
@@ -309,6 +311,81 @@ class OutboxCommandIntegrationTest {
     }
 
     @Test
+    @DisplayName("요청 스레드의 request_id 가 append 행의 origin 으로 남고, agent 없는 JVM 의 trace \"0\" 은 저장하지 않는다")
+    void appendCapturesRequestIdAsOrigin() {
+        assertThat(CorrelationIdentifier.getTraceId()).as("테스트 JVM 엔 agent 가 없다 — no-op tracer").isEqualTo("0");
+        UUID userId = UUID.randomUUID();
+        String eventId = "evt-origin-" + UUID.randomUUID();
+
+        withMdc(Map.of("request_id", "req-origin-1"),
+                () -> tx().executeWithoutResult(status -> outboxCommandPort.append(command(userId, eventId))));
+
+        EventOutbox saved = outboxRepository.findByEventId(eventId).orElseThrow();
+        assertThat(saved.getOriginRequestId()).isEqualTo("req-origin-1");
+        assertThat(saved.getOriginTraceId()).isNull();
+        assertThat(saved.getTraceContextVersion()).isEqualTo((short) 1);
+        assertThat(saved.getParams()).as("원인 문맥은 봉투 본문에 섞이지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("이미 있는 origin 이 현재 request_id 보다 우선한다 — 후속 사건이 원인을 자기 요청으로 바꾸지 않는다")
+    void existingOriginWinsOverCurrentRequest() {
+        UUID userId = UUID.randomUUID();
+        String eventId = "evt-origin-kept-" + UUID.randomUUID();
+
+        withMdc(Map.of("request_id", "req-current", "origin_request_id", "req-first",
+                        "origin_trace_id", "1234567890123456789"),
+                () -> tx().executeWithoutResult(status -> outboxCommandPort.append(command(userId, eventId))));
+
+        EventOutbox saved = outboxRepository.findByEventId(eventId).orElseThrow();
+        assertThat(saved.getOriginRequestId()).isEqualTo("req-first");
+        assertThat(saved.getOriginTraceId()).as("trace 원문을 정규화하지 않는다").isEqualTo("1234567890123456789");
+        assertThat(saved.getTraceContextVersion()).isEqualTo((short) 1);
+    }
+
+    @Test
+    @DisplayName("문맥이 없거나 형식이 어긋나면 열은 비고 append 는 그대로 커밋된다")
+    void missingOrMalformedContextLeavesColumnsNull() {
+        UUID userId = UUID.randomUUID();
+        String plain = "evt-origin-none-" + UUID.randomUUID();
+        String malformed = "evt-origin-bad-" + UUID.randomUUID();
+
+        tx().executeWithoutResult(status -> outboxCommandPort.append(command(userId, plain)));
+        withMdc(Map.of("request_id", "bad id\nforged"),
+                () -> tx().executeWithoutResult(status -> outboxCommandPort.append(command(userId, malformed))));
+
+        for (String eventId : List.of(plain, malformed)) {
+            EventOutbox saved = outboxRepository.findByEventId(eventId).orElseThrow();
+            assertThat(saved.getOriginRequestId()).as(eventId).isNull();
+            assertThat(saved.getOriginTraceId()).as(eventId).isNull();
+            assertThat(saved.getTraceContextVersion()).as(eventId).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("멱등 재요청은 새 행을 만들지 않고 최초 origin 을 덮지 않는다")
+    void idempotentReplayKeepsTheFirstOrigin() {
+        UUID userId = UUID.randomUUID();
+        String key = "idem-origin-" + UUID.randomUUID();
+        String eventId = "evt-idem-origin-" + UUID.randomUUID();
+        AtomicInteger executions = new AtomicInteger();
+        Runnable call = () -> tx().execute(status -> outboxCommandPort.runIdempotent(request(key, userId),
+                StoredResponse.class, () -> {
+                    executions.incrementAndGet();
+                    EventEnvelope envelope = outboxCommandPort.append(command(userId, eventId));
+                    return new StoredResponse(envelope.eventId(), envelope.version());
+                }));
+
+        withMdc(Map.of("request_id", "req-first-call"), call);
+        withMdc(Map.of("request_id", "req-retry-call"), call);
+
+        assertThat(executions.get()).isEqualTo(1);
+        EventOutbox saved = outboxRepository.findByEventId(eventId).orElseThrow();
+        assertThat(saved.getOriginRequestId()).isEqualTo("req-first-call");
+        assertThat(outboxRepository.findAll()).filteredOn(row -> row.getUserId().equals(userId)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("relay 가 꺼져 있어도 봉투는 남는다 — 켜면 그때 밀린 분이 나간다")
     void envelopesSurviveWhileRelayIsDisabled() {
         assertThat(applicationContext.getBeanNamesForType(OutboxRelayService.class))
@@ -327,6 +404,16 @@ class OutboxCommandIntegrationTest {
 
     /** 멱등 재생이 JSON 으로 왕복하는지까지 보기 위한 응답 타입. */
     record StoredResponse(String eventId, Long version) {
+    }
+
+    /** 요청 스레드 문맥을 흉내 내지 않고 실제 MDC 에 넣었다가 그 키만 지운다. */
+    private static void withMdc(Map<String, String> values, Runnable body) {
+        values.forEach(MDC::put);
+        try {
+            body.run();
+        } finally {
+            values.keySet().forEach(MDC::remove);
+        }
     }
 
     private static IdempotencyRequest request(String key, UUID userId) {

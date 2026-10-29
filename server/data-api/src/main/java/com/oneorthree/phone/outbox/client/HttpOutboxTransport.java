@@ -54,7 +54,7 @@ public class HttpOutboxTransport implements OutboxTransport {
     }
 
     @Override
-    public OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId) {
+    public OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId, OutboxCarrier carrier) {
         String key = delivery.getEndpointKey();
         OutboxRelayProperties.Endpoint endpoint = key == null ? null : properties.getEndpoints().get(key);
         if (endpoint == null) {
@@ -74,6 +74,8 @@ public class HttpOutboxTransport implements OutboxTransport {
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
                     .header(SERVICE_TOKEN_HEADER, "Bearer " + endpoint.getToken())
+                    // 원인 문맥은 본문 밖 고정 이름 헤더로만 — 이름이 코드 상수라 인증·Content-Type 을 덮지 못한다(GROMO-2557).
+                    .headers(headers -> carrier.headers().forEach(headers::set))
                     .body(body)
                     .retrieve()
                     .onStatus(s -> true, (request, response) -> { })

@@ -37,9 +37,10 @@ class InternalController {
         return Map.of("status", "UP");
     }
 
+    /** 서비스 인증을 통과한 뒤에만 여기 온다 — 그래서 원인 문맥 헤더를 이 요청에서만 채택한다(GROMO-2557). */
     @PostMapping("/internal/events")
-    Map<String, Object> event(@RequestBody Map<String, Object> body) {
-        return inbound.accept(body);
+    Map<String, Object> event(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        return InboundTrace.fromHttp(request).accept(inbound, body, "http");
     }
 
     @PostMapping("/internal/devices")
