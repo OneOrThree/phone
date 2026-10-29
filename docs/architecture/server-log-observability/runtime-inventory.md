@@ -115,7 +115,7 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 관찰:
 
 - 평균은 매우 작지만(prod 합계 약 739 B/s) peak가 평균의 수백 배다. `catus-realtime-prod`와 `catus-business-api-prod`가 1분에 11~13 MB를 낸 구간이 있다. 같은 분의 이벤트 수가 799·9,759건으로 크지 않은 구간이 있어 한 줄 크기 또는 stack trace 폭주 가능성이 있다(같은 분인지는 확인하지 않았다 — 추정).
-- 서비스 `nginx`(env 불명)는 7일 합계 94 MB, 1분 최대 6.9 MB이다. dev 호스트 Nginx인지 prod인지 태그만으로 판별되지 않아 합산하지 않고 민감도로만 쓴다.
+- 서비스 `nginx`(env 태그 없음)는 7일 합계 94 MB, 1분 최대 6.9 MB이다. dev 호스트 Nginx 파일은 하루 약 0.4 MB(§5.1 미확인 용량 소스)라 7일 94 MB와 맞지 않는다. 따라서 이 시리즈는 dev 호스트 파일이 아니라 prod(Catus) 컨테이너 Nginx일 가능성이 높다(추정). 판정은 미확인으로 두되 보수적 산정에서는 prod 합에 포함한다(§5.2).
 - `catus-notification-prod`는 로그 지표 시리즈가 없다. APM span은 있다(§3.2). 지표가 없는 이유는 확인하지 않았다 — 미확인.
 - 조회한 시리즈에 `env:prod`/`env:dev` 값은 없다. 환경별 로그량을 서비스명 규칙에 의존하므로 2555의 서비스명 매핑(`OBS_SERVICE`)과 맞춰야 한다.
 
@@ -178,10 +178,18 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 | --- | --- | --- |
 | 견딜 중단 시간 | 1,800초(30분) | 구현 계획 P0의 초기 시험 조건 |
 | 여유 계수 | 2 | 추정. 근거: (a) Datadog 지표는 수신 크기라 Docker 원본·JSON 변환 후 크기와 다르다 (b) 서비스별 peak를 시간이 다른 구간에서 합산하지 않고 한 번에 겹치는 최악으로 잡은 것과 별도로, parser가 필드를 붙여 줄이 커질 수 있다. 실측 후 조정한다 |
-| peak 기준 | **Datadog 1분 최대의 서비스별 합**. 같은 분에 겹쳤다는 증거는 없으므로 보수적 상한이다 | §3.1 |
-| prod 합산 대상 | catus-realtime, business-api, data-api, kafka, gromo-nginx-prod (notification은 지표 없음, 1.x `gromo-back-prod` 제외) | §3.1 |
-| dev 합산 대상 | gromo-data/business/realtime/notification, kafka, db, back(옛 이름) | §3.1 |
+| peak 기준 | **알려진 소스의 Datadog 1분 최대 합**. 같은 분에 동시에 발생한다고 가정한 값이며, 미확인 소스(아래 «미확인 용량 소스»)는 제외했으므로 **상한이 아니다** | §3.1 |
+| prod 합산 대상 | catus-realtime, business-api, data-api, kafka, gromo-nginx-prod, `nginx`(env 불명 — 판정 미확인이지만 prod 컨테이너 Nginx일 가능성이 높아(추정, §3.1) 합에 포함). 1.x `gromo-back-prod` 제외 | §3.1 |
+| dev 합산 대상(컨테이너 소스 합) | gromo-data/business/realtime/notification, kafka, db, back(옛 이름). 호스트 Nginx는 컨테이너가 아니어서 Datadog 컨테이너 수치에 없고 합에 **들어 있지 않다** | §3.1 |
 | 한 줄 최대 크기 | 측정하지 않음 | 미확인 |
+| 미확인 용량 소스 | 아래 표 | 합산 제외 |
+
+미확인 용량 소스(생산량을 모르는 수집 대상). 이 값이 확인되기 전까지 §5.2~§5.5의 버퍼는 **알려진 소스 기준 값**이다.
+
+| 소스 | 환경 | 확인된 것 | 미확인 |
+| --- | --- | --- | --- |
+| 호스트 Nginx 파일 `/var/log/nginx` | dev | 실측(2026-10-29T03:33Z, `ls -la`): `access.log` 94,119 B(00:00~03:34 UTC, 약 3.6시간), `access.log.1` 428,726 B(10-28 하루), 압축본 `access.log.2.gz`~`.14.gz` 26~88 KB, `error.log` 527 B, `error.log.1` 2,838 B. 하루 평균 약 5 B/s | **분 단위 peak 미측정** → dev 버퍼는 하한 |
+| catus-notification-prod | prod | 로그 지표 시리즈 없음. APM span 24h 10,180건(§3.2) | 로그 생산량 미확인 → prod 버퍼는 알려진 소스 기준 값 |
 
 dev 60초 샘플(합 약 345 B/s)은 peak 근거로 쓰지 않는다. DD 7일 값을 우선한다.
 
@@ -189,10 +197,15 @@ dev 60초 샘플(합 약 345 B/s)은 peak 근거로 쓰지 않는다. DD 7일 �
 
 | | 1분 최대 합(B/min) | peak(B/s) | 비교: 5분 최대 합(B/s) | 비교: 7일 평균(B/s) |
 | --- | --- | --- | --- | --- |
-| prod | 26,260,824 | **437,680** | 213,894 | 739 |
-| dev | 1,085,927 | **18,099** | 4,609 | 385 |
+| prod (알려진 소스 + `nginx`) | 26,260,824 + 6,927,666 = 33,188,490 | **553,142** | 213,894(`nginx` 제외) | 739(`nginx` 제외) |
+| dev (컨테이너 소스 합) | 1,085,927 | **18,099** | 4,609 | 385 |
 
-prod에서 `nginx`(env 불명) 6,927,666 B/min를 더하는 민감도: 합 553,142 B/s.
+계산(python): `round((26260824+6927666)/60) = 553142`, `round(1085927/60) = 18099`. 기존 prod 합 437,680 B/s에서 `nginx`를 더해 바꿨다.
+
+peak는 **알려진 소스의 1분 최대 합**이다(같은 분 동시 발생 가정). 아래 소스는 제외돼 있어 상한이 아니다.
+
+- prod: catus-notification-prod 생산량 미확인.
+- dev: 호스트 Nginx 일 평균 약 5 B/s(실측), peak 미측정(미확인). 「일 평균 × 가정 배수」 같은 추정치는 쓰지 않는다.
 
 ### 5.3 버퍼와 store_dir
 
@@ -200,9 +213,11 @@ prod에서 `nginx`(env 불명) 6,927,666 B/min를 더하는 민감도: 합 553,1
 
 | | 계산 | prod | dev |
 | --- | --- | --- | --- |
-| engine buffer (`storage.total_limit_size`) | peak x 1,800 x 2 | 1,575,604,800 B = **1.58 GB** | 65,156,400 B = **65 MB** |
-| S3 `store_dir_limit_size` | peak x 1,800 x 2 (S3만 30분 중단 가정) | **1.58 GB** | **65 MB** |
-| 30분 중단 순수 적체(여유 계수 1) | peak x 1,800 | 787.8 MB | 32.6 MB |
+| engine buffer (`storage.total_limit_size`) | peak x 1,800 x 2 | 553,142 x 3,600 = 1,991,311,200 B = **1.99 GB** | 18,099 x 3,600 = 65,156,400 B = **65 MB** |
+| S3 `store_dir_limit_size` | peak x 1,800 x 2 (S3만 30분 중단 가정) | **1.99 GB** | **65 MB** |
+| 30분 중단 순수 적체(여유 계수 1) | peak x 1,800 | 995,655,600 B = 995.7 MB | 32.6 MB |
+
+위 값은 모두 **알려진 소스 기준**이다. prod는 catus-notification-prod 미확인 때문에 상한이 아니고, dev는 호스트 Nginx peak 미측정 때문에 **하한**이다. 두 소스를 측정하기 전에는 버퍼 크기를 확정하지 않는다.
 
 `store_dir`을 gzip 전 크기로 잡았다(추정, 압축 상태 미확인). 한 번에 업로드하는 청크 크기와 `timeout`에 따른 임시 파일은 Fluent Bit 버전·설정 확정 후 더한다.
 
@@ -213,10 +228,10 @@ prod에서 `nginx`(env 불명) 6,927,666 B/min를 더하는 민감도: 합 553,1
 | 항목 | dev | prod |
 | --- | --- | --- |
 | Docker 회전본 상한 | 앱 4개 x 200 MB + 인프라 10개 x 30 MB = **1.1 GB** (현재 사용 76 MB) | 앱 4 + nginx x 200 MB + 인프라 N x 30 MB. N 미확인 → 최소 **1.0 GB + 30 MB x N** |
-| engine buffer | 65 MB | 1.58 GB |
-| store_dir | 65 MB | 1.58 GB |
+| engine buffer | 65 MB(하한) | 1.99 GB(알려진 소스 기준) |
+| store_dir | 65 MB(하한) | 1.99 GB(알려진 소스 기준) |
 | 임시 파일 | 100 MB(추정) | 500 MB(추정) |
-| 소계(운영 여유 제외) | 약 **1.33 GB** | 약 **4.7 GB + 30 MB x N** |
+| 소계(운영 여유 제외) | 약 **1.33 GB** | 약 **5.5 GB + 30 MB x N** |
 | 디스크 크기·여유 | 49 GB, 여유 18 GB(실측) | **미확인**(차단 조건) |
 | 판정 | 여유 18 GB 대비 7.4% — 충분 | 디스크 크기 확인 전 판정 불가 |
 
@@ -225,8 +240,10 @@ prod에서 `nginx`(env 불명) 6,927,666 B/min를 더하는 민감도: 합 553,1
 | 경보 | 임계 | dev 대입 | prod 대입 |
 | --- | --- | --- | --- |
 | 가용 디스크 20% 이하 | 총 용량의 20% | 49 GB x 0.2 = **9.8 GB**. 현재 여유 18 GB(36.7%)는 위쪽이며 임계까지 여유 8.2 GB | 총 용량 미확인 |
-| engine buffer 80% 이상 | 0.8 x total_limit_size | 52 MB | 1.26 GB |
-| S3 store_dir 80% 이상 | 0.8 x store_dir_limit_size | 52 MB | 1.26 GB |
+| engine buffer 80% 이상 | 0.8 x total_limit_size | 52 MB(52,125,120 B) | 1.59 GB(1,593,048,960 B) |
+| S3 store_dir 80% 이상 | 0.8 x store_dir_limit_size | 52 MB(52,125,120 B) | 1.59 GB(1,593,048,960 B) |
+
+경보 임계도 알려진 소스 기준 버퍼에서 나온 값이다. 미확인 소스 측정 후 다시 계산한다.
 
 dev는 현재 여유 18 GB가 임계 9.8 GB보다 높지만, Docker 회전본이 상한까지 차고(1.1 GB) journald 1.7 GB가 늘면 여유가 줄 수 있다. swap 사용과 메모리 available 2.7 GB 상태에서 Fluent Bit과 Loki를 동시에 올릴 때의 메모리는 이 조사에서 계산하지 않았다(P0 6번, 미확인).
 
@@ -262,9 +279,25 @@ aws --profile gromo s3api list-objects-v2 --bucket "$B" --prefix system_log/ --m
 aws --profile gromo iam list-roles --query "Roles[?contains(RoleName,'log') || contains(RoleName,'fluent')].RoleName"
 aws --profile gromo iam list-attached-role-policies --role-name <ROLE_NAME>
 aws --profile gromo iam list-role-policies --role-name <ROLE_NAME>
+
+# 관리형 정책: 위 결과의 각 PolicyArn 마다 기본 버전 본문을 읽는다
+P=<POLICY_ARN>
+V=$(aws --profile gromo iam get-policy --policy-arn "$P" --query Policy.DefaultVersionId --output text)
+aws --profile gromo iam get-policy-version --policy-arn "$P" --version-id "$V"
+
+# 인라인 정책: list-role-policies 가 돌려준 각 이름마다
+aws --profile gromo iam get-role-policy --role-name <ROLE_NAME> --policy-name <POLICY_NAME>
 ```
 
-결과를 문서에 남길 때 계정 ID, 키, 정책 본문의 시크릿 값은 가린다.
+정책 이름만으로는 권한 범위를 알 수 없다. 위 본문(관리형 기본 버전 + 인라인)과 `get-bucket-policy` 결과에서 아래를 판정한다.
+
+| 판정 항목 | 합격 기준 |
+| --- | --- |
+| 쓰기 범위 | `s3:PutObject`의 Resource가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`로 제한됨 |
+| 삭제·수명주기 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`, `s3:PutLifecycleConfiguration`이 Allow에 없고 `*` 와일드카드로도 포함되지 않음 |
+| 타 환경 쓰기 차단 | 다른 `env=` 접두(및 `system_log/v2/` 밖)에 쓰기 Allow가 없음. 버킷 정책·권한 경계의 Deny로 막히는 경우도 본문에서 확인 |
+
+결과를 문서에 남길 때 계정 ID, 키, 정책 본문의 시크릿 값은 가린다(정책 본문은 Action·Resource 구조만 옮기고 계정 ID는 `<ACCOUNT_ID>`로 바꾼다).
 
 ## 7. P0 10항목 판정
 
@@ -299,7 +332,8 @@ aws --profile gromo iam list-role-policies --role-name <ROLE_NAME>
 4. Datadog Logs 유지·제외 결정(이중 적재·비용).
 5. 128-bit trace ID 로그 출력의 실제 형식과 기본값 확인.
 6. 최대 줄 크기와 peak 구간 원인(1분 11~13 MB 급증)의 확인. 버퍼 여유 계수 2는 이 확인 전까지 잠정값이다.
-7. dev에 Loki가 없으므로 2555 검증은 로컬 또는 `ops-monitor.dev.yml` 기동 후 진행.
+7. prod Notification과 dev 호스트 Nginx의 로그 생산량(peak 포함) 측정. 측정 전 버퍼는 알려진 소스 기준 값이다(§5.2).
+8. dev에 Loki가 없으므로 2555 검증은 로컬 또는 `ops-monitor.dev.yml` 기동 후 진행.
 
 ## 9. 다음 확인 담당·시점
 
@@ -309,6 +343,7 @@ aws --profile gromo iam list-role-policies --role-name <ROLE_NAME>
 | prod 호스트 디스크·컨테이너 env·타이머 확인 | 재영님 또는 Infra 담당(SSM) | P0 완료 전 |
 | 128-bit trace ID 기본값, 대표 요청의 로그·span ID 일치 | 2555 구현 담당 | 2555 dev 검증 |
 | peak 급증 구간의 원문 줄 크기 샘플(개인정보 없는 합성 재현) | 2555·2556 담당 | 수집기 부하 시험 전 |
+| prod Notification·dev 호스트 Nginx 생산량(분 단위 peak) 측정 | 2554 후속(prod는 재영님 또는 Infra 담당) | 버퍼 확정 전 |
 | 여유 계수·버퍼 크기 재산정 | 2554 후속 | 위 실측 후 |
 | Datadog Logs 이중 적재 결정 | 재영님 | 2556 컷오버 설계 전 |
 
