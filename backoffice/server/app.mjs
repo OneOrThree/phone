@@ -227,6 +227,12 @@ export function createApp({
         send(201, store.create(await bodyOf(req), auth.actor));
         return;
       }
+      if (path === "/api/construction/policy" && req.method === "GET") {
+        const value = mode === "local" ? store.localConstructionPolicy()
+          : await upstream.constructionPolicy(auth.actor, operator);
+        send(200, store.constructionSnapshot(value));
+        return;
+      }
       if (path === "/api/fcm/catalog" && req.method === "GET") {
         send(200, await upstream.catalog(auth.actor, operator));
         return;
@@ -282,13 +288,12 @@ export function createApp({
           );
           if (action === "publish") {
             try {
-              const receipt = await upstream.publish(
-                item,
-                auth.actor,
-                operator,
-              );
+              const receipt = item.kind === "construction" && mode === "local"
+                ? store.applyLocalConstructionPolicy(item, auth.actor)
+                : await upstream.publish(item, auth.actor, operator);
               item = store.finish(id, receipt);
             } catch (error) {
+              if (item.kind === "construction" && mode === "local") error.definite = true;
               item = store.finish(id, null, error);
             }
           }
