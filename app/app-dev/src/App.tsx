@@ -872,12 +872,9 @@ function Gromo() {
           const commands = islandCmds.current!.commands;
           const island = await commands.resolveInvite(target.code, { arrive: true });
           if (!latest()) return;
-          const snapshot = stateRef.current.serverIslands;
-          const joined =
-            island.membershipStatus === 'active' ||
-            snapshot?.memberships.some((item) => item.id === island.id);
-          if (joined) {
-            if (snapshot?.currentIslandId !== island.id) await commands.switchCurrent(island.id);
+          // 초대 해석 직후의 서버 상태를 쓴다. 로컬 소속·현재 섬은 다른 기기의 변경보다 늦을 수 있다.
+          if (island.membershipStatus === 'active') {
+            await commands.switchCurrent(island.id);
           } else {
             const result = await commands.join(island.id, { showApproval: false });
             if (!latest()) {

@@ -3424,7 +3424,11 @@ test.each(['active', 'pending', 'joined'] as const)(
       lossReason: null,
     });
     mockInvitationCommands = {
-      resolveInvite: jest.fn(async () => ({ id: 'invited', name: '초대 섬' })),
+      resolveInvite: jest.fn(async () => ({
+        id: 'invited',
+        name: '초대 섬',
+        membershipStatus: status === 'joined' ? 'active' : 'none',
+      })),
       join: jest.fn(async () => {
         if (status === 'active')
           mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
@@ -3449,7 +3453,9 @@ test.each(['active', 'pending', 'joined'] as const)(
         memberships:
           status === 'joined'
             ? { ...memberships('invited'), currentIslandId: 'other' }
-            : memberships(null),
+            : status === 'pending'
+              ? { ...memberships('invited'), currentIslandId: null }
+              : memberships(null),
       });
       captured.reset('character');
     });
