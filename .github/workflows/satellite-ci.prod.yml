@@ -4,6 +4,7 @@ name: Satellite CI (prod)
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches: [release]
     paths:
       - 'server/business-api/**'
@@ -50,6 +51,7 @@ jobs:
     uses: ./.github/workflows/satellite-check.yml
     with:
       build-services: false
+      run-functional-tests: ${{ !(github.head_ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository) }}
     permissions:
       contents: read
       actions: read

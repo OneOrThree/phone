@@ -2,6 +2,7 @@
 name: prod-ci
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches: [main, release]
     paths:
       - 'server/**'
@@ -11,6 +12,8 @@ on:
       - '.dockerignore'
       - '.github/scripts/catus-*'
       - '.github/workflows/prod-ci.yml'
+      - '.github/scripts/pr-ci-policy.py'
+      - '.github/scripts/test_pr_ci_policy.py'
       - '.github/workflows/prod-cd.yml'
       - '.github/scripts/test_catus*'
       - '.github/scripts/deployment-badges.py'
@@ -25,6 +28,8 @@ on:
       - '.dockerignore'
       - '.github/scripts/**'
       - '.github/workflows/prod-ci.yml'
+      - '.github/scripts/pr-ci-policy.py'
+      - '.github/scripts/test_pr_ci_policy.py'
       - '.github/workflows/prod-cd.yml'
       - '.github/scripts/test_catus*'
       - '.github/scripts/deployment-badges.py'
@@ -51,12 +56,16 @@ concurrency:
 
 jobs:
   contracts:
+    outputs:
+      full-checks: ${{ steps.policy.outputs.full-checks }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - id: policy
+        run: python3 .github/scripts/pr-ci-policy.py
       - run: python3 -m pip install 'PyYAML==6.0.2'
       - run: python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v
       - run: python3 .claude/pr-gate.py --selftest
@@ -105,7 +114,7 @@ jobs:
 
   checks:
     needs: [contracts, plan]
-    if: needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
+    if: needs.contracts.outputs.full-checks == 'true' && needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -119,7 +128,7 @@ jobs:
 
   images:
     needs: [contracts, plan, checks]
-    if: needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
+    if: needs.contracts.outputs.full-checks == 'true' && needs.plan.outputs.build_any == 'true' && (github.event_name != 'pull_request' || github.base_ref == 'release')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
