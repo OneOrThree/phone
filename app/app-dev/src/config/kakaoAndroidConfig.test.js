@@ -145,6 +145,10 @@ test('Android CI builds the dev AAB and independent CD publishes only verified m
   expect(ci).toContain('EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com');
   expect(ci).toContain('GROMO_ANDROID_AUDIENCE: dev');
   expect(ci).toContain('EXPO_PUBLIC_ENV: dev');
+  // dev AAB는 PR·main 모두 빈 토큰으로 수집을 끈다. 뒤 스텝도 운영 토큰을 다시 넣지 않는다.
+  expect(ci).toContain('EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ""');
+  expect(ci).toContain('echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN="');
+  expect(ci).not.toContain('echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN=$PROJECT_TOKEN"');
   // 잡 하나의 본문 (2칸 들여쓰기 잡 이름 기준)
   const job = (workflow, name) => {
     const m = workflow.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`));
