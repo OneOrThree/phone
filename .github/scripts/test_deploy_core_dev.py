@@ -27,11 +27,15 @@ def container(name, service=None, running=True):
         'State': {'Running': running, 'Health': {'Status': 'healthy'}}, 'RestartCount': 0}
 
 
+def obs(service, version=REVISION):
+    return {'OBS_SERVICE': service, 'OBS_ENV': 'dev', 'OBS_VERSION': version}
+
+
 def config():
     shared = {'JWT_SECRET': 'jwt', 'SVC_TOKEN_REALTIME_TO_DATA': 'rt-data', 'SVC_TOKEN_DATA_TO_REALTIME': 'data-rt'}
     return {'services': {
-        'data-api': {'image': DATA, 'environment': {**shared, 'SPRING_PROFILES_ACTIVE': 'dev,satellites,realtime-authorization'}},
-        'realtime': {'image': REALTIME, 'environment': {**shared, 'SVC_TOKEN_BIZ_TO_REALTIME': 'biz-rt', 'KAFKA_BOOTSTRAP_SERVERS': 'kafka:9092'}},
+        'data-api': {'image': DATA, 'environment': {**shared, **obs('data-api'), 'SPRING_PROFILES_ACTIVE': 'dev,satellites,realtime-authorization'}},
+        'realtime': {'image': REALTIME, 'environment': {**shared, **obs('realtime'), 'SVC_TOKEN_BIZ_TO_REALTIME': 'biz-rt', 'KAFKA_BOOTSTRAP_SERVERS': 'kafka:9092'}},
         'realtime-db-init': {'image': 'postgres:16.14-alpine'}}, 'networks': {'app-network': {'name': 'phone_app-network'}}}
 
 
@@ -81,6 +85,8 @@ class FakeHost:
             file.parent.mkdir(parents=True, exist_ok=True); file.touch()
         elif args[:2] == ['docker', 'compose']:
             if args[-3:] == ['config', '--format', 'json']:
+                for name in ('data-api', 'realtime'):
+                    self.rendered['services'][name]['environment'].update(obs(name, self.revision))
                 out = json.dumps(self.rendered)
             elif 'up' in args:
                 for service, name in core.CORE.items():
@@ -223,6 +229,19 @@ class DeployTest(unittest.TestCase):
                 with self.assertRaises(core.DeployError): self.deploy()
                 self.assertFalse(any(cmd[:2] == ['docker', 'stop'] for cmd in self.host.calls))
                 self.assertTrue(self.host.nginx)
+
+    def test_wrong_log_metadata_never_stops_running_services(self):
+        for key, value in (('OBS_SERVICE', 'realtime'), ('OBS_ENV', 'prod'), ('OBS_VERSION', 'unknown'), ('OBS_VERSION', '')):
+            with self.subTest(key=key, value=value):
+                self.host = FakeHost(self.directory)
+                # 렌더 직후 값이 어긋난 채로 돌아오는 경우: fake 가 revision 으로 덮기 전 값을 흉내 낸다.
+                services = copy.deepcopy(self.host.rendered['services'])
+                services['data-api']['environment'][key] = value
+                with self.assertRaises(core.DeployError):
+                    core.validate_contract({**self.host.rendered, 'services': services}, DATA, REALTIME, REVISION)
+        with self.assertRaises(core.DeployError):  # 배포 커밋과 다른 버전
+            core.validate_contract(config(), DATA, REALTIME, 'e' * 40)
+        self.assertEqual(core.validate_contract(config(), DATA, REALTIME, REVISION), 'phone_app-network')
 
     def test_db_failure_stays_closed_and_same_attempt_restores_original_state(self):
         self.host.fail_apply = True
@@ -378,7 +397,7 @@ class ComposeContractTest(unittest.TestCase):
                         env={**os.environ, 'APP_IMAGE': DATA, 'REALTIME_IMAGE': REALTIME, 'DATA_API_ENV_FILE': str(data),
                              'DATA_API_PROFILES': 'dev,satellites,realtime-authorization', 'DEPLOY_ENV': 'dev',
                              'DD_API_KEY': 'synthetic-datadog', 'IMAGE_REVISION': REVISION, 'IMAGE_VERSION': REVISION})
-                    self.assertEqual(core.validate_contract(json.loads(result.stdout), DATA, REALTIME), 'phone_app-network')
+                    self.assertEqual(core.validate_contract(json.loads(result.stdout), DATA, REALTIME, REVISION), 'phone_app-network')
 
 
 class RecoveryBuildTest(unittest.TestCase):

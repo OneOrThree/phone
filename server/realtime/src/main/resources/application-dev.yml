@@ -32,3 +32,9 @@ jwt:
 chat:
   data-api:
     base-url: ${DATA_API_BASE_URL}
+
+logging:
+  # 관측 JSON(schema_version 1)은 콘솔(stdout)에만. ci·기본 프로파일은 사람이 읽는 텍스트 그대로.
+  structured:
+    format:
+      console: com.oneorthree.realtime.logging.ObservationJsonProvider

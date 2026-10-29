@@ -337,7 +337,7 @@
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum(count_over_time({container=\"phone-app\"} |= \"ERROR\" [1m]))",
+          "expr": "sum(count_over_time({env=\"dev\", service=\"data-api\"} | json | level=\"ERROR\" [1m]))",
           "legendFormat": "errors"
         }
       ]
@@ -345,7 +345,7 @@
     {
       "id": 12,
       "type": "logs",
-      "title": "앱 로그 라이브 (phone-app stdout · P6Spy·ERROR 포함)",
+      "title": "앱 로그 라이브 (data-api stdout · JSON 줄 · P6Spy·ERROR 포함)",
       "datasource": { "type": "loki", "uid": "loki" },
       "gridPos": { "h": 12, "w": 24, "x": 0, "y": 33 },
       "options": {
@@ -361,7 +361,7 @@
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{container=\"phone-app\"}"
+          "expr": "{env=\"dev\", service=\"data-api\"}"
         }
       ]
     }

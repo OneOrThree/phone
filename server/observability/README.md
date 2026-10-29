@@ -15,8 +15,8 @@ flowchart LR
   node --> prometheus
   container["컨테이너"] --> cadvisor["cAdvisor"]
   cadvisor --> prometheus
-  logs["컨테이너 stdout"] --> promtail["Promtail"]
-  promtail --> loki["Loki"]
+  logs["컨테이너 stdout<br/>(허용 서비스 4종)"] --> fluentbit["Fluent Bit"]
+  fluentbit --> loki["Loki"]
   prometheus --> grafana["Grafana"]
   loki --> grafana
   app -.->|"별도 APM 구성"| datadog["Datadog Agent"]
@@ -43,7 +43,7 @@ flowchart LR
 | [prometheus/](prometheus/) | 수집 대상과 주기 |
 | [grafana/dashboards/](grafana/dashboards/) | 대시보드 JSON |
 | [grafana/provisioning/](grafana/provisioning/) | 데이터소스·대시보드 자동 등록 |
-| [loki/](loki/) · [promtail/](promtail/) | 로그 저장·수집 |
+| [loki/](loki/) · [fluent-bit/](fluent-bit/) | 로그 저장·수집(설정·Lua·로컬 검증 하네스 `fluent-bit/local-test/`) |
 | [datadog/](datadog/) | APM·OpenMetrics 연동 안내 |
 
 ## 4. dev 실행과 운영
@@ -75,7 +75,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 ```bash
 docker compose --env-file "$RUNTIME_ENV_FILE" \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
-  stop prometheus grafana loki promtail postgres-exporter redis-exporter business-redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
+  stop prometheus grafana loki fluent-bit postgres-exporter redis-exporter business-redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
 ```
 
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
@@ -90,7 +90,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 | **트래픽 (RED)** | 요청수 · p95/p99 · 5xx율 · 상태코드별 | micrometer `http.server.requests` |
 | **쿼리 부하** | HikariCP active/idle/**pending**(L1) · DB tps · 캐시히트 · 활성커넥션(L2) | actuator HikariCP + postgres-exporter |
 | **리소스** | CPU · 메모리 | node-exporter |
-| **로그 (실시간)** | ERROR 발생률 + 앱 로그 라이브 테일 | promtail(docker_sd) → Loki |
+| **로그 (실시간)** | ERROR 발생률 + 앱 로그 라이브 테일 | Fluent Bit(tail) → Loki. 라벨은 `env`·`service`·`log_kind` 뿐 |
 
 **부하 해석**: HikariCP `pending`↑ & DB tps 낮음 → 앱–DB 큐잉(커넥션 부족·느린 쿼리 점유).
 DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 교차가 병목 위치를 가리킨다.
@@ -106,7 +106,22 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 - `/actuator/*` 는 무인증(JwtFilter 는 `/api/*` 만 필터). dev 는 관리 포트 **9091 을 호스트 미공개**로 두어
   `app-network` 안 Prometheus 만 접근 → 공개 8080 으로 메트릭이 새지 않음.
 - **Grafana 3000 은 외부 노출** — 방화벽/보안그룹으로 접근 제한 + `GRAFANA_ADMIN_PASSWORD` 변경 필수.
-- promtail 이 `docker.sock`(ro) 마운트 — 호스트 컨테이너 로그 접근용. 신뢰 경계 확인.
+- Fluent Bit 은 `docker.sock` 을 쓰지 않는다. 컨테이너 로그 디렉터리(`/var/lib/docker/containers`)를 읽기 전용으로 마운트하며,
+  같은 디렉터리의 `config.v2.json`(컨테이너 환경변수 포함)도 보이므로 `logs.lua` 는 compose 서비스·프로젝트 라벨 두 값만 읽는다.
+- 수집 대상은 compose 프로젝트 `phone` 의 `data-api`·`business-api`·`notification`·`realtime` 뿐이다. 그 밖 컨테이너와 Fluent Bit 자신의 로그는 버린다.
+
+## 로그 수집기 (GROMO-2555)
+
+- 흐름: tail(`*-json.log`, Docker 분할 줄 병합) → Lua 로 서비스 식별·허용 목록 → JSON 파싱 → Lua 정규화 → Loki.
+- 상태: named volume `fluent_bit_state` 에 tail 위치 DB(`tail.db`)와 디스크 버퍼(`storage.total_limit_size 128M`). 컨테이너를 지웠다 만들어도 이어 읽는다.
+  단 볼륨을 지우면 위치가 사라져 로그 파일이 남아 있는 컨테이너는 처음(새로 발견된 파일)부터 다시 읽을 수 있다 — 중복이 생길 수 있다.
+- 앱 JSON 줄은 필드를 그대로 두고 `observed_at` 만 더한다. JSON 이 아니거나 스키마(`schema_version`·`log_kind`)가 아닌 줄은 `parse_error=true`, `log_kind=raw` 로
+  보관하며 `message` 를 마스킹(data-api `MaskingConverter` 4규칙의 Lua 근사 — 교대·대소문자 무시를 풀어 쓴 패턴이고 ASCII 기준)하고 16 KiB 로 자른다(`truncated`, `original_size_bytes`).
+  JSON 이 아닌 스택 트레이스는 줄마다 따로 들어온다(멀티라인 병합은 Docker 분할 줄만).
+- Loki 라벨: `env`(dev·staging·prod·unknown) · `service`(컨테이너 라벨이 정한 값) · `log_kind`(application·access·raw). 세 값은 라벨로 옮겨지며 줄 본문에서는 빠진다.
+  요청·이벤트 ID 등 나머지는 JSON 필드라 `| json | request_id="…"` 로 찾는다. Loki 3 의 자동 `service_name` 라벨은 `discover_service_name: []` 로 껐다.
+- 재시도: 연결 실패·5xx·429 는 한도 없이 재시도(디스크 버퍼가 128M 를 넘으면 오래된 청크부터 버려진다), 4xx 는 버린다. 완전 무유실은 보장하지 않는다.
+- 로컬 검증: `fluent-bit/local-test/run.sh` (Docker 필요, 끝나면 자기 프로젝트 `obs2562-collector` 를 `down -v`).
 
 ## 쿼리 부하 L3 (옵션 — 느린 쿼리 Top N)
 
