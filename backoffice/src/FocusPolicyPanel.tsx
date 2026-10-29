@@ -167,7 +167,7 @@ export function FocusPolicyPanel({ session, onDirtyChange, onUnauthorized }: {
           {canPublish && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('publish')}>{selected?.status === 'uncertain' ? '같은 요청 재시도' : '정책 적용'}</button>}
           {selected && ['draft', 'review', 'approved', 'failed'].includes(selected.status) && <button className="button secondary" disabled={!!busy || dirty} onClick={() => void transition('cancel')}>변경안 철회</button>}
         </div>{selected?.status === 'approved' && selected.approvedBy === session.actor && <p className="callout">승인자와 다른 운영자가 로그인해 적용해야 합니다.</p>}
-        {selected?.status === 'uncertain' && <p className="callout">결과를 단정할 수 없습니다. 최초 적용자가 같은 요청으로 재시도해 확인하세요.</p>}
+        {selected?.status === 'uncertain' && <p className="callout">결과를 단정할 수 없습니다. 최초 적용자가 같은 요청으로 재시도해 확인해야 합니다. 결과가 확인되기 전에는 수정하거나 철회할 수 없습니다.</p>}
         {selected?.error && <p className="error-message" role="alert">{selected.error}</p>}
         {selected?.receipt && <p className="callout">{selected.receipt.local ? '로컬 모의 적용' : '적용 완료'} · revision {selected.receipt.revision}</p>}
         {selected && <><h3>수정본 이력</h3><ol className="history-list">{versions.map(version => <li key={version.revision}><details><summary>수정본 {version.revision} · digest {version.digest.slice(0, 12)}…</summary><PolicyValues policy={version.policy} /></details></li>)}</ol>

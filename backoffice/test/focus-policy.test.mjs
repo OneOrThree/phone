@@ -192,7 +192,8 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
   const origin = "http://127.0.0.1:4310";
   const salt = "ac".repeat(16);
   const revocations = [];
-  let rejectRevoke = false;
+  const revoked = new Set();
+  let loseRevokeResponse = false;
   const operators = Object.fromEntries(["member-1", "member-2"].map(actor =>
     [actor, { passwordHash: `${salt}:${scryptSync(actor, salt, 64).toString("hex")}` }]));
   const app = createApp({ store: db, upstream: {
@@ -200,7 +201,11 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
     approveFocusPolicy: async (request, actor) => ({ ...request, approvedBy: actor, approvedAt: new Date().toISOString() }),
     revokeFocusPolicy: async (approvalId, actor) => {
       revocations.push({ approvalId, actor });
-      if (rejectRevoke) throw new Failure(502, "Data 승인 취소 실패");
+      revoked.add(approvalId);
+      if (loseRevokeResponse) {
+        loseRevokeResponse = false;
+        throw new Failure(502, "Data 취소 응답 유실");
+      }
       return { ok: true };
     },
     publishFocusPolicy: async item => ({ publicationId: item.publicationId, revision: 2, policy: item.approvedPolicy, local: true }),
@@ -248,20 +253,17 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
     assert.equal(response.status, 200);
     change = await response.json();
   }
-  rejectRevoke = true;
+  loseRevokeResponse = true;
   response = await post(`/api/policies/focus/drafts/${change.id}`, { revision: change.revision,
     expectedRevision: 1, policy: { ...policy, goldenFishReward: 10 } }, two, "PATCH");
   assert.equal(response.status, 502);
   assert.equal(db.db.prepare("SELECT document FROM focus_policy_drafts WHERE id=?").get(change.id).document,
     JSON.stringify(change));
-  response = await post(`/api/policies/focus/drafts/${change.id}/cancel`, { revision: change.revision }, two);
-  assert.equal(response.status, 502);
   assert.equal((await (await fetch(`${base}/api/policies/focus/drafts/${change.id}`, { headers: one })).json()).status, "approved");
-  rejectRevoke = false;
   response = await post(`/api/policies/focus/drafts/${change.id}`, { revision: change.revision,
     expectedRevision: 1, policy: { ...policy, goldenFishReward: 1001 } }, two, "PATCH");
   assert.equal(response.status, 400);
-  assert.equal(revocations.length, 2);
+  assert.equal(revocations.length, 1);
   response = await post(`/api/policies/focus/drafts/${change.id}`, { revision: change.revision,
     expectedRevision: 1, policy: { ...policy, goldenFishReward: 10 } }, two, "PATCH");
   assert.equal(response.status, 200);
@@ -269,10 +271,11 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
   assert.equal(change.status, "draft");
   assert.equal(change.approvalId, undefined);
   assert.equal(revocations.at(-1).approvalId.length, 36);
+  assert.equal(revoked.size, 1);
   response = await post(`/api/policies/focus/drafts/${change.id}/cancel`, { revision: change.revision }, one);
   assert.equal(response.status, 200);
   assert.equal((await response.json()).status, "cancelled");
-  assert.equal(revocations.length, 3);
+  assert.equal(revocations.length, 2);
 
   response = await post("/api/policies/focus/drafts", { expectedRevision: 1, policy }, one);
   let withdrawn = await response.json();
@@ -280,11 +283,16 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
     response = await post(`/api/policies/focus/drafts/${withdrawn.id}/${action}`, { revision: withdrawn.revision }, one);
     withdrawn = await response.json();
   }
+  loseRevokeResponse = true;
+  response = await post(`/api/policies/focus/drafts/${withdrawn.id}/cancel`, { revision: withdrawn.revision }, two);
+  assert.equal(response.status, 502);
+  assert.equal((await (await fetch(`${base}/api/policies/focus/drafts/${withdrawn.id}`, { headers: one })).json()).status, "approved");
   response = await post(`/api/policies/focus/drafts/${withdrawn.id}/cancel`, { revision: withdrawn.revision }, two);
   assert.equal(response.status, 200);
   withdrawn = await response.json();
   assert.equal(withdrawn.status, "cancelled");
   assert.equal(revocations.length, 4);
+  assert.equal(revoked.size, 2);
   assert.equal(revocations.at(-1).approvalId, withdrawn.approvalId);
   assert.equal(revocations.at(-1).actor, "member-2");
 });
