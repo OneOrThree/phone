@@ -14,7 +14,13 @@ import org.slf4j.MDC;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -341,6 +347,57 @@ class TraceIdFilterTest {
         request.addHeader("X-Origin-Request-Id", "req-v1");
         request.addHeader("X-Trace-Context-Version", " 1");
         run(request, (req, response) -> assertThat(MDC.get("origin_request_id")).isEqualTo("req-v1"));
+    }
+
+    private OutboxOrigin captureDuring(MockHttpServletRequest request) throws Exception {
+        OutboxOrigin[] captured = new OutboxOrigin[1];
+        run(request, (req, response) -> captured[0] = OutboxOrigin.capture());
+        return captured[0];
+    }
+
+    @Test
+    @DisplayName("버린 origin 은 outbox 캡처에서 현재 요청으로 대체하지 않는다 — 원래 없던 origin 만 대체한다")
+    void droppedOriginIsNotReplacedByTheCurrentRequestInOutboxCapture() throws Exception {
+        MockHttpServletRequest malformed = authenticated();
+        malformed.addHeader("X-Request-Id", "cur-1");
+        malformed.addHeader("X-Origin-Request-Id", "bad id");
+        OutboxOrigin dropped = captureDuring(malformed);
+        assertThat(dropped.requestId()).as("형식이 틀린 origin").isNull();
+        assertThat(dropped.version()).as("trace_context_version 도 NULL").isNull();
+
+        MockHttpServletRequest unknown = authenticated();
+        unknown.addHeader("X-Request-Id", "cur-2");
+        unknown.addHeader("X-Trace-Context-Version", "2");
+        assertThat(captureDuring(unknown).requestId()).as("모르는 버전").isNull();
+
+        MockHttpServletRequest absent = authenticated();
+        absent.addHeader("X-Request-Id", "cur-3");
+        absent.addHeader("X-Origin-Request-Id", "  ");
+        absent.addHeader("X-Trace-Context-Version", "1");
+        assertThat(captureDuring(absent).requestId()).as("origin 헤더가 없거나 빈 값이면 현재 요청").isEqualTo("cur-3");
+        assertThat(MDC.get("origin_dropped")).as("표식은 필터가 끝나면 이전 값(없음)으로").isNull();
+    }
+
+    @Test
+    @DisplayName("요청 스레드의 MDC 를 작업 스레드로 넘겨 캡처해도 버린 origin 은 현재 요청으로 바뀌지 않는다")
+    void droppedOriginStaysDroppedWhenCapturedOnAWorkerThread() throws Exception {
+        MockHttpServletRequest request = authenticated();
+        request.addHeader("X-Request-Id", "cur-4");
+        request.addHeader("X-Origin-Trace-Id", "t".repeat(65));
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            List<CompletableFuture<OutboxOrigin>> hop = new ArrayList<>();
+            run(request, (req, response) -> {
+                Map<String, String> context = MDC.getCopyOfContextMap();
+                hop.add(CompletableFuture.supplyAsync(() -> {
+                    MDC.setContextMap(context);
+                    return OutboxOrigin.capture();
+                }, worker));
+            });
+            assertThat(hop.get(0).join().requestId()).isNull();
+        } finally {
+            worker.shutdownNow();
+        }
     }
 
 }

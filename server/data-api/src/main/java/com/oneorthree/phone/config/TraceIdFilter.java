@@ -37,6 +37,9 @@ import jakarta.servlet.http.HttpServletResponse;
  * 그래야 위성이 받은 최초 원인이 Data 에서 만드는 outbox({@code OutboxOrigin.capture})까지 이어진다. 형식은 나가는 쪽 규칙
  * ({@link LogScope#safeId}, trace 는 열 길이 64 이하)이고, 어긋나면 값 없이 헤더 이름만 debug 로 남기고 버린다.
  * 모르는 {@code X-Trace-Context-Version} 이면 통째로 버린다. 인증 전 요청은 이 헤더를 읽지 않는다.
+ * 원본 origin 헤더가 있었는데 하나도 받지 못했거나 버전 때문에 버렸으면 {@code origin_dropped} 표식을 둔다 — 원래 없던 origin 과
+ * 구분해, {@code OutboxOrigin.capture} 가 버린 문맥을 현재 요청으로 바꾸지 않고 비워 두게 한다. 표식은 JSON allowlist·텍스트
+ * 패턴 밖 키라 로그에 나가지 않는다.
  * request_id는 X-Request-Id를 별도로 검증해 기록한다. 기존 trace_id는 레거시 상관 ID이며 APM span ID가 아니다.
  */
 @Slf4j
@@ -50,6 +53,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
     private static final String MDC_REQUEST_ID = "request_id";
     private static final String MDC_ORIGIN_REQUEST_ID = "origin_request_id";
     private static final String MDC_ORIGIN_TRACE_ID = "origin_trace_id";
+    private static final String MDC_ORIGIN_DROPPED = "origin_dropped";
     private static final int MAX_ORIGIN_TRACE_LENGTH = 64;
 
     @Override
@@ -61,6 +65,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
         String previousUserId = MDC.get(MDC_USER_ID);
         String previousOriginRequestId = MDC.get(MDC_ORIGIN_REQUEST_ID);
         String previousOriginTraceId = MDC.get(MDC_ORIGIN_TRACE_ID);
+        String previousOriginDropped = MDC.get(MDC_ORIGIN_DROPPED);
         try {
             String traceId = resolveTraceId(request);
             MDC.put(MDC_TRACE_ID, traceId);
@@ -88,6 +93,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
             restore(MDC_USER_ID, previousUserId);
             restore(MDC_ORIGIN_REQUEST_ID, previousOriginRequestId);
             restore(MDC_ORIGIN_TRACE_ID, previousOriginTraceId);
+            restore(MDC_ORIGIN_DROPPED, previousOriginDropped);
         }
     }
 
@@ -95,19 +101,25 @@ public class TraceIdFilter extends OncePerRequestFilter {
     private static void adoptOrigin(HttpServletRequest request) {
         String requestId = null;
         String traceId = null;
+        boolean dropped = false;
         String version = trim(request.getHeader("X-Trace-Context-Version"));
         // 현재 필터 배치(/internal/* 에만 등록, InternalAuthFilter 다음)에서는 CALLER 가 항상 있어 else 쪽에 도달하지 않는다 —
         // 배치가 바뀌어도 위조 헤더를 채택하지 않게 두는 방어 코드다.
         if (request.getAttribute(InternalCallAttributes.CALLER) != null) {
-            if (version.isEmpty() || "1".equals(version)) {
+            boolean versionAllowed = version.isEmpty() || "1".equals(version);
+            if (versionAllowed) {
                 requestId = originHeader(request, "X-Origin-Request-Id", 128);
                 traceId = originHeader(request, "X-Origin-Trace-Id", MAX_ORIGIN_TRACE_LENGTH);
             } else {
                 log.debug("원인 문맥 헤더를 버린다 header=X-Trace-Context-Version");
             }
+            boolean sent = !trim(request.getHeader("X-Origin-Request-Id")).isEmpty()
+                    || !trim(request.getHeader("X-Origin-Trace-Id")).isEmpty();
+            dropped = requestId == null && traceId == null && (sent || !versionAllowed);
         }
         restore(MDC_ORIGIN_REQUEST_ID, requestId);
         restore(MDC_ORIGIN_TRACE_ID, traceId);
+        restore(MDC_ORIGIN_DROPPED, dropped ? "1" : null);
     }
 
     private static String originHeader(HttpServletRequest request, String name, int maxLength) {

@@ -12,6 +12,8 @@ import org.slf4j.MDC;
  * <p><b>origin 우선.</b> 지금 스레드에 {@code origin_request_id}·{@code origin_trace_id} 가 하나라도 있으면 그 쌍을
  * 그대로 쓴다 — 후속 사건이 원인을 자기 요청으로 바꾸지 않게. 둘 다 없을 때만 현재 {@code request_id} 와 활성 tracer 의
  * trace id 를 origin 으로 올린다. 쌍을 섞지 않는다(남의 origin 요청에 지금 trace 를 붙이면 둘이 다른 사건을 가리킨다).
+ * 단 요청 필터({@code TraceIdFilter})가 받은 origin 을 형식·버전 검사로 버렸다는 {@code origin_dropped} 표식이 있으면 올리지 않고
+ * 비운 채 저장한다 — 버린 문맥이 현재 호출의 문맥으로 바뀌지 않게.
  *
  * <p>trace id 는 {@link CorrelationIdentifier#getTraceId()} 원문이다 — dd-trace 1.64.0 은 128-bit 로그가 켜져 있고
  * 상위 64비트가 있으면 32자리 소문자 hex, 아니면 하위 64비트 10진을 돌려준다. 여기서 정규화하지 않는다.
@@ -40,6 +42,9 @@ public record OutboxOrigin(String requestId, String traceId) {
             String originTrace = MDC.get("origin_trace_id");
             if (originRequest != null || originTrace != null) {
                 return of(originRequest, originTrace);
+            }
+            if (MDC.get("origin_dropped") != null) {
+                return NONE;
             }
             return of(MDC.get("request_id"), CorrelationIdentifier.getTraceId());
         } catch (RuntimeException | LinkageError e) {
