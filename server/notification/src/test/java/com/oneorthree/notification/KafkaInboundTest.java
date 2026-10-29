@@ -17,6 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import com.oneorthree.notification.logging.ObservationJsonProvider;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -208,6 +210,12 @@ class KafkaInboundTest {
         assertThat(first.getMDCPropertyMap()).containsEntry("origin_request_id", "req-origin")
                 .containsEntry("origin_trace_id", trace).containsEntry("delivery_id", "relay-delivery-1")
                 .containsEntry("attempt", "2").containsEntry("event_name", "consumer.accept");
+        // 같은 이벤트를 실제 JSON provider 로 렌더링해도 연결 키가 나온다(GROMO-2557).
+        Map<String, Object> rendered = Json.map(new ObservationJsonProvider(new MockEnvironment()
+                .withProperty("OBS_SERVICE", "notification")).format(first));
+        assertThat(rendered).containsEntry("event_name", "consumer.accept").containsEntry("event_id", traced)
+                .containsEntry("origin_request_id", "req-origin").containsEntry("origin_trace_id", trace)
+                .containsEntry("delivery_id", "relay-delivery-1").containsEntry("attempt", 2);
         assertThat(second.getThreadName()).as("같은 리스너 스레드가 이어서 처리했다").isEqualTo(first.getThreadName());
         assertThat(second.getMDCPropertyMap()).as("앞 레코드의 문맥이 다음 레코드에 새지 않는다")
                 .containsEntry("event_id", legacy)

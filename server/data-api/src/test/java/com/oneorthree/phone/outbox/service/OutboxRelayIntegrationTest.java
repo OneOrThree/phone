@@ -1,5 +1,6 @@
 package com.oneorthree.phone.outbox.service;
 
+import com.oneorthree.phone.common.logging.ObservationJsonProvider;
 import com.oneorthree.phone.config.OutboxRelayProperties;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
@@ -38,6 +39,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -620,6 +622,13 @@ class OutboxRelayIntegrationTest {
                 .containsEntry("origin_request_id", "req-worker")
                 .doesNotContainKey("origin_trace_id");
         assertThat(attempt.getThreadName()).as("인라인이 아니라 실제 relay 풀에서 돌았다").startsWith("outbox-relay-");
+        // 같은 이벤트를 실제 JSON provider 로 렌더링해도 연결 키가 나온다(GROMO-2557).
+        @SuppressWarnings("unchecked")
+        Map<String, Object> rendered = new ObjectMapper().readValue(new ObservationJsonProvider(
+                new MockEnvironment().withProperty("OBS_SERVICE", "data-api")).format(attempt), Map.class);
+        assertThat(rendered).containsEntry("event_name", "outbox.delivery").containsEntry("event_id", eventId)
+                .containsEntry("delivery_id", deliveryId.toString()).containsEntry("attempt", 1)
+                .containsEntry("origin_request_id", "req-worker");
 
         // 풀의 모든 스레드를 한꺼번에 붙잡아 각 스레드의 MDC 를 본다 — 방금 시도한 워커도 그중 하나다.
         int poolSize = relayPool.getScheduledThreadPoolExecutor().getCorePoolSize();

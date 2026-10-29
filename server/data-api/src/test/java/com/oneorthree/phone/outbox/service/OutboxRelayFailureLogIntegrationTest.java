@@ -4,6 +4,8 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.oneorthree.phone.common.logging.ObservationJsonProvider;
 import com.oneorthree.phone.config.OutboxRelayProperties;
 import com.oneorthree.phone.outbox.client.OutboxCarrier;
 import com.oneorthree.phone.outbox.client.OutboxTransport;
@@ -22,11 +24,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -81,7 +85,14 @@ class OutboxRelayFailureLogIntegrationTest {
     @Autowired PlatformTransactionManager transactionManager;
 
     private final Logger relayLog = (Logger) LoggerFactory.getLogger(OutboxRelayService.class);
-    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+    // MDC 는 로그를 낸 스레드에서 붙잡는다 — 시도 scope 는 로그 직후 닫혀서 지연 조회하면 비어 있다.
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>() {
+        @Override
+        protected void append(ILoggingEvent event) {
+            event.prepareForDeferredProcessing();
+            super.append(event);
+        }
+    };
     private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
 
     @BeforeEach
@@ -169,6 +180,56 @@ class OutboxRelayFailureLogIntegrationTest {
                 .as("낡은 소유자의 실패 표시는 토큰이 달라 0행 — 울타리 WARN 만 남는다").isNotEmpty();
         assertThat(deliveries.findById(deliveryId).orElseThrow().getAttemptCount())
                 .as("선점은 두 번(낡은 소유자, 현재 소유자)").isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("실제 JSON provider 로 렌더링한 시도 결과·축 예외 로그에 사건 연결 키가 나온다 (GROMO-2557)")
+    void renderedJsonLogsCarryTheCorrelationKeys() throws Exception {
+        UUID user = UUID.randomUUID();
+        String eventId = "render-" + UUID.randomUUID();
+        UUID deliveryId = appendWithOrigin(user, eventId, "req-render", "6720d0ec00000000a1b2c3d4e5f60718");
+
+        relayTimes(1, call -> {
+            throw new IllegalStateException("boom");
+        });
+
+        // 배포 경로와 같은 생성자(Environment) — 출력 allowlist 가 실제로 통과시키는지 본다.
+        ObservationJsonProvider provider = new ObservationJsonProvider(new MockEnvironment()
+                .withProperty("OBS_SERVICE", "data-api").withProperty("OBS_ENV", "dev")
+                .withProperty("OBS_VERSION", "abc123"));
+        ILoggingEvent result = logs.list.stream().filter(e -> e.getLevel() == Level.INFO
+                && "outbox.delivery".equals(e.getMDCPropertyMap().get("event_name")))
+                .findFirst().orElseThrow(() -> new AssertionError("시도 결과 로그가 없다"));
+        ILoggingEvent axisError = logs.list.stream().filter(e -> e.getLevel() == Level.ERROR
+                && e.getFormattedMessage().contains("전달 경로가 예외를 던졌다"))
+                .findFirst().orElseThrow(() -> new AssertionError("예외 로그가 없다"));
+
+        for (ILoggingEvent event : List.of(result, axisError)) {
+            String line = provider.format(event);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> json = new ObjectMapper().readValue(line, Map.class);
+            assertThat(json).containsEntry("event_id", eventId).containsEntry("delivery_id", deliveryId.toString())
+                    .containsEntry("attempt", 1).containsEntry("origin_request_id", "req-render")
+                    .containsEntry("origin_trace_id", "6720d0ec00000000a1b2c3d4e5f60718");
+        }
+        assertThat(new ObjectMapper().readValue(provider.format(result), Map.class))
+                .containsEntry("event_name", "outbox.delivery");
+        assertThat(new ObjectMapper().readValue(provider.format(axisError), Map.class))
+                .doesNotContainKey("event_name").containsEntry("level", "ERROR");
+    }
+
+    private UUID appendWithOrigin(UUID user, String eventId, String originRequest, String originTrace) {
+        MDC.put("origin_request_id", originRequest);
+        MDC.put("origin_trace_id", originTrace);
+        try {
+            tx().executeWithoutResult(status -> commands.append(new OutboxAppendCommand(
+                    eventId, 1, "user.withdrawn", user, "ko", null,
+                    AggregateRef.ofUser(user), null, Map.of(), List.of(OutboxDeliveryRequest.toKafka()))));
+        } finally {
+            MDC.remove("origin_request_id");
+            MDC.remove("origin_trace_id");
+        }
+        return deliveries.findAll().stream().map(EventOutboxDelivery::getId).findFirst().orElseThrow();
     }
 
     /** 틱을 {@code times} 번 돌린다 — 틱마다 시계를 한 시간 밀어 백오프(최대 10초)를 건너뛴다. */

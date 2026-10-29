@@ -13,11 +13,14 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerMapping;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 
+import com.oneorthree.business.common.logging.ObservationJsonProvider;
 import com.oneorthree.business.common.logging.RequestLogContext;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -52,24 +55,43 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
             if (request.getHeader(HEADER_USER_ID) != null) {
                 log.warn("외부 사용자 신원 헤더를 폐기했다");
             }
+            boolean completed = false;
             try {
                 if (request.getContentLengthLong() > MAX_BODY) {
                     reject(request, response);
-                    return;
+                } else {
+                    chain.doFilter(new LimitedBodyRequest(request), response);
                 }
-                chain.doFilter(new LimitedBodyRequest(request), response);
+                completed = true;
             } catch (IOException | ServletException error) {
                 if (!RequestBodyTooLargeException.causedBy(error) || response.isCommitted()) {
                     throw error;
                 }
                 response.resetBuffer();
                 reject(request, response);
+                completed = true;
             } finally {
-                log.info("business_request request_id={} method={} status={} duration_ms={}", requestId,
-                        request.getMethod(), response.getStatus(),
-                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+                logAccess(request, response, started, completed);
             }
         }
+    }
+
+    /** 요청 완료 접근 로그. request_id 는 MDC 로 실리고, 구조화 필드는 ACCESS marker 의 key/value 로만 넘긴다. */
+    private static void logAccess(HttpServletRequest request, HttpServletResponse response, long started,
+            boolean completed) {
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        LoggingEventBuilder access = log.atInfo().addMarker(ObservationJsonProvider.ACCESS)
+                .addKeyValue("http_method", request.getMethod())
+                .addKeyValue("http_route", route instanceof String pattern ? pattern : "unmatched")
+                .addKeyValue("duration_ms", durationMs)
+                .addKeyValue("outcome", completed ? "completed" : "unhandled_exception");
+        if (completed) {
+            // 예외가 빠져나가면 최종 상태는 컨테이너가 정하므로 싣지 않는다.
+            access = access.addKeyValue("status_code", response.getStatus());
+        }
+        access.log("business_request method={} status={} duration_ms={}", request.getMethod(),
+                completed ? response.getStatus() : "unhandled_exception", durationMs);
     }
 
     private void reject(HttpServletRequest request, HttpServletResponse response) throws IOException {
