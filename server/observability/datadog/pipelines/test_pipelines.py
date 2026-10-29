@@ -539,5 +539,79 @@ class RollbackExecuteTest(unittest.TestCase):
         self.assertNotIn("N2", api.pipelines)  # 나머지 항목은 계속 진행
 
 
+class UpdateLostResponseTest(unittest.TestCase):
+    """PUT 이 서버에 반영된 뒤 응답만 유실 → 기록에 previous 가 남고, 롤백이 복원하며 두 번째 실행은 건너뛴다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.record = self.tmp / "rec.json"
+        self.defn = manage.load_definitions()[0]
+        self.old = {**manage.body(self.defn), "description": "옛 정의"}
+        env = mock.patch.dict(os.environ, {manage.CONFIRM_ENV: "yes"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def server(self, lose_put_response=True):
+        outer = self
+        stored = {"P1": {"id": "P1", **self.old}}
+
+        class Api:
+            calls = []
+
+            def state(self_):
+                return {"pipelines": [dict(stored["P1"], name=outer.defn["name"])], "order": ["P1"], "origin": "fake"}
+
+            def call(self_, method, path, body=None):
+                self_.calls.append((method, path))
+                if path == manage.ORDER:
+                    return {"pipeline_ids": ["P1"]}
+                if path.rsplit("/", 1)[1] not in stored:
+                    raise manage.ApiError("404", status=404)
+                if method == "GET":
+                    return stored["P1"]
+                stored["P1"] = {"id": "P1", **body}  # 서버에 반영
+                if lose_put_response and method == "PUT" and self_.calls.count(("PUT", path)) == 1:
+                    raise manage.ApiError("PUT → 응답 없음(TimeoutError)", unknown=True)
+                return None
+
+        api = Api()
+        api.stored = stored
+        return api
+
+    def run_cmd(self, api, *argv):
+        with mock.patch.object(manage, "Api", lambda: api), contextlib.redirect_stdout(io.StringIO()) as buf:
+            manage.main(list(argv))
+        return buf.getvalue()
+
+    def test_previous_survives_lost_put_response_and_rollback_restores_once(self):
+        api = self.server()
+        with self.assertRaises(SystemExit):
+            self.run_cmd(api, "apply", "--execute", "--record-out", str(self.record))
+        rec = json.loads(self.record.read_text())
+        self.assertEqual(rec["steps"][0]["result"], "unknown")
+        self.assertEqual(rec["updated"][0]["previous"], self.old)
+        self.assertEqual(api.stored["P1"]["description"], self.defn["description"])  # 서버엔 반영됨
+        self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertEqual(manage.body(api.stored["P1"]), self.old)
+        puts = api.calls.count(("PUT", f"{manage.PIPELINES}/P1"))
+        out = self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertIn("건너뜀", out)
+        self.assertEqual(api.calls.count(("PUT", f"{manage.PIPELINES}/P1")), puts)
+
+    def test_unreflected_update_is_skipped_as_already_previous(self):
+        api = self.server(lose_put_response=False)
+        self.record.write_text(json.dumps({"dry_run": False, "order_before": ["P1"], "created": [],
+                                           "updated": [{"name": self.defn["name"], "id": "P1", "previous": self.old}]}))
+        out = self.run_cmd(api, "rollback", "--record", str(self.record), "--execute")
+        self.assertIn("이미 이전 정의", out)
+        self.assertNotIn(("PUT", f"{manage.PIPELINES}/P1"), api.calls)
+
+    def test_updated_404_prints_no_target_warning(self):
+        api = self.server(lose_put_response=False)
+        self.record.write_text(json.dumps({"dry_run": False, "order_before": [], "created": [],
+                                           "updated": [{"name": "x", "id": "GONE", "previous": {}}]}))
+        self.assertIn("복원 대상 없음", self.run_cmd(api, "rollback", "--record", str(self.record), "--execute"))
+
+
 if __name__ == "__main__":
     unittest.main()

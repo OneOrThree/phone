@@ -137,13 +137,16 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 - dry-run 으로 만든 기록(`"dry_run": true`)으로는 `--execute` 를 할 수 없다.
 - **부분 적용**: `apply --execute` 는 쓰기(생성·갱신·순서 조회) 하나가 성공할 때마다 `--record-out` 파일을 임시 파일 후 rename 으로 갱신한다. 중간에 실패하면 지금까지의 기록(`steps` 의 ok/failed/not-run, 생성된 ID, 갱신 전 원본, `order_before`)을 남기고 0 이 아닌 코드로 끝나며 «부분 적용 — `rollback --record <파일>`» 을 출력한다. 자동으로 되돌리지 않는다. 사람이 상태를 확인한 뒤 같은 기록으로 `rollback` 하면 성공한 단계만 되돌린다.
 - **실패 종류별 안내**: 아무것도 바뀌지 않은 실패(`created`·`updated` 비어 있음)는 «변경 없음 — 롤백 불필요», 일부가 반영된 실패만 «부분 적용 — rollback». 쓰기 요청이 응답 없이 끝나면(타임아웃·연결 끊김) 단계를 `unknown` 으로 기록하고 «서버 상태를 직접 조회해 같은 이름 파이프라인이 있는지 확인»하라고 안내한다. 이미 만들어졌더라도 `created` 에는 ID 가 없다. 같은 이름이 있으면 같은 `apply` 를 다시 실행해도 `plan_actions` 가 이름으로 찾아 `update` 로 처리하므로 중복 생성되지 않는다. 같은 이름이 없으면 그대로 다시 실행한다.
+- **갱신 결과 불명**: `apply` 는 PUT **전에** `updated` 에 `{id, name, previous}` 를 기록하고 저장한다. PUT 이 서버에 반영된 뒤 응답만 유실돼도(`unknown`) 항목이 남아 롤백이 이전 정의로 복원한다. 확실한 실패(HTTP 오류)면 서버가 그대로이므로 항목을 뺀다. `rollback --execute` 는 updated 항목을 GET 해 이미 `previous` 와 같으면 건너뛰고(`already-previous`, 재실행 멱등) 다르면 `previous` 로 PUT 한다. GET 이 404 면 «복원 대상 없음» 경고를 출력한다.
+- 롤백 모드(삭제/비활성)를 바꾸려면 기록 파일을 복사해서 쓴다(`rollback` 필드의 완료 표시가 id 기준이라 같은 기록으로 모드를 바꾸면 건너뛴다).
+- 순서 복원 PUT 은 직전에 조회한 순서를 기준으로 전체를 덮어쓴다. 그 사이 다른 사람이 순서를 바꿨다면 덮어쓴다.
 - **롤백 안전장치**: `--execute` 는 각 ID 를 먼저 GET 해 이름이 기록과 같은지 확인한다. 다르면 그 항목은 건드리지 않고 순서 복원 없이 비정상 종료한다(나머지 항목은 계속 진행). 404 는 «이미 없음»으로 건너뛴다. 항목마다 끝난 결과를 같은 기록 파일의 `rollback` 필드에 저장하므로, 중간에 실패해도 같은 명령을 다시 실행하면 끝난 항목은 건너뛰고 이어간다. dry-run 도 이 GET 확인을 계획으로 출력한다. `order-after` 조회만 실패했다면 생성·갱신은 이미 반영된 상태이므로 롤백 여부를 §8 판정 기준으로 정한다.
 
 ## 10. 검증 범위
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 26 tests(부분 적용 기록·응답 없음 `unknown`·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 29 tests(부분 적용 기록·응답 없음 `unknown`·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |

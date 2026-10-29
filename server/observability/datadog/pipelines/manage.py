@@ -257,7 +257,7 @@ def cmd_apply(args):
         if args.record_out:
             save_json(args.record_out, record)
 
-    def write(step, method, path, payload):
+    def write(step, method, path, payload, pending=None):
         """쓰기 하나. 실패하면 기록에 남기고 부분 적용 안내 후 비정상 종료한다(자동 되돌리기 없음)."""
         try:
             return api.call(method, path, payload) if args.execute else None
@@ -265,6 +265,8 @@ def cmd_apply(args):
             unknown = getattr(e, "unknown", False)
             step["result"] = "unknown" if unknown else "failed"
             step["error"] = str(e.code)
+            if pending is not None and not unknown:  # 확실한 실패면 서버는 그대로다 — 롤백 대상에서 뺀다. 결과 불명이면 남긴다
+                record["updated"].remove(pending)
             changed = bool(record["created"] or record["updated"])
             record["partial"] = changed
             save()
@@ -292,8 +294,11 @@ def cmd_apply(args):
             record["created"].append({"name": d["name"], "id": res["id"] if res else f"<new:{d['name']}>"})
         else:
             print(f"  PUT  {PIPELINES}/{cur['id']}  name='{d['name']}'")
-            write(step, "PUT", f"{PIPELINES}/{cur['id']}", d)
-            record["updated"].append({"name": d["name"], "id": cur["id"], "previous": body(cur)})
+            # PUT 전에 previous 를 저장한다 — 반영된 뒤 응답만 유실돼도 롤백이 이전 정의를 알 수 있어야 한다
+            entry = {"name": d["name"], "id": cur["id"], "previous": body(cur)}
+            record["updated"].append(entry)
+            save()
+            write(step, "PUT", f"{PIPELINES}/{cur['id']}", d, pending=entry)
         step["result"] = "ok"
         save()
     step = next(steps)
@@ -363,7 +368,7 @@ def cmd_rollback(args):
             if act == "delete":
                 removed.add(pid)
             if verdict == "gone":
-                print(f"  이미 없음 {pid} ('{name}')")
+                print(f"  이미 없음 {pid} ('{name}')" + (" — 복원 대상 없음(경고): 이전 정의를 되돌릴 수 없다" if act == "restore" else ""))
                 mark(pid, "already-gone")
                 continue
             if act == "disable":
@@ -376,6 +381,9 @@ def cmd_rollback(args):
                 if args.execute:
                     api.call("DELETE", f"{PIPELINES}/{pid}")
                 mark(pid, "deleted")
+            elif cur is not None and body(cur) == it["previous"]:
+                print(f"  (건너뜀) '{name}' {pid} — 이미 이전 정의")
+                mark(pid, "already-previous")
             else:
                 print(f"  PUT    {PIPELINES}/{pid}  이전 정의로 복원  ('{name}')")
                 if args.execute:
