@@ -629,10 +629,10 @@ export const componentTokens = {
     shade: color.movementPingDark,
     outline: color.movementPingOutline,
     shine: color.paper,
-    routeWidth: 1,
-    routeOpacity: 0.65,
+    routeWidth: 1.4,
+    routeOpacity: 0.8,
     dashLength: 2,
-    dashGap: 4,
+    dashGap: 5,
   },
   fishingScene: {
     splashDrop: color.fishingSplash,
