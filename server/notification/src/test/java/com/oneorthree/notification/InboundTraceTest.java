@@ -51,4 +51,23 @@ class InboundTraceTest {
         assertThat(InboundTrace.fromHttp(request, metrics).originRequestId()).isEqualTo("req-1");
         assertThat(dropped("X-Request-Id")).isZero();
     }
+
+    @Test
+    void droppedOriginIsNotReplacedByTheCurrentRequestId() {
+        MockHttpServletRequest malformed = new MockHttpServletRequest();
+        malformed.addHeader("X-Origin-Request-Id", "bad id");
+        malformed.addHeader("X-Request-Id", "cur-1");
+        InboundTrace trace = InboundTrace.fromHttp(malformed, metrics);
+        assertThat(trace.originRequestId()).isNull();
+        assertThat(dropped("X-Origin-Request-Id")).isEqualTo(1);
+
+        MockHttpServletRequest unknown = new MockHttpServletRequest();
+        unknown.addHeader("X-Trace-Context-Version", "2");
+        unknown.addHeader("X-Request-Id", "cur-2");
+        assertThat(InboundTrace.fromHttp(unknown, metrics).originRequestId()).isNull();
+
+        MockHttpServletRequest absent = new MockHttpServletRequest();
+        absent.addHeader("X-Request-Id", "cur-3");
+        assertThat(InboundTrace.fromHttp(absent, metrics).originRequestId()).isEqualTo("cur-3");
+    }
 }

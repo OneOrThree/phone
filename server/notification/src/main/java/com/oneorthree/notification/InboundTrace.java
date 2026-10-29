@@ -65,8 +65,8 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
 
     /**
      * 서비스 인증({@link ServiceAuth})을 통과한 내부 요청의 헤더에서 읽는다. origin 헤더가 없고 {@code X-Request-Id} 가
-     * 유효하면 그 요청 번호를 origin 으로 삼는다(직접 호출 경로, §3). origin 헤더가 하나라도 있으면(깨졌어도) 이 대체는
-     * 돌지 않으므로 그때의 깨진 {@code X-Request-Id} 는 세지 않는다.
+     * 유효하면 그 요청 번호를 origin 으로 삼는다(직접 호출 경로, §3). 원본 origin 헤더가 하나라도 있거나(깨졌어도) 모르는 carrier 버전이면 이 대체는
+     * 돌지 않으므로(버린 문맥을 현재 요청 ID 로 바꾸지 않는다) 그때의 깨진 {@code X-Request-Id} 는 세지 않는다.
      *
      * @param request 인증을 통과한 요청
      * @param metrics 버린 carrier 를 세는 레지스트리
@@ -74,13 +74,20 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
      */
     static InboundTrace fromHttp(HttpServletRequest request, MeterRegistry metrics) {
         InboundTrace trace = read(request::getHeader, metrics);
-        if (trace.originRequestId == null && trace.originTraceId == null) {
+        if (strip(request.getHeader("X-Origin-Request-Id")) == null
+                && strip(request.getHeader("X-Origin-Trace-Id")) == null
+                && versionAllowed(request.getHeader("X-Trace-Context-Version"))) {
             String requestId = checked(metrics, "X-Request-Id", request.getHeader("X-Request-Id"), false);
             if (requestId != null) {
                 return new InboundTrace(requestId, null, trace.deliveryId, trace.attempt);
             }
         }
         return trace;
+    }
+
+    private static boolean versionAllowed(String raw) {
+        String version = strip(raw);
+        return version == null || "1".equals(version);
     }
 
     private static InboundTrace read(Function<String, String> header, MeterRegistry metrics) {

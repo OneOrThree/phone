@@ -340,7 +340,15 @@ local ERROR_LEVELS = { emerg = "ERROR", alert = "ERROR", crit = "ERROR", error =
 -- 사전 자르기로 끝이 잘린 줄의 마지막 토큰이 `스킴://` 뒤 authority 만 있고 '/' 가 없으면(userinfo 중간에서 잘렸을 수 있음:
 -- `upstream: "http://user:pa`) authority 를 버린다. '@' 가 없어 redact_userinfo 도, 20자 미만이라 경로 토큰 규칙도 못 잡는 조각이다.
 local function drop_cut_url(text)
-  return (text:gsub("(%S*://)[^/%s]*$", "%1"))
+  -- 끝에서 거꾸로: '/'·공백이 아닌 구간 바로 앞이 "://" 이면 그 구간(authority)만 버린다. 앞에서 훑는 패턴은 긴 비공백 덩어리에서 O(n²) 다.
+  local i = #text
+  while i > 0 do
+    local b = text:byte(i)
+    if b == 47 or b == 32 or (b >= 9 and b <= 13) then break end
+    i = i - 1
+  end
+  if i >= 3 and text:sub(i - 2, i) == "://" then return text:sub(1, i) end
+  return text
 end
 
 local function drop_cut_url_if(text, pre_cut)
@@ -382,7 +390,7 @@ local function nginx_error(line, stream, pre_cut, original)
   -- 사전 자르기는 nginx_finalize 에서 이미 한 번 했고, 정제가 줄을 늘려 32K 를 다시 넘으면 여기서 또 한다.
   local rest_cut, cut2 = truncate(rest, MESSAGE_LIMIT * 2)
   local pre = pre_cut or cut2
-  if cut2 then original = #rest end
+  if cut2 then original = original or #line end
   if pre then rest_cut = drop_cut_url(rest_cut) end
   local masked = mask(rest_cut)
   if pre then masked = drop_cut_token(masked) end

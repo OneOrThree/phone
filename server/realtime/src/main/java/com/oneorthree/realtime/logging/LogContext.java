@@ -153,12 +153,15 @@ public final class LogContext implements AutoCloseable {
     }
 
     /**
-     * 인증을 통과한 내부 HTTP 요청 — carrier 에 더해, {@code X-Origin-*} 이 하나도 없으면 호출자의 {@code X-Request-Id} 를
+     * 인증을 통과한 내부 HTTP 요청 — carrier 에 더해, {@code X-Origin-*} 이 하나도 없고 carrier 버전이 허용될 때만 호출자의 {@code X-Request-Id} 를
      * 원인 요청 번호로 쓴다(계약 §3, Business 직접 호출 경로).
      */
     public static LogContext openInternalHttp(UnaryOperator<String> header) {
         LogContext scope = openCarrier(header);
-        if (isBlank(header.apply("x-origin-request-id")) && isBlank(header.apply("x-origin-trace-id"))) {
+        String version = header.apply("x-trace-context-version");
+        boolean versionAllowed = isBlank(version) || "1".equals(version.strip());
+        if (versionAllowed && isBlank(header.apply("x-origin-request-id"))
+                && isBlank(header.apply("x-origin-trace-id"))) {
             scope.put(ORIGIN_REQUEST_ID, header.apply("x-request-id"));
         }
         return scope;

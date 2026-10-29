@@ -1,7 +1,7 @@
 """logs.lua 오프라인 입력표. 사용: lua_cases.py [logs.lua 경로] — 로컬 Fluent Bit 컨테이너(네트워크 없음)로 줄을 통과시켜 단언한다.
 세 형태: ① 파싱 실패한 combined 줄의 client IP·user·referer·query ② 프로토콜 없는(HTTP/0.9) error 로그 request 의 query
 ③ combined 줄 원본 시각 보존(시간대 포함). 하나라도 어긋나면 종료 코드 1."""
-import json, os, shutil, subprocess, sys, tempfile
+import json, os, shutil, subprocess, sys, tempfile, time
 LUA = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "../../logs.lua"))
 A = lambda log: {"log": log, "stream": "stdout", "_svc": "nginx", "_src": "access"}
 E = lambda log: {"log": log, "stream": "stderr", "_svc": "nginx", "_src": "error"}
@@ -60,6 +60,8 @@ _long = _head + ("f " * (_fill // 2 + 1))[:_fill] + " " + _tail + "CUTPASS@h/p" 
 rows += [
     E('nginx: [emerg] bad upstream http://svcuser:BPASS1@backend/x?code=BSECRET1 end'),
     E(_long),
+    # 공백 없는 긴 덩어리 + 끝이 «://» 로 잘린 줄 — drop_cut_url 선형성(앞에서 훑는 패턴은 O(n²)). 날짜 없는 줄이라 raw 폴백.
+    *[E("a" * 40000 + "http://svcuser:SPASS") for _ in range(5)],  # 5줄: 옛 패턴은 약 10초, 선형이면 도커 기동 포함 2초 안팎
 ]
 d = tempfile.mkdtemp()
 shutil.copy(LUA, f"{d}/logs.lua")
@@ -68,8 +70,10 @@ open(f"{d}/p.conf", "w").write("[PARSER]\n    Name j\n    Format json\n")
 open(f"{d}/t.lua", "w").write('dofile("/t/logs.lua")\nfunction t(tag, ts, record) return finalize(tag, ts, record) end\n')
 open(f"{d}/c.conf", "w").write("[SERVICE]\n    Flush 1\n    Parsers_File /t/p.conf\n[INPUT]\n    Name tail\n    Path /t/in.log\n    Parser j\n    Read_From_Head On\n    Exit_On_Eof On\n    Buffer_Chunk_Size 256k\n    Buffer_Max_Size 256k\n"
                                "[FILTER]\n    Name lua\n    Match *\n    script /t/t.lua\n    call t\n[OUTPUT]\n    Name stdout\n    Match *\n    Format json_lines\n")
+t0 = time.monotonic()
 out = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{d}:/t:ro", "fluent/fluent-bit:4.2.8", "-c", "/t/c.conf"],
                      capture_output=True, text=True).stdout
+elapsed = time.monotonic() - t0
 got = [json.loads(l) for l in out.splitlines() if l.startswith("{")]
 blob = json.dumps(got)
 checks = [
@@ -114,6 +118,8 @@ checks = [
      not any(x in json.dumps(got[39]) for x in ("svcuser", "BPASS1", "BSECRET1", "code=")) and got[39].get("log_kind") == "raw"),
     ("⑩ 사전 자르기 지점이 userinfo 중간이어도 잔존 없음, truncated·original_size_bytes 기록",
      not any(x in json.dumps(got[40]) for x in ("svcuser", "UPCUT", "CUTPASS")) and got[40].get("truncated") is True and got[40].get("original_size_bytes", 0) > 32768),
+    ("⑩ 32K 연속 비공백 사전 자르기 줄 — 처리가 선형(5줄 전체 실행 6초 이내)이고 userinfo 잔존 없음",
+     elapsed < 6 and "SPASS" not in json.dumps(got[41]) and got[41].get("truncated") is True),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]

@@ -82,3 +82,4 @@ dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는
 - Promtail 복귀 절차의 실제 동작.
 - 알려진 수집 결함: 16 KiB 넘는 줄의 Docker 조각이 json-file 회전 경계에 걸리면 그 줄이 Loki·S3 에서 빠진다(로컬 재현, [런북 §7 해석과 한계](ingestion-runbook.md#해석과-한계)). dev 전환 판정에서 큰 예외 줄 누락을 이 경우와 구분한다.
 - §4 LogQL 의 실제 실행 결과.
+- Catus V2 운영 경로에는 수집기가 없어 JSON 로그가 컨테이너 stdout 에만 남는다 — 운영 수집 도입은 Infra 결정(범위 밖).

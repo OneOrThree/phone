@@ -129,4 +129,17 @@ class LogContextTest {
             assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).as("빈 origin 은 없음").isEqualTo("biz-4");
         }
     }
+
+    @Test
+    @DisplayName("내부 HTTP — 모르는 carrier 버전이나 깨진 origin 은 X-Request-Id 로 대체하지 않는다")
+    void droppedOriginIsNotReplacedByRequestId() {
+        try (LogContext scope = LogContext.openInternalHttp(Map.of("x-trace-context-version", "2",
+                "x-request-id", "biz-5")::get)) {
+            assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).as("모르는 버전").isNull();
+        }
+        try (LogContext scope = LogContext.openInternalHttp(Map.of("x-origin-request-id", "bad id",
+                "x-request-id", "biz-6")::get)) {
+            assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).as("깨진 origin").isNull();
+        }
+    }
 }
