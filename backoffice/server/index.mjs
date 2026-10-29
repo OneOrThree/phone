@@ -26,6 +26,11 @@ requireValue(
   "연결 모드는 HTTPS 출처가 필요합니다.",
 );
 if (mode === "connected") {
+  requireValue(
+    typeof process.env.BACKOFFICE_FCM_PROJECT_ID === "string" &&
+      /^[a-zA-Z0-9][a-zA-Z0-9._:-]{2,127}$/.test(process.env.BACKOFFICE_FCM_PROJECT_ID),
+    "연결 모드에는 해당 환경의 BACKOFFICE_FCM_PROJECT_ID가 필요합니다.",
+  );
   for (const name of ["NOTIFICATION_URL", "DATA_API_URL"]) {
     const value = process.env[name];
     requireValue(value, `${name}을 설정하세요.`);
@@ -60,6 +65,7 @@ for (const [actor, operator] of Object.entries(operators)) {
 const upstream = new Upstream({
   mode,
   environment,
+  expectedFcmProjectId: process.env.BACKOFFICE_FCM_PROJECT_ID,
   notificationUrl: process.env.NOTIFICATION_URL,
   dataUrl: process.env.DATA_API_URL,
 });

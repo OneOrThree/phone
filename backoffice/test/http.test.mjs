@@ -119,12 +119,13 @@ test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용"
   const upstream = new Upstream({
     mode: "connected",
     environment: "dev",
+    expectedFcmProjectId: "gromo-dev",
     notificationUrl: "http://internal:8082",
     dataUrl: "http://data:8080",
     fetchImpl: async (url, options) => {
       if (options.method === "GET") {
         checked.push(url.pathname);
-        return new Response(JSON.stringify({ environment: "dev" }));
+        return new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }));
       }
       request = { url, options };
       return new Response(JSON.stringify({ status: "PENDING" }), {
@@ -155,6 +156,8 @@ test("상류 통신은 고정 경로·actor별 자격·승인 payload를 사용"
     "http://internal:8082/internal/admin/publications/publication",
   );
   assert.equal(request.options.headers["X-Console-Actor"], "member-2");
+  assert.equal(request.options.headers["X-Backoffice-Environment"], "dev");
+  assert.equal(request.options.headers["X-Backoffice-Fcm-Project"], "gromo-dev");
   assert.equal(request.options.headers["Idempotency-Key"], "id:3");
   assert.equal(JSON.parse(request.options.body).body, "확정본문");
   assert.equal(request.options.redirect, "error");
@@ -165,11 +168,13 @@ test("dev·prod 연결이 어긋나면 발행 전에 멈춘다", async () => {
   const upstream = new Upstream({
     mode: "connected",
     environment: "dev",
+    expectedFcmProjectId: "gromo-dev",
     dataUrl: "http://data.internal",
     notificationUrl: "http://notification.internal",
     fetchImpl: async (url, options) => {
       requests.push({ path: url.pathname, method: options.method });
-      return new Response(JSON.stringify({ environment: url.hostname === "data.internal" ? "prod" : "dev" }), {
+      return new Response(JSON.stringify({ environment: url.hostname === "data.internal" ? "prod" : "dev",
+        fcmProjectId: "gromo-dev" }), {
         headers: { "Content-Type": "application/json" },
       });
     },
@@ -181,6 +186,21 @@ test("dev·prod 연결이 어긋나면 발행 전에 멈춘다", async () => {
   await assert.rejects(upstream.preview({ issueDate: "2026-10-29" }, "member-1", operator), /환경/);
   assert.deepEqual(requests.map((request) => request.method), ["GET", "GET", "GET", "GET"]);
   assert.ok(requests.every((request) => request.path.endsWith("/environment")));
+});
+test("FCM 프로젝트가 다르면 알림 발송 전에 멈춘다", async () => {
+  const methods = [];
+  const upstream = new Upstream({
+    mode: "connected", environment: "dev", expectedFcmProjectId: "gromo-dev",
+    dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
+    fetchImpl: async (url, options) => {
+      methods.push(options.method);
+      return new Response(JSON.stringify({ environment: "dev",
+        fcmProjectId: url.hostname === "notification.internal" ? "gromo-prod" : undefined }));
+    },
+  });
+  await assert.rejects(upstream.publish({ kind: "fcm" }, "member-1",
+    { dataToken: "data", notificationToken: "notification" }), /FCM 프로젝트/);
+  assert.deepEqual(methods, ["GET", "GET"]);
 });
 test("정적 루트 제공과 경로 이탈 거부", async (t) => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");

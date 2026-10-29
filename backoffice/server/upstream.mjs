@@ -1,8 +1,8 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Failure } from "./store.mjs";
 export class Upstream {
-  constructor({ mode, environment, notificationUrl, dataUrl, fetchImpl = fetch }) {
-    Object.assign(this, { mode, environment, notificationUrl, dataUrl, fetchImpl });
+  constructor({ mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl = fetch }) {
+    Object.assign(this, { mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl });
   }
   async verifyEnvironment(expected, actor, operator) {
     try {
@@ -12,8 +12,9 @@ export class Upstream {
         this.request(this.notificationUrl, "/internal/admin/publications/environment", actor,
           operator.notificationToken, undefined, "GET"),
       ]);
-      if (data.environment !== expected || notification.environment !== expected) {
-        throw new Failure(503, "Data·Notification 환경이 백오피스 설정과 일치하지 않습니다.");
+      if (data.environment !== expected || notification.environment !== expected
+          || notification.fcmProjectId !== this.expectedFcmProjectId) {
+        throw new Failure(503, "Data·Notification DB 또는 FCM 프로젝트가 백오피스 환경과 일치하지 않습니다.");
       }
     } catch (error) {
       // 검증 단계에서 중단한 것이므로 발행 요청은 아직 전송되지 않았다.
@@ -39,6 +40,8 @@ export class Upstream {
         headers: {
           Authorization: `Bearer ${token}`,
           "X-Console-Actor": actor,
+          ...(this.environment ? { "X-Backoffice-Environment": this.environment } : {}),
+          ...(this.expectedFcmProjectId ? { "X-Backoffice-Fcm-Project": this.expectedFcmProjectId } : {}),
           "Content-Type": "application/json",
           ...(key ? { "Idempotency-Key": key } : {}),
         },
