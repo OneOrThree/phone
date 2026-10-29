@@ -47,8 +47,20 @@ def aws(*args):
     env = dict(os.environ)
     if args[:2] == ('ssm', 'send-command'):
         env['AWS_MAX_ATTEMPTS'] = '1'  # SendCommand에는 멱등 키가 없다.
-    result = subprocess.run(['aws', '--region', 'ap-northeast-2', *args, '--output', 'json'],
-                            check=True, text=True, capture_output=True, env=env)
+    command = ['aws', '--region', 'ap-northeast-2', *args, '--output', 'json']
+    if args[:2] == ('ssm', 'list-commands'):
+        # 다른 운영 시스템의 명령이 많아도 조회 실패를 배포 명령 재전송으로 오해하지 않는다.
+        env['AWS_MAX_ATTEMPTS'] = '1'
+        for attempt in range(5):
+            result = subprocess.run(command, check=False, text=True, capture_output=True, env=env)
+            if result.returncode == 0:
+                return json.loads(result.stdout or '{}')
+            if 'ThrottlingException' not in result.stderr and 'Rate exceeded' not in result.stderr:
+                raise subprocess.CalledProcessError(result.returncode, command)
+            if attempt < 4:
+                time.sleep(min(2 ** attempt, 8))
+        raise RuntimeError('SSM 명령 조회 제한이 계속되어 배포를 중단합니다.')
+    result = subprocess.run(command, check=True, text=True, capture_output=True, env=env)
     return json.loads(result.stdout or '{}')
 
 
@@ -61,7 +73,8 @@ def verify_image(manifest, call=aws):
 def execute(manifest, intent, attempt, call=aws, sleep=time.sleep, monotonic=time.monotonic, timeout=1500):
     require(re.fullmatch(r'backoffice:[0-9]+', intent), '배포 intent 오류')
     # 같은 workflow run 재실행은 이미 전송한 명령을 이어서 관찰한다.
-    existing = [item for item in call('ssm', 'list-commands')['Commands'] if item.get('Comment') == intent]
+    existing = [item for item in call('ssm', 'list-commands', '--filters',
+                                      'key=DocumentName,value=' + DOCUMENT)['Commands'] if item.get('Comment') == intent]
     require(len(existing) <= 1, '동일 intent 명령이 중복되었습니다. 수동 확인 필요')
     parameters = {'ImageDigest': [manifest['digest'].removeprefix('sha256:')]}
     if existing:
