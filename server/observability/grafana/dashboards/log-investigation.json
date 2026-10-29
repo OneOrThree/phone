@@ -1,0 +1,997 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "GROMO-2560 — 서버 로그 통합 조회. ① 일반 로그 → ② 원인 키(요청·trace·사건·메시지) → ③ operation.link 의 operation_id → ④ 그 발송의 결과. 사용법: docs/architecture/server-log-observability/query-guide.md",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Prometheus 지표 (같은 시간 범위)",
+      "type": "link",
+      "url": "/d/gromo-overview",
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "dashboard",
+      "tooltip": "",
+      "tags": [],
+      "asDropdown": false,
+      "includeVars": false
+    }
+  ],
+  "liveNow": false,
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "gromo",
+    "observability",
+    "logs"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "GROMO — 로그 통합 조회 (원인 키 → operation → 결과)",
+  "uid": "log-investigation",
+  "version": 1,
+  "weekStart": "",
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "env",
+        "label": "env",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "definition": "label_values(env)",
+        "query": {
+          "type": 1,
+          "label": "env",
+          "stream": "",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": [],
+        "hide": 0
+      },
+      {
+        "type": "query",
+        "name": "service",
+        "label": "service",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "definition": "label_values({env=~\"$env\"}, service)",
+        "query": {
+          "type": 1,
+          "label": "service",
+          "stream": "{env=~\"$env\"}",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "type": "custom",
+        "name": "level",
+        "label": "level",
+        "query": "ERROR,WARN,INFO,DEBUG",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "request_id",
+        "label": "요청 번호 (request_id · origin_request_id)",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "origin",
+        "label": "원인 trace (origin_trace_id · dd.trace_id · trace_id)",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "event_id",
+        "label": "사건 event_id",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "message_id",
+        "label": "채팅 message_id",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "operation_id",
+        "label": "④ operation_id (③ 표에서 클릭)",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "delivery_id",
+        "label": "④ notification delivery_id (③ 표에서 클릭)",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "dd_site",
+        "label": "Datadog 사이트 호스트",
+        "query": "us5.datadoghq.com",
+        "current": {
+          "text": "us5.datadoghq.com",
+          "value": "us5.datadoghq.com"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "us5.datadoghq.com",
+            "value": "us5.datadoghq.com"
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "① 일반 로그 — 서비스 · 시간 · level",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "① 일반 로그",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 18,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{env=~\"$env\", service=~\"$service\"} | json | level=~\"$level\"",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "① 범위 안 줄 수 (빨강 = 왼쪽은 일부)",
+      "description": "패널 줄 상한은 1000줄이다(maxLines). 이 값이 1000 이상(빨강)이면 옆 표는 결과 «일부»다 — ⑤ 를 따른다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({env=~\"$env\", service=~\"$service\"} | json | level=~\"$level\" | keep service [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "② 원인 키 — 요청 번호 · 원인 trace · event_id · message_id (입력한 키의 합집합, 시간순)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "② 원인 키로 찾은 로그",
+      "description": "같은 log_id 가 두 줄이면 수집 재전송 사본이다(Loki 는 지우지 않는다). operation_id 를 누르면 ④ 로, dd_trace_id 는 Datadog APM 으로, Time 은 같은 시각 지표로 간다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 18,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{env=~\"$env\", service=~\"$service\"} | json | (request_id!=\"\" and request_id=\"$request_id\") or (origin_request_id!=\"\" and origin_request_id=\"$request_id\") or (origin_trace_id!=\"\" and origin_trace_id=\"$origin\") or (dd_trace_id!=\"\" and dd_trace_id=\"$origin\") or (trace_id!=\"\" and trace_id=\"$origin\") or (event_id!=\"\" and event_id=\"$event_id\") or (message_id!=\"\" and message_id=\"$message_id\")",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "labels",
+            "format": "auto",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "labels": true,
+              "Line": true,
+              "tsNs": true,
+              "labelTypes": true,
+              "id": true,
+              "env": true,
+              "log_kind": true,
+              "schema_version": true,
+              "version": true,
+              "logger": true,
+              "dd_span_id": true,
+              "span_id": true,
+              "legacy_trace_id": true,
+              "stream": true,
+              "truncated": true,
+              "original_size_bytes": true,
+              "exception": true
+            },
+            "indexByName": {
+              "Time": 0,
+              "service": 1,
+              "level": 2,
+              "event_name": 3,
+              "request_id": 4,
+              "origin_request_id": 5,
+              "origin_trace_id": 6,
+              "dd_trace_id": 7,
+              "event_id": 8,
+              "delivery_id": 9,
+              "attempt": 10,
+              "operation_id": 11,
+              "message_id": 12,
+              "message": 13,
+              "log_id": 14,
+              "observed_at": 15,
+              "instance_id": 16,
+              "thread": 17
+            },
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dd_trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Datadog APM trace",
+                    "url": "https://${dd_site}/apm/trace/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "같은 시각 ±5분 지표 (gromo-overview)",
+                    "url": "/d/gromo-overview/?orgId=1&time=${__value.time}&time.window=600000"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "operation_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "이 operation 의 결과 보기 (④)",
+                    "url": "/d/log-investigation/?orgId=1&${__url_time_range}&${env:queryparam}&${service:queryparam}&${level:queryparam}&${request_id:queryparam}&${origin:queryparam}&${event_id:queryparam}&${message_id:queryparam}&${dd_site:queryparam}&var-operation_id=${__value.raw}&var-delivery_id=${__data.fields.delivery_id}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "count"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "② 결과 줄 수 (빨강 = 왼쪽은 일부)",
+      "description": "패널 줄 상한은 1000줄이다(maxLines). 이 값이 1000 이상(빨강)이면 옆 표는 결과 «일부»다 — ⑤ 를 따른다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 6,
+        "x": 18,
+        "y": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({env=~\"$env\", service=~\"$service\"} | json | (request_id!=\"\" and request_id=\"$request_id\") or (origin_request_id!=\"\" and origin_request_id=\"$request_id\") or (origin_trace_id!=\"\" and origin_trace_id=\"$origin\") or (dd_trace_id!=\"\" and dd_trace_id=\"$origin\") or (trace_id!=\"\" and trace_id=\"$origin\") or (event_id!=\"\" and event_id=\"$event_id\") or (message_id!=\"\" and message_id=\"$message_id\") | keep service [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "③ operation.link → operation_id (기기별 발송 한 번)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "③ ② 의 원인에 연결된 operation (operation_id 를 누르면 ④)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Notification 이 기기별 전송마다 구성원(전달 행)마다 남긴 operation.link. 같은 operation_id 에 다른 원인의 구성원이 있으면 ④ 에 함께 보인다(공유 발송).",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (operation_id, delivery_id, event_id, origin_request_id, attempt) (count_over_time({env=~\"$env\", service=\"notification\"} | json | event_name=\"operation.link\" | (request_id!=\"\" and request_id=\"$request_id\") or (origin_request_id!=\"\" and origin_request_id=\"$request_id\") or (origin_trace_id!=\"\" and origin_trace_id=\"$origin\") or (dd_trace_id!=\"\" and dd_trace_id=\"$origin\") or (trace_id!=\"\" and trace_id=\"$origin\") or (event_id!=\"\" and event_id=\"$event_id\") or (message_id!=\"\" and message_id=\"$message_id\") | keep operation_id, delivery_id, event_id, origin_request_id, attempt [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "operation_id": 0,
+              "delivery_id": 1,
+              "event_id": 2,
+              "origin_request_id": 3,
+              "attempt": 4
+            },
+            "renameByName": {
+              "Value": "연결 로그 수"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "operation_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "이 operation 의 결과 보기 (④)",
+                    "url": "/d/log-investigation/?orgId=1&${__url_time_range}&${env:queryparam}&${service:queryparam}&${level:queryparam}&${request_id:queryparam}&${origin:queryparam}&${event_id:queryparam}&${message_id:queryparam}&${dd_site:queryparam}&var-operation_id=${__value.raw}&var-delivery_id=${__data.fields.delivery_id}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "count"
+          ]
+        }
+      }
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "④ operation 결과 — 구성원 연결 · transport.result · 실패 로그 · dispatch.settle",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "④ $operation_id 의 결과",
+      "description": "operation_id 가 같은 줄(모든 구성원의 operation.link·transport.result·FCM 오류) + 클릭한 delivery_id 의 dispatch.settle. settle 에는 operation_id 가 없어 delivery_id 로 찾는다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 18,
+        "x": 0,
+        "y": 33
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{env=~\"$env\", service=\"notification\"} | json | (operation_id!=\"\" and operation_id=\"$operation_id\") or (event_name=\"dispatch.settle\" and delivery_id!=\"\" and delivery_id=\"$delivery_id\")",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "labels",
+            "format": "auto",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "labels": true,
+              "Line": true,
+              "tsNs": true,
+              "labelTypes": true,
+              "id": true,
+              "env": true,
+              "log_kind": true,
+              "schema_version": true,
+              "version": true,
+              "logger": true,
+              "dd_span_id": true,
+              "span_id": true,
+              "legacy_trace_id": true,
+              "stream": true,
+              "truncated": true,
+              "original_size_bytes": true,
+              "exception": true
+            },
+            "indexByName": {
+              "Time": 0,
+              "service": 1,
+              "level": 2,
+              "event_name": 3,
+              "request_id": 4,
+              "origin_request_id": 5,
+              "origin_trace_id": 6,
+              "dd_trace_id": 7,
+              "event_id": 8,
+              "delivery_id": 9,
+              "attempt": 10,
+              "operation_id": 11,
+              "message_id": 12,
+              "message": 13,
+              "log_id": 14,
+              "observed_at": 15,
+              "instance_id": 16,
+              "thread": 17
+            },
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dd_trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Datadog APM trace",
+                    "url": "https://${dd_site}/apm/trace/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "같은 시각 ±5분 지표 (gromo-overview)",
+                    "url": "/d/gromo-overview/?orgId=1&time=${__value.time}&time.window=600000"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "count"
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "④ 결과 줄 수 (빨강 = 왼쪽은 일부)",
+      "description": "패널 줄 상한은 1000줄이다(maxLines). 이 값이 1000 이상(빨강)이면 옆 표는 결과 «일부»다 — ⑤ 를 따른다.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 18,
+        "y": 33
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({env=~\"$env\", service=\"notification\"} | json | (operation_id!=\"\" and operation_id=\"$operation_id\") or (event_name=\"dispatch.settle\" and delivery_id!=\"\" and delivery_id=\"$delivery_id\") | keep service [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "⑤ 상한에 닿았을 때 — 서비스별 분할 · S3(Athena)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "text",
+      "title": "⑤ 결과가 일부일 때",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "줄 수 패널이 빨강(≥ 1000)이면 표는 결과 **일부**다.\n\n1. 시간 범위를 좁힌다.\n2. 1초 안쪽으로 좁혀도 빨강이면 **같은 시각에 줄이 몰린 것**이다 — 시간으로는 더 나눌 수 없다. 아래 «② 서비스별 분할» 은 서비스마다 상한이 따로다.\n3. 그래도 넘치거나 Loki 보관(7일) 밖이면 S3 원본을 Athena 로 조회한다(상한 없음): `server/observability/athena/by-request.sql` · `by-window.sql`.\n\n[조회 안내](https://github.com/OneOrThree/phone/blob/main/docs/architecture/server-log-observability/query-guide.md)"
+      }
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "② 서비스별 분할 — $service",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "repeat": "service",
+      "repeatDirection": "v",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{env=~\"$env\", service=~\"$service\"} | json | (request_id!=\"\" and request_id=\"$request_id\") or (origin_request_id!=\"\" and origin_request_id=\"$request_id\") or (origin_trace_id!=\"\" and origin_trace_id=\"$origin\") or (dd_trace_id!=\"\" and dd_trace_id=\"$origin\") or (trace_id!=\"\" and trace_id=\"$origin\") or (event_id!=\"\" and event_id=\"$event_id\") or (message_id!=\"\" and message_id=\"$message_id\")",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Ascending"
+      }
+    }
+  ]
+}
