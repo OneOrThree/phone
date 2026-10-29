@@ -178,6 +178,20 @@ class DispatchOperationLinkTest {
     }
 
     @Test
+    void settleReportsUnchangedWhenTheRowChangedStateMeanwhile() {
+        register("fcm-a", "boot-a", "reg-a");
+        UUID id = enqueue("e1", "R1", null, null);
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            store.update("UPDATE deliveries SET status='SUPPRESSED' WHERE id=?", id);
+            return PushTransport.Result.SENT;
+        });
+        dispatch.dispatch(id);
+
+        assertThat(named("dispatch.settle")).singleElement()
+                .satisfies(e -> assertThat(e.getFormattedMessage()).contains("state=unchanged"));
+    }
+
+    @Test
     void anOldRowWithoutOriginStillSendsAndTheLinkCarriesNoOriginKeys() {
         register("fcm-a", "boot-a", "reg-a");
         UUID id = enqueue("e1", null, null, null);

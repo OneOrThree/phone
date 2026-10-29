@@ -205,7 +205,7 @@ class DispatchService {
                         logTransportResult("EXCEPTION");
                         throw sendFailure;
                     }
-                    logTransportResult(result.name());
+                    logTransportResult(String.valueOf(result));
                 }
                 Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
                 if (outcome == Outcome.LEASE_LOST) {
@@ -570,11 +570,9 @@ class DispatchService {
                 // 시한이 지났다. 한 대라도 받았으면 발송으로 맺고, 아무도 못 받았으면 종결한다 — 재시도로 남기면
                 // 다음 틱이 만료를 다시 확인하는 사이 후보 상한을 차지하고, 형제의 재시도에 딸려 되살아날 여지가 남는다.
                 if (deliveredSomewhere) {
-                    markSent(delivery);
-                    states.put(delivery, "sent");
+                    states.put(delivery, markSent(delivery) > 0 ? "sent" : "unchanged");
                 } else {
-                    expire(delivery);
-                    states.put(delivery, "expired");
+                    states.put(delivery, expire(delivery) > 0 ? "expired" : "unchanged");
                 }
             } else if (failed) {
                 states.put(delivery, retry(delivery, reason));
@@ -583,17 +581,17 @@ class DispatchService {
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
                 states.put(delivery, retry(delivery, "NO_ACTIVE_DEVICE"));
             } else {
-                markSent(delivery);
-                states.put(delivery, "sent");
+                states.put(delivery, markSent(delivery) > 0 ? "sent" : "unchanged");
             }
             releaseLease(delivery, plan.leaseToken());
         }
         return states;
     }
 
-    private void markSent(UUID delivery) {
+    /** @return 영향 행 수 — 그사이 상태가 바뀐 행이면 0 */
+    private int markSent(UUID delivery) {
         // 판정 잠금은 이미 풀렸다 — 상태를 다시 걸어, 그사이 탈퇴가 억제한 행을 되살리지 않는다.
-        store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
+        return store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
                 + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
                 Timestamp.from(clock.instant()), delivery);
     }
@@ -690,14 +688,15 @@ class DispatchService {
      * @param eventId         원사건 id
      * @param originRequestId 최초 원인 요청 ID — 구버전 행이면 {@code null}
      * @param originTraceId   최초 원인 trace 원문 — 구버전 행이면 {@code null}
-     * @param attempt         이번 dispatch 의 시도 번호(행의 {@code attempts}+1)
+     * @param attempt         이번 dispatch 의 시도 번호(행의 {@code attempts}+1). 값이 없으면 0 이고 로그에서 키를 생략한다
      */
     record Cause(String eventId, String originRequestId, String originTraceId, int attempt) {
         static Cause of(Map<String, Object> row) {
             Object origin = row.get("origin_request_id");
             Object trace = row.get("origin_trace_id");
             return new Cause(String.valueOf(row.get("event_id")), origin == null ? null : origin.toString(),
-                    trace == null ? null : trace.toString(), ((Number) row.get("attempts")).intValue() + 1);
+                    trace == null ? null : trace.toString(),
+                    row.get("attempts") instanceof Number n ? n.intValue() + 1 : 0);
         }
     }
 
@@ -706,7 +705,7 @@ class DispatchService {
         return scope.set("event_id", cause == null ? null : cause.eventId())
                 .set("origin_request_id", cause == null ? null : cause.originRequestId())
                 .set("origin_trace_id", cause == null ? null : cause.originTraceId())
-                .set("attempt", cause == null ? null : String.valueOf(cause.attempt()));
+                .set("attempt", cause == null || cause.attempt() <= 0 ? null : String.valueOf(cause.attempt()));
     }
 
     /** 한 행이면 그 원인을 싣고, 둘 이상이면 임의의 한 원인을 싣지 않도록 키를 비운다. */
@@ -733,6 +732,8 @@ class DispatchService {
         }
     }
 
+    // operation scope 는 transport.send·transport.result 만 감싼다. recordAttempt·settle 로그에는 operation_id 가 없다
+    // (조회는 operation.link → operation_id → transport.result 순).
     /** 외부 호출 결과(SENT·UNREGISTERED·RETRY·EXCEPTION). DB 반영 결과는 {@link #logSettle} 가 따로 남긴다. */
     private static void logTransportResult(String result) {
         try (InboundTrace.Scope scope = new InboundTrace.Scope()) {
@@ -828,8 +829,8 @@ class DispatchService {
     }
 
     /** 시한이 지난 행을 종결한다 — 억제와 같은 종결 상태지만 사유를 남겨 정책 억제와 가른다. */
-    private void expire(UUID id) {
-        store.update("UPDATE deliveries SET status='SUPPRESSED',last_error=? WHERE id=?"
+    private int expire(UUID id) {
+        return store.update("UPDATE deliveries SET status='SUPPRESSED',last_error=? WHERE id=?"
                 + " AND status IN ('PENDING','DEFERRED')", EXPIRED, id);
     }
 
