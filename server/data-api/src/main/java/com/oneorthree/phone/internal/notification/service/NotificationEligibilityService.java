@@ -59,7 +59,7 @@ public class NotificationEligibilityService {
         return switch (kind) {
             case FRIEND_REQUEST -> evaluateFriendRequest(request);
             case FRIEND_ACCEPTED -> evaluateFriendAccepted(request);
-            case MAIN_ISLAND_TRANSFERRED, ISLAND_KICKED -> NotificationEligibilityResponse.allow();
+            case MAIN_ISLAND_TRANSFERRED, ISLAND_KICKED, ADMIN_ANNOUNCEMENT -> NotificationEligibilityResponse.allow();
             case MAGAZINE_PUBLISHED -> evaluateMagazinePublished(request);
         };
     }

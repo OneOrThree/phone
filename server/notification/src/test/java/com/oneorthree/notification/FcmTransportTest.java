@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 class FcmTransportTest {
     private HttpServer server;
@@ -27,6 +29,19 @@ class FcmTransportTest {
     private AtomicInteger status;
     private AtomicReference<String> response;
     private AtomicReference<String> request;
+
+    @Test
+    void 대기중이던_알림도_DB와_FCM_설정이_달라지면_외부로_전송하지_않는다() {
+        var guard = mock(NotificationEnvironmentGuard.class);
+        doThrow(new IllegalStateException("FCM 환경 불일치")).when(guard).assertDispatchReady();
+        var credentials = GoogleCredentials.create(
+                new AccessToken("test-access-token", new Date(System.currentTimeMillis() + 3600000)));
+        var transport = new FcmTransport("test-project", credentials, baseUrl(), meters, guard);
+
+        assertThatThrownBy(() -> send(transport)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FCM 환경 불일치");
+        assertThat(request.get()).isNull();
+    }
 
     @BeforeEach
     void start() throws IOException {

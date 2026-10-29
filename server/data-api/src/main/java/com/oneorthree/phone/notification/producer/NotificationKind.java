@@ -12,13 +12,15 @@ public enum NotificationKind {
     FRIEND_ACCEPTED(SubjectKind.COUNTERPART_USER),
     MAIN_ISLAND_TRANSFERRED(SubjectKind.ISLAND),
     ISLAND_KICKED(SubjectKind.ISLAND),
-    MAGAZINE_PUBLISHED(SubjectKind.MAGAZINE_ISSUE);
+    MAGAZINE_PUBLISHED(SubjectKind.MAGAZINE_ISSUE),
+    ADMIN_ANNOUNCEMENT(SubjectKind.PUBLICATION);
 
     /** 결정적 사건 키의 대상 축. */
     public enum SubjectKind {
         COUNTERPART_USER,
         ISLAND,
-        MAGAZINE_ISSUE
+        MAGAZINE_ISSUE,
+        PUBLICATION
     }
 
     private static final Map<String, NotificationKind> BY_NAME = Arrays.stream(values())
@@ -39,7 +41,7 @@ public enum NotificationKind {
     }
 
     public NotificationQuietPolicy quietPolicy() {
-        return NotificationQuietPolicy.DROP;
+        return this == ADMIN_ANNOUNCEMENT ? NotificationQuietPolicy.DEFER : NotificationQuietPolicy.DROP;
     }
 
     public SubjectKind subjectKind() {
