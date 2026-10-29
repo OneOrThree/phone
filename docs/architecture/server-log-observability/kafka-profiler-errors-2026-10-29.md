@@ -89,7 +89,7 @@
 
 ### 2.3 로컬 재현
 
-[`server/observability/datadog/profiler-check/run.sh`](../../../server/observability/datadog/profiler-check/run.sh)는 다음 조합의 빈 Java 프로그램을 `--network none`으로 띄운다: 실제와 같은 베이스(jammy JRE 17.0.20.1), 같은 dd-java-agent 1.64.0(sha256 고정), 같은 `JAVA_TOOL_OPTIONS`. 원격 서비스에는 요청하지 않는다. 기대 건수와 다르면 종료 코드 1로 끝난다.
+[`server/observability/datadog/profiler-check/run.sh`](../../../server/observability/datadog/profiler-check/run.sh)는 다음 조합의 빈 Java 프로그램을 `--network none`으로 띄운다: 실제와 같은 베이스(jammy JRE 17.0.20.1), 같은 dd-java-agent 1.64.0(sha256 고정), 같은 `JAVA_TOOL_OPTIONS`. 원격 서비스에는 요청하지 않는다. 판정은 «종료 코드 0 AND 에이전트 기동 줄(`DATADOG TRACER CONFIGURATION`) 1건 이상 AND 프로파일러를 켠 케이스(B·C·F)는 `Registering process context for OTel profiler` 1건 이상 AND 오류 패턴이 기대 건수»이며, 컨테이너가 못 뜨거나 JVM 이 일찍 죽으면 오류 0건이어도 FAIL 이다. 하나라도 어긋나면 종료 코드 1로 끝난다.
 
 | 경우 | 설정 | `failed to map segment` | 프로파일러 생성 실패 | crash NPE | `Untrusted` |
 | --- | --- | ---: | ---: | ---: | ---: |
