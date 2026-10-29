@@ -680,5 +680,15 @@
       "JSON or array contents",
       "substring matching"
     ]
+  },
+  "redisOwnershipVerification": {
+    "source": "fixture-identities.json frozen list (400 exact user IDs)",
+    "matching": "last colon-delimited key segment must equal one of the fixture user IDs",
+    "deletedByExactPrefix": {
+      "cache:business:withdrawn": 10
+    },
+    "matchedKeys": 10,
+    "unmatchedDeletedKeys": 0,
+    "identifiersPublished": false
   }
 }
