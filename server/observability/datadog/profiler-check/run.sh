@@ -38,8 +38,8 @@ run_case B-tmp-exec "${BIZ[@]}" --tmpfs "$TMP,exec" &
 run_case C-plain &
 # E: A 에서 네이티브 프로파일러만 끔 — 다른 경로(OTel 문맥·crash tracking)가 같은 .so 를 여전히 올리는지
 run_case E-ddprof-off "${BIZ[@]}" --tmpfs "$TMP" -e DD_PROFILING_DDPROF_ENABLED=false &
-# F: /tmp 는 noexec 유지, 프로파일러 임시 경로만 exec tmpfs(/ddprof) — compose 수정안과 같은 값
-run_case F-tempdir "${BIZ[@]}" --tmpfs "$TMP" --tmpfs /ddprof:size=64m,mode=1777,exec -e DD_PROFILING_TEMPDIR=/ddprof &
+# F: /tmp 는 noexec 유지, 프로파일러 임시 경로만 exec tmpfs(/ddprof) — docker-compose.satellites.yml business-api 와 같은 값
+run_case F-tempdir "${BIZ[@]}" --tmpfs "$TMP" --tmpfs /ddprof:size=16m,mode=0700,uid=10001,gid=10001,exec -e DD_PROFILING_TEMPDIR=/ddprof &
 wait
 
 # D: realtime·data-api 재기동 재현 — 같은 컨테이너(쓰기 레이어 유지)를 한 번 더 시작
@@ -75,14 +75,29 @@ P='Failed to instantiate Datadog profiler'
 N='getStringFlag(String)" is null'
 U='Untrusted '
 for c in A-business B-tmp-exec C-plain E-ddprof-off F-tempdir; do
-  echo "$c $(grep -m1 '^MOUNT /tmp' "$OUT/$c.log" || echo 'MOUNT /tmp (없음)')"
+  echo "$c $(grep '^MOUNT ' "$OUT/$c.log" | tr '\n' ' ')"
 done
+# 전제 단언: 마운트 옵션이 재현 의도와 같아야 한다(A·E·F 의 /tmp 는 noexec, B 의 /tmp 와 F 의 /ddprof 는 exec).
+mnt() {  # 이름, 마운트점, noexec|exec
+  local line; line=$(grep -m1 "^MOUNT $2 " "$OUT/$1.log" || true)
+  if [ "$3" = noexec ] && echo "$line" | grep -q noexec; then echo "PASS $1 $2 noexec"
+  elif [ "$3" = exec ] && [ -n "$line" ] && ! echo "$line" | grep -q noexec; then echo "PASS $1 $2 exec"
+  else echo "FAIL $1 $2 기대 $3: ${line:-없음}"; fail=1; fi
+}
+mnt A-business /tmp noexec; mnt B-tmp-exec /tmp exec; mnt E-ddprof-off /tmp noexec
+mnt F-tempdir /tmp noexec; mnt F-tempdir /ddprof exec
+# 플랫폼 단언: PLATFORM 을 줬는데 다른 아키텍처로 돌았으면 FAIL
+if [ "${PLATFORM##*/}" = amd64 ]; then pos A-business 'architecture: amd64'; fi
 expect A-business "$M" 2;  expect A-business "$P" 1;  expect A-business "$N" 2
 expect B-tmp-exec "$M" 0;  expect B-tmp-exec "$P" 0;  expect B-tmp-exec "$N" 0
 expect C-plain "$M" 0;     expect C-plain "$P" 0;     expect C-plain "$N" 0
-expect E-ddprof-off "$M" 2; expect E-ddprof-off "$N" 2
+expect E-ddprof-off "$M" 2; expect E-ddprof-off "$P" 0; expect E-ddprof-off "$N" 2
 expect F-tempdir "$M" 0;   expect F-tempdir "$P" 0;   expect F-tempdir "$N" 0
-for c in A-business B-tmp-exec C-plain E-ddprof-off F-tempdir D-first D-both; do rc_ok $c; pos $c "$T"; done
+# 종료 코드는 D-first·D-both 각각 본다(D-both.rc 는 두 번째 실행의 코드). D-both 로그는 두 실행이 합쳐져 있으므로 기동 줄이 2건 이상이어야 2차 기동도 증명된다.
+for c in A-business B-tmp-exec C-plain E-ddprof-off F-tempdir D-first D-both; do rc_ok $c; done
+for c in A-business B-tmp-exec C-plain E-ddprof-off F-tempdir D-first; do pos $c "$T"; done
+atleast() { local got; got=$(n "$1" "$2"); if [ "$got" -ge "$3" ]; then echo "PASS $1 양성 '$2' = $got ($3 이상)"; else echo "FAIL $1 양성 '$2' = $got (기대 $3 이상)"; fail=1; fi; }
+atleast D-both "$T" 2
 for c in B-tmp-exec C-plain F-tempdir; do pos $c "$L"; done
 expect D-first "$U" 0;     expect D-both "$U" 2
 echo "원문: $OUT"

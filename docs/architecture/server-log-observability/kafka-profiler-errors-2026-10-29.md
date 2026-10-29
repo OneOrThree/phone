@@ -11,10 +11,10 @@
 | --- | --- |
 | Exporter F 20건(12:53:59~12:57:15 KST) | 두 «브로커 9092 미개방 구간»에 모두 들어간다. 첫째 구간은 호스트 비정상 재부팅 직후 브로커가 복구하던 때다. 둘째 구간은 12:55:34 dockerd 재기동 뒤 브로커를 다시 띄우던 때다. 배포 실행 구간과는 겹치지 않는다. 재부팅의 원인과 dockerd 재기동 주체는 **미확정**이다. |
 | Exporter E 2건(09:51:27·14:04:37 KST) | 브로커 미가동 구간·배포 구간과 겹치지 않는다. 같은 유형이 10-22부터 7일간 28건 나왔다. 평시에 반복되는 패턴이고, 원인은 **미확정**이다. |
-| profiler `UnsatisfiedLinkError`·crash tracking NPE(Business) | **확정·재현.** read-only 컨테이너의 `/tmp` tmpfs가 Docker 기본값 `noexec`로 붙는다. 그래서 dd-java-agent가 `/tmp`에 푼 `libjavaProfiler.so`를 실행 매핑하지 못한다. 로컬 amd64·arm64에서 같은 건수로 재현했고, 수정안을 적용하면 0건이 된다. |
+| profiler `UnsatisfiedLinkError`·crash tracking NPE(Business) | **확정·재현**(근거는 dev 컨테이너 inspect의 Tmpfs 값과 로컬 동일 설정 재현이다. dev 실제 마운트 출력은 미확인). read-only 컨테이너의 `/tmp` tmpfs가 Docker 기본값 `noexec`로 붙는다. 그래서 dd-java-agent가 `/tmp`에 푼 `libjavaProfiler.so`를 실행 매핑하지 못한다. 로컬 amd64·arm64에서 같은 건수로 재현했고, 수정안 설정에서는 «오류 0건»이다(crash uploader가 실제로 exec되어 동작하는지는 미확인). |
 | telemetry·trace·profile 전송 실패 | 18:43:16 KST 이후 실패는 같은 시각 공동 배포 quiesce 단계가 Agent를 `docker stop`한 시각과 겹친다. 18:38:57 KST profile 업로드 broken pipe 1건만 Agent가 실행 중일 때 났고, 원인은 **미확정**이다. |
 | 업무 영향 | profiler·telemetry 오류가 요청 실패로 이어졌다는 증거는 **없다**(§3). Kafka 연결 실패로 인한 업무 실패 증거도 **없다**. 다만 브로커 비정상 종료 복구 중 세그먼트 2개가 잘렸다. 이벤트 유실·재처리 여부는 **미확정**이다. |
-| 수정 | Business compose에 프로파일러 전용 exec tmpfs `/ddprof`를 추가하고 `DD_PROFILING_TEMPDIR=/ddprof`를 설정했다(§5). 이것은 **보안 절충**이다. `/tmp`의 noexec는 유지하지만 쓰기와 실행이 함께 되는 자리가 하나 생긴다. 서버 반영은 하지 않았다. |
+| 수정 | Business compose에 프로파일러 전용 exec tmpfs `/ddprof`를 추가하고 `DD_PROFILING_TEMPDIR=/ddprof`를 설정했다(§5). 이것은 **보안 절충**이다. `/tmp`의 noexec는 유지하지만 쓰기와 실행이 함께 되는 자리가 하나 생긴다(앱 uid/gid 전용 `mode=0700`으로 좁힘). 서버 반영은 하지 않았다. |
 
 ## 1. Kafka 타임라인
 
@@ -45,7 +45,18 @@
 
 판정:
 
-- **F 20건**은 브로커 9092가 열리기 전의 두 구간(03:53:59~03:55:33, 03:55:47~03:57:18)에 모두 들어간다. 브로커가 늦게 열린 직접 원인은 «비정상 종료 후 로그 복구(11.7초)»와 «dockerd 재기동에 따른 2차 기동»이다. 호스트가 비정상 종료된 원인, 그리고 dockerd를 재기동한 주체(사람·스크립트·에이전트)는 **미확정**이다. sudo·apt 기록이 없다는 것만 확인했다.
+- **F 20건**은 브로커 9092가 열리기 전의 두 구간(03:53:59~03:55:33, 03:55:47~03:57:18)에 모두 들어간다. 이 겹침은 확정이다. 반면 **9092 미개방이 길었던 이유는 미확정**이다. 비정상 종료 후 로그 복구(약 12초)는 1차 약 94초 중 일부일 뿐이고, 2차(약 91초)는 복구를 건너뛰었는데도 비슷하게 길었다. 브로커 로그로 본 시간 배분은 다음과 같다.
+
+  | 구간 | 1차 | 2차 |
+  | --- | --- | --- |
+  | `===> Launching` → `Starting controller` | 03:53:59 → 03:54:43 (약 44초) | 03:55:49 → 03:56:29 (약 40초) |
+  | `__cluster_metadata` 로그 적재(LogLoader) 시작 → 끝 | 03:54:48 → 03:55:04 (약 16초) | 03:56:36 → 03:56:54 (약 18초) |
+  | KRaft Leader 전환 | 03:55:07 | 03:56:55 |
+  | 파티션 로그 복구·적재 | `Recovering 62 logs` 03:55:15 → 03:55:27 (약 12초) | `Loaded 62 logs in 8243ms` (03:57:13 종료) |
+  | `Kafka Server started` | 03:55:33 | 03:57:18 |
+
+  두 번 모두 Launching 뒤 약 40~44초는 컨트롤러 시작 로그 전이고, 그 구간에 원인을 말해 주는 줄은 없다. 호스트 부팅 직후 디스크·CPU 경합인지 컨테이너 시작 스크립트인지는 **미확인**이다. 호스트가 비정상 종료된 원인, 그리고 dockerd를 재기동한 주체(사람·스크립트·에이전트)도 **미확정**이다. sudo·apt 기록이 없다는 것만 확인했다.
+- **Kafka 경로 가동 여부(읽기 조회, 11:2xZ)**: data-api·realtime 컨테이너는 02:56:04Z에 만들어졌고 11:21Z에 다시 시작됐다(env는 생성 시 고정이므로 03:5x에도 같은 값이다). `phone-data-api`는 `OUTBOX_RELAY_ENABLED=true`·`OUTBOX_RELAY_REALTIME_KAFKA_ENABLED=true`, `phone-realtime`은 `REALTIME_EVENTS_KAFKA_ENABLED=true`, notification은 `NOTIFICATION_KAFKA_ENABLED=true`(생성 09:36Z, 03:5x에는 이전 컨테이너라 그 시각 값은 미확인)이다. 즉 dev에서 Kafka 발행·소비는 켜져 있었다. 그래서 세그먼트 절단(§3)의 «미확정»은 설계상 무관하다는 뜻이 아니라 §6의 방법으로 확인할 항목이다.
 - **E 2건**은 브로커 재기동·배포 구간과 겹치지 않는다. 10-22부터 같은 문구가 반복된다. 이번 날에만 생긴 장애로 보지 않는다. 원인은 **미확정**이다. 후보는 브로커나 커널이 닫은 연결을 Exporter가 재사용한 경우다.
 
 ## 2. profiler 오류 분류
@@ -89,7 +100,7 @@
 
 ### 2.3 로컬 재현
 
-[`server/observability/datadog/profiler-check/run.sh`](../../../server/observability/datadog/profiler-check/run.sh)는 다음 조합의 빈 Java 프로그램을 `--network none`으로 띄운다: 실제와 같은 베이스(jammy JRE 17.0.20.1), 같은 dd-java-agent 1.64.0(sha256 고정), 같은 `JAVA_TOOL_OPTIONS`. 원격 서비스에는 요청하지 않는다. 판정은 «종료 코드 0 AND 에이전트 기동 줄(`DATADOG TRACER CONFIGURATION`) 1건 이상 AND 프로파일러를 켠 케이스(B·C·F)는 `Registering process context for OTel profiler` 1건 이상 AND 오류 패턴이 기대 건수»이며, 컨테이너가 못 뜨거나 JVM 이 일찍 죽으면 오류 0건이어도 FAIL 이다. 하나라도 어긋나면 종료 코드 1로 끝난다.
+[`server/observability/datadog/profiler-check/run.sh`](../../../server/observability/datadog/profiler-check/run.sh)는 다음 조합의 빈 Java 프로그램을 `--network none`으로 띄운다: 실제와 같은 베이스(jammy JRE 17.0.20.1), 같은 dd-java-agent 1.64.0(sha256 고정), 같은 `JAVA_TOOL_OPTIONS`. 원격 서비스에는 요청하지 않는다. 판정은 «종료 코드 0(D는 1차·2차 각각) AND 에이전트 기동 줄(`DATADOG TRACER CONFIGURATION`) 1건 이상(D-both는 두 실행이 합쳐진 로그라 2건 이상) AND 마운트 옵션 전제(A·E·F의 `/tmp`는 noexec, B의 `/tmp`와 F의 `/ddprof`는 exec) AND 프로파일러를 켠 케이스(B·C·F)는 `Registering process context for OTel profiler` 1건 이상 AND 오류 패턴이 기대 건수»이며, 컨테이너가 못 뜨거나 JVM 이 일찍 죽으면 오류 0건이어도 FAIL 이다. 하나라도 어긋나면 종료 코드 1로 끝난다.
 
 | 경우 | 설정 | `failed to map segment` | 프로파일러 생성 실패 | crash NPE | `Untrusted` |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -97,10 +108,10 @@
 | B | A + `/tmp`에 `exec` | 0 | 0 | 0 | — |
 | C | Notification·Realtime 현행: tmpfs 없음, root | 0 | 0 | 0 | — |
 | E | A + `DD_PROFILING_DDPROF_ENABLED=false` | **2** | 0 | **2** | — |
-| F | A + `/ddprof:size=64m,mode=1777,exec` + `DD_PROFILING_TEMPDIR=/ddprof` (수정안) | 0 | 0 | 0 | — |
+| F | A + `/ddprof:size=16m,mode=0700,uid=10001,gid=10001,exec` + `DD_PROFILING_TEMPDIR=/ddprof` (수정안, compose와 같은 값) | 0 | 0 | 0 | — |
 | D | C 컨테이너를 같은 쓰기 레이어로 한 번 더 시작 | — | — | — | 1차 0 → 2차 2 |
 
-A의 건수(2·1·2)는 dev Business 원본 건수와 같다. amd64(에뮬레이션, `PLATFORM=linux/amd64`, `Linux X64`)와 arm64(네이티브) 모두 16개 기대값을 통과했다. 원문 첫 줄은 다음과 같다.
+A의 건수(2·1·2)는 dev Business 원본 건수와 같다. 이전 판정 규칙의 amd64(에뮬레이션, `PLATFORM=linux/amd64`, `Linux X64`)와 arm64(네이티브) 통과에 더해, 수정안 값 `size=16m,mode=0700,uid=10001,gid=10001,exec`와 강화한 판정(마운트 단언·D-both 기동 2건)은 arm64(호스트)에서 전부 통과했다. 수정안 값의 amd64 재실행은 하지 않았다. 원문 첫 줄은 다음과 같다.
 
 ```text
 MOUNT /tmp rw,nosuid,nodev,noexec,relatime,size=65536k
@@ -134,11 +145,11 @@ Agent 종료의 직접 메커니즘은 공동 배포 quiesce 단계의 `docker s
 | 호스트 재부팅·dockerd 재기동 | Datadog 수집 공백(VM 무응답~재기동) | 03:50~04:10Z APM error span이 Business 26건 이상, Realtime 8건 있다. 경로는 내부 Data 호출·Redis 연결·health·websocket이고 Kafka 경로는 없다. | 재기동 구간에 요청 실패가 있었다(확정). Kafka 연결 실패와의 인과 증거는 없다 |
 | 브로커 세그먼트 절단 2건 | — | `realtime-events-0`(오프셋 1786 이후) 절단으로 마지막 기록이 유실됐을 수 있다. `__consumer_offsets-21`은 `realtime-v1` 그룹의 coordinator 파티션이다(03:58:06 `Group realtime-v1 … (__consumer_offsets-21)`). 절단으로 커밋 오프셋이 되감겼다면 재처리(중복)가 났을 수 있다. | **미확정**(확인 방법 §6) |
 | Exporter E 2건 | 해당 scrape 1회의 offset 지표 누락 | 같은 시각 앱 Kafka 오류 0건, APM error span 0건(00:45~00:58). 05:00~05:10에는 Business `ScreenController.home` 1건뿐이다(Kafka 무관). | **미확정(증거 없음)** |
-| Business profiler (a) | 네이티브 프로파일(wall·native CPU 등), OTel process context, crash·OOME 알림이 동작하지 않았다. JFR 기반 프로파일 업로드는 동작했다(`Upload done`). | 같은 컨테이너의 `business_public_failure` 10건(09:39:13~22Z, 내부 504/503 `UPSTREAM_TIMEOUT`·`SERVICE_UNAVAILABLE`)은 상류 Data 시간 초과·일시 실패로 기록됐다. profiler 오류(09:36:26~44Z, Spring 기동 전 premain)와 시각·경로가 다르다. | **업무 영향 증거 없음** |
+| Business profiler (a) | 네이티브 프로파일(wall·native CPU 등), OTel process context, crash·OOME 알림이 동작하지 않았다. JFR 기반 프로파일 업로드는 동작했다(`Upload done`). | 같은 컨테이너의 `business_public_failure` 10건(09:39:13~22Z, 내부 504/503 `UPSTREAM_TIMEOUT`·`SERVICE_UNAVAILABLE`)이 별도로 존재한다. 증거는 «내부 오류 코드가 상류를 가리킨다»까지이고, «Data 시간 초과»는 추정이다. 같은 시각(09:34~09:42Z) Datadog 읽기 조회에서 `gromo-data-dev` 스팬은 2517건이고 error 스팬은 0건이었다(Business는 error 스팬 19건). 이것도 Data의 지연을 배제하지 못한다(타임아웃은 호출 쪽 스팬에 남는다). profiler 오류(09:36:26~44Z, Spring 기동 전 premain)와 겹친다는 증거는 없다. 이 10건과 profiler의 관계는 증거 없음이다. | **업무 영향 증거 없음(원인 미확정)** |
 | 전송 실패 (d) | trace Notification 2·Realtime 5·Data 1건 유실, 09:43:21Z 이후 수집 중단 | 같은 시각 앱 정지는 배포 quiesce와 그 뒤 배포 중단의 결과다. 전송 실패가 원인이 아니다. | profiler·telemetry 오류로 인한 업무 영향 **없음(증거 없음)**. 배포 중단에 따른 dev 정지는 별건(2571) |
 | `Untrusted` 스크립트 (c) | 해당 JVM 실행 동안 crash·OOME 알림 미작동 | — | 업무 영향 없음 |
 
-참고로 Datadog `status:error` 20건 중 실제 업무 실패는 0건이었다. 반대로 실제 업무 실패인 `business_public_failure`(앱 ERROR) 10건은 Datadog에 `status:info`로 저장됐다. Datadog error 건수로는 업무 실패를 셀 수 없다. 심각도 정정은 GROMO-2572 등 파이프라인 작업 범위다.
+참고로 Datadog `status:error` 20건 중 실제 업무 실패는 0건이었다. 다만 «지금까지 업무 오류가 없었다»는 뜻이 아니다. 같은 시간대에 업무 실패 10건은 별도로 존재하고, profiler와의 관계는 증거 없음이다. 그 10건은 앱 ERROR로 기록됐는데 Datadog에는 `status:info`로 저장됐다. 따라서 Datadog error 건수로는 업무 실패를 셀 수 없다. 심각도 정정은 GROMO-2572 등 파이프라인 작업 범위다.
 
 ## 4. 원본 로그 보존 한계
 
@@ -159,11 +170,11 @@ Agent 종료의 직접 메커니즘은 공동 배포 quiesce 단계의 `docker s
 
 ```yaml
 DD_PROFILING_TEMPDIR: /ddprof
-tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=64m,mode=1777,exec']
+tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=16m,mode=0700,uid=10001,gid=10001,exec']
 ```
 
-- `/tmp`는 외부 PDF 임시 파일 자리라 noexec를 유지한다. 실행 권한은 프로파일러 `.so`·JFR 임시 파일이 쓰는 `/ddprof`에만 준다. 로컬 재현 F에서 A의 오류 5건이 0건이 됐다. idle 80초 동안 `/ddprof` 사용량은 1.8 MB(`.so` 1.3 MB + JFR 0.4 MB)였다. 실제 부하에서는 JFR 청크가 더 커질 수 있어 `/tmp`와 같은 64 MiB를 잡았다(tmpfs는 쓴 만큼만 메모리를 쓴다).
-- **보안 절충**: read-only 루트에서 쓰기와 실행이 함께 되는 자리가 하나 생긴다. 리뷰어가 이 절충을 받아들이지 않으면 이 두 줄을 되돌린다. 그러면 현행 상태(JFR 프로파일만, crash·OOME 알림 없음)로 돌아가고, 오류 줄은 수집 단계 분류로만 다룬다.
+- `/tmp`는 외부 PDF 임시 파일 자리라 noexec를 유지한다. 실행 권한은 프로파일러 `.so`·JFR 임시 파일이 쓰는 `/ddprof`에만 준다. 로컬 재현 F에서 A의 오류 5건이 0건이 됐다. idle 80초 동안 `/ddprof` 사용량은 1.8 MB(`.so` 1.3 MB + JFR 0.4 MB)였다. 16 MiB는 이 idle 사용량의 약 9배 여유이며, **부하 시 JFR 크기는 측정하지 않았다**(부하 테스트 금지). 부족하면 업로드 실패 로그로 드러나며 크기만 늘리면 된다. 소유자·모드는 앱 실행 uid/gid 10001(`server/business-api/Dockerfile` 45행 `groupadd/useradd`, 50행 `USER business`)에 맞춰 다른 uid의 접근을 막았다. 같은 uid의 프로세스(PDF 파서 자식 포함)는 막지 못한다.
+- **보안 절충**: read-only 루트에서 쓰기와 실행이 함께 되는 자리가 하나 생긴다. 리뷰어가 이 절충을 받아들이지 않으면 이 두 줄을 되돌린다. 되돌릴 때는 `DD_PROFILING_TEMPDIR`와 tmpfs의 `/ddprof` 두 줄을 **함께** 되돌린다(환경변수만 남으면 `/ddprof`가 읽기 전용 루트 위라 쓰기가 실패한다). 그러면 현행 상태(JFR 프로파일만, crash·OOME 알림 없음, OTel process context 로드 실패도 그대로)로 돌아가고, 오류 줄은 수집 단계 분류로만 다룬다.
 - 비채택 대안: `/tmp`에 exec 추가(B)는 PDF 임시 파일 자리까지 실행이 열려 범위가 넓다. `DD_PROFILING_DDPROF_ENABLED=false`(E)는 OTel·crash tracking 실패가 남는다. 미리 푼 `.so`와 `DD_PROFILING_DDPROF_DEBUG_LIB` 조합은 프로파일러만 고치고 디버그용 키에 기대므로 채택하지 않았다.
 - 서버 반영은 하지 않았다. 머지 뒤 다음 Satellite Dev CD가 Business를 재생성할 때 적용된다. 운영 실행 구성은 Infra 저장소에 있어 같은 설정인지 확인하지 않았다.
 
@@ -178,7 +189,7 @@ tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=64m,mode=1777,exec']
 | 미확정 | 확인 방법 |
 | --- | --- |
 | 원격 Business의 실제 `/tmp` 마운트 옵션 | 다음 정상 기동 뒤 `docker exec <business> sh -c 'grep " /tmp " /proc/mounts'`(읽기). 수정 반영 뒤에는 `/ddprof` 줄에 `noexec`가 없는지, 기동 로그에 `failed to map segment`가 0건인지 본다. |
-| 호스트 비정상 종료 원인 | GCP 콘솔 serial port 출력·`gcloud compute operations list --filter=targetLink~gromo-dev-app`(reset·guest 이벤트)·Cloud Logging의 VM 이벤트를 03:30~03:55Z로 조회한다. |
+| 호스트 비정상 종료 원인 | GCP 콘솔 serial port 출력·`gcloud compute operations list --filter=targetLink~gromo-dev-app`(reset·guest 이벤트)·Cloud Logging의 VM 이벤트를 03:30~03:55Z로 조회한다. `last -x`에 shutdown 기록이 없다는 흔적은 GCP reset·강제 재시작도 똑같이 남기므로 «비정상 종료»는 추정이다. 이전 부팅 말미 03:37~03:51Z에 `rsyslog omfile suspended`가 반복됐다. 보통 디스크 가득 참이나 IO 오류에서 나오지만 원인은 단정하지 않는다. 같이 본다: `journalctl -b -1`의 IO 오류·커널 메시지 전체, `df -h`·`df -i`(현재 부팅 11:2xZ 읽기 조회는 `/` 60% 사용, inode 4%로 지금은 여유이며 03:3xZ 상태는 아니다). |
 | 03:55:34Z dockerd 재기동 주체 | 같은 시각 `journalctl _SYSTEMD_UNIT=google-guest-agent.service`, `/var/log/auth.log`의 root 세션, Actions 러너 서비스 로그(`runsvc.sh` 03:55:30 `Connected to GitHub`, 03:56:36 러너 설정 명령)를 대조한다. |
 | 세그먼트 절단의 업무 영향 | data-api outbox의 03:30~03:52Z 전송 완료 기록과 `realtime-events` 오프셋 1786 이후 소비 기록을 대조한다. `realtime-v1` 그룹의 03:58 이후 첫 커밋 오프셋을 절단 전 커밋과 비교해 재처리 범위를 확인한다(읽기 전용 `kafka-consumer-groups --describe`). |
 | Exporter E 반복 원인 | 브로커 `connections.max.idle.ms`·Exporter scrape 주기를 확인한다. E 발생 시각 전후 브로커 DEBUG 연결 종료 로그나 conntrack을 비교한다. |
