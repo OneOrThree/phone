@@ -73,9 +73,25 @@ services:
     environment:
       FLB_COMPOSE_PROJECT: phone
       FLB_ENV: dev
+      # GROMO-2556 — 선택 모듈. 아래 값은 모두 «기본 꺼짐/기본값»이다(필수 변수 없음). 변수를 안 줘도 2555 와 다른 점: canary(60초마다
+      #   service=canary 1건, 모듈과 무관하게 켜짐)와 아래 /var/log/nginx 읽기 전용 마운트(호스트에 없으면 Docker 가 빈 디렉터리를 만든다).
+      #   OBS_LOG_S3=on           원본 로그 S3 출력(modules/s3-on). dev 에는 S3 자격이 없으므로 dev 에서는 켜지 않는다(2554 실측·결정 대기).
+      #                           켜려면 OBS_LOG_S3_BUCKET 과 호스트의 인스턴스 역할/자격 체인이 먼저 있어야 한다.
+      #   OBS_LOG_NGINX_HOST=on   dev 호스트 Nginx 파일 tail(modules/nginx-host-on). 호스트 log_format 적용 절차는 ingestion-runbook.md.
+      FLB_S3_BUCKET: ${OBS_LOG_S3_BUCKET:-}
+      FLB_S3_REGION: ${OBS_LOG_S3_REGION:-ap-northeast-2}
+      FLB_S3_TOTAL_FILE_SIZE: ${OBS_LOG_S3_TOTAL_FILE_SIZE:-10M}
+      FLB_S3_UPLOAD_TIMEOUT: ${OBS_LOG_S3_UPLOAD_TIMEOUT:-5m}
+      # 2554 dev 산정: peak 14,324 B/s x 1,800 s x 2 = 52 MB → 올림 64M. prod 값은 용량 확인 전 미정(약 2 GB 산정).
+      FLB_S3_STORE_LIMIT: ${OBS_LOG_S3_STORE_LIMIT:-64M}
     volumes:
       - ../observability/fluent-bit:/fluent-bit/etc:ro
+      # 선택 모듈 자리(디렉터리가 etc 안에 있어야 읽기 전용 마운트 위에 겹쳐 마운트된다). off 는 .conf 가 주석뿐이다.
+      - ../observability/fluent-bit/modules/s3-${OBS_LOG_S3:-off}:/fluent-bit/etc/modules/s3:ro
+      - ../observability/fluent-bit/modules/nginx-host-${OBS_LOG_NGINX_HOST:-off}:/fluent-bit/etc/modules/nginx-host:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # dev 호스트 Nginx 로그(www-data:adm 0640 — 이 컨테이너는 root 로 읽는다). 읽기만 하며, 모듈이 꺼져 있으면 읽지 않는다.
+      - /var/log/nginx:/var/log/nginx:ro
       - fluent_bit_state:/var/lib/fluent-bit
     mem_limit: 256m
     depends_on: [loki]

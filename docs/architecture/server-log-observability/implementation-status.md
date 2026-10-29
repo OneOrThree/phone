@@ -160,12 +160,33 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 4. Kafka 재시도·DLT recoverer 로그는 scope 밖이다.
 5. 미검증: Realtime Kafka 실제 브로커, DLT 헤더 보존(리스너를 `ConsumerRecord`로 직접 호출해 검증), 실배포 JSON 출력.
 
+## 2556에서 구현한 경로
+
+로컬 Docker(Fluent Bit 4.2.8, Loki 3.3.2, MinIO)로만 검증했다. 실제 S3·IAM·lifecycle, dev 호스트 Nginx, prod Infra는 실행하지 않았다. 운영 절차와 시나리오 수치 전체는 [ingestion-runbook.md](ingestion-runbook.md)에 있다.
+
+1. 같은 Fluent Bit이 레코드를 `s3.<env>.<service>` 태그로 복제(`rewrite_tag`, keep)해 S3 출력만 받게 한다. Loki와 S3는 청크·재시도·디스크 한도가 따로다. S3 출력은 선택 모듈(`OBS_LOG_S3=on`, 기본 꺼짐)이며 dev에는 S3 자격이 없어 켜지 않는다.
+2. 객체 키는 `system_log/v2/env=…/service=…/date=…/hour=…/<수집기 HOSTNAME>-<무작위 8자>.json.gz`(gzip JSONL)이다. 날짜·시간은 객체 **첫 레코드**의 event time(UTC)이며, 정확한 발생·수집 시간 파티션이 아니다. 로컬 시험에서 3시간 전 레코드가 첫 레코드인 객체에 5분 전 레코드가 함께 들어갔다. S3 레코드 본문에도 `env`·`service`·`log_kind`가 남는다.
+3. Nginx는 dev 호스트 파일 tail(선택 모듈, 별도 DB)과 prod 컨테이너 Docker 입력(`nginx` 서비스 허용)을 같은 `logs.lua` 경로로 정제한다. query·토큰·이메일·휴대폰·client IP·referrer·auth_basic 사용자 이름을 제거하고 `log_kind=access|infrastructure`, `service=nginx`, `edge_request_id`와 upstream `request_id`를 남긴다. Nginx가 약 2 KiB에서 잘라 닫는 따옴표가 없는 error 줄도 마지막 따옴표 뒤를 줄 끝까지 정제한다. 20자 미만 경로 토큰과 구분자를 포함한 소문자 전용 20자 이상 비밀은 가리지 못한다(경로에 비밀을 싣는 라우트는 앱에서 막는다). error 로그는 요청 단위 연결을 주장하지 않는다. JSON `log_format`은 `server/scripts/nginx-log-format.conf.example`이다.
+4. canary: Fluent Bit `dummy` 입력이 60초마다 `service=canary` 레코드 1건(`canary_seq`·`canary_boot`)을 만든다. **canary는 모듈 스위치와 무관하게 기본 켜짐**이라 변수를 하나도 주지 않아도 Loki에 `service="canary"` 스트림이 생긴다(끄는 스위치는 없다 — 필요해지면 후속). Loki 조회와 S3 객체 조회를 따로 하는 확인 스크립트(`local-test/s3/canary.py`)가 시나리오 전체 + max-delay 동안 보고, 한쪽 누락·양쪽 누락(빠진 번호)·정지(마지막 canary가 오래됨)를 실패로 판정한다. 운영 적용은 설계만 있다.
+5. 기본 동작: overlay는 `/var/log/nginx`를 읽기 전용으로 **항상** 마운트한다(Nginx 모듈이 꺼져 있어도). 호스트에 디렉터리가 없으면 Docker가 빈 디렉터리를 만든다. 모듈이 꺼져 있으면 읽지 않는다. 그 밖에는 변수가 없으면 2555와 같다.
+6. S3 출력에는 `Retry_Limit 60`과 함께 엔진 쪽 `storage.total_limit_size 64M`을 둔다. 같은 값이 엔진 flush 재시도 한도이기도 해서, `store_dir`이 찬 뒤 S3 정지가 이어지면 에미터 청크가 상한 없이 쌓였다(소스 확인·로컬 실측, 런북 §7).
+7. 검증(런북 §7): 정상, 재시작(SIGTERM·SIGKILL), 네트워크 30초 분리, S3 정지(50초·90초·5분)·403, Loki 단독 정지, 디스크 한도, 수집기 정지 중 컨테이너 재생성, Nginx 두 경로. 대부분 누락·중복 0이었고 아래 한계가 있다.
+
+한계(측정한 그대로):
+- S3 출력을 `Retry_Limit no_limits`로 두면 4.2.8이 이를 5회로 바꿔(`s3.c:620-621`, `s3.h:51`) 로컬 버퍼 파일 업로드가 5번 실패한 뒤 버렸다. 50~90초 S3 정지에서 504·861건이 유실됐다. `Retry_Limit 60`(재시도 간격이 2n초씩 늘어 약 1시간 — 계산값, 실측은 5분 정지까지)으로 바꾼 뒤 같은 시험과 5분 정지에서 각 1회 실행 누락 0이었다. 정지가 이 한도를 넘으면 같은 유실이 생긴다.
+- Loki를 `docker stop`한 뒤 복구하면 정지 직전 연속 10~148건이 Loki에 없었다(S3에는 있음, 수집기 `dropped_records` 0). Loki가 받았다고 응답한 항목이 사라진 것으로 보이며 원인은 미확정이다(런북 §7).
+- 수집기 SIGTERM 재시작 시험(b1) 3회 중 1회에서 S3 1건이 비었다. 원인은 미확정이다.
+- 버퍼 한도를 일부러 작게 하면 오래된 청크부터 버려지고 S3에는 중복도 생겼다(수량은 런북).
+- Loki 3.3.2 수용창은 스트림 최신보다 59분 오래된 항목까지 수용, 61분부터 거절이다. 30분 backlog 실측은 미실행(3분으로 축소).
+
+미실행: 실제 S3 업로드·IAM·버킷 정책·lifecycle 적용 확인, dev→S3 자격, dev 호스트 `nginx.conf` 변경과 새 파일의 logrotate 회전, prod Nginx 설정(Infra), 기존 업로더(590·2288)와의 중복 확인, 10 MiB 크기 트리거, 5분 `upload_timeout` 실측.
+
 ## 아직 구현하지 않은 경계
 
 - 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Preview worker 는 각 티켓 범위다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
-- 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, S3 수집·보존·부하 영향은 아직 미검증이다.
+- 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, 실제 S3 적재·보존·부하 영향은 아직 미검증이다(S3 출력과 Nginx 입력의 로컬 검증은 위 2556 절).
 - 구현 기준 main에서 Data의 `AsyncConfig`·`NotificationAsyncConfig`는 삭제됐다. 초기 계획의 레거시 GA4/push executor를 복원하지 않는다.
 - Infra 정본은 2288에서 확인한 `OneOrThree/Infra`다. 실제 수집 설정·운영 버전은 2554에서 재확인한다.
 

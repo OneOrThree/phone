@@ -134,6 +134,23 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
   원본 보관 경로는 S3(GROMO-2556)이다. 거절 수는 위 두 지표로 본다.
 - 로컬 검증: `fluent-bit/local-test/run.sh` (Docker 필요, 끝나면 자기 프로젝트 `obs2562-collector` 를 `down -v`).
 
+## 원본 로그 S3 보관 · Nginx · canary (GROMO-2556)
+
+Fluent Bit 한 프로세스가 같은 레코드를 Loki 와 S3 로 «독립적으로» 보낸다. 운영 절차·시나리오 결과·전환 순서는
+[ingestion-runbook.md](../../docs/architecture/server-log-observability/ingestion-runbook.md).
+
+- **선택 모듈(기본 꺼짐)**: `fluent-bit/modules/{s3,nginx-host}-{on,off}` 중 하나가 overlay 에서 `/fluent-bit/etc/modules/<이름>` 에 마운트된다.
+  `OBS_LOG_S3=on`(원본 S3 출력), `OBS_LOG_NGINX_HOST=on`(dev 호스트 Nginx 파일 tail). **dev 에는 S3 자격이 없으므로 `OBS_LOG_S3` 는 dev 에서 켜지 않는다.**
+- **변수를 안 줘도 2555 와 달라지는 것 두 가지**: ① canary 가 모듈 스위치와 무관하게 **기본 켜짐**이라 Loki 에 `service="canary"` 스트림이 생긴다
+  (`service` 라벨 값 전체를 세는 대시보드·알림이 있으면 영향받는다. 끄는 스위치는 없다 — 필요해지면 후속). ② `/var/log/nginx` 읽기 전용
+  마운트는 Nginx 모듈이 꺼져 있어도 붙는다 — 호스트에 디렉터리가 없으면 Docker 가 빈 디렉터리(root 소유)를 만든다. 모듈이 꺼져 있으면 읽지 않는다.
+- **S3 출력**: 레코드를 `s3.<env>.<service>` 태그로 복제(rewrite_tag, keep)해 S3 출력만 받게 한다 → 객체 키 `system_log/v2/env=…/service=…/date=…/hour=…/<HOSTNAME>-<8자>.json.gz`,
+  gzip JSONL, 전용 `store_dir`(`fluent_bit_state` 볼륨) + `store_dir_limit_size`, 엔진 쪽 S3 청크 상한 `storage.total_limit_size 64M`(Loki 128M 와 따로). 날짜·시간은 객체 «첫 레코드»의 event time(UTC)이다.
+- **Nginx**: dev 호스트(systemd) 파일은 `nginx-host` 모듈, prod 컨테이너 Nginx 는 Docker 입력(서비스 이름 `nginx` 허용). 둘 다 `logs.lua` 가 query·토큰·이메일·휴대폰·client IP·referrer 를 제거한다.
+  JSON `log_format` 은 [`server/scripts/nginx-log-format.conf.example`](../scripts/nginx-log-format.conf.example).
+- **canary**: Fluent Bit `dummy` 입력이 60초마다 `service=canary` 레코드 1건을 만든다(Loki, S3 모듈이 켜져 있으면 S3 까지). 확인은 `fluent-bit/local-test/s3/canary.py`.
+- **로컬 검증**: `fluent-bit/local-test/s3/run-s3.sh` (MinIO, 프로젝트 `obs2562-s3`, 끝나면 `down -v`).
+
 ## 쿼리 부하 L3 (옵션 — 느린 쿼리 Top N)
 
 기본은 L1·L2 로 "부하"를 본다. "어느 쿼리가 느린가"까지 필요하면:
