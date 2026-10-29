@@ -26,6 +26,7 @@ SELECTIVE_FILES = frozenset({
     '.github/scripts/test_catus_selective_version.py',
     'docs/contracts/notification-admin-api.yaml',
     'docs/contracts/business-satellite-api.yaml',
+    'server/scripts/nginx-satellites.include.conf.example',
     'docs/engineering/backoffice-selective-release.md',
 })
 

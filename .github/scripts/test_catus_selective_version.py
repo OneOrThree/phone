@@ -144,5 +144,28 @@ class SelectivePromotionTest(unittest.TestCase):
             self.labels(pr)
 
 
+class SelectiveRoutingAllowanceTest(unittest.TestCase):
+    def validate_path(self, path):
+        merge, base, head = 'a' * 40, 'b' * 40, 'c' * 40
+        repo = {'id': 123, 'full_name': 'OneOrThree/phone'}
+        pr = {'head': {'ref': version.SELECTIVE_BRANCH, 'sha': head, 'repo': repo},
+              'base': {'repo': repo}, 'labels': [{'name': 'release:minor'}]}
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+             patch.object(version.subprocess, 'check_output', side_effect=[
+                 f'{merge} {base} {head}', 'reviewed-tree', 'reviewed-tree', path + '\0']):
+            return version.validate_selective_promotion(pr, merge)
+
+    def test_exact_routing_example_allowed(self):
+        self.assertEqual(self.validate_path('server/scripts/nginx-satellites.include.conf.example'),
+                         {'release:minor'})
+
+    def test_other_routing_and_deploy_scripts_rejected(self):
+        for path in ('server/scripts/nginx-dev-2.0-routes.conf.example',
+                     'server/scripts/prepare-satellite-deploy.py',
+                     'server/scripts/nginx-satellites.include.conf.example.backup'):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, '범위 밖'):
+                self.validate_path(path)
+
+
 if __name__ == '__main__':
     unittest.main()
