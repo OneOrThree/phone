@@ -1,0 +1,117 @@
+name: Catus app CI V2
+'on':
+  pull_request:
+    branches:
+    - main
+    - release
+    paths:
+    - server/data-api/**
+    - server/realtime/**
+    - server/business-api/**
+    - server/notification/**
+    - .github/actions/ci-jar/**
+    - .github/scripts/ci-jar.py
+    - .github/scripts/catus-*
+    - .github/workflows/prod-ci.yml
+    - .github/workflows/be-gradle.yml
+    - .dockerignore
+    - server/gradle*
+    - .github/workflows/prod-ci-V2.yml
+    - .github/scripts/test_catus_runtime_V2.py
+  push:
+    branches:
+    - release
+    paths:
+    - server/data-api/**
+    - server/realtime/**
+    - server/business-api/**
+    - server/notification/**
+    - .github/actions/ci-jar/**
+    - .github/scripts/ci-jar.py
+    - .github/scripts/catus-*
+    - .github/workflows/prod-ci.yml
+    - .github/workflows/be-gradle.yml
+    - .dockerignore
+    - server/gradle*
+    - .github/workflows/prod-ci-V2.yml
+    - .github/scripts/test_catus_runtime_V2.py
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: catus-app-publish-V2-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
+    - uses: aws-actions/configure-aws-credentials@v4
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
+      with:
+        role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish-V2
+        aws-region: ap-northeast-2
+    - id: plan
+      env:
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+      run: 'args=(--role app)
+
+        if [ -n "$PR_BASE" ]; then args+=(--pr-base "$PR_BASE"); else args+=(--production); fi
+
+        python3 .github/scripts/catus-runtime-V2.py plan "${args[@]}"'
+      shell: bash
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+  checks:
+    needs: verify
+    if: 'needs.verify.outputs.matrix != ''{"service": []}'''
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.verify.outputs.matrix) }}
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: ${{ matrix.service }}
+      business-pdf: ${{ matrix.service == 'business-api' }}
+      artifact-name: prod-V2-${{ matrix.service }}-reports
+  publish:
+    needs:
+    - verify
+    - checks
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/release' && needs.verify.result == 'success' &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish-V2
+        aws-region: ap-northeast-2
+    - name: "V2 \uC6B4\uC601 \uC0B0\uCD9C\uBB3C \uBC1C\uD589"
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION_V2 }}
+      run: python3 .github/scripts/catus-runtime-V2.py publish --role app --infra-revision "$INFRA_REVISION"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: catus-app-release-V2
+        path: release-V2.json
+        if-no-files-found: error
