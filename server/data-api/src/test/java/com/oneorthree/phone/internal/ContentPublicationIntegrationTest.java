@@ -7,6 +7,9 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
 import com.oneorthree.phone.internal.scheduler.MagazinePublishScheduler;
+import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
+import com.oneorthree.phone.notification.producer.NotificationExpiry;
+import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -21,6 +24,8 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.sql.Timestamp;
@@ -38,6 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -72,6 +79,7 @@ class ContentPublicationIntegrationTest {
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
     @MockitoBean Clock clock;
+    @MockitoSpyBean NotificationOutboxProducer producer;
 
     @BeforeEach
     void reset() {
@@ -188,9 +196,73 @@ class ContentPublicationIntegrationTest {
     @Test
     void schedulerDoesNotCreateOrPublishAnUnreviewedIssue() {
         reviews.preview(new MagazineReviewService.PreviewRequest(DATE, "아직 검토 중"), "member-1");
-        scheduler.publishToday();
+        runTick();
         assertThat(count("magazine_issues")).isZero();
         assertThat(count("content_publications")).isZero();
+    }
+
+    @Test
+    void latePublicationResumesAfterMidnightFailureAndStopsAtSeven() {
+        // 이 테스트 전용 DB의 이전 정식 계정은 대상에서 빼고 정확히 세 수신자로 부분 실패를 만든다.
+        jdbc.update("UPDATE users SET is_deleted=true WHERE is_guest=false AND is_deleted=false");
+        for (int i = 0; i < 3; i++) {
+            users.save(User.builder().nickname("자정 재시도-" + UUID.randomUUID()).language("ko").build());
+        }
+        Instant publishedAt = DATE.atTime(23, 55).atZone(ZonePolicy.KST).toInstant();
+        setClock(publishedAt);
+        var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE, "늦게 게시한 소식"), "member-1");
+        var published = reviews.publish(UUID.randomUUID(),
+                new MagazineReviewService.PublishRequest(preview.snapshotId(), preview.digest()), "member-1");
+        assertThat(published.publishedAt()).isEqualTo(publishedAt);
+        assertThat(count("magazine_issues")).isEqualTo(1);
+        assertThat(notificationEvents(published.issueId())).isEmpty();
+
+        // 00:00 틱의 첫 수신자는 커밋하고 둘째에서 실패한다. 공개 호는 유지하고 완료 표시를 쓰지 않는다.
+        Instant midnight = DATE.plusDays(1).atStartOfDay(ZonePolicy.KST).toInstant();
+        setClock(midnight);
+        doCallRealMethod().doThrow(new IllegalStateException("시험용 outbox 기록 실패")).doCallRealMethod()
+                .when(AopTestUtils.<NotificationOutboxProducer>getUltimateTargetObject(producer)).appendAll(any());
+        runTick();
+        assertThat(notificationEvents(published.issueId())).hasSize(1);
+        assertThat(notifiedAt(published.issueId())).isNull();
+        assertThat(count("magazine_issues")).isEqualTo(1);
+
+        // 00:10 틱은 전날 호를 다시 찾고 이미 커밋한 사건은 결정적 키로 접는다.
+        Instant retryAt = midnight.plusSeconds(600);
+        setClock(retryAt);
+        runTick();
+        assertThat(notificationEvents(published.issueId())).hasSize(3).doesNotHaveDuplicates();
+        assertThat(notifiedAt(published.issueId())).isEqualTo(retryAt);
+
+        // 미완료로 남았더라도 다음 날 07시부터는 새 펼치기를 하지 않는다. quiet-hour 정책은 바꾸지 않는다.
+        jdbc.update("UPDATE magazine_issues SET notified_at=NULL WHERE id=?", published.issueId());
+        Instant expiry = DATE.plusDays(1).atTime(7, 0).atZone(ZonePolicy.KST).toInstant();
+        assertThat(NotificationExpiry.expiresAt(NotificationKind.MAGAZINE_PUBLISHED, publishedAt)).isEqualTo(expiry);
+        setClock(expiry);
+        runTick();
+        assertThat(notifiedAt(published.issueId())).isNull();
+        assertThat(notificationEvents(published.issueId())).hasSize(3);
+    }
+
+    private void runTick() {
+        // ShedLock의 실제 벽시계 대신 테스트 Clock으로 10분 간격을 이동한다.
+        AopTestUtils.<MagazinePublishScheduler>getUltimateTargetObject(scheduler).publishToday();
+    }
+
+    private void setClock(Instant now) {
+        when(clock.instant()).thenReturn(now);
+        doAnswer(call -> Clock.fixed(now, call.getArgument(0))).when(clock).withZone(any());
+    }
+
+    private List<String> notificationEvents(UUID issueId) {
+        return jdbc.queryForList("SELECT event_id FROM event_outbox WHERE event_id LIKE ?", String.class,
+                "noti:MAGAZINE_PUBLISHED:%:" + issueId + ":%");
+    }
+
+    private Instant notifiedAt(UUID issueId) {
+        Timestamp value = jdbc.queryForObject("SELECT notified_at FROM magazine_issues WHERE id=?",
+                Timestamp.class, issueId);
+        return value == null ? null : value.toInstant();
     }
 
     @Test

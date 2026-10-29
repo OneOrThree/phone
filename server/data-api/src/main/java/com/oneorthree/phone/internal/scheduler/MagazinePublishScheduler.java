@@ -9,57 +9,34 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.ZonedDateTime;
 
 /**
- * 승인 게시된 오늘 호의 알림만 07:00~23:50 KST에 재시도한다.
- * 미검토 호를 만들던 자동 발행은 관리 게시 API로 옮겼다. 새 호가 없으면 알림 서비스도 아무 일도 하지 않는다.
+ * 승인 게시된 유효 호의 미완료 알림을 자정과 관계없이 10분마다 재시도한다.
+ * 미검토 호를 만들지 않으며, 발행일 다음 날 07시가 지난 호는 새로 펼치지 않는다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MagazinePublishScheduler {
-
-    /** 그날 마지막 알림 재시도 시각. */
-    private static final LocalTime LAST_TICK = LocalTime.of(23, 50);
-
     private final MagazineIssueNotifier notifier;
     private final Clock clock;
 
-    /**
-     * 전송 오류가 남은 결과를 로그로 알린다 — 그날 마지막 틱이면 다음 날은 다른 날짜만 조회해 이 호가 다시 시도되지 않으므로
-     * error(수동 확인 필요)다.
-     *
-     * @return 마지막 틱의 최종 실패(error)면 true
-     */
-    boolean reportNotify(MagazineIssueNotifier.Result result, ZonedDateTime now, LocalDate today) {
-        if (result.complete()) {
-            return false;
-        }
-        if (now.toLocalTime().isBefore(LAST_TICK)) {
-            log.warn("고양이 잡지 알림 일시 실패 — 실패 {}건 — 다음 틱(10분 뒤)에 이어서 한다 date={}", result.failed(), today);
-            return false;
-        }
-        log.error("고양이 잡지 알림이 그날 마지막 틱까지 실패분 {}건을 남겼다 — 수동 확인 필요 date={}", result.failed(), today);
-        return true;
-    }
-
-    @Scheduled(cron = "0 0/10 7-23 * * *", zone = ZonePolicy.KST_ID)
+    @Scheduled(cron = "0 0/10 * * * *", zone = ZonePolicy.KST_ID)
     @SchedulerLock(name = "magazine-publish", lockAtMostFor = "PT9M", lockAtLeastFor = "PT1M")
     public void publishToday() {
-        ZonedDateTime now = ZonedDateTime.now(clock.withZone(ZonePolicy.KST));
-        LocalDate today = now.toLocalDate();
-        // 운영자가 승인한 스냅샷은 관리 게시 API만 공개한다. 크론은 미검토 호를 만들지 않는다.
-        // 이미 게시된 오늘 호의 알림만 기존 멱등 경로로 이어서 처리한다.
-        try {
-            reportNotify(notifier.notifyIfPending(today, clock.instant()), now, today);
-        } catch (RuntimeException failure) {
-            if (now.toLocalTime().isBefore(LAST_TICK)) {
-                log.warn("고양이 잡지 알림 펼치기 실패 — 다음 틱(10분 뒤)에 이어서 한다 date={}", today, failure);
-            } else {
-                log.error("고양이 잡지 알림 펼치기가 그날 마지막 틱까지 실패했다 date={}", today, failure);
+        Instant now = clock.instant();
+        // 날짜가 바뀌어도 notified_at이 NULL인 유효 호를 읽으므로 마지막 틱 이후 게시도 복구된다.
+        for (LocalDate issueDate : notifier.pendingIssueDates(now)) {
+            try {
+                MagazineIssueNotifier.Result result = notifier.notifyIfPending(issueDate, now);
+                if (!result.complete()) {
+                    log.warn("고양이 잡지 알림 일시 실패 — 실패 {}건 — 유효기간 내 다음 틱에 재시도 date={}",
+                            result.failed(), issueDate);
+                }
+            } catch (RuntimeException failure) {
+                log.warn("고양이 잡지 알림 펼치기 실패 — 유효기간 내 다음 틱에 이어서 한다 date={}", issueDate, failure);
             }
         }
     }
