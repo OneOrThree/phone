@@ -11,6 +11,12 @@ import java.util.Map;
 /** 실제 알림 DB와 FCM 프로젝트를 발송 직전까지 확인한다. */
 @Component
 class NotificationEnvironmentGuard {
+    static final class EnvironmentMismatch extends IllegalStateException {
+        EnvironmentMismatch(String message) {
+            super(message);
+        }
+    }
+
     private final Environment environment;
     private final JdbcTemplate jdbc;
     private final String fcmProjectId;
@@ -28,9 +34,7 @@ class NotificationEnvironmentGuard {
     }
 
     void assertDispatchReady() {
-        if (isConnectedEnvironment()) {
-            identity();
-        }
+        identity();
     }
 
     Map<String, String> identity() {
@@ -38,7 +42,7 @@ class NotificationEnvironmentGuard {
         boolean dev = profiles.contains("dev");
         boolean prod = profiles.contains("prod");
         if (dev == prod) {
-            throw new IllegalStateException("Notification 환경 프로파일이 하나로 결정되지 않았습니다.");
+            throw new EnvironmentMismatch("Notification 환경 프로파일이 하나로 결정되지 않았습니다.");
         }
         String expected = dev ? "dev" : "prod";
         var markers = jdbc.queryForList("SELECT split_part(config, '=', 2)"
@@ -53,7 +57,7 @@ class NotificationEnvironmentGuard {
                 + " AND config LIKE 'gromo.fcm_project_id=%'", String.class);
         if (markers.size() != 1 || !expected.equals(markers.get(0)) || projects.size() != 1
                 || fcmProjectId == null || !fcmProjectId.equals(projects.get(0))) {
-            throw new IllegalStateException("Notification DB/FCM 환경을 확인할 수 없습니다.");
+            throw new EnvironmentMismatch("Notification DB/FCM 환경을 확인할 수 없습니다.");
         }
         return Map.of("environment", expected, "fcmProjectId", fcmProjectId);
     }

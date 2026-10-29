@@ -19,6 +19,15 @@ import static org.mockito.Mockito.when;
 
 class PublicationEnvironmentTest {
     @Test
+    void 프로파일이_없으면_대기_알림도_발송하지_않는다() {
+        var guard = new NotificationEnvironmentGuard(new MockEnvironment(), mock(JdbcTemplate.class), "gromo-dev");
+
+        assertThatThrownBy(guard::assertDispatchReady)
+                .isInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class)
+                .hasMessageContaining("환경 프로파일");
+    }
+
+    @Test
     void dev프로파일로_prod_DB에_연결하면_발송_명령은_실행되지_않는다() {
         var environment = new MockEnvironment();
         environment.setActiveProfiles("dev");

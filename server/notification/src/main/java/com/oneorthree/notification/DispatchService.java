@@ -202,7 +202,11 @@ class DispatchService {
         } catch (RuntimeException failure) {
             // 이 실행이 만든 임대만 풀고 실패를 적는다. 호출부에는 기록 완료를 알려 중복 계산을 막는다.
             try {
-                recording.executeWithoutResult(status -> backOffLeased(plan, failureReason(failure)));
+                if (failure instanceof NotificationEnvironmentGuard.EnvironmentMismatch) {
+                    recording.executeWithoutResult(status -> deferEnvironmentLeased(plan));
+                } else {
+                    recording.executeWithoutResult(status -> backOffLeased(plan, failureReason(failure)));
+                }
             } catch (RuntimeException recordFailure) {
                 failure.addSuppressed(recordFailure);
                 log.warn("알림 발송 실패 기록 불가 deliveryId={} failure={} recordFailure={}",
@@ -705,6 +709,16 @@ class DispatchService {
                     + " AND status IN ('PENDING','DEFERRED') AND lease_token=? RETURNING status,kind",
                     reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
             warnIfExhausted(id, reason, updated);
+        }
+    }
+
+    /** 환경 설정을 복구하면 다시 보낼 수 있도록 발송 횟수는 소진하지 않고 임대만 해제한다. */
+    private void deferEnvironmentLeased(Plan plan) {
+        for (UUID id : plan.deliveries()) {
+            store.update("UPDATE deliveries SET last_error='ENVIRONMENT_MISMATCH',next_attempt_at=?,"
+                    + "lease_token=NULL,lease_expires_at=NULL WHERE id=?"
+                    + " AND status IN ('PENDING','DEFERRED') AND lease_token=?",
+                    Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
         }
     }
 
