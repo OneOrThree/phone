@@ -1,6 +1,6 @@
 # 로그 통합 티켓과 구현 현황
 
-작성: 2026-10-29. 구현 기준: 피처 브랜치 `feat/GROMO-2562-log-observability`(origin/main 을 `700d06419` 에서 병합).
+작성: 2026-10-29. 구현 기준: 피처 브랜치 `feat/GROMO-2562-log-observability`(origin/main 을 `700d06419`·`66ddbb60f`·`15e7c1b9d` 에서 병합, 2026-10-30 기준 main 과 동기).
 작업 브랜치: 티켓별 `b*/GROMO-####-*` 를 피처에 병합했고, 에픽 PR #1407 이 리뷰 중이다.
 
 기존 작업 폴더의 변경과 분리한 worktree에서 작업한다. 아래 **로컬 구현·검증**은 배포·S3 적재·Datadog 실측 완료를 뜻하지 않는다. 2553의 구현은 `epic-batch` 인계 커밋으로 보존한다. 티켓별 PR 생성·리뷰와 나머지 구현은 에픽 배치에서 이어간다.
@@ -32,6 +32,24 @@
 | [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 피처 병합 #1402 `f818ed27d`(main 미반영, Business compose 수정 서버 미적용) — 문서 `kafka-profiler-errors-2026-10-29.md` |
 
 후속 4건의 «피처 병합»도 main 반영·배포가 아니다. 에픽 PR #1407(피처 → main)은 리뷰 중이며 머지는 사람이 한다.
+
+### 2차 후속 9건 (2026-10-29~30, 같은 에픽)
+
+에픽 PR 리뷰에서 비차단으로 미룬 항목(F1~F24)을 영역별로 묶은 티켓이다. 같은 안전 경계(배포·재시작·Datadog write·AWS 요청 없음)로 진행했다. 2587(Business PDF 파서 격리)은 인프라 담당 결정 전이라 이 에픽에 넣지 않았다.
+
+| 티켓 | 작업 단위 | 현황(조정자 갱신) |
+| --- | --- | --- |
+| [2579](https://romance.atlassian.net/browse/GROMO-2579) | 공개 문서의 AWS 계정 ID 자리표시자 | 피처 병합 #1412 `781867c59`(main 미반영). 워크플로·`.github/scripts` 의 role ARN 등은 동작에 필요해 유지 |
+| [2580](https://romance.atlassian.net/browse/GROMO-2580) | 조사표 §6 판정 문구·다이어그램 «(목표)» 라벨 | 피처 병합 #1414 `7b972e0dc` |
+| [2581](https://romance.atlassian.net/browse/GROMO-2581) | Realtime 문맥 빈 곳(바다 방·이동 명령·STOMP 관문·내부 HTTP·Kafka 재시도/DLT) | 피처 병합 #1418 `fbac0e9a5` |
+| [2582](https://romance.atlassian.net/browse/GROMO-2582) | Data·Notification 원인 문맥 빈 곳(멱등 재요청·`/internal/*` X-Origin 채택·불량 carrier 카운터·내부 HTTP client) | 피처 병합 #1417 `f5bc9267a` |
+| [2583](https://romance.atlassian.net/browse/GROMO-2583) | 실브로커 DLT·한글 16 KiB·모르는 `log_kind`·Docker 회전 시험 | 피처 병합 #1424 `9ed194931`. 회전 경계에 걸린 40 KiB 줄 유실(수집기 결함, 로컬 4/600)을 알려진 한계로 고정 |
+| [2584](https://romance.atlassian.net/browse/GROMO-2584) | 마스킹 꼬리(마스킹 뒤 끝 254자)·ASCII 사전 검사·네 서비스 공통 입력표 | 피처 병합 #1420 `a13fb4f94` — 문서 `masking-trace-hardening.md` |
+| [2585](https://romance.atlassian.net/browse/GROMO-2585) | Nginx 정제: 인코딩 query·fragment·upstream 사용자 정보 | 피처 병합 #1416 `4195c0951` — 런북 §4.1 |
+| [2586](https://romance.atlassian.net/browse/GROMO-2586) | Datadog 파이프라인 도구 중단 기록·기본값 비교·JMX Exporter 로그 링크 | 피처 병합 #1413 `c3a88a005`(Datadog 미적용) |
+| [2588](https://romance.atlassian.net/browse/GROMO-2588) | 로그 이중 적재·dev S3 자격 방식 | 피처 병합 #1415 `fc7e25a5b` — **제안 문서, 결정 전** `decisions-ingest-and-s3-credentials.md` |
+
+에픽 마이그레이션 번호: main 이 앞 번호를 먼저 가져가 data-api `V7__event_outbox_origin_context`·notification `V16__delivery_origin_context` 로 옮겼다(내용 불변, 어디에도 적용된 적 없음).
 
 **피처 병합 ≠ main 반영 ≠ 배포.** 위 «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. main 에는 에픽 PR 하나로 들어가며, dev·prod 배포는 그 뒤다.
 
