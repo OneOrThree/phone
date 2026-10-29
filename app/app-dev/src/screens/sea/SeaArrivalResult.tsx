@@ -1,3 +1,4 @@
+import { customizationTitle } from '@/i18n/customization';
 import React, { useEffect } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { OutfitItemArt } from '@/components/CatOutfitLayers';
@@ -33,7 +34,10 @@ export function SeaArrivalResult({
   const font = { fontFamily: gowun };
   // 서버 grantedProductIds 순서를 보존한다. 첫 아이템은 대표 그림·이름, 나머지는 이름 목록으로 표시한다.
   // 이름을 모르는 id(카탈로그 미로드·실패)는 상품 id 를 그대로 보이지 않게 거른다 — 전부 모르면 보상 칸을 숨긴다.
-  const name = (id: string) => catalog[id]?.title ?? table[id]?.title;
+  const name = (id: string) => {
+    const title = catalog[id]?.title ?? table[id]?.title;
+    return title ? customizationTitle(id, title) : undefined;
+  };
   const [primary, ...rest] = result.rewards.filter((id) => name(id));
   const showItem = !!primary || result.rewards.length === 0;
   // 처음 받은 것은 NEW! — 옷장의 안 본 새 꾸미기에도 넣는다(받은 목록에 있는 것만)
