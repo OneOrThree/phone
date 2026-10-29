@@ -688,7 +688,8 @@ class DispatchService {
      * <p>발송 로그의 {@code delivery_id}·{@code attempt} 는 이 서비스의 {@code deliveries.id}·이 dispatch 가 본
      * {@code attempts+1} 이며, 수신 로그({@code consumer.accept})의 relay 값과 ID 공간이 다르다 — 서비스 사이 연결은
      * {@code event_id} 다. {@code lease_lost} 는 «이 인스턴스가 잃었다» 는 뜻이라 다른 인스턴스의 {@code sent} 와 같은
-     * delivery 에서 함께 보일 수 있다.
+     * delivery 에서 함께 보일 수 있다. {@code backOffLeased} 가 0행이면 임대 상실뿐 아니라 그사이 억제된 경우에도
+     * {@code lease_lost} 로 찍힌다.
      *
      * @param eventId         원사건 id
      * @param originRequestId 최초 원인 요청 ID — 구버전 행이면 {@code null}
