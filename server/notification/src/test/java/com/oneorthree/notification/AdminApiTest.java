@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -515,4 +516,36 @@ class AdminApiTest {
     private static String code(org.springframework.test.web.servlet.ResultActions actions) throws Exception {
         return code(actions.andReturn());
     }
+
+    @Test
+    void environmentMismatchReleasesLeaseWithoutConsumingAttempts() throws Exception {
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
+        var queued = body(post("/internal/admin/publications/" + UUID.randomUUID(), "publish", publication()));
+        UUID id = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        when(transport.send(anyString(), any(), anyBoolean(), anyString()))
+                .thenThrow(new NotificationEnvironmentGuard.EnvironmentMismatch("환경 불일치"));
+        assertThatThrownBy(() -> dispatch.dispatch(id))
+                .isInstanceOf(DispatchService.LeasedFailure.class)
+                .hasCauseInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class);
+        assertThat(store.one("SELECT attempts,last_error,lease_token,status FROM deliveries WHERE id=?", id))
+                .containsEntry("attempts", 0).containsEntry("last_error", "ENVIRONMENT_MISMATCH")
+                .containsEntry("lease_token", null).containsEntry("status", "PENDING");
+        when(clock.instant()).thenReturn(DAY.plusSeconds(61));
+        org.mockito.Mockito.doReturn(PushTransport.Result.SENT).when(transport)
+                .send(anyString(), any(), anyBoolean(), anyString());
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    @Test
+    void resendPreservesReviewedCopy() throws Exception {
+        var queued = body(post("/internal/admin/publications/" + UUID.randomUUID(), "publish", publication()));
+        UUID id = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        var response = post("/internal/admin/deliveries/" + id + "/resend", "resend", Map.of());
+        assertThat(response.getResponse().getStatus()).isEqualTo(200);
+        assertThat(store.one("SELECT reviewed_push::text AS copy FROM deliveries WHERE replay_of=?", id)
+                .get("copy").toString()).contains("검토 완료 문구");
+    }
+
 }
