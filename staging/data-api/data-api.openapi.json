@@ -6265,9 +6265,7 @@
               "*/*": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
+                  "additionalProperties": {}
                 }
               }
             }
