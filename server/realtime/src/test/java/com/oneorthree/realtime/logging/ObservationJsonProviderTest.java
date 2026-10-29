@@ -99,12 +99,14 @@ class ObservationJsonProviderTest {
         mdc.put("trace_id", "legacy-not-apm");
         mdc.put("private", "must-not-leak");
         mdc.put("dd.service", "gromo");
+        mdc.put(LogContext.ORIGIN_DROPPED, "1");
 
         Map<String, Object> json = format(event("m", null, mdc));
 
         assertThat(json).containsEntry("event_id", "evt-1").containsEntry("origin_trace_id", "123456789")
                 .containsEntry("attempt", 3).containsEntry("event_name", "outbox.delivery")
-                .doesNotContainKeys("request_id", "trace_id", "legacy_trace_id", "private", "dd.service", "dd");
+                .doesNotContainKeys("request_id", "trace_id", "legacy_trace_id", "private", "dd.service", "dd",
+                        LogContext.ORIGIN_DROPPED);
         assertThat(format(event("m", null, Map.of("attempt", "0", "event_name", "custom.thing"))))
                 .doesNotContainKeys("attempt", "event_name");
     }

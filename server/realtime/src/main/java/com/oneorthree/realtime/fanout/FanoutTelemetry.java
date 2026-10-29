@@ -30,12 +30,13 @@ public record FanoutTelemetry(Integer v, String originRequestId, String originTr
 
     /**
      * 발행 직전 현재 스레드 MDC 에서 만든다. 원인(origin)이 이미 있으면 그대로 싣고, 없을 때만 지금 {@code request_id} 를 원인으로
-     * 승격한다(계약 §2.2). 담을 값이 하나도 없으면 null — wire 에서 빠진다.
+     * 승격한다(계약 §2.2). 단 입구가 받은 origin 을 버렸다는 {@link LogContext#ORIGIN_DROPPED} 표식이 있으면 올리지 않는다 — 버린
+     * 문맥이 현재 호출의 ID 로 바뀌지 않게. 담을 값이 하나도 없으면 null — wire 에서 빠진다.
      */
     public static FanoutTelemetry capture(String eventId) {
         String originRequestId = LogContext.valid(LogContext.ORIGIN_REQUEST_ID, MDC.get(LogContext.ORIGIN_REQUEST_ID));
         String originTraceId = LogContext.valid(LogContext.ORIGIN_TRACE_ID, MDC.get(LogContext.ORIGIN_TRACE_ID));
-        if (originRequestId == null && originTraceId == null) {
+        if (originRequestId == null && originTraceId == null && MDC.get(LogContext.ORIGIN_DROPPED) == null) {
             originRequestId = LogContext.valid(LogContext.REQUEST_ID, MDC.get(LogContext.REQUEST_ID));
         }
         String event = LogContext.valid(LogContext.EVENT_ID, eventId);

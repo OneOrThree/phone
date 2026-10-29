@@ -53,6 +53,7 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
@@ -312,6 +313,54 @@ class TwoInstanceFanoutTest {
         } finally {
             rawClient.stop();
         }
+    }
+
+    @Test
+    @DisplayName("A 의 Data 수신구가 버린 origin(형식 오류·모르는 버전)은 팬아웃 telemetry 에서 지금 요청 ID 로 다시 올라가지 않는다 — B 의 수신 줄에 원인이 없고, origin 헤더가 없을 때만 X-Request-Id 가 원인이다 (GROMO-2562)")
+    void droppedOriginIsNotPromotedAcrossInstances() throws Exception {
+        assertThat(portB).isNotEqualTo(portA);
+        try (CapturedLogs logs = CapturedLogs.of(RealtimeEventDelivery.class, RealtimeEventFanoutSubscriber.class)) {
+            CapturedLogs.Line malformed = receivedOnB(logs, "cur-bad", Map.of("X-Origin-Request-Id", "bad#id"));
+            CapturedLogs.Line unknown = receivedOnB(logs, "cur-ver",
+                    Map.of("X-Origin-Request-Id", "req-v2", "X-Trace-Context-Version", "2"));
+            CapturedLogs.Line absent = receivedOnB(logs, "cur-none", Map.of());
+
+            assertThat(malformed.mdc()).as("형식이 틀린 origin").doesNotContainKey("origin_request_id");
+            assertThat(unknown.mdc()).as("모르는 버전").doesNotContainKey("origin_request_id");
+            assertThat(absent.mdc()).as("origin 헤더가 없으면 X-Request-Id 가 원인")
+                    .containsEntry("origin_request_id", "cur-none");
+            for (CapturedLogs.Line onB : List.of(malformed, unknown)) {
+                String id = onB.get("event_id");
+                assertThat(logs.await(CapturedLogs.event(LogContext.FANOUT_PUBLISH, "chat:events:v1")
+                        .and(line -> id.equals(line.get("event_id"))), 1, 5_000))
+                        .as("A 의 발행 줄엔 지금 요청 ID 가 있었다 — B 의 «원인 없음»은 요청 ID 가 비어서가 아니다")
+                        .singleElement().extracting(line -> line.get("request_id")).isIn("cur-bad", "cur-ver");
+            }
+        }
+    }
+
+    /** A 의 Data 수신구로 섬 사건 하나를 보내고 B 의 수신 줄을 돌려준다 — B 의 Redis 구독이 늦을 수 있어 새 eventId 로 다시 보낸다. */
+    private CapturedLogs.Line receivedOnB(CapturedLogs logs, String requestId, Map<String, String> carrier)
+            throws Exception {
+        HttpClient http = HttpClient.newHttpClient();
+        for (int attempt = 1; attempt <= 30; attempt++) {
+            String eventId = UUID.randomUUID().toString();
+            HttpRequest.Builder request = HttpRequest.newBuilder(
+                            URI.create("http://localhost:" + portA + "/internal/events"))
+                    .header("Authorization", "Bearer " + dataToken).header("Content-Type", "application/json")
+                    .header("X-Request-Id", requestId);
+            carrier.forEach(request::header);
+            HttpResponse<String> response = http.send(
+                    request.POST(HttpRequest.BodyPublishers.ofString(focusMemberEvent(eventId, attempt))).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(200);
+            List<CapturedLogs.Line> delivered = logs.await(CapturedLogs.event(LogContext.FANOUT_RECEIVE,
+                    "result=delivered").and(line -> eventId.equals(line.get("event_id"))), 1, 500);
+            if (!delivered.isEmpty()) {
+                return delivered.get(0);
+            }
+        }
+        throw new AssertionError("A 로 보낸 사건이 B 에 도착하지 않았다");
     }
 
     /** Data outbox 정본 10필드 — {@code FocusMemberEvents#focusUpdated} 가 만드는 모양(IslandRealtimeIntegrationTest 와 같다). */

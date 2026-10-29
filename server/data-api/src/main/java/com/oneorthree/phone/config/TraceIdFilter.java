@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.common.logging.LogScope;
+import com.oneorthree.phone.outbox.support.OutboxOrigin;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -53,7 +54,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
     private static final String MDC_REQUEST_ID = "request_id";
     private static final String MDC_ORIGIN_REQUEST_ID = "origin_request_id";
     private static final String MDC_ORIGIN_TRACE_ID = "origin_trace_id";
-    private static final String MDC_ORIGIN_DROPPED = "origin_dropped";
+    private static final String MDC_ORIGIN_DROPPED = OutboxOrigin.ORIGIN_DROPPED;
     private static final int MAX_ORIGIN_TRACE_LENGTH = 64;
 
     @Override

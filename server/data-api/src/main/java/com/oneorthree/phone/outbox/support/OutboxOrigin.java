@@ -27,6 +27,9 @@ public record OutboxOrigin(String requestId, String traceId) {
     /** {@code trace_context_version} 현재 값. */
     public static final short VERSION = 1;
 
+    /** 요청 필터가 받은 origin 을 버렸다는 MDC 표식 키 — 필터({@code TraceIdFilter})가 같은 상수로 둔다. */
+    public static final String ORIGIN_DROPPED = "origin_dropped";
+
     private static final Logger LOG = LoggerFactory.getLogger(OutboxOrigin.class);
     private static final int MAX_TRACE_LENGTH = 64;
     private static final OutboxOrigin NONE = new OutboxOrigin(null, null);
@@ -43,7 +46,7 @@ public record OutboxOrigin(String requestId, String traceId) {
             if (originRequest != null || originTrace != null) {
                 return of(originRequest, originTrace);
             }
-            if (MDC.get("origin_dropped") != null) {
+            if (MDC.get(ORIGIN_DROPPED) != null) {
                 return NONE;
             }
             return of(MDC.get("request_id"), CorrelationIdentifier.getTraceId());

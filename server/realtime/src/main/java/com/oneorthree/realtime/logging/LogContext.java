@@ -27,6 +27,12 @@ public final class LogContext implements AutoCloseable {
     public static final String ATTEMPT = "attempt";
     public static final String MESSAGE_ID = "message_id";
     public static final String EVENT_NAME = "event_name";
+    /**
+     * 내부 표식(값 {@code "1"}) — 입구가 받은 원인 문맥을 형식·버전 검사로 버렸다. 원래 없던 origin 과 구분해, 팬아웃 telemetry
+     * 가 버린 문맥을 현재 {@code request_id} 로 다시 올리지 않게 한다. Data {@code OutboxOrigin} 과 같은 키이고, JSON allowlist
+     * 밖이라 로그에 나가지 않는다.
+     */
+    public static final String ORIGIN_DROPPED = "origin_dropped";
 
     /** {@code event_name} 값(계약 §2.1 허용 목록 중 이 서비스가 쓰는 것). publish 는 «Pub/Sub 에 넘겼다»이지 «건너편이 받았다»가 아니다. */
     public static final String FANOUT_PUBLISH = "fanout.publish";
@@ -36,10 +42,11 @@ public final class LogContext implements AutoCloseable {
     /**
      * 스레드를 건널 때 옮기는 키(설계 §2.2). {@code event_name} 은 로그 한 줄의 표지라 옮기지 않는다. {@code user_id} 도 옮기지
      * 않는다 — 아웃바운드 스레드의 «현재 사용자»는 수신 세션인데 발신자 id 가 붙으면 수신자별 판정 로그와 섞여 읽힌다. 연결은
-     * {@code request_id}·{@code origin_*}·{@code event_id}/{@code message_id} 로 한다.
+     * {@code request_id}·{@code origin_*}·{@code event_id}/{@code message_id} 로 한다. {@link #ORIGIN_DROPPED} 도 옮긴다 —
+     * telemetry 를 만드는 자리(이동 길잡이·재검사 스케줄러)가 작업 스레드에 있을 수 있다.
      */
     static final List<String> PROPAGATED = List.of(REQUEST_ID, ORIGIN_REQUEST_ID, EVENT_ID,
-            ORIGIN_TRACE_ID, DELIVERY_ID, ATTEMPT, "operation_id", MESSAGE_ID, "edge_request_id");
+            ORIGIN_TRACE_ID, DELIVERY_ID, ATTEMPT, "operation_id", MESSAGE_ID, "edge_request_id", ORIGIN_DROPPED);
 
     // 들어오는 HTTP X-Request-Id 필터는 [A-Za-z0-9_-] 로 더 좁다. 서비스 간 origin 은 나가는 쪽 규칙(이 패턴)을 따른다 — 의도된 차이.
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
@@ -135,19 +142,28 @@ public final class LogContext implements AutoCloseable {
 
     /**
      * 내부 carrier(계약 §3, Kafka 헤더·내부 HTTP 헤더 공통 소문자 이름)를 설치한다. 버전 헤더가 없거나 빈 값이거나 {@code 1} 이면 읽고, 모르는
-     * 버전은 통째로 무시한다.
+     * 버전은 통째로 무시한다. origin 헤더가 있었는데 하나도 받지 못했거나 모르는 버전이면 {@link #ORIGIN_DROPPED} 를 둔다.
      *
      * @param header 이름 → 값(없으면 null). HTTP 헤더 조회는 대소문자를 가리지 않는다
      */
     public static LogContext openCarrier(UnaryOperator<String> header) {
         LogContext scope = open();
         String version = header.apply("x-trace-context-version");
-        if (version == null || version.isBlank() || "1".equals(version.strip())) {
-            scope.put(ORIGIN_REQUEST_ID, header.apply("x-origin-request-id"))
-                    .put(ORIGIN_TRACE_ID, header.apply("x-origin-trace-id"))
+        boolean versionAllowed = isBlank(version) || "1".equals(version.strip());
+        String originRequestId = header.apply("x-origin-request-id");
+        String originTraceId = header.apply("x-origin-trace-id");
+        if (versionAllowed) {
+            scope.put(ORIGIN_REQUEST_ID, originRequestId)
+                    .put(ORIGIN_TRACE_ID, originTraceId)
                     .put(EVENT_ID, header.apply("x-event-id"))
                     .put(DELIVERY_ID, header.apply("x-delivery-id"))
                     .put(ATTEMPT, header.apply("x-attempt"));
+        }
+        boolean adopted = versionAllowed
+                && (valid(ORIGIN_REQUEST_ID, originRequestId) != null || valid(ORIGIN_TRACE_ID, originTraceId) != null);
+        boolean sent = !isBlank(originRequestId) || !isBlank(originTraceId);
+        if (!adopted && (sent || !versionAllowed)) {
+            scope.put(ORIGIN_DROPPED, "1");
         }
         return scope;
     }

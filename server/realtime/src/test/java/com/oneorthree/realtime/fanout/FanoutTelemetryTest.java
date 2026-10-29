@@ -1,9 +1,15 @@
 package com.oneorthree.realtime.fanout;
 
+import com.oneorthree.realtime.logging.LogContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
+
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +38,32 @@ class FanoutTelemetryTest {
         MDC.clear();
         MDC.put("request_id", "bad value");
         assertThat(FanoutTelemetry.capture(null)).as("담을 게 없으면 wire 에서 빠진다").isNull();
+    }
+
+    @Test
+    @DisplayName("입구가 버린 origin 은 지금 request_id 로 다시 올리지 않는다 — 작업 스레드로 넘겨 만들어도 같고, origin 헤더가 없으면 지금처럼 올린다 (GROMO-2562)")
+    void droppedOriginIsNotPromotedEvenOnAWorkerThread() throws Exception {
+        MDC.put(LogContext.REQUEST_ID, "cur-1");
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        AtomicReference<FanoutTelemetry> onWorker = new AtomicReference<>();
+        try (LogContext scope = LogContext.openInternalHttp(Map.of("x-origin-request-id", "bad id")::get)) {
+            assertThat(FanoutTelemetry.capture("evt-1")).as("형식이 틀린 origin")
+                    .isEqualTo(new FanoutTelemetry(1, null, null, "evt-1"));
+            worker.submit(LogContext.carrying(() -> onWorker.set(FanoutTelemetry.capture("evt-1")))).get();
+        } finally {
+            worker.shutdownNow();
+        }
+        assertThat(onWorker.get()).as("이동 길잡이처럼 carrying 으로 넘긴 작업 스레드")
+                .isEqualTo(new FanoutTelemetry(1, null, null, "evt-1"));
+        assertThat(MDC.get(LogContext.ORIGIN_DROPPED)).as("scope 를 닫으면 표식도 이전 값(없음)으로").isNull();
+
+        try (LogContext scope = LogContext.openInternalHttp(Map.of("x-trace-context-version", "2")::get)) {
+            assertThat(FanoutTelemetry.capture(null)).as("모르는 버전").isNull();
+        }
+        try (LogContext scope = LogContext.openCarrier(Map.of("x-origin-request-id", "  ")::get)) {
+            assertThat(FanoutTelemetry.capture(null)).as("빈 origin 은 «없음» — 지금 request_id")
+                    .isEqualTo(new FanoutTelemetry(1, "cur-1", null, null));
+        }
     }
 
     @Test
