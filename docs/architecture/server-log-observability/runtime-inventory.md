@@ -349,6 +349,8 @@ aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --outpu
 | 다른 KMS 키 차단 | (3)의 다른 키가 `implicitDeny` 또는 `explicitDeny` 이고, (4)로 읽은 그 키의 키 정책·grant 에 이 역할 ARN 이 직접 명시돼 있지 않아야 한다. 키 정책이 Condition 없는 IAM 위임(`arn:aws:iam::<ACCOUNT_ID>:root`)만 쓰는 경우에 한해 (3)의 `implicitDeny` 를 차단 근거로 인정한다. 그 밖이면 판정 불가로 기록 |
 | 판정 불가 | (A)에서 `implicitDeny` 라도 `MissingContextValues` 가 비어 있지 않으면 합격으로 기록하지 않는다. 값을 채워 다시 실행한다 |
 
+**표 읽는 법.** «다른 KMS 키 차단» 행은 (A) 시뮬레이션과 (B) 버킷 정책이 아니라 (3)의 거부 결과와 (4)로 읽은 키 정책·grant 를 함께 보는 자체 기준이라, (A)·(B) 합격으로 대신하지 않고 위 최종 판정 규칙의 «(A) 그리고 (B)» 에도 넣지 않는다. 버킷 정책이 없으면(`NoSuchBucketPolicy`) (B)는 아래 (B) 표의 «버킷 정책 없음»으로 기록한다. 이 상태에서는 (B)에 판정할 대상이 없으므로 불합격이 아니며, 그 항목은 (A)만을 근거로 판정한다.
+
 **결과 기록 (B): 버킷 정책 검토.** `get-bucket-policy` 본문을 Statement 하나씩 읽고 문장 단위로 판정한다. 이 판정은 (A)의 시뮬레이션과 «결합»한 결과가 아니다. IAM 역할에 대한 리소스 정책 시뮬레이션은 지원되지 않으므로(위 문서 인용) 두 결과를 따로 적고, 하나로 합쳐 합격 근거로 쓰지 않는다.
 
 | 확인 항목 | 합격 기준(문장 단위) |
