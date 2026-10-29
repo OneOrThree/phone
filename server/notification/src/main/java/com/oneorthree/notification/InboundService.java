@@ -72,6 +72,14 @@ class InboundService {
         return true;
     }
 
+    /**
+     * 같은 봉투의 재전달 로그용 — 처음 수신 때 발송 작업 행에 적은 origin. 행이 없으면(발송 요청이 아닌 이벤트) {@code null}.
+     * 값은 {@link InboundTrace#safeId} 를 다시 거친다.
+     */
+    Map<String, Object> firstOrigin(String eventId) {
+        return store.one("SELECT origin_request_id,origin_trace_id FROM deliveries WHERE event_id=?", eventId);
+    }
+
     private void apply(Envelope event, InboundTrace trace) {
         Map<String, Object> params = event.params();
         switch (event.type()) {

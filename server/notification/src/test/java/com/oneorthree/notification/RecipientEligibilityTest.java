@@ -51,6 +51,7 @@ class RecipientEligibilityTest {
     static final AtomicInteger RESPONSE_STATUS = new AtomicInteger(200);
     static final AtomicReference<String> RESPONSE = new AtomicReference<>();
     static final AtomicReference<Map<String, Object>> REQUEST = new AtomicReference<>();
+    static final AtomicReference<Map<String, String>> ORIGIN_HEADERS = new AtomicReference<>();
     static final HttpServer DATA = startData();
 
     @DynamicPropertySource
@@ -173,6 +174,24 @@ class RecipientEligibilityTest {
     }
 
     @Test
+    void dataCallCarriesTheDispatchOriginAndOmitsItWhenThereIsNone() {
+        RESPONSE.set("{\"eligible\":true,\"reason\":null}");
+        data.eligible(USER, "FRIEND_ACCEPTED", null, Map.of());
+        assertThat(ORIGIN_HEADERS.get()).as("문맥이 없으면 달지 않는다")
+                .containsEntry("origin", "null").containsEntry("version", "null");
+        try (InboundTrace.Scope ignored = new InboundTrace.Scope().set("origin_request_id", "req-first")
+                .set("origin_trace_id", "6720d0ec00000000a1b2c3d4e5f60718")) {
+            data.eligible(USER, "FRIEND_ACCEPTED", null, Map.of());
+        }
+        assertThat(ORIGIN_HEADERS.get()).containsEntry("origin", "req-first")
+                .containsEntry("trace", "6720d0ec00000000a1b2c3d4e5f60718").containsEntry("version", "1");
+        try (InboundTrace.Scope ignored = new InboundTrace.Scope().set("origin_request_id", "bad id\r\nx: 1")) {
+            data.eligible(USER, "FRIEND_ACCEPTED", null, Map.of());
+        }
+        assertThat(ORIGIN_HEADERS.get()).as("형식이 틀린 값은 나가지 않는다").containsEntry("origin", "null");
+    }
+
+    @Test
     void aLateEnvelopePreservesOriginalTimingAtTheDataBoundary() {
         // 이 서버의 시계로는 아직 유효해 Data 에 묻는 봉투다. 수신이 늦었어도 Data 가 원시각으로 판정하게 그대로 넘긴다.
         // (원시각의 만료가 이미 지난 봉투는 조회 없이 끝난다 — 아래 테스트)
@@ -251,6 +270,10 @@ class RecipientEligibilityTest {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/internal/notifications/eligibility", exchange -> {
+                var headers = exchange.getRequestHeaders();
+                ORIGIN_HEADERS.set(Map.of("origin", String.valueOf(headers.getFirst("X-Origin-Request-Id")),
+                        "trace", String.valueOf(headers.getFirst("X-Origin-Trace-Id")),
+                        "version", String.valueOf(headers.getFirst("X-Trace-Context-Version"))));
                 REQUEST.set(Json.map(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
                 byte[] response = RESPONSE.get().getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");

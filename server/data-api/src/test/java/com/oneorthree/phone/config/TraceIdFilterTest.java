@@ -1,6 +1,7 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.outbox.support.OutboxOrigin;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.AfterEach;
@@ -252,6 +253,85 @@ class TraceIdFilterTest {
         assertThat(MDC.get("dd.trace_id")).isEqualTo("12345");
         assertThat(MDC.get("dd.span_id")).isEqualTo("67890");
         assertThat(MDC.get("foreign")).isEqualTo("updated");
+    }
+
+    /** 서비스 인증을 통과한 요청 — {@code InternalAuthFilter} 가 심는 속성이 있다. */
+    private static MockHttpServletRequest authenticated() {
+        MockHttpServletRequest request = request();
+        request.setAttribute(InternalCallAttributes.CALLER, "notification");
+        return request;
+    }
+
+    @Test
+    @DisplayName("인증을 통과한 내부 요청의 X-Origin-* 를 채택해 outbox 캡처까지 최초 origin 이 이어진다 (GROMO-2582)")
+    void originHeadersAreAdoptedAfterServiceAuthAndSurviveIntoOutboxCapture() throws Exception {
+        MockHttpServletRequest request = authenticated();
+        request.addHeader("X-Request-Id", "notification-own-call");
+        request.addHeader("X-Origin-Request-Id", "req-first");
+        request.addHeader("X-Origin-Trace-Id", "6720d0ec00000000a1b2c3d4e5f60718");
+        request.addHeader("X-Trace-Context-Version", "1");
+        OutboxOrigin[] captured = new OutboxOrigin[1];
+
+        run(request, (req, response) -> {
+            assertThat(MDC.get("request_id")).isEqualTo("notification-own-call");
+            assertThat(MDC.get("origin_request_id")).isEqualTo("req-first");
+            captured[0] = OutboxOrigin.capture();
+        });
+
+        assertThat(captured[0].requestId()).as("T3 가 쓰는 outbox 의 origin 은 T1 의 것이지 이 호출의 것이 아니다")
+                .isEqualTo("req-first");
+        assertThat(captured[0].traceId()).isEqualTo("6720d0ec00000000a1b2c3d4e5f60718");
+        assertThat(MDC.get("origin_request_id")).isNull();
+        assertThat(MDC.get("origin_trace_id")).isNull();
+    }
+
+    @Test
+    @DisplayName("서비스 인증 속성이 없는 요청의 X-Origin-* 는 채택하지 않는다")
+    void originHeadersAreIgnoredWithoutServiceAuth() throws Exception {
+        MockHttpServletRequest request = request();
+        request.addHeader("X-Request-Id", "caller-req");
+        request.addHeader("X-Origin-Request-Id", "req-forged");
+        request.addHeader("X-Origin-Trace-Id", "forged-trace");
+        MDC.put("origin_request_id", "outer-origin");
+        OutboxOrigin[] captured = new OutboxOrigin[1];
+
+        run(request, (req, response) -> {
+            assertThat(MDC.get("origin_request_id")).isNull();
+            assertThat(MDC.get("origin_trace_id")).isNull();
+            captured[0] = OutboxOrigin.capture();
+        });
+
+        assertThat(captured[0].requestId()).as("origin 이 없으면 현재 요청이 origin 이 된다").isEqualTo("caller-req");
+        assertThat(MDC.get("origin_request_id")).as("바깥 문맥은 복원된다").isEqualTo("outer-origin");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"bad id", "forged\nline", "a;b", "한글"})
+    @DisplayName("형식이 틀린 origin 값과 64자 넘는 trace 는 그 칸만 버린다")
+    void malformedOriginValuesAreDropped(String bad) throws Exception {
+        MockHttpServletRequest request = authenticated();
+        request.addHeader("X-Origin-Request-Id", bad);
+        request.addHeader("X-Origin-Trace-Id", "t".repeat(65));
+        run(request, (req, response) -> {
+            assertThat(MDC.get("origin_request_id")).isNull();
+            assertThat(MDC.get("origin_trace_id")).isNull();
+        });
+        MockHttpServletRequest mixed = authenticated();
+        mixed.addHeader("X-Origin-Request-Id", "req.ok:1");
+        mixed.addHeader("X-Origin-Trace-Id", bad);
+        run(mixed, (req, response) -> {
+            assertThat(MDC.get("origin_request_id")).isEqualTo("req.ok:1");
+            assertThat(MDC.get("origin_trace_id")).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("모르는 X-Trace-Context-Version 이면 origin 헤더를 통째로 버린다")
+    void unknownContextVersionDropsTheWholeCarrier() throws Exception {
+        MockHttpServletRequest request = authenticated();
+        request.addHeader("X-Origin-Request-Id", "req-v2");
+        request.addHeader("X-Trace-Context-Version", "2");
+        run(request, (req, response) -> assertThat(MDC.get("origin_request_id")).isNull());
     }
 
 }

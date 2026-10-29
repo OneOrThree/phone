@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 import com.oneorthree.phone.common.auth.AuthAttributes;
+import com.oneorthree.phone.common.logging.LogScope;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -30,6 +31,12 @@ import jakarta.servlet.http.HttpServletResponse;
  *
  * <p>MDC 는 스레드 로컬이고 톰캣 스레드는 재사용되므로, 다음 요청이 남은 값을 물려받지 않도록
  * {@code finally} 에서 이 필터가 소유한 키만 복원한다. tracer·다른 필터의 MDC는 건드리지 않는다.
+ *
+ * <p>원인 문맥(GROMO-2582): 서비스 인증을 통과한 요청({@link InternalCallAttributes#CALLER} 가 심긴 요청)의
+ * {@code X-Origin-Request-Id}·{@code X-Origin-Trace-Id} 만 {@code origin_request_id}·{@code origin_trace_id} 로 채택한다 —
+ * 그래야 위성이 받은 최초 원인이 Data 에서 만드는 outbox({@code OutboxOrigin.capture})까지 이어진다. 형식은 나가는 쪽 규칙
+ * ({@link LogScope#safeId}, trace 는 열 길이 64 이하)이고, 어긋나면 값 없이 헤더 이름만 debug 로 남기고 버린다.
+ * 모르는 {@code X-Trace-Context-Version} 이면 통째로 버린다. 인증 전 요청은 이 헤더를 읽지 않는다.
  * request_id는 X-Request-Id를 별도로 검증해 기록한다. 기존 trace_id는 레거시 상관 ID이며 APM span ID가 아니다.
  */
 @Slf4j
@@ -41,6 +48,9 @@ public class TraceIdFilter extends OncePerRequestFilter {
     private static final String MDC_TRACE_ID = "trace_id";
     private static final String MDC_USER_ID = "user_id";
     private static final String MDC_REQUEST_ID = "request_id";
+    private static final String MDC_ORIGIN_REQUEST_ID = "origin_request_id";
+    private static final String MDC_ORIGIN_TRACE_ID = "origin_trace_id";
+    private static final int MAX_ORIGIN_TRACE_LENGTH = 64;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -49,6 +59,8 @@ public class TraceIdFilter extends OncePerRequestFilter {
         String previousTraceId = MDC.get(MDC_TRACE_ID);
         String previousRequestId = MDC.get(MDC_REQUEST_ID);
         String previousUserId = MDC.get(MDC_USER_ID);
+        String previousOriginRequestId = MDC.get(MDC_ORIGIN_REQUEST_ID);
+        String previousOriginTraceId = MDC.get(MDC_ORIGIN_TRACE_ID);
         try {
             String traceId = resolveTraceId(request);
             MDC.put(MDC_TRACE_ID, traceId);
@@ -62,6 +74,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
             }
             MDC.put(MDC_REQUEST_ID, requestId);
             MDC.remove(MDC_USER_ID);
+            adoptOrigin(request);
 
             Object userId = request.getAttribute(AuthAttributes.USER_ID);
             if (userId != null) {
@@ -73,7 +86,39 @@ public class TraceIdFilter extends OncePerRequestFilter {
             restore(MDC_TRACE_ID, previousTraceId);
             restore(MDC_REQUEST_ID, previousRequestId);
             restore(MDC_USER_ID, previousUserId);
+            restore(MDC_ORIGIN_REQUEST_ID, previousOriginRequestId);
+            restore(MDC_ORIGIN_TRACE_ID, previousOriginTraceId);
         }
+    }
+
+    /** 인증을 통과한 요청만 — 아니면 이 요청 스레드의 origin 키를 비운다(앞 요청 값이 새지 않게). */
+    private static void adoptOrigin(HttpServletRequest request) {
+        String requestId = null;
+        String traceId = null;
+        String version = trim(request.getHeader("X-Trace-Context-Version"));
+        if (request.getAttribute(InternalCallAttributes.CALLER) != null) {
+            if (version.isEmpty() || "1".equals(version)) {
+                requestId = originHeader(request, "X-Origin-Request-Id", 128);
+                traceId = originHeader(request, "X-Origin-Trace-Id", MAX_ORIGIN_TRACE_LENGTH);
+            } else {
+                log.debug("원인 문맥 헤더를 버린다 header=X-Trace-Context-Version");
+            }
+        }
+        restore(MDC_ORIGIN_REQUEST_ID, requestId);
+        restore(MDC_ORIGIN_TRACE_ID, traceId);
+    }
+
+    private static String originHeader(HttpServletRequest request, String name, int maxLength) {
+        String raw = trim(request.getHeader(name));
+        if (raw.isEmpty()) {
+            return null;
+        }
+        String safe = LogScope.safeId(raw);
+        if (safe == null || safe.length() > maxLength) {
+            log.debug("원인 문맥 헤더를 버린다 header={}", name);
+            return null;
+        }
+        return safe;
     }
 
     /**
