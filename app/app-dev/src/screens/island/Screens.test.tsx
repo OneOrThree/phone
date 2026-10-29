@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   AppState,
   BackHandler,
   Keyboard,
@@ -2857,6 +2858,34 @@ test('전망대 시상대는 서버 공동 1위·빈 2위·3위를 보존하고 
   expect(within(screen.getByTestId('observatory-podium-3')).getByText('셋째 섬')).toBeTruthy();
   expect(podium.queryByText('넷째 섬')).toBeNull();
   expect(screen.getByLabelText('4위 넷째 섬, 평균 1시간')).toBeTruthy();
+});
+
+test('전망대는 화면 읽기가 켜지면 공동 순위를 유지한 오름차순 목록으로 탐색한다', async () => {
+  const reader = jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled');
+  const originalReader = reader.getMockImplementation();
+  reader.mockResolvedValue(true);
+  try {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const firstA = islandSummary({ id: 'first-a', name: '공동 하나' });
+    const firstB = islandSummary({ id: 'first-b', name: '공동 둘' });
+    mockRankings.mockReturnValue({
+      status: 'ready',
+      data: { items: [ranked(mine, 3), ranked(firstA, 1), ranked(firstB, 1)], myRank: 3 },
+    });
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    await waitFor(() => expect(screen.queryByTestId('observatory-podium-1')).toBeNull());
+    const podium = within(screen.getByTestId('observatory-podium'));
+    expect(podium.getAllByLabelText(/^\d위 /).map((row) => row.props.accessibilityLabel)).toEqual([
+      '1위 공동 하나, 평균 1시간',
+      '1위 공동 둘, 평균 1시간',
+      '3위 우리 섬, 평균 1시간, 소속됨',
+    ]);
+    expect(podium.queryByRole('button', { name: /^3위 / })).toBeNull();
+  } finally {
+    reader.mockImplementation(originalReader!);
+  }
 });
 
 test.each([57, null])(

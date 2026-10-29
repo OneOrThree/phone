@@ -8,6 +8,7 @@ import { t } from '@/i18n';
 import { ObservatoryIslandPortrait } from './ObservatoryIslandPortrait';
 import { ObservatoryLedger, ObservatoryRow } from './ObservatoryLayout';
 import { GOWUN } from './sceneKit';
+import { useScreenReaderEnabled } from './NpcGuide';
 
 const token = componentTokens.observatory.podium;
 const color = semanticTokens.color;
@@ -81,9 +82,11 @@ export type ObservatoryPodiumItem = {
 /** 2·1·3 시상대. 배열 순서로 메달을 매기지 않고 서버 rank를 그대로 묶는다. */
 export function ObservatoryPodium({ items }: { items: ObservatoryPodiumItem[] }) {
   const scale = useAppLayout().fontScale ?? 1;
+  const screenReader = useScreenReaderEnabled();
   if (!items.length) return null;
   // 확대 글자에서 세 개의 좁은 칸은 섬 이름을 한 글자씩 끊는다. 순위는 유지하고 넓은 행으로 읽게 한다.
-  if (scale >= semanticTokens.typography.largeTextThreshold) {
+  // 화면 읽기도 같은 목록을 써서 시상대의 높이·좌우 배치와 무관하게 1·2·3 순서로 탐색한다.
+  if (screenReader || scale >= semanticTokens.typography.largeTextThreshold) {
     return (
       <View testID="observatory-podium">
         <ObservatoryLedger>
