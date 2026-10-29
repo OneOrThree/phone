@@ -216,7 +216,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // clientInboundChannelExecutor 빈으로 초기화·종료되므로 여기서는 initialize()를 부르지 않는다.
         registration.executor(new InboundTaskExecutor(inboundThreads, inboundQueueCapacity, meterRegistry));
         // 끝난 세션의 늦은 CONNECT·SUBSCRIBE 를 맨 앞에서 버린다 — 포화 중 종료 DISCONNECT 가 그것들을 추월한다.
-        registration.interceptors(endedSessionGuard(), new RejectAsErrorFrame(), movementSubscriptions);
+        // 그보다 앞의 로그 문맥(GROMO-2559)은 프레임을 버리지 않고 request_id·user_id 만 연다.
+        registration.interceptors(new StompLogScope(), endedSessionGuard(), new RejectAsErrorFrame(),
+                movementSubscriptions);
     }
 
     /** 끝난 세션의 늦은 프레임을 수신·브로커 채널 양쪽에서 버리고 보상한다 — 상태는 소켓 세션 속성에만 있다. */

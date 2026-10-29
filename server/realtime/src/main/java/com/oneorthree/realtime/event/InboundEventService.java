@@ -368,7 +368,7 @@ public class InboundEventService {
         // 만료는 payload 의 폐기 시각 + AT 수명이라 relay 재시도에도 변하지 않는다. 없으면(옛 Data) 30일 폴백.
         Instant until = fenceUntil(eventId, params);
         chatUserFence.revokeSession(sid, until);
-        eventDelivery.publishSessionRevoked(userId, sid, until);
+        eventDelivery.publishSessionRevoked(userId, sid, until, eventId);
         closeLocalSessions(userId, sid);
     }
 

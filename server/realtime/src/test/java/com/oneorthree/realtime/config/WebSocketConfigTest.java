@@ -54,16 +54,18 @@ class WebSocketConfigTest {
             authzCache, new SimpleMeterRegistry());
 
     @Test
-    @DisplayName("인바운드는 끝난 세션 가드 → 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
+    @DisplayName("인바운드는 로그 문맥 → 끝난 세션 가드 → 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
     void interceptorOrderIsTheContract() {
         Interceptors inbound = new Interceptors();
         ReflectionTestUtils.setField(config, "inboundThreads", 4);
         ReflectionTestUtils.setField(config, "inboundQueueCapacity", 256);
         config.configureClientInboundChannel(inbound);
-        assertThat(inbound.list()).hasSize(3);
-        assertThat(inbound.list().get(0)).isInstanceOf(EndedSessionGuard.class);
-        assertThat(inbound.list().get(1).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
-        assertThat(inbound.list().get(2)).isSameAs(movementSubscriptions);
+        assertThat(inbound.list()).hasSize(4);
+        // 로그 문맥(GROMO-2559)은 맨 앞이지만 프레임을 버리지 않는다 — 종전 셋의 순서·거절은 그대로다.
+        assertThat(inbound.list().get(0)).isInstanceOf(StompLogScope.class);
+        assertThat(inbound.list().get(1)).isInstanceOf(EndedSessionGuard.class);
+        assertThat(inbound.list().get(2).getClass().getSimpleName()).isEqualTo("RejectAsErrorFrame");
+        assertThat(inbound.list().get(3)).isSameAs(movementSubscriptions);
 
         // 브로커 채널에도 같은 가드 — 사용자 목적지 처리기가 늦은 SUBSCRIBE 를 원본 세션 속성째 이리로 다시 보낸다.
         MessageBrokerRegistry brokers = new MessageBrokerRegistry(mock(SubscribableChannel.class),

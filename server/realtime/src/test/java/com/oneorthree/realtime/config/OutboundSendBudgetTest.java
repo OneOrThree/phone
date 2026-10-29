@@ -4,10 +4,14 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.MessageHandlingRunnable;
+import org.springframework.messaging.support.ExecutorChannelInterceptor;
 import org.springframework.messaging.support.ExecutorSubscribableChannel;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -16,6 +20,7 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -567,6 +572,52 @@ class OutboundSendBudgetTest {
         assertThat(OutboundSendBudget.kindOf("/topic/islands/" + id + "/events")).isEqualTo("events");
         assertThat(OutboundSendBudget.kindOf("/topic/sea/rooms/" + id)).isEqualTo("sea");
         assertThat(OutboundSendBudget.kindOf(null)).isEqualTo("other");
+    }
+
+    @Test
+    @DisplayName("제출 스레드의 앱 로그 문맥이 실행 스레드의 beforeHandle 까지 가고 그 스레드의 다음 작업엔 남지 않는다 — dd.*·span_id 는 안 옮긴다 (GROMO-2559)")
+    void appLogContextReachesTheOutboundThreadAndIsRestored() throws Exception {
+        OutboundSendBudget contextBudget = new OutboundSendBudget(sessions, new SimpleMeterRegistry(), 1, 1, 10);
+        ThreadPoolTaskExecutor single = contextBudget.newExecutor();
+        single.initialize();
+        try {
+            ExecutorSubscribableChannel outbound = new ExecutorSubscribableChannel(single);
+            List<Map<String, String>> seen = new CopyOnWriteArrayList<>();
+            List<Thread> threads = new CopyOnWriteArrayList<>();
+            // 전달 직전 판정(ChatOutboundChannelInterceptor)과 같은 자리 — 실행 스레드의 beforeHandle 에서 MDC 를 본다.
+            ExecutorChannelInterceptor authorizationSeat = new ExecutorChannelInterceptor() {
+                @Override
+                public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
+                    Map<String, String> mdc = MDC.getCopyOfContextMap();
+                    seen.add(mdc == null ? Map.of() : mdc);
+                    threads.add(Thread.currentThread());
+                    return message;
+                }
+            };
+            outbound.setInterceptors(List.of(authorizationSeat, contextBudget));
+            CountDownLatch handled = new CountDownLatch(2);
+            outbound.subscribe(message -> handled.countDown());
+            String destination = "/topic/islands/" + UUID.randomUUID() + "/focus";
+
+            MDC.put("event_id", "evt-1");
+            MDC.put("origin_request_id", "req-1");
+            MDC.put("dd.trace_id", "123");
+            MDC.put("span_id", "9");
+            try {
+                outbound.send(frame("s-1", destination));
+            } finally {
+                MDC.clear();
+            }
+            outbound.send(frame("s-1", destination)); // 문맥 없는 제출 스레드
+
+            assertThat(handled.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(seen.get(0)).containsEntry("event_id", "evt-1").containsEntry("origin_request_id", "req-1")
+                    .doesNotContainKeys("dd.trace_id", "span_id");
+            assertThat(threads.get(1)).as("스레드 1개 — 같은 실행 스레드의 다음 작업").isSameAs(threads.get(0));
+            assertThat(seen.get(1)).doesNotContainKeys("event_id", "origin_request_id");
+        } finally {
+            single.shutdown();
+        }
     }
 
     private WebSocketSession socket(String id) {

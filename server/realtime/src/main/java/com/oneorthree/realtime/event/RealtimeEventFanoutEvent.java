@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
 
 import java.time.Instant;
 import java.util.Set;
@@ -28,6 +29,8 @@ import java.util.UUID;
  * @param recipients       수신 제한 — 비어 있으면 그 목적지 구독자 전부. 응원처럼 수신 자격이 구독
  *                         인가보다 좁은 채널만 채운다. <b>이 봉투는 내부용이라 클라이언트에 가지 않으므로</b>
  *                         여기에 사용자 목록을 실어도 남의 화면에 노출되지 않는다
+ * @param telemetry        원인 요청·사건 연결용 내부 메타데이터(GROMO-2559) — 없으면 wire 에서 빠진다. 소켓으로 나가는 것은
+ *                         {@code event}(7필드)뿐이라 클라이언트에 닿지 않는다
  */
 public record RealtimeEventFanoutEvent(
         UUID originInstanceId,
@@ -36,21 +39,30 @@ public record RealtimeEventFanoutEvent(
         Set<UUID> recipients,
         @JsonInclude(JsonInclude.Include.NON_NULL) UUID revokedUserId,
         @JsonInclude(JsonInclude.Include.NON_NULL) UUID revokedSessionId,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Instant revokedUntil
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant revokedUntil,
+        @JsonInclude(JsonInclude.Include.NON_NULL) FanoutTelemetry telemetry
 ) {
     public RealtimeEventFanoutEvent {
         recipients = recipients == null ? Set.of() : Set.copyOf(recipients);
     }
 
+    /** 메타데이터 없는 옛 모양. */
+    public RealtimeEventFanoutEvent(UUID originInstanceId, String destination, RealtimeEventEnvelope event,
+            Set<UUID> recipients, UUID revokedUserId, UUID revokedSessionId, Instant revokedUntil) {
+        this(originInstanceId, destination, event, recipients, revokedUserId, revokedSessionId, revokedUntil, null);
+    }
+
     /** 섬 사건 팬아웃 — 제어 필드는 비운다. */
     public static RealtimeEventFanoutEvent island(UUID originInstanceId, String destination,
-            RealtimeEventEnvelope event, Set<UUID> recipients) {
-        return new RealtimeEventFanoutEvent(originInstanceId, destination, event, recipients, null, null, null);
+            RealtimeEventEnvelope event, Set<UUID> recipients, FanoutTelemetry telemetry) {
+        return new RealtimeEventFanoutEvent(originInstanceId, destination, event, recipients, null, null, null,
+                telemetry);
     }
 
     /** 세션 폐기 제어 사건 팬아웃. */
     public static RealtimeEventFanoutEvent sessionRevoked(UUID originInstanceId, UUID userId, UUID sessionId,
-            Instant until) {
-        return new RealtimeEventFanoutEvent(originInstanceId, null, null, Set.of(), userId, sessionId, until);
+            Instant until, FanoutTelemetry telemetry) {
+        return new RealtimeEventFanoutEvent(originInstanceId, null, null, Set.of(), userId, sessionId, until,
+                telemetry);
     }
 }
