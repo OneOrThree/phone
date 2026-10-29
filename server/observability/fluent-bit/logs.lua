@@ -174,6 +174,21 @@ local function sanitize_path(uri)
   return (truncate(mask(uri), 512))
 end
 
+-- 줄 전체 백스톱: Nginx 는 요청 줄·헤더를 이스케이프 없이 error 로그에 쓰므로 따옴표 경계가 모호하다(`request: "GET /a"?q=S HTTP/1.1"`).
+-- 따옴표와 무관하게 공백으로 나뉜 각 토큰에서 ?·# 뒤를 지우고(토큰 끝의 닫는 `"`·`,` 는 남긴다), '/' 가 든 토큰은 경로 토큰 규칙을 적용한다(스킴://호스트는 건드리지 않는다).
+local function backstop(text)
+  return (text:gsub("%S+", function(tok)
+    local pos = tok:find("[?#]")
+    if pos then tok = tok:sub(1, pos - 1) .. tok:sub(pos):match("[\",]*$") end
+    if tok:find("/", 1, true) then
+      local head, path = tok:match("^(.-://[^/]*)(.*)$")
+      if not head then head, path = "", tok end
+      tok = head .. path:gsub(TOKEN_RUN, redact_run)
+    end
+    return tok
+  end))
+end
+
 -- URL: 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
 local function sanitize_url(u)
   local base, path = u:match("^(%a[%w+.-]*://[^/?#]*)(.*)$")
@@ -213,7 +228,7 @@ local function access_fallback(line)
     return '"' .. q:gsub("%S+", sanitize_path) .. '"'
   end)
   if select(2, line:gsub('"', "")) % 2 == 1 then line = line:gsub('"[^"]*$', '"-') end  -- 잘려 닫히지 않은 따옴표
-  return line
+  return backstop(line)
 end
 
 local function nginx_access(record, line, stream, ts)
@@ -287,6 +302,7 @@ local function nginx_error(line, stream)
     else tail = sanitize_path(tail) end
     rest = before .. tail
   end
+  rest = backstop(rest)  -- 최종 단계: 위 필드별 규칙이 따옴표 모호성으로 놓친 query·fragment·토큰
   local message, cut = truncate(mask((truncate(rest, MESSAGE_LIMIT * 2))), MESSAGE_LIMIT)
   local out = {
     schema_version = 1, log_id = uuid4(), log_kind = "infrastructure",

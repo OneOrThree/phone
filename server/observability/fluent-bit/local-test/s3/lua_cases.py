@@ -15,6 +15,11 @@ rows = [
     A('203.0.113.46 - - [29/Oct/2026:10:00:00 +0900] "get /reset?invite=LOWER99 HTTP/1.1" 400 0 "-" "ua'),
     A('203.0.113.47 - - [29/Oct/2026:10:00:00 +0900] "/reset?code=NOMETH77" 400 0 "-" "ua'),
     E('2026/10/29 10:00:00 [error] 1#1: *2 open() failed, client: 203.0.113.9, server: x, request: "GET / HTTP/1.1", host: "h", referrer: "https://r/"?invite=INVITE123"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *3 open() failed, client: 203.0.113.9, server: x, request: "GET /api/x"?invite=INVITE123 HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *4 open() failed, client: 203.0.113.9, server: x, request: "GET /api/x"#FRAG456 HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *5 connect() failed (111: Connection refused) while connecting to upstream, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p"?code=UPSECRET1 x", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *6 open() "/var/www/a"?k=OPENSECRET2 failed (2: No such file or directory), client: 203.0.113.9, server: x, request: "GET / HTTP/1.1", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *7 open() "/var/www/html/index.html" failed (2: No such file or directory), client: 203.0.113.9, server: x, request: "GET /notification-preferences HTTP/1.1", host: "h"'),
 ]
 d = tempfile.mkdtemp()
 shutil.copy(LUA, f"{d}/logs.lua")
@@ -28,12 +33,17 @@ out = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{d}:
 got = [json.loads(l) for l in out.splitlines() if l.startswith("{")]
 blob = json.dumps(got)
 checks = [
-    ("9줄 모두 출력", len(got) == 9),
+    ("14줄 모두 출력", len(got) == 14),
     ("① client IP 잔존 없음", "203.0.113.4" not in blob),
     ("① user·referer·UA·query 잔존 없음", not any(x in blob for x in ("alice", "REFSECRET", "UA-SECRET", "TOK123", "TOK456"))),
     ("② HTTP/0.9 request 의 invite 잔존 없음", "INVITE123" not in blob and 'request: "GET /reset"' in got[3]["message"]),
     ("① 소문자 메서드·메서드 없는 줄의 query 잔존 없음", "LOWER99" not in blob and "NOMETH77" not in blob),
     ("④ 값 안에 따옴표가 있는 referrer 전체가 \"-\"", "INVITE123" not in json.dumps(got[8]) and got[8]["message"].endswith(', referrer: "-"')),
+    ("⑤ 요청 URI 안 따옴표 + query 잔존 없음, 구조 유지", "INVITE123" not in json.dumps(got[9]) and 'request: "GET /api/x"' in got[9]["message"] and got[9]["message"].endswith('host: "h"')),
+    ("⑤ 요청 URI 안 따옴표 + fragment 잔존 없음", "FRAG456" not in json.dumps(got[10])),
+    ("⑤ upstream URL 안 따옴표 + query 잔존 없음", "UPSECRET1" not in json.dumps(got[11]) and "http://10.0.0.1:8080/p" in got[11]["message"]),
+    ("⑤ open() 경로 안 따옴표 + query 잔존 없음", "OPENSECRET2" not in json.dumps(got[12]) and "(2: No such file or directory)" in got[12]["message"]),
+    ("⑤ 정상 error 줄 구조 유지", '"/var/www/html/index.html" failed (2: No such file or directory)' in got[13]["message"] and "/notification-preferences" in got[13]["message"]),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]
