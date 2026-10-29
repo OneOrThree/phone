@@ -16,6 +16,7 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 | `.github/workflows/ops-datadog.dev.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
 | `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 (손으로 관리, 생성기 없음) |
 | `dashboards/test_log_links.py` | Kafka 로그 링크 분리 검증 (`python3 -m unittest discover -s server/observability/datadog/dashboards -p 'test_*.py'`) |
+| `pipelines/*.json` · `pipelines/manage.py` | Kafka Exporter·PostgreSQL 로그 심각도 파이프라인(티켓 2572). stderr 정상 로그의 error 오분류를 명시 매핑으로 보정한다 — **Datadog 미적용**. 적용·롤백 절차와 검증 범위는 `docs/architecture/server-log-observability/datadog-severity-pipeline.md` |
 | `dashboards/cattus-app-rum.json` | cattus 전용 RUM — 세션·버전·화면·API·집중 명령 처리시간 |
 
 ## cattus 앱 RUM 분리 (2026-10-29)
