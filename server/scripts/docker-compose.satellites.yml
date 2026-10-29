@@ -24,8 +24,14 @@ services:
       DD_VERSION: ${IMAGE_REVISION:-unknown}
       DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
       DD_LOGS_INJECTION: "true"
+      OBS_SERVICE: business-api
+      OBS_ENV: ${DEPLOY_ENV:-dev}
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"
       DD_PROFILING_ENABLED: "true"
+      # 프로파일러 .so 추출·로드와 JFR 임시 파일 자리. 기본값 /tmp 는 noexec 라 .so 로드가 실패한다(GROMO-2574).
+      DD_PROFILING_TEMPDIR: /ddprof
       DD_DATA_STREAMS_ENABLED: "true"
       DD_TRACE_ANALYTICS_ENABLED: "true"
       DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"
@@ -43,7 +49,11 @@ services:
     cpus: 2
     pids_limit: 128
     read_only: true
-    tmpfs: ['/tmp:size=64m,mode=1777']
+    # /tmp 는 외부 PDF 임시 파일 자리라 Docker 기본값(noexec)을 유지한다. 실행 권한은 프로파일러 전용
+    # /ddprof 에만 준다 — 쓰기·실행이 함께 되는 자리가 하나 생기는 보안 절충이다(GROMO-2574 문서).
+    # 앱 uid/gid 10001(server/business-api/Dockerfile 45행 useradd, 50행 USER)만 접근하게 좁혔다.
+    # 되돌릴 때는 DD_PROFILING_TEMPDIR 와 이 tmpfs 의 /ddprof 두 줄을 함께 되돌린다(환경변수만 남으면 읽기 전용 루트라 쓰기가 실패한다).
+    tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=16m,mode=0700,uid=10001,gid=10001,exec']
     volumes: [business-logs:/app/logs]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -75,6 +85,10 @@ services:
       DD_VERSION: ${IMAGE_REVISION:-unknown}
       DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
       DD_LOGS_INJECTION: "true"
+      OBS_SERVICE: notification
+      OBS_ENV: ${DEPLOY_ENV:-dev}
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"
       DD_PROFILING_ENABLED: "true"
       DD_DATA_STREAMS_ENABLED: "true"

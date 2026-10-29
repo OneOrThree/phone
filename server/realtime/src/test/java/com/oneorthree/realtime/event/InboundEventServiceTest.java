@@ -6,6 +6,8 @@ import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.config.OutboundAuthzCache;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.logging.CapturedLogs;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.membership.MembershipService;
@@ -17,7 +19,13 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.MockProducer;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.serialization.Serializer;
 import org.mockito.ArgumentMatchers;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,6 +35,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.ListenerExecutionFailedException;
+import org.springframework.kafka.listener.MessageListenerContainer;
+import org.springframework.kafka.mock.MockProducerFactory;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -42,7 +56,12 @@ import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -126,7 +145,7 @@ class InboundEventServiceTest {
         String envelope = withdrawn(user, 4);
 
         http(envelope);
-        new KafkaEventInbound(inboundEventService, objectMapper).receive(envelope);
+        new KafkaEventInbound(inboundEventService, objectMapper).receive(kafkaRecord(envelope));
         http(envelope);
 
         verify(chatUserFence, times(1)).withdraw(user, 4L);
@@ -410,6 +429,229 @@ class InboundEventServiceTest {
     }
 
     @Test
+    @DisplayName("같은 eventId 가 HTTP(헤더) → Kafka(헤더)로 재전달돼도 한 번만 적용되고, 두 수신 줄이 같은 event_id·원인을 달며 처리 뒤 스레드 문맥은 되돌아간다 (GROMO-2559)")
+    void redeliveryAcrossEntrancesKeepsTheLogLink() throws Exception {
+        UUID user = UUID.randomUUID();
+        String envelope = withdrawn(user, 9);
+        String eventId = "user.withdrawn:" + user;
+
+        try (CapturedLogs logs = CapturedLogs.of(InboundAcceptLog.class)) {
+            mockMvc.perform(post("/internal/events").contentType(MediaType.APPLICATION_JSON).content(envelope)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + dataToken)
+                    .header("X-Origin-Request-Id", "req-dup").header("X-Origin-Trace-Id", "1234567890")
+                    .header("X-Event-Id", eventId).header("X-Delivery-Id", "d-1").header("X-Attempt", "1")
+                    .header("X-Trace-Context-Version", "1")).andExpect(status().isOk());
+            MDC.put(LogContext.EVENT_ID, "outer");
+            MDC.put(LogContext.ATTEMPT, "7");
+            try {
+                ConsumerRecord<String, String> record = kafkaRecord(envelope);
+                header(record, "x-origin-request-id", "req-dup");
+                header(record, "x-origin-trace-id", "1234567890");
+                header(record, "x-event-id", eventId);
+                header(record, "x-delivery-id", "d-1");
+                header(record, "x-attempt", "2");
+                header(record, "x-trace-context-version", "1");
+                new KafkaEventInbound(inboundEventService, objectMapper).receive(record);
+
+                assertThat(MDC.get(LogContext.EVENT_ID)).as("재사용 스레드의 바깥 값으로 복원").isEqualTo("outer");
+                assertThat(MDC.get(LogContext.ATTEMPT)).isEqualTo("7");
+                assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).isNull();
+                assertThat(MDC.get(LogContext.DELIVERY_ID)).isNull();
+            } finally {
+                MDC.clear();
+            }
+
+            CapturedLogs.Line accepted = logs.lines(CapturedLogs.event(LogContext.CONSUMER_ACCEPT, "result=accepted"))
+                    .get(0);
+            assertThat(accepted.mdc()).containsEntry("event_id", eventId).containsEntry("origin_request_id", "req-dup")
+                    .containsEntry("origin_trace_id", "1234567890").containsEntry("delivery_id", "d-1")
+                    .containsEntry("attempt", "1");
+            CapturedLogs.Line duplicate = logs.lines(CapturedLogs.event(LogContext.CONSUMER_ACCEPT,
+                    "result=duplicate")).get(0);
+            assertThat(duplicate.mdc()).containsEntry("event_id", eventId).containsEntry("origin_request_id", "req-dup")
+                    .containsEntry("delivery_id", "d-1").containsEntry("attempt", "2");
+            assertThat(logs.lines(CapturedLogs.event(LogContext.CONSUMER_ACCEPT, "result="))).hasSize(2);
+        }
+        verify(chatUserFence, times(1)).withdraw(user, 9L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class, eventId))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("형식이 틀린·모르는 버전의 carrier 헤더는 그 값만 버리고 사건은 정상 적용한다 — 관측 실패가 업무를 막지 않는다 (GROMO-2559)")
+    void malformedCarrierHeadersAreIgnored() throws Exception {
+        UUID user = UUID.randomUUID();
+        ConsumerRecord<String, String> record = kafkaRecord(withdrawn(user, 3));
+        header(record, "x-origin-request-id", "공백 있는 값");
+        header(record, "x-attempt", "0");
+        header(record, "x-delivery-id", "d".repeat(200));
+        ConsumerRecord<String, String> future = kafkaRecord(withdrawn(UUID.randomUUID(), 3));
+        header(future, "x-origin-request-id", "req-v2");
+        header(future, "x-trace-context-version", "2");
+
+        try (CapturedLogs logs = CapturedLogs.of(InboundAcceptLog.class)) {
+            new KafkaEventInbound(inboundEventService, objectMapper).receive(record);
+            new KafkaEventInbound(inboundEventService, objectMapper).receive(future);
+
+            assertThat(logs.lines(CapturedLogs.event(LogContext.CONSUMER_ACCEPT, "result=accepted"))).hasSize(2)
+                    .allSatisfy(line -> assertThat(line.mdc()).containsKey("event_id")
+                            .doesNotContainKeys("origin_request_id", "attempt", "delivery_id"));
+        }
+        verify(chatUserFence, times(1)).withdraw(user, 3L);
+    }
+
+    @Test
+    @DisplayName("Kafka 재시도·DLT 로그가 실패한 레코드의 event_id·원인을 단다 — 재시도 3회 뒤 DLT 1건, DLT 발행 실패는 성공으로 삼키지 않으며 처리 뒤 스레드 문맥은 되돌아간다 (GROMO-2581)")
+    void retryAndDeadLetterLogsCarryTheRecordContext() {
+        // 운영 빈 메서드 그대로 — 브로커만 kafka-clients MockProducer 로 바꾼다(실브로커 DLT 헤더 시험은 별도 티켓).
+        List<MockProducer<Object, Object>> producers = new CopyOnWriteArrayList<>();
+        RuntimeException[] sendFailure = {null};
+        Serializer<Object> bytes = (topic, data) -> data == null ? null
+                : data.toString().getBytes(StandardCharsets.UTF_8);
+        KafkaEventInbound inbound = new KafkaEventInbound(inboundEventService, objectMapper);
+        DefaultErrorHandler handler = inbound.realtimeEventsErrorHandler(new KafkaTemplate<>(
+                new MockProducerFactory<>(() -> {
+                    MockProducer<Object, Object> producer = new MockProducer<>(true, null, bytes, bytes);
+                    producer.sendException = sendFailure[0];
+                    producers.add(producer);
+                    return producer;
+                })));
+        Consumer<?, ?> consumer = mock(Consumer.class);
+        MessageListenerContainer container = mock(MessageListenerContainer.class);
+        // 계약 밖 type — 수신 기록 전에 거절되므로 매번 같은 예외로 실패한다(재시도해도 낫지 않는 사건).
+        UUID user = UUID.randomUUID();
+        String eventId = "user.updated:" + user;
+        ConsumerRecord<String, String> dead = carrying(new ConsumerRecord<>("realtime-events", 0, 10L, null,
+                withdrawn(user, 1).replace("user.withdrawn", "user.updated")), eventId, "req-dlt");
+        UUID other = UUID.randomUUID();
+        String otherEventId = "user.updated:" + other;
+        ConsumerRecord<String, String> undeliverable = carrying(new ConsumerRecord<>("realtime-events", 0, 11L, null,
+                withdrawn(other, 1).replace("user.withdrawn", "user.updated")), otherEventId, "req-dlt-fail");
+
+        MDC.put(LogContext.EVENT_ID, "outer");
+        try (CapturedLogs logs = CapturedLogs.of(KafkaEventInbound.class, DeadLetterPublishingRecoverer.class)) {
+            for (int delivery = 1; delivery <= 4; delivery++) {
+                deliverAndHandle(inbound, handler, dead, consumer, container, delivery < 4);
+            }
+            assertThat(producers.stream().flatMap(p -> p.history().stream()).toList())
+                    .as("재시도 3회 뒤 DLT 로 정확히 1건").singleElement()
+                    .satisfies(out -> assertThat(out.topic()).isEqualTo("realtime-events.DLT"));
+            List<CapturedLogs.Line> attempts = logs.lines(line -> line.message().startsWith("Kafka 사건 처리 실패")
+                    && eventId.equals(line.get("event_id")));
+            assertThat(attempts).extracting(CapturedLogs.Line::message).hasSize(4)
+                    .allSatisfy(message -> assertThat(message).contains("offset=10"));
+            assertThat(attempts.get(3).message()).contains("deliveryAttempt=4");
+            CapturedLogs.Line recovered = logs.lines(line -> line.message().startsWith("Kafka 사건 재시도 소진")).get(0);
+            assertThat(attempts).allSatisfy(line -> assertCarrier(line, eventId, "req-dlt"));
+            assertCarrier(recovered, eventId, "req-dlt");
+
+            // DLT 발행이 실패하면 — 발행기의 오류 줄과 실패 줄이 같은 문맥을 달고, 레코드는 재시도로 남는다(성공으로 삼키지 않음).
+            sendFailure[0] = new KafkaException("broker down");
+            for (int delivery = 1; delivery <= 4; delivery++) {
+                deliverAndHandle(inbound, handler, undeliverable, consumer, container, true);
+            }
+            assertCarrier(logs.lines(line -> line.message().startsWith("Kafka 사건 DLT 발행 실패")).get(0),
+                    otherEventId, "req-dlt-fail");
+            CapturedLogs.Line publisherError = logs.lines(line -> line.logger().equals(
+                    DeadLetterPublishingRecoverer.class.getName())
+                    && line.message().startsWith("Dead-letter publication to realtime-events.DLT failed")).get(0);
+            assertCarrier(publisherError, otherEventId, "req-dlt-fail");
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    @Test
+    @DisplayName("DLT 발행이 비동기로 실패해도 producer 스레드의 발행기 오류 줄이 그 레코드의 event_id·원인을 달고, 콜백 뒤 그 스레드 문맥은 되돌아간다 (GROMO-2581)")
+    void asyncDeadLetterFailureLogCarriesTheRecordContext() throws Exception {
+        List<MockProducer<Object, Object>> producers = new CopyOnWriteArrayList<>();
+        Serializer<Object> bytes = (topic, data) -> data == null ? null
+                : data.toString().getBytes(StandardCharsets.UTF_8);
+        KafkaEventInbound inbound = new KafkaEventInbound(inboundEventService, objectMapper);
+        DefaultErrorHandler handler = inbound.realtimeEventsErrorHandler(new KafkaTemplate<>(
+                new MockProducerFactory<>(() -> {
+                    MockProducer<Object, Object> producer = new MockProducer<>(false, null, bytes, bytes); // 완료는 아래 스레드
+                    producers.add(producer);
+                    return producer;
+                })));
+        Consumer<?, ?> consumer = mock(Consumer.class);
+        MessageListenerContainer container = mock(MessageListenerContainer.class);
+        UUID user = UUID.randomUUID();
+        String eventId = "user.updated:" + user;
+        ConsumerRecord<String, String> undeliverable = carrying(new ConsumerRecord<>("realtime-events", 0, 12L, null,
+                withdrawn(user, 1).replace("user.withdrawn", "user.updated")), eventId, "req-dlt-async");
+        Thread consumerThread = Thread.currentThread();
+        AtomicReference<Map<String, String>> afterCallback = new AtomicReference<>();
+        Thread broker = new Thread(() -> {
+            MDC.put(LogContext.EVENT_ID, "producer-own");
+            // 발행기가 완료 콜백을 걸고 결과를 기다리기 시작한 «뒤»에 실패로 완료한다 — 콜백은 이 스레드에서 돈다.
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while ((producers.stream().allMatch(p -> p.history().isEmpty())
+                    || consumerThread.getState() != Thread.State.TIMED_WAITING) && System.nanoTime() < deadline) {
+                LockSupport.parkNanos(Duration.ofMillis(10).toNanos());
+            }
+            producers.forEach(p -> p.errorNext(new KafkaException("broker down")));
+            afterCallback.set(MDC.getCopyOfContextMap());
+        }, "dlt-producer");
+
+        MDC.put(LogContext.EVENT_ID, "outer");
+        try (CapturedLogs logs = CapturedLogs.of(DeadLetterPublishingRecoverer.class)) {
+            for (int delivery = 1; delivery <= 3; delivery++) {
+                deliverAndHandle(inbound, handler, undeliverable, consumer, container, true);
+            }
+            broker.start();
+            deliverAndHandle(inbound, handler, undeliverable, consumer, container, true); // DLT 발행 — 실패로 재시도에 남는다
+            broker.join(Duration.ofSeconds(30).toMillis());
+
+            // 완료 콜백은 보통 위 producer 스레드에서 돈다(고치기 전엔 이 줄이 producer-own 을 달았다). 기다리던 소비자 스레드가 깨어나며
+            // 남은 콜백을 가져갈 수도 있어(CompletableFuture.postComplete) 스레드 이름은 단언하지 않는다 — 그때는 레코드 scope 안이다.
+            CapturedLogs.Line publisherError = logs.lines(line -> line.message().startsWith(
+                    "Dead-letter publication to realtime-events.DLT failed")).get(0);
+            assertCarrier(publisherError, eventId, "req-dlt-async");
+            assertThat(afterCallback.get()).as("콜백 뒤 producer 스레드는 자기 값으로 돌아왔다")
+                    .isEqualTo(Map.of(LogContext.EVENT_ID, "producer-own"));
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    /** 컨테이너가 하는 일 그대로 — 리스너가 던지면 그 레코드로 오류 처리기를 부른다. 끝나면 이 스레드의 바깥 값이 그대로여야 한다. */
+    private static void deliverAndHandle(KafkaEventInbound inbound, DefaultErrorHandler handler,
+            ConsumerRecord<String, String> record, Consumer<?, ?> consumer, MessageListenerContainer container,
+            boolean staysInRetry) {
+        RuntimeException failure = org.assertj.core.api.Assertions.catchRuntimeException(
+                () -> inbound.receive(record));
+        assertThat(failure).isInstanceOf(InboundEventService.InvalidEventException.class);
+        ListenerExecutionFailedException wrapped = new ListenerExecutionFailedException("listener failed", failure);
+        if (staysInRetry) {
+            assertThatThrownBy(() -> handler.handleRemaining(wrapped, List.of(record), consumer, container))
+                    .hasMessageContaining("Record in retry");
+        } else {
+            handler.handleRemaining(wrapped, List.of(record), consumer, container);
+        }
+        assertThat(MDC.get(LogContext.EVENT_ID)).isEqualTo("outer");
+        assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).isNull();
+        assertThat(MDC.get(LogContext.DELIVERY_ID)).isNull();
+    }
+
+    private static ConsumerRecord<String, String> carrying(ConsumerRecord<String, String> record, String eventId,
+            String origin) {
+        header(record, "x-event-id", eventId);
+        header(record, "x-origin-request-id", origin);
+        header(record, "x-origin-trace-id", "1234567890");
+        header(record, "x-delivery-id", "d-9");
+        header(record, "x-attempt", "2");
+        header(record, "x-trace-context-version", "1");
+        return record;
+    }
+
+    private static void assertCarrier(CapturedLogs.Line line, String eventId, String origin) {
+        assertThat(line.mdc()).containsEntry("event_id", eventId).containsEntry("origin_request_id", origin)
+                .containsEntry("origin_trace_id", "1234567890").containsEntry("delivery_id", "d-9")
+                .containsEntry("attempt", "2");
+    }
+
+    @Test
     @DisplayName("user.blocks.updated 는 차단자의 차단 세대를 한 번만 올리고, blockerUserId 가 없으면 200 으로 건너뛴다")
     void blocksUpdatedAdvancesTheBlockersGenerationOnce() throws Exception {
         UUID blocker = UUID.randomUUID();
@@ -417,7 +659,7 @@ class InboundEventServiceTest {
 
         http(event);
         http(event);
-        new KafkaEventInbound(inboundEventService, objectMapper).receive(event);
+        new KafkaEventInbound(inboundEventService, objectMapper).receive(kafkaRecord(event));
 
         assertThat(redis.opsForValue().get(RedisKeys.blockGeneration(blocker))).isEqualTo("1");
         // 세대 키는 수명 없이 남는다 — 만료되면 번호가 재사용돼 옛 캐시와 충돌한다.
@@ -742,12 +984,12 @@ class InboundEventServiceTest {
     @DisplayName("섬 사건 팬아웃 봉투의 wire 에는 제어 키가 없다 — 롤링 배포 중 옛 replica 의 매퍼 설정에 기대지 않는다")
     void islandFanoutWireHasNoControlKeys() throws Exception {
         String json = objectMapper.writeValueAsString(RealtimeEventFanoutEvent.island(UUID.randomUUID(),
-                "/topic/islands/x/focus", null, java.util.Set.of()));
+                "/topic/islands/x/focus", null, java.util.Set.of(), null));
 
         assertThat(json).doesNotContain("revokedUserId").doesNotContain("revokedSessionId")
                 .doesNotContain("revokedUntil");
         assertThat(objectMapper.writeValueAsString(RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(),
-                UUID.randomUUID(), UUID.randomUUID(), Instant.now()))).contains("revokedUserId").contains("revokedSessionId")
+                UUID.randomUUID(), UUID.randomUUID(), Instant.now(), null))).contains("revokedUserId").contains("revokedSessionId")
                 .contains("revokedUntil");
     }
 
@@ -762,12 +1004,72 @@ class InboundEventServiceTest {
         UUID user = UUID.randomUUID();
         UUID sid = UUID.randomUUID();
         String json = objectMapper.writeValueAsString(
-                RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(), user, sid, Instant.now()));
+                RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(), user, sid, Instant.now(), null));
 
         OldFanoutShape old = objectMapper.readValue(json, OldFanoutShape.class);
 
         assertThat(old.revokedUserId()).isEqualTo(user);
         assertThat(old.revokedSessionId()).isEqualTo(sid);
+    }
+
+    /** telemetry(GROMO-2559) 이전의 섬 사건 봉투 7필드 — 지금 운영 중인 replica 가 읽는 모양. */
+    private record PreTelemetryFanoutShape(UUID originInstanceId, String destination, RealtimeEventEnvelope event,
+            java.util.Set<UUID> recipients, UUID revokedUserId, UUID revokedSessionId, Instant revokedUntil) {
+    }
+
+    /** telemetry 이전의 채팅 팬아웃 모양. */
+    private record PreTelemetryChatShape(UUID originInstanceId,
+            com.oneorthree.realtime.message.dto.ChatMessageResponse message) {
+    }
+
+    @Test
+    @DisplayName("신→구 — telemetry 가 든 두 채널의 새 봉투를 옛 replica 모양으로 읽어도 실패 없이 같은 값이 나온다 (GROMO-2559)")
+    void oldReplicasReadTelemetryWireWithoutFailing() throws Exception {
+        var telemetry = new com.oneorthree.realtime.fanout.FanoutTelemetry(1, "req-1", "123", "evt-1");
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        RealtimeEventEnvelope envelope = new RealtimeEventEnvelope(UUID.randomUUID(), RealtimeEventType.FOCUS_EMOTE,
+                UUID.randomUUID(), null, Instant.parse("2026-10-29T00:00:00Z"),
+                objectMapper.readTree("{\"userId\":\"" + user + "\",\"sessionId\":\"" + UUID.randomUUID()
+                        + "\",\"type\":\"cheer\",\"expiresAt\":\"2026-10-29T00:00:03Z\"}"));
+        String island = objectMapper.writeValueAsString(RealtimeEventFanoutEvent.island(UUID.randomUUID(),
+                "/topic/islands/x/emotes", envelope, java.util.Set.of(user), telemetry));
+        String revoked = objectMapper.writeValueAsString(RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(),
+                user, sid, Instant.now(), telemetry));
+        var message = new com.oneorthree.realtime.message.dto.ChatMessageResponse(UUID.randomUUID(),
+                UUID.randomUUID(), user, "본문", Instant.parse("2026-10-29T00:00:00Z"), UUID.randomUUID());
+        String chat = objectMapper.writeValueAsString(new com.oneorthree.realtime.fanout.ChatFanoutEvent(
+                UUID.randomUUID(), message, telemetry));
+
+        assertThat(island).contains("\"telemetry\"").contains("\"originRequestId\":\"req-1\"");
+        assertThat(chat).contains("\"telemetry\"");
+        PreTelemetryFanoutShape oldIsland = objectMapper.readValue(island, PreTelemetryFanoutShape.class);
+        assertThat(oldIsland.event()).isEqualTo(envelope);
+        assertThat(oldIsland.recipients()).containsExactly(user);
+        assertThat(objectMapper.readValue(revoked, PreTelemetryFanoutShape.class).revokedSessionId()).isEqualTo(sid);
+        assertThat(objectMapper.readValue(revoked, OldFanoutShape.class).revokedUserId()).isEqualTo(user);
+        assertThat(objectMapper.readValue(chat, PreTelemetryChatShape.class).message()).isEqualTo(message);
+    }
+
+    @Test
+    @DisplayName("구→신 — telemetry 키가 없는 옛 JSON 은 telemetry=null 로 읽히고, 메타데이터가 없으면 새 발행도 키를 싣지 않는다 (GROMO-2559)")
+    void newReplicasReadPreTelemetryWire() throws Exception {
+        UUID origin = UUID.randomUUID();
+        var message = new com.oneorthree.realtime.message.dto.ChatMessageResponse(UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "본문", Instant.parse("2026-10-29T00:00:00Z"), UUID.randomUUID());
+        String oldChat = objectMapper.writeValueAsString(new PreTelemetryChatShape(origin, message));
+        String oldIsland = objectMapper.writeValueAsString(new PreTelemetryFanoutShape(origin, "/topic/islands/x/focus",
+                null, java.util.Set.of(), null, null, null));
+
+        var chat = objectMapper.readValue(oldChat, com.oneorthree.realtime.fanout.ChatFanoutEvent.class);
+        var island = objectMapper.readValue(oldIsland, RealtimeEventFanoutEvent.class);
+
+        assertThat(chat.telemetry()).isNull();
+        assertThat(chat.message()).isEqualTo(message);
+        assertThat(island.telemetry()).isNull();
+        assertThat(island.destination()).isEqualTo("/topic/islands/x/focus");
+        assertThat(objectMapper.writeValueAsString(new com.oneorthree.realtime.fanout.ChatFanoutEvent(origin, message)))
+                .doesNotContain("telemetry");
     }
 
     @Test
@@ -899,6 +1201,15 @@ class InboundEventServiceTest {
                 + "\"locale\":null,\"subjectId\":\"" + subject + "\",\"version\":5,\"params\":{"
                 + "\"islandId\":\"" + payloadIsland + "\",\"userId\":\"" + user + "\",\"name\":\"도착냥\","
                 + "\"catColor\":null,\"arrivedAt\":\"2026-10-18T00:00:00Z\"" + extra + "}}";
+    }
+
+    private static void header(ConsumerRecord<String, String> record, String name, String value) {
+        record.headers().add(name, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 브로커 없이 리스너에 넣는 레코드 — 헤더 없음(옛 relay 와 같다). */
+    private static ConsumerRecord<String, String> kafkaRecord(String value) {
+        return new ConsumerRecord<>("realtime-events", 0, 0L, null, value);
     }
 
     private void http(String body) throws Exception {

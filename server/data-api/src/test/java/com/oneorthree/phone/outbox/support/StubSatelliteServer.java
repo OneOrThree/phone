@@ -8,6 +8,9 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -54,11 +57,15 @@ public final class StubSatelliteServer {
         try (InputStream in = exchange.getRequestBody()) {
             body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
+        Map<String, String> headers = new TreeMap<>();
+        exchange.getRequestHeaders().forEach((name, values) ->
+                headers.put(name.toLowerCase(Locale.ROOT), values.isEmpty() ? "" : values.get(0)));
         received.add(new Received(
                 exchange.getRequestMethod(),
                 exchange.getRequestURI().getPath(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
-                body));
+                body,
+                Map.copyOf(headers)));
         ResponseGate gate = responseGate;
         if (gate != null) {
             gate.entered().countDown();
@@ -123,7 +130,17 @@ public final class StubSatelliteServer {
      * @param path         경로 — {@code {userId}} 가 실제 값으로 채워졌는지 본다
      * @param serviceToken caller 별 서비스 토큰
      * @param body         본문
+     * @param headers      받은 헤더 — 이름은 소문자, 값은 첫 값(원인 문맥 carrier 를 본다, GROMO-2557)
      */
-    public record Received(String method, String path, String serviceToken, String body) {
+    public record Received(String method, String path, String serviceToken, String body,
+            Map<String, String> headers) {
+
+        /**
+         * @param name 헤더 이름(대소문자 무관)
+         * @return 값 — 없으면 {@code null}
+         */
+        public String header(String name) {
+            return headers.get(name.toLowerCase(Locale.ROOT));
+        }
     }
 }

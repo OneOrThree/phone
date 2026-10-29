@@ -64,8 +64,8 @@ SQL은 하나의 `DO` 문에서 전용 advisory transaction lock과 기본 테�
 | `legacy` | 번들의 원본 migration 이력과 정확히 일치하는 prefix인지 확인하고 전체 custom-format 백업을 만든다. V138 미만이면 불변 원본 체인으로 V138까지 적용하고, V138 구조 지문을 검증한 뒤 V0로 전환한다. |
 | `current` | V0부터 시작하는 현재 migration 이력이 번들의 정확한 prefix인지 확인한다. 미적용 migration이 있으면 전체 백업 후 적용하고, 없으면 기본 데이터 콜백을 다시 실행한다. |
 
-현재 번들은 V0와 후속 V1(집중섬 자리 좌표), V2(건물 종류 DB 정본), V3(가상 무인도 목적지), V4(운영 콘텐츠 게시·공지·잡지 검토 테이블)이다. 자동 실행기는 그 체인의
-미적용 migration을 처리한다(V0만 적용된 DB는 전체 백업 후 V1·V2·V3·V4를 적용한다). V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
+현재 번들은 V0와 후속 V1(집중섬 자리 좌표), V2(건물 종류 DB 정본), V3(가상 무인도 목적지), V4(운영 콘텐츠 게시·공지·잡지 검토 테이블), V5(건설 정책 게시 영수증 종류), V6(집중 보상 정책 승인·발행 원장), V7(Outbox 원인 문맥 열)이다. 자동 실행기는 그 체인의
+미적용 migration을 처리한다(V0만 적용된 DB는 전체 백업 후 V1·V2·V3·V4·V5·V6·V7을 적용한다). V0 한 행만 있는 DB는 manifest의 구조 지문까지 비교한다.
 후속 V1 이상은 불변 이력·체크섬과 Flyway 검증을 사용한다. 이미지보다 새로운 DB,
 실패 이력, 체크섬 불일치, 이력 없는 사용자 객체, 지원하지 않는 스키마는 자동 수정하지 않는다.
 기존 V125의 핀 만료, V130의 집계 백필, V135·V136의 보상 갱신을 생략하고 V0 이력만 기록하지 않는다.
@@ -242,7 +242,7 @@ Flyway 위치도 V0이므로 기존 원본 migration 체인의 golden DB를 그�
 - V138 미만 원본: 기존 legacy Flyway가 V137.1과 V138까지 순서대로 적용하고 확장 profile로 전환한다.
 - V137.1 선별 운영 DB: 기존 legacy Flyway가 V138만 추가하고 확장 profile로 전환한다.
 - 확장 없는 V138: 기존 원본 profile로 V0 전환 후 V1..6을 정상 실행한다. 누락된 V137.1을 out-of-order로 끼워 넣지 않는다.
-- 확장 있는 V138: 원본 retirement와 보존 행 수 검증 후 같은 transaction에서 V1..3을 실제 실행한다. 이미 검증된 V4..6 효과를 중복 생성하지 않고 canonical 이력을 기록한 다음 전체 V0..6 지문을 확인하여 commit한다. 실패하면 DDL·이력·보존 데이터 모두 rollback한다.
+- 확장 있는 V138: 원본 retirement와 보존 행 수 검증 후 같은 transaction에서 V1..3을 실제 실행한다. 이미 검증된 V4..6 효과를 중복 생성하지 않고 canonical 이력을 기록한 다음 전체 V0..6 지문을 확인하여 commit한다. 실패하면 DDL·이력·보존 데이터 모두 rollback한다. V7 이후 후속 migration은 commit 뒤 `deploy-v0.py`의 current 단계가 일반 Flyway로 적용한다.
 
 검토 snapshot, 공지, 발행 영수증, 정책 승인·발행과 기존 revision은 보존 대상이다. exact source schema를 먼저 확인하며 확장 테이블을 fingerprint에서 제외하지 않는다. 기존 V1 `BASELINE` 이력 허용 조건도 유지한다.
 

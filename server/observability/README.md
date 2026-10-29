@@ -15,8 +15,8 @@ flowchart LR
   node --> prometheus
   container["컨테이너"] --> cadvisor["cAdvisor"]
   cadvisor --> prometheus
-  logs["컨테이너 stdout"] --> promtail["Promtail"]
-  promtail --> loki["Loki"]
+  logs["컨테이너 stdout<br/>(허용 서비스 4종)"] --> fluentbit["Fluent Bit"]
+  fluentbit --> loki["Loki"]
   prometheus --> grafana["Grafana"]
   loki --> grafana
   app -.->|"별도 APM 구성"| datadog["Datadog Agent"]
@@ -43,7 +43,7 @@ flowchart LR
 | [prometheus/](prometheus/) | 수집 대상과 주기 |
 | [grafana/dashboards/](grafana/dashboards/) | 대시보드 JSON |
 | [grafana/provisioning/](grafana/provisioning/) | 데이터소스·대시보드 자동 등록 |
-| [loki/](loki/) · [promtail/](promtail/) | 로그 저장·수집 |
+| [loki/](loki/) · [fluent-bit/](fluent-bit/) | 로그 저장·수집(설정·Lua·로컬 검증 하네스 `fluent-bit/local-test/`) |
 | [datadog/](datadog/) | APM·OpenMetrics 연동 안내 |
 
 ## 4. dev 실행과 운영
@@ -75,7 +75,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 ```bash
 docker compose --env-file "$RUNTIME_ENV_FILE" \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
-  stop prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
+  stop prometheus grafana loki fluent-bit postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
 ```
 
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
@@ -90,7 +90,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 | **트래픽 (RED)** | 요청수 · p95/p99 · 5xx율 · 상태코드별 | micrometer `http.server.requests` |
 | **쿼리 부하** | HikariCP active/idle/**pending**(L1) · DB tps · 캐시히트 · 활성커넥션(L2) | actuator HikariCP + postgres-exporter |
 | **리소스** | CPU · 메모리 | node-exporter |
-| **로그 (실시간)** | ERROR 발생률 + 앱 로그 라이브 테일 | promtail(docker_sd) → Loki |
+| **로그 (실시간)** | ERROR 발생률 + 앱 로그 라이브 테일 | Fluent Bit(tail) → Loki. 라벨은 `env`·`service`·`log_kind` 뿐 |
 
 **부하 해석**: HikariCP `pending`↑ & DB tps 낮음 → 앱–DB 큐잉(커넥션 부족·느린 쿼리 점유).
 DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 교차가 병목 위치를 가리킨다.
@@ -106,7 +106,50 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 - `/actuator/*` 는 무인증(JwtFilter 는 `/api/*` 만 필터). dev 는 관리 포트 **9091 을 호스트 미공개**로 두어
   `app-network` 안 Prometheus 만 접근 → 공개 8080 으로 메트릭이 새지 않음.
 - **Grafana 3000 은 외부 노출** — 방화벽/보안그룹으로 접근 제한 + `GRAFANA_ADMIN_PASSWORD` 변경 필수.
-- promtail 이 `docker.sock`(ro) 마운트 — 호스트 컨테이너 로그 접근용. 신뢰 경계 확인.
+- Fluent Bit 은 `docker.sock` 을 쓰지 않는다. 컨테이너 로그 디렉터리(`/var/lib/docker/containers`)를 읽기 전용으로 마운트하며,
+  같은 디렉터리의 `config.v2.json`(컨테이너 환경변수 포함)도 보이므로 `logs.lua` 는 compose 서비스·프로젝트 라벨 두 값만 읽는다.
+- 수집 대상은 compose 프로젝트 `phone` 의 `data-api`·`business-api`·`notification`·`realtime` 뿐이다. 그 밖 컨테이너와 Fluent Bit 자신의 로그는 버린다.
+
+## 로그 수집기 (GROMO-2555)
+
+- 흐름: tail(`*-json.log`, Docker 분할 줄 병합) → Lua 로 서비스 식별·허용 목록 → JSON 파싱 → Lua 정규화 → Loki.
+- 상태: named volume `fluent_bit_state` 에 tail 위치 DB(`tail.db`)와 디스크 버퍼(`storage.total_limit_size 128M`). 컨테이너를 지웠다 만들어도 이어 읽는다.
+  볼륨은 `ops-monitor` 의 `down` 에도 남는다(다시 `up` 하면 이어 읽는다). 단 볼륨을 지우면 위치가 사라져 로그 파일이 남아 있는 컨테이너는 처음(새로 발견된 파일)부터 다시 읽을 수 있다 — 중복이 생길 수 있다.
+- 처음부터 읽기: tail 은 `Read_From_Head On` — DB 에 위치가 있는 파일은 그 offset 부터, 없는 새 파일은 처음부터 읽는다(수집기가 멈춘 동안 앱 컨테이너가 재생성돼도 시작·오류 로그를 건너뛰지 않는다).
+  대가로 첫 기동(DB 없음)에는 기존 현재 파일을 전부 다시 읽는다(앱 컨테이너당 최대 50 MB, Loki `reject_old_samples: false` 라 수용). 회전된 파일(`*-json.log.1` 등)은 패턴 밖이라 읽지 않는다.
+- 앱 JSON 줄은 필드를 그대로 두고 `observed_at` 만 더한다. JSON 이 아니거나 스키마(`schema_version`·`log_kind`)가 아닌 줄은 `parse_error=true`, `log_kind=raw` 로
+  보관하며 `message` 를 마스킹(data-api `MaskingConverter` 4규칙의 Lua 근사 — 교대·대소문자 무시를 풀어 쓴 패턴이고 ASCII 기준)하고 16 KiB 로 자른다(`truncated`, `original_size_bytes`).
+  JSON 이 아닌 스택 트레이스는 줄마다 따로 들어온다(멀티라인 병합은 Docker 분할 줄만).
+- Loki 라벨: `env`(dev·staging·prod·unknown) · `service`(컨테이너 라벨이 정한 값) · `log_kind`(application·access·raw). 세 값은 라벨로 옮겨지며 줄 본문에서는 빠진다.
+  요청·이벤트 ID 등 나머지는 JSON 필드라 `| json | request_id="…"` 로 찾는다. Loki 3 의 자동 `service_name` 라벨은 `discover_service_name: []` 로 껐다.
+- 재시도: 연결 실패·5xx·429 는 한도 없이 재시도(디스크 버퍼가 128M 를 넘으면 오래된 청크부터 버려진다), 4xx 는 버린다. 완전 무유실은 보장하지 않는다.
+- Promtail 전환: `ops-monitor` `up` 은 Fluent Bit 이 5초 간격 12회(60초) 내내 `Running` 이고 재시작 횟수가 기동 직후 기준값에서 늘지 않을 때만 기존 Promtail 을 지우고, 아니면 Promtail 을 남기고 job 이 실패한다.
+  이 게이트는 **기동 확인까지만** 한다 — Lua 가 레코드마다 오류를 내는 상태나 Loki 로 실제 전달되는지는 확인하지 않는다.
+- Lua 허용 목록은 compose 서비스 이름(`data-api`·`business-api`·`notification`·`realtime`)과 project `phone` 에 의존한다. 서비스 이름이나 project 를 바꾸면 로그가 오류 없이 조용히 버려진다.
+  Promtail 설정 파일은 저장소에서 삭제됐다 — 체크아웃이 갱신된 뒤 기존 Promtail 이 재시작되면 못 뜰 수 있으니 전환은 `up` 으로 바로 한다.
+- **Loki 수용창 밖 줄은 거절된다**: 같은 라벨 스트림의 최신 시각보다 `max_chunk_age`(기본 2h)의 절반(1h) 넘게 오래된 줄은 Loki 가 `too far behind` 로 거절한다
+  (`reject_old_samples: false` 와 무관). 첫 기동 재읽기(`Read_From_Head`)에서 컨테이너 여러 개가 섞이면 생길 수 있다. 수집기는 시각을 바꿔 감추지 않는다.
+  로컬 하네스 실측(Loki 3.3.2·Fluent Bit 4.2.8): 1시간 안쪽으로 오래된 줄 20/20 수용, 3시간 오래된 줄 20/20 거절(청크 전체 400 → Fluent Bit `dropped_records` 20·`errors` 1),
+  오래된 5 + 방금 5 가 같은 청크이면 방금 줄 5 는 수용·오래된 5 는 거절되는데 이때는 **Fluent Bit 지표에 아무것도 남지 않고** Loki `loki_discarded_samples_total{reason="too_far_behind"}` 로만 보인다(합계 25).
+  원본 보관 경로는 S3(GROMO-2556)이다. 거절 수는 위 두 지표로 본다.
+- 로컬 검증: `fluent-bit/local-test/run.sh` (Docker 필요, 끝나면 자기 프로젝트 `obs2562-collector` 를 `down -v`).
+
+## 원본 로그 S3 보관 · Nginx · canary (GROMO-2556)
+
+Fluent Bit 한 프로세스가 같은 레코드를 Loki 와 S3 로 «독립적으로» 보낸다. 운영 절차·시나리오 결과·전환 순서는
+[ingestion-runbook.md](../../docs/architecture/server-log-observability/ingestion-runbook.md).
+
+- **선택 모듈(기본 꺼짐)**: `fluent-bit/modules/{s3,nginx-host}-{on,off}` 중 하나가 overlay 에서 `/fluent-bit/etc/modules/<이름>` 에 마운트된다.
+  `OBS_LOG_S3=on`(원본 S3 출력), `OBS_LOG_NGINX_HOST=on`(dev 호스트 Nginx 파일 tail). **dev 에는 S3 자격이 없으므로 `OBS_LOG_S3` 는 dev 에서 켜지 않는다.**
+- **변수를 안 줘도 2555 와 달라지는 것 두 가지**: ① canary 가 모듈 스위치와 무관하게 **기본 켜짐**이라 Loki 에 `service="canary"` 스트림이 생긴다
+  (`service` 라벨 값 전체를 세는 대시보드·알림이 있으면 영향받는다. 끄는 스위치는 없다 — 필요해지면 후속). ② `/var/log/nginx` 읽기 전용
+  마운트는 Nginx 모듈이 꺼져 있어도 붙는다 — 호스트에 디렉터리가 없으면 Docker 가 빈 디렉터리(root 소유)를 만든다. 모듈이 꺼져 있으면 읽지 않는다.
+- **S3 출력**: 레코드를 `s3.<env>.<service>` 태그로 복제(rewrite_tag, keep)해 S3 출력만 받게 한다 → 객체 키 `system_log/v2/env=…/service=…/date=…/hour=…/<HOSTNAME>-<8자>.json.gz`,
+  gzip JSONL, 전용 `store_dir`(`fluent_bit_state` 볼륨) + `store_dir_limit_size`, 엔진 쪽 S3 청크 상한 `storage.total_limit_size 64M`(Loki 128M 와 따로). 날짜·시간은 객체 «첫 레코드»의 event time(UTC)이다.
+- **Nginx**: dev 호스트(systemd) 파일은 `nginx-host` 모듈, prod 컨테이너 Nginx 는 Docker 입력(서비스 이름 `nginx` 허용). 둘 다 `logs.lua` 가 query·토큰·이메일·휴대폰·client IP·referrer 를 제거한다.
+  JSON `log_format` 은 [`server/scripts/nginx-log-format.conf.example`](../scripts/nginx-log-format.conf.example).
+- **canary**: Fluent Bit `dummy` 입력이 60초마다 `service=canary` 레코드 1건을 만든다(Loki, S3 모듈이 켜져 있으면 S3 까지). 확인은 `fluent-bit/local-test/s3/canary.py`.
+- **로컬 검증**: `fluent-bit/local-test/s3/run-s3.sh` (MinIO, 프로젝트 `obs2562-s3`, 끝나면 `down -v`).
 
 ## 쿼리 부하 L3 (옵션 — 느린 쿼리 Top N)
 

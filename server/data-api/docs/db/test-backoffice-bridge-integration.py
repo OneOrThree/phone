@@ -47,6 +47,8 @@ def main():
     raw = json.loads((r.ASSETS/'backoffice-profile.json').read_text())
     entry = r.extension_entry()
     canonical = d.bundled_history(base)
+    # 브리지는 V0..6 이력까지만 기록한다. 그 뒤 후속 migration(V7 이후)은 deploy-v0.py 의 current migrate 가 적용한다.
+    bridged = canonical[:1 + len(raw['bridge_history'])]
     extension_path = r.BASELINE.parent.parent/'migration'/r.EXTENSION_SCRIPT
     def seed_legacy(database, extension=True):
         create(database)
@@ -72,7 +74,7 @@ def main():
         clone('legacy','restored')
         create('fresh')
         sql('fresh',HISTORY+'\n'+'\n'.join((r.BASELINE.parent/item['script']).read_text()+'\nSET search_path=public,pg_catalog;\n'+history_insert(rank,item)
-                                         for rank,item in enumerate(canonical,1)))
+                                         for rank,item in enumerate(bridged,1)))
         fresh_fingerprint=fingerprint('fresh')
         if args.generate_profile:
             raw['source_schemas']=sorted({fingerprint(name) for name in ('legacy','restored')})

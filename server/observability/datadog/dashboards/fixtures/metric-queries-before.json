@@ -1,0 +1,17 @@
+[
+  "avg:docker.cpu.usage{$env} by {service}",
+  "avg:docker.mem.rss{$env} by {service}",
+  "avg:redis.mem.used{$env} by {redis_instance}",
+  "avg:redis.net.clients{$env} by {redis_instance}",
+  "max:kafka.consumer_lag{kafka_cluster:gromo-dev,$env} by {consumer_group,topic}",
+  "p95:trace.servlet.request.duration{$env,service:gromo-*} by {service,resource_name}",
+  "sum:docker.net.bytes_rcvd{$env} by {service}.as_rate()",
+  "sum:kafka.net.bytes_in.rate{kafka_cluster:gromo-dev,$env}",
+  "sum:kafka.net.bytes_out.rate{kafka_cluster:gromo-dev,$env}",
+  "sum:kafka.net.messages_in.rate{kafka_cluster:gromo-dev,$env}",
+  "sum:redis.stats.evicted_keys{$env} by {redis_instance}.as_rate()",
+  "sum:redis.stats.keyspace_hits{$env} by {redis_instance}.as_rate()",
+  "sum:redis.stats.keyspace_misses{$env} by {redis_instance}.as_rate()",
+  "sum:trace.servlet.request.errors{$env,service:gromo-*} by {service,resource_name}.as_rate()",
+  "sum:trace.servlet.request.hits{$env,service:gromo-*} by {service,resource_name}.as_rate()"
+]

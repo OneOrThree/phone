@@ -58,7 +58,8 @@ class NotificationReleaseBridgeTest {
             Files.writeString(output.resolve("source-schema.txt"), NotificationReleaseBridge.schema(connection));
         }
         jdbc.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
-        Flyway.configure().dataSource(source).load().migrate();
+        // 전환기의 target 은 정규 V15 까지다. 그 뒤 migration(V16 이후)은 전환 후 일반 Flyway 가 적용한다.
+        Flyway.configure().dataSource(source).target("15").load().migrate();
         try (Connection connection = source.getConnection()) {
             Files.writeString(output.resolve("target-schema.txt"), NotificationReleaseBridge.schema(connection));
         }
@@ -89,7 +90,7 @@ class NotificationReleaseBridgeTest {
         assertThat(jdbc.queryForList("SELECT * FROM deliveries ORDER BY event_id")).isEqualTo(deliveries);
         assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history WHERE installed_rank<=9 ORDER BY installed_rank"))
                 .isEqualTo(history);
-        Flyway flyway = Flyway.configure().dataSource(source).load();
+        Flyway flyway = Flyway.configure().dataSource(source).target("15").load();
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         apply();

@@ -226,7 +226,7 @@ V9.1만 V14·V15 이력으로 대체하고 V1–V9 원본 이력은 보존합니
 애플리케이션 Flyway의 `public` 스키마 밖에 있습니다. 실패하면 DDL·데이터·원장·receipt가 모두 롤백됩니다.
 재실행은 최초 실행과 같은 백업 파일의 SHA256, 정확한 target 구조·원장, 기존 receipt가 모두 맞을 때만 아무 변경 없이 성공합니다.
 V16 이후에는 이 전환기의 재실행을 거절하며 이행 증거는 receipt를 별도로 조회합니다. V9.1을 제거한 installed_rank 10의 공백은 원본 V1–V9 이력을 보존한 결과이며 정상입니다.
-전환 후 일반 main 이미지의 Flyway validate/migrate가 성공하고 추가 migration 0건인지 확인한 뒤 서비스를 재기동합니다.
+전환 후 일반 main 이미지의 Flyway migrate(검증 포함)가 성공하고 V15 뒤의 정규 migration(V16 이후)만 추가 실행되는지 확인한 뒤 서비스를 재기동합니다.
 서비스 정지는 운영자가 보장해야 하며 연결 부재 확인과 DB 잠금만으로 새로운 관리자 연결까지 영구 차단하지는 않습니다.
 
 로컬 검증은 `./gradlew test --tests '*NotificationReleaseBridgeTest' checkstyleMain spotbugsMain`입니다.

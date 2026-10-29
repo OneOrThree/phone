@@ -186,7 +186,7 @@ Realtime 기동 로그는 dev VM에서 `docker logs --timestamps phone-realtime`
 
 ## 8. 위성 배포 준비
 
-[`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, 공유 Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다.
+[`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, 공유 Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다. 렌더된 Compose 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION` 검사가 필수이므로 로컬·수동 실행자는 `IMAGE_REVISION`(배포 커밋 SHA, `unknown` 불가)을 환경변수로 줘야 하고, `deploy-core-dev.py` 도 같은 검사를 합니다. `docker-compose.business.yml` 의 `OBS_ENV: ${DEPLOY_ENV:-dev}` 는 위성 CD 경로에서 쓰이지 않는 단독 진입점이라 검사 대상이 아니지만, `DEPLOY_ENV` 를 dev 밖으로 주면 위성 검사와 값이 어긋납니다.
 
 ```bash
 python3 server/scripts/prepare-satellite-deploy.py --help
@@ -243,7 +243,7 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 ## 10. 로그 S3 적재본 수명 주기
 
-[`s3-log-archive-lifecycle.json`](s3-log-archive-lifecycle.json)은 운영 로그 적재 버킷 `gromo-prod-logs-808715036056`(AWS 프로필 `gromo`)의 만료 규칙입니다. 접두 세 개 모두 **90일**입니다.
+[`s3-log-archive-lifecycle.json`](s3-log-archive-lifecycle.json)은 운영 로그 적재 버킷 `gromo-prod-logs-<account-id>`(AWS 프로필 `gromo`)의 만료 규칙입니다. 접두 세 개 모두 **90일**입니다.
 
 | 접두 | 내용 | 적재 경로 |
 | --- | --- | --- |
@@ -259,12 +259,21 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 `put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
 
+`<account-id>`는 운영 AWS 계정의 12자리 ID이며(dev 시크릿 `gromo/dev/env`가 있는 계정과 같은 계정) 공개 문서에 적지 않습니다. ID 자체는 접근 권한을 주지 않는 식별자지만 공격 표면 정보라 가립니다. 실제 버킷 이름은 Infra 저장소(현행 `OneOrThree/Infra`, 이 버킷의 원본 기록은 구 `OneOrThree/terraform`의 `aws-prod-server/s3.tf`)나 `aws --profile gromo sts get-caller-identity`로 확인합니다.
+
 ```bash
-aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056
-aws --profile gromo s3api put-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056 \
+aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-<account-id>
+aws --profile gromo s3api put-bucket-lifecycle-configuration --bucket gromo-prod-logs-<account-id> \
   --lifecycle-configuration file://server/scripts/s3-log-archive-lifecycle.json
-aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056
+aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-<account-id>
 ```
+
+### `system_log/v2/` (GROMO-2556)
+
+Fluent Bit 이 올리는 새 접두입니다. 키는 `system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOSTNAME>-<8자>.json.gz`(gzip JSONL)이고
+`system_log/` 규칙의 90일·미완료 multipart 1일 범위에 들어갑니다 — **규칙 파일은 바꾸지 않았고, 실제 버킷의 적용 여부는 미확인**(2554)입니다.
+날짜·시간은 객체 첫 레코드의 event time(UTC)이라 정확한 발생·수집 시간 파티션이 아닙니다. 켜는 스위치·순서·기존 업로더(590 타이머·2288)와의 중복 확인·롤백은
+[ingestion-runbook.md](../../docs/architecture/server-log-observability/ingestion-runbook.md). dev 에는 S3 자격이 없어 dev overlay 에서는 꺼져 있습니다(`OBS_LOG_S3` 기본 off).
 
 ## 11. 실행 전후 확인
 

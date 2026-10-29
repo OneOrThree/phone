@@ -1165,6 +1165,9 @@ Table event_outbox [note: '내구 이벤트 봉투 (V51, A21) — 명령 트랜�
   version        bigint       [not null, note: 'aggregate 행 잠금 아래 발급된 단조 증가 값 (A22 ㊸). 시퀀스 금지 — 할당 순서 ≠ 커밋 순서라 나중에 커밋된 최신 상태가 폐기된다']
   params         jsonb        [not null, note: '사건별 발송 입력. 소비자는 모르는 필드를 무시한다']
   created_at     timestamptz  [not null]
+  origin_request_id     varchar(128) [note: 'V7, GROMO-2557 — 최초 원인 요청의 request_id(이미 있던 origin 우선). 봉투 본문 밖 열이라 소비자·멱등 비교에 섞이지 않는다. append 때 한 번 적고 바꾸지 않는다. 문맥 없는 append·V7 이전 행은 null']
+  origin_trace_id       varchar(64)  [note: 'V7 — append 순간 활성 tracer 의 trace id 원문(dd-trace-api CorrelationIdentifier). 10진·32자리 hex 를 정규화하지 않고 저장. agent 없음·"0" 은 null']
+  trace_context_version smallint     [note: 'V7 — 위 두 값의 형식 버전. 하나라도 있으면 1, 둘 다 없으면 null']
 
   indexes {
     event_id [unique, name: 'uq_event_outbox_event_id']

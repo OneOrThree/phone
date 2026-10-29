@@ -17,6 +17,9 @@ services:
     environment:
       SERVER_PORT: '8080'
       DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
+      OBS_SERVICE: business-api
+      OBS_ENV: ${DEPLOY_ENV:-dev}
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
       BUSINESS_REDIS_HOST: redis
       BUSINESS_REDIS_USERNAME: business
     expose:

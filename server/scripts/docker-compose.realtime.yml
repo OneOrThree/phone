@@ -79,6 +79,10 @@ services:
       DD_VERSION: ${IMAGE_REVISION:-unknown}
       DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
       DD_LOGS_INJECTION: "true"
+      OBS_SERVICE: realtime
+      OBS_ENV: dev
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"
       DD_PROFILING_ENABLED: "true"
       DD_DATA_STREAMS_ENABLED: "true"
