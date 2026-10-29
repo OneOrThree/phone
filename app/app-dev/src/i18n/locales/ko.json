@@ -704,6 +704,7 @@
       "gramA11y": "축음기 · 음악 고르기"
     },
     "result": {
+      "restart": "다시 집중하기",
       "title": "이번 집중 결과",
       "defaultSubject": "이번 집중",
       "durationLabel": "이번 집중 시간",
