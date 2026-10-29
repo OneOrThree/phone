@@ -80,4 +80,5 @@ dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는
 - 모든 단계의 실제 실행(전부 미실행).
 - `prod-cd.yml` 의 서비스 단위 적용 가능 여부, prod 의 Nginx compose 서비스명, 실제 S3 리전(`ap-northeast-2` 는 가정), 두 업로더의 공존.
 - Promtail 복귀 절차의 실제 동작.
+- 알려진 수집 결함: 16 KiB 넘는 줄의 Docker 조각이 json-file 회전 경계에 걸리면 그 줄이 Loki·S3 에서 빠진다(로컬 재현, [런북 §7 해석과 한계](ingestion-runbook.md#해석과-한계)). dev 전환 판정에서 큰 예외 줄 누락을 이 경우와 구분한다.
 - §4 LogQL 의 실제 실행 결과.
