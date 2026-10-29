@@ -168,22 +168,38 @@ local function redact_run(run)
   if stem:find("%d") or stem:find("%u") or not stem:find("[%-_%.]") then return ":redacted" .. ext end
   return run
 end
+-- query·fragment 시작 위치: `?`·`#` 와 퍼센트 인코딩된 `%3F`·`%23`(대소문자 무관). `%253F` 는 «%25 + 3F» 라 걸리지 않는다.
+local function query_pos(s)
+  local p = s:find("[?#]")
+  for _, pat in ipairs({ "%%3[Ff]", "%%23" }) do
+    local q = s:find(pat)
+    if q and (not p or q < p) then p = q end
+  end
+  return p
+end
 local function sanitize_path(uri)
-  uri = tostring(uri or ""):gsub("[?#].*$", ""):gsub("[%c]", "")
+  uri = tostring(uri or "")
+  local cut = query_pos(uri)
+  if cut then uri = uri:sub(1, cut - 1) end
+  uri = uri:gsub("[%c]", "")
   uri = uri:gsub(TOKEN_RUN, redact_run)
   return (truncate(mask(uri), 512))
 end
 
 -- 줄 전체 백스톱: Nginx 는 요청 줄·헤더를 이스케이프 없이 error 로그에 쓰므로 따옴표 경계가 모호하다(`request: "GET /a"?q=S HTTP/1.1"`).
 -- 따옴표와 무관하게 공백으로 나뉜 각 토큰에서 ?·# 뒤를 지우고(토큰 끝의 닫는 `"`·`,` 는 남긴다), '/' 가 든 토큰은 경로 토큰 규칙을 적용한다(스킴://호스트는 건드리지 않는다).
+-- upstream URL 의 userinfo(`user:pass@`)는 호스트 앞에서 지운다. base 는 `스킴://권한부` 라 마지막 '@' 까지가 userinfo 다.
+local function redact_userinfo(base)
+  return (base:gsub("^(.-://).*@", "%1:redacted@"))
+end
 local function backstop(text)
   return (text:gsub("%S+", function(tok)
-    local pos = tok:find("[?#]")
+    local pos = query_pos(tok)
     if pos then tok = tok:sub(1, pos - 1) .. tok:sub(pos):match("[\",]*$") end
     if tok:find("/", 1, true) then
       local head, path = tok:match("^(.-://[^/]*)(.*)$")
       if not head then head, path = "", tok end
-      tok = head .. path:gsub(TOKEN_RUN, redact_run)
+      tok = redact_userinfo(head) .. path:gsub(TOKEN_RUN, redact_run)
     end
     return tok
   end))
@@ -192,7 +208,7 @@ end
 -- URL: 스킴·호스트는 보존하고 경로만 sanitize_path(query 제거 + 토큰 세그먼트 치환)에 넘긴다.
 local function sanitize_url(u)
   local base, path = u:match("^(%a[%w+.-]*://[^/?#]*)(.*)$")
-  if base then return base .. sanitize_path(path) end
+  if base then return redact_userinfo(base) .. sanitize_path(path) end
   return sanitize_path(u)
 end
 

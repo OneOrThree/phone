@@ -8,7 +8,7 @@ SECRET = "SECRETTOKEN"
 expected, kinds = [], {}
 # 정상 경로는 가려지면 안 된다(과차단 회귀) — 종류별 «수집 결과의 http_path 기대값». 해시 정적 파일은 stem 만 가리고 확장자는 남는다.
 UUID = "123e4567-e89b-12d3-a456-426614174000"
-EXPECT_PATH = {"ok-kebab": "/pub/notification-preferences", "ok-uuid": f"/pub/{UUID}.png", "ok-hash": "/pub/:redacted.js"}
+EXPECT_PATH = {"ok-kebab": "/pub/notification-preferences", "ok-uuid": f"/pub/{UUID}.png", "ok-hash": "/pub/:redacted.js", "ok-enc": "/pub/a b/c"}  # ok-enc: 인코딩된 공백(%20) — $uri 는 디코딩 값
 def call(method, path, headers=None, body=None):
     c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     c.request(method, path, body=body, headers=headers or {})
@@ -32,6 +32,9 @@ for i in range(n):
         "ok-kebab": ("GET", "/pub/notification-preferences", {}, None),                               # 소문자 kebab 라우트 -> 유지
         "ok-uuid": ("GET", f"/pub/{UUID}.png", {}, None),                                           # UUID + 확장자 -> 유지
         "ok-hash": ("GET", "/pub/main.3f2a9c1b7d4e5f60a1b2.js", {}, None),                          # 해시 파일명 -> stem 만 :redacted, .js 유지
+        "ok-enc": ("GET", "/pub/a%20b/c", {}, None),                                                  # 인코딩된 정상 문자 -> 유지($uri 는 디코딩 값)
+        "502-enc": ("GET", f"/api/y%3Ftoken=ENCSECRET{tag}&code=ENCSECRET{tag}", {}, None),           # %3F 로 인코딩된 query -> error 로그 request·upstream 에 raw 로 남는다
+        "502-enc-frag": ("GET", f"/api/y%23ENCSECRET{tag}", {}, None),                                # %23 fragment
         "404-path": ("GET", f"/invitations/PATHTOKEN{tag}ABCDEFGHIJKLMNOP", {}, None),
         "404-hex": ("GET", "/invitations/c0ffeec0-ffeec0ffeec0-ffeec0ff-eec0ffee-c0ffeec0ffee", {}, None),  # UUID 꼴이 아닌 긴 hex
         "401-user": ("GET", "/auth/", {"Authorization": f"Basic {basic}"}, None),                     # user "<이름>" was not found
@@ -42,5 +45,5 @@ for i in range(n):
     }.items():
         status, edge = call(m, p, h, b)
         expected.append(edge); kinds[edge] = [kind, status]
-json.dump({"expected": expected, "kinds": kinds, "paths": EXPECT_PATH, "forbidden": [SECRET, "REFSECRET", "@example.com", "person", "C0DE", "1234-5678", "PATHTOKEN", "token=", "INV1TE", "USERSECRET", "c0ffee"]}, open(out, "w"))
+json.dump({"expected": expected, "kinds": kinds, "paths": EXPECT_PATH, "forbidden": [SECRET, "REFSECRET", "@example.com", "person", "C0DE", "1234-5678", "PATHTOKEN", "token=", "INV1TE", "USERSECRET", "c0ffee", "ENCSECRET"]}, open(out, "w"))
 print(f"sent {len(expected)} requests to :{port}")
