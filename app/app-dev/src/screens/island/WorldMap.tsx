@@ -2622,9 +2622,8 @@ function FinalIslandScene({
     paddingHorizontal: semanticTokens.spacing.control,
     gap: primitiveTokens.space[2],
   } as const;
-  // 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139). 로컬 비용·BUILD 카드는 목업에서만
-  const serverBuildCard =
-    !visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt;
+  // 첫 건물(회관·게시판)의 목표·공사 상태는 모든 주민에게 보인다. 착공 권한은 서버 옵션으로 판단한다.
+  const serverBuildCard = !visiting && facts && next && onServerBuilt;
   const mockBuildCard = !visiting && !facts && (i.construction || next);
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
@@ -2812,7 +2811,7 @@ function FinalIslandScene({
       )}
       {showActions && (
         <>
-          {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
+          {/* 첫 건물(회관·게시판) 카드는 주민 모두에게 표시하고 채팅 줄은 카드 위에 둔다. */}
           {serverBuildCard && (
             <ServerBuildCard
               key={`${facts.islandId}:${next}`}
