@@ -3,6 +3,8 @@ export type ContentStatus = 'draft' | 'review' | 'approved' | 'publishing' | 'pu
 export interface Session { actor: string; csrfToken: string; mode: 'local' | 'connected'; environment: 'local' | 'dev' | 'prod' }
 export interface HistoryItem { id: string; kind: ContentKind; title?: string; body?: string; status?: string; publishedAt?: string; createdAt?: string; issueDate?: string; issueNo?: number; notificationKind?: string; userId?: string; deviceCount?: number; receiptCount?: number; openedCount?: number; [key: string]: unknown }
 export interface HistoryPage { items: HistoryItem[]; total?: number; nextCursor?: string | null }
+export interface FcmTemplate { id: string; kind: string; locale: string; title: string | null; body: string; enabled: boolean; version: number }
+export interface FcmCatalogPage { items: FcmTemplate[]; nextCursor?: string | null }
 export interface MagazineCard {
   islandId: string; name: string; buildingCount: number; memberCount: number;
   maxMembers: number; averageFocusMinutesPerDay: number | null;

@@ -230,6 +230,24 @@ test("운영 이력은 환경을 확인한 뒤 원장과 게시 DB에서 읽는�
   assert.deepEqual(await new Upstream({ mode: "local" }).history("magazine", "", "test", {}),
     { items: [], total: 0, nextCursor: null });
 });
+test("FCM 알림 문구 목록은 환경 확인 후 페이지 번호를 전달한다", async () => {
+  const paths = [];
+  const upstream = new Upstream({
+    mode: "connected", environment: "prod", expectedFcmProjectId: "gromo-prod",
+    dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
+    fetchImpl: async (url, options) => {
+      paths.push(`${options.method} ${url.pathname}${url.search}`);
+      if (url.pathname.endsWith("/environment"))
+        return Response.json({ ...apiContract, environment: "prod", fcmProjectId: "gromo-prod" });
+      return Response.json({ items: [{ id: "ADMIN_ANNOUNCEMENT.ko" }], nextCursor: null });
+    },
+  });
+  const page = await upstream.catalog("member-1",
+    { dataToken: "data-token", notificationToken: "notification-token" }, "BET_RESULT.ko");
+  assert.equal(page.items[0].id, "ADMIN_ANNOUNCEMENT.ko");
+  assert.ok(paths.includes("GET /internal/admin/templates?limit=100&cursor=BET_RESULT.ko"));
+  assert.equal(paths.filter(path => path.endsWith("/environment")).length, 2);
+});
 test("정적 루트 제공과 경로 이탈 거부", async (t) => {
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

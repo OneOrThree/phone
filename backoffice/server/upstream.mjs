@@ -121,12 +121,12 @@ export class Upstream {
       input,
     );
   }
-  async catalog(actor, operator) {
+  async catalog(actor, operator, cursor = "") {
     if (this.mode === "local") return { items: [] };
     if (this.environment) await this.verifyEnvironment(this.environment, actor, operator);
     return this.request(
       this.notificationUrl,
-      "/internal/admin/templates",
+      `/internal/admin/templates?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
       actor,
       operator.notificationToken,
       undefined,

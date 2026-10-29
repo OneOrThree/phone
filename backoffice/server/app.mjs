@@ -341,7 +341,10 @@ export function createApp({
         return;
       }
       if (path === "/api/fcm/catalog" && req.method === "GET") {
-        send(200, await upstream.catalog(auth.actor, operator));
+        const cursor = url.searchParams.get("cursor") ?? "";
+        requireValue(cursor.length <= 200,
+          "알림 설정 페이지 번호가 올바르지 않습니다.");
+        send(200, await upstream.catalog(auth.actor, operator, cursor));
         return;
       }
       if (path === "/api/magazine/preview" && req.method === "POST") {
