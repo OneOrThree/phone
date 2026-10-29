@@ -1,0 +1,77 @@
+{
+  "scope": "2026-10-29 earlier pilot: 10 synthetic guests, 1 island",
+  "usersDeleted": 10,
+  "authSessionsDeleted": 10,
+  "guestDeviceClaimsDeleted": 10,
+  "membershipsDeleted": 10,
+  "userIslandContextsDeleted": 10,
+  "outboxEventsDeleted": 83,
+  "outboxDeliveriesDeleted": 113,
+  "aggregateVersionsDeleted": 22,
+  "chatMessagesDeleted": 600,
+  "chatInboundEventsDeleted": 22,
+  "notificationInboundEventsDeleted": 30,
+  "notificationLegacySessionFencesDeleted": 10,
+  "notificationSessionFencesDeleted": 10,
+  "notificationUserFencesDeleted": 10,
+  "ownedFocusSessionsBeforeCleanup": 0,
+  "ownedAnonymousDailyStatsBeforeCleanup": 0,
+  "protectedForeignSeaRecords": 1,
+  "protectedForeignSeaLifecycle": "COMPLETED",
+  "protectedEndedIslands": 1,
+  "normalSeaRecordByteIdenticalAfterCleanup": true,
+  "postCleanupExactScopeRows": {
+    "DATA": 0,
+    "CHAT": 0,
+    "NOTIFICATION": 0
+  },
+  "broadUuidAuditRemaining": {
+    "DATA": {
+      "groups": 1,
+      "focus_session_details": 1
+    },
+    "CHAT": {},
+    "NOTIFICATION": {}
+  },
+  "redisMatchingKeysAfterCleanup": 0,
+  "delayedRecheckAfterSeconds": 72.791,
+  "localPrivateFixtureDirectoryRemoved": true,
+  "remoteOwnCheckpointDirectoryRemoved": true,
+  "services": [
+    {
+      "service": "catus-app-1",
+      "health": "healthy",
+      "restartCount": 0,
+      "oomKilled": false
+    },
+    {
+      "service": "catus-realtime-1",
+      "health": "healthy",
+      "restartCount": 1,
+      "oomKilled": false
+    },
+    {
+      "service": "catus-business-api-1",
+      "health": "healthy",
+      "restartCount": 0,
+      "oomKilled": false
+    },
+    {
+      "service": "catus-notification-1",
+      "health": "healthy",
+      "restartCount": 0,
+      "oomKilled": false
+    }
+  ],
+  "completedAtUtc": "2026-10-29T03:42:45.133942+00:00",
+  "rawEvidenceFiles": [
+    "pilot-audit-decoded.json",
+    "pilot-purge-dryrun-decoded.json",
+    "pilot-purge-applied-decoded.json",
+    "pilot-verify-immediate-decoded.json",
+    "pilot-verify-delayed-decoded.json",
+    "pilot-local-credentials-removed.json",
+    "pilot-remote-removed-decoded.json",
+    "pilot-final-health-decoded.json"
+  ]
+}
