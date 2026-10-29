@@ -358,6 +358,38 @@ class ManageOfflineTest(unittest.TestCase):
         self.assertEqual(manage.restored_order(["a", "b", "c"], ["a", "new", "c", "b", "x"], {"new"}), ["a", "b", "c", "x"])
 
 
+class DuplicateNameTest(unittest.TestCase):
+    def setUp(self):
+        self.defs = manage.load_definitions()
+        name = self.defs[0]["name"]
+        self.dup = [{"id": i, "name": name, "filter": self.defs[0]["filter"]} for i in ("A", "B")]
+        self.state = {"pipelines": self.dup, "order": ["A", "B"], "origin": "t"}
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_two_same_name_aborts_plan_and_apply_without_writes(self):
+        backup = self.tmp / "b.json"
+        backup.write_text(json.dumps({"pipelines": self.dup, "pipeline_order": {"pipeline_ids": ["A", "B"]}}))
+        api = mock.Mock()
+        for argv in (["plan"], ["apply", "--record-out", str(self.tmp / "r.json")]):
+            with mock.patch.object(manage, "Api", lambda: api), contextlib.redirect_stdout(io.StringIO()) as buf:
+                with self.assertRaises(SystemExit):
+                    manage.main(argv + ["--backup-file", str(backup)])
+            self.assertIn("동명 중복", buf.getvalue())
+        api.call.assert_not_called()
+        self.assertIn("동명 중복", json.loads((self.tmp / "r.json").read_text())["aborted"])
+
+    def test_overlap_lists_other_same_name_pipeline_but_not_the_update_target(self):
+        one = {"id": "A", "name": self.defs[0]["name"], "filter": self.defs[0]["filter"]}
+        other = {"id": "B", "name": self.defs[0]["name"], "filter": self.defs[0]["filter"]}
+        st = {"pipelines": [one], "order": ["A"], "origin": "t"}
+        self.assertEqual(manage.duplicates(self.defs, st), {})
+        self.assertEqual([k for k, _, _ in manage.plan_actions(self.defs, st)][0], "update")
+        self.assertFalse([l for l in manage.overlaps(self.defs, st, manage.plan_actions(self.defs, st)) if "(A)" in l])
+        st["pipelines"].append(other)  # 동명 2개면 plan_actions 는 동작을 만들지 않는다 — 겹침은 두 ID 모두 나온다
+        lines = manage.overlaps(self.defs, st, [("update", self.defs[0], one)])
+        self.assertTrue(any("(B)" in l for l in lines) and not any("(A)" in l for l in lines))
+
+
 class FakeApi:
     """네트워크 없는 전송. fail_on=(method, n) 이면 그 method 의 n 번째 호출이 HTTP 실패(SystemExit)한다."""
 

@@ -146,10 +146,23 @@ def body(pipeline):
     return {k: pipeline[k] for k in BODY_KEYS if k in pipeline}
 
 
+def duplicates(defs, state):
+    """로컬 정의와 같은 이름의 서버 파이프라인이 2개 이상인 이름 → ID 목록. 어느 쪽을 갱신할지 알 수 없어 쓰기 전에 중단한다."""
+    out = {}
+    for d in defs:
+        ids = [p["id"] for p in state["pipelines"] if p["name"] == d["name"]]
+        if len(ids) > 1:
+            out[d["name"]] = ids
+    return out
+
+
 def plan_actions(defs, state):
     by_name = {p["name"]: p for p in state["pipelines"]}
+    dups = duplicates(defs, state)
     actions = []
     for d in defs:
+        if d["name"] in dups:  # 동명 중복 — 동작을 만들지 않는다(호출자가 중단)
+            continue
         cur = by_name.get(d["name"])
         if cur is None:
             actions.append(("create", d, None))
@@ -162,14 +175,14 @@ def plan_actions(defs, state):
     return actions
 
 
-def overlaps(defs, state):
-    names = {d["name"] for d in defs}
+def overlaps(defs, state, actions):
+    own = {cur["id"] for _, _, cur in actions if cur}  # 이번에 다룰 그 ID 만 제외한다 — 같은 이름의 다른 파이프라인은 겹침으로 본다
     lines = []
     for d in defs:
         mine = sources_in(d["filter"]["query"])
         for p in state["pipelines"]:
             shared = mine & sources_in((p.get("filter") or {}).get("query"))
-            if p["name"] not in names and shared:
+            if p["id"] not in own and shared:
                 lines.append(f"  겹침: '{d['name']}' ↔ '{p['name']}' ({p['id']}) source={sorted(shared)}")
     return lines
 
@@ -188,7 +201,9 @@ def print_plan(defs, state, actions):
             b = json.dumps(body(d), indent=2, sort_keys=True, ensure_ascii=False).splitlines()
             for line in difflib.unified_diff(a, b, "현재", "로컬", lineterm="", n=1):
                 print("      " + line)
-    found = overlaps(defs, state)
+    for name, ids in duplicates(defs, state).items():
+        print(f"  동명 중복 — 중단: '{name}' 이 서버에 {len(ids)}개 {ids} — 어느 쪽인지 알 수 없다. 사람이 정리한 뒤 다시 실행")
+    found = overlaps(defs, state, actions)
     print("필터 겹침(같은 source 를 처리하는 다른 파이프라인 — status remapper 는 먼저 만나는 하나만 적용):")
     print("\n".join(found) if found else "  없음")
     print("순서: 이 스크립트는 pipeline-order 를 바꾸지 않는다. 새 파이프라인 위치는 생성 후 다시 조회해 기록한다.")
@@ -227,6 +242,8 @@ def cmd_plan(args):
     _, st = _state(args, execute=False)
     defs = load_definitions()
     print_plan(defs, st, plan_actions(defs, st))
+    if duplicates(defs, st):
+        sys.exit("동명 중복 파이프라인 — 중단")
 
 
 def cmd_apply(args):
@@ -236,6 +253,11 @@ def cmd_apply(args):
     print_plan(defs, st, actions)
     if args.record_out and Path(args.record_out).exists():
         sys.exit(f"이미 있음: {args.record_out}")
+    dups = duplicates(defs, st)
+    if dups:  # 쓰기 전 중단. 기록엔 사유만 남긴다
+        if args.record_out:
+            save_json(args.record_out, {"dry_run": not args.execute, "aborted": f"동명 중복 파이프라인: {dups}", "created": [], "updated": [], "partial": False})
+        sys.exit("동명 중복 파이프라인 — 쓰기 전 중단")
     if args.execute and not args.record_out:
         sys.exit("--execute 에는 --record-out 이 필요하다(롤백 근거)")
     record = {
