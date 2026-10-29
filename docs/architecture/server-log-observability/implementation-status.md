@@ -77,6 +77,37 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 
 dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 배포 경로에서는 검증하지 않았다. agent가 실제로 넣는 MDC 형식, 실배포 JSON 출력, prod 적용은 미검증이다.
 
+## 2557에서 구현한 경로
+
+**Outbox 원인 문맥 저장.** Data가 Outbox 행을 쓸 때(append) origin을 캡처해 `event_outbox.origin_request_id`·`origin_trace_id` 열(Data Flyway V4, 추가 전용 nullable)에 저장한다. 이미 MDC에 origin이 있으면 그 쌍을 우선하고, 없을 때만 현재 요청 ID와 tracer API(`CorrelationIdentifier`)의 trace 원문을 쓴다. 캡처에 실패하면 origin 없이 접고 업무 쓰기는 그대로 진행한다. 재시도는 저장된 값을 읽기만 한다.
+
+**Relay 전달.** relay는 전달 행마다 로그 scope(`event_id`·origin·`delivery_id`·`attempt`)를 열고 닫으며 `event_name=outbox.delivery` INFO 한 줄로 결과를 남긴다. relay 풀 스레드의 MDC는 scope 밖에서 비어 있고, 스레드 사이로 MDC를 복사하지 않는다. carrier 생성·scope 열기·결과 로그 실패는 전달·재시도·DLT 판정을 바꾸지 않는다. carrier 생성이 실패하면 origin 헤더 없이, scope만 실패하면 헤더는 유지하고 로그 문맥 없이 전달한다.
+
+**헤더 이름.** Kafka는 `x-origin-trace-id`·`x-origin-request-id` 등 소문자 `x-*`, HTTP는 `X-Origin-Trace-Id`·`X-Origin-Request-Id`·`X-Delivery-Id`·`X-Attempt`·`X-Trace-Context-Version`(상수 `1`)이다. 도메인 이벤트 봉투·Kafka key·`envelope_hash` 대상 본문·멱등 키는 바꾸지 않는다.
+
+**Notification 수신.** 수신 경로가 헤더를 검증해 scope를 열고(`event_name=consumer.accept`), 값을 `deliveries`의 origin 열(Notification V14)에 저장해 이후 발송 로그가 같은 origin을 단다. 같은 이벤트를 재전달해도 저장된 origin·본문 해시는 바뀌지 않고, DLT로 보낼 때 추적 헤더를 유지한다. 형식이 틀린 칸은 버리고 모르는 버전은 문맥 없음으로 처리하며 수신·DLT 판정은 그대로다.
+
+**trace 표기(dd-trace 1.64.0).** 128-bit trace 생성·로그 출력이 기본 켜짐이라 이 서비스가 시작한 trace는 32 hex로 저장된다. 상위 64비트가 0이면 10진 표기가 되고, trace가 없으면 `"0"`을 저장하지 않는다.
+
+**검증.**
+
+| 범위 | 결과 |
+| --- | --- |
+| data-api 전체 | 1,887개 실패·오류 0 (2555 병합 트리 기준) |
+| notification 전체 | 221개 실패·오류 0 |
+| 로그 JSON | 렌더링된 JSON의 키를 단언 |
+| relay 풀 MDC | scope 밖에서 비어 있음을 단언 |
+| Data V4 롤백 | 이전 번들로 migrate·validate가 통과하는지 테스트 |
+
+**이 PR 범위 밖·후속.**
+
+1. 멱등 재요청 로그에 `event_id`·기존 origin 기록(설계 §3.1, 구현 계획 V18).
+2. Data `/internal/*` 수신의 `X-Origin-*` 채택. 지금은 Data 내부 HTTP 수신에서 새 Outbox를 쓰면 origin이 그 요청의 `request_id`가 되어 T1→T2→T3 origin 유지가 닫히지 않는다.
+3. 불량 carrier 진단 카운터. 지금은 조용히 버린다.
+4. 공통 내부 HTTP client(Business `InternalHttpClient` 등)의 origin 헤더 전파. Outbox HTTP transport에만 적용했다.
+
+**dev 배포 뒤 확인.** agent 활성 상태에서 `origin_trace_id` 원문 형식, agent 자동 헤더(`traceparent` 등)와 `x-origin-*`의 공존.
+
 ## 아직 구현하지 않은 경계
 
 - 이 첫 티켓은 요청 ID의 동기 HTTP 경로를 연결한다. Preview worker, Outbox 영속 carrier, Kafka/Redis/STOMP, Notification 묶음 전송은 후속 범위다.
