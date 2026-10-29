@@ -1,0 +1,75 @@
+{
+  "extension_sha256": "acaea4884a14d0c25ed5039116b4034615c3c7e7327d0622bd267629bfe0e92a",
+  "extension_history": {
+    "version": "137.1",
+    "type": "SQL",
+    "script": "V137_1__backoffice_publications.sql",
+    "checksum": 1663470133,
+    "success": true
+  },
+  "bridge_history": [
+    {
+      "version": "1",
+      "type": "SQL",
+      "script": "V1__focus_session_details_seat.sql",
+      "checksum": -2051199579,
+      "success": true
+    },
+    {
+      "version": "2",
+      "type": "SQL",
+      "script": "V2__construction_buildings.sql",
+      "checksum": -556691320,
+      "success": true
+    },
+    {
+      "version": "3",
+      "type": "SQL",
+      "script": "V3__deferred_uninhabited_island.sql",
+      "checksum": -542846060,
+      "success": true
+    },
+    {
+      "version": "4",
+      "type": "SQL",
+      "script": "V4__content_review_publications.sql",
+      "checksum": -764293243,
+      "success": true
+    },
+    {
+      "version": "5",
+      "type": "SQL",
+      "script": "V5__construction_policy_publications.sql",
+      "checksum": -1499416305,
+      "success": true
+    },
+    {
+      "version": "6",
+      "type": "SQL",
+      "script": "V6__focus_policy_publications.sql",
+      "checksum": 2098240747,
+      "success": true
+    }
+  ],
+  "canonical_sha256": {
+    "V1__focus_session_details_seat.sql": "85becb2fc00e51e54597118e25dfd43558acf7cab661435423e6a55ff0b5b894",
+    "V2__construction_buildings.sql": "0a00108ade395f39986625b703c5b5f10e9659b16ccaf44608a2e1a8e2449285",
+    "V3__deferred_uninhabited_island.sql": "b0d6c8dac3cc2b1b48de4ead8309712f4ad1a5c028b3653065ce11c78dce2ed6",
+    "V4__content_review_publications.sql": "3a190606447b0fb006a12233c9543ba31138ba60185b5e30154bd8d11a5b3be3",
+    "V5__construction_policy_publications.sql": "e1b60fe2bfbbb423770f9b7dde0dfb43db3c5b617855a6a20c5e61d7944fe541",
+    "V6__focus_policy_publications.sql": "e6a4fbcd9c3717310451546eed02d0623b7453d55226141cb5f3efdbbf617d5c"
+  },
+  "source_schemas": [
+    "051c1efbfaee0cc16ba34095f8813e47",
+    "3958904acf9d066665400c311bd9793e"
+  ],
+  "target_schemas": [
+    "130d41f9916a83a1adb5550c8c93909f",
+    "7c295d746d6c7691f46e073be289be6d"
+  ],
+  "final_schemas": [
+    "362dffa80e5e1592456ae8027236e553",
+    "dcbbb644d0233988c2eee049d03907f0",
+    "e935c2cbc5ffc0d3aa19f7bf7ffff0cd"
+  ]
+}

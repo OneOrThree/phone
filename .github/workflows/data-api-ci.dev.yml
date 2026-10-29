@@ -177,6 +177,7 @@ jobs:
         run: |
           python3 server/data-api/docs/db/test-rebase-v0.py
           python3 server/data-api/docs/db/test-deploy-v0.py
+          python3 server/data-api/docs/db/test-backoffice-bridge-integration.py
           python3 server/data-api/docs/db/test-compare-schema-dbml.py
 
   # PR에서는 merge-ref의 build 가능 여부를 검증하고 GAR 캐시만 갱신한다.
