@@ -160,6 +160,47 @@ def empty_compose_values(required: set[str], shared_env: Path, generated_env: st
             raise PrepareError("Compose 필수 보간 검사 결과를 읽지 못했습니다") from None
 
 
+def check_obs_metadata(files: list[Path], shared_env: Path, compose_values: dict[str, str],
+                       environment: str, project: str, services: dict[str, str], quote: Any) -> None:
+    """렌더된 compose 의 로그 메타데이터(OBS_*)가 서비스·환경·배포 커밋과 맞는지 배포 전에 확인한다.
+
+    ``services`` 는 {검사할 서비스 이름: compose 서비스 키}. 공개 식별자만 말하고 다른 값은 출력하지 않는다.
+    env 파일은 아직 쓰기 전이라 같은 이름의 빈 임시 파일로 바꿔 렌더한다(GROMO-2555).
+    """
+    revision = os.environ.get("IMAGE_REVISION", "")
+    if not revision or revision == "unknown":
+        raise PrepareError("IMAGE_REVISION 환경변수가 필요합니다 — 로그의 OBS_VERSION 이 배포 커밋을 가리켜야 합니다")
+    with tempfile.TemporaryDirectory(prefix="gromo-obs-check-") as directory:
+        empty = Path(directory) / "empty.env"
+        empty.write_text("", encoding="utf-8")
+        values = {key: (str(empty) if key in COMPOSE_FILE_KEYS.values() else value)
+                  for key, value in compose_values.items()}
+        generated = Path(directory) / "compose.env"
+        generated.write_text("".join(f"{key}={quote(value)}\n" for key, value in sorted(values.items())),
+                             encoding="utf-8")
+        argv = ["docker", "compose", "-p", project]
+        for path in files:
+            argv += ["-f", str(path)]
+        argv += ["--env-file", str(shared_env), "--env-file", str(generated), "config", "--format", "json"]
+        try:
+            result = subprocess.run(argv, text=True, capture_output=True, timeout=60,
+                                    env={**os.environ, "IMAGE_REVISION": revision})
+            rendered = json.loads(result.stdout)["services"] if result.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            rendered = None
+    if rendered is None:
+        # config 출력과 stderr 에는 비밀이 섞일 수 있어 전달하지 않는다.
+        raise PrepareError("로그 메타데이터 검사를 위한 compose 렌더에 실패했습니다")
+    for name, key in services.items():
+        env = (rendered.get(key) or {}).get("environment") or {}
+        if env.get("OBS_SERVICE") != name:
+            raise PrepareError(f"{name}: OBS_SERVICE 가 서비스 이름과 다릅니다")
+        if env.get("OBS_ENV") != environment:
+            raise PrepareError(f"{name}: OBS_ENV 가 배포 환경({environment})과 다릅니다")
+        if env.get("OBS_VERSION") != revision:
+            raise PrepareError(f"{name}: OBS_VERSION 이 비었거나 IMAGE_REVISION 과 다릅니다")
+
+
 def check_digest(label: str, reference: str) -> str:
     reference = reference.strip()
     if not reference:
@@ -367,6 +408,13 @@ def main() -> None:
         raise PrepareError(
             "compose 보간에 필요한 값이 없습니다 — " + ", ".join(missing)
             + f". 대조 대상: {', '.join(str(p) for p in checked)}")
+
+    obs_services = {"business-api": "business-api", "notification": "notification"}
+    if "data-api" in written:
+        obs_services["data-api"] = "data-api" if args.environment == "dev" else "app"
+    check_obs_metadata(checked, args.shared_env_file, compose_values, args.environment, args.project_name,
+                       {name: key for name, key in obs_services.items() if name in written},
+                       writer.dotenv_quote)
 
     for service, path in written.items():
         writer.write_atomic(path, rendered[service])
