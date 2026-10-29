@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 @Component
 @Slf4j
 public class BusinessRedisMarkers {
+    private static final long LEGACY_RETRY_NANOS = TimeUnit.SECONDS.toNanos(30);
     private static final DefaultRedisScript<Long> PUT = new DefaultRedisScript<>("""
             redis.call('SET', KEYS[1], '1', 'PXAT', ARGV[1])
             return 1
@@ -30,7 +31,7 @@ public class BusinessRedisMarkers {
     private final StringRedisTemplate redis;
     private final StringRedisTemplate legacy;
     private final LettuceConnectionFactory legacyFactory;
-    private volatile long legacyReadRetryAt;
+    private volatile long legacyReadFailureAt = System.nanoTime() - LEGACY_RETRY_NANOS;
 
     @Autowired
     public BusinessRedisMarkers(StringRedisTemplate redis, ClientResources resources,
@@ -77,13 +78,13 @@ public class BusinessRedisMarkers {
         if (redis.opsForValue().get(key) != null) {
             return true;
         }
-        if (legacy == null || System.nanoTime() < legacyReadRetryAt) {
+        if (legacy == null || System.nanoTime() - legacyReadFailureAt < LEGACY_RETRY_NANOS) {
             return false;
         }
         try {
             return legacy.opsForValue().get(key) != null;
         } catch (RuntimeException e) {
-            legacyReadRetryAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+            legacyReadFailureAt = System.nanoTime();
             log.warn("기존 Business Redis 차단 표지 조회 실패 — 새 저장소는 계속 검사한다. exception_type={}",
                     e.getClass().getSimpleName());
             return false;
