@@ -185,7 +185,7 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 
 | 운반 수단 | 담을 값 | 복원 책임 |
 | --- | --- | --- |
-| 내부 HTTP | tracer가 넣은 `traceparent`/`tracestate` 및 호환 DD headers, `X-Request-Id`, `X-Origin-Trace-Id`, `X-Origin-Request-Id`; 작업 호출은 허용된 event/delivery/operation ID headers | 수신 agent와 요청 필터. 서비스 인증·허용 경로를 통과한 내부 호출에서만 앱 문맥 수용. 인증 헤더와 추적 헤더는 별개 |
+| 내부 HTTP | tracer가 넣은 `traceparent`/`tracestate` 및 호환 DD headers, `X-Request-Id`, `X-Origin-Trace-Id`, `X-Origin-Request-Id`; 작업 호출은 허용된 event/delivery/operation ID headers(Outbox HTTP는 `X-Delivery-Id`·`X-Attempt`·`X-Trace-Context-Version`) | 수신 agent와 요청 필터. 서비스 인증·허용 경로를 통과한 내부 호출에서만 앱 문맥 수용. 인증 헤더와 추적 헤더는 별개 |
 | Outbox 내부 metadata | `origin_trace_id`, `origin_request_id`, 지원 시 원인 trace carrier, metadata version | Data 명령 TX에 함께 저장. Relay는 전달 행별 scope를 열고 닫음 |
 | Kafka headers | 현재 발행 시도의 trace carrier, `x-origin-trace-id`, `x-origin-request-id` | producer agent + 명시 metadata. consumer가 검증 후 복원 |
 | 도메인 이벤트 봉투 | 기존 `eventId` 유지 | listener가 `event_id`로 기록. 원래 봉투·checksum·idempotency key를 추적 metadata 때문에 바꾸지 않음 |
@@ -198,9 +198,9 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 
 - `request_id`는 현재 동기 HTTP 요청 번호, `origin_request_id`는 최초 원인 요청 번호다. agent 미활성·APM 만료 때도 후자를 조회할 수 있어야 한다.
 - **이미 있는 origin을 우선한다.** 최초 비동기 생성에서만 현재 실제 trace/request를 origin으로 저장하고, 후속 이벤트 생성·Relay 재시도·소비 재시도는 이를 그대로 전달한다. T1→T2→T3에서 origin을 T2/T3으로 바꾸지 않는다.
-- 업무 멱등 재요청이 기존 Outbox 행을 반환하면 원래 origin을 수정하지 않는다. 새 요청의 로그에 `event_id`·기존 origin을 기록해 두 요청에서 같은 사건으로 이동할 수 있게 한다.
-- carrier를 읽는 코드는 길이·형식·metadata version을 검증한다. 손상되거나 알 수 없는 추적 metadata는 무시하고 진단 카운터를 올리되, 정상 도메인 이벤트 처리를 실패시키거나 DLT로 보내지 않는다. metadata 추출 예외 때문에 업무 TX를 롤백하지 않는다.
-- 비동기 worker가 T2로 내부 HTTP를 호출하거나 HTTP Outbox transport를 이용할 때도 최초 T1/R1을 origin headers로 전파한다. 현재 trace만 전달하면 수신 측에서 origin을 잃는다. 공통 HTTP client와 Outbox HTTP transport 양쪽을 적용 대상으로 삼는다. reserved 추적 headers는 앱 입력·임의 `declaredHeaders`가 덮어쓰지 않도록 제한한다.
+- 업무 멱등 재요청이 기존 Outbox 행을 반환하면 원래 origin을 수정하지 않는다. 새 요청의 로그에 `event_id`·기존 origin을 기록해 두 요청에서 같은 사건으로 이동할 수 있게 한다(2557 미구현·후속).
+- carrier를 읽는 코드는 길이·형식·metadata version을 검증한다. 손상되거나 알 수 없는 추적 metadata는 무시하고 진단 카운터를 올리되(카운터는 2557 미구현·후속), 정상 도메인 이벤트 처리를 실패시키거나 DLT로 보내지 않는다. metadata 추출 예외 때문에 업무 TX를 롤백하지 않는다.
+- 비동기 worker가 T2로 내부 HTTP를 호출하거나 HTTP Outbox transport를 이용할 때도 최초 T1/R1을 origin headers로 전파한다. 현재 trace만 전달하면 수신 측에서 origin을 잃는다. 공통 HTTP client와 Outbox HTTP transport 양쪽을 적용 대상으로 삼는다(2557은 Outbox HTTP transport만, 공통 client와 Data `/internal/*` 수신의 `X-Origin-*` 채택은 미구현·후속). reserved 추적 headers는 앱 입력·임의 `declaredHeaders`가 덮어쓰지 않도록 제한한다.
 - 기존 Outbox의 trace는 현재 활성 tracer API에서 캡처한다. encoder가 나중에 만드는 canonical 문자열을 `MDC.get("dd.trace_id")`에서 찾지 않는다. provider와 저장 경계가 같은 정규화 함수를 사용하도록 계약 테스트를 둔다.
 - `attempt`는 단계별 로컬 시도 번호다. 서비스·전달 ID·operation ID 없이 attempt 숫자만으로 같은 시도를 판정하지 않는다.
 

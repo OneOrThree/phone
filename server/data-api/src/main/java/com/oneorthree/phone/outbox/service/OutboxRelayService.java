@@ -218,7 +218,8 @@ public class OutboxRelayService {
             EventOutbox envelope = envelopes.get(delivery.getOutboxId());
             boolean done;
             // 행 하나의 문맥 — 아래 예외 로그까지 이 행의 event_id·origin 을 달고, 끝나면 이 스레드의 이전 값으로 돌아간다.
-            // 관측 실패(carrier·scope 생성)가 축을 멈추면 안 된다 — 실패하면 문맥·origin 헤더 없이 전달은 그대로 진행한다.
+            // 관측 실패(carrier·scope 생성)가 축을 멈추면 안 된다 — 전달은 그대로 진행한다.
+            // carrier 생성이 실패하면 origin 헤더 없이, scope 만 실패하면 헤더는 유지하고 로그 문맥 없이 보낸다.
             OutboxCarrier carrier = OutboxCarrier.NONE;
             LogScope scope = null;
             try {
@@ -226,7 +227,8 @@ public class OutboxRelayService {
                 carrier = built;
                 scope = built.openScope();
             } catch (RuntimeException e) {
-                log.warn("원인 문맥 carrier 를 만들지 못해 문맥 없이 전달한다 — deliveryId={} target={}",
+                log.warn("원인 문맥 carrier·scope 생성 실패(carrier 실패면 origin 헤더 없이, scope 만 실패면 헤더 유지·로그 문맥 없이 전달)"
+                        + " — deliveryId={} target={}",
                         delivery.getId(), delivery.getTarget(), e);
             }
             try {
