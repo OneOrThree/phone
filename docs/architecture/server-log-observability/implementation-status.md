@@ -26,10 +26,10 @@
 
 | 티켓 | 작업 단위 | 현황(조정자 갱신) |
 | --- | --- | --- |
-| [2571](https://romance.atlassian.net/browse/GROMO-2571) | dev 수집 중단(18:43 KST Agent 종료) 타임라인·복구 조건 | PR #1400 리뷰 중 — 문서 `collection-stop-2026-10-29.md` |
-| [2572](https://romance.atlassian.net/browse/GROMO-2572) | Kafka Exporter·PostgreSQL 심각도 파이프라인(명시 매핑) | 구현 중 — Datadog 원격 검증·적용 미수행 예정 |
-| [2573](https://romance.atlassian.net/browse/GROMO-2573) | Kafka 브로커·Exporter 로그 링크 분리 | PR #1399 리뷰 완료·CI 대기 — 문서 `kafka-log-links.md` |
-| [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 조사 중 |
+| [2571](https://romance.atlassian.net/browse/GROMO-2571) | dev 수집 중단(18:43 KST Agent 종료) 타임라인·복구 조건 | 피처 병합 #1400 `4140564f1`(main 미반영) — 문서 `collection-stop-2026-10-29.md` |
+| [2572](https://romance.atlassian.net/browse/GROMO-2572) | Kafka Exporter·PostgreSQL 심각도 파이프라인(명시 매핑) | 피처 병합 #1401 `4340d08f8`(main 미반영, **Datadog 미적용** — 원격 Grok 검증·apply 미수행) — 문서 `datadog-severity-pipeline.md` |
+| [2573](https://romance.atlassian.net/browse/GROMO-2573) | Kafka 브로커·Exporter 로그 링크 분리 | 피처 병합 #1399 `dc802f084`(main 미반영, 대시보드 Datadog 반영 미수행) — 문서 `kafka-log-links.md` |
+| [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 피처 병합 #1402 `f818ed27d`(main 미반영, Business compose 수정 서버 미적용) — 문서 `kafka-profiler-errors-2026-10-29.md` |
 
 후속 4건의 «피처 병합»도 main 반영·배포가 아니다. 에픽 PR(피처 → main)은 사용자 지시로 이번에 열거나 병합하지 않고 준비 상태만 보고한다.
 
