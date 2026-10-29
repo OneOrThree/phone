@@ -19,7 +19,11 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.MockProducer;
+import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.serialization.Serializer;
 import org.mockito.ArgumentMatchers;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +35,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.ListenerExecutionFailedException;
+import org.springframework.kafka.listener.MessageListenerContainer;
+import org.springframework.kafka.mock.MockProducerFactory;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -46,7 +56,12 @@ import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -483,6 +498,157 @@ class InboundEventServiceTest {
                             .doesNotContainKeys("origin_request_id", "attempt", "delivery_id"));
         }
         verify(chatUserFence, times(1)).withdraw(user, 3L);
+    }
+
+    @Test
+    @DisplayName("Kafka 재시도·DLT 로그가 실패한 레코드의 event_id·원인을 단다 — 재시도 3회 뒤 DLT 1건, DLT 발행 실패는 성공으로 삼키지 않으며 처리 뒤 스레드 문맥은 되돌아간다 (GROMO-2581)")
+    void retryAndDeadLetterLogsCarryTheRecordContext() {
+        // 운영 빈 메서드 그대로 — 브로커만 kafka-clients MockProducer 로 바꾼다(실브로커 DLT 헤더 시험은 별도 티켓).
+        List<MockProducer<Object, Object>> producers = new CopyOnWriteArrayList<>();
+        RuntimeException[] sendFailure = {null};
+        Serializer<Object> bytes = (topic, data) -> data == null ? null
+                : data.toString().getBytes(StandardCharsets.UTF_8);
+        KafkaEventInbound inbound = new KafkaEventInbound(inboundEventService, objectMapper);
+        DefaultErrorHandler handler = inbound.realtimeEventsErrorHandler(new KafkaTemplate<>(
+                new MockProducerFactory<>(() -> {
+                    MockProducer<Object, Object> producer = new MockProducer<>(true, null, bytes, bytes);
+                    producer.sendException = sendFailure[0];
+                    producers.add(producer);
+                    return producer;
+                })));
+        Consumer<?, ?> consumer = mock(Consumer.class);
+        MessageListenerContainer container = mock(MessageListenerContainer.class);
+        // 계약 밖 type — 수신 기록 전에 거절되므로 매번 같은 예외로 실패한다(재시도해도 낫지 않는 사건).
+        UUID user = UUID.randomUUID();
+        String eventId = "user.updated:" + user;
+        ConsumerRecord<String, String> dead = carrying(new ConsumerRecord<>("realtime-events", 0, 10L, null,
+                withdrawn(user, 1).replace("user.withdrawn", "user.updated")), eventId, "req-dlt");
+        UUID other = UUID.randomUUID();
+        String otherEventId = "user.updated:" + other;
+        ConsumerRecord<String, String> undeliverable = carrying(new ConsumerRecord<>("realtime-events", 0, 11L, null,
+                withdrawn(other, 1).replace("user.withdrawn", "user.updated")), otherEventId, "req-dlt-fail");
+
+        MDC.put(LogContext.EVENT_ID, "outer");
+        try (CapturedLogs logs = CapturedLogs.of(KafkaEventInbound.class, DeadLetterPublishingRecoverer.class)) {
+            for (int delivery = 1; delivery <= 4; delivery++) {
+                deliverAndHandle(inbound, handler, dead, consumer, container, delivery < 4);
+            }
+            assertThat(producers.stream().flatMap(p -> p.history().stream()).toList())
+                    .as("재시도 3회 뒤 DLT 로 정확히 1건").singleElement()
+                    .satisfies(out -> assertThat(out.topic()).isEqualTo("realtime-events.DLT"));
+            List<CapturedLogs.Line> attempts = logs.lines(line -> line.message().startsWith("Kafka 사건 처리 실패")
+                    && eventId.equals(line.get("event_id")));
+            assertThat(attempts).extracting(CapturedLogs.Line::message).hasSize(4)
+                    .allSatisfy(message -> assertThat(message).contains("offset=10"));
+            assertThat(attempts.get(3).message()).contains("deliveryAttempt=4");
+            CapturedLogs.Line recovered = logs.lines(line -> line.message().startsWith("Kafka 사건 재시도 소진")).get(0);
+            assertThat(attempts).allSatisfy(line -> assertCarrier(line, eventId, "req-dlt"));
+            assertCarrier(recovered, eventId, "req-dlt");
+
+            // DLT 발행이 실패하면 — 발행기의 오류 줄과 실패 줄이 같은 문맥을 달고, 레코드는 재시도로 남는다(성공으로 삼키지 않음).
+            sendFailure[0] = new KafkaException("broker down");
+            for (int delivery = 1; delivery <= 4; delivery++) {
+                deliverAndHandle(inbound, handler, undeliverable, consumer, container, true);
+            }
+            assertCarrier(logs.lines(line -> line.message().startsWith("Kafka 사건 DLT 발행 실패")).get(0),
+                    otherEventId, "req-dlt-fail");
+            CapturedLogs.Line publisherError = logs.lines(line -> line.logger().equals(
+                    DeadLetterPublishingRecoverer.class.getName())
+                    && line.message().startsWith("Dead-letter publication to realtime-events.DLT failed")).get(0);
+            assertCarrier(publisherError, otherEventId, "req-dlt-fail");
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    @Test
+    @DisplayName("DLT 발행이 비동기로 실패해도 producer 스레드의 발행기 오류 줄이 그 레코드의 event_id·원인을 달고, 콜백 뒤 그 스레드 문맥은 되돌아간다 (GROMO-2581)")
+    void asyncDeadLetterFailureLogCarriesTheRecordContext() throws Exception {
+        List<MockProducer<Object, Object>> producers = new CopyOnWriteArrayList<>();
+        Serializer<Object> bytes = (topic, data) -> data == null ? null
+                : data.toString().getBytes(StandardCharsets.UTF_8);
+        KafkaEventInbound inbound = new KafkaEventInbound(inboundEventService, objectMapper);
+        DefaultErrorHandler handler = inbound.realtimeEventsErrorHandler(new KafkaTemplate<>(
+                new MockProducerFactory<>(() -> {
+                    MockProducer<Object, Object> producer = new MockProducer<>(false, null, bytes, bytes); // 완료는 아래 스레드
+                    producers.add(producer);
+                    return producer;
+                })));
+        Consumer<?, ?> consumer = mock(Consumer.class);
+        MessageListenerContainer container = mock(MessageListenerContainer.class);
+        UUID user = UUID.randomUUID();
+        String eventId = "user.updated:" + user;
+        ConsumerRecord<String, String> undeliverable = carrying(new ConsumerRecord<>("realtime-events", 0, 12L, null,
+                withdrawn(user, 1).replace("user.withdrawn", "user.updated")), eventId, "req-dlt-async");
+        Thread consumerThread = Thread.currentThread();
+        AtomicReference<Map<String, String>> afterCallback = new AtomicReference<>();
+        Thread broker = new Thread(() -> {
+            MDC.put(LogContext.EVENT_ID, "producer-own");
+            // 발행기가 완료 콜백을 걸고 결과를 기다리기 시작한 «뒤»에 실패로 완료한다 — 콜백은 이 스레드에서 돈다.
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while ((producers.stream().allMatch(p -> p.history().isEmpty())
+                    || consumerThread.getState() != Thread.State.TIMED_WAITING) && System.nanoTime() < deadline) {
+                LockSupport.parkNanos(Duration.ofMillis(10).toNanos());
+            }
+            producers.forEach(p -> p.errorNext(new KafkaException("broker down")));
+            afterCallback.set(MDC.getCopyOfContextMap());
+        }, "dlt-producer");
+
+        MDC.put(LogContext.EVENT_ID, "outer");
+        try (CapturedLogs logs = CapturedLogs.of(DeadLetterPublishingRecoverer.class)) {
+            for (int delivery = 1; delivery <= 3; delivery++) {
+                deliverAndHandle(inbound, handler, undeliverable, consumer, container, true);
+            }
+            broker.start();
+            deliverAndHandle(inbound, handler, undeliverable, consumer, container, true); // DLT 발행 — 실패로 재시도에 남는다
+            broker.join(Duration.ofSeconds(30).toMillis());
+
+            // 완료 콜백은 보통 위 producer 스레드에서 돈다(고치기 전엔 이 줄이 producer-own 을 달았다). 기다리던 소비자 스레드가 깨어나며
+            // 남은 콜백을 가져갈 수도 있어(CompletableFuture.postComplete) 스레드 이름은 단언하지 않는다 — 그때는 레코드 scope 안이다.
+            CapturedLogs.Line publisherError = logs.lines(line -> line.message().startsWith(
+                    "Dead-letter publication to realtime-events.DLT failed")).get(0);
+            assertCarrier(publisherError, eventId, "req-dlt-async");
+            assertThat(afterCallback.get()).as("콜백 뒤 producer 스레드는 자기 값으로 돌아왔다")
+                    .isEqualTo(Map.of(LogContext.EVENT_ID, "producer-own"));
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    /** 컨테이너가 하는 일 그대로 — 리스너가 던지면 그 레코드로 오류 처리기를 부른다. 끝나면 이 스레드의 바깥 값이 그대로여야 한다. */
+    private static void deliverAndHandle(KafkaEventInbound inbound, DefaultErrorHandler handler,
+            ConsumerRecord<String, String> record, Consumer<?, ?> consumer, MessageListenerContainer container,
+            boolean staysInRetry) {
+        RuntimeException failure = org.assertj.core.api.Assertions.catchRuntimeException(
+                () -> inbound.receive(record));
+        assertThat(failure).isInstanceOf(InboundEventService.InvalidEventException.class);
+        ListenerExecutionFailedException wrapped = new ListenerExecutionFailedException("listener failed", failure);
+        if (staysInRetry) {
+            assertThatThrownBy(() -> handler.handleRemaining(wrapped, List.of(record), consumer, container))
+                    .hasMessageContaining("Record in retry");
+        } else {
+            handler.handleRemaining(wrapped, List.of(record), consumer, container);
+        }
+        assertThat(MDC.get(LogContext.EVENT_ID)).isEqualTo("outer");
+        assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).isNull();
+        assertThat(MDC.get(LogContext.DELIVERY_ID)).isNull();
+    }
+
+    private static ConsumerRecord<String, String> carrying(ConsumerRecord<String, String> record, String eventId,
+            String origin) {
+        header(record, "x-event-id", eventId);
+        header(record, "x-origin-request-id", origin);
+        header(record, "x-origin-trace-id", "1234567890");
+        header(record, "x-delivery-id", "d-9");
+        header(record, "x-attempt", "2");
+        header(record, "x-trace-context-version", "1");
+        return record;
+    }
+
+    private static void assertCarrier(CapturedLogs.Line line, String eventId, String origin) {
+        assertThat(line.mdc()).containsEntry("event_id", eventId).containsEntry("origin_request_id", origin)
+                .containsEntry("origin_trace_id", "1234567890").containsEntry("delivery_id", "d-9")
+                .containsEntry("attempt", "2");
     }
 
     @Test

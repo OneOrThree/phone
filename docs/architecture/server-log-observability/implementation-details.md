@@ -107,14 +107,17 @@ DD `1.64.0`은 로그 발생 시점의 span context를 `ILoggingEvent`와 연결
 | Outbox scheduler | [OutboxRelayService](../../../server/data-api/src/main/java/com/oneorthree/phone/outbox/service/OutboxRelayService.java) | thread snapshot으로 넘길 수 없음. DB에 원인 문맥 저장 후 전달 행마다 복원하고 새 시도 trace 생성 |
 | Kafka consumer | Notification/Realtime listener | agent Kafka header 추출 + 이벤트 metadata scope. DLT/재시도 로그까지 적용 |
 | Realtime 메시지 실행 | STOMP inbound/outbound executor와 처리 interceptor | 메시지마다 문맥 설치·복원. session 전체를 한 trace로 고정하지 않음. 실제 handler 실행 thread에서 적용 |
-| Realtime 인스턴스 간 전달 | [RedisConfig](../../../server/realtime/src/main/java/com/oneorthree/realtime/config/RedisConfig.java), `ChatFanoutSubscriber`, `RealtimeEventFanoutSubscriber` | Redis 내부 wire에 nullable telemetry metadata 추가. subscriber thread에서 복원. 채팅은 `message_id`, 도메인 사건은 `event_id`로 연결 |
+| Realtime 인스턴스 간 전달 | [RedisConfig](../../../server/realtime/src/main/java/com/oneorthree/realtime/config/RedisConfig.java), `ChatFanoutSubscriber`, `RealtimeEventFanoutSubscriber`, `SeaRoomPublisher`, `MovementCluster`(명령) | Redis 내부 wire에 nullable telemetry metadata 추가. subscriber thread에서 복원. 채팅은 `message_id`, 도메인·바다 방 사건은 `event_id`로 연결 |
 | Logback 출력 thread | JSON provider 및 선택적 async appender | 실행 thread의 ThreadLocal을 조회하지 않고 `ILoggingEvent` snapshot 사용 |
 
-Realtime 구현의 제약(2559):
+Realtime 구현의 제약(2559·2581):
 
 - 아웃바운드 스냅샷은 `user_id`를 옮기지 않는다. 그 스레드의 현재 사용자는 수신 세션이라 발신자 id가 붙으면 수신자별 판정 로그와 섞인다. 아래 2.2의 `KEYS` 예시를 그대로 복사하지 않는다.
 - STOMP 아웃바운드 연결은 `configureBrokerChannel`에 executor가 없다(동기)는 전제 위에 있다. executor를 주면 제출 스레드의 MDC 캡처가 끊긴다. `WebSocketConfigTest`가 이 전제를 고정한다.
-- STOMP 프레임 scope는 `beforeHandle`~`afterMessageHandled` 동안만 열린다. `preSend`~`afterSendCompletion` 구간에서 나오는 거절 ERROR 프레임 로그에는 `request_id`가 없다.
+- STOMP 프레임 scope는 관문(`preSend`~`afterSendCompletion`)과 처리(`beforeHandle`~`afterMessageHandled`) 둘 다 연다(2581). 관문 거절(ERROR 프레임) 로그와 ERROR 프레임을 넘기는 아웃바운드 작업도 그 프레임의 `request_id`를 단다. 관문에서 만든 값은 내부 헤더(`realtimeLogRequestId`, STOMP native 헤더가 아니다)로 처리 단계에 넘겨 한 프레임이 한 값을 쓴다. 헤더를 달 수 없는 불변 메시지면 처리 단계가 새 값을 만든다.
+- Realtime 내부 HTTP(`/internal/*`)는 토큰 관문을 통과한 요청에만 `request_id`를 설치·복원한다(`InternalServiceTokenFilter`, 2581). 호출자 `X-Request-Id`가 Data `TraceIdFilter`와 같은 형식(`[A-Za-z0-9_-]{1,128}`, 앞뒤 공백 제거)이면 그 값, 아니면 새 UUID다. 원인 헤더(`X-Origin-*`)는 종전대로 각 컨트롤러가 연다.
+- 이동 길잡이(`MovementCluster`)·재검사 스케줄러(`MovementSubscriptionListener`)는 직접 만든 실행기라 TaskDecorator가 닿지 않는다. 작업을 넣을 때 `LogContext.carrying`으로 전달 키를 싣고 실행 스레드에서 설치·복원한다(2581).
+- Kafka 재시도·DLT 판정은 리스너 scope 밖(오류 처리기)이다. 실패한 레코드의 같은 헤더로 다시 연다 — DLT 발행기를 감싼 scope 안에서 발행기 자신의 로그가, `RetryListener`의 `Kafka 사건 처리 실패`(시도마다, `deliveryAttempt`)·`재시도 소진 — DLT 로 보냈다`·`DLT 발행 실패` 줄이 같은 `event_id`·origin을 단다(2581). DLT 발행이 비동기로 실패하면 발행기의 `Dead-letter publication ... failed` 줄은 producer 스레드의 완료 콜백에서 나온다. 발행기에 넘기는 `KafkaOperations`가 `send` 결과 future를 보낸 스레드의 문맥을 깐 채 완료되는 새 future로 바꿔 돌려주므로 그 줄도 같은 문맥을 달고, 콜백이 끝나면 producer 스레드 값으로 되돌린다(2581 r1, `InboundEventServiceTest.asyncDeadLetterFailureLogCarriesTheRecordContext`). 재시도 횟수·DLT 판정·발행 실패를 성공으로 삼키지 않는 동작은 그대로다. `event_id`는 `x-event-id` 헤더 값이다(본문을 다시 읽지 않는다). Spring 컨테이너 자신의 `Record in retry and not yet recovered` 줄은 이 scope 밖이다.
 
 `ScreenComposer`와 `InternalHttpClient`는 Spring `ThreadPoolTaskExecutor`가 아니므로 **TaskDecorator 빈 하나를 등록하는 것만으로 처리되지 않는다**. 직접 만든 pool의 submission wrapper도 수정해야 한다. future 완료 callback·`thenApplyAsync`는 callback 등록과 executor 제출 시점이 다를 수 있다. 이 경우 등록 시 앱 문맥을 캡처한 callback wrapper가 실행 본문에서 그 값을 설치·복원해야 한다. 완료를 알린 다른 요청의 thread 문맥을 실수로 물려받지 않게 검사한다.
 
@@ -224,7 +227,9 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 - telemetry는 전용 lenient 역직렬화기로 읽는다. 형식이 하나라도 어긋나면 필드 단위로 살리지 않고 telemetry **전체**를 버리며 봉투는 그대로 처리한다.
 - subscriber scope는 역직렬화 성공 직후, 자기 echo 판정 **전**에 연다. `self_echo` 줄도 원인과 ID를 단다. 결과는 `delivered|self_echo|invalid|failed` 한 줄이며, 역직렬화에 실패한 `invalid` 줄에는 scope가 없다.
 - 세션 폐기 제어 사건도 `chat:events:v1`을 쓰며 Data 사건 id를 telemetry `eventId`로 싣는다.
-- `chat:sea:v1`(`SeaRoomFanoutEvent`)과 이동 채널은 wire에 telemetry를 싣지 않았다. 후속이다. 그래서 바다 방 사건은 `message_id` 조회에 잡히지 않는다.
+- `chat:sea:v1`(`SeaRoomFanoutEvent`)도 같은 nullable telemetry를 싣는다(2581). `eventId`는 바다 방 사건의 `eventId`(클라이언트가 받는 6필드 사건의 id)이고, 발행·수신 줄(`fanout.publish`·`fanout.receive`)이 그 `event_id`와 원인을 단다. Data 사건이 일으킨 바다 방 사건은 Data `event_id`가 아니라 origin으로 잇는다. `SeaRoomEvent.eventId`는 방 사건마다 새로 만든 UUID v7(`SeaRoomEvent.of`)이라 상위 사건 ID에서 파생되지 않는다 — 바다 방 발행·수신 구간에서는 `event_id`가 방 사건 ID로 바뀌고 상위 사건과는 `origin_*`로만 이어진다.
+- 이동 채널은 명령(`chat:movement:cmd:v1*`, `MovementRelay.Command`)에만 nullable telemetry를 싣는다(2581). STOMP 프레임이 일으킨 JOIN·LEAVE·INTENT·FULL_STATE는 그 프레임의 `request_id`가 origin, RECHECK는 강퇴 사건의 `event_id`·origin이다. 소켓 종료가 일으킨 LEAVE처럼 원인 문맥이 없는 스레드의 명령은 싣지 않는다. 받는 인스턴스는 처리 동안 설치하고, 길잡이 작업·재검사 판정까지 같은 값을 싣고 간다. 잃은 RECHECK 재송 장부는 telemetry를 뺀 명령을 키로 써서, 원인만 다른 같은 섬·사용자 재검사를 종전처럼 하나로 합치고 먼저 잃은 것의 telemetry를 남긴다(2581 r1, `MovementClusterTest.recheckLedgerMergesRegardlessOfTelemetry`). 감시가 만든 PING·RESYNC·EVICTED와 틱이 만든 프레임(`chat:movement:frames:v1`)은 싣지 않는다 — 프레임은 여러 요청이 섞인 결과라 원인 하나로 대표할 수 없다. 이동 경로에는 성공 줄을 새로 두지 않았다(INTENT 초당 10건) — 문맥은 기존 실패·종료 로그에 붙는다.
+- 두 wire의 혼합 배포는 다른 채널과 같다 — 옛 인스턴스는 모르는 `telemetry` 키를 무시하고, 새 인스턴스는 키 없는 옛 JSON을 `telemetry=null`로 읽는다(`FanoutLogContextIntegrationTest.seaWireReadsAcrossVersions`, `MovementClusterTest.commandWireReadsAcrossVersions`).
 - subscriber 단절을 구분하는 로그는 후속이다. 이번 구현은 역직렬화 실패만 `invalid`로 구분한다.
 
 ### 3.3 기기별 발송 시도 연결 (Notification)

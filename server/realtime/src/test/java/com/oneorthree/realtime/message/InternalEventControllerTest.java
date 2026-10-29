@@ -1,6 +1,9 @@
 package com.oneorthree.realtime.message;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.event.InboundAcceptLog;
+import com.oneorthree.realtime.logging.CapturedLogs;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
@@ -9,6 +12,7 @@ import com.oneorthree.realtime.message.service.ChatUserFence;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -129,6 +134,32 @@ class InternalEventControllerTest {
                         .content("{\"type\":\"user.withdrawn\",\"userId\":\"" + withdrawn + "\",\"params\":{}}")))
                 .andExpect(status().isBadRequest());
         assertThat(tombstones(withdrawn)).isZero();
+    }
+
+    @Test
+    @DisplayName("관문을 통과한 내부 요청은 처리 동안 request_id 를 둔다 — 형식이 맞는 X-Request-Id 는 그대로, 틀리거나 없으면 새 UUID, 끝나면 바깥 값으로 (GROMO-2581)")
+    void internalRequestsInstallAndRestoreTheRequestId() throws Exception {
+        MDC.put(LogContext.REQUEST_ID, "outer-req");
+        try (CapturedLogs logs = CapturedLogs.of(InboundAcceptLog.class)) {
+            mockMvc.perform(authorized(event(withdrawn, 1)).header("X-Request-Id", " data-req_1 "))
+                    .andExpect(status().isOk());
+            assertThat(MDC.get(LogContext.REQUEST_ID)).isEqualTo("outer-req");
+            mockMvc.perform(authorized(event(other, 1)).header("X-Request-Id", "bad id")).andExpect(status().isOk());
+            mockMvc.perform(authorized(event(UUID.randomUUID(), 1))).andExpect(status().isOk());
+            assertThat(MDC.get(LogContext.REQUEST_ID)).isEqualTo("outer-req");
+
+            List<CapturedLogs.Line> lines = logs.lines(CapturedLogs.event(LogContext.CONSUMER_ACCEPT,
+                    "result=accepted"));
+            assertThat(lines).hasSize(3);
+            assertThat(lines.get(0).get("request_id")).as("호출자 번호(공백 제거)").isEqualTo("data-req_1");
+            assertThat(lines.get(0).get("origin_request_id")).as("origin 헤더가 없으면 원인도 그 번호")
+                    .isEqualTo("data-req_1");
+            assertThat(UUID.fromString(lines.get(1).get("request_id"))).as("형식 위반은 버리고 새로").isNotNull();
+            assertThat(UUID.fromString(lines.get(2).get("request_id"))).as("없으면 새로").isNotNull();
+            assertThat(lines.get(2).get("request_id")).isNotEqualTo(lines.get(1).get("request_id"));
+        } finally {
+            MDC.remove(LogContext.REQUEST_ID);
+        }
     }
 
     private int upsert(UUID room, UUID user) {

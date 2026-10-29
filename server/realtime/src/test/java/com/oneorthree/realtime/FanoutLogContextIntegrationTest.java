@@ -3,6 +3,7 @@ package com.oneorthree.realtime;
 import com.oneorthree.realtime.block.client.BlockClient;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.config.ChatOutboundChannelInterceptor;
+import com.oneorthree.realtime.config.StompAuthChannelInterceptor;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.event.RealtimeEventEnvelope;
 import com.oneorthree.realtime.event.RealtimeEventFanoutEvent;
@@ -18,6 +19,9 @@ import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
+import com.oneorthree.realtime.sea.SeaRoomEvent;
+import com.oneorthree.realtime.sea.SeaRoomFanoutEvent;
+import com.oneorthree.realtime.sea.SeaRoomPublisher;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
@@ -75,7 +79,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 /**
- * Redis 팬아웃과 STOMP 처리 로그가 원인 요청에 이어지는지 (GROMO-2559) — 실제 소켓·실제 Redis·실제 실행기.
+ * Redis 팬아웃과 STOMP 처리 로그가 원인 요청에 이어지는지 (GROMO-2559·2581) — 실제 소켓·실제 Redis·실제 실행기.
  *
  * <p>여기서 보는 것: STOMP 프레임의 request_id 가 발행 wire 의 원인으로 실려 Redis 를 건너 돌아오는지, 구독자 스레드가 원인·id
  * 를 깔았다가 되돌리는지, 아웃바운드 실행 스레드의 전달 직전 판정이 같은 id 를 다는지, 옛 wire(메타데이터 없음)도 받는지,
@@ -128,6 +132,9 @@ class FanoutLogContextIntegrationTest {
 
     @Autowired
     private ChatUserFence chatUserFence;
+
+    @Autowired
+    private SeaRoomPublisher seaPublisher;
 
     @Autowired
     private ApplicationContext context;
@@ -353,6 +360,110 @@ class FanoutLogContextIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("관문 거절(ERROR 프레임) — 거절 로그가 그 SUBSCRIBE 프레임의 request_id·user_id 를 달고, ERROR 프레임은 종전대로 간다 (GROMO-2581)")
+    void gateRejectionLogCarriesTheFrameRequestId() throws Exception {
+        UUID stranger = UUID.randomUUID(); // alice 가 주민이 아닌 섬 — 관문이 NOT_A_MEMBER 로 거절한다
+        BlockingQueue<String> errors = new LinkedBlockingQueue<>();
+        StompSession session = connect(new StompSessionHandlerAdapter() {
+            @Override
+            public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
+                return byte[].class;
+            }
+
+            @Override
+            public void handleFrame(@NonNull StompHeaders headers, Object payload) {
+                errors.add(String.valueOf(headers.getFirst("message")));
+            }
+        });
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            subscribeRaw(session, "/topic/islands/" + stranger + "/events");
+
+            assertThat(errors.poll(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)).isEqualTo("NOT_A_MEMBER");
+            CapturedLogs.Line rejected = single(logs.await(line -> line.message().contains("섬 구독 거절")
+                    && line.message().contains(stranger.toString()), 1, TIMEOUT_MILLIS));
+            assertThat(UUID.fromString(rejected.get("request_id"))).as("프레임마다 새 UUID").isNotNull();
+            assertThat(rejected.get("user_id")).isEqualTo(alice.toString());
+        }
+        assertNoAppContextLeftOn("clientInboundChannelExecutor");
+        assertNoAppContextLeftOn("clientOutboundChannelExecutor");
+    }
+
+    @Test
+    @DisplayName("chat:sea:v1 — 발행 줄과 자기 메아리가 사건 event_id·원인 request_id 를 달고, 다른 인스턴스의 옛 wire·새 wire 를 모두 받아 새 wire 의 원인을 잇는다 (GROMO-2581)")
+    void seaWireCarriesTheCause() throws Exception {
+        UUID room = UUID.randomUUID();
+        try (CapturedLogs logs = CapturedLogs.of(SeaRoomPublisher.class)) {
+            // STOMP 처리 스레드처럼 request_id 가 깔린 자리에서 낸다(입장·이모트 컨트롤러).
+            MDC.put(LogContext.REQUEST_ID, "req-sea");
+            try {
+                seaPublisher.publish(room, "sea.emote", objectMapper.readTree("{\"userId\":\"" + alice
+                        + "\",\"type\":\"cheer\"}"));
+                assertThat(MDC.get(LogContext.EVENT_ID)).as("발행이 끝나면 event_id 를 되돌린다").isNull();
+            } finally {
+                MDC.remove(LogContext.REQUEST_ID);
+            }
+            CapturedLogs.Line published = single(logs.lines(event(LogContext.FANOUT_PUBLISH, "chat:sea:v1")));
+            String eventId = published.get("event_id");
+            assertThat(UUID.fromString(eventId)).isNotNull();
+            assertThat(published.get("request_id")).isEqualTo("req-sea");
+            CapturedLogs.Line echo = single(logs.await(event(LogContext.FANOUT_RECEIVE, "result=self_echo")
+                    .and(line -> eventId.equals(line.get("event_id"))), 1, TIMEOUT_MILLIS));
+            assertThat(echo.get("origin_request_id")).as("wire 의 원인 = 발행 자리의 request_id").isEqualTo("req-sea");
+            assertThat(echo.get("request_id")).as("구독자 스레드는 자기 요청이 없다").isNull();
+
+            UUID oldEvent = UUID.randomUUID();
+            redis.convertAndSend(RedisKeys.SEA_FANOUT_CHANNEL, seaWire(room, oldEvent, null));
+            CapturedLogs.Line oldLine = single(logs.await(event(LogContext.FANOUT_RECEIVE, "result=delivered")
+                    .and(line -> oldEvent.toString().equals(line.get("event_id"))), 1, TIMEOUT_MILLIS));
+            assertThat(oldLine.mdc()).as("옛 발행자도 사건 eventId 로 잇는다").doesNotContainKey("origin_request_id");
+
+            UUID newEvent = UUID.randomUUID();
+            redis.convertAndSend(RedisKeys.SEA_FANOUT_CHANNEL, seaWire(room, newEvent,
+                    "{\"v\":1,\"originRequestId\":\"req-remote\",\"originTraceId\":\"77\",\"eventId\":\"" + newEvent
+                            + "\"}"));
+            CapturedLogs.Line newLine = single(logs.await(event(LogContext.FANOUT_RECEIVE, "result=delivered")
+                    .and(line -> newEvent.toString().equals(line.get("event_id"))), 1, TIMEOUT_MILLIS));
+            assertThat(newLine.mdc()).containsEntry("origin_request_id", "req-remote")
+                    .containsEntry("origin_trace_id", "77");
+            assertThat(logs.lines(event(LogContext.FANOUT_RECEIVE, "result=failed"))).isEmpty();
+        }
+    }
+
+    /** telemetry(GROMO-2581) 이전의 바다 방 봉투 — 지금 운영 중인 인스턴스가 읽는 모양. */
+    private record PreTelemetrySeaShape(UUID originInstanceId, String destination, SeaRoomEvent event) {
+    }
+
+    @Test
+    @DisplayName("chat:sea:v1 혼합 배포 — 신→구: 새 봉투를 옛 모양으로 읽어도 실패 없이 같은 사건, 구→신: 옛 JSON 은 telemetry=null, 깨진 telemetry 는 메타데이터만 버린다 (GROMO-2581)")
+    void seaWireReadsAcrossVersions() throws Exception {
+        UUID room = UUID.randomUUID();
+        SeaRoomEvent seaEvent = new SeaRoomEvent(UUID.randomUUID(), SeaRoomEvent.SCHEMA_VERSION, "sea.emote", room,
+                Instant.parse("2026-10-29T00:00:00Z"), objectMapper.readTree("{\"type\":\"cheer\"}"));
+        String destination = "/topic/sea/rooms/" + room;
+        String newWire = objectMapper.writeValueAsString(new SeaRoomFanoutEvent(UUID.randomUUID(), destination,
+                seaEvent, new FanoutTelemetry(1, "req-1", "123", seaEvent.eventId().toString())));
+
+        assertThat(newWire).contains("\"telemetry\"").contains("\"originRequestId\":\"req-1\"");
+        PreTelemetrySeaShape old = objectMapper.readValue(newWire, PreTelemetrySeaShape.class);
+        assertThat(old.event()).isEqualTo(seaEvent);
+        assertThat(old.destination()).isEqualTo(destination);
+
+        String oldWire = objectMapper.writeValueAsString(new PreTelemetrySeaShape(UUID.randomUUID(), destination,
+                seaEvent));
+        SeaRoomFanoutEvent read = objectMapper.readValue(oldWire, SeaRoomFanoutEvent.class);
+        assertThat(read.telemetry()).isNull();
+        assertThat(read.event()).isEqualTo(seaEvent);
+        assertThat(objectMapper.writeValueAsString(new SeaRoomFanoutEvent(UUID.randomUUID(), destination, seaEvent)))
+                .doesNotContain("telemetry");
+        for (String telemetry : BROKEN_TELEMETRY) {
+            String broken = seaWire(room, seaEvent.eventId(), telemetry);
+            SeaRoomFanoutEvent parsed = objectMapper.readValue(broken, SeaRoomFanoutEvent.class);
+            assertThat(parsed.telemetry()).as(telemetry).isNull();
+            assertThat(parsed.event().eventId()).as(telemetry).isEqualTo(seaEvent.eventId());
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private ExecutorSubscribableChannel outboundChannel() {
@@ -388,11 +499,24 @@ class FanoutLogContextIntegrationTest {
     }
 
     private StompSession connect() throws Exception {
+        return connect(new StompSessionHandlerAdapter() {
+        });
+    }
+
+    private StompSession connect(StompSessionHandlerAdapter handler) throws Exception {
         StompHeaders headers = new StompHeaders();
         headers.add("Authorization", aliceBearer);
         return stompClient.connectAsync("ws://localhost:" + port + "/ws/chat", new WebSocketHttpHeaders(), headers,
-                new StompSessionHandlerAdapter() {
-                }).get(15, TimeUnit.SECONDS);
+                handler).get(15, TimeUnit.SECONDS);
+    }
+
+    /** 다른 인스턴스가 흘린 바다 방 사건 — {@code telemetryJson} 이 null 이면 telemetry 키가 아예 없는 옛 발행자 원문. */
+    private String seaWire(UUID room, UUID eventId, String telemetryJson) {
+        SeaRoomEvent seaEvent = new SeaRoomEvent(eventId, SeaRoomEvent.SCHEMA_VERSION, "sea.emote", room,
+                Instant.parse("2026-10-29T00:00:00Z"), objectMapper.createObjectNode().put("type", "cheer"));
+        String telemetry = telemetryJson == null ? "" : ",\"telemetry\":" + telemetryJson;
+        return "{\"originInstanceId\":\"" + UUID.randomUUID() + "\",\"destination\":\"/topic/sea/rooms/" + room
+                + "\",\"event\":" + objectMapper.writeValueAsString(seaEvent) + telemetry + "}";
     }
 
     private static BlockingQueue<String> subscribeRaw(StompSession session, String destination) {

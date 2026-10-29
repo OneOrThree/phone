@@ -3,6 +3,7 @@ package com.oneorthree.realtime.config;
 import com.oneorthree.realtime.auth.AuthAttributes;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.ErrorCode;
+import com.oneorthree.realtime.logging.LogContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * {@code /internal/*} 전용 서비스 자격 필터 — 호출자는 Business 하나뿐이다 (island-mailbox LLD §3).
@@ -34,10 +36,15 @@ import java.util.UUID;
  * 봉투는 주체를 본문에 싣고 {@code X-User-Id} 를 보내지 않으며, 토큰도 Business 것과 분리된
  * {@code SVC_TOKEN_DATA_TO_REALTIME} 이다(A22 ㊀). 그래서 이 필터를 두 인스턴스로 건다 — Business 용은 그
  * 경로를 건너뛰고, Data 용({@code delegatedSubject=false})은 그 경로에만 걸려 토큰만 본다.
+ *
+ * <p>관문을 통과한 요청은 처리 동안 {@code request_id} 를 둔다(GROMO-2581) — 호출자의 {@code X-Request-Id} 가 Data
+ * {@code TraceIdFilter} 와 같은 형식({@code [A-Za-z0-9_-]{1,128}}, 앞뒤 공백 제거)이면 그 값, 아니면 새 UUID. 끝나면 이전 값으로
+ * 되돌린다. 원인 문맥({@code X-Origin-*})은 종전대로 각 컨트롤러가 연다.
  */
 public class InternalServiceTokenFilter extends OncePerRequestFilter {
 
     private static final String HEADER_USER_ID = "X-User-Id";
+    private static final Pattern REQUEST_ID = Pattern.compile("[A-Za-z0-9_-]{1,128}");
 
     /** Data 의 내구 사건 수신 경로. */
     public static final String DATA_EVENTS_PATH = "/internal/events";
@@ -71,7 +78,7 @@ public class InternalServiceTokenFilter extends OncePerRequestFilter {
             return;
         }
         if (!delegatedSubject) {
-            filterChain.doFilter(request, response);
+            proceed(request, response, filterChain);
             return;
         }
         UUID userId = parseUserId(request.getHeader(HEADER_USER_ID));
@@ -81,7 +88,17 @@ public class InternalServiceTokenFilter extends OncePerRequestFilter {
             return;
         }
         request.setAttribute(AuthAttributes.USER_ID, userId);
-        filterChain.doFilter(request, response);
+        proceed(request, response, filterChain);
+    }
+
+    private static void proceed(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+        String candidate = request.getHeader("X-Request-Id");
+        String requestId = candidate != null && REQUEST_ID.matcher(candidate.strip()).matches()
+                ? candidate.strip() : UUID.randomUUID().toString();
+        try (LogContext scope = LogContext.open().put(LogContext.REQUEST_ID, requestId)) {
+            filterChain.doFilter(request, response);
+        }
     }
 
     private boolean tokenMatches(String header) {
