@@ -214,6 +214,26 @@ code { overflow-wrap: anywhere; }
   .sidebar-bottom > p { display: none; }
   .sidebar-bottom .logout { margin-left: 0; }
 }
+.policy-workspace { display: grid; gap: var(--space-lg); }
+.policy-card { min-width: 0; padding: var(--space-xl); border: var(--rule-width) solid var(--color-rule); border-radius: var(--radius-sm); background: var(--color-surface); }
+.policy-card h2 { font-size: var(--text-lg); margin-bottom: var(--space-md); }
+.policy-card h3 { font-size: var(--text-sm); margin: var(--space-xl) 0 var(--space-sm); }
+.policy-card > p { color: var(--color-muted); font-size: var(--text-sm); margin-bottom: var(--space-md); }
+.policy-grid { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(0, 1.25fr); gap: var(--space-lg); align-items: start; }
+.policy-grid .item-list { max-height: 540px; }
+.policy-grid .item-row { display: grid; gap: var(--space-xs); }
+.policy-grid .item-row span, .policy-grid .item-row time { color: var(--color-muted); font-size: var(--text-xs); }
+.policy-grid .action-buttons { margin-top: var(--space-lg); }
+.policy-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-lg) 0; }
+.policy-values div { min-width: 0; padding: var(--space-md); background: var(--color-paper); border-radius: var(--radius-sm); }
+.policy-values dt { color: var(--color-muted); font-size: var(--text-xs); margin-bottom: var(--space-xs); }
+.policy-values dd { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.policy-card .history-list { margin: var(--space-md) 0; padding-left: var(--space-xl); font-size: var(--text-sm); }
+.policy-card .history-list li { margin: var(--space-sm) 0; }
+.policy-card .history-list summary { cursor: pointer; overflow-wrap: anywhere; }
+.policy-card .audit-list li { display: block; font-size: var(--text-xs); color: var(--color-muted); padding: var(--space-xs) 0; }
+@media (max-width: 800px) { .policy-grid { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .policy-card { padding: var(--space-lg); } .policy-values { grid-template-columns: 1fr; } }
 
 /* 건설 정책은 숫자 입력과 변경 전후 값을 같은 행에서 비교한다. */
 .policy-table-wrap { overflow-x: auto; }
