@@ -27,6 +27,15 @@
 
 ## 검증·운영 순서
 
+RDS에서는 데이터베이스 소유자와 `rds_superuser`가 `ALTER DATABASE ... SET gromo.*`를 실행할 수 없다. 운영 배포 전 각 DB의 설명이 비어 있는지 확인하고, DB 소유자 자격으로 아래 표식을 설정한다. 기존 `pg_db_role_setting` 표식이 있으면 서버가 그것을 우선 검증하며, 하나라도 불완전하거나 불일치하면 설명 표식으로 우회하지 않는다. 설명은 다른 용도로 덮어쓰지 않는다.
+
+```sql
+COMMENT ON DATABASE catus_data IS 'gromo.environment=prod';
+COMMENT ON DATABASE catus_notification IS 'gromo.environment=prod;gromo.fcm_project_id=catus-prod';
+```
+
+Data의 환경 API와 Notification의 환경 API가 각각 `prod` 및 `catus-prod`를 반환하는지 확인한 뒤 백오피스를 공개한다. Notification은 같은 검사를 기존 FCM 발송 직전에도 실행한다. 복구 시에는 원래 설명이 비어 있었던 운영 DB에서만 `COMMENT ON DATABASE ... IS NULL`로 표식을 지울 수 있다.
+
 격리 DB에서 선별 SQL 적용과 후속 main DB 전환 호환성을 검증한다. 필요한 서버 기능 PR과 선별 승격 PR을 검토한 뒤 운영자가 Create a merge commit으로 병합한다. 기존 prod CI/CD로 서버를 배포하고 인증된 API 환경·계약·이력을 확인한 다음 독립 백오피스를 배포한다. 운영 데이터의 실제 발송·게시를 배포 테스트에서 실행하지 않는다. AWS 부하 테스트와 부하 데이터 생성은 금지한다.
 
 `prod-ci.yml`의 `test_catus*.py` discovery가 신규 `test_catus_selective_version.py`를 포함한다. 테스트는 임시 Git 저장소에 실제 두 부모 merge와 squash·변경 tree를 만들고 GitHub API 응답만 대체한다.
