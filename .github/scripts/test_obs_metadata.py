@@ -20,7 +20,8 @@ def render(files, extra_env, directory):
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("OBS_", "DEPLOY_ENV", "IMAGE_", "APP_IMAGE"))}
     env.update({"DEPLOY_ENV": "dev", "IMAGE_REVISION": REVISION, "POSTGRES_DB": "gromo", "POSTGRES_USER": "u",
-                "POSTGRES_PASSWORD": "p", "APP_IMAGE": DIGEST.format("data"), "IMAGE_VERSION": REVISION, "JWT_SECRET": "j", "SVC_TOKEN_REALTIME_TO_DATA": "t"}, **extra_env)
+                "POSTGRES_PASSWORD": "p", "APP_IMAGE": DIGEST.format("data"), "IMAGE_VERSION": REVISION, "JWT_SECRET": "j", "SVC_TOKEN_REALTIME_TO_DATA": "t",
+                "REDIS_DATA_PASSWORD": "synthetic-data", "REDIS_REALTIME_PASSWORD": "synthetic-realtime"}, **extra_env)
     command = ["docker", "compose", "-p", "obs-metadata-test"]
     for name in files:
         command += ["-f", str(SCRIPTS / f"docker-compose.{name}.yml")]
@@ -59,8 +60,7 @@ class ObsMetadataTest(unittest.TestCase):
             empty.write_text("")
             services = render(["dev", "satellites", "satellites.dev"], {
                 "BUSINESS_API_IMAGE": DIGEST.format("business"), "NOTIFICATION_IMAGE": DIGEST.format("notification"),
-                "BUSINESS_API_ENV_FILE": str(empty), "NOTIFICATION_ENV_FILE": str(empty),
-                "BUSINESS_REDIS_ACL_FILE": str(empty)}, directory)
+                "BUSINESS_API_ENV_FILE": str(empty), "NOTIFICATION_ENV_FILE": str(empty)}, directory)
             self.assert_metadata(services, ["business-api", "notification"])
 
     def test_missing_revision_renders_unknown_so_the_deploy_checks_can_reject_it(self):
@@ -68,8 +68,7 @@ class ObsMetadataTest(unittest.TestCase):
             empty = Path(directory) / "empty.env"
             empty.write_text("")
             env = {"BUSINESS_API_IMAGE": DIGEST.format("business"), "NOTIFICATION_IMAGE": DIGEST.format("notification"),
-                   "BUSINESS_API_ENV_FILE": str(empty), "NOTIFICATION_ENV_FILE": str(empty),
-                   "BUSINESS_REDIS_ACL_FILE": str(empty), "IMAGE_REVISION": ""}
+                   "BUSINESS_API_ENV_FILE": str(empty), "NOTIFICATION_ENV_FILE": str(empty), "IMAGE_REVISION": ""}
             services = render(["dev", "satellites", "satellites.dev"], env, directory)
             self.assertEqual(services["business-api"]["environment"]["OBS_VERSION"], "unknown")
 

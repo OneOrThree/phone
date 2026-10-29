@@ -97,6 +97,8 @@ services:
       CHAT_DB_USERNAME: ${POSTGRES_USER}
       CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
+      REDIS_USERNAME: realtime
+      REDIS_PASSWORD: ${REDIS_REALTIME_PASSWORD:?Realtime Redis 비밀번호 필요}
       # 4GB dev VM에서 여러 JVM을 함께 시작하면 Redis 초기 handshake가 기본 2초를 넘겨 앱이 종료된다.
       SPRING_DATA_REDIS_CONNECT_TIMEOUT: 5s
       SPRING_DATA_REDIS_TIMEOUT: 10s

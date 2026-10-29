@@ -32,7 +32,7 @@ jobs:
       # app/db 는 아래 OBS_SERVICES 에서 제외해 CD 로 배포된 컨테이너를 건드리지 않는다.
       # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
       # 재부팅에도 살아남는다.
-      OBS_SERVICES: prometheus grafana loki fluent-bit postgres-exporter redis-exporter business-redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
+      OBS_SERVICES: prometheus grafana loki fluent-bit postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
     steps:
       - uses: actions/checkout@v4
 

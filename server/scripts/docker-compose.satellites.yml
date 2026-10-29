@@ -11,27 +11,6 @@ x-infra-logging: &infra-logging
   options: {max-size: "10m", max-file: "3"}
 
 services:
-  business-redis:
-    logging: *infra-logging
-    image: redis:7.4.11-alpine
-    labels:
-      com.datadoghq.tags.env: "${DEPLOY_ENV:-dev}"
-      com.datadoghq.tags.service: "gromo-business-redis-${DEPLOY_ENV:-dev}"
-      com.datadoghq.tags.version: "7.4.11-alpine"
-      com.datadoghq.ad.checks: >-
-        {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"username":"health","password":"","tags":["env:${DEPLOY_ENV:-dev}","service:gromo-business-redis-${DEPLOY_ENV:-dev}","redis_instance:business"]}]}}
-    command: [redis-server, --aclfile, /etc/redis/business.acl, --maxmemory, 128mb, --maxmemory-policy, allkeys-lru, --save, "", --appendonly, "no"]
-    volumes:
-      - ${BUSINESS_REDIS_ACL_FILE:?Business Redis ACL 파일 필요}:/etc/redis/business.acl:ro
-    networks: [business-cache]
-    mem_limit: 192m
-    restart: unless-stopped
-    healthcheck:
-      test: [CMD, redis-cli, --user, health, --pass, "", --no-auth-warning, ping]
-      interval: 3s
-      timeout: 2s
-      retries: 10
-
   business-api:
     logging: *app-logging
     image: ${BUSINESS_API_IMAGE:?Business 이미지 digest 필요}
@@ -58,12 +37,12 @@ services:
       DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"
       DD_GIT_REPOSITORY_URL: github.com/OneOrThree/phone
       DD_GIT_COMMIT_SHA: ${IMAGE_REVISION:-unknown}
-      BUSINESS_REDIS_HOST: business-redis
+      BUSINESS_REDIS_HOST: redis
       BUSINESS_REDIS_USERNAME: business
     expose: ["8080"]
     networks: [app-network, business-cache]
     depends_on:
-      business-redis:
+      redis:
         condition: service_healthy
     restart: unless-stopped
     mem_limit: 2g

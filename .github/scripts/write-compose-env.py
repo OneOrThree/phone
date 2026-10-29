@@ -15,6 +15,7 @@ from typing import Any
 
 
 REQUIRED_KEYS = (
+    "REDIS_DATA_PASSWORD", "REDIS_REALTIME_PASSWORD",
     "POSTGRES_DB",
     "POSTGRES_USER",
     "POSTGRES_PASSWORD",
@@ -29,6 +30,7 @@ REQUIRED_KEYS = (
 # 입력이라 compose 가 ${...} 로 참조하는 키만 컨테이너에 닿는다(dev.yml·realtime.yml). 비어 있을 때의 동작은
 # server/scripts/README.md 「시크릿·스위치」 표. 필수로 올리지 않는 이유: 넣기 전 배포가 막히면 안 된다.
 LEGACY_OPTIONAL_KEYS = (
+    "REDIS_DATA_PASSWORD", "REDIS_REALTIME_PASSWORD",
     "FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
     "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64",
     "FOCUS_PRESENCE_ENABLED",
@@ -99,7 +101,7 @@ SERVICE_OPTIONAL_KEYS = {
         "FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
         "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64",
         "FOCUS_PRESENCE_ENABLED",
-        "REDIS_HOST", "REDIS_PORT",
+        "REDIS_HOST", "REDIS_PORT", "REDIS_USERNAME", "REDIS_PASSWORD",
         "NOTIFICATION_BASE_URL", "LINK_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
         "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
         "OUTBOX_RELAY_LEASE_DURATION", "OUTBOX_RELAY_POLL_INTERVAL", "OUTBOX_RELAY_INITIAL_BACKOFF",
@@ -122,6 +124,8 @@ SERVICE_OPTIONAL_KEYS = {
         "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_PROXY_SECRET",
         "LINK_TRUSTED_IP_HEADERS",
         "GOOGLE_DRIVE_API_KEY",
+        "BUSINESS_REDIS_LEGACY_HOST", "BUSINESS_REDIS_LEGACY_PORT",
+        "BUSINESS_REDIS_LEGACY_USERNAME", "BUSINESS_REDIS_LEGACY_PASSWORD",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
         # GROMO-2331 카탈로그 이미지 절대 URL 의 앞부분 — 비우면 상대 경로(/static/…)를 그대로 내린다.
@@ -292,6 +296,8 @@ def render_service(secret: dict[str, Any], image: str, service: str,
             raise ValueError(f"Data 프로파일은 {environment} 를 포함하고 {other} 는 없어야 합니다: {profiles}")
     elif data_profiles is not None:
         raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
+    if service == "data-api" and "REDIS_DATA_PASSWORD" in secret:
+        secret = dict(secret, REDIS_HOST="redis", REDIS_USERNAME="data", REDIS_PASSWORD=secret["REDIS_DATA_PASSWORD"])
     required = SERVICE_REQUIRED_KEYS[service]
     if service == "data-api" and phase == "transition":
         required += TRANSITION_KEYS
@@ -300,6 +306,8 @@ def render_service(secret: dict[str, Any], image: str, service: str,
             required += tuple(key for key in PROFILE_REQUIRED_KEYS.get(profile, ()) if key not in required)
     if service == "business-api" and environment == "prod":
         required += ("LINK_PROXY_SECRET",)
+    if service == "business-api" and secret.get("BUSINESS_REDIS_LEGACY_HOST"):
+        required += ("BUSINESS_REDIS_LEGACY_PASSWORD",)
     require(secret, required)
     if service == "notification":
         validate_notification_tokens(secret)
@@ -327,8 +335,28 @@ def business_redis_acl(secret: dict[str, Any]) -> str:
             # Datadog Redis check가 요구하는 읽기 전용 관리 명령만 허용한다.
             "user health on nopass +ping +info +config|get +slowlog|get\n"
             f"user business on #{digest} ~cache:business:* "
-            "+get +set +incrby +expire +eval +evalsha +script|load +scan +del "
+            "+get +set +incrby +expire +eval +evalsha +script|load +scan +del +hget +hset +time "
             "+ping +hello +info +select +client|setinfo +client|setname\n")
+
+
+def shared_redis_acl(secret: dict[str, Any]) -> str:
+    """공유 Redis: 서비스별 소유 키와 채널만 허용한다."""
+    keys = ("REDIS_DATA_PASSWORD", "REDIS_REALTIME_PASSWORD", "BUSINESS_REDIS_PASSWORD")
+    require(secret, keys)
+    if len({secret[key] for key in keys}) != 3:
+        raise ValueError("공유 Redis의 서비스별 비밀번호는 달라야 합니다")
+    digest = lambda key: hashlib.sha256(secret[key].encode("utf-8")).hexdigest()
+    base = business_redis_acl(secret)
+    return (base
+        + f"user data on #{digest('REDIS_DATA_PASSWORD')} ~presence:* "
+          "+@read +@write +@scripting -@dangerous -@admin "
+          "+ping +hello +info +select +time +client|setinfo +client|setname\n"
+        + f"user realtime on #{digest('REDIS_REALTIME_PASSWORD')} "
+          "~cache:chat:* ~lock:chat:* ~movement:owner:* ~movement:epoch ~movement:room:*:handoff "
+          "~sea:user:* ~sea:room:*:members ~sea:rooms:open ~sea:adrift "
+          "&chat:* +@read +@write +@scripting +@pubsub -@dangerous -@admin "
+          "+ping +hello +info +select +time +client|setinfo +client|setname "
+          "(%R~presence:* +get +exists)\n")
 
 
 def write_atomic(output: Path, content: str, mode: int = 0o600) -> None:
@@ -363,6 +391,7 @@ def main() -> None:
     parser.add_argument("--phase", choices=("transition", "final"), default="transition")
     parser.add_argument("--environment", choices=("dev", "prod"), default="dev")
     parser.add_argument("--redis-acl-output", type=Path)
+    parser.add_argument("--shared-redis-acl-output", type=Path)
     # data-api 전용. 두 내부 API 프로필은 기본값과 명시적 덮어쓰기 모두에 필요하다.
     parser.add_argument("--data-profiles")
     # 배포 전 점검: 파일을 쓰지 않고 legacy·전 서비스의 필수 키·금지 키·토큰 규칙만 검사 (GROMO-2224)
@@ -384,11 +413,14 @@ def main() -> None:
             render(secret, args.app_image, service, args.phase, args.environment,
                    data_profiles=args.data_profiles if service == "data-api" else None)
         if args.environment == "dev":
-            business_redis_acl(secret)
+            shared_redis_acl(secret)
         print("필수 키·금지 키·토큰 규칙 통과 (legacy + " + ", ".join(SERVICE_REQUIRED_KEYS) + ")")
         return
     rendered = render(secret, args.app_image, args.service, args.phase, args.environment,
                       data_profiles=args.data_profiles)
+    if args.shared_redis_acl_output:
+        acl = shared_redis_acl(secret)
+        write_atomic(args.shared_redis_acl_output, acl, mode=0o644)
     if args.redis_acl_output:
         if args.service != "business-api" or args.redis_acl_output.resolve() == args.output.resolve():
             raise ValueError("Redis ACL은 business-api env와 다른 파일로 작성해야 합니다")

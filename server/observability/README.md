@@ -75,7 +75,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 ```bash
 docker compose --env-file "$RUNTIME_ENV_FILE" \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
-  stop prometheus grafana loki fluent-bit postgres-exporter redis-exporter business-redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
+  stop prometheus grafana loki fluent-bit postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
 ```
 
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
@@ -189,7 +189,7 @@ Business는 DB가 없는 서비스라 Hikari 패널에 나오지 않습니다. �
 
 반영: 네 앱을 새 설정으로 재배포한 뒤 **Actions → ops-monitor.dev → up**을 실행합니다.
 관측만 갱신해도 scrape 대상·대시보드는 반영되지만, 새 HTTP histogram·Tomcat 지표는 앱 재기동이 필요합니다.
-Business Redis exporter는 기존 `business-cache` 네트워크와 `health` ACL(INFO 권한)을 사용하며 호스트 포트를 열지 않습니다.
+공유 Redis exporter는 `app-network`와 `health` ACL(INFO 권한)을 사용하며 호스트 포트를 열지 않습니다.
 PostgreSQL exporter는 같은 PostgreSQL 인스턴스의 DB별 통계를 보여 줍니다. 별도 DB 호스트를 추가하면 exporter도 별도로 등록해야 합니다.
 
 부하 전용 GCP SUT는 Data API 단독 구성입니다. `make sync`/`make up`으로 같은 대시보드와 SUT cAdvisor를 배치하지만,

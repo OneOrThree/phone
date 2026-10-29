@@ -44,7 +44,7 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 
 ## 3. 환경별 실행 조합
 
-환경마다 **한 줄**입니다. 저장소 루트 기준이고 실제 적용 전에는 같은 인자에 `config --quiet`를 먼저 붙여 봅니다. `<out>`은 [위성 배포 준비](#8-위성-배포-준비)가 만든 출력 디렉터리(서비스별 env·`compose.env`·Business Redis ACL)입니다.
+환경마다 **한 줄**입니다. 저장소 루트 기준이고 실제 적용 전에는 같은 인자에 `config --quiet`를 먼저 붙여 봅니다. `<out>`은 [위성 배포 준비](#8-위성-배포-준비)가 만든 출력 디렉터리(서비스별 env·`compose.env`·공유 Redis ACL)입니다.
 
 ```bash
 # local — DB·Redis만 컨테이너. API 는 각 서비스 bootRun
@@ -63,7 +63,7 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf
 # 이동 측정(docs/prd/fishcat/island-movement/scripts)처럼 게스트를 한 번에 15명 만들 때 — 게스트 발급 상한(IP당 10/시간)을 env 로 연다
 (cd server/data-api && AUTH_GUEST_RATE_LIMIT_MAX=1000000 AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL=1000000 ./gradlew bootRun)   # application-local.yml.example 의 auth.guest.rate-limit 자리표시자 — 이미 application-local.yml 이 있으면 같은 블록을 직접 추가
 
-# dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
+# dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(공유 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
 # dev VM 에 영구 env 없음(GROMO-2224) — CD·ops-*.dev 워크플로가 job 마다 SM 에서 임시로 만든다. 수동이면
 # RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh) 로 만들고(SM 읽을 AWS 자격 필요) 쓰고 나서 지운다. <out> 은 위성 env 임시 폴더.
 # 전체 기동이면 Data 이미지도 넘긴다 — 인자 없이 만들면 phone-data-api 가 없는 새·복구 VM 에서 APP_IMAGE 가 자리표시라 pull 이 실패:
@@ -71,7 +71,7 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf
 # REALTIME_IMAGE 필수(기본값 없음) — 지금 떠 있는 것: REALTIME_IMAGE=$(docker inspect -f '{{.Config.Image}}' phone-realtime)
 REALTIME_IMAGE=<…/realtime/realtime:sha 또는 @digest> docker compose -p phone --env-file "$RUNTIME_ENV_FILE" --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 
-# prod (AWS gromo-prod) — nginx·Data·datadog-agent·Kafka·Business(+전용 Redis)·Notification. DB 는 RDS, Realtime 없음
+# prod (AWS gromo-prod) — nginx·Data·datadog-agent·Kafka·Business(공유 Redis)·Notification. DB 는 RDS, Realtime 없음
 docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리> --env-file <prod 배포 디렉터리>/.env.prod --env-file <out>/compose.env -f server/scripts/docker-compose.prod.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 ```
 
@@ -144,15 +144,13 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 - 실측 후 보정합니다. 하루 뒤 `sudo du -h $(docker inspect -f '{{.LogPath}}' <컨테이너>)*`로 일 증가량을 재고 `max-size × max-file ≈ 7 × 일 증가량`이 되도록 이 파일들의 앵커 한 줄을 고칩니다.
 - `logging`이 바뀐 컨테이너는 다음 `up`에서 **재생성**됩니다. dev CD는 `up -d --no-deps data-api`로 DB 재생성을 막습니다. `redis`는 app 의존성이 아니라 사람이 `up -d redis`를 할 때 적용됩니다. prod 는 SSM 의 `up -d`가 nginx·agent 까지 재생성합니다.
 
-## 6. Business Redis ACL 반영
+## 6. 공유 Redis ACL 반영
 
-Redis 는 `--aclfile`을 **기동 때만** 읽습니다. `default` 사용자를 꺼 두어 `ACL LOAD`를 부를 수 있는 사용자도 없습니다. `BUSINESS_REDIS_PASSWORD`를 바꿔 ACL 파일을 다시 만들었다면 위성보다 먼저 재생성합니다(준비 도구의 계획 2단계).
+Business·Data·Realtime이 공유 Redis를 사용한다. 서비스별 비밀번호와 키·채널 ACL을 유지하며
+미리보기는 전역 64개 슬롯으로 제한한다. 일반 CD는 Redis를 재생성하지 않는다.
+기존 Business Redis의 세션·탈퇴 차단 표지를 보존하는 bridge 기간과 최초 bootstrap은
+[공유 Redis 운영](../../docs/architecture/shared-redis.md)을 따른다.
 
-```bash
-docker compose <위 환경 줄의 -p·--env-file·-f 그대로> up -d --force-recreate business-redis
-```
-
-ACL 파일은 원자 교체(새 inode)라 `restart`만으로는 기존 단일 파일 바인드가 옛 내용을 볼 수 있습니다. 캐시 전용(저장 없음)이라 재생성으로 비워져도 다시 채워집니다.
 
 ## 7. 자주 쓰는 명령
 
@@ -188,7 +186,7 @@ Realtime 기동 로그는 dev VM에서 `docker logs --timestamps phone-realtime`
 
 ## 8. 위성 배포 준비
 
-[`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, Business Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다. 렌더된 Compose 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION` 검사가 필수이므로 로컬·수동 실행자는 `IMAGE_REVISION`(배포 커밋 SHA, `unknown` 불가)을 환경변수로 줘야 하고, `deploy-core-dev.py` 도 같은 검사를 합니다. `docker-compose.business.yml` 의 `OBS_ENV: ${DEPLOY_ENV:-dev}` 는 위성 CD 경로에서 쓰이지 않는 단독 진입점이라 검사 대상이 아니지만, `DEPLOY_ENV` 를 dev 밖으로 주면 위성 검사와 값이 어긋납니다.
+[`prepare-satellite-deploy.py`](prepare-satellite-deploy.py)는 공유 SecretString JSON을 표준입력으로 받고 서비스별 허용목록에 맞는 env, 공유 Redis ACL, Compose 보간 입력과 적용·복구 계획을 생성합니다. 이미지가 `REPOSITORY@sha256:<64hex>` 형식인지 검사합니다. 렌더된 Compose 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION` 검사가 필수이므로 로컬·수동 실행자는 `IMAGE_REVISION`(배포 커밋 SHA, `unknown` 불가)을 환경변수로 줘야 하고, `deploy-core-dev.py` 도 같은 검사를 합니다. `docker-compose.business.yml` 의 `OBS_ENV: ${DEPLOY_ENV:-dev}` 는 위성 CD 경로에서 쓰이지 않는 단독 진입점이라 검사 대상이 아니지만, `DEPLOY_ENV` 를 dev 밖으로 주면 위성 검사와 값이 어긋납니다.
 
 ```bash
 python3 server/scripts/prepare-satellite-deploy.py --help

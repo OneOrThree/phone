@@ -108,11 +108,10 @@ GAR(`asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache`)을 사용한다.
   나눈다(service 태그·메트릭은 그대로). 근거와 반영 절차는 `docs/architecture/server-log-observability/kafka-log-links.md`.
 - **Integrations > Kafka**: broker 처리량·지연·파티션과 JMX 상태. `kafka_cluster:gromo-dev`로 필터한다.
 - **Integrations > Kafka Consumer**: consumer offset·lag. `kafka_cluster:gromo-dev`로 필터한다.
-- **Integrations > Redis**: 공유 Redis와 Business Redis의 메모리·연결·hit/miss·eviction·slowlog.
-  `redis_instance:shared|business`로 구분한다.
+- **Integrations > Redis**: 공유 Redis의 메모리·연결·hit/miss·eviction·slowlog를 `redis_instance:shared`로 확인한다.
 
-Kafka JMX `9999`와 Redis `6379`는 호스트에 publish하지 않는다. Agent는 `app-network`와 internal
-`business-cache`에만 붙는다. Business Redis의 `health` ACL은 키 접근 없이 `PING`, `INFO`,
+Kafka JMX `9999`와 Redis `6379`는 호스트에 publish하지 않는다. Agent는 `app-network`에 붙는다.
+공유 Redis의 `health` ACL은 키 접근 없이 `PING`, `INFO`,
 `CONFIG GET`, `SLOWLOG GET`만 허용한다. Datadog 공식 Redis check 최소 권한과 동일하다.
 
 ### 수집이 실제로 되는지 보는 법
