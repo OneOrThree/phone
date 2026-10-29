@@ -122,4 +122,18 @@ class InternalApiPropertiesTest {
 
         assertThatCode(properties::validate).doesNotThrowAnyException();
     }
+
+    @Test
+    void optionalBlankConsoleCredentialsRemainInactive() {
+        InternalApiProperties properties = new InternalApiProperties();
+        var console = caller("", "GET /internal/admin/content/environment");
+        console.setOptional(true);
+        console.setConsoleActor("member-1");
+        properties.getCallers().put("console", console);
+        assertThatCode(properties::validate).doesNotThrowAnyException();
+        console.setToken("console-token");
+        console.setConsoleActor("member-4");
+        assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
+    }
+
 }

@@ -79,6 +79,7 @@ class ContentPublicationIntegrationTest {
     @Autowired MagazineReviewService reviews;
     @Autowired MagazinePublishScheduler scheduler;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.oneorthree.phone.internal.service.ConstructionPolicyAdminService construction;
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
@@ -405,4 +406,34 @@ class ContentPublicationIntegrationTest {
                 Timestamp.from(NOW.minusSeconds(86400)), Timestamp.from(NOW.minusSeconds(86400)), "검토한 홍보", LAYOUT);
         return id;
     }
+
+    @Test
+    void environmentContractUsesTheActualDatabaseMarker() throws Exception {
+        var environment = new org.springframework.mock.env.MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var controller = new InternalContentAdminController(notices, history, reviews,
+                construction,
+                environment, jdbc);
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        String database = jdbc.queryForObject("SELECT current_database()", String.class);
+        // 테스트 컨테이너의 컨텍스트 전용 DB에만 표식을 설정한다.
+        assertThat(database).matches("ctx_[a-f0-9]+");
+        jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='prod'");
+        try {
+            http.perform(get(ADMIN + "/environment")).andExpect(status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.environment").value("prod"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.contractVersion").value("1"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
+                                    "content.history.v1", "construction.policy.v1", "focus.policy.v1")));
+            jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='dev'");
+            assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("DB 환경");
+        } finally {
+            jdbc.execute("ALTER DATABASE " + database + " RESET gromo.environment");
+        }
+    }
+
 }
