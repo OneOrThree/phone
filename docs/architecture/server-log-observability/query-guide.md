@@ -22,6 +22,8 @@
 | ④ | operation 결과(표) | 같은 `operation_id`의 모든 구성원(다른 원인의 구성원 포함, 아래 참고) 연결 로그, `transport.result`, FCM 오류 로그에 클릭한 `(delivery_id, attempt)`의 `dispatch.settle`을 더한다. Notification 코드는 `dispatch.settle`에 `operation_id`를 남기지 않아서 `delivery_id`로 찾는다. 재시도는 `delivery_id`를 유지하고 `attempt`·`operation_id`만 바뀌므로, `attempt`로 좁히지 않으면 실패한 시도를 눌러도 뒤 성공 결과가 함께 보인다 |
 | ⑤ | 상한 안내·서비스별 분할 | 아래 2절 |
 
+`service` 변수는 Loki 라벨 값 전체(`label_values`)라 2556 이후 `nginx`·`canary` 도 선택지에 보이고, «All» 이면 ① 에 canary 줄(1분에 1건)이 섞인다. 앱 로그만 보려면 서비스를 고른다.
+
 ②·④ 표의 열 링크:
 
 - `dd_trace_id`를 누르면 `https://$dd_site/apm/trace/<값>`(Datadog APM)이 열린다. 사이트 호스트는 변수 `dd_site`(기본 `us5.datadoghq.com`, 저장소의 `DD_SITE` 기본값)로 정한다. 조직 값은 넣지 않았다. trace ID가 10진이면 상위 64비트를 잃었을 수 있다([README §4](README.md#4-이벤트-스키마와-연결-규칙)). 이때 APM에서 찾지 못할 수 있다.
@@ -69,7 +71,7 @@ Athena는 읽은 바이트만큼 비용을 받는다. 파티션 조건이 없으
 
 **수집기 재시작·S3 장애가 있던 구간이면 `--margin-hours`를 장애 길이 이상으로 올린다.** 재시작 뒤 복구 파일은 키의 hour가 복구 시각이고, 안의 레코드는 장애 이전 시각이다. 기본 여유 1시간으로는 놓칠 수 있고, 놓치면 조용히 빈 결과가 나온다. 결과가 0행이면 «없다»로 읽지 말고 여유를 넓혀 다시 조회한다. 지연 상한을 모르면 보관 기간 전체로 넓혀야 빠짐이 없다. `render.py`는 실제로 쓴 파티션 범위(env·service·date·hour)를 출력 SQL의 첫 주석 줄에 적는다. 결과가 이상하면 그 줄로 어디까지 봤는지 먼저 확인한다. 로컬 fixture에서 여유를 0으로 두면 R1의 15개 결과 행 중 10개(12시·14시 객체에 든 줄)를 놓쳤다(5절).
 
-raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`으로 시각을 대신한다.
+raw 줄(`parse_error=true`)은 대개 `timestamp`가 없어 질의가 `observed_at`으로 시각을 대신한다. 다만 combined 형식 파싱에 실패한 Nginx access 줄(2556 `access_fallback`)은 원본 시각을 `timestamp`로 가진다 — 질의는 `coalesce(timestamp, observed_at)` 순서라 있으면 그 값을 쓴다.
 
 ### 3.3 `log_id` 중복 제거와 null `log_id` 보존
 
@@ -140,7 +142,7 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 | 저장소·카탈로그 | 로컬 파일시스템(`local://`), 파일 메타스토어 | S3, Glue Data Catalog | `"$path"` 값의 접두가 다르다(`local:///…` / `s3://…`) |
 | 엔진 | Trino 476 | Athena 엔진 v3(Trino 기반, AWS 버전) | 쓴 함수: `from_iso8601_timestamp`, `try`, `coalesce`, `row_number`·`count`·`min`·`sum` 윈도, `date_diff`, `format_datetime`, `AT TIME ZONE`, `IS NOT DISTINCT FROM`, 상관 `EXISTS`, `IN (subquery)`, `"$path"`. Athena에서 같은 결과인지는 실행하지 않았다 |
 | JSON SerDe | Trino의 OpenX JSON 구현. `create-table.sql`의 `SERDEPROPERTIES`는 Trino `extra_properties`로 옮겨 같은 옵션(`ignore.malformed.json`)을 읽게 했다 | OpenX JSON SerDe | 반영됨: 깨진 JSON 줄이 든 객체를 조회해도 실패하지 않고 그 줄은 전부 NULL인 행이 된다(옵션 없이는 질의가 실패함을 탐침으로 확인). 차이: Trino가 옵션을 읽는 경로가 Athena의 SerDe와 같은지는 모른다. 타입이 다른 값(예: `attempt`가 문자열)의 동작은 시험하지 않았다. 깨지거나 잘린 gzip은 이 옵션과 무관하게 객체 단위로 실패할 수 있다. `extra_properties`가 Athena SerDe와 같은 키 이름을 읽는다는 가정은 탐침으로만 확인했다. 이 옵션으로 생긴 전부 NULL 행은 템플릿의 `event_time` 필터에서 조용히 빠지므로, 결과만 봐서는 «건너뛴 줄이 있었다»를 알 수 없다. 실제 Athena에서 조용히 NULL이 될 수 있어 첫 실조회 때 NULL 비율을 본다([전환 절차 §4](rollout.md#4-전환-판정-지표와-확인-쿼리)) |
-| Loki 적재 | API push. 줄 모양은 Fluent Bit Loki 출력을 흉내 냈다. Loki 시각 = 레코드 `timestamp`(raw는 `observed_at`) | Fluent Bit이 Docker 시각으로 적재 | 실제 수집 경로는 2555·2556 하네스가 검증한다 |
+| Loki 적재 | API push. 줄 모양은 Fluent Bit Loki 출력을 흉내 냈다. Loki 시각 = 레코드 `timestamp`(없는 raw 는 `observed_at`) | Fluent Bit이 Docker 시각으로 적재 | 실제 수집 경로는 2555·2556 하네스가 검증한다 |
 
 ## 7. 실행하지 않은 것
 
