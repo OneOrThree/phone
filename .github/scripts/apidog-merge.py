@@ -62,7 +62,7 @@ DOMAINS = {
     "꾸미기·상점": ["appearance", "customization-catalog", "customization", "shop"],
     "친구": ["friend", "user-block"],
     "알림": ["user-notification", "notification", "user", "outbox-command", "developer-notice"],
-    "콘텐츠 운영": ["content-admin"],
+    "콘텐츠 운영": ["content-admin", "focus-policy-admin"],
     "화면": ["screen"],
     "링크 미리보기": ["preview"],
 }
