@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal.scheduler;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
-import com.oneorthree.phone.internal.service.MagazinePublishService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +17,7 @@ class MagazinePublishSchedulerTest {
 
     private static final LocalDate TODAY = LocalDate.of(2034, 5, 10);
     private final MagazinePublishScheduler scheduler = new MagazinePublishScheduler(
-            mock(MagazinePublishService.class), mock(MagazineIssueNotifier.class), Clock.systemUTC());
+            mock(MagazineIssueNotifier.class), Clock.systemUTC());
 
     private static ZonedDateTime at(int hour, int minute) {
         return ZonedDateTime.of(TODAY, java.time.LocalTime.of(hour, minute), ZonePolicy.KST);

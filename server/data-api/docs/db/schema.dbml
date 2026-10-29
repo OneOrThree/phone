@@ -1331,3 +1331,29 @@ Ref: user_island_contexts.user_id - users.id [delete: cascade]
 Ref: user_main_islands.island_id > islands.id [delete: cascade]
 Ref: user_main_islands.user_id - users.id [delete: cascade]
 Ref: user_notification_settings.user_id - users.id  // 논리 관계 — DB FK 제약 없음
+
+// 관리자 검토·게시. 공개 앱의 개발자 소식은 게시 기간 안에서만 조회한다.
+Table content_publications {
+  publication_id uuid [pk]
+  kind varchar(16) [not null]
+  request_digest varchar(64) [not null]
+  result jsonb [not null]
+  actor varchar(16) [not null]
+  created_at timestamptz [not null]
+}
+Table developer_notices {
+  publication_id uuid [pk]
+  title varchar(120) [not null]
+  body text [not null]
+  starts_at timestamptz [not null]
+  ends_at timestamptz
+  published_at timestamptz [not null]
+}
+Ref: developer_notices.publication_id > content_publications.publication_id [delete: no action]
+Table magazine_review_snapshots {
+  snapshot_id uuid [pk]
+  digest varchar(64) [not null]
+  content jsonb [not null]
+  actor varchar(16) [not null]
+  created_at timestamptz [not null]
+}

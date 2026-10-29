@@ -162,3 +162,29 @@ UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_inva
 ```
 
 `<첫 경고 시각>`은 첫 경고 로그의 시각이며, `updated_at`이 `timestamptz`이므로 오프셋까지 씁니다. `active` 조건은 로그아웃·삭제로 소유권이 끝난 행을 건드리지 않게 합니다. 진짜 무효 토큰은 다음 발송에서 다시 표시되며 FCM 호출 1회만 낭비됩니다. `NO_ACTIVE_DEVICE`로 재시도 중인 발송 중 60회 상한에 닿지 않은 건은 무효 표시 복구 뒤 이어서 나갑니다. 이미 `FAILED`가 된 건은 원본의 `deviceCount` 또는 `delivery_devices`를 먼저 확인합니다. 콘솔 resend는 새 발송을 만들므로 일부 기기에 이미 전달됐으면 중복 푸시가 갈 수 있습니다. FCM 수락 뒤 기록이 실패했을 가능성도 고려해 건별로 재전송을 판단합니다.
+
+### 백오피스 승인 발행
+
+`POST /internal/admin/publications/{publicationId}`는 백오피스에서 승인한 최종 문구를 명시적 수신자에게 적재합니다.
+기존 행위자별 콘솔 인증과 `Idempotency-Key`가 필요합니다. `publicationId`는 UUID이며, 같은 발행 id에 다른 본문을 보내면 `409 IDEMPOTENCY_KEY_CONFLICT`입니다. 요청 키를 바꿔 재시도해도 동일 발행은 중복 적재하지 않습니다.
+
+```json
+{
+  "kind": "ADMIN_ANNOUNCEMENT",
+  "locale": "ko",
+  "title": "서비스 공지",
+  "body": "검토하고 승인한 최종 문구",
+  "data": {},
+  "silent": false,
+  "params": {},
+  "userIds": ["22222222-2222-4222-8222-222222222222"]
+}
+```
+
+- `userIds`는 중복 없는 UUID 1~100개이며 전체 사용자 자동 선택은 지원하지 않습니다. `data`는 문자열 값만 허용하고 `eventId`, `deliveryTag`는 서버 전용입니다.
+- 응답은 `{publicationId, status: "PENDING", deliveryIds, recipientCount, dispatchEnabled}`입니다. 적재 성공은 실제 발송 완료가 아닙니다. 발송 이력에서 각 delivery 상태를 확인합니다.
+- `reviewed_push`에 최종 title/body/data/silent를 저장하므로 승인 이후 템플릿·딥링크 변경으로 문구가 달라지지 않습니다. 수신 기기의 deliveryTag와 서버 eventId만 발송 단계에서 더합니다.
+- 발송 게이트를 자동으로 열지 않습니다. 기존 활성 기기, 탈퇴, 수신 설정, 조용한 시간, 종류별 현재 적격성, 사건 만료 검사를 그대로 거칩니다. 시험 발송의 15분 예외는 적용하지 않습니다.
+- `ADMIN_ANNOUNCEMENT`는 서비스 공지이며 subjectId를 publicationId로 고정합니다. 별도 사건 시한이 없어 params는 빈 객체를 사용할 수 있습니다. 다른 종류의 `subjectId`와 `params`는 기존 Data 적격성 계약을 만족해야 합니다. 자격 없는 대상은 공통 발송 경로에서 제외됩니다.
+- 승인 상태와 승인된 버전의 불변성은 호출하는 백오피스가 관리합니다. 이 내부 API는 콘솔 자격만 신뢰하며 공개 브라우저에 서비스 토큰을 배포하지 않습니다.
+- V14는 nullable JSONB 컬럼만 추가합니다. 이 기능으로 적재한 PENDING 행이 있으면 이전 이미지로 되돌리지 않습니다. 이전 발송기는 고정 문구를 읽지 않고 템플릿을 다시 렌더링하기 때문입니다.

@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal.scheduler;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
-import com.oneorthree.phone.internal.service.MagazinePublishService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -15,22 +14,17 @@ import java.time.LocalTime;
 import java.time.ZonedDateTime;
 
 /**
- * 고양이 잡지 07시 발행 트리거 (GROMO-2289, 잡지 구현 계획 §4-2) — 07:00 부터 23:50 까지 10분마다(KST) 그날 호를 확인한다.
- * 발행이 멱등이라(이미 그날 호가 있으면 행 하나 확인하고 끝) 첫 시도가 실패해도 그날 안에 저절로 다시 한다. 로직은
- * {@link MagazinePublishService} 에 있고 여기는 시각·잠금·로그뿐이다.
- *
- * <p>틱 안에서 다시 시도하지 않는다 — 10분 뒤 틱이 그 재시도다. 그날 마지막 틱(23:50)까지 실패하면 그날 호는 없다 →
- * error 로그. 앱은 어제 호를 계속 보여 주되 현재 호가 아니라 동그라미가 없다.
+ * 승인 게시된 오늘 호의 알림만 07:00~23:50 KST에 재시도한다.
+ * 미검토 호를 만들던 자동 발행은 관리 게시 API로 옮겼다. 새 호가 없으면 알림 서비스도 아무 일도 하지 않는다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MagazinePublishScheduler {
 
-    /** 그날 마지막 틱 — 이 틱의 실패는 «오늘 호 없음» 이다. */
+    /** 그날 마지막 알림 재시도 시각. */
     private static final LocalTime LAST_TICK = LocalTime.of(23, 50);
 
-    private final MagazinePublishService publisher;
     private final MagazineIssueNotifier notifier;
     private final Clock clock;
 
@@ -57,17 +51,8 @@ public class MagazinePublishScheduler {
     public void publishToday() {
         ZonedDateTime now = ZonedDateTime.now(clock.withZone(ZonePolicy.KST));
         LocalDate today = now.toLocalDate();
-        try {
-            publisher.publish(today);
-        } catch (RuntimeException failure) {
-            if (now.toLocalTime().isBefore(LAST_TICK)) {
-                log.warn("고양이 잡지 발행 실패 — 다음 틱(10분 뒤)에 다시 한다 date={}", today, failure);
-            } else {
-                log.error("고양이 잡지 발행이 그날 마지막 틱까지 실패했다 — 오늘 호가 없다 date={}", today, failure);
-            }
-        }
-        // 발행이 empty 여도(이미 그날 호가 있음) 부른다 — 앞 틱에 호만 만들고 알림 펼치기가 끊겼으면 여기서 잇는다
-        // (GROMO-2307). 발행 실패와 별개로 시도한다. 그날 호가 없으면 아무 일도 없다.
+        // 운영자가 승인한 스냅샷은 관리 게시 API만 공개한다. 크론은 미검토 호를 만들지 않는다.
+        // 이미 게시된 오늘 호의 알림만 기존 멱등 경로로 이어서 처리한다.
         try {
             reportNotify(notifier.notifyIfPending(today, clock.instant()), now, today);
         } catch (RuntimeException failure) {

@@ -356,7 +356,8 @@ class DispatchService {
         // 탈퇴·세대 투영은 지연될 수 있으므로 로컬 fence만으로 발송을 허용할 수 없다.
         // admin_actor는 콘솔 인증 경로만 쓰는 정본 컬럼이다. payload의 adminTest/adminActor는 믿지 않는다.
         // 재전송은 replay_of가 있어 원사건 만료를 계속 따른다.
-        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null;
+        boolean adminTest = delivery.get("admin_actor") != null && delivery.get("replay_of") == null
+                && delivery.get("reviewed_push") == null;
         return adminTest
                 ? data.eligibleTest(user, kind, subject, params, ((Timestamp) delivery.get("created_at")).toInstant())
                 : data.eligible(user, kind, subject, params);
@@ -408,8 +409,10 @@ class DispatchService {
             // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
             // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
             Map<String, Object> message = unsent.get(0);
-            RenderedPush push = renderer.render(message.get("kind").toString(),
-                    (String) message.get("locale"), Json.map(message.get("payload").toString()));
+            RenderedPush push = message.get("reviewed_push") == null
+                    ? renderer.render(message.get("kind").toString(),
+                            (String) message.get("locale"), Json.map(message.get("payload").toString()))
+                    : PublicationService.reviewedPush(Json.map(message.get("reviewed_push").toString()));
             // 수신 확인 태그는 «이 기기 등록»의 값이라 기기별 렌더 직후에 싣는다(GROMO-2520) — 크기 검사도 태그를
             // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다 — 관리자 dataTemplate 이 deliveryTag 를 넣어
             // 뒀어도 렌더 결과에서 지워야 하므로 태그 유무와 무관하게 «모든 기기에» 부른다. 태그는 ownership_version 과
@@ -732,7 +735,8 @@ class DispatchService {
      * @return 원사건 만료를 적용해야 하면 {@code true}
      */
     static boolean governedByEventExpiry(Map<String, Object> delivery) {
-        return delivery.get("admin_actor") == null || delivery.get("replay_of") != null;
+        return delivery.get("admin_actor") == null || delivery.get("replay_of") != null
+                || delivery.get("reviewed_push") != null;
     }
 
     /**
