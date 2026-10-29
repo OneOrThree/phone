@@ -38,6 +38,9 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class OnboardingIslandService {
+    /** 망원경 무인도 출현 확률(%). 100이면 소속 상한 미만인 모든 사용자에게 표시한다. */
+    private static final int UNINHABITED_CHANCE_PERCENT = 100;
+
     private final OnboardingIslandRepository reservations;
     private final GroupRepository groups;
     private final GroupQueryService groupQueries;
@@ -47,7 +50,7 @@ public class OnboardingIslandService {
     private final FocusSessionDetailRepository sessions;
     private final IslandMovementGuards guards;
 
-    /** 망원경 일반 목록과 무관한 20% 추첨. 첫 정착에 갈 수 있는 섬이 없으면 반드시 보여 준다. */
+    /** 일반 목록과 독립적으로 확률을 적용한다. 첫 정착에 갈 수 있는 섬이 없으면 확률과 무관하게 보여 준다. */
     public Optional<TelescopeItemView> destination(UUID userId, List<UUID> joined,
                                                    List<TelescopeItemView> items, Instant bucketStart) {
         if (joined.size() >= IslandInputPolicy.MAX_JOINED_ISLANDS) {
@@ -57,7 +60,8 @@ public class OnboardingIslandService {
                 .noneMatch(item -> !item.full() && !TelescopeService.SLOT_JOINED.equals(item.slot()));
         UUID candidate = UUID.nameUUIDFromBytes(("uninhabited:" + userId + ":" + bucketStart.getEpochSecond())
                 .getBytes(StandardCharsets.UTF_8));
-        if (!firstSettlementNeeded && Math.floorMod(candidate.getLeastSignificantBits(), 100) >= 20) {
+        if (!firstSettlementNeeded
+                && Math.floorMod(candidate.getLeastSignificantBits(), 100) >= UNINHABITED_CHANCE_PERCENT) {
             return Optional.empty();
         }
         return Optional.of(new TelescopeItemView(candidate, "무인도", "", 0,

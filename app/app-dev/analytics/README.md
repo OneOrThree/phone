@@ -22,6 +22,20 @@
 
 서버 원장·완공 상태와 실제 집중 장소가 필요합니다. 기존 `focus_completed.earned_fish`만으로 공동 경제를 집계하거나, 섬 소속을 실제 집중 장소로 대신 쓰지 않습니다.
 
+## OS 기기 ID 계측 · 2026-10-29 로컬 구현
+
+`src/services/analyticsDevice.ts`가 Android의 `ANDROID_ID`, iOS의 `IDFV`를 읽습니다. JS SDK 이벤트에는 `device_id`와 `device_id_source`(`android_id` / `idfv`)를 추가합니다. 가입·게스트 시작 전에도 수집할 수 있으며, 기존 계정 `userId`와 SDK 익명 ID는 그대로 사용합니다. 게스트 로그인용 `gromo.guestDeviceId`를 재사용하거나 OS ID를 `identify()`에 전달하지 않습니다.
+
+- IDFV 조회는 SDK 저장소 복원 완료 전에 최대 1초 기다려 첫 `Application Installed`·화면·사용자 이벤트에도 속성을 붙입니다. 앱 진입과 Provider 생성은 기다리지 않습니다.
+- OS 조회 오류·IDFV `null`·빈 값·0으로만 된 ID·시간 초과는 기기 속성을 생략합니다. 임의 ID로 대체하거나 디스크에 OS ID를 캐시하지 않고 다음 앱 실행에서 다시 조회합니다.
+- 로그인·로그아웃의 `reset()`과 무관하게 같은 실행에서 읽은 OS ID를 JS 이벤트에 적용합니다. 네이티브 SDK가 직접 전송해 JS `before_send`를 거치지 않는 크래시에는 이 속성을 보장하지 않습니다.
+- Android dev 빌드는 코드와 CI의 빈 프로젝트 토큰으로 수집을 끕니다. 초기 무인증 snapshot은 SDK 익명 ID를 초기화하지 않으며, 저장된 로그인 식별자가 있는 경우에만 로그아웃 초기화를 수행합니다.
+- 신규 기기 지표를 만들 때는 `device_id_source`와 `device_id`의 조합별 최초 관측으로 집계해야 합니다. OS ID도 초기화·서명·앱 삭제 조건에 따라 바뀔 수 있습니다. 최초 적용한 기존 설치도 처음 관측되므로 신규 다운로드로 간주하지 않습니다. 기존 이벤트에 기기 ID를 소급 채우지 않습니다.
+
+현재는 로컬 구현·테스트 단계입니다. 배포한 iOS·Android 기기에서 실제 수신을 확인한 뒤 적용 상태를 갱신합니다. 기존 대시보드 집계는 변경하지 않았습니다.
+
+공식 문서: [Expo Application](https://docs.expo.dev/versions/latest/sdk/application/) · [PostHog 이벤트 보정](https://posthog.com/docs/libraries/react-native#common-before_send-patterns).
+
 ## 우선순위
 
 1. 로그인 화면부터 실제 첫 섬 화면까지: 단계별 전환·이탈, 생성/가입/초대 경로별 차이.

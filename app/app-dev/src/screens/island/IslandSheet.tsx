@@ -12,6 +12,7 @@ import {
   ViewStyle,
   ImageStyle,
   TextStyle,
+  StyleProp,
   Platform,
   AccessibilityInfo,
 } from 'react-native';
@@ -1322,11 +1323,15 @@ export function SearchField({
   value,
   onChange,
   placeholder,
+  icon,
+  inputStyle,
 }: {
   label?: string;
   value: string;
   onChange: (text: string) => void;
   placeholder?: string;
+  icon?: React.ReactNode;
+  inputStyle?: StyleProp<TextStyle>;
 }) {
   return (
     <View style={{ gap: 6 }}>
@@ -1347,13 +1352,16 @@ export function SearchField({
           style={[
             k.field,
             sheetInput,
+            inputStyle,
             { paddingLeft: 14 + SEARCH_ICON, paddingRight: value ? 50 : 14 },
           ]}
         />
         <View pointerEvents="none" style={{ position: 'absolute', left: 16, top: 15 }}>
-          <Txt aria-hidden style={{ fontSize: 16, lineHeight: 23.2 }}>
-            🔍
-          </Txt>
+          {icon ?? (
+            <Txt aria-hidden style={{ fontSize: 16, lineHeight: 23.2 }}>
+              🔍
+            </Txt>
+          )}
         </View>
         {!!value && (
           <Pressable
