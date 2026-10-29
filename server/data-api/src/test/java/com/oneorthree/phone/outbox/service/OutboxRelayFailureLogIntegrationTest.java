@@ -2,6 +2,10 @@ package com.oneorthree.phone.outbox.service;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.turbo.TurboFilter;
+import ch.qos.logback.core.spi.FilterReply;
+import org.slf4j.Marker;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -216,6 +220,43 @@ class OutboxRelayFailureLogIntegrationTest {
                 .containsEntry("event_name", "outbox.delivery");
         assertThat(new ObjectMapper().readValue(provider.format(axisError), Map.class))
                 .doesNotContainKey("event_name").containsEntry("level", "ERROR");
+    }
+
+    @Test
+    @DisplayName("시도 결과 로깅이 예외를 던져도 전달 성공 행은 성공으로 남고 같은 축의 다음 행도 계속 전달된다")
+    void aLoggingFailureDoesNotChangeTheDeliveryVerdict() {
+        UUID user = UUID.randomUUID();
+        for (int i = 0; i < 2; i++) {
+            tx().executeWithoutResult(status -> commands.append(new OutboxAppendCommand(
+                    "logfail-" + UUID.randomUUID(), 1, "user.withdrawn", user, "ko", null,
+                    AggregateRef.ofUser(user), null, Map.of(), List.of(OutboxDeliveryRequest.toKafka()))));
+        }
+        // 실제 Logback 경로에서 호출 지점으로 예외가 올라오게 한다 — appender 예외는 Logback 이 삼키므로 TurboFilter 를 쓴다.
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        TurboFilter breaker = new TurboFilter() {
+            @Override
+            public FilterReply decide(Marker marker, Logger logger, Level level, String format, Object[] params,
+                    Throwable t) {
+                if (format != null && format.startsWith("outbox 전달 시도 결과")) {
+                    throw new IllegalStateException("로깅 시스템 오류 흉내");
+                }
+                return FilterReply.NEUTRAL;
+            }
+        };
+        context.addTurboFilter(breaker);
+        AtomicInteger calls = new AtomicInteger();
+        try {
+            relayOf(calls, call -> OutboxTransportResult.success()).relayTarget(OutboxTarget.KAFKA);
+        } finally {
+            context.getTurboFilterList().remove(breaker);
+        }
+
+        assertThat(calls).as("첫 행의 로깅 실패가 축을 멈추지 않아 두 행 모두 전송됐다").hasValue(2);
+        assertThat(deliveries.findAll()).as("두 행 모두 전달 완료로 표시됐다")
+                .allSatisfy(row -> assertThat(row.getDeliveredAt()).isNotNull());
+        assertThat(logs.list.stream().filter(e -> e.getLevel() == Level.ERROR)
+                .filter(e -> e.getFormattedMessage().contains("축 전달 중 예외")))
+                .as("로깅 오류는 축 예외로 번지지 않는다").isEmpty();
     }
 
     private UUID appendWithOrigin(UUID user, String eventId, String originRequest, String originTrace) {
