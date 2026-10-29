@@ -91,7 +91,7 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
         return new InboundTrace(checked(metrics, "X-Origin-Request-Id", header.apply("X-Origin-Request-Id"), false),
                 checked(metrics, "X-Origin-Trace-Id", header.apply("X-Origin-Trace-Id"), true),
                 checked(metrics, "X-Delivery-Id", header.apply("X-Delivery-Id"), false),
-                attempt != null && ATTEMPT.matcher(attempt).matches() && Integer.parseInt(attempt) <= MAX_ATTEMPT
+                attempt == null || ATTEMPT.matcher(attempt).matches() && Integer.parseInt(attempt) <= MAX_ATTEMPT
                         ? attempt : drop(metrics, "X-Attempt"));
     }
 

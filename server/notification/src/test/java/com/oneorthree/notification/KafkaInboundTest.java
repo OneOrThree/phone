@@ -320,6 +320,19 @@ class KafkaInboundTest {
         assertThat(MDC.get("origin_request_id")).as("요청 처리 스레드(테스트 스레드)에 문맥이 남지 않는다").isNull();
     }
 
+    @Test
+    void requestWithoutAnyCarrierHeaderCountsNoDroppedCarrier() throws Exception {
+        String eventId = "http-no-carrier-" + UUID.randomUUID();
+        double before = metrics.find(InboundTrace.DROPPED).counters().stream().mapToDouble(c -> c.count()).sum();
+
+        mvc.perform(MockMvcRequestBuilders.post("/internal/events").header("Authorization", "Bearer test-data")
+                        .contentType(MediaType.APPLICATION_JSON).content(request(eventId, UUID.randomUUID())))
+                .andExpect(status().isOk());
+
+        assertThat(metrics.find(InboundTrace.DROPPED).counters().stream().mapToDouble(c -> c.count()).sum())
+                .as("헤더가 없는 것은 버린 carrier 가 아니다(값이 있는데 검사 실패일 때만 센다)").isEqualTo(before);
+    }
+
     private static String request(String eventId, UUID user) {
         return Json.write(NotificationStoreTest.event(eventId, "notification.requested", user, 1, null,
                 Map.of("kind", "FRIEND_REQUEST")));
