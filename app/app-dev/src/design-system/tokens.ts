@@ -535,6 +535,8 @@ export const componentTokens = {
     columnGap: space[2],
     dateWidth: 48,
     amountMinWidth: 60,
+    // 이보다 좁은 종이는 날짜·내용 아래 별도 줄로 금액을 읽는다.
+    rowStackWidth: 240,
     tableHeadPadding: { top: 6, bottom: 4 },
     rowPaddingVertical: space[2],
     cellPaddingHorizontal: 2,
